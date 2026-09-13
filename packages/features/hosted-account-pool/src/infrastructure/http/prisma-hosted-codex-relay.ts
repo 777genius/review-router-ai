@@ -575,6 +575,7 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
         this.effects,
         effectLease,
         upstream.ok,
+        upstream.headers.get("content-type") ?? undefined,
         input.authorization.maxResponseBytes,
         streamHeartbeat,
         this.now,
@@ -810,12 +811,33 @@ function clampMaxOutputTokens(value: unknown, grantCap: number): number {
   return Math.min(value, grantCap);
 }
 
+const sseCompletionTailBytes = 8_192;
+const sseDoneLine = "data: [DONE]";
+
+export function hostedCodexSseDoneTrailer(tail: string): Buffer | null {
+  const lastLine = tail
+    .replace(/\r\n/g, "\n")
+    .trimEnd()
+    .split("\n")
+    .at(-1)
+    ?.trim();
+  if (lastLine === sseDoneLine) return null;
+  const prefix = tail.length === 0 || tail.endsWith("\n") ? "" : "\n";
+  return Buffer.from(`${prefix}${sseDoneLine}\n\n`);
+}
+
+function isEventStream(contentType: string | undefined): boolean {
+  const mediaType = contentType?.toLowerCase().split(";", 1)[0]?.trim();
+  return mediaType === undefined || mediaType === "text/event-stream";
+}
+
 function completionTransform(
   authorization: AuthorizedHostedCodexRelay,
   ledger: PrismaInvocationGrantRepository,
   effects: Pick<PrismaHostedCodexUpstreamEffectLedger, "authority">,
   effectLease: HostedCodexUpstreamEffectLease,
   succeeded: boolean,
+  contentType: string | undefined,
   maxResponseBytes: number,
   heartbeat: EffectHeartbeat | undefined,
   now: () => Date,
@@ -823,6 +845,7 @@ function completionTransform(
 ): Transform {
   const hash = createHash("sha256");
   let bytes = 0;
+  let tail = "";
   let finalized = false;
   const finalize = (
     success: boolean,
@@ -908,9 +931,20 @@ function completionTransform(
       }
       bytes = nextBytes;
       hash.update(buffer);
+      if (isEventStream(contentType)) {
+        tail = `${tail}${buffer.toString("utf8")}`.slice(-sseCompletionTailBytes);
+      }
       callback(null, buffer);
     },
     flush(callback) {
+      if (succeeded && isEventStream(contentType)) {
+        const trailer = hostedCodexSseDoneTrailer(tail);
+        if (trailer && bytes + trailer.byteLength <= maxResponseBytes) {
+          bytes += trailer.byteLength;
+          hash.update(trailer);
+          this.push(trailer);
+        }
+      }
       finalize(succeeded, succeeded ? null : "provider_http_error", callback);
     },
     destroy(error, callback) {
