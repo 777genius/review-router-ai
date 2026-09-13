@@ -247,6 +247,9 @@ describe("main integration: authoritative public admission", () => {
           sourceRunAttempt: "1",
           state: "awaiting_authorization",
           admissionState: "admitted",
+          submissionStartedAt: expect.any(Date),
+          nextResolutionAt: expect.any(Date),
+          resolutionDeadlineAt: expect.any(Date),
         }),
       }),
     );

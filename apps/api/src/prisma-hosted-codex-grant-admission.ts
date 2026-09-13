@@ -569,6 +569,7 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
     const retainUntil = new Date(
       input.now.getTime() + 30 * 24 * 60 * 60 * 1000,
     );
+    const nextResolutionAt = new Date(input.now.getTime() + 5 * 60 * 1000);
     const resolutionDeadlineAt = new Date(
       input.now.getTime() + 24 * 60 * 60 * 1000,
     );
@@ -602,6 +603,8 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
           canonicalRequestHash,
           state: "awaiting_authorization",
           notBefore: input.now,
+          submissionStartedAt: input.now,
+          nextResolutionAt,
           resolutionDeadlineAt,
           sourceRunId: input.claims.run_id,
           sourceRunAttempt: input.claims.run_attempt,
