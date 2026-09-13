@@ -379,13 +379,14 @@ export async function startHostedCodexRelayProxy(input: {
             }
           } else {
             await upstream.body?.cancel().catch(() => undefined);
-            replayFenced = true;
           }
         } finally {
           inFlightRelayRequests -= 1;
         }
       } catch (error) {
-        replayFenced = true;
+        if (!(error instanceof Error && error.message === "downstream_closed")) {
+          replayFenced = true;
+        }
         if (!downstreamClosed) {
           const code =
             error instanceof Error &&
