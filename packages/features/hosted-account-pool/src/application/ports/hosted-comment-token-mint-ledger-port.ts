@@ -71,6 +71,10 @@ export type HostedCommentTokenRevocationClaim = Readonly<{
   repositoryFullName: string;
   workspaceId: string;
   poolId: string;
+  grantId: string;
+  grantStatus: string;
+  grantExpiresAt: Date;
+  grantRevokedAt: Date | null;
   secretEnvelope: HostedCommentTokenSecretEnvelope;
 }>;
 

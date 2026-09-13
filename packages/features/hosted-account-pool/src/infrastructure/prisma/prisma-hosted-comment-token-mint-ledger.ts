@@ -557,26 +557,54 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
         true,
       );
       try {
-        return rows.map((mint) => ({
-          mintId: mint.id as string,
-          ownerIdHash: mint.ownerIdHash as string,
-          fenceEpoch: mint.fenceEpoch as bigint,
-          tokenHash: mint.tokenHash as string,
-          tokenExpiresAt: mint.tokenExpiresAt as Date,
-          repositoryFullName: mint.repositoryFullName as string,
-          workspaceId: mint.workspaceId as string,
-          poolId: mint.poolId as string,
-          secretEnvelope: {
-            ciphertext: Buffer.from(mint.secretCiphertext as Uint8Array),
-            encryptedDataKey: Buffer.from(
-              mint.secretEncryptedDataKey as Uint8Array,
-            ),
-            iv: Buffer.from(mint.secretIv as Uint8Array),
-            authTag: Buffer.from(mint.secretAuthTag as Uint8Array),
-            keyId: mint.secretKeyId as string,
-            aadHash: mint.secretAadHash as string,
-          },
-        }));
+        const grantIds = [
+          ...new Set(
+            rows
+              .map((mint) => mint.grantId)
+              .filter((grantId): grantId is string => typeof grantId === "string"),
+          ),
+        ];
+        const grants =
+          grantIds.length === 0
+            ? []
+            : await transaction.hostedCodexInvocationGrant.findMany({
+                where: { id: { in: grantIds } },
+                select: {
+                  id: true,
+                  status: true,
+                  expiresAt: true,
+                  revokedAt: true,
+                },
+              });
+        const grantsById = new Map(grants.map((grant) => [grant.id, grant]));
+        return rows.map((mint) => {
+          const grant = grantsById.get(mint.grantId as string);
+          if (!grant) throw new Error("hosted_comment_mint_grant_missing");
+          return {
+            mintId: mint.id as string,
+            ownerIdHash: mint.ownerIdHash as string,
+            fenceEpoch: mint.fenceEpoch as bigint,
+            tokenHash: mint.tokenHash as string,
+            tokenExpiresAt: mint.tokenExpiresAt as Date,
+            repositoryFullName: mint.repositoryFullName as string,
+            workspaceId: mint.workspaceId as string,
+            poolId: mint.poolId as string,
+            grantId: grant.id,
+            grantStatus: grant.status,
+            grantExpiresAt: grant.expiresAt,
+            grantRevokedAt: grant.revokedAt,
+            secretEnvelope: {
+              ciphertext: Buffer.from(mint.secretCiphertext as Uint8Array),
+              encryptedDataKey: Buffer.from(
+                mint.secretEncryptedDataKey as Uint8Array,
+              ),
+              iv: Buffer.from(mint.secretIv as Uint8Array),
+              authTag: Buffer.from(mint.secretAuthTag as Uint8Array),
+              keyId: mint.secretKeyId as string,
+              aadHash: mint.secretAadHash as string,
+            },
+          };
+        });
       } finally {
         for (const row of rows) zeroMintRowSecretBuffers(row);
       }
@@ -683,7 +711,8 @@ async function mutateMint(
   const rows = retainSecretBuffers
     ? await transaction.$queryRaw<any[]>`
         SELECT "id", "ownerIdHash", "fenceEpoch", "tokenHash", "tokenExpiresAt",
-          "repositoryFullName", "workspaceId", "poolId", "secretCiphertext",
+          "repositoryFullName", "workspaceId", "poolId", "grantId",
+          "secretCiphertext",
           "secretEncryptedDataKey", "secretIv", "secretAuthTag", "secretKeyId",
           "secretAadHash"
         FROM hosted_codex_mutate_comment_token_mint(

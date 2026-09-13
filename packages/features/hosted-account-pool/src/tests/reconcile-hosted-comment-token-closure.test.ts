@@ -157,6 +157,7 @@ describe("HostedCommentTokenClosureReconciler", () => {
       repositoryFullName: "acme/repo",
       workspaceId: "workspace-1",
       poolId: "pool-1",
+      grantId: "grant-1",
       secretCiphertext: Buffer.from(token),
       secretEncryptedDataKey: Buffer.from("wrapped-key"),
       secretIv: Buffer.from("twelve-byte-iv"),
@@ -170,9 +171,20 @@ describe("HostedCommentTokenClosureReconciler", () => {
       .mockResolvedValueOnce([{ status: "active" }])
       .mockResolvedValueOnce([{ now }])
       .mockResolvedValueOnce([driverRow]);
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        id: "grant-1",
+        status: "expired",
+        expiresAt: now,
+        revokedAt: null,
+      },
+    ]);
     const ledger = new PrismaHostedCommentTokenMintLedger({
       $transaction: async (operation: (transaction: unknown) => unknown) =>
-        operation({ $queryRaw: queryRaw }),
+        operation({
+          $queryRaw: queryRaw,
+          hostedCodexInvocationGrant: { findMany },
+        }),
     } as never);
 
     const claims = await ledger.claimRevocations({
@@ -318,6 +330,46 @@ describe("HostedCommentTokenClosureReconciler", () => {
       expect.objectContaining({
         fenceEpoch: 3n,
         evidenceHash: sha256(`${sha256(token)}:${sha256("204")}`),
+      }),
+    );
+  });
+
+  it("does not revoke a GitHub bearer while its invocation grant is still live", async () => {
+    const calls: string[] = [];
+    const ledger = ledgerFixture(calls);
+    ledger.claimRevocations = vi.fn(async () => {
+      calls.push("claim-commit");
+      return [
+        {
+          ...claim(),
+          grantStatus: "issued",
+          grantExpiresAt: new Date(now.getTime() + 60_000),
+          grantRevokedAt: null,
+        },
+      ];
+    });
+    const vault = { open: vi.fn(), seal: vi.fn() };
+    const provider = { revoke: vi.fn() };
+    const reconciler = new HostedCommentTokenClosureReconciler({
+      ledger,
+      vault,
+      provider,
+      now: () => now,
+      ownerIdHash: sha256("worker"),
+    });
+
+    await expect(reconciler.reconcile()).resolves.toEqual({
+      claimed: 1,
+      revoked: 0,
+      deferred: 1,
+    });
+    expect(calls).toEqual(["claim-commit", "release"]);
+    expect(vault.open).not.toHaveBeenCalled();
+    expect(provider.revoke).not.toHaveBeenCalled();
+    expect(ledger.releaseRevocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mintId: "mint-1",
+        errorCode: "grant_still_live",
       }),
     );
   });
@@ -798,6 +850,10 @@ function claim(): HostedCommentTokenRevocationClaim {
     repositoryFullName: "acme/private",
     workspaceId: "workspace-1",
     poolId: "pool-1",
+    grantId: "grant-1",
+    grantStatus: "expired",
+    grantExpiresAt: now,
+    grantRevokedAt: null,
     secretEnvelope: {
       ciphertext: Buffer.from("ciphertext"),
       encryptedDataKey: Buffer.from("key"),
