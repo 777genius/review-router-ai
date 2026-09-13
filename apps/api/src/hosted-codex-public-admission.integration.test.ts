@@ -155,6 +155,8 @@ describe("main integration: authoritative public admission", () => {
         visibility,
         workspaceId: "workspace",
         reviewHeadSha: headSha,
+        workflowJobSource: `777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${"d".repeat(40)}`,
+        workflowExecutionSource: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${"d".repeat(40)}`,
       });
       expect(f.reader.readPullRequestAuthority).toHaveBeenCalledWith({
         githubInstallationId: "456",

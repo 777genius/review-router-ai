@@ -61,6 +61,7 @@ export type HostedCodexGrantAdmission = {
   readonly workflowSchemaVersion: number;
   readonly workflowSource: string;
   readonly workflowJobSource: string;
+  readonly workflowExecutionSource: string;
   readonly workflowJobSha: string;
   readonly pullRequestNumber: number;
   readonly reviewHeadSha: string;
@@ -155,6 +156,7 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
         trustedWorkflowRefs: [
           admission.workflowSource,
           admission.workflowJobSource,
+          admission.workflowExecutionSource,
         ],
       },
     });
@@ -485,16 +487,21 @@ function assertExactWorkflowClaims(
 ): void {
   const pullRequestRef = `refs/pull/${admission.pullRequestNumber}/merge`;
   const subject = `repo:${admission.repository}:pull_request`;
+  const jobWorkflowRef = claims.job_workflow_ref?.toLowerCase();
+  const allowedJobWorkflowRefs = [
+    admission.workflowJobSource,
+    admission.workflowExecutionSource,
+  ].map((value) => value.toLowerCase());
   if (
     claims.event_name !== "pull_request" ||
     claims.sub.toLowerCase() !== subject.toLowerCase() ||
     claims.ref?.toLowerCase() !== pullRequestRef.toLowerCase() ||
     claims.workflow_ref.toLowerCase() !==
       admission.workflowSource.toLowerCase() ||
-    claims.job_workflow_ref?.toLowerCase() !==
-      admission.workflowJobSource.toLowerCase() ||
-    claims.job_workflow_sha !== admission.workflowJobSha ||
-    claims.workflow_sha !== admission.workflowSourceCommitSha
+    jobWorkflowRef === undefined ||
+    !allowedJobWorkflowRefs.includes(jobWorkflowRef) ||
+    claims.job_workflow_sha?.toLowerCase() !== admission.workflowJobSha ||
+    claims.workflow_sha?.toLowerCase() !== admission.workflowSourceCommitSha
   ) {
     throw new Error("hosted_workflow_claims_mismatch");
   }

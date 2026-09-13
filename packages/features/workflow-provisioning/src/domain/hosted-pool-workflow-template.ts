@@ -120,6 +120,16 @@ export function canonicalHostedPoolReusableWorkflowIdentity(
   });
 }
 
+export function canonicalHostedPoolNestedExecutionWorkflowIdentity(
+  actionRef: string,
+): HostedPoolReusableWorkflowIdentity {
+  const release = parseImmutableActionRef(actionRef);
+  return Object.freeze({
+    ref: `${release.repository}/.github/workflows/reviewrouter-execution-reusable.yml@${release.commitSha}`,
+    sha: release.commitSha,
+  });
+}
+
 export function scanCanonicalHostedPoolWorkflowV2(
   workflow: string,
 ): HostedPoolWorkflowScanResult {

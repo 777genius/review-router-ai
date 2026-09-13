@@ -306,6 +306,13 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
     const workflowJob = canonicalHostedPoolReusableWorkflowIdentity(
       binding.workflowActionRef!,
     );
+    const workflowExecutionSource = workflowJob.ref.replace(
+      /\/reviewrouter-t0-reusable\.yml@/u,
+      "/reviewrouter-execution-reusable.yml@",
+    );
+    if (workflowExecutionSource === workflowJob.ref) {
+      throw new Error("hosted_workflow_job_source_invalid");
+    }
 
     return {
       workspaceId: repository.workspaceId,
@@ -325,6 +332,7 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
       workflowSchemaVersion: this.requiredWorkflowSchemaVersion,
       workflowSource,
       workflowJobSource: workflowJob.ref,
+      workflowExecutionSource,
       workflowJobSha: workflowJob.sha,
       pullRequestNumber: reviewRequest.pullRequestNumber,
       reviewHeadSha,

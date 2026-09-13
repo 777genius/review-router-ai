@@ -30,6 +30,7 @@ const reviewRevisionHash = "f".repeat(64);
 const pullRequestRef = `refs/pull/${pullRequestNumber}/merge`;
 const workflowSource = `acme/private-repo/${workflowPath}@${pullRequestRef}`;
 const workflowJobSource = `777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${commitSha}`;
+const workflowExecutionSource = `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${commitSha}`;
 const workflow = renderCanonicalHostedPoolWorkflowV2({
   actionRef: `777genius/review-router@${commitSha}`,
   apiUrl: "https://api.reviewrouter.dev",
@@ -203,7 +204,6 @@ describe("HostedCodexGrantIssuer", () => {
       { workflow_ref: `acme/private-repo/${workflowPath}@refs/heads/main` },
     ],
     ["mismatched caller SHA", { workflow_sha: "b".repeat(40) }],
-    ["uppercase caller SHA", { workflow_sha: "E".repeat(40) }],
     ["missing caller SHA", { workflow_sha: undefined }],
     [
       "mismatched caller repository",
@@ -243,9 +243,21 @@ describe("HostedCodexGrantIssuer", () => {
     expect(fixture.replayNonces.tryConsumeNonce).not.toHaveBeenCalled();
   });
 
+  it("admits the nested T0 execution reusable at the same Action pin", async () => {
+    const fixture = createFixture(
+      {},
+      { job_workflow_ref: workflowExecutionSource },
+    );
+    await expect(fixture.issuer.issue(request())).resolves.toMatchObject({
+      repository: "acme/private-repo",
+    });
+    expect(fixture.replayNonces.tryConsumeNonce).toHaveBeenCalledOnce();
+  });
+
   it.each([
     undefined,
-    `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${commitSha}`,
+    `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${"b".repeat(40)}`,
+    `777genius/review-router/.github/workflows/reviewrouter-reusable.yml@${commitSha}`,
     `evil/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${commitSha}`,
     "777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@refs/heads/main",
   ])("rejects non-exact hosted execution source %s", async (jobWorkflowRef) => {
@@ -325,6 +337,7 @@ function createFixture(
     workflowSchemaVersion: hostedPoolWorkflowSchemaVersion,
     workflowSource,
     workflowJobSource,
+    workflowExecutionSource,
     workflowJobSha: commitSha,
     pullRequestNumber,
     reviewHeadSha,
