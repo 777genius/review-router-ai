@@ -178,6 +178,7 @@ export function managedPg17Fixture() {
       () =>
         docker(psql("postgres", "postgres").slice(host.length), "SELECT 1")
           .status === 0,
+      45_000,
     );
     if (query("postgres", "SHOW server_version_num", "postgres") !== "170010")
       throw new Error("managed_pg17_version");
