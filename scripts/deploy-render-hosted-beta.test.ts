@@ -360,15 +360,16 @@ describe("Render hosted deploy hardening", () => {
     }
   });
 
-  it("pins GitHub's official Ed25519 host key in the OCI build", () => {
+  it("installs the pinned public runtime over HTTPS in the OCI build", () => {
     const dockerfile = readFileSync("deploy/render-runtime/Dockerfile", "utf8");
-    const officialGitHubEd25519HostKey =
-      "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
+    const packageJson = readFileSync("package.json", "utf8");
 
-    expect(dockerfile).toContain(officialGitHubEd25519HostKey);
-    expect(dockerfile).not.toContain(
-      "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5K9okWi0dh2l9GKJl",
+    expect(packageJson).toContain(
+      '"@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#83a7329f4383b05ac5c39356b79f82f029182d42"',
     );
+    expect(dockerfile).toContain("pnpm install --frozen-lockfile");
+    expect(dockerfile).not.toContain("ssh-ed25519");
+    expect(dockerfile).not.toContain("known_hosts");
   });
 
   it("derives the exact hosted tuple only from a digest-pinned release descriptor", () => {
