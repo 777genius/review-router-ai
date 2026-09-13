@@ -320,7 +320,7 @@ function sendSafeError(
 ): FastifyReply {
   const message = error instanceof Error ? error.message : "unknown";
   // Production API uses Fastify({ logger: false }); reply.log is a no-op there.
-  console.error(`hosted_codex_rejected phase=${phase} code=${message}`);
+  console.log(`hosted_codex_rejected phase=${phase} code=${message}`);
   reply.log.warn({ phase, code: message }, "hosted_codex_rejected");
   const status = message.includes("disabled")
     ? 404
