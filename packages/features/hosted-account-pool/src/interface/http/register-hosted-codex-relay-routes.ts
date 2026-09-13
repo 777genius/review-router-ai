@@ -319,18 +319,24 @@ function sendSafeError(
   phase: "grant" | "relay",
 ): FastifyReply {
   const message = error instanceof Error ? error.message : "unknown";
+  // Production API uses Fastify({ logger: false }); reply.log is a no-op there.
+  console.error(`hosted_codex_rejected phase=${phase} code=${message}`);
   reply.log.warn({ phase, code: message }, "hosted_codex_rejected");
   const status = message.includes("disabled")
     ? 404
     : message.includes("budget") || message.includes("concurrency")
       ? 429
-      : message.includes("not_configured") || message.includes("unavailable")
+      : message.includes("not_configured") ||
+          message.includes("unavailable") ||
+          message.includes("no_healthy_account") ||
+          message.includes("connection pool") ||
+          message.includes("P2024")
         ? 503
         : message.includes("invalid") || message.includes("missing")
           ? 401
           : message.includes("not_bound") || message.includes("mismatch")
             ? 403
-            : message.includes("not_admitted")
+            : message.includes("not_admitted") || message.includes("replay")
               ? 409
               : 502;
   return reply

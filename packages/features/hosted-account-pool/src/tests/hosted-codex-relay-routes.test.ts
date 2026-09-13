@@ -172,6 +172,35 @@ describe("hosted Codex relay routes", () => {
     await app.close();
   });
 
+  it("maps a missing healthy account to a retryable grant status", async () => {
+    const app = Fastify({ logger: false });
+    await registerHostedCodexRelayRoutes(app, {
+      enabled: true,
+      grants: {
+        issue: async () => {
+          throw new Error("hosted_pool_has_no_healthy_account");
+        },
+      },
+      commentTokens: { issue: vi.fn() },
+      authorization: { authorize: vi.fn() },
+      relay: { open: vi.fn() },
+    });
+    const grant = await app.inject({
+      method: "POST",
+      url: hostedCodexGrantPath,
+      payload: {
+        oidcToken: "x".repeat(32),
+        providerInstanceId: "provider-1",
+        workflowSchemaVersion: 1,
+        bindingId: "binding-1",
+        bindingVersion: 7,
+      },
+    });
+    expect(grant.statusCode).toBe(503);
+    expect(grant.json()).toEqual({ error: "hosted_codex_grant_rejected" });
+    await app.close();
+  });
+
   it("does not register any route while the master flag is off", async () => {
     const app = Fastify({ logger: false });
     await registerHostedCodexRelayRoutes(app, {
