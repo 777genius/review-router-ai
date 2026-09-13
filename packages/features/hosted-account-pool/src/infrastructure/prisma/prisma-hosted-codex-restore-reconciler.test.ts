@@ -104,3 +104,63 @@ const restoreSource = {
     ciphertextHash: "ciphertext-hash",
   },
 };
+
+describe("PrismaHostedCodexRestoreReconciler local_env relay ready", () => {
+  const identity = "database-resource-identity";
+  const incarnation = "database-incarnation";
+  const localInventory = [
+    {
+      id: "account-local",
+      workspaceId: "workspace-1",
+      poolId: "pool-1",
+      activeGeneration: 1n,
+      credentialVersions: [
+        {
+          id: "credential-1",
+          generation: 1n,
+          envelopeRevisions: [
+            {
+              revision: 1n,
+              custodyMode: "local_test",
+              kmsKeyArn: null,
+              databaseResourceIdentity: identity,
+              databaseIncarnation: incarnation,
+              aadHash: "aad",
+              ciphertextHash: "cipher",
+            },
+          ],
+        },
+      ],
+    },
+  ];
+
+  function reconciler(accepted: readonly string[]) {
+    const prisma = {
+      hostedCodexAccount: {
+        findMany: vi.fn(async () => localInventory),
+        count: vi.fn(async () => 0),
+        updateMany: vi.fn(async () => ({ count: 0 })),
+      },
+      hostedCodexInvocationGrant: {
+        updateMany: vi.fn(async () => ({ count: 0 })),
+      },
+    } as unknown as PrismaClient;
+    return new PrismaHostedCodexRestoreReconciler(
+      prisma,
+      { currentKeyId: "local-env" } as unknown as CredentialEnvelopeVault,
+      identity,
+      incarnation,
+      { verify: vi.fn() },
+      undefined,
+      undefined,
+      undefined,
+      accepted,
+    );
+  }
+
+  it("accepts imported local_test envelopes when local_env keyring is allowed", async () => {
+    await expect(
+      reconciler(["aws_kms", "local_env", "local_test"]).assertRelayReady(),
+    ).resolves.toBeUndefined();
+  });
+});

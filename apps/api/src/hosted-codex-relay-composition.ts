@@ -8,6 +8,7 @@ import {
   PrismaHostedCodexMutationFence,
   PrismaHostedCodexRelayAuthorization,
   PrismaHostedCodexRestoreReconciler,
+  hostedCodexAcceptedRelayCustodyModes,
   PrismaHostedCodexSessionPersistence,
   PrismaInvocationGrantRepository,
   PrismaHostedCommentTokenMintLedger,
@@ -339,6 +340,10 @@ export function composeProductionHostedCodexRestoreReconciler(input: {
         });
       },
     },
+    undefined,
+    undefined,
+    undefined,
+    hostedCodexAcceptedRelayCustodyModes(input.env),
   );
 }
 

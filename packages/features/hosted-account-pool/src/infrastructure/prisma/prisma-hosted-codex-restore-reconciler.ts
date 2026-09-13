@@ -26,8 +26,28 @@ type RestorePhase =
   | "after_reconciled"
   | "after_item_promoted";
 
+export const awsKmsRelayCustodyModes = Object.freeze(["aws_kms"] as const);
+export const localEnvRelayCustodyModes = Object.freeze([
+  "aws_kms",
+  "local_env",
+  "local_test",
+] as const);
+
+export function hostedCodexAcceptedRelayCustodyModes(
+  env: Readonly<Record<string, string | undefined>>,
+): readonly string[] {
+  if (
+    env.REVIEW_ROUTER_HOSTED_CODEX_ALLOW_LOCAL_ENV_KEYRING?.trim() === "1" &&
+    env.REVIEW_ROUTER_HOSTED_CODEX_KEYRING_MODE?.trim() === "local_env"
+  ) {
+    return localEnvRelayCustodyModes;
+  }
+  return awsKmsRelayCustodyModes;
+}
+
 export class PrismaHostedCodexRestoreReconciler {
   private readonly fences: PrismaHostedCodexMutationFence;
+  private readonly acceptedCustodyModes: ReadonlySet<string>;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -38,7 +58,9 @@ export class PrismaHostedCodexRestoreReconciler {
     private readonly fault?: (phase: RestorePhase, itemId?: string) => void,
     private readonly now: () => Date = () => new Date(),
     private readonly custodyOperationTimeoutMs = defaultCustodyOperationTimeoutMs,
+    acceptedCustodyModes: readonly string[] = awsKmsRelayCustodyModes,
   ) {
+    this.acceptedCustodyModes = new Set(acceptedCustodyModes);
     if (databaseResourceIdentity.length < 16) {
       throw new Error("hosted_codex_database_resource_identity_invalid");
     }
@@ -55,7 +77,7 @@ export class PrismaHostedCodexRestoreReconciler {
       (item) =>
         item.databaseResourceIdentity !== this.databaseResourceIdentity ||
         item.databaseIncarnation !== this.databaseIncarnation ||
-        item.custodyMode !== "aws_kms",
+        !this.acceptedCustodyModes.has(item.custodyMode),
     );
     if (mismatched.length > 0) {
       await this.quarantineAccountsAndRevokeGrants(
