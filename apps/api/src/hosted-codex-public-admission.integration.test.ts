@@ -89,15 +89,29 @@ function fixture(visibility: string, observed: Record<string, unknown> = {}) {
       findUnique: vi.fn(async () => ({ status: "active", authzEpoch: 1n })),
     },
     reviewRequestedIntent: {
-      findFirst: vi.fn(async () => ({
-        ...review,
-        requestId: "request",
-        reviewRevisionHash: createHash("sha256")
-          .update(canonicalJson(review))
-          .digest("hex"),
-        sourceRunId: "10",
-        sourceRunAttempt: "1",
-      })),
+      findFirst: vi.fn(
+        async (): Promise<{
+          readonly requestId: string;
+          readonly workspaceId: string;
+          readonly repositoryConnectionId: string;
+          readonly scmRepositoryIdentityId: string;
+          readonly pullRequestNumber: number;
+          readonly baseSha: string;
+          readonly mergeBaseSha: string;
+          readonly headSha: string;
+          readonly reviewRevisionHash: string;
+          readonly sourceRunId: string | null;
+          readonly sourceRunAttempt: string | null;
+        } | null> => ({
+          ...review,
+          requestId: "request",
+          reviewRevisionHash: createHash("sha256")
+            .update(canonicalJson(review))
+            .digest("hex"),
+          sourceRunId: "10",
+          sourceRunAttempt: "1",
+        }),
+      ),
       create: vi.fn(),
       updateMany: vi.fn(),
     },

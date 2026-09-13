@@ -206,7 +206,15 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
     );
     const { reviewRequest, pullRequest } =
       await this.ensureAdmittedReviewRequest({
-        repository,
+        repository: {
+          id: repository.id,
+          workspaceId: repository.workspaceId,
+          scmRepositoryIdentityId: repository.scmRepositoryIdentityId,
+          githubRepositoryId: repository.githubRepositoryId,
+          owner: repository.owner,
+          name: repository.name,
+          installation: repository.installation,
+        },
         claims: input.claims,
         pullRequestNumber,
         now: input.now,
