@@ -530,7 +530,9 @@ function workflowBytesForAttestedActionPin(
       blobSha: admission.workflowSourceBlobSha,
     };
   }
-  if (sha256(rewritten) !== admission.workflowAttestation.workflowSourceSha256) {
+  if (
+    sha256(rewritten) !== admission.workflowAttestation.workflowSourceSha256
+  ) {
     return {
       contents: admission.workflowContents,
       blobSha: admission.workflowSourceBlobSha,
@@ -572,7 +574,9 @@ function resolveAllowlistedHostedJobIdentities(
   const live = readCanonicalHostedPoolWorkflowMetadata(
     admission.workflowContents,
   );
-  if (live.actionRef.split("@")[1]?.toLowerCase() === admission.workflowJobSha) {
+  if (
+    live.actionRef.split("@")[1]?.toLowerCase() === admission.workflowJobSha
+  ) {
     return [binding];
   }
   const allowed = new Set(

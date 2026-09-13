@@ -930,7 +930,9 @@ function completionTransform(
       bytes = nextBytes;
       hash.update(buffer);
       if (isEventStream(contentType)) {
-        tail = `${tail}${buffer.toString("utf8")}`.slice(-sseCompletionTailBytes);
+        tail = `${tail}${buffer.toString("utf8")}`.slice(
+          -sseCompletionTailBytes,
+        );
       }
       callback(null, buffer);
     },

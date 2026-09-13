@@ -3,7 +3,9 @@ import { hostedCodexSseDoneTrailer } from "../infrastructure/http/prisma-hosted-
 
 describe("hosted Codex SSE done trailer", () => {
   it("does not append when the stream already ends with data: [DONE]", () => {
-    expect(hostedCodexSseDoneTrailer("data: one\n\ndata: [DONE]\n\n")).toBeNull();
+    expect(
+      hostedCodexSseDoneTrailer("data: one\n\ndata: [DONE]\n\n"),
+    ).toBeNull();
     expect(hostedCodexSseDoneTrailer("data: [DONE]")).toBeNull();
   });
 

@@ -162,19 +162,21 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
           const tokenHash = createHash("sha256")
             .update(token, "utf8")
             .digest("hex");
-          const mint = await input.prisma.hostedCodexCommentTokenMint.findFirst({
-            where: { tokenHash },
-            orderBy: { createdAt: "desc" },
-            select: {
-              grant: {
-                select: {
-                  status: true,
-                  expiresAt: true,
-                  revokedAt: true,
+          const mint = await input.prisma.hostedCodexCommentTokenMint.findFirst(
+            {
+              where: { tokenHash },
+              orderBy: { createdAt: "desc" },
+              select: {
+                grant: {
+                  select: {
+                    status: true,
+                    expiresAt: true,
+                    revokedAt: true,
+                  },
                 },
               },
             },
-          });
+          );
           if (hostedCommentTokenGrantStillLive(mint?.grant, clock.now())) {
             throw new Error("grant_still_live");
           }
@@ -401,7 +403,9 @@ export function appendHostedCodexSseDoneTrailer(
     new Transform({
       transform(chunk, _encoding, callback) {
         const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        tail = `${tail}${buffer.toString("utf8")}`.slice(-sseCompletionTailBytes);
+        tail = `${tail}${buffer.toString("utf8")}`.slice(
+          -sseCompletionTailBytes,
+        );
         callback(null, buffer);
       },
       flush(callback) {

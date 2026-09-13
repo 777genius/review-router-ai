@@ -561,7 +561,9 @@ export class PrismaHostedCommentTokenMintLedger implements HostedCommentTokenMin
           ...new Set(
             rows
               .map((mint) => mint.grantId)
-              .filter((grantId): grantId is string => typeof grantId === "string"),
+              .filter(
+                (grantId): grantId is string => typeof grantId === "string",
+              ),
           ),
         ];
         const grants =
