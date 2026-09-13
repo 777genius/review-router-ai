@@ -46,7 +46,7 @@ function zip(name: string, value: Buffer) {
 
 function fixture() {
   const commit = "a".repeat(40);
-  const repository = "777genius/review-router-saas";
+  const repository = "777genius/review-router-ai";
   const runId = 101;
   const runAttempt = 2;
   const archives = new Map<number, Buffer>();

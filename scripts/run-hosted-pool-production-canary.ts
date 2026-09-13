@@ -831,12 +831,12 @@ export function createGitHubHostedPoolCanaryPort(input: {
       const releasePullRequest: any = await request(
         input.repositoryToken,
         "GET",
-        `/repos/777genius/review-router-saas/pulls/${config.releasePullRequestNumber}`,
+        `/repos/777genius/review-router-ai/pulls/${config.releasePullRequestNumber}`,
       );
       assertExactReleasePullRequestRevision(releasePullRequest, {
         pullRequestNumber: config.releasePullRequestNumber,
         releaseHeadSha: config.releaseHeadSha,
-        repositoryFullName: "777genius/review-router-saas",
+        repositoryFullName: "777genius/review-router-ai",
         errorCode: "hosted_pool_canary_release_pr_head_mismatch",
       });
       for (const runId of Object.values(config.runs)) {

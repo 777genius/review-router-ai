@@ -1,7 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   assertHistorical89AdmissionIdentity,
@@ -20,7 +18,6 @@ import {
   renderHistorical89PendingBodies,
   renderHistorical89PendingDigest,
 } from "./render-historical89-admission.mjs";
-import { assertHistorical89ExecutingSource } from "./historical89-preparation-coordinator.mjs";
 import {
   assertEmptyApplicableRenderDefaultAcl,
   renderManagedEvidenceDigest,
@@ -1095,7 +1092,7 @@ describe("admission identity", () => {
 });
 
 describe("qualification", () => {
-  it("loads the reviewed bundle and binds it to current source identities", () => {
+  it("loads the reviewed bundle and binds it to pending migrations and artifact bytes", () => {
     const bundle = readReviewedHistorical89Bundle();
     const identity = bundle.migration.identity;
 
@@ -1107,20 +1104,14 @@ describe("qualification", () => {
     expect(() =>
       assertHistorical89Creators(bundle.migration.creatorEvidence),
     ).not.toThrow();
+    // Exact source/activation acceptance and later-commit rejection are covered
+    // by the disposable Git fixture in historical89-preparation-coordinator.test.ts.
+    // An unrelated repository HEAD is intentionally not authorized by this bundle.
+    const artifact = readFileSync(
+      new URL("../run-historical89-inplace-operation.mjs", import.meta.url),
+    );
     expect(
-      assertHistorical89ExecutingSource(
-        {
-          sourceCommit: execFileSync("git", ["rev-parse", "HEAD"], {
-            cwd: fileURLToPath(new URL("../../", import.meta.url)),
-            encoding: "utf8",
-          }).trim(),
-          artifactPath: new URL(
-            "../run-historical89-inplace-operation.mjs",
-            import.meta.url,
-          ),
-        },
-        identity,
-      ),
+      `sha256:${createHash("sha256").update(artifact).digest("hex")}`,
     ).toBe(identity.authorizedBinaryArtifactDigest);
     expect(() => readReviewedHistorical89ExternalRecovery()).toThrow(
       rejected("qualified_external_recovery_missing"),

@@ -24,7 +24,7 @@ const rollout = () =>
     }),
     execution: {
       organization: "777genius",
-      controlRepository: "777genius/review-router-saas",
+      controlRepository: "777genius/review-router-ai",
       workflowPath: ".github/workflows/private-network-pg17-rollout.yml",
       workflowRef: "refs/heads/main",
       event: "workflow_dispatch",

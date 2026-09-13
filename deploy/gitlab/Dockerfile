@@ -18,7 +18,7 @@ RUN ./node_modules/.bin/esbuild packages/features/review-publishing/src/interfac
 
 FROM node:24-bookworm-slim
 
-ARG IMAGE_SOURCE="https://github.com/777genius/review-router-saas"
+ARG IMAGE_SOURCE="https://github.com/777genius/review-router-ai"
 ARG IMAGE_REVISION="unknown"
 ARG IMAGE_VERSION="v1"
 

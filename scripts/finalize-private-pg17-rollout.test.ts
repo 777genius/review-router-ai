@@ -168,7 +168,7 @@ vi.mock(
   },
 );
 
-const repository = "777genius/review-router-saas";
+const repository = "777genius/review-router-ai";
 const commit = "a".repeat(40);
 const imageDigest = `sha256:${"b".repeat(64)}`;
 const imageRepository = "ghcr.io/777genius/review-router-saas-runtime";

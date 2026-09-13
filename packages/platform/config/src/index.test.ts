@@ -258,9 +258,7 @@ describe("platform config", () => {
         "first-launch": Buffer.alloc(32, 3).toString("base64"),
       }),
     };
-    expect(() =>
-      assertHostedCodexProductionReadiness(localEnv),
-    ).not.toThrow();
+    expect(() => assertHostedCodexProductionReadiness(localEnv)).not.toThrow();
     expect(() =>
       assertHostedCodexProductionReadiness({
         ...localEnv,

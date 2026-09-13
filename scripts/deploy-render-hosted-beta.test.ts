@@ -1385,7 +1385,7 @@ describe("Render hosted deploy hardening", () => {
       rolloutId: "rollout-1",
       execution: {
         repositoryId: "1",
-        repositoryFullName: "777genius/review-router-saas",
+        repositoryFullName: "777genius/review-router-ai",
         workflowPath: ".github/workflows/codex-rotating-release-migration.yml",
         workflowSha: "c".repeat(40),
         workflowRef: context.commit,
@@ -1670,7 +1670,7 @@ describe("Render hosted deploy hardening", () => {
       RENDER_PROJECT_ID: "project-1",
       RENDER_ENVIRONMENT_ID: "environment-1",
       REVIEW_ROUTER_RENDER_PHASE: "prepare",
-      RENDER_REPO: "https://github.com/777genius/review-router-saas",
+      RENDER_REPO: "https://github.com/777genius/review-router-ai",
       REVIEW_ROUTER_RENDER_COMMIT_SHA: "a".repeat(40),
       REVIEW_ROUTER_RENDER_IMAGE_DIGEST: `sha256:${"b".repeat(64)}`,
       REVIEW_ROUTER_WEB_URL: "https://reviewrouter.example",

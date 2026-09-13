@@ -93,7 +93,7 @@ jobs:
       - name: Checkout trusted ReviewRouter runtime
         uses: actions/checkout@v6
         with:
-          repository: 777genius/review-router-saas
+          repository: 777genius/review-router-ai
           ref: ${{ inputs.runtime_ref }}
           path: .reviewrouter-runtime
           persist-credentials: false

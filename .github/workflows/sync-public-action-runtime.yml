@@ -70,11 +70,11 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ steps.source.outputs.sha }}
-          path: review-router-saas
+          path: review-router-ai
           persist-credentials: false
 
       - name: Recheck checkout is exact current origin/main
-        working-directory: review-router-saas
+        working-directory: review-router-ai
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -92,7 +92,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Require exact PostgreSQL publication-gate evidence
-        working-directory: review-router-saas
+        working-directory: review-router-ai
         env:
           GH_TOKEN: ${{ github.token }}
           REVIEW_ROUTER_RELEASE_GATE_SHA: ${{ steps.source.outputs.sha }}
@@ -114,13 +114,13 @@ jobs:
         run: corepack enable
 
       - name: Install SaaS dependencies
-        working-directory: review-router-saas
+        working-directory: review-router-ai
         env:
           SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
       - name: Build and verify public action artifact
-        working-directory: review-router-saas
+        working-directory: review-router-ai
         run: pnpm action:build && pnpm action:artifact:check
 
       - name: Checkout public Action repository with token
@@ -146,7 +146,7 @@ jobs:
           ssh-key: ${{ secrets.REVIEW_ROUTER_ACTION_SYNC_SSH_KEY }}
 
       - name: Sync public action runtime files
-        working-directory: review-router-saas
+        working-directory: review-router-ai
         run: pnpm action:sync-public-runtime -- --write --action-repo ../review-router-action
 
       - name: Detect public action changes
@@ -155,7 +155,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t synced_files < <(node ../review-router-saas/scripts/sync-public-action-runtime.mjs --print-files)
+          mapfile -t synced_files < <(node ../review-router-ai/scripts/sync-public-action-runtime.mjs --print-files)
           git status --short -- "${synced_files[@]}"
           if [[ -z "$(git status --porcelain -- "${synced_files[@]}")" ]]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -177,13 +177,13 @@ jobs:
             echo "::error::source $SOURCE_SHA was superseded before publication by $current_main_sha"
             exit 1
           fi
-          mapfile -t synced_files < <(node ../review-router-saas/scripts/sync-public-action-runtime.mjs --print-files)
+          mapfile -t synced_files < <(node ../review-router-ai/scripts/sync-public-action-runtime.mjs --print-files)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- "${synced_files[@]}"
           git commit \
             -m "fix: sync public action runtime" \
-            -m "Source: 777genius/review-router-saas@${SOURCE_SHA}"
+            -m "Source: 777genius/review-router-ai@${SOURCE_SHA}"
           git pull --rebase origin "${ACTION_BRANCH}"
           git diff --exit-code -- "${synced_files[@]}"
           git diff --cached --exit-code -- "${synced_files[@]}"
@@ -208,7 +208,7 @@ jobs:
           {
             echo "Public action runtime sync"
             echo ""
-            echo "- Source: \`777genius/review-router-saas@${SOURCE_SHA}\`"
+            echo "- Source: \`777genius/review-router-ai@${SOURCE_SHA}\`"
             echo "- Target: \`${ACTION_REPOSITORY}@${ACTION_BRANCH}\`"
             echo "- Changes pushed: \`${CHANGED}\`"
           } >> "$GITHUB_STEP_SUMMARY"
