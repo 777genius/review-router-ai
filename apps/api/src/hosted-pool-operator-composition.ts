@@ -16,6 +16,7 @@ import {
   operatorImportHostedAccount,
   reconnectHostedAccount,
   resolveHostedCodexKeyring,
+  hostedCodexProductionKmsBindingArn,
   PrismaHostedCodexSessionPersistence,
   PrismaHostedCodexMutationFence,
 } from "@reviewrouter/features-hosted-account-pool";
@@ -106,7 +107,7 @@ export function createHostedPoolOperatorComposition(input: {
         databaseIncarnation,
         databaseResourceIdentity,
         fingerprintPepper,
-        input.env.NODE_ENV === "production" ? keyring.currentKeyId : undefined,
+        hostedCodexProductionKmsBindingArn(keyring),
       ),
     };
   };

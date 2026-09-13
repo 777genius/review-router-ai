@@ -15,6 +15,7 @@ import {
   HostedCommentTokenClosureReconciler,
   startHostedCommentTokenClosureReconciler,
   resolveHostedCodexKeyring,
+  hostedCodexProductionKmsBindingArn,
   PrismaHostedCodexUpstreamEffectLedger,
   startHostedCodexEffectSweeper,
   type RegisterHostedCodexRelayRoutesDependencies,
@@ -211,7 +212,7 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
         databaseIncarnation,
         databaseResourceIdentity,
         fingerprintPepper,
-        input.env.NODE_ENV === "production" ? keyring.currentKeyId : undefined,
+        hostedCodexProductionKmsBindingArn(keyring),
       ),
     ),
     leaseStore: new HostedCodexMutationFenceLeaseStore(

@@ -266,7 +266,7 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
       await completeFailedRequest(
         input.authorization,
         this.ledger,
-        input.abortSignal.aborted ? "client_disconnected" : "relay_open_failed",
+        safeRelayFailureCode(error, input.abortSignal.aborted),
       );
       throw error;
     }
@@ -418,7 +418,7 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
           await completeFailedRequest(
             input.authorization,
             this.ledger,
-            "relay_open_failed",
+            safeRelayFailureCode(error, false),
             effectCompletion(
               this.effects,
               effectLease,
@@ -745,6 +745,17 @@ function mapRuntimeFailure(
   if (code === "provider_session_invalid") return "credential_invalid";
   if (code === "needs_reconnect") return "needs_reconnect";
   return null;
+}
+
+function safeRelayFailureCode(error: unknown, aborted: boolean): string {
+  if (aborted) return "client_disconnected";
+  if (
+    error instanceof Error &&
+    /^[a-z][a-z0-9_.:-]{0,118}$/u.test(error.message)
+  ) {
+    return error.message;
+  }
+  return "relay_open_failed";
 }
 
 function safeAccept(value: string | undefined): string {

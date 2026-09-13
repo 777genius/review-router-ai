@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveHostedCodexKeyring } from "./hosted-codex-keyring.js";
+import {
+  hostedCodexProductionKmsBindingArn,
+  resolveHostedCodexKeyring,
+} from "./hosted-codex-keyring.js";
 
 describe("hosted Codex production keyring", () => {
   it("rejects local envelope keys in production", () => {
@@ -36,6 +39,7 @@ describe("hosted Codex production keyring", () => {
     });
     expect(keyring.custodyMode).toBe("local_env");
     expect(keyring.currentKeyId).toBe("first-launch");
+    expect(hostedCodexProductionKmsBindingArn(keyring)).toBeUndefined();
   });
 
   it("accepts an injected external keyring in production", () => {
@@ -62,5 +66,8 @@ describe("hosted Codex production keyring", () => {
         externalKeyring,
       }),
     ).toBe(externalKeyring);
+    expect(hostedCodexProductionKmsBindingArn(externalKeyring)).toBe(
+      externalKeyring.currentKeyId,
+    );
   });
 });
