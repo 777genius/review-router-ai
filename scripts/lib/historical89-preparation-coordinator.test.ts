@@ -422,6 +422,22 @@ describe("native executing source closure", () => {
     const activationCommit = git(["rev-parse", "HEAD"]);
     const activated = run(activationCommit);
     expect(activated.status, activated.stderr).toBe(0);
+    writeFileSync(join(directory, "unrelated-docs.md"), "Documentation only\n");
+    git(["add", "unrelated-docs.md"]);
+    git([
+      "-c",
+      "user.name=Synthetic Test",
+      "-c",
+      "user.email=synthetic@example.invalid",
+      "commit",
+      "--quiet",
+      "-m",
+      "Add unrelated documentation",
+    ]);
+    expect(run(git(["rev-parse", "HEAD"])).stderr).toContain(
+      "executable_source",
+    );
+    git(["reset", "--hard", activationCommit]);
     writeFileSync(
       admission,
       `${readFileSync(admission, "utf8")}\n// committed admission tamper\n`,
