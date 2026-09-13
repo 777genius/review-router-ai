@@ -315,8 +315,8 @@ export async function startHostedCodexRelayProxy(input: {
           return;
         }
         if (
-          replayFenced ||
-          inFlightRelayRequests >= maxConcurrentRelayRequests
+          inFlightRelayRequests >= maxConcurrentRelayRequests ||
+          (replayFenced && inFlightRelayRequests === 0)
         ) {
           writeProxyError(res, 409, "proxy_replay_fenced");
           return;
@@ -327,16 +327,10 @@ export async function startHostedCodexRelayProxy(input: {
           return;
         }
         const ordinal = requestCount;
-        // Lock admission before the body is complete so two slow POSTs cannot
-        // both cross the upstream mutation boundary. After this body is
-        // admitted, Codex may open a second /v1/responses while the first SSE
-        // is still streaming; the grant already allows two concurrent relays.
-        replayFenced = true;
-        failoverReason = "ambiguous";
-        const body = await readRequestBody(req, maxBodyBytes);
         inFlightRelayRequests += 1;
-        replayFenced = false;
+        failoverReason = "ambiguous";
         try {
+          const body = await readRequestBody(req, maxBodyBytes);
           upstreamController = new AbortController();
           activeUpstreamRequests.add(upstreamController);
           const upstream = await fetchWithZeroizedBody(
