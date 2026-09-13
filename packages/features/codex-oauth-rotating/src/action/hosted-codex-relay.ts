@@ -7,6 +7,7 @@ export const forkAgenticSandboxHostedPoolActionMode =
   "fork-agentic-sandbox-hosted-pool";
 const defaultMaxRequestBodyBytes = 2_000_000;
 const absoluteMaxRelayRequests = 64;
+const maxConcurrentRelayRequests = 2;
 const maxCommentTokenRefreshes = 8;
 const oidcRequestTimeoutMs = 20_000;
 const grantRequestTimeoutMs = 30_000;
@@ -240,6 +241,7 @@ export async function startHostedCodexRelayProxy(input: {
     input.policy.maxRequestBodyBytes ?? defaultMaxRequestBodyBytes;
   let requestCount = 0;
   let commentTokenRefreshCount = 0;
+  let inFlightRelayRequests = 0;
   let closing = false;
   let failoverReason: HostedRelayFailoverReason;
   let replayFenced = false;
@@ -312,7 +314,10 @@ export async function startHostedCodexRelayProxy(input: {
           writeProxyError(res, 404, "proxy_route_denied");
           return;
         }
-        if (replayFenced) {
+        if (
+          replayFenced ||
+          inFlightRelayRequests >= maxConcurrentRelayRequests
+        ) {
           writeProxyError(res, 409, "proxy_replay_fenced");
           return;
         }
@@ -322,50 +327,65 @@ export async function startHostedCodexRelayProxy(input: {
           return;
         }
         const ordinal = requestCount;
-        // This must be synchronous and precede body reads. Two slow request
-        // bodies must never both cross the upstream mutation boundary.
+        // Lock admission before the body is complete so two slow POSTs cannot
+        // both cross the upstream mutation boundary. After this body is
+        // admitted, Codex may open a second /v1/responses while the first SSE
+        // is still streaming; the grant already allows two concurrent relays.
         replayFenced = true;
         failoverReason = "ambiguous";
         const body = await readRequestBody(req, maxBodyBytes);
-        upstreamController = new AbortController();
-        activeUpstreamRequests.add(upstreamController);
-        const upstream = await fetchWithZeroizedBody(
-          input.fetchImpl,
-          input.relayUrl,
-          {
-            method: "POST",
-            headers: buildHostedRelayHeaders({
-              requestHeaders: req.headers,
-              grant: input.grant,
-              requestOrdinal: ordinal,
-              idempotencyKey: `${proxyRequestNamespace}:${ordinal}`,
-              requestBytes: body.byteLength,
-            }),
-            signal: upstreamController.signal,
-          },
-          body,
-        );
-        if (!downstreamClosed) {
-          const responseCompletion = await writeUpstreamResponse(res, upstream);
-          if (
-            (upstream.status === 401 || upstream.status === 429) &&
-            successfulRelayRequests === 0 &&
-            ordinal === 1
-          ) {
-            failoverReason =
-              upstream.status === 401
-                ? "authentication_failed"
-                : "quota_exhausted";
-            replayFenced = false;
-          } else if (responseCompletion === "successful") {
-            successfulRelayRequests += 1;
-            failoverReason = undefined;
-            replayFenced = false;
+        inFlightRelayRequests += 1;
+        replayFenced = false;
+        try {
+          upstreamController = new AbortController();
+          activeUpstreamRequests.add(upstreamController);
+          const upstream = await fetchWithZeroizedBody(
+            input.fetchImpl,
+            input.relayUrl,
+            {
+              method: "POST",
+              headers: buildHostedRelayHeaders({
+                requestHeaders: req.headers,
+                grant: input.grant,
+                requestOrdinal: ordinal,
+                idempotencyKey: `${proxyRequestNamespace}:${ordinal}`,
+                requestBytes: body.byteLength,
+              }),
+              signal: upstreamController.signal,
+            },
+            body,
+          );
+          if (!downstreamClosed) {
+            const responseCompletion = await writeUpstreamResponse(
+              res,
+              upstream,
+            );
+            if (
+              (upstream.status === 401 || upstream.status === 429) &&
+              successfulRelayRequests === 0 &&
+              ordinal === 1
+            ) {
+              failoverReason =
+                upstream.status === 401
+                  ? "authentication_failed"
+                  : "quota_exhausted";
+              replayFenced = false;
+            } else if (responseCompletion === "successful") {
+              successfulRelayRequests += 1;
+              failoverReason = undefined;
+              replayFenced = false;
+            } else {
+              replayFenced = true;
+            }
+          } else {
+            await upstream.body?.cancel().catch(() => undefined);
+            replayFenced = true;
           }
-        } else {
-          await upstream.body?.cancel().catch(() => undefined);
+        } finally {
+          inFlightRelayRequests -= 1;
         }
       } catch (error) {
+        replayFenced = true;
         if (!downstreamClosed) {
           const code =
             error instanceof Error &&

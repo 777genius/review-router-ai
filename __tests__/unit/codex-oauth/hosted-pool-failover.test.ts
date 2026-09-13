@@ -281,6 +281,60 @@ describe("hosted pool replay-fenced failover artifact", () => {
     }
   });
 
+  it("admits a second /v1/responses while the first SSE is still streaming", async () => {
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstUpstreamStarted!: () => void;
+    const firstUpstream = new Promise<void>((resolve) => {
+      firstUpstreamStarted = resolve;
+    });
+    let relayCalls = 0;
+    const proxy = await actionBundle.startHostedCodexRelayProxy({
+      grant: "grant",
+      commentTokenRefreshCapability: "refresh",
+      invocationLeaseId: "lease",
+      bindingId: "binding",
+      bindingVersion: 1,
+      relayUrl: "https://relay.reviewrouter.test/v1/responses",
+      upstreamCommentTokenRefreshUrl:
+        "https://relay.reviewrouter.test/v1/comment-token",
+      policy: { maxRequests: 2 },
+      fetchImpl: jest.fn(async () => {
+        relayCalls += 1;
+        if (relayCalls === 1) {
+          firstUpstreamStarted();
+          await firstHeld;
+        }
+        return new Response("data: [DONE]\n\n", {
+          headers: { "content-type": "text/event-stream" },
+        });
+      }) as typeof fetch,
+    });
+    try {
+      const first = fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: JSON.stringify({ input: "first" }),
+      });
+      await firstUpstream;
+      const second = await fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: JSON.stringify({ input: "second" }),
+      });
+      expect(second.status).toBe(200);
+      expect(await second.text()).toBe("data: [DONE]\n\n");
+      expect(relayCalls).toBe(2);
+      releaseFirst();
+      const firstResponse = await first;
+      expect(firstResponse.status).toBe(200);
+      expect(await firstResponse.text()).toBe("data: [DONE]\n\n");
+    } finally {
+      releaseFirst();
+      await proxy.close();
+    }
+  });
+
   it("allows no third grant and rejects the former three-attempt budget", async () => {
     const attempts: number[] = [];
     await expect(

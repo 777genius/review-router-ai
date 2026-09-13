@@ -22226,6 +22226,7 @@ var defaultOidcAudience = "reviewrouter";
 var forkAgenticSandboxHostedPoolActionMode = "fork-agentic-sandbox-hosted-pool";
 var defaultMaxRequestBodyBytes = 2e6;
 var absoluteMaxRelayRequests = 64;
+var maxConcurrentRelayRequests = 2;
 var maxCommentTokenRefreshes = 8;
 var oidcRequestTimeoutMs = 2e4;
 var grantRequestTimeoutMs = 3e4;
@@ -22372,6 +22373,7 @@ async function startHostedCodexRelayProxy(input) {
   const maxBodyBytes = input.policy.maxRequestBodyBytes ?? defaultMaxRequestBodyBytes;
   let requestCount = 0;
   let commentTokenRefreshCount = 0;
+  let inFlightRelayRequests = 0;
   let closing = false;
   let failoverReason;
   let replayFenced = false;
@@ -22443,7 +22445,7 @@ async function startHostedCodexRelayProxy(input) {
           writeProxyError(res, 404, "proxy_route_denied");
           return;
         }
-        if (replayFenced) {
+        if (replayFenced || inFlightRelayRequests >= maxConcurrentRelayRequests) {
           writeProxyError(res, 409, "proxy_replay_fenced");
           return;
         }
@@ -22456,38 +22458,51 @@ async function startHostedCodexRelayProxy(input) {
         replayFenced = true;
         failoverReason = "ambiguous";
         const body = await readRequestBody(req, maxBodyBytes);
-        upstreamController = new AbortController();
-        activeUpstreamRequests.add(upstreamController);
-        const upstream = await fetchWithZeroizedBody(
-          input.fetchImpl,
-          input.relayUrl,
-          {
-            method: "POST",
-            headers: buildHostedRelayHeaders({
-              requestHeaders: req.headers,
-              grant: input.grant,
-              requestOrdinal: ordinal,
-              idempotencyKey: `${proxyRequestNamespace}:${ordinal}`,
-              requestBytes: body.byteLength
-            }),
-            signal: upstreamController.signal
-          },
-          body
-        );
-        if (!downstreamClosed) {
-          const responseCompletion = await writeUpstreamResponse(res, upstream);
-          if ((upstream.status === 401 || upstream.status === 429) && successfulRelayRequests === 0 && ordinal === 1) {
-            failoverReason = upstream.status === 401 ? "authentication_failed" : "quota_exhausted";
-            replayFenced = false;
-          } else if (responseCompletion === "successful") {
-            successfulRelayRequests += 1;
-            failoverReason = void 0;
-            replayFenced = false;
+        inFlightRelayRequests += 1;
+        replayFenced = false;
+        try {
+          upstreamController = new AbortController();
+          activeUpstreamRequests.add(upstreamController);
+          const upstream = await fetchWithZeroizedBody(
+            input.fetchImpl,
+            input.relayUrl,
+            {
+              method: "POST",
+              headers: buildHostedRelayHeaders({
+                requestHeaders: req.headers,
+                grant: input.grant,
+                requestOrdinal: ordinal,
+                idempotencyKey: `${proxyRequestNamespace}:${ordinal}`,
+                requestBytes: body.byteLength
+              }),
+              signal: upstreamController.signal
+            },
+            body
+          );
+          if (!downstreamClosed) {
+            const responseCompletion = await writeUpstreamResponse(
+              res,
+              upstream
+            );
+            if ((upstream.status === 401 || upstream.status === 429) && successfulRelayRequests === 0 && ordinal === 1) {
+              failoverReason = upstream.status === 401 ? "authentication_failed" : "quota_exhausted";
+              replayFenced = false;
+            } else if (responseCompletion === "successful") {
+              successfulRelayRequests += 1;
+              failoverReason = void 0;
+              replayFenced = false;
+            } else {
+              replayFenced = true;
+            }
+          } else {
+            await upstream.body?.cancel().catch(() => void 0);
+            replayFenced = true;
           }
-        } else {
-          await upstream.body?.cancel().catch(() => void 0);
+        } finally {
+          inFlightRelayRequests -= 1;
         }
       } catch (error51) {
+        replayFenced = true;
         if (!downstreamClosed) {
           const code = error51 instanceof Error && error51.message === "proxy_request_body_too_large" ? "proxy_request_body_too_large" : "proxy_upstream_failed";
           if (res.headersSent) {
