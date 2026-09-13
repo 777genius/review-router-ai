@@ -367,7 +367,7 @@ describe("disposable hosted pool local E2E", () => {
       ["cross-repository", 403],
       ["stale-binding", 403],
       ["expired", 401],
-      ["replay", 502],
+      ["replay", 409],
       ["request-budget", 429],
     ];
     for (const [index, [grant, expectedStatus]] of denials.entries()) {
