@@ -240,7 +240,7 @@ describe("hosted pool account failover", () => {
             });
           },
         }),
-      ).rejects.toThrow("hosted_pool_effect_ambiguous");
+      ).rejects.toThrow("runtime_rejected_response");
       expect(attempts).toEqual([1]);
       expect(grantCalls).toBe(1);
       expect(relayCalls).toBe(1);
