@@ -143,7 +143,6 @@ jobs:
     timeout-minutes: 35
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-      SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
       TARGET_DB_ID: ${{ inputs.target_db_id }}
       RENDER_OWNER_ID: ${{ inputs.owner_id }}
       RENDER_ENVIRONMENT_ID: ${{ inputs.environment_id }}
@@ -631,7 +630,6 @@ jobs:
     timeout-minutes: 35
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-      SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
       TARGET_DB_ID: ${{ inputs.target_db_id }}
       RENDER_OWNER_ID: ${{ inputs.owner_id }}
       RENDER_ENVIRONMENT_ID: ${{ inputs.environment_id }}

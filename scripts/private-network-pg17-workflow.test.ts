@@ -355,9 +355,9 @@ describe("private-network PG17 workflow security contract", () => {
     expect(controller).toContain("scheduled-reconciliation.json");
   });
 
-  it("fails closed while installing private controller dependencies", () => {
+  it("installs pinned public controller dependencies without deploy credentials", () => {
     const installCommand =
-      "node scripts/install-private-dependencies.mjs --frozen-lockfile --require-deploy-key";
+      "node scripts/install-private-dependencies.mjs --frozen-lockfile";
     const controllerJobs = jobs(controller);
     const installJobs = controllerJobs.filter((job) =>
       job.includes(installCommand),
@@ -366,9 +366,7 @@ describe("private-network PG17 workflow security contract", () => {
     expect(installJobs).toHaveLength(5);
     expect(controller).not.toContain("pnpm install --frozen-lockfile");
     for (const job of installJobs) {
-      expect(job).toContain(
-        "SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}",
-      );
+      expect(job).not.toContain("SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64");
       expect(job.match(/name: Enable pnpm/gu)).toHaveLength(1);
       expect(job).toContain("run: corepack enable");
       expect(job.indexOf("name: Enable pnpm")).toBeLessThan(

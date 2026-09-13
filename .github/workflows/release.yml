@@ -370,8 +370,6 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ needs.prepare-release.outputs.version }}
-          secrets: |
-            subscription_runtime_deploy_key_b64=${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
           tags: |
             ghcr.io/777genius/review-router-saas-runtime:${{ github.sha }}
             ghcr.io/777genius/review-router-saas-runtime:${{ needs.prepare-release.outputs.version }}

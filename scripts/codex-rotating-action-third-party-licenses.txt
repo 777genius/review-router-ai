@@ -1,6 +1,6 @@
 Bundled dependency identity:
 @vioxen/subscription-runtime 0.1.0-main.28
-777genius/ar@6467c59a06a2ac26e3874cf0d104073e7a6c8a2b
+777genius/ar@83a7329f4383b05ac5c39356b79f82f029182d42
 
 zod 4.4.2
 MIT License

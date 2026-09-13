@@ -480,9 +480,9 @@ describe("privileged workflow structure", () => {
     );
     expect(prepare).not.toContain("secrets.");
     expect(attestation).not.toContain("secrets.");
-    expect(
-      runtime?.match(/secrets\.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64/gu),
-    ).toHaveLength(1);
+    expect(runtime).not.toContain(
+      "secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64",
+    );
     expect(publication?.match(/secrets\.RENDER_API_KEY/gu)).toHaveLength(2);
   });
 
