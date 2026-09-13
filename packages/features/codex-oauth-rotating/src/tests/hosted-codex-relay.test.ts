@@ -416,8 +416,16 @@ describe("hosted Codex relay transport", () => {
     expect(observedSignal?.aborted).toBe(true);
   });
 
-  it("sets the replay fence before reading a slow request body", async () => {
+  it("queues a third Codex body instead of returning proxy_replay_fenced", async () => {
     let upstreamCalls = 0;
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstUpstreamStarted!: () => void;
+    const firstUpstream = new Promise<void>((resolve) => {
+      firstUpstreamStarted = resolve;
+    });
     const proxy = await startHostedCodexRelayProxy({
       grant: "opaque-relay-grant",
       commentTokenRefreshCapability: "comment-refresh-capability",
@@ -427,9 +435,13 @@ describe("hosted Codex relay transport", () => {
       relayUrl: "https://relay.reviewrouter.test/v1/responses",
       upstreamCommentTokenRefreshUrl:
         "https://relay.reviewrouter.test/v1/comment-token",
-      policy: { maxRequests: 2 },
+      policy: { maxRequests: 3 },
       fetchImpl: vi.fn(async () => {
         upstreamCalls += 1;
+        if (upstreamCalls === 1) {
+          firstUpstreamStarted();
+          await firstHeld;
+        }
         return new Response("data: [DONE]\n\n", {
           status: 200,
           headers: { "content-type": "text/event-stream" },
@@ -437,46 +449,34 @@ describe("hosted Codex relay transport", () => {
       }) as unknown as typeof fetch,
     });
     try {
-      const slow = httpRequest(`${proxy.baseUrl}/responses`, {
+      const first = fetch(`${proxy.baseUrl}/responses`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ input: "first" }),
       });
-      slow.write('{"input":"');
-      await new Promise<void>((resolve) => setImmediate(resolve));
-
-      const concurrent = await fetch(`${proxy.baseUrl}/responses`, {
+      await firstUpstream;
+      const second = fetch(`${proxy.baseUrl}/responses`, {
         method: "POST",
-        body: "{}",
+        body: JSON.stringify({ input: "second" }),
       });
-      expect(concurrent.status).toBe(409);
-      await expect(concurrent.json()).resolves.toEqual({
-        error: "proxy_replay_fenced",
+      const thirdStarted = fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: JSON.stringify({ input: "third" }),
       });
-      expect(upstreamCalls).toBe(0);
-
-      const completed = new Promise<{ status: number; body: string }>(
-        (resolve, reject) => {
-          slow.once("response", (response) => {
-            const chunks: Buffer[] = [];
-            response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
-            response.once("end", () =>
-              resolve({
-                status: response.statusCode ?? 0,
-                body: Buffer.concat(chunks).toString("utf8"),
-              }),
-            );
-          });
-          slow.once("error", reject);
-        },
-      );
-      slow.end('review"}');
-      await expect(completed).resolves.toEqual({
-        status: 200,
-        body: "data: [DONE]\n\n",
-      });
-      expect(upstreamCalls).toBe(1);
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+      expect(upstreamCalls).toBe(2);
+      releaseFirst();
+      const [firstResponse, secondResponse, thirdResponse] = await Promise.all([
+        first,
+        second,
+        thirdStarted,
+      ]);
+      expect(firstResponse.status).toBe(200);
+      expect(secondResponse.status).toBe(200);
+      expect(thirdResponse.status).toBe(200);
+      expect(upstreamCalls).toBe(3);
       expect(proxy.failoverReason()).toBeUndefined();
     } finally {
+      releaseFirst();
       await proxy.close();
     }
   });
@@ -576,16 +576,7 @@ describe("hosted Codex relay transport", () => {
     }
   });
 
-  it.each([
-    ["completed 5xx", new Response("failed", { status: 500 })],
-    [
-      "truncated JSON 200",
-      new Response('{"incomplete":', {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
-    ],
-  ])("keeps the replay fence after a %s response", async (_label, response) => {
+  it("admits the next Codex turn after a completed 5xx", async () => {
     let upstreamCalls = 0;
     const proxy = await startHostedCodexRelayProxy({
       grant: "opaque-relay-grant",
@@ -599,7 +590,7 @@ describe("hosted Codex relay transport", () => {
       policy: { maxRequests: 2 },
       fetchImpl: vi.fn(async () => {
         upstreamCalls += 1;
-        return response;
+        return new Response("failed", { status: 500 });
       }) as unknown as typeof fetch,
     });
     try {
@@ -607,14 +598,14 @@ describe("hosted Codex relay transport", () => {
         method: "POST",
         body: "{}",
       });
+      expect(first.status).toBe(500);
       await first.text();
-      const replay = await fetch(`${proxy.baseUrl}/responses`, {
+      const nextTurn = await fetch(`${proxy.baseUrl}/responses`, {
         method: "POST",
         body: "{}",
       });
-      expect(replay.status).toBe(409);
-      expect(upstreamCalls).toBe(1);
-      expect(proxy.failoverReason()).toBe("ambiguous");
+      expect(nextTurn.status).toBe(500);
+      expect(upstreamCalls).toBe(2);
     } finally {
       await proxy.close();
     }
@@ -655,8 +646,8 @@ describe("hosted Codex relay transport", () => {
         method: "POST",
         body: "{}",
       });
-      expect(replay.status).toBe(409);
-      expect(proxy.failoverReason()).toBe("ambiguous");
+      expect(replay.status).not.toBe(409);
+      await replay.text().catch(() => undefined);
     } finally {
       await proxy.close();
     }

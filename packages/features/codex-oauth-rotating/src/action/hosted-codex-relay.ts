@@ -247,6 +247,25 @@ export async function startHostedCodexRelayProxy(input: {
   let replayFenced = false;
   let successfulRelayRequests = 0;
   const activeUpstreamRequests = new Set<AbortController>();
+  const relaySlotWaiters: Array<() => void> = [];
+  const notifyRelaySlot = () => {
+    const waiter = relaySlotWaiters.shift();
+    waiter?.();
+  };
+  const waitForRelaySlot = () =>
+    new Promise<void>((resolve) => {
+      relaySlotWaiters.push(resolve);
+    });
+  const isDownstreamCloseError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : "";
+    return (
+      message === "downstream_closed" ||
+      message === "aborted" ||
+      /EPIPE|ECONNRESET|ERR_STREAM_DESTROYED|ERR_STREAM_PREMATURE_CLOSE/i.test(
+        message,
+      )
+    );
+  };
 
   const server = http.createServer((req, res) => {
     void (async () => {
@@ -314,14 +333,12 @@ export async function startHostedCodexRelayProxy(input: {
           writeProxyError(res, 404, "proxy_route_denied");
           return;
         }
-        if (
-          inFlightRelayRequests >= maxConcurrentRelayRequests ||
-          (replayFenced &&
-            inFlightRelayRequests === 0 &&
-            successfulRelayRequests === 0)
-        ) {
-          writeProxyError(res, 409, "proxy_replay_fenced");
-          return;
+        while (inFlightRelayRequests >= maxConcurrentRelayRequests) {
+          if (closing) {
+            writeProxyError(res, 503, "proxy_closing");
+            return;
+          }
+          await waitForRelaySlot();
         }
         requestCount += 1;
         if (requestCount > input.policy.maxRequests) {
@@ -352,10 +369,22 @@ export async function startHostedCodexRelayProxy(input: {
             body,
           );
           if (!downstreamClosed) {
-            const responseCompletion = await writeUpstreamResponse(
-              res,
-              upstream,
-            );
+            let responseCompletion: "successful" | "non_successful";
+            try {
+              responseCompletion = await writeUpstreamResponse(res, upstream);
+            } catch (writeError) {
+              if (
+                (isDownstreamCloseError(writeError) || downstreamClosed) &&
+                upstream.status >= 200 &&
+                upstream.status < 300
+              ) {
+                successfulRelayRequests += 1;
+                failoverReason = undefined;
+                replayFenced = false;
+                return;
+              }
+              throw writeError;
+            }
             if (
               (upstream.status === 401 || upstream.status === 429) &&
               successfulRelayRequests === 0 &&
@@ -370,23 +399,27 @@ export async function startHostedCodexRelayProxy(input: {
               successfulRelayRequests += 1;
               failoverReason = undefined;
               replayFenced = false;
-            } else if (
-              upstream.status >= 200 &&
-              upstream.status < 300 &&
-              successfulRelayRequests > 0
-            ) {
+            } else if (upstream.status >= 200 && upstream.status < 300) {
+              successfulRelayRequests += 1;
+              failoverReason = undefined;
               replayFenced = false;
             } else {
               replayFenced = true;
             }
           } else {
             await upstream.body?.cancel().catch(() => undefined);
+            if (upstream.status >= 200 && upstream.status < 300) {
+              successfulRelayRequests += 1;
+              failoverReason = undefined;
+              replayFenced = false;
+            }
           }
         } finally {
           inFlightRelayRequests -= 1;
+          notifyRelaySlot();
         }
       } catch (error) {
-        if (!(error instanceof Error && error.message === "downstream_closed")) {
+        if (!isDownstreamCloseError(error) && !downstreamClosed) {
           replayFenced = true;
         }
         if (!downstreamClosed) {
