@@ -158,6 +158,25 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
       now: () => clock.now(),
       provider: {
         async revoke({ token, signal }) {
+          const tokenHash = createHash("sha256")
+            .update(token, "utf8")
+            .digest("hex");
+          const mint = await input.prisma.hostedCodexCommentTokenMint.findFirst({
+            where: { tokenHash },
+            orderBy: { createdAt: "desc" },
+            select: {
+              grant: {
+                select: {
+                  status: true,
+                  expiresAt: true,
+                  revokedAt: true,
+                },
+              },
+            },
+          });
+          if (hostedCommentTokenGrantStillLive(mint?.grant, clock.now())) {
+            throw new Error("grant_still_live");
+          }
           const result = await githubCommentTokens.revokeCommentToken({
             token,
             signal,
@@ -345,6 +364,25 @@ export function composeProductionHostedCodexRestoreReconciler(input: {
     undefined,
     undefined,
     hostedCodexAcceptedRelayCustodyModes(input.env),
+  );
+}
+
+export function hostedCommentTokenGrantStillLive(
+  grant:
+    | {
+        readonly status: string;
+        readonly expiresAt: Date;
+        readonly revokedAt: Date | null;
+      }
+    | null
+    | undefined,
+  now: Date,
+): boolean {
+  return (
+    grant != null &&
+    grant.status === "issued" &&
+    grant.revokedAt === null &&
+    grant.expiresAt.getTime() > now.getTime()
   );
 }
 

@@ -3,8 +3,49 @@ import { describe, expect, it, vi } from "vitest";
 import {
   composeHostedCodexRelayRoutes,
   composeProductionHostedCodexRelayRoutes,
+  hostedCommentTokenGrantStillLive,
   readHostedCodexFeatureFlags,
 } from "./hosted-codex-relay-composition";
+
+describe("hosted comment token grant liveness", () => {
+  const now = new Date("2026-09-13T05:24:13.000Z");
+
+  it("keeps the GitHub bearer while the invocation grant is still issued", () => {
+    expect(
+      hostedCommentTokenGrantStillLive(
+        {
+          status: "issued",
+          expiresAt: new Date("2026-09-13T05:39:05.000Z"),
+          revokedAt: null,
+        },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it("allows revocation after the grant expires or is revoked", () => {
+    expect(
+      hostedCommentTokenGrantStillLive(
+        {
+          status: "issued",
+          expiresAt: new Date("2026-09-13T05:24:00.000Z"),
+          revokedAt: null,
+        },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      hostedCommentTokenGrantStillLive(
+        {
+          status: "revoked",
+          expiresAt: new Date("2026-09-13T05:39:05.000Z"),
+          revokedAt: now,
+        },
+        now,
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("hosted Codex relay feature flags", () => {
   it("fails closed by default and requires the master switch", () => {
