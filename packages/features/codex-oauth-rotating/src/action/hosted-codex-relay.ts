@@ -316,7 +316,9 @@ export async function startHostedCodexRelayProxy(input: {
         }
         if (
           inFlightRelayRequests >= maxConcurrentRelayRequests ||
-          (replayFenced && inFlightRelayRequests === 0)
+          (replayFenced &&
+            inFlightRelayRequests === 0 &&
+            successfulRelayRequests === 0)
         ) {
           writeProxyError(res, 409, "proxy_replay_fenced");
           return;
@@ -367,6 +369,12 @@ export async function startHostedCodexRelayProxy(input: {
             } else if (responseCompletion === "successful") {
               successfulRelayRequests += 1;
               failoverReason = undefined;
+              replayFenced = false;
+            } else if (
+              upstream.status >= 200 &&
+              upstream.status < 300 &&
+              successfulRelayRequests > 0
+            ) {
               replayFenced = false;
             } else {
               replayFenced = true;
@@ -725,8 +733,7 @@ function isProvablySuccessfulRelayResponse(
   const contentType = upstream.headers.get("content-type")?.toLowerCase() ?? "";
   const mediaType = contentType.split(";", 1)[0]?.trim();
   if (mediaType === "text/event-stream") {
-    return completionTail.trimEnd().split(/\r?\n/u).at(-1)?.trim() ===
-      "data: [DONE]"
+    return isSuccessfulHostedSseTail(completionTail)
       ? "successful"
       : "non_successful";
   }
@@ -739,6 +746,13 @@ function isProvablySuccessfulRelayResponse(
     }
   }
   return "non_successful";
+}
+
+function isSuccessfulHostedSseTail(completionTail: string): boolean {
+  const normalized = completionTail.replace(/\r\n/g, "\n").trimEnd();
+  const lastLine = normalized.split("\n").at(-1)?.trim();
+  if (lastLine === "data: [DONE]") return true;
+  return /"type"\s*:\s*"response\.completed"/.test(normalized);
 }
 
 function throwHostedRelayFailover(

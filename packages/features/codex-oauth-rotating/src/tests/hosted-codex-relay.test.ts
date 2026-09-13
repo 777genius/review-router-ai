@@ -537,15 +537,47 @@ describe("hosted Codex relay transport", () => {
     }
   });
 
+  it("admits the next Codex turn after a 200 SSE that ends on response.completed", async () => {
+    let upstreamCalls = 0;
+    const proxy = await startHostedCodexRelayProxy({
+      grant: "opaque-relay-grant",
+      commentTokenRefreshCapability: "comment-refresh-capability",
+      invocationLeaseId: "invocation-lease-1",
+      bindingId: "binding-1",
+      bindingVersion: 7,
+      relayUrl: "https://relay.reviewrouter.test/v1/responses",
+      upstreamCommentTokenRefreshUrl:
+        "https://relay.reviewrouter.test/v1/comment-token",
+      policy: { maxRequests: 2 },
+      fetchImpl: vi.fn(async () => {
+        upstreamCalls += 1;
+        return new Response('data: {"type":"response.completed"}\n\n', {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }) as unknown as typeof fetch,
+    });
+    try {
+      const first = await fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      expect(first.status).toBe(200);
+      await first.text();
+      const nextTurn = await fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      expect(nextTurn.status).toBe(200);
+      expect(upstreamCalls).toBe(2);
+      expect(proxy.failoverReason()).toBeUndefined();
+    } finally {
+      await proxy.close();
+    }
+  });
+
   it.each([
     ["completed 5xx", new Response("failed", { status: 500 })],
-    [
-      "truncated 200",
-      new Response('data: {"type":"response.completed"}\n\n', {
-        status: 200,
-        headers: { "content-type": "text/event-stream" },
-      }),
-    ],
     [
       "truncated JSON 200",
       new Response('{"incomplete":', {
