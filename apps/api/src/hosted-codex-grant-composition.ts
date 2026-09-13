@@ -146,7 +146,7 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       bindingVersion: input.bindingVersion,
       now,
     });
-    const liveJob = resolveAllowlistedLiveHostedJobIdentity(
+    const jobIdentities = resolveAllowlistedHostedJobIdentities(
       admission,
       this.dependencies.trustedActionRefs ?? [],
     );
@@ -163,10 +163,10 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
         installationStatus: admission.installationStatus,
         trustedWorkflowRefs: [
           admission.workflowSource,
-          admission.workflowJobSource,
-          admission.workflowExecutionSource,
-          liveJob.workflowJobSource,
-          liveJob.workflowExecutionSource,
+          ...jobIdentities.flatMap((identity) => [
+            identity.workflowJobSource,
+            identity.workflowExecutionSource,
+          ]),
         ],
       },
     });
@@ -178,7 +178,7 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       throw new Error("hosted_repository_visibility_ineligible");
     }
     assertExactClientBinding(input, admission);
-    assertExactWorkflowClaims(claims, { ...admission, ...liveJob });
+    assertExactWorkflowClaims(claims, admission, jobIdentities);
     const attestedWorkflow = workflowBytesForAttestedActionPin(admission);
     assertExactHostedPoolCallerWorkflow({
       attestation: admission.workflowAttestation,
@@ -531,31 +531,14 @@ function workflowBytesForAttestedActionPin(
   };
 }
 
-function resolveAllowlistedLiveHostedJobIdentity(
-  admission: HostedCodexGrantAdmission,
-  trustedActionRefs: readonly string[],
-): {
+type HostedJobIdentity = {
   readonly workflowJobSource: string;
   readonly workflowExecutionSource: string;
   readonly workflowJobSha: string;
-} {
-  const live = readCanonicalHostedPoolWorkflowMetadata(
-    admission.workflowContents,
-  );
-  const liveJob = canonicalHostedPoolReusableWorkflowIdentity(live.actionRef);
-  if (liveJob.sha === admission.workflowJobSha) {
-    return {
-      workflowJobSource: admission.workflowJobSource,
-      workflowExecutionSource: admission.workflowExecutionSource,
-      workflowJobSha: admission.workflowJobSha,
-    };
-  }
-  const allowed = new Set(
-    trustedActionRefs.map((ref) => ref.trim().toLowerCase()),
-  );
-  if (!allowed.has(live.actionRef.toLowerCase())) {
-    throw new Error("hosted_workflow_action_ref_not_allowed");
-  }
+};
+
+function hostedJobIdentityFromActionRef(actionRef: string): HostedJobIdentity {
+  const liveJob = canonicalHostedPoolReusableWorkflowIdentity(actionRef);
   return {
     workflowJobSource: liveJob.ref,
     workflowExecutionSource: liveJob.ref.replace(
@@ -566,17 +549,57 @@ function resolveAllowlistedLiveHostedJobIdentity(
   };
 }
 
+function resolveAllowlistedHostedJobIdentities(
+  admission: HostedCodexGrantAdmission,
+  trustedActionRefs: readonly string[],
+): readonly HostedJobIdentity[] {
+  const binding: HostedJobIdentity = {
+    workflowJobSource: admission.workflowJobSource,
+    workflowExecutionSource: admission.workflowExecutionSource,
+    workflowJobSha: admission.workflowJobSha,
+  };
+  const live = readCanonicalHostedPoolWorkflowMetadata(
+    admission.workflowContents,
+  );
+  if (live.actionRef.split("@")[1]?.toLowerCase() === admission.workflowJobSha) {
+    return [binding];
+  }
+  const allowed = new Set(
+    trustedActionRefs.map((ref) => ref.trim().toLowerCase()),
+  );
+  if (!allowed.has(live.actionRef.toLowerCase())) {
+    throw new Error("hosted_workflow_action_ref_not_allowed");
+  }
+  const identities = new Map<string, HostedJobIdentity>();
+  const add = (identity: HostedJobIdentity) => {
+    identities.set(identity.workflowJobSha, identity);
+  };
+  add(binding);
+  add(hostedJobIdentityFromActionRef(live.actionRef));
+  for (const ref of allowed) {
+    add(hostedJobIdentityFromActionRef(ref));
+  }
+  return [...identities.values()];
+}
+
 function assertExactWorkflowClaims(
   claims: GitHubActionsOidcClaims,
   admission: HostedCodexGrantAdmission,
+  jobIdentities: readonly HostedJobIdentity[],
 ): void {
   const pullRequestRef = `refs/pull/${admission.pullRequestNumber}/merge`;
   const subject = `repo:${admission.repository}:pull_request`;
   const jobWorkflowRef = claims.job_workflow_ref?.toLowerCase();
-  const allowedJobWorkflowRefs = [
-    admission.workflowJobSource,
-    admission.workflowExecutionSource,
-  ].map((value) => value.toLowerCase());
+  const jobWorkflowSha = claims.job_workflow_sha?.toLowerCase();
+  const allowedJobWorkflowRefs = new Set(
+    jobIdentities.flatMap((identity) => [
+      identity.workflowJobSource.toLowerCase(),
+      identity.workflowExecutionSource.toLowerCase(),
+    ]),
+  );
+  const allowedJobWorkflowShas = new Set(
+    jobIdentities.map((identity) => identity.workflowJobSha.toLowerCase()),
+  );
   if (
     claims.event_name !== "pull_request" ||
     claims.sub.toLowerCase() !== subject.toLowerCase() ||
@@ -584,8 +607,9 @@ function assertExactWorkflowClaims(
     claims.workflow_ref.toLowerCase() !==
       admission.workflowSource.toLowerCase() ||
     jobWorkflowRef === undefined ||
-    !allowedJobWorkflowRefs.includes(jobWorkflowRef) ||
-    claims.job_workflow_sha?.toLowerCase() !== admission.workflowJobSha ||
+    !allowedJobWorkflowRefs.has(jobWorkflowRef) ||
+    jobWorkflowSha === undefined ||
+    !allowedJobWorkflowShas.has(jobWorkflowSha) ||
     claims.workflow_sha?.toLowerCase() !== admission.workflowSourceCommitSha
   ) {
     throw new Error("hosted_workflow_claims_mismatch");

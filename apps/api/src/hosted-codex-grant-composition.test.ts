@@ -84,6 +84,28 @@ describe("HostedCodexGrantIssuer", () => {
     });
   });
 
+  it("admits when GitHub names the attested reusable SHA while the canary pin is newer", async () => {
+    const canarySha = "b".repeat(40);
+    const canaryWorkflow = renderCanonicalHostedPoolWorkflowV2({
+      actionRef: `777genius/review-router@${canarySha}`,
+      apiUrl: "https://api.reviewrouter.dev",
+      providerInstanceId: "hosted-pool:repository:123",
+      bindingId: "binding-1",
+      bindingRevision: 7,
+    });
+    const fixture = createFixture(
+      { workflowContents: canaryWorkflow },
+      {
+        job_workflow_ref: workflowJobSource,
+        job_workflow_sha: commitSha,
+      },
+      [`777genius/review-router@${canarySha}`],
+    );
+    await expect(fixture.issuer.issue(request())).resolves.toMatchObject({
+      repository: "acme/private-repo",
+    });
+  });
+
   it("rejects a canary Action pin that is not allowlisted", async () => {
     const canarySha = "b".repeat(40);
     const canaryWorkflow = renderCanonicalHostedPoolWorkflowV2({
