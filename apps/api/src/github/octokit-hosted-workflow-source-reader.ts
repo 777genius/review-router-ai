@@ -44,6 +44,7 @@ export class OctokitHostedWorkflowSourceReader implements HostedWorkflowSourceRe
         headRepositoryId: data.head.repo ? String(data.head.repo.id) : null,
         baseSha: data.base.sha,
         headSha: data.head.sha,
+        mergeCommitSha: data.merge_commit_sha ?? null,
       };
     } catch {
       // Never surface installation-token request metadata through an API error.

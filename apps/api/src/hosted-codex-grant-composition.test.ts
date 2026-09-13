@@ -49,6 +49,18 @@ describe("HostedCodexGrantIssuer", () => {
     expect(fixture.replayNonces.tryConsumeNonce).toHaveBeenCalledOnce();
   });
 
+  it("admits when the caller workflow SHA is the official merge commit, not the PR head", async () => {
+    const mergeSha = "c".repeat(40);
+    const fixture = createFixture(
+      { workflowSourceCommitSha: mergeSha },
+      { workflow_sha: mergeSha },
+    );
+    await expect(fixture.issuer.issue(request())).resolves.toMatchObject({
+      repository: "acme/private-repo",
+    });
+    expect(fixture.replayNonces.tryConsumeNonce).toHaveBeenCalledOnce();
+  });
+
   it("rejects the r44 same-repository PR caller that exfiltrates the hosted token", async () => {
     const exfiltratingCaller = workflow.replace(
       'api_url: "https://api.reviewrouter.dev"',
@@ -219,7 +231,10 @@ describe("HostedCodexGrantIssuer", () => {
 
   it.each([
     ["admitted PR number", { pullRequestNumber: 41 }],
-    ["admitted head SHA", { reviewHeadSha: "b".repeat(40) }],
+    [
+      "admitted caller workflow SHA",
+      { workflowSourceCommitSha: "b".repeat(40) },
+    ],
   ] as const)("rejects a mismatched %s", async (_name, admissionOverride) => {
     const fixture = createFixture(admissionOverride);
     await expect(fixture.issuer.issue(request())).rejects.toThrow(
@@ -507,6 +522,7 @@ describe("server-observed Hosted pull request authority", () => {
     headRepositoryId: "123",
     baseSha: "b".repeat(40),
     headSha: reviewHeadSha,
+    mergeCommitSha: "f".repeat(40),
   };
 
   it("accepts the exact same-repository admitted head", () => {

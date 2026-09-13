@@ -124,6 +124,7 @@ function fixture(visibility: string, observed: Record<string, unknown> = {}) {
       headRepositoryId: "123",
       baseSha: review.baseSha,
       headSha,
+      mergeCommitSha: "e".repeat(40),
       ...observed,
     })),
     readMergeBaseSha: vi.fn(async () => review.mergeBaseSha),
@@ -285,6 +286,27 @@ describe("main integration: authoritative public admission", () => {
           sourceRunAttempt: "1",
         }),
       }),
+    );
+  });
+  it("accepts the official pull request merge commit as the caller workflow revision", async () => {
+    const mergeSha = "e".repeat(40);
+    const f = fixture("public");
+    f.reader.readWorkflowAtRevision.mockResolvedValue({
+      commitSha: mergeSha,
+      blobSha: "3".repeat(40),
+      contents: "fixture source",
+    });
+    await expect(
+      f.resolver.resolve({
+        ...request,
+        claims: { ...request.claims, workflow_sha: mergeSha },
+      }),
+    ).resolves.toMatchObject({
+      reviewHeadSha: headSha,
+      workflowSourceCommitSha: mergeSha,
+    });
+    expect(f.reader.readWorkflowAtRevision).toHaveBeenCalledWith(
+      expect.objectContaining({ revisionSha: mergeSha }),
     );
   });
   it("rejects a non-pull-request caller ref before creating an intent", async () => {

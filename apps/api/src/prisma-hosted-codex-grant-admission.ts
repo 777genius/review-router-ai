@@ -240,7 +240,18 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
       input.claims.workflow_sha ?? "",
       "hosted_workflow_caller_revision_invalid",
     );
-    if (callerRevisionSha !== reviewHeadSha) {
+    const mergeCommitSha =
+      pullRequest.mergeCommitSha === null ||
+      pullRequest.mergeCommitSha === undefined
+        ? null
+        : requireCommitSha(
+            pullRequest.mergeCommitSha,
+            "hosted_workflow_merge_revision_invalid",
+          );
+    if (
+      callerRevisionSha !== reviewHeadSha &&
+      callerRevisionSha !== mergeCommitSha
+    ) {
       throw new Error("hosted_workflow_caller_revision_mismatch");
     }
     const liveSource = await this.workflowSources.readWorkflowAtRevision({

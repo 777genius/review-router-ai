@@ -122,6 +122,7 @@ describe("server PR identity reader", () => {
         state: "open",
         base: { repo: { id: 123 }, sha: "b".repeat(40) },
         head: { repo: { id: 999 }, sha: revisionSha },
+        merge_commit_sha: "d".repeat(40),
       },
     });
     await expect(
@@ -133,6 +134,7 @@ describe("server PR identity reader", () => {
       headRepositoryId: "999",
       baseSha: "b".repeat(40),
       headSha: revisionSha,
+      mergeCommitSha: "d".repeat(40),
     });
     expect(request).toHaveBeenCalledWith(
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",

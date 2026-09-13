@@ -172,7 +172,7 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       repositoryId: admission.githubRepositoryId,
       workflowPath: admission.workflowPath,
       callerWorkflowSha: admission.workflowSourceCommitSha,
-      admittedHeadSha: admission.reviewHeadSha,
+      admittedHeadSha: admission.workflowSourceCommitSha,
       expectedBindingId: admission.bindingId,
       expectedBindingRevision: admission.bindingRevision,
       expectedWorkflow: admission.workflowContents,
@@ -494,7 +494,7 @@ function assertExactWorkflowClaims(
     claims.job_workflow_ref?.toLowerCase() !==
       admission.workflowJobSource.toLowerCase() ||
     claims.job_workflow_sha !== admission.workflowJobSha ||
-    claims.workflow_sha !== admission.reviewHeadSha
+    claims.workflow_sha !== admission.workflowSourceCommitSha
   ) {
     throw new Error("hosted_workflow_claims_mismatch");
   }
@@ -582,6 +582,7 @@ export type HostedPoolPullRequestAuthority = Readonly<{
   headRepositoryId: string | null;
   baseSha: string;
   headSha: string;
+  mergeCommitSha: string | null;
 }>;
 
 export function assertHostedPoolPullRequestAuthority(input: {
