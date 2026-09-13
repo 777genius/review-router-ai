@@ -521,6 +521,10 @@ describe("HostedCodexCommentTokenIssuer durable protocol", () => {
         repositoryFullName: "acme/repo",
         workspaceId: "workspace-1",
         poolId: "pool-1",
+        grantId: "grant-1",
+        grantStatus: "issued",
+        grantExpiresAt: new Date("2026-08-25T13:00:00.000Z"),
+        grantRevokedAt: null,
         secretEnvelope: durableEnvelope!,
       },
     ]);

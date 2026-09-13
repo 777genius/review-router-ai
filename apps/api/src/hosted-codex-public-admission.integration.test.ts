@@ -127,7 +127,15 @@ function fixture(visibility: string, observed: Record<string, unknown> = {}) {
       mergeCommitSha: "e".repeat(40),
       ...observed,
     })),
-    readMergeBaseSha: vi.fn(async () => review.mergeBaseSha),
+    readMergeBaseSha: vi.fn(
+      async (_input: {
+        githubInstallationId: string;
+        owner: string;
+        repository: string;
+        baseSha: string;
+        headSha: string;
+      }) => review.mergeBaseSha,
+    ),
     readWorkflowAtRevision: vi.fn(async ({ revisionSha }) => ({
       commitSha: revisionSha,
       blobSha: "3".repeat(40),
