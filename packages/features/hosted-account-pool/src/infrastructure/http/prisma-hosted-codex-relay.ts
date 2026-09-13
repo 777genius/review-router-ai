@@ -294,16 +294,19 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
         requestHash,
       });
       const requestBody = parseRequestJson(rawRequestBody);
-      const maxOutputTokens = clampMaxOutputTokens(
+      clampMaxOutputTokens(
         requestBody.max_output_tokens,
         input.authorization.maxOutputTokens,
       );
+      const {
+        max_output_tokens: _clientMaxOutputTokens,
+        ...sanitizedRequest
+      } = requestBody;
       providerRequestBody = new TextEncoder().encode(
         JSON.stringify({
-          ...requestBody,
+          ...sanitizedRequest,
           model: input.authorization.model,
           store: false,
-          max_output_tokens: maxOutputTokens,
         }),
       );
       return await this.dispatchAuthorized(

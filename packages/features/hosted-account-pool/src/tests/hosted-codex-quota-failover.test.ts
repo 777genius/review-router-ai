@@ -326,7 +326,7 @@ describe("hosted Codex quota failover", () => {
     { label: "equal", clientValue: 1_024, expected: 1_024 },
     { label: "higher", clientValue: 8_192, expected: 1_024 },
   ])(
-    "clamps $label client max_output_tokens without raising caller spend",
+    "rejects invalid or clamps $label client max_output_tokens without sending the parameter upstream",
     async ({ clientValue, expected }) => {
       const primary = account(`token-clamp-${expected}`, 0);
       let grant = admittedGrant(primary, account("token-clamp-backup", 1));
@@ -379,12 +379,12 @@ describe("hosted Codex quota failover", () => {
         accept: "text/event-stream",
         abortSignal: new AbortController().signal,
       });
-      expect(providerRequest).toMatchObject({
+      expect(providerRequest).toEqual({
         input: "token clamp",
         model: grant.authority.model,
         store: false,
-        max_output_tokens: expected,
       });
+      expect(providerRequest).not.toHaveProperty("max_output_tokens");
       expect(capturedProviderBody).toBeDefined();
       expect(capturedProviderBody!.every((byte) => byte === 0)).toBe(true);
       for await (const chunk of response.body) void chunk;

@@ -182,7 +182,6 @@ function fixture(
       input: "synthetic request",
       model: "gpt-6-astra",
       store: false,
-      max_output_tokens: 32,
     });
     if (backupFailure === "fetch") throw backupError;
     return new Response("synthetic response", {
