@@ -90,7 +90,7 @@ export class OctokitHostedWorkflowSourceReader implements HostedWorkflowSourceRe
       ) {
         throw error;
       }
-      throw new Error("hosted_review_merge_base_unavailable");
+      throw new Error("hosted_review_merge_base_unavailable", { cause: error });
     }
   }
 

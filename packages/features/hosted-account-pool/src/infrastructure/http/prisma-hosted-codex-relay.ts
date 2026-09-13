@@ -298,10 +298,8 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
         requestBody.max_output_tokens,
         input.authorization.maxOutputTokens,
       );
-      const {
-        max_output_tokens: _clientMaxOutputTokens,
-        ...sanitizedRequest
-      } = requestBody;
+      const sanitizedRequest = { ...requestBody };
+      delete sanitizedRequest.max_output_tokens;
       providerRequestBody = new TextEncoder().encode(
         JSON.stringify({
           ...sanitizedRequest,

@@ -244,7 +244,6 @@ export async function startHostedCodexRelayProxy(input: {
   let inFlightRelayRequests = 0;
   let closing = false;
   let failoverReason: HostedRelayFailoverReason;
-  let replayFenced = false;
   let successfulRelayRequests = 0;
   const activeUpstreamRequests = new Set<AbortController>();
   const relaySlotWaiters: Array<() => void> = [];
@@ -380,7 +379,6 @@ export async function startHostedCodexRelayProxy(input: {
               ) {
                 successfulRelayRequests += 1;
                 failoverReason = undefined;
-                replayFenced = false;
                 return;
               }
               throw writeError;
@@ -394,24 +392,18 @@ export async function startHostedCodexRelayProxy(input: {
                 upstream.status === 401
                   ? "authentication_failed"
                   : "quota_exhausted";
-              replayFenced = false;
             } else if (responseCompletion === "successful") {
               successfulRelayRequests += 1;
               failoverReason = undefined;
-              replayFenced = false;
             } else if (upstream.status >= 200 && upstream.status < 300) {
               successfulRelayRequests += 1;
               failoverReason = undefined;
-              replayFenced = false;
-            } else {
-              replayFenced = true;
             }
           } else {
             await upstream.body?.cancel().catch(() => undefined);
             if (upstream.status >= 200 && upstream.status < 300) {
               successfulRelayRequests += 1;
               failoverReason = undefined;
-              replayFenced = false;
             }
           }
         } finally {
@@ -419,9 +411,6 @@ export async function startHostedCodexRelayProxy(input: {
           notifyRelaySlot();
         }
       } catch (error) {
-        if (!isDownstreamCloseError(error) && !downstreamClosed) {
-          replayFenced = true;
-        }
         if (!downstreamClosed) {
           const code =
             error instanceof Error &&
