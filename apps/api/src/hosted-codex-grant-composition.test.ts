@@ -505,6 +505,7 @@ describe("server-observed Hosted pull request authority", () => {
     state: "open",
     baseRepositoryId: "123",
     headRepositoryId: "123",
+    baseSha: "b".repeat(40),
     headSha: reviewHeadSha,
   };
 

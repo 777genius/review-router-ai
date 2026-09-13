@@ -25,6 +25,13 @@ export interface HostedWorkflowSourceReaderPort {
     readonly repository: string;
     readonly pullRequestNumber: number;
   }): Promise<HostedPoolPullRequestAuthority>;
+  readMergeBaseSha(input: {
+    readonly githubInstallationId: string;
+    readonly owner: string;
+    readonly repository: string;
+    readonly baseSha: string;
+    readonly headSha: string;
+  }): Promise<string>;
   readWorkflowAtRevision(input: {
     readonly githubInstallationId: string;
     readonly owner: string;
@@ -36,6 +43,54 @@ export interface HostedWorkflowSourceReaderPort {
     readonly blobSha: string;
     readonly contents: string;
   }>;
+}
+
+const admittedReviewRequestSelect = {
+  requestId: true,
+  workspaceId: true,
+  repositoryConnectionId: true,
+  scmRepositoryIdentityId: true,
+  pullRequestNumber: true,
+  baseSha: true,
+  mergeBaseSha: true,
+  headSha: true,
+  reviewRevisionHash: true,
+  sourceRunId: true,
+  sourceRunAttempt: true,
+} as const;
+
+type AdmittedHostedReviewRequest = {
+  readonly requestId: string;
+  readonly workspaceId: string;
+  readonly repositoryConnectionId: string;
+  readonly scmRepositoryIdentityId: string;
+  readonly pullRequestNumber: number;
+  readonly baseSha: string;
+  readonly mergeBaseSha: string;
+  readonly headSha: string;
+  readonly reviewRevisionHash: string;
+  readonly sourceRunId: string | null;
+  readonly sourceRunAttempt: string | null;
+};
+
+type GrantAdmissionRepository = {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly scmRepositoryIdentityId: string | null;
+  readonly githubRepositoryId: bigint;
+  readonly owner: string;
+  readonly name: string;
+  readonly installation: {
+    readonly githubInstallationId: bigint;
+  };
+};
+
+export function parseHostedPullRequestNumberFromRef(
+  ref: string | undefined,
+): number {
+  const match = /^refs\/pull\/([1-9][0-9]*)\/merge$/u.exec(ref ?? "");
+  if (!match) throw new Error("hosted_pull_request_ref_invalid");
+  return Number(match[1]);
 }
 
 /**
@@ -69,6 +124,7 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
         select: {
           id: true,
           workspaceId: true,
+          scmRepositoryIdentityId: true,
           githubRepositoryId: true,
           owner: true,
           name: true,
@@ -145,27 +201,16 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
       binding,
       repository.githubRepositoryId,
     );
-    const reviewRequest = await this.prisma.reviewRequestedIntent.findFirst({
-      where: {
-        workspaceId: repository.workspaceId,
-        repositoryConnectionId: repository.id,
-        sourceRunId: input.claims.run_id,
-        sourceRunAttempt: input.claims.run_attempt,
-        admissionState: "admitted",
-        state: { in: ["awaiting_authorization", "dispatched"] },
-      },
-      orderBy: { updatedAt: "desc" },
-      select: {
-        requestId: true,
-        scmRepositoryIdentityId: true,
-        pullRequestNumber: true,
-        baseSha: true,
-        mergeBaseSha: true,
-        headSha: true,
-        reviewRevisionHash: true,
-      },
-    });
-    if (!reviewRequest) throw new Error("hosted_review_request_not_admitted");
+    const pullRequestNumber = parseHostedPullRequestNumberFromRef(
+      input.claims.ref,
+    );
+    const { reviewRequest, pullRequest } =
+      await this.ensureAdmittedReviewRequest({
+        repository,
+        claims: input.claims,
+        pullRequestNumber,
+        now: input.now,
+      });
     const reviewIdentity = assertHostedReviewIdentity({
       workspaceId: repository.workspaceId,
       repositoryConnectionId: repository.id,
@@ -177,13 +222,6 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
       reviewRevisionHash: reviewRequest.reviewRevisionHash,
     });
     const { headSha: reviewHeadSha, reviewRevisionHash } = reviewIdentity;
-    const pullRequest = await this.workflowSources.readPullRequestAuthority({
-      githubInstallationId:
-        repository.installation.githubInstallationId.toString(),
-      owner: repository.owner,
-      repository: repository.name,
-      pullRequestNumber: reviewRequest.pullRequestNumber,
-    });
     assertHostedPoolPullRequestAuthority({
       githubRepositoryId: repository.githubRepositoryId.toString(),
       pullRequestNumber: reviewRequest.pullRequestNumber,
@@ -287,6 +325,300 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
         ...authorityFacts,
       }),
     } satisfies HostedCodexGrantAdmission;
+  }
+
+  private async ensureAdmittedReviewRequest(input: {
+    readonly repository: GrantAdmissionRepository;
+    readonly claims: Parameters<
+      HostedCodexGrantAdmissionPort["resolve"]
+    >[0]["claims"];
+    readonly pullRequestNumber: number;
+    readonly now: Date;
+  }): Promise<{
+    readonly reviewRequest: AdmittedHostedReviewRequest;
+    readonly pullRequest: HostedPoolPullRequestAuthority;
+  }> {
+    const existing = await this.findAdmittedReviewRequestBySourceRun({
+      workspaceId: input.repository.workspaceId,
+      repositoryConnectionId: input.repository.id,
+      sourceRunId: input.claims.run_id,
+      sourceRunAttempt: input.claims.run_attempt,
+    });
+    if (existing) {
+      if (existing.pullRequestNumber !== input.pullRequestNumber) {
+        throw new Error("hosted_pull_request_ref_mismatch");
+      }
+      return {
+        reviewRequest: existing,
+        pullRequest: await this.workflowSources.readPullRequestAuthority({
+          githubInstallationId:
+            input.repository.installation.githubInstallationId.toString(),
+          owner: input.repository.owner,
+          repository: input.repository.name,
+          pullRequestNumber: existing.pullRequestNumber,
+        }),
+      };
+    }
+
+    const pullRequest = await this.workflowSources.readPullRequestAuthority({
+      githubInstallationId:
+        input.repository.installation.githubInstallationId.toString(),
+      owner: input.repository.owner,
+      repository: input.repository.name,
+      pullRequestNumber: input.pullRequestNumber,
+    });
+    const reviewHeadSha = requireCommitSha(
+      pullRequest.headSha,
+      "hosted_review_head_sha_invalid",
+    );
+    assertHostedPoolPullRequestAuthority({
+      githubRepositoryId: input.repository.githubRepositoryId.toString(),
+      pullRequestNumber: input.pullRequestNumber,
+      reviewHeadSha,
+      pullRequest,
+    });
+    const bindable = await this.findBindableAdmittedReviewRequest({
+      workspaceId: input.repository.workspaceId,
+      repositoryConnectionId: input.repository.id,
+      pullRequestNumber: input.pullRequestNumber,
+      headSha: reviewHeadSha,
+    });
+    if (bindable) {
+      return {
+        reviewRequest: await this.bindAdmittedReviewRequest({
+          reviewRequest: bindable,
+          sourceRunId: input.claims.run_id,
+          sourceRunAttempt: input.claims.run_attempt,
+          now: input.now,
+        }),
+        pullRequest,
+      };
+    }
+    return {
+      reviewRequest: await this.createAdmittedReviewRequest({
+        repository: input.repository,
+        claims: input.claims,
+        pullRequestNumber: input.pullRequestNumber,
+        pullRequest,
+        reviewHeadSha,
+        now: input.now,
+      }),
+      pullRequest,
+    };
+  }
+
+  private findAdmittedReviewRequestBySourceRun(where: {
+    readonly workspaceId: string;
+    readonly repositoryConnectionId: string;
+    readonly sourceRunId: string;
+    readonly sourceRunAttempt: string;
+  }) {
+    return this.prisma.reviewRequestedIntent.findFirst({
+      where: {
+        ...where,
+        admissionState: "admitted",
+        state: { in: ["awaiting_authorization", "dispatched"] },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: admittedReviewRequestSelect,
+    });
+  }
+
+  private findBindableAdmittedReviewRequest(where: {
+    readonly workspaceId: string;
+    readonly repositoryConnectionId: string;
+    readonly pullRequestNumber: number;
+    readonly headSha: string;
+  }) {
+    return this.prisma.reviewRequestedIntent.findFirst({
+      where: {
+        ...where,
+        sourceRunId: null,
+        admissionState: "admitted",
+        state: { in: ["awaiting_authorization", "dispatched"] },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: admittedReviewRequestSelect,
+    });
+  }
+
+  private async bindAdmittedReviewRequest(input: {
+    readonly reviewRequest: AdmittedHostedReviewRequest;
+    readonly sourceRunId: string;
+    readonly sourceRunAttempt: string;
+    readonly now: Date;
+  }): Promise<AdmittedHostedReviewRequest> {
+    if (
+      input.reviewRequest.sourceRunId === input.sourceRunId &&
+      input.reviewRequest.sourceRunAttempt === input.sourceRunAttempt
+    ) {
+      return input.reviewRequest;
+    }
+    const updated = await this.prisma.reviewRequestedIntent.updateMany({
+      where: {
+        requestId: input.reviewRequest.requestId,
+        sourceRunId: null,
+        admissionState: "admitted",
+        state: { in: ["awaiting_authorization", "dispatched"] },
+      },
+      data: {
+        sourceRunId: input.sourceRunId,
+        sourceRunAttempt: input.sourceRunAttempt,
+        updatedAt: input.now,
+      },
+    });
+    if (updated.count !== 1) {
+      const raced = await this.findAdmittedReviewRequestBySourceRun({
+        workspaceId: input.reviewRequest.workspaceId,
+        repositoryConnectionId: input.reviewRequest.repositoryConnectionId,
+        sourceRunId: input.sourceRunId,
+        sourceRunAttempt: input.sourceRunAttempt,
+      });
+      if (raced) return raced;
+      throw new Error("hosted_review_request_not_admitted");
+    }
+    return {
+      ...input.reviewRequest,
+      sourceRunId: input.sourceRunId,
+      sourceRunAttempt: input.sourceRunAttempt,
+    };
+  }
+
+  private async createAdmittedReviewRequest(input: {
+    readonly repository: GrantAdmissionRepository;
+    readonly claims: Parameters<
+      HostedCodexGrantAdmissionPort["resolve"]
+    >[0]["claims"];
+    readonly pullRequestNumber: number;
+    readonly pullRequest: HostedPoolPullRequestAuthority;
+    readonly reviewHeadSha: string;
+    readonly now: Date;
+  }): Promise<AdmittedHostedReviewRequest> {
+    if (!input.repository.scmRepositoryIdentityId) {
+      throw new Error("hosted_repository_identity_missing");
+    }
+    const baseSha = requireCommitSha(
+      input.pullRequest.baseSha,
+      "hosted_review_base_sha_invalid",
+    );
+    const mergeBaseSha = requireCommitSha(
+      await this.workflowSources.readMergeBaseSha({
+        githubInstallationId:
+          input.repository.installation.githubInstallationId.toString(),
+        owner: input.repository.owner,
+        repository: input.repository.name,
+        baseSha,
+        headSha: input.reviewHeadSha,
+      }),
+      "hosted_review_merge_base_sha_invalid",
+    );
+    const reviewRevisionHash = digestCanonical({
+      workspaceId: input.repository.workspaceId,
+      repositoryConnectionId: input.repository.id,
+      scmRepositoryIdentityId: input.repository.scmRepositoryIdentityId,
+      pullRequestNumber: input.pullRequestNumber,
+      baseSha,
+      mergeBaseSha,
+      headSha: input.reviewHeadSha,
+    });
+    const deliveryIdentityHash = digest(
+      [
+        "rr.hosted-grant-intent.v1",
+        input.repository.workspaceId,
+        input.repository.id,
+        input.claims.run_id,
+        input.claims.run_attempt,
+      ].join("\0"),
+    );
+    const requestId = `hosted-grant-${deliveryIdentityHash}`;
+    const canonicalRequestHash = digestCanonical({
+      workspaceId: input.repository.workspaceId,
+      repositoryConnectionId: input.repository.id,
+      scmRepositoryIdentityId: input.repository.scmRepositoryIdentityId,
+      pullRequestNumber: input.pullRequestNumber,
+      revision: {
+        baseSha,
+        mergeBaseSha,
+        headSha: input.reviewHeadSha,
+        reviewRevisionHash,
+      },
+      triggerKind: "pull_request_synchronized",
+      deliveryIdentityHash,
+      sourceRunId: input.claims.run_id,
+      sourceRunAttempt: input.claims.run_attempt,
+    });
+    const policySnapshotId = "hosted-grant-admit-v1";
+    const changedLines = 0;
+    const maxChangedLines = 1_000_000;
+    const decisionHash = digestCanonical({
+      policySnapshotId,
+      changedLines,
+      maxChangedLines,
+      verdict: "admitted",
+      requestId,
+      reviewRevisionHash,
+    });
+    const retainUntil = new Date(
+      input.now.getTime() + 30 * 24 * 60 * 60 * 1000,
+    );
+    const resolutionDeadlineAt = new Date(
+      input.now.getTime() + 24 * 60 * 60 * 1000,
+    );
+    const created: AdmittedHostedReviewRequest = {
+      requestId,
+      workspaceId: input.repository.workspaceId,
+      repositoryConnectionId: input.repository.id,
+      scmRepositoryIdentityId: input.repository.scmRepositoryIdentityId,
+      pullRequestNumber: input.pullRequestNumber,
+      baseSha,
+      mergeBaseSha,
+      headSha: input.reviewHeadSha,
+      reviewRevisionHash,
+      sourceRunId: input.claims.run_id,
+      sourceRunAttempt: input.claims.run_attempt,
+    };
+    try {
+      await this.prisma.reviewRequestedIntent.create({
+        data: {
+          requestId,
+          workspaceId: input.repository.workspaceId,
+          repositoryConnectionId: input.repository.id,
+          scmRepositoryIdentityId: input.repository.scmRepositoryIdentityId,
+          pullRequestNumber: input.pullRequestNumber,
+          baseSha,
+          mergeBaseSha,
+          headSha: input.reviewHeadSha,
+          reviewRevisionHash,
+          triggerKind: "pull_request_synchronized",
+          deliveryIdentityHash,
+          canonicalRequestHash,
+          state: "awaiting_authorization",
+          notBefore: input.now,
+          resolutionDeadlineAt,
+          sourceRunId: input.claims.run_id,
+          sourceRunAttempt: input.claims.run_attempt,
+          admissionState: "admitted",
+          admissionChangedLines: changedLines,
+          admissionMaxChangedLines: maxChangedLines,
+          admissionPolicySnapshotId: policySnapshotId,
+          admissionDecisionHash: decisionHash,
+          admissionCheckedAt: input.now,
+          createdAt: input.now,
+          updatedAt: input.now,
+          retainUntil,
+        },
+      });
+      return created;
+    } catch {
+      const restored = await this.findAdmittedReviewRequestBySourceRun({
+        workspaceId: input.repository.workspaceId,
+        repositoryConnectionId: input.repository.id,
+        sourceRunId: input.claims.run_id,
+        sourceRunAttempt: input.claims.run_attempt,
+      });
+      if (restored) return restored;
+      throw new Error("hosted_review_request_not_admitted");
+    }
   }
 }
 

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { assertHostedReviewIdentity } from "./prisma-hosted-codex-grant-admission.js";
+import {
+  assertHostedReviewIdentity,
+  parseHostedPullRequestNumberFromRef,
+} from "./prisma-hosted-codex-grant-admission.js";
 
 const admittedRevision = {
   workspaceId: "workspace-1",
@@ -65,6 +68,21 @@ describe("hosted Codex admitted review identity", () => {
           ...override,
         }),
       ).toThrow(code);
+    },
+  );
+});
+
+describe("hosted pull request ref", () => {
+  it("reads the merge ref pull request number", () => {
+    expect(parseHostedPullRequestNumberFromRef("refs/pull/52/merge")).toBe(52);
+  });
+
+  it.each(["refs/heads/main", "refs/pull/52/head", "refs/pull/0/merge", ""])(
+    "rejects %s",
+    (ref) => {
+      expect(() => parseHostedPullRequestNumberFromRef(ref)).toThrow(
+        "hosted_pull_request_ref_invalid",
+      );
     },
   );
 });

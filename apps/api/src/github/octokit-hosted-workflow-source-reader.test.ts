@@ -120,7 +120,7 @@ describe("server PR identity reader", () => {
       data: {
         number: 42,
         state: "open",
-        base: { repo: { id: 123 } },
+        base: { repo: { id: 123 }, sha: "b".repeat(40) },
         head: { repo: { id: 999 }, sha: revisionSha },
       },
     });
@@ -131,6 +131,7 @@ describe("server PR identity reader", () => {
       state: "open",
       baseRepositoryId: "123",
       headRepositoryId: "999",
+      baseSha: "b".repeat(40),
       headSha: revisionSha,
     });
     expect(request).toHaveBeenCalledWith(
@@ -147,7 +148,7 @@ describe("server PR identity reader", () => {
       data: {
         number: 42,
         state: "open",
-        base: { repo: { id: 123 } },
+        base: { repo: { id: 123 }, sha: "b".repeat(40) },
         head: { repo: null, sha: revisionSha },
       },
     });
@@ -176,4 +177,37 @@ describe("server PR identity reader", () => {
       expect(request).not.toHaveBeenCalled();
     },
   );
+  it("reads the official merge base through installation authority", async () => {
+    const mergeBaseSha = "c".repeat(40);
+    const request = vi.fn().mockResolvedValue({
+      data: { merge_base_commit: { sha: mergeBaseSha } },
+    });
+    await expect(
+      createReader(request).readMergeBaseSha({
+        ...authorityInput,
+        baseSha: "b".repeat(40),
+        headSha: revisionSha,
+      }),
+    ).resolves.toBe(mergeBaseSha);
+    expect(request).toHaveBeenCalledWith(
+      "GET /repos/{owner}/{repo}/compare/{basehead}",
+      {
+        owner: "owner",
+        repo: "repo",
+        basehead: `${"b".repeat(40)}...${revisionSha}`,
+      },
+    );
+  });
+  it("returns a safe fixed failure when the merge base is unavailable", async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValue(new Error("fake-sensitive-installation-header"));
+    await expect(
+      createReader(request).readMergeBaseSha({
+        ...authorityInput,
+        baseSha: "b".repeat(40),
+        headSha: revisionSha,
+      }),
+    ).rejects.toThrow(/^hosted_review_merge_base_unavailable$/);
+  });
 });

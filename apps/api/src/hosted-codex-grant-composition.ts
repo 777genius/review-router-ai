@@ -580,6 +580,7 @@ export type HostedPoolPullRequestAuthority = Readonly<{
   state: string;
   baseRepositoryId: string;
   headRepositoryId: string | null;
+  baseSha: string;
   headSha: string;
 }>;
 

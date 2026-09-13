@@ -23,6 +23,7 @@ const request = {
     repository_id: "123",
     run_id: "10",
     run_attempt: "1",
+    ref: "refs/pull/42/merge",
     workflow_sha: headSha,
   } as GitHubActionsOidcClaims,
   bindingId: "binding",
@@ -55,6 +56,7 @@ function fixture(visibility: string, observed: Record<string, unknown> = {}) {
   const repository = {
     id: "repository",
     workspaceId: "workspace",
+    scmRepositoryIdentityId: "scm",
     githubRepositoryId: 123n,
     owner: "owner",
     name: "repo",
@@ -93,7 +95,11 @@ function fixture(visibility: string, observed: Record<string, unknown> = {}) {
         reviewRevisionHash: createHash("sha256")
           .update(canonicalJson(review))
           .digest("hex"),
+        sourceRunId: "10",
+        sourceRunAttempt: "1",
       })),
+      create: vi.fn(),
+      updateMany: vi.fn(),
     },
   };
   const reader = {
@@ -102,9 +108,11 @@ function fixture(visibility: string, observed: Record<string, unknown> = {}) {
       state: "open",
       baseRepositoryId: "123",
       headRepositoryId: "123",
+      baseSha: review.baseSha,
       headSha,
       ...observed,
     })),
+    readMergeBaseSha: vi.fn(async () => review.mergeBaseSha),
     readWorkflowAtRevision: vi.fn(async () => ({
       commitSha: headSha,
       blobSha: "3".repeat(40),
@@ -193,6 +201,84 @@ describe("main integration: authoritative public admission", () => {
     await expect(
       f.resolver.resolve({ ...request, bindingVersion: 2 }),
     ).rejects.toThrow("hosted_grant_binding_mismatch");
+    expect(f.reader.readPullRequestAuthority).not.toHaveBeenCalled();
+  });
+  it("creates and admits a review request when webhook ingress left none", async () => {
+    const f = fixture("public");
+    f.prisma.reviewRequestedIntent.findFirst.mockResolvedValue(null);
+    f.prisma.reviewRequestedIntent.create.mockResolvedValue({
+      requestId: "hosted-grant-created",
+    });
+    await expect(f.resolver.resolve(request)).resolves.toMatchObject({
+      visibility: "public",
+      pullRequestNumber: 42,
+      reviewHeadSha: headSha,
+    });
+    expect(f.reader.readMergeBaseSha).toHaveBeenCalledWith({
+      githubInstallationId: "456",
+      owner: "owner",
+      repository: "repo",
+      baseSha: review.baseSha,
+      headSha,
+    });
+    expect(f.prisma.reviewRequestedIntent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          workspaceId: "workspace",
+          repositoryConnectionId: "repository",
+          scmRepositoryIdentityId: "scm",
+          pullRequestNumber: 42,
+          headSha,
+          sourceRunId: "10",
+          sourceRunAttempt: "1",
+          state: "awaiting_authorization",
+          admissionState: "admitted",
+        }),
+      }),
+    );
+  });
+  it("binds an admitted webhook intent to the hosted Action run", async () => {
+    const f = fixture("public");
+    const bindable = {
+      ...review,
+      requestId: "webhook-intent",
+      reviewRevisionHash: createHash("sha256")
+        .update(canonicalJson(review))
+        .digest("hex"),
+      sourceRunId: null,
+      sourceRunAttempt: null,
+    };
+    f.prisma.reviewRequestedIntent.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(bindable);
+    f.prisma.reviewRequestedIntent.updateMany.mockResolvedValue({ count: 1 });
+    await expect(f.resolver.resolve(request)).resolves.toMatchObject({
+      reviewRequestId: "webhook-intent",
+      reviewHeadSha: headSha,
+    });
+    expect(f.prisma.reviewRequestedIntent.create).not.toHaveBeenCalled();
+    expect(f.prisma.reviewRequestedIntent.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          requestId: "webhook-intent",
+          sourceRunId: null,
+        }),
+        data: expect.objectContaining({
+          sourceRunId: "10",
+          sourceRunAttempt: "1",
+        }),
+      }),
+    );
+  });
+  it("rejects a non-pull-request caller ref before creating an intent", async () => {
+    const f = fixture("public");
+    await expect(
+      f.resolver.resolve({
+        ...request,
+        claims: { ...request.claims, ref: "refs/heads/main" },
+      }),
+    ).rejects.toThrow("hosted_pull_request_ref_invalid");
+    expect(f.prisma.reviewRequestedIntent.findFirst).not.toHaveBeenCalled();
     expect(f.reader.readPullRequestAuthority).not.toHaveBeenCalled();
   });
 });
