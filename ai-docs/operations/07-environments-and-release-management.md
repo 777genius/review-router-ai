@@ -43,6 +43,12 @@ using OIDC flows. The lookup must retain the same numeric repository ID; do not
 rename the public Action registration. Existing `-e2e` repository references,
 historical release evidence, and old-layout paths in ADR mappings stay intact.
 
+Inspect repository and environment variables for
+`REVIEW_ROUTER_RELEASE_CONTROL_REPOSITORY`: any configured value must match the
+new full name before running the private-network rollout. Image attestation
+policies also bind the source repository name; retain historical attestations
+as issued and generate fresh evidence for future releases.
+
 ## Channels
 
 ```text
