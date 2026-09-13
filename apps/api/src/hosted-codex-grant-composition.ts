@@ -33,9 +33,12 @@ import {
 } from "@reviewrouter/features-hosted-account-pool";
 import {
   assertExactHostedPoolCallerWorkflow,
+  canonicalHostedPoolReusableWorkflowIdentity,
+  readCanonicalHostedPoolWorkflowMetadata,
   type HostedPoolWorkflowSourceAttestation,
   hostedPoolWorkflowSchemaVersion,
 } from "@reviewrouter/features-workflow-provisioning";
+import { resolveReviewRouterCodexRotatingTrustedActionRefs } from "@reviewrouter/platform-config";
 import { SystemClock, type Clock } from "@reviewrouter/shared";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
@@ -120,6 +123,7 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       readonly clock: Clock;
       readonly relayUrl: string;
       readonly oidcAudience?: string;
+      readonly trustedActionRefs?: readonly string[];
       readonly policy: HostedCodexGrantPolicy;
     },
   ) {}
@@ -142,6 +146,10 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       bindingVersion: input.bindingVersion,
       now,
     });
+    const liveJob = resolveAllowlistedLiveHostedJobIdentity(
+      admission,
+      this.dependencies.trustedActionRefs ?? [],
+    );
     validateOidcClaimsAgainstRepository({
       claims,
       repository: {
@@ -157,6 +165,8 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
           admission.workflowSource,
           admission.workflowJobSource,
           admission.workflowExecutionSource,
+          liveJob.workflowJobSource,
+          liveJob.workflowExecutionSource,
         ],
       },
     });
@@ -168,7 +178,8 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       throw new Error("hosted_repository_visibility_ineligible");
     }
     assertExactClientBinding(input, admission);
-    assertExactWorkflowClaims(claims, admission);
+    assertExactWorkflowClaims(claims, { ...admission, ...liveJob });
+    const attestedWorkflow = workflowBytesForAttestedActionPin(admission);
     assertExactHostedPoolCallerWorkflow({
       attestation: admission.workflowAttestation,
       repositoryId: admission.githubRepositoryId,
@@ -177,8 +188,8 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       admittedHeadSha: admission.workflowSourceCommitSha,
       expectedBindingId: admission.bindingId,
       expectedBindingRevision: admission.bindingRevision,
-      expectedWorkflow: admission.workflowContents,
-      expectedWorkflowSourceBlobSha: admission.workflowSourceBlobSha,
+      expectedWorkflow: attestedWorkflow.contents,
+      expectedWorkflowSourceBlobSha: attestedWorkflow.blobSha,
     });
     const expiresAt = new Date(now.getTime() + this.dependencies.policy.ttlMs);
     const invocationIdentity = sha256(
@@ -382,6 +393,7 @@ export function createProductionHostedCodexGrantIssuer(input: {
   return new HostedCodexGrantIssuer({
     oidcVerifier: new JoseGitHubActionsOidcTokenVerifier(),
     replayNonces: new PrismaActionOidcReplayNonceStore(input.prisma),
+    trustedActionRefs: resolveTrustedHostedActionRefs(input.env),
     admissions: new PrismaHostedCodexGrantAdmission(
       input.prisma,
       input.workflowSources,
@@ -481,6 +493,79 @@ class HmacHostedCodexCapabilityIssuer implements InvocationGrantCapabilityPort {
   }
 }
 
+function rewriteHostedWorkflowActionSha(
+  workflow: string,
+  commitSha: string,
+): string {
+  const sha = commitSha.toLowerCase();
+  return workflow
+    .replace(
+      /(\.github\/workflows\/reviewrouter-t0-reusable\.yml@)[a-f0-9]{40}/giu,
+      `$1${sha}`,
+    )
+    .replace(/(runtime_ref: ")[a-f0-9]{40}(")/giu, `$1${sha}$2`);
+}
+
+function workflowBytesForAttestedActionPin(
+  admission: HostedCodexGrantAdmission,
+): { readonly contents: string; readonly blobSha: string } {
+  const rewritten = rewriteHostedWorkflowActionSha(
+    admission.workflowContents,
+    admission.workflowJobSha,
+  );
+  if (rewritten === admission.workflowContents) {
+    return {
+      contents: admission.workflowContents,
+      blobSha: admission.workflowSourceBlobSha,
+    };
+  }
+  if (sha256(rewritten) !== admission.workflowAttestation.workflowSourceSha256) {
+    return {
+      contents: admission.workflowContents,
+      blobSha: admission.workflowSourceBlobSha,
+    };
+  }
+  return {
+    contents: rewritten,
+    blobSha: admission.workflowAttestation.workflowSourceBlobSha,
+  };
+}
+
+function resolveAllowlistedLiveHostedJobIdentity(
+  admission: HostedCodexGrantAdmission,
+  trustedActionRefs: readonly string[],
+): {
+  readonly workflowJobSource: string;
+  readonly workflowExecutionSource: string;
+  readonly workflowJobSha: string;
+} {
+  const live = readCanonicalHostedPoolWorkflowMetadata(
+    admission.workflowContents,
+  );
+  const liveJob = canonicalHostedPoolReusableWorkflowIdentity(live.actionRef);
+  if (liveJob.sha === admission.workflowJobSha) {
+    return {
+      workflowJobSource: admission.workflowJobSource,
+      workflowExecutionSource: admission.workflowExecutionSource,
+      workflowJobSha: admission.workflowJobSha,
+    };
+  }
+  const allowed = new Set(
+    trustedActionRefs.map((ref) => ref.trim().toLowerCase()),
+  );
+  if (!allowed.has(live.actionRef.toLowerCase())) {
+    throw new Error("hosted_workflow_action_ref_not_allowed");
+  }
+  return {
+    workflowJobSource: liveJob.ref,
+    workflowExecutionSource: liveJob.ref.replace(
+      /\/reviewrouter-t0-reusable\.yml@/u,
+      "/reviewrouter-execution-reusable.yml@",
+    ),
+    workflowJobSha: liveJob.sha,
+  };
+}
+
 function assertExactWorkflowClaims(
   claims: GitHubActionsOidcClaims,
   admission: HostedCodexGrantAdmission,
@@ -572,6 +657,16 @@ function readCapabilityKey(
     throw new Error("hosted_capability_hmac_key_invalid");
   }
   return key;
+}
+
+function resolveTrustedHostedActionRefs(
+  env: Readonly<Record<string, string | undefined>>,
+): readonly string[] {
+  try {
+    return resolveReviewRouterCodexRotatingTrustedActionRefs(env);
+  } catch {
+    return [];
+  }
 }
 
 function definedString<K extends string>(key: K, value: string | undefined) {
