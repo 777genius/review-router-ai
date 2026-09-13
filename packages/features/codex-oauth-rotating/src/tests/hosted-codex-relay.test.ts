@@ -418,13 +418,13 @@ describe("hosted Codex relay transport", () => {
 
   it("queues a third Codex body instead of returning proxy_replay_fenced", async () => {
     let upstreamCalls = 0;
-    let releaseFirst!: () => void;
-    const firstHeld = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
+    let releaseHeld!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseHeld = resolve;
     });
-    let firstUpstreamStarted!: () => void;
-    const firstUpstream = new Promise<void>((resolve) => {
-      firstUpstreamStarted = resolve;
+    let secondUpstreamStarted!: () => void;
+    const secondUpstream = new Promise<void>((resolve) => {
+      secondUpstreamStarted = resolve;
     });
     const proxy = await startHostedCodexRelayProxy({
       grant: "opaque-relay-grant",
@@ -438,10 +438,8 @@ describe("hosted Codex relay transport", () => {
       policy: { maxRequests: 3 },
       fetchImpl: vi.fn(async () => {
         upstreamCalls += 1;
-        if (upstreamCalls === 1) {
-          firstUpstreamStarted();
-          await firstHeld;
-        }
+        if (upstreamCalls === 2) secondUpstreamStarted();
+        if (upstreamCalls <= 2) await held;
         return new Response("data: [DONE]\n\n", {
           status: 200,
           headers: { "content-type": "text/event-stream" },
@@ -452,19 +450,22 @@ describe("hosted Codex relay transport", () => {
       const first = fetch(`${proxy.baseUrl}/responses`, {
         method: "POST",
         body: JSON.stringify({ input: "first" }),
+        keepalive: false,
       });
-      await firstUpstream;
       const second = fetch(`${proxy.baseUrl}/responses`, {
         method: "POST",
         body: JSON.stringify({ input: "second" }),
+        keepalive: false,
       });
+      await secondUpstream;
       const thirdStarted = fetch(`${proxy.baseUrl}/responses`, {
         method: "POST",
         body: JSON.stringify({ input: "third" }),
+        keepalive: false,
       });
       await new Promise<void>((resolve) => setTimeout(resolve, 20));
       expect(upstreamCalls).toBe(2);
-      releaseFirst();
+      releaseHeld();
       const [firstResponse, secondResponse, thirdResponse] = await Promise.all([
         first,
         second,
@@ -476,7 +477,7 @@ describe("hosted Codex relay transport", () => {
       expect(upstreamCalls).toBe(3);
       expect(proxy.failoverReason()).toBeUndefined();
     } finally {
-      releaseFirst();
+      releaseHeld();
       await proxy.close();
     }
   });
@@ -517,11 +518,13 @@ describe("hosted Codex relay transport", () => {
       const first = fetch(`${proxy.baseUrl}/responses`, {
         method: "POST",
         body: JSON.stringify({ input: "first" }),
+        keepalive: false,
       });
       await firstUpstream;
       const second = await fetch(`${proxy.baseUrl}/responses`, {
         method: "POST",
         body: JSON.stringify({ input: "second" }),
+        keepalive: false,
       });
       expect(second.status).toBe(200);
       expect(await second.text()).toBe("data: [DONE]\n\n");
@@ -636,18 +639,33 @@ describe("hosted Codex relay transport", () => {
       }) as unknown as typeof fetch,
     });
     try {
-      await expect(
-        fetch(`${proxy.baseUrl}/responses`, {
-          method: "POST",
-          body: "{}",
-        }).then((response) => response.text()),
-      ).rejects.toThrow();
+      const first = await fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+        keepalive: false,
+      }).then(
+        async (response) => {
+          await expect(response.text()).rejects.toThrow();
+          return "rejected-body" as const;
+        },
+        (error: unknown) => {
+          expect(error).toBeInstanceOf(Error);
+          return "rejected-fetch" as const;
+        },
+      );
+      expect(["rejected-body", "rejected-fetch"]).toContain(first);
       const replay = await fetch(`${proxy.baseUrl}/responses`, {
         method: "POST",
         body: "{}",
-      });
-      expect(replay.status).not.toBe(409);
-      await replay.text().catch(() => undefined);
+        keepalive: false,
+      }).then(
+        async (response) => {
+          await response.text().catch(() => undefined);
+          return response.status;
+        },
+        () => 0,
+      );
+      expect(replay).not.toBe(409);
     } finally {
       await proxy.close();
     }

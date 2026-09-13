@@ -522,8 +522,8 @@ describe("HostedCodexCommentTokenIssuer durable protocol", () => {
         workspaceId: "workspace-1",
         poolId: "pool-1",
         grantId: "grant-1",
-        grantStatus: "issued",
-        grantExpiresAt: new Date("2026-08-25T13:00:00.000Z"),
+        grantStatus: "expired",
+        grantExpiresAt: instant,
         grantRevokedAt: null,
         secretEnvelope: durableEnvelope!,
       },
@@ -657,6 +657,8 @@ function gateFixture(
     finalizeRevoked: vi.fn(async () => {
       calls.push("revoked");
     }),
+    releaseRevocation: vi.fn(async () => undefined),
+    claimRevocations: vi.fn(async () => []),
     observe: vi.fn(async () => null),
   } as never;
 }
