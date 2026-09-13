@@ -3,9 +3,19 @@ import { describe, expect, it, vi } from "vitest";
 import {
   composeHostedCodexRelayRoutes,
   composeProductionHostedCodexRelayRoutes,
+  hostedCodexSseDoneTrailer,
   hostedCommentTokenGrantStillLive,
   readHostedCodexFeatureFlags,
 } from "./hosted-codex-relay-composition";
+
+describe("hosted Codex SSE done trailer", () => {
+  it("appends data: [DONE] when the upstream stream omitted it", () => {
+    expect(hostedCodexSseDoneTrailer("data: one\n\n")?.toString("utf8")).toBe(
+      "data: [DONE]\n\n",
+    );
+    expect(hostedCodexSseDoneTrailer("data: [DONE]\n\n")).toBeNull();
+  });
+});
 
 describe("hosted comment token grant liveness", () => {
   const now = new Date("2026-09-13T05:24:13.000Z");

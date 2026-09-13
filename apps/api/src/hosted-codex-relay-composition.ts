@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Transform, type Readable } from "node:stream";
 import {
   CredentialEnvelopeVault,
   FetchHostedCodexStreamingRelay,
@@ -285,7 +286,14 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
     relay: {
       async open(request) {
         await restore.assertRelayReady();
-        return relay.open(request);
+        const opened = await relay.open(request);
+        return {
+          ...opened,
+          body: appendHostedCodexSseDoneTrailer(
+            opened.body,
+            opened.headers["content-type"],
+          ),
+        };
       },
     },
   };
@@ -364,6 +372,44 @@ export function composeProductionHostedCodexRestoreReconciler(input: {
     undefined,
     undefined,
     hostedCodexAcceptedRelayCustodyModes(input.env),
+  );
+}
+
+const sseCompletionTailBytes = 8_192;
+const sseDoneLine = "data: [DONE]";
+
+export function hostedCodexSseDoneTrailer(tail: string): Buffer | null {
+  const lastLine = tail
+    .replace(/\r\n/g, "\n")
+    .trimEnd()
+    .split("\n")
+    .at(-1)
+    ?.trim();
+  if (lastLine === sseDoneLine) return null;
+  const prefix = tail.length === 0 || tail.endsWith("\n") ? "" : "\n";
+  return Buffer.from(`${prefix}${sseDoneLine}\n\n`);
+}
+
+export function appendHostedCodexSseDoneTrailer(
+  body: Readable,
+  contentType: string | undefined,
+): Readable {
+  const mediaType = contentType?.toLowerCase().split(";", 1)[0]?.trim();
+  if (mediaType !== undefined && mediaType !== "text/event-stream") return body;
+  let tail = "";
+  return body.pipe(
+    new Transform({
+      transform(chunk, _encoding, callback) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        tail = `${tail}${buffer.toString("utf8")}`.slice(-sseCompletionTailBytes);
+        callback(null, buffer);
+      },
+      flush(callback) {
+        const trailer = hostedCodexSseDoneTrailer(tail);
+        if (trailer) this.push(trailer);
+        callback();
+      },
+    }),
   );
 }
 
