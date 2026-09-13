@@ -329,6 +329,7 @@ function sendSafeError(
       : message.includes("not_configured") ||
           message.includes("unavailable") ||
           message.includes("no_healthy_account") ||
+          message.includes("custody_not_ready") ||
           message.includes("connection pool") ||
           message.includes("P2024")
         ? 503

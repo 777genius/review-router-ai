@@ -14,6 +14,21 @@ import { PrismaHostedCommentTokenMintLedger } from "../infrastructure/prisma/pri
 const now = new Date("2026-08-25T12:00:00.000Z");
 const token = "github-installation-token";
 
+function closureResult(
+  claimed: number,
+  revoked: number,
+  deferredLive = 0,
+  deferredFailed = 0,
+) {
+  return {
+    claimed,
+    revoked,
+    deferred: deferredLive + deferredFailed,
+    deferredLive,
+    deferredFailed,
+  };
+}
+
 describe("HostedCommentTokenClosureReconciler", () => {
   it("runs bounded no-network stale recovery before revocation claims", async () => {
     const calls: string[] = [];
@@ -35,11 +50,7 @@ describe("HostedCommentTokenClosureReconciler", () => {
       batchSize: 3,
     });
 
-    await expect(reconciler.reconcile()).resolves.toEqual({
-      claimed: 0,
-      revoked: 0,
-      deferred: 0,
-    });
+    await expect(reconciler.reconcile()).resolves.toEqual(closureResult(0, 0));
     expect(calls).toEqual(["recover:3", "claim"]);
     expect(provider.revoke).not.toHaveBeenCalled();
   });
@@ -320,17 +331,36 @@ describe("HostedCommentTokenClosureReconciler", () => {
       ownerIdHash: sha256("worker"),
     });
 
-    await expect(reconciler.reconcile()).resolves.toEqual({
-      claimed: 1,
-      revoked: 1,
-      deferred: 0,
-    });
+    await expect(reconciler.reconcile()).resolves.toEqual(closureResult(1, 1));
     expect(calls).toEqual(["claim-commit", "decrypt", "network", "finalize"]);
     expect(ledger.finalizeRevoked).toHaveBeenCalledWith(
       expect.objectContaining({
         fenceEpoch: 3n,
         evidenceHash: sha256(`${sha256(token)}:${sha256("204")}`),
       }),
+    );
+  });
+
+  it("treats a provider grant_still_live fence as live work, not a failed revoke", async () => {
+    const ledger = ledgerFixture([]);
+    const provider = {
+      revoke: vi.fn(async () => {
+        throw new Error("grant_still_live");
+      }),
+    };
+    const reconciler = new HostedCommentTokenClosureReconciler({
+      ledger,
+      provider,
+      now: () => now,
+      ownerIdHash: sha256("worker"),
+      vault: { open: vi.fn(async () => Buffer.from(token)), seal: vi.fn() },
+    });
+
+    await expect(reconciler.reconcile()).resolves.toEqual(
+      closureResult(1, 0, 1, 0),
+    );
+    expect(ledger.releaseRevocation).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: "grant_still_live" }),
     );
   });
 
@@ -358,11 +388,9 @@ describe("HostedCommentTokenClosureReconciler", () => {
       ownerIdHash: sha256("worker"),
     });
 
-    await expect(reconciler.reconcile()).resolves.toEqual({
-      claimed: 1,
-      revoked: 0,
-      deferred: 1,
-    });
+    await expect(reconciler.reconcile()).resolves.toEqual(
+      closureResult(1, 0, 1, 0),
+    );
     expect(calls).toEqual(["claim-commit", "release"]);
     expect(vault.open).not.toHaveBeenCalled();
     expect(provider.revoke).not.toHaveBeenCalled();
@@ -396,19 +424,13 @@ describe("HostedCommentTokenClosureReconciler", () => {
       vault: { open: vi.fn(async () => Buffer.from(token)), seal: vi.fn() },
     });
 
-    await expect(reconciler.reconcile()).resolves.toEqual({
-      claimed: 1,
-      revoked: 0,
-      deferred: 1,
-    });
+    await expect(reconciler.reconcile()).resolves.toEqual(
+      closureResult(1, 0, 0, 1),
+    );
     expect(ledger.releaseRevocation).toHaveBeenCalledWith(
       expect.objectContaining({ errorCode: "provider_revoke_ambiguous" }),
     );
-    await expect(reconciler.reconcile()).resolves.toEqual({
-      claimed: 1,
-      revoked: 1,
-      deferred: 0,
-    });
+    await expect(reconciler.reconcile()).resolves.toEqual(closureResult(1, 1));
     expect(provider.revoke).toHaveBeenCalledTimes(2);
   });
 
@@ -448,11 +470,9 @@ describe("HostedCommentTokenClosureReconciler", () => {
       },
     });
 
-    await expect(reconciler.reconcile()).resolves.toEqual({
-      claimed: 2,
-      revoked: 1,
-      deferred: 1,
-    });
+    await expect(reconciler.reconcile()).resolves.toEqual(
+      closureResult(2, 1, 0, 1),
+    );
     expect(provider.revoke).toHaveBeenCalledOnce();
     expect(ledger.finalizeRevoked).toHaveBeenCalledWith(
       expect.objectContaining({ mintId: "mint-2" }),
@@ -511,11 +531,9 @@ describe("HostedCommentTokenClosureReconciler", () => {
       },
     });
 
-    await expect(reconciler.reconcile()).resolves.toEqual({
-      claimed: 2,
-      revoked: 1,
-      deferred: 1,
-    });
+    await expect(reconciler.reconcile()).resolves.toEqual(
+      closureResult(2, 1, 0, 1),
+    );
     expect(observedSignals).toHaveLength(1);
     expect(observedSignals[0]!.aborted).toBe(true);
     expect(ledger.releaseRevocation).toHaveBeenCalledWith(
@@ -543,11 +561,9 @@ describe("HostedCommentTokenClosureReconciler", () => {
       },
     });
 
-    await expect(reconciler.reconcile()).resolves.toEqual({
-      claimed: 1,
-      revoked: 0,
-      deferred: 1,
-    });
+    await expect(reconciler.reconcile()).resolves.toEqual(
+      closureResult(1, 0, 0, 1),
+    );
     expect(provider.revoke).not.toHaveBeenCalled();
     expect(ledger.releaseRevocation).toHaveBeenCalledWith(
       expect.objectContaining({ errorCode: "revocation_secret_hash_mismatch" }),
@@ -704,6 +720,52 @@ describe("HostedCommentTokenClosureReconciler", () => {
     }
   });
 
+  it("keeps readiness OK when the only deferred work is a still-live grant", async () => {
+    vi.useFakeTimers();
+    const ledger = ledgerFixture([]);
+    ledger.claimRevocations = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([
+        {
+          ...claim(),
+          grantStatus: "issued",
+          grantExpiresAt: new Date(now.getTime() + 60_000),
+          grantRevokedAt: null,
+        },
+      ]);
+    const reconciler = new HostedCommentTokenClosureReconciler({
+      ledger,
+      provider: { revoke: vi.fn() },
+      now: () => now,
+      vault: { open: vi.fn(), seal: vi.fn() },
+    });
+    const handle = startHostedCommentTokenClosureReconciler(reconciler, 10);
+    try {
+      await vi.waitFor(() => expect(handle.health().metrics.successes).toBe(1));
+      expect(handle.health()).toMatchObject({
+        ready: true,
+        status: "ok",
+        reason: "ready",
+      });
+
+      await vi.advanceTimersByTimeAsync(10);
+      expect(handle.health().metrics.successes).toBeGreaterThanOrEqual(2);
+      expect(handle.health()).toMatchObject({
+        ready: true,
+        status: "ok",
+        reason: "ready",
+        metrics: { consecutiveFailures: 0 },
+      });
+      expect(ledger.releaseRevocation).toHaveBeenCalledWith(
+        expect.objectContaining({ errorCode: "grant_still_live" }),
+      );
+    } finally {
+      await handle();
+      vi.useRealTimers();
+    }
+  });
+
   it("marks an overdue active run unhealthy instead of reporting false OK", async () => {
     vi.useFakeTimers();
     let release!: () => void;
@@ -825,17 +887,9 @@ describe("HostedCommentTokenClosureReconciler", () => {
 
     const slowRevoke = replicaA.reconcile();
     await vi.waitFor(() => expect(provider.revoke).toHaveBeenCalledTimes(1));
-    await expect(replicaB.reconcile()).resolves.toEqual({
-      claimed: 0,
-      revoked: 0,
-      deferred: 0,
-    });
+    await expect(replicaB.reconcile()).resolves.toEqual(closureResult(0, 0));
     releaseProvider();
-    await expect(slowRevoke).resolves.toEqual({
-      claimed: 1,
-      revoked: 1,
-      deferred: 0,
-    });
+    await expect(slowRevoke).resolves.toEqual(closureResult(1, 1));
     expect(provider.revoke).toHaveBeenCalledTimes(1);
   });
 });
