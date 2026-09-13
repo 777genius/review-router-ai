@@ -16,7 +16,7 @@ on:
         required: true
         type: string
       release_commit_sha:
-        description: Exact review-router-saas main commit
+        description: Exact review-router-ai main commit
         required: true
         type: string
       action_commit_sha:

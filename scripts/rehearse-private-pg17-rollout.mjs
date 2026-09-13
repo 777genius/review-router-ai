@@ -2801,7 +2801,7 @@ async function verifyProductionPathRehearsal(facts) {
       ownerId: "tea-disposable",
       type: role === "worker" ? "background_worker" : "web_service",
       runtime: "node",
-      repository: "https://github.com/777genius/review-router-saas",
+      repository: "https://github.com/777genius/review-router-ai",
       branch: "main",
       rootDir: "",
       sourceCommitSha: rollout.expectedCommitSha,

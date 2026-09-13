@@ -351,14 +351,14 @@ describe("hosted pool one-shot production canary", () => {
       merged: false,
       merged_at: null,
       head: { sha: releaseSha },
-      base: { repo: { full_name: "777genius/review-router-saas" } },
+      base: { repo: { full_name: "777genius/review-router-ai" } },
       merge_commit_sha: "c".repeat(40),
     };
     expect(() =>
       assertExactReleasePullRequestRevision(openPullRequest, {
         pullRequestNumber: 227,
         releaseHeadSha: releaseSha,
-        repositoryFullName: "777genius/review-router-saas",
+        repositoryFullName: "777genius/review-router-ai",
         errorCode: "mismatch",
       }),
     ).not.toThrow();
@@ -368,7 +368,7 @@ describe("hosted pool one-shot production canary", () => {
         {
           pullRequestNumber: 227,
           releaseHeadSha: releaseSha,
-          repositoryFullName: "777genius/review-router-saas",
+          repositoryFullName: "777genius/review-router-ai",
           errorCode: "mismatch",
         },
       ),
@@ -386,13 +386,13 @@ describe("hosted pool one-shot production canary", () => {
             merged: true,
             merged_at: mergedAt,
             head: { sha: "2".repeat(40) },
-            base: { repo: { full_name: "777genius/review-router-saas" } },
+            base: { repo: { full_name: "777genius/review-router-ai" } },
             merge_commit_sha: releaseSha,
           },
           {
             pullRequestNumber: 245,
             releaseHeadSha: releaseSha,
-            repositoryFullName: "777genius/review-router-saas",
+            repositoryFullName: "777genius/review-router-ai",
             errorCode: "mismatch",
           },
         ),
@@ -415,7 +415,7 @@ describe("hosted pool one-shot production canary", () => {
       merged: true,
       merged_at: "2026-08-29T12:34:56.000Z",
       head: { sha: "2".repeat(40) },
-      base: { repo: { full_name: "777genius/review-router-saas" } },
+      base: { repo: { full_name: "777genius/review-router-ai" } },
       merge_commit_sha: releaseSha,
     };
     expect(() =>
@@ -424,7 +424,7 @@ describe("hosted pool one-shot production canary", () => {
         {
           pullRequestNumber: 245,
           releaseHeadSha: releaseSha,
-          repositoryFullName: "777genius/review-router-saas",
+          repositoryFullName: "777genius/review-router-ai",
           errorCode: "mismatch",
         },
       ),
@@ -440,13 +440,13 @@ describe("hosted pool one-shot production canary", () => {
           merged: false,
           merged_at: null,
           head: { sha: "2".repeat(40) },
-          base: { repo: { full_name: "777genius/review-router-saas" } },
+          base: { repo: { full_name: "777genius/review-router-ai" } },
           merge_commit_sha: releaseSha,
         },
         {
           pullRequestNumber: 245,
           releaseHeadSha: releaseSha,
-          repositoryFullName: "777genius/review-router-saas",
+          repositoryFullName: "777genius/review-router-ai",
           errorCode: "mismatch",
         },
       ),
@@ -470,7 +470,7 @@ describe("hosted pool one-shot production canary", () => {
       merged: true,
       merged_at: "2026-08-29T12:34:56.000Z",
       head: { sha: "2".repeat(40) },
-      base: { repo: { full_name: "777genius/review-router-saas" } },
+      base: { repo: { full_name: "777genius/review-router-ai" } },
       merge_commit_sha: releaseSha,
     };
     expect(() =>
@@ -479,7 +479,7 @@ describe("hosted pool one-shot production canary", () => {
         {
           pullRequestNumber: 245,
           releaseHeadSha: expectedSha,
-          repositoryFullName: "777genius/review-router-saas",
+          repositoryFullName: "777genius/review-router-ai",
           errorCode: "mismatch",
         },
       ),
@@ -558,7 +558,7 @@ describe("hosted pool one-shot production canary", () => {
           merged: true,
           merged_at: "2026-08-29T12:34:56.000Z",
           head: { sha: "2".repeat(40) },
-          base: { repo: { full_name: "777genius/review-router-saas" } },
+          base: { repo: { full_name: "777genius/review-router-ai" } },
           merge_commit_sha: releaseSha,
           ...releasePatch,
         },
@@ -588,7 +588,7 @@ describe("hosted pool one-shot production canary", () => {
         }
         expect(fetchMock).toHaveBeenCalledTimes(reachesActionsLookup ? 6 : 5);
         expect(fetchMock.mock.calls[4]?.[0]).toBe(
-          "https://api.github.com/repos/777genius/review-router-saas/pulls/227",
+          "https://api.github.com/repos/777genius/review-router-ai/pulls/227",
         );
         expect(
           fetchMock.mock.calls.some(([request]) =>
@@ -1021,7 +1021,7 @@ describe("single-repository publication baseline integration", () => {
           sha: blobSha,
           content: Buffer.from(workflow).toString("base64"),
         };
-      else if (path.startsWith("/repos/777genius/review-router-saas/pulls/"))
+      else if (path.startsWith("/repos/777genius/review-router-ai/pulls/"))
         body = {
           number: config.releasePullRequestNumber,
           state: "open",
@@ -1029,7 +1029,7 @@ describe("single-repository publication baseline integration", () => {
           merged_at: null,
           head: { sha: releaseSha },
           merge_commit_sha: "c".repeat(40),
-          base: { repo: { full_name: "777genius/review-router-saas" } },
+          base: { repo: { full_name: "777genius/review-router-ai" } },
         };
       else if (/\/actions\/runs\/\d+\/rerun$/.test(path)) {
         expect(init?.method).toBe("POST");

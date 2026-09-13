@@ -9,7 +9,7 @@ file instead of duplicating the process there.
 ReviewRouter has two release-coupled repositories:
 
 - `777genius/review-router` - customer GitHub Action and reusable workflow entrypoint.
-- `777genius/review-router-saas` - SaaS control plane and trusted conflict-runtime checkout.
+- `777genius/review-router-ai` - self-hosted control plane and trusted conflict-runtime checkout.
 
 Generated reusable workflows use the same ref for both layers:
 
@@ -19,8 +19,29 @@ runtime_ref: v1
 ```
 
 For conflict review, `runtime_ref` is also used to checkout
-`777genius/review-router-saas`. That means compatible releases must keep the two
+`777genius/review-router-ai`. That means compatible releases must keep the two
 repos on matching exact tags, for example `v1.0.39` in both repositories.
+
+## GitHub Repository Rename Operations
+
+The control-plane repository rename changes `777genius/review-router-saas` to
+`777genius/review-router-ai`. A GitHub rename retains the repository ID and
+redirects old HTTPS and SSH clone URLs, but maintained references must use the
+new slug. Update links and checkout URLs in both repositories, Render
+source bindings, and local `origin` remotes. Verify seed and reseed URLs still
+resolve through the unchanged public Action repository. The
+customer Action repository remains `777genius/review-router`; its reusable
+workflow references and immutable tags are unchanged. Do not recreate the old
+slug or move immutable release tags.
+
+The GHCR `review-router-saas-runtime` image namespace is a separate artifact
+identity and remains unchanged for digest and policy compatibility. This
+subsection records required operations and does not assert that rename cutover
+is complete. When this repository is itself registered, verify that the
+`repository.renamed` webhook updates its `RepositoryConnection.fullName` before
+using OIDC flows. The lookup must retain the same numeric repository ID; do not
+rename the public Action registration. Existing `-e2e` repository references,
+historical release evidence, and old-layout paths in ADR mappings stay intact.
 
 ## Channels
 
@@ -108,7 +129,7 @@ Then commit and push the resulting public Action repo changes to
 The `Sync Public Action Runtime` GitHub workflow performs this automatically
 after a successful SaaS `CI` run on `main`. It requires one cross-repository
 credential because the default `GITHUB_TOKEN` is scoped to
-`777genius/review-router-saas` and cannot push to `777genius/review-router`.
+`777genius/review-router-ai` and cannot push to `777genius/review-router`.
 
 Preferred credential:
 
@@ -129,7 +150,7 @@ For a new public/stable runtime release:
 1. Release 777genius/review-router at v1.0.x
 2. Pin REVIEW_ROUTER_PAIRED_ACTION_REF in SaaS CI to that exact Action commit
 3. Merge the pin and wait for SaaS CI on the resulting exact commit
-4. Release 777genius/review-router-saas at the same v1.0.x
+4. Release 777genius/review-router-ai at the same v1.0.x
 5. Verify both v1 tags resolve to the new exact release commits
 6. Verify generated/setup PRs still use @v1 unless an exact pin was requested
 ```
@@ -182,9 +203,9 @@ The Action `Release` workflow validates:
 Only after those gates pass, it creates `v1.0.x`, force-moves `v1`, and creates
 the GitHub Release.
 
-## SaaS Runtime Release
+## Self-hosted Control Plane Runtime Release
 
-Repository: `777genius/review-router-saas`.
+Repository: `777genius/review-router-ai`.
 
 ### Release Authority schema ordering
 
@@ -246,7 +267,7 @@ Run the GitHub Actions workflow:
 
 ```bash
 gh workflow run release.yml \
-  -R 777genius/review-router-saas \
+  -R 777genius/review-router-ai \
   --ref main \
   -f version=v1.0.40 \
   -f create_github_release=true
@@ -288,7 +309,7 @@ the GitHub Release. Hosted beta production keeps `REVIEW_ROUTER_ACTION_REF` on
 
 ```bash
 gh workflow run release.yml \
-  -R 777genius/review-router-saas \
+  -R 777genius/review-router-ai \
   --ref main \
   -f version=v1.0.40 \
   -f create_github_release=true \
@@ -328,13 +349,13 @@ Verify both stable tags:
 
 ```bash
 git ls-remote --tags https://github.com/777genius/review-router.git refs/tags/v1 refs/tags/v1.0.40
-git ls-remote --tags https://github.com/777genius/review-router-saas.git refs/tags/v1 refs/tags/v1.0.40
+git ls-remote --tags https://github.com/777genius/review-router-ai.git refs/tags/v1 refs/tags/v1.0.40
 ```
 
 Expected:
 
 - `777genius/review-router@v1` points to the Action `v1.0.x` commit.
-- `777genius/review-router-saas@v1` points to the SaaS `v1.0.x` commit.
+- `777genius/review-router-ai@v1` points to the control-plane `v1.0.x` commit.
 - both GitHub Releases exist and are not draft/prerelease.
 - new setup PRs that use stable mode still generate `@v1` and `runtime_ref: v1`.
 - exact pinned mode generates the new `v1.0.x`.
@@ -442,7 +463,7 @@ Helpful emergency checks:
 
 ```bash
 git ls-remote --tags https://github.com/777genius/review-router.git refs/tags/v1 refs/tags/v1.0.39
-git ls-remote --tags https://github.com/777genius/review-router-saas.git refs/tags/v1 refs/tags/v1.0.39
+git ls-remote --tags https://github.com/777genius/review-router-ai.git refs/tags/v1 refs/tags/v1.0.39
 ```
 
 ## Database Release Rule

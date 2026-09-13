@@ -6,7 +6,7 @@ ReviewRouter generates workflows that run in customer repositories. Dependencies
 
 ## Generated Workflow Defaults
 
-For public production SaaS-generated workflows other than rotating Codex OAuth:
+For public production control-plane-generated workflows other than rotating Codex OAuth:
 
 - ReviewRouter Action defaults to `777genius/review-router@main` during hosted beta
 - third-party actions should use stable version tags initially for usability
@@ -55,7 +55,7 @@ Local beta policy:
 
 ## Lockfiles and App Dependencies
 
-SaaS repo:
+Control-plane repo:
 
 - lockfile committed
 - dependency updates through PR
@@ -91,7 +91,7 @@ This should resolve action versions to full commit SHA and show update PRs when 
 latest vetted compatible `v1.0.x` release in both ReviewRouter repositories:
 
 - `777genius/review-router@v1` - customer workflow/reusable workflow entrypoint
-- `777genius/review-router-saas@v1` - trusted runtime checkout used by reusable workflows
+- `777genius/review-router-ai@v1` - trusted runtime checkout used by reusable workflows
 
 Move `v1` only through the release workflows documented in
 [`07-environments-and-release-management.md`](./07-environments-and-release-management.md).

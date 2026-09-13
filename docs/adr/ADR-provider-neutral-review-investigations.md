@@ -106,7 +106,7 @@ Tradeoffs:
 
 Recorded 2026-08-03:
 
-- SaaS/control plane: `777genius/review-router-saas`, branch
+- Self-hosted control plane: `777genius/review-router-ai`, branch
   `feat/review-investigation-foundation`, baseline `f2283b4a`;
 - public Action: `777genius/review-router`, branch
   `feat/review-investigation-protocol`, baseline `fb92cf4`.

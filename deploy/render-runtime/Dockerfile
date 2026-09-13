@@ -42,7 +42,7 @@ FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea05
 ARG IMAGE_REVISION
 ARG IMAGE_VERSION
 
-LABEL org.opencontainers.image.source="https://github.com/777genius/review-router-saas" \
+LABEL org.opencontainers.image.source="https://github.com/777genius/review-router-ai" \
       org.opencontainers.image.revision="${IMAGE_REVISION}" \
       org.opencontainers.image.version="${IMAGE_VERSION}"
 

@@ -55,8 +55,8 @@ revision and transfer credentials through a secure channel.
 On the **host**, clone and install:
 
 ```bash
-git clone https://github.com/777genius/review-router-saas.git
-cd review-router-saas
+git clone https://github.com/777genius/review-router-ai.git
+cd review-router-ai
 corepack enable
 pnpm install --frozen-lockfile
 cp deploy/self-hosted/.env.example deploy/self-hosted/.env

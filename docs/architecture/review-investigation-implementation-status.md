@@ -41,7 +41,7 @@ Updated: 2026-08-04
 - Public Action PR `777genius/review-router#86` is merged. Immutable release
   commit `295e76f7777a995b8fd0b0bb0a36788429c89b83` is an ancestor of Action
   `main` merge commit `cde842c08ba0c58ca1d606beb8da86fd2eb089c2`.
-- SaaS PR `777genius/review-router-saas#103` is merged at
+- Control-plane PR `777genius/review-router-ai#103` is merged at
   `126d0d13e38ba31112be85879e5b3429f4e5870d`. Its CI passed Quality Gates,
   paired Action/SaaS production-shaped E2E, hosted readiness, and disposable
   self-hosted E2E.

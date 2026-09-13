@@ -1703,7 +1703,7 @@ export async function fetchTrustedMigrationEvidence(
   return fetchTrustedGitHubEvidence(
     {
       token: requiredEnv("REVIEW_ROUTER_ROLLOUT_GITHUB_TOKEN", env),
-      repository: "777genius/review-router-saas",
+      repository: "777genius/review-router-ai",
       repositoryId: requiredEnv(
         "REVIEW_ROUTER_ROLLOUT_EVIDENCE_REPOSITORY_ID",
         env,
