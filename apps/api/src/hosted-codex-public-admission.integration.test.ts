@@ -128,8 +128,8 @@ function fixture(visibility: string, observed: Record<string, unknown> = {}) {
       ...observed,
     })),
     readMergeBaseSha: vi.fn(async () => review.mergeBaseSha),
-    readWorkflowAtRevision: vi.fn(async () => ({
-      commitSha: headSha,
+    readWorkflowAtRevision: vi.fn(async ({ revisionSha }) => ({
+      commitSha: revisionSha,
       blobSha: "3".repeat(40),
       contents: "fixture source",
     })),
@@ -310,6 +310,62 @@ describe("main integration: authoritative public admission", () => {
     expect(f.reader.readWorkflowAtRevision).toHaveBeenCalledWith(
       expect.objectContaining({ revisionSha: mergeSha }),
     );
+  });
+  it("accepts a last-changed workflow ancestor when the live YAML is pin-equivalent", async () => {
+    const ancestorSha = "8".repeat(40);
+    const f = fixture("public");
+    const yaml = (sha: string) =>
+      `uses: 777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${sha}\n      runtime_ref: "${sha}"\n`;
+    f.reader.readMergeBaseSha.mockImplementation(async ({ baseSha, headSha: comparedHead }) =>
+      baseSha === ancestorSha && comparedHead === headSha
+        ? ancestorSha
+        : review.mergeBaseSha,
+    );
+    f.reader.readWorkflowAtRevision.mockImplementation(async ({ revisionSha }) => ({
+      commitSha: revisionSha,
+      blobSha: "3".repeat(40),
+      contents: yaml(revisionSha === ancestorSha ? "1".repeat(40) : "2".repeat(40)),
+    }));
+    await expect(
+      f.resolver.resolve({
+        ...request,
+        claims: { ...request.claims, workflow_sha: ancestorSha },
+      }),
+    ).resolves.toMatchObject({
+      reviewHeadSha: headSha,
+      workflowSourceCommitSha: ancestorSha,
+    });
+  });
+  it("rejects a workflow ancestor whose pin-normalized YAML differs from HEAD", async () => {
+    const ancestorSha = "8".repeat(40);
+    const f = fixture("public");
+    f.reader.readMergeBaseSha.mockResolvedValue(ancestorSha);
+    f.reader.readWorkflowAtRevision.mockImplementation(async ({ revisionSha }) => ({
+      commitSha: revisionSha,
+      blobSha: "3".repeat(40),
+      contents:
+        revisionSha === ancestorSha
+          ? "name: old\n"
+          : "name: new\n",
+    }));
+    await expect(
+      f.resolver.resolve({
+        ...request,
+        claims: { ...request.claims, workflow_sha: ancestorSha },
+      }),
+    ).rejects.toThrow("hosted_workflow_caller_revision_mismatch");
+  });
+  it("rejects a caller workflow SHA that is not an ancestor of HEAD", async () => {
+    const outsiderSha = "9".repeat(40);
+    const f = fixture("public");
+    f.reader.readMergeBaseSha.mockResolvedValue(review.mergeBaseSha);
+    await expect(
+      f.resolver.resolve({
+        ...request,
+        claims: { ...request.claims, workflow_sha: outsiderSha },
+      }),
+    ).rejects.toThrow("hosted_workflow_caller_revision_mismatch");
+    expect(f.reader.readWorkflowAtRevision).not.toHaveBeenCalled();
   });
   it("rejects a non-pull-request caller ref before creating an intent", async () => {
     const f = fixture("public");

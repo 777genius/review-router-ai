@@ -13,6 +13,7 @@ import {
 } from "@reviewrouter/features-workflow-provisioning";
 import {
   assertHostedPoolPullRequestAuthority,
+  hostedWorkflowSourcesArePinEquivalent,
   type HostedPoolPullRequestAuthority,
   type HostedCodexGrantAdmission,
   type HostedCodexGrantAdmissionPort,
@@ -252,7 +253,17 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
       callerRevisionSha !== reviewHeadSha &&
       callerRevisionSha !== mergeCommitSha
     ) {
-      throw new Error("hosted_workflow_caller_revision_mismatch");
+      const callerAncestry = await this.workflowSources.readMergeBaseSha({
+        githubInstallationId:
+          repository.installation.githubInstallationId.toString(),
+        owner: repository.owner,
+        repository: repository.name,
+        baseSha: callerRevisionSha,
+        headSha: reviewHeadSha,
+      });
+      if (callerAncestry !== callerRevisionSha) {
+        throw new Error("hosted_workflow_caller_revision_mismatch");
+      }
     }
     const liveSource = await this.workflowSources.readWorkflowAtRevision({
       githubInstallationId:
@@ -270,6 +281,27 @@ export class PrismaHostedCodexGrantAdmission implements HostedCodexGrantAdmissio
       !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(liveSource.blobSha)
     ) {
       throw new Error("hosted_workflow_source_revision_mismatch");
+    }
+    if (
+      callerRevisionSha !== reviewHeadSha &&
+      callerRevisionSha !== mergeCommitSha
+    ) {
+      const headSource = await this.workflowSources.readWorkflowAtRevision({
+        githubInstallationId:
+          repository.installation.githubInstallationId.toString(),
+        owner: repository.owner,
+        repository: repository.name,
+        revisionSha: reviewHeadSha,
+        workflowPath: attestation.workflowPath,
+      });
+      if (
+        !hostedWorkflowSourcesArePinEquivalent(
+          liveSource.contents,
+          headSource.contents,
+        )
+      ) {
+        throw new Error("hosted_workflow_caller_revision_mismatch");
+      }
     }
     const runtime =
       await this.actionRepositories.findRuntimeReviewConfiguration({

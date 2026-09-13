@@ -17,6 +17,7 @@ import {
 import {
   HostedCodexGrantIssuer,
   assertHostedPoolPullRequestAuthority,
+  hostedWorkflowSourcesArePinEquivalent,
   type HostedPoolPullRequestAuthority,
   type HostedCodexGrantAdmission,
 } from "./hosted-codex-grant-composition.js";
@@ -632,5 +633,20 @@ describe("server-observed Hosted pull request authority", () => {
         pullRequest: { ...observed, ...patch },
       }),
     ).toThrow("hosted_pull_request_authority_mismatch");
+  });
+});
+
+describe("hostedWorkflowSourcesArePinEquivalent", () => {
+  it("treats official and canary Action pins as the same hosted YAML", () => {
+    const official = "29a6e3a1f2a537905fa7fd12e17a50f9d7af323f";
+    const canary = "24fba42b24db9787c447d05fe5c96f3edbd7ab30";
+    const render = (sha: string) =>
+      `uses: 777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${sha}\n      runtime_ref: "${sha}"\n`;
+    expect(
+      hostedWorkflowSourcesArePinEquivalent(render(official), render(canary)),
+    ).toBe(true);
+    expect(
+      hostedWorkflowSourcesArePinEquivalent(render(official), "name: other\n"),
+    ).toBe(false);
   });
 });

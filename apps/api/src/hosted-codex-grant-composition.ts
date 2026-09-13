@@ -493,6 +493,17 @@ class HmacHostedCodexCapabilityIssuer implements InvocationGrantCapabilityPort {
   }
 }
 
+export function hostedWorkflowSourcesArePinEquivalent(
+  left: string,
+  right: string,
+): boolean {
+  const pin = "0".repeat(40);
+  return (
+    rewriteHostedWorkflowActionSha(left, pin) ===
+    rewriteHostedWorkflowActionSha(right, pin)
+  );
+}
+
 function rewriteHostedWorkflowActionSha(
   workflow: string,
   commitSha: string,
