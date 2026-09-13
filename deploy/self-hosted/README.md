@@ -510,3 +510,11 @@ Keep all services on the same git SHA/image tag.
 - Use HTTPS for public web/API URLs. Generated customer workflows depend on
   `REVIEW_ROUTER_PUBLIC_API_URL`.
 - Do not add `pull_request_target` to generated customer workflows.
+
+### Public runtime dependency
+
+The subscription runtime is fetched over HTTPS from the public
+[`777genius/ar`](https://github.com/777genius/ar) repository at the immutable
+commit pinned in `package.json` and `pnpm-lock.yaml`. No GitHub token or SSH deploy
+key is required for this dependency. `@777genius/subscription-runtime` is the
+local dependency/import alias; the upstream package retains its own name.

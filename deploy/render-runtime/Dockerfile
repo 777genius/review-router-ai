@@ -11,31 +11,17 @@ ENV CI=1 \
     PATH=/pnpm:$PATH
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git openssh-client \
+  && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
   && corepack prepare pnpm@10.33.0 --activate
 
-# The optional private dependency is fetched only in this build stage. The SSH
-# key is a BuildKit secret and is never copied into an image layer.
+# Fetch the pinned public dependency over HTTPS in the build stage.
 COPY . .
-RUN --mount=type=secret,id=subscription_runtime_deploy_key_b64 \
-  set -eu; \
-  key_file=/tmp/subscription-runtime-key; \
-  known_hosts=/tmp/subscription-runtime-known-hosts; \
-  if [ -s /run/secrets/subscription_runtime_deploy_key_b64 ]; then \
-    base64 -d /run/secrets/subscription_runtime_deploy_key_b64 > "$key_file"; \
-    chmod 0600 "$key_file"; \
-    printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$known_hosts"; \
-    GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes -o UserKnownHostsFile=$known_hosts -o StrictHostKeyChecking=yes" \
-      pnpm install --frozen-lockfile; \
-    rm -f "$key_file" "$known_hosts"; \
-  else \
-    pnpm install --frozen-lockfile; \
-  fi; \
-  pnpm db:generate; \
-  pnpm build; \
-  pnpm store prune
+RUN pnpm install --frozen-lockfile \
+  && pnpm db:generate \
+  && pnpm build \
+  && pnpm store prune
 
 FROM node:24-bookworm-slim@sha256:65932751ed4073ed02f5c04e494e4b2572a891b7dbea0568a863dc80341bf848 AS runtime
 

@@ -117,7 +117,7 @@ for (const service of ["migrate", "web", "api", "worker"]) {
   );
 }
 requireSelfHostedDependencyIsolation();
-requireSelfHostedPrivateDependencyBuildContract();
+requireSelfHostedPublicDependencyBuildContract();
 
 if (errors.length > 0) {
   console.error("ReviewRouter self-hosted compose contract failed:");
@@ -307,64 +307,53 @@ function requireSelfHostedDependencyIsolation() {
   }
 }
 
-function requireSelfHostedPrivateDependencyBuildContract() {
+function requireSelfHostedPublicDependencyBuildContract() {
   const secretName = "subscription_runtime_deploy_key_b64";
-  if (!dockerfile.startsWith("# syntax=docker/dockerfile:1.7\n")) {
-    errors.push(
-      "self-hosted Dockerfile must enable Dockerfile 1.7 secret mounts.",
-    );
-  }
-  for (const expected of [
-    "apt-get install -y --no-install-recommends git openssh-client",
-    `--mount=type=secret,id=${secretName},required=false`,
+  const deployKeyEnv = "SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64";
+  requireDockerfileText(
     "node scripts/install-private-dependencies.mjs --frozen-lockfile",
-  ]) {
-    requireDockerfileText(expected);
-  }
-  const runtimeStageOffset = dockerfile.indexOf("FROM base AS runtime");
-  const buildOnlyToolOffset = dockerfile.indexOf(
-    "apt-get install -y --no-install-recommends git openssh-client",
   );
+  const buildStageOffset = dockerfile.indexOf("FROM base AS build");
+  const runtimeStageOffset = dockerfile.indexOf("FROM base AS runtime");
+  const gitInstall = "apt-get install -y --no-install-recommends git";
+  const buildOnlyToolOffset = dockerfile.indexOf(gitInstall);
   if (
+    buildStageOffset < 0 ||
     runtimeStageOffset < 0 ||
-    buildOnlyToolOffset < 0 ||
-    buildOnlyToolOffset > runtimeStageOffset
+    buildOnlyToolOffset < buildStageOffset ||
+    buildOnlyToolOffset > runtimeStageOffset ||
+    dockerfile.indexOf(gitInstall, runtimeStageOffset) >= 0
   ) {
-    errors.push(
-      "git and openssh-client must be installed only before the self-hosted runtime stage.",
-    );
+    errors.push("git must be installed only in the self-hosted build stage.");
   }
-  if (
-    compose.secrets?.[secretName]?.environment !==
-    "SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64"
-  ) {
-    errors.push(
-      `${secretName} must source SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 from the build environment.`,
-    );
+  for (const forbidden of [
+    secretName,
+    deployKeyEnv,
+    "openssh-client",
+    "--require-deploy-key",
+  ]) {
+    if (dockerfile.includes(forbidden)) {
+      errors.push(
+        `self-hosted public dependency build must not require ${forbidden}.`,
+      );
+    }
+  }
+  if (compose.secrets?.[secretName]) {
+    errors.push(`self-hosted Compose must not declare obsolete ${secretName}.`);
   }
   for (const serviceName of ["migrate", "web", "api", "worker"]) {
     const secrets = services[serviceName]?.build?.secrets ?? [];
-    if (!secrets.some((secret) => secret.source === secretName)) {
-      errors.push(`service ${serviceName} build must mount ${secretName}.`);
+    if (secrets.some((secret) => (secret.source ?? secret) === secretName)) {
+      errors.push(`service ${serviceName} build must not mount ${secretName}.`);
     }
   }
-  if (
-    !selfHostedCiJob.includes(
-      "SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}",
-    ) ||
-    !selfHostedCiJob.includes("run: pnpm self-hosted:e2e")
-  ) {
-    errors.push(
-      "self-hosted CI must forward SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64.",
-    );
+  if (!selfHostedCiJob.includes("run: pnpm self-hosted:e2e")) {
+    errors.push("self-hosted CI must run pnpm self-hosted:e2e.");
   }
-  if (
-    !selfHostedE2e.includes(
-      'process.env.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 ?? ""',
-    )
-  ) {
-    errors.push(
-      "self-hosted E2E must forward SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 to Compose.",
-    );
+  if (selfHostedCiJob.includes(deployKeyEnv)) {
+    errors.push(`self-hosted CI must not forward ${deployKeyEnv}.`);
+  }
+  if (selfHostedE2e.includes(`process.env.${deployKeyEnv}`)) {
+    errors.push(`self-hosted E2E must not forward ${deployKeyEnv} to Compose.`);
   }
 }

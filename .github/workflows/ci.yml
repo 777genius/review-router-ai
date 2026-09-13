@@ -111,8 +111,6 @@ jobs:
       - name: Enable pnpm
         run: corepack enable
       - name: Install dependencies
-        env:
-          SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate Prisma client
         run: pnpm db:generate
@@ -156,8 +154,6 @@ jobs:
       - name: Enable pnpm
         run: corepack enable
       - name: Install dependencies
-        env:
-          SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate Prisma client
         run: pnpm db:generate
@@ -254,8 +250,6 @@ jobs:
           fi
 
       - name: Install dependencies
-        env:
-          SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
       - name: Prove live rejection, release, and stale recovery
@@ -283,8 +277,6 @@ jobs:
         run: corepack enable
 
       - name: Run disposable self-hosted E2E
-        env:
-          SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
         run: pnpm self-hosted:e2e
 
   hosted-runtime-image:
@@ -309,8 +301,6 @@ jobs:
           platforms: linux/amd64
           push: false
           provenance: false
-          secrets: |
-            subscription_runtime_deploy_key_b64=${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
 
   quality:
     name: Quality Gates
@@ -359,8 +349,6 @@ jobs:
           sudo apt-get install -y --no-install-recommends postgresql-client-17
 
       - name: Install dependencies
-        env:
-          SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
       - name: Generate Prisma client

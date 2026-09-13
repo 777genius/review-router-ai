@@ -148,7 +148,7 @@ function assertFreshExternalSubscriptionRuntime(bundlePath) {
   const bundle = readFileSync(bundlePath, "utf8");
   if (
     !bundle.includes("@vioxen/subscription-runtime 0.1.0-main.28") ||
-    !bundle.includes("777genius/ar@6467c59a06a2ac26e3874cf0d104073e7a6c8a2b")
+    !bundle.includes("777genius/ar@83a7329f4383b05ac5c39356b79f82f029182d42")
   ) {
     throw new Error(
       "action bundle does not include external @vioxen/subscription-runtime; run pnpm action:build from the updated SaaS repo first",
