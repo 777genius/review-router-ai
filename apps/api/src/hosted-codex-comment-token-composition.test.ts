@@ -521,6 +521,10 @@ describe("HostedCodexCommentTokenIssuer durable protocol", () => {
         repositoryFullName: "acme/repo",
         workspaceId: "workspace-1",
         poolId: "pool-1",
+        grantId: "grant-1",
+        grantStatus: "expired",
+        grantExpiresAt: instant,
+        grantRevokedAt: null,
         secretEnvelope: durableEnvelope!,
       },
     ]);
@@ -653,6 +657,8 @@ function gateFixture(
     finalizeRevoked: vi.fn(async () => {
       calls.push("revoked");
     }),
+    releaseRevocation: vi.fn(async () => undefined),
+    claimRevocations: vi.fn(async () => []),
     observe: vi.fn(async () => null),
   } as never;
 }

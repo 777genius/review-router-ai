@@ -189,7 +189,11 @@ describe("hosted pool account failover", () => {
   });
 
   it.each([
-    ["completed 5xx", () => new Response("failed", { status: 500 })],
+    [
+      "completed 5xx",
+      () => new Response("failed", { status: 500 }),
+      "hosted_pool_effect_ambiguous",
+    ],
     [
       "truncated 200",
       () =>
@@ -197,10 +201,11 @@ describe("hosted pool account failover", () => {
           status: 200,
           headers: { "content-type": "text/event-stream" },
         }),
+      "runtime_rejected_response",
     ],
   ] as const)(
     "does not run the outer loop again after a %s",
-    async (_label, relayResponse) => {
+    async (_label, relayResponse, expectedError) => {
       let grantCalls = 0;
       let relayCalls = 0;
       const attempts: number[] = [];
@@ -240,7 +245,7 @@ describe("hosted pool account failover", () => {
             });
           },
         }),
-      ).rejects.toThrow("hosted_pool_effect_ambiguous");
+      ).rejects.toThrow(expectedError);
       expect(attempts).toEqual([1]);
       expect(grantCalls).toBe(1);
       expect(relayCalls).toBe(1);

@@ -266,7 +266,7 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
       await completeFailedRequest(
         input.authorization,
         this.ledger,
-        input.abortSignal.aborted ? "client_disconnected" : "relay_open_failed",
+        safeRelayFailureCode(error, input.abortSignal.aborted),
       );
       throw error;
     }
@@ -294,16 +294,17 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
         requestHash,
       });
       const requestBody = parseRequestJson(rawRequestBody);
-      const maxOutputTokens = clampMaxOutputTokens(
+      clampMaxOutputTokens(
         requestBody.max_output_tokens,
         input.authorization.maxOutputTokens,
       );
+      const sanitizedRequest = { ...requestBody };
+      delete sanitizedRequest.max_output_tokens;
       providerRequestBody = new TextEncoder().encode(
         JSON.stringify({
-          ...requestBody,
+          ...sanitizedRequest,
           model: input.authorization.model,
           store: false,
-          max_output_tokens: maxOutputTokens,
         }),
       );
       return await this.dispatchAuthorized(
@@ -418,7 +419,7 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
           await completeFailedRequest(
             input.authorization,
             this.ledger,
-            "relay_open_failed",
+            safeRelayFailureCode(error, false),
             effectCompletion(
               this.effects,
               effectLease,
@@ -572,6 +573,7 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
         this.effects,
         effectLease,
         upstream.ok,
+        upstream.headers.get("content-type") ?? undefined,
         input.authorization.maxResponseBytes,
         streamHeartbeat,
         this.now,
@@ -747,6 +749,17 @@ function mapRuntimeFailure(
   return null;
 }
 
+function safeRelayFailureCode(error: unknown, aborted: boolean): string {
+  if (aborted) return "client_disconnected";
+  if (
+    error instanceof Error &&
+    /^[a-z][a-z0-9_.:-]{0,118}$/u.test(error.message)
+  ) {
+    return error.message;
+  }
+  return "relay_open_failed";
+}
+
 function safeAccept(value: string | undefined): string {
   if (!value) return "text/event-stream";
   const normalized = value.toLowerCase().split(";", 1)[0]?.trim();
@@ -796,12 +809,33 @@ function clampMaxOutputTokens(value: unknown, grantCap: number): number {
   return Math.min(value, grantCap);
 }
 
+const sseCompletionTailBytes = 8_192;
+const sseDoneLine = "data: [DONE]";
+
+export function hostedCodexSseDoneTrailer(tail: string): Buffer | null {
+  const lastLine = tail
+    .replace(/\r\n/g, "\n")
+    .trimEnd()
+    .split("\n")
+    .at(-1)
+    ?.trim();
+  if (lastLine === sseDoneLine) return null;
+  const prefix = tail.length === 0 || tail.endsWith("\n") ? "" : "\n";
+  return Buffer.from(`${prefix}${sseDoneLine}\n\n`);
+}
+
+function isEventStream(contentType: string | undefined): boolean {
+  const mediaType = contentType?.toLowerCase().split(";", 1)[0]?.trim();
+  return mediaType === undefined || mediaType === "text/event-stream";
+}
+
 function completionTransform(
   authorization: AuthorizedHostedCodexRelay,
   ledger: PrismaInvocationGrantRepository,
   effects: Pick<PrismaHostedCodexUpstreamEffectLedger, "authority">,
   effectLease: HostedCodexUpstreamEffectLease,
   succeeded: boolean,
+  contentType: string | undefined,
   maxResponseBytes: number,
   heartbeat: EffectHeartbeat | undefined,
   now: () => Date,
@@ -809,6 +843,7 @@ function completionTransform(
 ): Transform {
   const hash = createHash("sha256");
   let bytes = 0;
+  let tail = "";
   let finalized = false;
   const finalize = (
     success: boolean,
@@ -894,9 +929,22 @@ function completionTransform(
       }
       bytes = nextBytes;
       hash.update(buffer);
+      if (isEventStream(contentType)) {
+        tail = `${tail}${buffer.toString("utf8")}`.slice(
+          -sseCompletionTailBytes,
+        );
+      }
       callback(null, buffer);
     },
     flush(callback) {
+      if (succeeded && isEventStream(contentType)) {
+        const trailer = hostedCodexSseDoneTrailer(tail);
+        if (trailer && bytes + trailer.byteLength <= maxResponseBytes) {
+          bytes += trailer.byteLength;
+          hash.update(trailer);
+          this.push(trailer);
+        }
+      }
       finalize(succeeded, succeeded ? null : "provider_http_error", callback);
     },
     destroy(error, callback) {

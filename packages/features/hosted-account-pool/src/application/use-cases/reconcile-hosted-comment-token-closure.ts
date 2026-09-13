@@ -66,6 +66,17 @@ export class HostedCommentTokenClosureReconciler {
       for (const claim of claims) {
         let plaintext: Uint8Array | undefined;
         try {
+          if (grantStillOwnsCommentToken(claim, now)) {
+            await this.dependencies.ledger.releaseRevocation({
+              mintId: claim.mintId,
+              ownerIdHash: claim.ownerIdHash,
+              fenceEpoch: claim.fenceEpoch,
+              now,
+              errorCode: "grant_still_live",
+            });
+            deferred += 1;
+            continue;
+          }
           const vaultDeadline = createCustodyDeadline(
             undefined,
             providerTimeoutMs,
@@ -275,6 +286,21 @@ export type HostedCommentTokenClosureReconcilerHandle =
         }>;
       }>;
   };
+
+function grantStillOwnsCommentToken(
+  claim: {
+    readonly grantStatus: string;
+    readonly grantExpiresAt: Date;
+    readonly grantRevokedAt: Date | null;
+  },
+  now: Date,
+): boolean {
+  return (
+    claim.grantStatus === "issued" &&
+    claim.grantRevokedAt === null &&
+    claim.grantExpiresAt.getTime() > now.getTime()
+  );
+}
 
 function classifyRevocationFailure(error: unknown): string {
   if (hasAbortCause(error)) return "custody_or_provider_timeout";

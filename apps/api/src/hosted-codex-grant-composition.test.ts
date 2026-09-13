@@ -17,6 +17,7 @@ import {
 import {
   HostedCodexGrantIssuer,
   assertHostedPoolPullRequestAuthority,
+  hostedWorkflowSourcesArePinEquivalent,
   type HostedPoolPullRequestAuthority,
   type HostedCodexGrantAdmission,
 } from "./hosted-codex-grant-composition.js";
@@ -30,6 +31,7 @@ const reviewRevisionHash = "f".repeat(64);
 const pullRequestRef = `refs/pull/${pullRequestNumber}/merge`;
 const workflowSource = `acme/private-repo/${workflowPath}@${pullRequestRef}`;
 const workflowJobSource = `777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${commitSha}`;
+const workflowExecutionSource = `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${commitSha}`;
 const workflow = renderCanonicalHostedPoolWorkflowV2({
   actionRef: `777genius/review-router@${commitSha}`,
   apiUrl: "https://api.reviewrouter.dev",
@@ -47,6 +49,83 @@ describe("HostedCodexGrantIssuer", () => {
       runtimeConfigVersion: 19,
     });
     expect(fixture.replayNonces.tryConsumeNonce).toHaveBeenCalledOnce();
+  });
+
+  it("admits when the caller workflow SHA is the official merge commit, not the PR head", async () => {
+    const mergeSha = "c".repeat(40);
+    const fixture = createFixture(
+      { workflowSourceCommitSha: mergeSha },
+      { workflow_sha: mergeSha },
+    );
+    await expect(fixture.issuer.issue(request())).resolves.toMatchObject({
+      repository: "acme/private-repo",
+    });
+    expect(fixture.replayNonces.tryConsumeNonce).toHaveBeenCalledOnce();
+  });
+
+  it("admits an allowlisted newer Action pin when only the canary uses line changed", async () => {
+    const canarySha = "b".repeat(40);
+    const canaryWorkflow = renderCanonicalHostedPoolWorkflowV2({
+      actionRef: `777genius/review-router@${canarySha}`,
+      apiUrl: "https://api.reviewrouter.dev",
+      providerInstanceId: "hosted-pool:repository:123",
+      bindingId: "binding-1",
+      bindingRevision: 7,
+    });
+    const fixture = createFixture(
+      { workflowContents: canaryWorkflow },
+      {
+        job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${canarySha}`,
+        job_workflow_sha: canarySha,
+      },
+      [`777genius/review-router@${canarySha}`],
+    );
+    await expect(fixture.issuer.issue(request())).resolves.toMatchObject({
+      repository: "acme/private-repo",
+    });
+  });
+
+  it("admits when GitHub names the attested reusable SHA while the canary pin is newer", async () => {
+    const canarySha = "b".repeat(40);
+    const canaryWorkflow = renderCanonicalHostedPoolWorkflowV2({
+      actionRef: `777genius/review-router@${canarySha}`,
+      apiUrl: "https://api.reviewrouter.dev",
+      providerInstanceId: "hosted-pool:repository:123",
+      bindingId: "binding-1",
+      bindingRevision: 7,
+    });
+    const fixture = createFixture(
+      { workflowContents: canaryWorkflow },
+      {
+        job_workflow_ref: workflowJobSource,
+        job_workflow_sha: commitSha,
+      },
+      [`777genius/review-router@${canarySha}`],
+    );
+    await expect(fixture.issuer.issue(request())).resolves.toMatchObject({
+      repository: "acme/private-repo",
+    });
+  });
+
+  it("rejects a canary Action pin that is not allowlisted", async () => {
+    const canarySha = "b".repeat(40);
+    const canaryWorkflow = renderCanonicalHostedPoolWorkflowV2({
+      actionRef: `777genius/review-router@${canarySha}`,
+      apiUrl: "https://api.reviewrouter.dev",
+      providerInstanceId: "hosted-pool:repository:123",
+      bindingId: "binding-1",
+      bindingRevision: 7,
+    });
+    const fixture = createFixture(
+      { workflowContents: canaryWorkflow },
+      {
+        job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${canarySha}`,
+        job_workflow_sha: canarySha,
+      },
+    );
+    await expect(fixture.issuer.issue(request())).rejects.toThrow(
+      "hosted_workflow_action_ref_not_allowed",
+    );
   });
 
   it("rejects the r44 same-repository PR caller that exfiltrates the hosted token", async () => {
@@ -191,7 +270,6 @@ describe("HostedCodexGrantIssuer", () => {
       { workflow_ref: `acme/private-repo/${workflowPath}@refs/heads/main` },
     ],
     ["mismatched caller SHA", { workflow_sha: "b".repeat(40) }],
-    ["uppercase caller SHA", { workflow_sha: "E".repeat(40) }],
     ["missing caller SHA", { workflow_sha: undefined }],
     [
       "mismatched caller repository",
@@ -219,7 +297,10 @@ describe("HostedCodexGrantIssuer", () => {
 
   it.each([
     ["admitted PR number", { pullRequestNumber: 41 }],
-    ["admitted head SHA", { reviewHeadSha: "b".repeat(40) }],
+    [
+      "admitted caller workflow SHA",
+      { workflowSourceCommitSha: "b".repeat(40) },
+    ],
   ] as const)("rejects a mismatched %s", async (_name, admissionOverride) => {
     const fixture = createFixture(admissionOverride);
     await expect(fixture.issuer.issue(request())).rejects.toThrow(
@@ -228,9 +309,21 @@ describe("HostedCodexGrantIssuer", () => {
     expect(fixture.replayNonces.tryConsumeNonce).not.toHaveBeenCalled();
   });
 
+  it("admits the nested T0 execution reusable at the same Action pin", async () => {
+    const fixture = createFixture(
+      {},
+      { job_workflow_ref: workflowExecutionSource },
+    );
+    await expect(fixture.issuer.issue(request())).resolves.toMatchObject({
+      repository: "acme/private-repo",
+    });
+    expect(fixture.replayNonces.tryConsumeNonce).toHaveBeenCalledOnce();
+  });
+
   it.each([
     undefined,
-    `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${commitSha}`,
+    `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${"b".repeat(40)}`,
+    `777genius/review-router/.github/workflows/reviewrouter-reusable.yml@${commitSha}`,
     `evil/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${commitSha}`,
     "777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@refs/heads/main",
   ])("rejects non-exact hosted execution source %s", async (jobWorkflowRef) => {
@@ -292,6 +385,7 @@ function createFixture(
   > & {
     readonly event_name?: "pull_request" | "pull_request_target";
   } = {},
+  trustedActionRefs: readonly string[] = [],
 ) {
   const admission: HostedCodexGrantAdmission = {
     workspaceId: "workspace-1",
@@ -310,6 +404,7 @@ function createFixture(
     workflowSchemaVersion: hostedPoolWorkflowSchemaVersion,
     workflowSource,
     workflowJobSource,
+    workflowExecutionSource,
     workflowJobSha: commitSha,
     pullRequestNumber,
     reviewHeadSha,
@@ -435,6 +530,7 @@ function createFixture(
     refreshCapabilities,
     commentTokens,
     clock: { now: () => now },
+    trustedActionRefs,
     relayUrl:
       "https://api.reviewrouter.dev/api/action/v1/hosted-codex/responses",
     policy: {
@@ -505,7 +601,9 @@ describe("server-observed Hosted pull request authority", () => {
     state: "open",
     baseRepositoryId: "123",
     headRepositoryId: "123",
+    baseSha: "b".repeat(40),
     headSha: reviewHeadSha,
+    mergeCommitSha: "f".repeat(40),
   };
 
   it("accepts the exact same-repository admitted head", () => {
@@ -535,5 +633,20 @@ describe("server-observed Hosted pull request authority", () => {
         pullRequest: { ...observed, ...patch },
       }),
     ).toThrow("hosted_pull_request_authority_mismatch");
+  });
+});
+
+describe("hostedWorkflowSourcesArePinEquivalent", () => {
+  it("treats official and canary Action pins as the same hosted YAML", () => {
+    const official = "29a6e3a1f2a537905fa7fd12e17a50f9d7af323f";
+    const canary = "24fba42b24db9787c447d05fe5c96f3edbd7ab30";
+    const render = (sha: string) =>
+      `uses: 777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${sha}\n      runtime_ref: "${sha}"\n`;
+    expect(
+      hostedWorkflowSourcesArePinEquivalent(render(official), render(canary)),
+    ).toBe(true);
+    expect(
+      hostedWorkflowSourcesArePinEquivalent(render(official), "name: other\n"),
+    ).toBe(false);
   });
 });

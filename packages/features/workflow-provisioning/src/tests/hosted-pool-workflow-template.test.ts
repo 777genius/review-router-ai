@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   assertActiveHostedPoolWorkflowAttestation,
+  canonicalHostedPoolNestedExecutionWorkflowIdentity,
   canonicalHostedPoolReusableWorkflowIdentity,
   createHostedPoolWorkflowSourceAttestation,
   hostedPoolSessionMode,
@@ -24,6 +25,15 @@ describe("hosted pool workflow schema v2", () => {
       canonicalHostedPoolReusableWorkflowIdentity(options.actionRef),
     ).toEqual({
       ref: "777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@0123456789abcdef0123456789abcdef01234567",
+      sha: "0123456789abcdef0123456789abcdef01234567",
+    });
+  });
+
+  it("derives the nested execution reusable identity from the same Action pin", () => {
+    expect(
+      canonicalHostedPoolNestedExecutionWorkflowIdentity(options.actionRef),
+    ).toEqual({
+      ref: "777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@0123456789abcdef0123456789abcdef01234567",
       sha: "0123456789abcdef0123456789abcdef01234567",
     });
   });

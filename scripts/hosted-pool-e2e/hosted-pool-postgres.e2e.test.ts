@@ -1960,8 +1960,8 @@ describe("hosted pool production adapters on disposable PostgreSQL 17", () => {
     expect(providerRequest).toMatchObject({
       model: admitted.model,
       store: false,
-      max_output_tokens: 64,
     });
+    expect(providerRequest).not.toHaveProperty("max_output_tokens");
     expect(providerRequestBytes!.every((byte) => byte === 0)).toBe(true);
     let observed = "";
     await expect(async () => {

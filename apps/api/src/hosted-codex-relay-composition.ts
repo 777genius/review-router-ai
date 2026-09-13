@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Transform, type Readable } from "node:stream";
 import {
   CredentialEnvelopeVault,
   FetchHostedCodexStreamingRelay,
@@ -15,6 +16,7 @@ import {
   HostedCommentTokenClosureReconciler,
   startHostedCommentTokenClosureReconciler,
   resolveHostedCodexKeyring,
+  hostedCodexProductionKmsBindingArn,
   PrismaHostedCodexUpstreamEffectLedger,
   startHostedCodexEffectSweeper,
   type RegisterHostedCodexRelayRoutesDependencies,
@@ -157,6 +159,27 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
       now: () => clock.now(),
       provider: {
         async revoke({ token, signal }) {
+          const tokenHash = createHash("sha256")
+            .update(token, "utf8")
+            .digest("hex");
+          const mint = await input.prisma.hostedCodexCommentTokenMint.findFirst(
+            {
+              where: { tokenHash },
+              orderBy: { createdAt: "desc" },
+              select: {
+                grant: {
+                  select: {
+                    status: true,
+                    expiresAt: true,
+                    revokedAt: true,
+                  },
+                },
+              },
+            },
+          );
+          if (hostedCommentTokenGrantStillLive(mint?.grant, clock.now())) {
+            throw new Error("grant_still_live");
+          }
           const result = await githubCommentTokens.revokeCommentToken({
             token,
             signal,
@@ -211,7 +234,7 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
         databaseIncarnation,
         databaseResourceIdentity,
         fingerprintPepper,
-        input.env.NODE_ENV === "production" ? keyring.currentKeyId : undefined,
+        hostedCodexProductionKmsBindingArn(keyring),
       ),
     ),
     leaseStore: new HostedCodexMutationFenceLeaseStore(
@@ -265,7 +288,14 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
     relay: {
       async open(request) {
         await restore.assertRelayReady();
-        return relay.open(request);
+        const opened = await relay.open(request);
+        return {
+          ...opened,
+          body: appendHostedCodexSseDoneTrailer(
+            opened.body,
+            opened.headers["content-type"],
+          ),
+        };
       },
     },
   };
@@ -344,6 +374,65 @@ export function composeProductionHostedCodexRestoreReconciler(input: {
     undefined,
     undefined,
     hostedCodexAcceptedRelayCustodyModes(input.env),
+  );
+}
+
+const sseCompletionTailBytes = 8_192;
+const sseDoneLine = "data: [DONE]";
+
+export function hostedCodexSseDoneTrailer(tail: string): Buffer | null {
+  const lastLine = tail
+    .replace(/\r\n/g, "\n")
+    .trimEnd()
+    .split("\n")
+    .at(-1)
+    ?.trim();
+  if (lastLine === sseDoneLine) return null;
+  const prefix = tail.length === 0 || tail.endsWith("\n") ? "" : "\n";
+  return Buffer.from(`${prefix}${sseDoneLine}\n\n`);
+}
+
+export function appendHostedCodexSseDoneTrailer(
+  body: Readable,
+  contentType: string | undefined,
+): Readable {
+  const mediaType = contentType?.toLowerCase().split(";", 1)[0]?.trim();
+  if (mediaType !== undefined && mediaType !== "text/event-stream") return body;
+  let tail = "";
+  return body.pipe(
+    new Transform({
+      transform(chunk, _encoding, callback) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        tail = `${tail}${buffer.toString("utf8")}`.slice(
+          -sseCompletionTailBytes,
+        );
+        callback(null, buffer);
+      },
+      flush(callback) {
+        const trailer = hostedCodexSseDoneTrailer(tail);
+        if (trailer) this.push(trailer);
+        callback();
+      },
+    }),
+  );
+}
+
+export function hostedCommentTokenGrantStillLive(
+  grant:
+    | {
+        readonly status: string;
+        readonly expiresAt: Date;
+        readonly revokedAt: Date | null;
+      }
+    | null
+    | undefined,
+  now: Date,
+): boolean {
+  return (
+    grant != null &&
+    grant.status === "issued" &&
+    grant.revokedAt === null &&
+    grant.expiresAt.getTime() > now.getTime()
   );
 }
 

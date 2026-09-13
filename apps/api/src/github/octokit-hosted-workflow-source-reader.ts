@@ -42,11 +42,55 @@ export class OctokitHostedWorkflowSourceReader implements HostedWorkflowSourceRe
         state: data.state,
         baseRepositoryId: String(data.base.repo.id),
         headRepositoryId: data.head.repo ? String(data.head.repo.id) : null,
+        baseSha: data.base.sha,
         headSha: data.head.sha,
+        mergeCommitSha: data.merge_commit_sha ?? null,
       };
     } catch {
       // Never surface installation-token request metadata through an API error.
       throw new Error("hosted_pull_request_authority_unavailable");
+    }
+  }
+
+  async readMergeBaseSha(
+    input: Parameters<HostedWorkflowSourceReaderPort["readMergeBaseSha"]>[0],
+  ) {
+    if (
+      !/^[a-f0-9]{40}$/u.test(input.baseSha) ||
+      !/^[a-f0-9]{40}$/u.test(input.headSha)
+    ) {
+      throw new Error("hosted_review_merge_base_revision_invalid");
+    }
+    const installationId = parsePositiveSafeInteger(
+      input.githubInstallationId,
+      "hosted_workflow_installation_id_invalid",
+    );
+    try {
+      const octokit = await this.app.getInstallationOctokit(installationId);
+      const { data } = await octokit.request(
+        "GET /repos/{owner}/{repo}/compare/{basehead}",
+        {
+          owner: input.owner,
+          repo: input.repository,
+          basehead: `${input.baseSha}...${input.headSha}`,
+        },
+      );
+      const mergeBaseSha = data.merge_base_commit?.sha;
+      if (
+        typeof mergeBaseSha !== "string" ||
+        !/^[a-f0-9]{40}$/u.test(mergeBaseSha)
+      ) {
+        throw new Error("hosted_review_merge_base_unavailable");
+      }
+      return mergeBaseSha;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "hosted_review_merge_base_unavailable"
+      ) {
+        throw error;
+      }
+      throw new Error("hosted_review_merge_base_unavailable", { cause: error });
     }
   }
 

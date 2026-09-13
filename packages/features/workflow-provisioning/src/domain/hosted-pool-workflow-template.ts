@@ -120,6 +120,16 @@ export function canonicalHostedPoolReusableWorkflowIdentity(
   });
 }
 
+export function canonicalHostedPoolNestedExecutionWorkflowIdentity(
+  actionRef: string,
+): HostedPoolReusableWorkflowIdentity {
+  const release = parseImmutableActionRef(actionRef);
+  return Object.freeze({
+    ref: `${release.repository}/.github/workflows/reviewrouter-execution-reusable.yml@${release.commitSha}`,
+    sha: release.commitSha,
+  });
+}
+
 export function scanCanonicalHostedPoolWorkflowV2(
   workflow: string,
 ): HostedPoolWorkflowScanResult {
@@ -291,6 +301,7 @@ export function assertExactHostedPoolCallerWorkflow(input: {
   readonly expectedBindingRevision: number;
   readonly expectedWorkflow: string;
   readonly expectedWorkflowSourceBlobSha: string;
+  readonly attestedActionSha?: string;
 }): void {
   if (
     !/^[a-f0-9]{40}$/u.test(input.callerWorkflowSha) ||
@@ -302,6 +313,22 @@ export function assertExactHostedPoolCallerWorkflow(input: {
   assertHostedPoolWorkflowBytes(input);
 }
 
+export function rewriteHostedPoolWorkflowActionSha(
+  workflow: string,
+  commitSha: string,
+): string {
+  if (!/^[a-f0-9]{40}$/iu.test(commitSha)) {
+    throw new Error("hosted_workflow_action_ref_must_be_full_sha");
+  }
+  const sha = commitSha.toLowerCase();
+  return workflow
+    .replace(
+      /(\.github\/workflows\/reviewrouter-t0-reusable\.yml@)[a-f0-9]{40}/giu,
+      `$1${sha}`,
+    )
+    .replace(/(runtime_ref: ")[a-f0-9]{40}(")/giu, `$1${sha}$2`);
+}
+
 function assertHostedPoolWorkflowBytes(input: {
   readonly attestation: HostedPoolWorkflowSourceAttestation;
   readonly repositoryId: string;
@@ -310,6 +337,7 @@ function assertHostedPoolWorkflowBytes(input: {
   readonly expectedBindingRevision: number;
   readonly expectedWorkflow: string;
   readonly expectedWorkflowSourceBlobSha: string;
+  readonly attestedActionSha?: string;
 }): void {
   const attestation = createHostedPoolWorkflowSourceAttestation(
     input.attestation,
@@ -331,15 +359,24 @@ function assertHostedPoolWorkflowBytes(input: {
     input.expectedWorkflowSourceBlobSha.toLowerCase()
   )
     throw new Error("hosted_workflow_attestation_blob_mismatch");
-  const contentDigest = createHash("sha256")
-    .update(input.expectedWorkflow)
-    .digest("hex");
-  const semanticDigest = hostedPoolWorkflowSemanticSha256(
-    input.expectedWorkflow,
-  );
+  const matchesAttestedDigests = (workflow: string): boolean => {
+    const contentDigest = createHash("sha256").update(workflow).digest("hex");
+    const semanticDigest = hostedPoolWorkflowSemanticSha256(workflow);
+    return (
+      attestation.workflowSourceSha256 === contentDigest &&
+      attestation.workflowSemanticSha256 === semanticDigest
+    );
+  };
+  const rewritten =
+    input.attestedActionSha === undefined
+      ? input.expectedWorkflow
+      : rewriteHostedPoolWorkflowActionSha(
+          input.expectedWorkflow,
+          input.attestedActionSha,
+        );
   if (
-    attestation.workflowSourceSha256 !== contentDigest ||
-    attestation.workflowSemanticSha256 !== semanticDigest
+    !matchesAttestedDigests(input.expectedWorkflow) &&
+    !matchesAttestedDigests(rewritten)
   ) {
     throw new Error("hosted_workflow_attestation_digest_mismatch");
   }

@@ -23,6 +23,7 @@ const request = {
     repository_id: "123",
     run_id: "10",
     run_attempt: "1",
+    ref: "refs/pull/42/merge",
     workflow_sha: headSha,
   } as GitHubActionsOidcClaims,
   bindingId: "binding",
@@ -55,6 +56,7 @@ function fixture(visibility: string, observed: Record<string, unknown> = {}) {
   const repository = {
     id: "repository",
     workspaceId: "workspace",
+    scmRepositoryIdentityId: "scm",
     githubRepositoryId: 123n,
     owner: "owner",
     name: "repo",
@@ -87,13 +89,31 @@ function fixture(visibility: string, observed: Record<string, unknown> = {}) {
       findUnique: vi.fn(async () => ({ status: "active", authzEpoch: 1n })),
     },
     reviewRequestedIntent: {
-      findFirst: vi.fn(async () => ({
-        ...review,
-        requestId: "request",
-        reviewRevisionHash: createHash("sha256")
-          .update(canonicalJson(review))
-          .digest("hex"),
-      })),
+      findFirst: vi.fn(
+        async (): Promise<{
+          readonly requestId: string;
+          readonly workspaceId: string;
+          readonly repositoryConnectionId: string;
+          readonly scmRepositoryIdentityId: string;
+          readonly pullRequestNumber: number;
+          readonly baseSha: string;
+          readonly mergeBaseSha: string;
+          readonly headSha: string;
+          readonly reviewRevisionHash: string;
+          readonly sourceRunId: string | null;
+          readonly sourceRunAttempt: string | null;
+        } | null> => ({
+          ...review,
+          requestId: "request",
+          reviewRevisionHash: createHash("sha256")
+            .update(canonicalJson(review))
+            .digest("hex"),
+          sourceRunId: "10",
+          sourceRunAttempt: "1",
+        }),
+      ),
+      create: vi.fn(),
+      updateMany: vi.fn(),
     },
   };
   const reader = {
@@ -102,11 +122,22 @@ function fixture(visibility: string, observed: Record<string, unknown> = {}) {
       state: "open",
       baseRepositoryId: "123",
       headRepositoryId: "123",
+      baseSha: review.baseSha,
       headSha,
+      mergeCommitSha: "e".repeat(40),
       ...observed,
     })),
-    readWorkflowAtRevision: vi.fn(async () => ({
-      commitSha: headSha,
+    readMergeBaseSha: vi.fn<
+      (input: {
+        githubInstallationId: string;
+        owner: string;
+        repository: string;
+        baseSha: string;
+        headSha: string;
+      }) => Promise<string>
+    >(async () => review.mergeBaseSha),
+    readWorkflowAtRevision: vi.fn(async ({ revisionSha }) => ({
+      commitSha: revisionSha,
       blobSha: "3".repeat(40),
       contents: "fixture source",
     })),
@@ -132,6 +163,8 @@ describe("main integration: authoritative public admission", () => {
         visibility,
         workspaceId: "workspace",
         reviewHeadSha: headSha,
+        workflowJobSource: `777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${"d".repeat(40)}`,
+        workflowExecutionSource: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${"d".repeat(40)}`,
       });
       expect(f.reader.readPullRequestAuthority).toHaveBeenCalledWith({
         githubInstallationId: "456",
@@ -193,6 +226,168 @@ describe("main integration: authoritative public admission", () => {
     await expect(
       f.resolver.resolve({ ...request, bindingVersion: 2 }),
     ).rejects.toThrow("hosted_grant_binding_mismatch");
+    expect(f.reader.readPullRequestAuthority).not.toHaveBeenCalled();
+  });
+  it("creates and admits a review request when webhook ingress left none", async () => {
+    const f = fixture("public");
+    f.prisma.reviewRequestedIntent.findFirst.mockResolvedValue(null);
+    f.prisma.reviewRequestedIntent.create.mockResolvedValue({
+      requestId: "hosted-grant-created",
+    });
+    await expect(f.resolver.resolve(request)).resolves.toMatchObject({
+      visibility: "public",
+      pullRequestNumber: 42,
+      reviewHeadSha: headSha,
+    });
+    expect(f.reader.readMergeBaseSha).toHaveBeenCalledWith({
+      githubInstallationId: "456",
+      owner: "owner",
+      repository: "repo",
+      baseSha: review.baseSha,
+      headSha,
+    });
+    expect(f.prisma.reviewRequestedIntent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          workspaceId: "workspace",
+          repositoryConnectionId: "repository",
+          scmRepositoryIdentityId: "scm",
+          pullRequestNumber: 42,
+          headSha,
+          sourceRunId: "10",
+          sourceRunAttempt: "1",
+          state: "awaiting_authorization",
+          admissionState: "admitted",
+          submissionStartedAt: expect.any(Date),
+          nextResolutionAt: expect.any(Date),
+          resolutionDeadlineAt: expect.any(Date),
+        }),
+      }),
+    );
+  });
+  it("binds an admitted webhook intent to the hosted Action run", async () => {
+    const f = fixture("public");
+    const bindable = {
+      ...review,
+      requestId: "webhook-intent",
+      reviewRevisionHash: createHash("sha256")
+        .update(canonicalJson(review))
+        .digest("hex"),
+      sourceRunId: null,
+      sourceRunAttempt: null,
+    };
+    f.prisma.reviewRequestedIntent.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(bindable);
+    f.prisma.reviewRequestedIntent.updateMany.mockResolvedValue({ count: 1 });
+    await expect(f.resolver.resolve(request)).resolves.toMatchObject({
+      reviewRequestId: "webhook-intent",
+      reviewHeadSha: headSha,
+    });
+    expect(f.prisma.reviewRequestedIntent.create).not.toHaveBeenCalled();
+    expect(f.prisma.reviewRequestedIntent.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          requestId: "webhook-intent",
+          sourceRunId: null,
+        }),
+        data: expect.objectContaining({
+          sourceRunId: "10",
+          sourceRunAttempt: "1",
+        }),
+      }),
+    );
+  });
+  it("accepts the official pull request merge commit as the caller workflow revision", async () => {
+    const mergeSha = "e".repeat(40);
+    const f = fixture("public");
+    f.reader.readWorkflowAtRevision.mockResolvedValue({
+      commitSha: mergeSha,
+      blobSha: "3".repeat(40),
+      contents: "fixture source",
+    });
+    await expect(
+      f.resolver.resolve({
+        ...request,
+        claims: { ...request.claims, workflow_sha: mergeSha },
+      }),
+    ).resolves.toMatchObject({
+      reviewHeadSha: headSha,
+      workflowSourceCommitSha: mergeSha,
+    });
+    expect(f.reader.readWorkflowAtRevision).toHaveBeenCalledWith(
+      expect.objectContaining({ revisionSha: mergeSha }),
+    );
+  });
+  it("accepts a last-changed workflow ancestor when the live YAML is pin-equivalent", async () => {
+    const ancestorSha = "8".repeat(40);
+    const f = fixture("public");
+    const yaml = (sha: string) =>
+      `uses: 777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${sha}\n      runtime_ref: "${sha}"\n`;
+    f.reader.readMergeBaseSha.mockImplementation(
+      async ({ baseSha, headSha: comparedHead }) =>
+        baseSha === ancestorSha && comparedHead === headSha
+          ? ancestorSha
+          : review.mergeBaseSha,
+    );
+    f.reader.readWorkflowAtRevision.mockImplementation(
+      async ({ revisionSha }) => ({
+        commitSha: revisionSha,
+        blobSha: "3".repeat(40),
+        contents: yaml(
+          revisionSha === ancestorSha ? "1".repeat(40) : "2".repeat(40),
+        ),
+      }),
+    );
+    await expect(
+      f.resolver.resolve({
+        ...request,
+        claims: { ...request.claims, workflow_sha: ancestorSha },
+      }),
+    ).resolves.toMatchObject({
+      reviewHeadSha: headSha,
+      workflowSourceCommitSha: ancestorSha,
+    });
+  });
+  it("rejects a workflow ancestor whose pin-normalized YAML differs from HEAD", async () => {
+    const ancestorSha = "8".repeat(40);
+    const f = fixture("public");
+    f.reader.readMergeBaseSha.mockResolvedValue(ancestorSha);
+    f.reader.readWorkflowAtRevision.mockImplementation(
+      async ({ revisionSha }) => ({
+        commitSha: revisionSha,
+        blobSha: "3".repeat(40),
+        contents: revisionSha === ancestorSha ? "name: old\n" : "name: new\n",
+      }),
+    );
+    await expect(
+      f.resolver.resolve({
+        ...request,
+        claims: { ...request.claims, workflow_sha: ancestorSha },
+      }),
+    ).rejects.toThrow("hosted_workflow_caller_revision_mismatch");
+  });
+  it("rejects a caller workflow SHA that is not an ancestor of HEAD", async () => {
+    const outsiderSha = "9".repeat(40);
+    const f = fixture("public");
+    f.reader.readMergeBaseSha.mockResolvedValue(review.mergeBaseSha);
+    await expect(
+      f.resolver.resolve({
+        ...request,
+        claims: { ...request.claims, workflow_sha: outsiderSha },
+      }),
+    ).rejects.toThrow("hosted_workflow_caller_revision_mismatch");
+    expect(f.reader.readWorkflowAtRevision).not.toHaveBeenCalled();
+  });
+  it("rejects a non-pull-request caller ref before creating an intent", async () => {
+    const f = fixture("public");
+    await expect(
+      f.resolver.resolve({
+        ...request,
+        claims: { ...request.claims, ref: "refs/heads/main" },
+      }),
+    ).rejects.toThrow("hosted_pull_request_ref_invalid");
+    expect(f.prisma.reviewRequestedIntent.findFirst).not.toHaveBeenCalled();
     expect(f.reader.readPullRequestAuthority).not.toHaveBeenCalled();
   });
 });

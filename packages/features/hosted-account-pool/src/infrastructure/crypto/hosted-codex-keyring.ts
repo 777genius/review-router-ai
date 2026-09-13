@@ -52,3 +52,10 @@ export function resolveHostedCodexKeyring(input: {
   }
   return input.externalKeyring ?? new EnvCredentialKeyring(input.env);
 }
+
+/** Only AWS KMS production keyrings pin session reads to a key ARN. */
+export function hostedCodexProductionKmsBindingArn(
+  keyring: Pick<CredentialKeyringPort, "currentKeyId" | "custodyMode">,
+): string | undefined {
+  return keyring.custodyMode === "aws_kms" ? keyring.currentKeyId : undefined;
+}

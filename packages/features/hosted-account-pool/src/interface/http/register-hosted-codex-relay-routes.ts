@@ -319,6 +319,7 @@ function sendSafeError(
   phase: "grant" | "relay",
 ): FastifyReply {
   const message = error instanceof Error ? error.message : "unknown";
+  reply.log.warn({ phase, code: message }, "hosted_codex_rejected");
   const status = message.includes("disabled")
     ? 404
     : message.includes("budget") || message.includes("concurrency")
@@ -329,7 +330,9 @@ function sendSafeError(
           ? 401
           : message.includes("not_bound") || message.includes("mismatch")
             ? 403
-            : 502;
+            : message.includes("not_admitted")
+              ? 409
+              : 502;
   return reply
     .code(status)
     .header("cache-control", "no-store")
