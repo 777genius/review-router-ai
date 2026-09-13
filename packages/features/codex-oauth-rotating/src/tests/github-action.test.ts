@@ -646,7 +646,7 @@ describe("Codex rotating GitHub Action runtime", () => {
         repository: {
           id: 777,
           full_name: "777genius/agent-teams-ai",
-          private: true,
+          private: false,
         },
         pull_request: {
           draft: true,
@@ -727,7 +727,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       ACTIONS_ID_TOKEN_REQUEST_URL:
         "https://vstoken.actions.githubusercontent.com/oidc/token",
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-request-token",
-      GITHUB_EVENT_NAME: "pull_request_target",
+      GITHUB_EVENT_NAME: "pull_request",
       GITHUB_EVENT_PATH: eventPath,
       GITHUB_REPOSITORY: "777genius/agent-teams-ai",
       GITHUB_ACTION_PATH: tempDir,
