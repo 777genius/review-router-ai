@@ -11,6 +11,8 @@ export type HostedCommentTokenClosureReconcileResult = Readonly<{
   claimed: number;
   revoked: number;
   deferred: number;
+  deferredLive: number;
+  deferredFailed: number;
 }>;
 
 export class HostedCommentTokenClosureReconciler {
@@ -60,7 +62,8 @@ export class HostedCommentTokenClosureReconciler {
       limit: batchSize,
     });
     let revoked = 0;
-    let deferred = 0;
+    let deferredLive = 0;
+    let deferredFailed = 0;
     const releaseFailures: unknown[] = [];
     try {
       for (const claim of claims) {
@@ -74,7 +77,7 @@ export class HostedCommentTokenClosureReconciler {
               now,
               errorCode: "grant_still_live",
             });
-            deferred += 1;
+            deferredLive += 1;
             continue;
           }
           const vaultDeadline = createCustodyDeadline(
@@ -127,18 +130,20 @@ export class HostedCommentTokenClosureReconciler {
           });
           revoked += 1;
         } catch (error) {
+          const errorCode = classifyRevocationFailure(error);
           try {
             await this.dependencies.ledger.releaseRevocation({
               mintId: claim.mintId,
               ownerIdHash: claim.ownerIdHash,
               fenceEpoch: claim.fenceEpoch,
               now: this.dependencies.now(),
-              errorCode: classifyRevocationFailure(error),
+              errorCode,
             });
           } catch (releaseError) {
             releaseFailures.push(releaseError);
           }
-          deferred += 1;
+          if (errorCode === "grant_still_live") deferredLive += 1;
+          else deferredFailed += 1;
         } finally {
           plaintext?.fill(0);
           zeroEnvelope(claim.secretEnvelope);
@@ -154,7 +159,13 @@ export class HostedCommentTokenClosureReconciler {
         releaseFailures,
         "hosted_comment_token_revocation_release_failed",
       );
-    return { claimed: claims.length, revoked, deferred };
+    return {
+      claimed: claims.length,
+      revoked,
+      deferred: deferredLive + deferredFailed,
+      deferredLive,
+      deferredFailed,
+    };
   }
 
   private timing() {
@@ -212,7 +223,9 @@ export function startHostedCommentTokenClosureReconciler(
       runStartedAt = new Date();
       try {
         const result = await reconciler.reconcile();
-        if (result.deferred > 0) {
+        // Live grants must remain claimable for parallel reviews. Deferring
+        // their comment-token closure is expected work, not custody failure.
+        if (result.deferredFailed > 0) {
           throw new Error("hosted_comment_token_reconcile_deferred");
         }
         successes += 1;
@@ -309,6 +322,8 @@ function classifyRevocationFailure(error: unknown): string {
     error.message === "hosted_comment_token_revocation_secret_hash_mismatch"
   )
     return "revocation_secret_hash_mismatch";
+  if (error instanceof Error && error.message === "grant_still_live")
+    return "grant_still_live";
   return "provider_revoke_ambiguous";
 }
 
