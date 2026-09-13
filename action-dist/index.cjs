@@ -22578,9 +22578,22 @@ async function startHostedCodexRelayProxy(input) {
   let inFlightRelayRequests = 0;
   let closing = false;
   let failoverReason;
-  let replayFenced = false;
   let successfulRelayRequests = 0;
   const activeUpstreamRequests = /* @__PURE__ */ new Set();
+  const relaySlotWaiters = [];
+  const notifyRelaySlot = () => {
+    const waiter = relaySlotWaiters.shift();
+    waiter?.();
+  };
+  const waitForRelaySlot = () => new Promise((resolve3) => {
+    relaySlotWaiters.push(resolve3);
+  });
+  const isDownstreamCloseError = (error51) => {
+    const message = error51 instanceof Error ? error51.message : "";
+    return message === "downstream_closed" || message === "aborted" || /EPIPE|ECONNRESET|ERR_STREAM_DESTROYED|ERR_STREAM_PREMATURE_CLOSE/i.test(
+      message
+    );
+  };
   const server = import_node_http.default.createServer((req, res) => {
     void (async () => {
       let downstreamClosed = false;
@@ -22647,9 +22660,12 @@ async function startHostedCodexRelayProxy(input) {
           writeProxyError(res, 404, "proxy_route_denied");
           return;
         }
-        if (replayFenced || inFlightRelayRequests >= maxConcurrentRelayRequests) {
-          writeProxyError(res, 409, "proxy_replay_fenced");
-          return;
+        while (inFlightRelayRequests >= maxConcurrentRelayRequests) {
+          if (closing) {
+            writeProxyError(res, 503, "proxy_closing");
+            return;
+          }
+          await waitForRelaySlot();
         }
         requestCount += 1;
         if (requestCount > input.policy.maxRequests) {
@@ -22657,12 +22673,10 @@ async function startHostedCodexRelayProxy(input) {
           return;
         }
         const ordinal = requestCount;
-        replayFenced = true;
-        failoverReason = "ambiguous";
-        const body = await readRequestBody(req, maxBodyBytes);
         inFlightRelayRequests += 1;
-        replayFenced = false;
+        failoverReason = "ambiguous";
         try {
+          const body = await readRequestBody(req, maxBodyBytes);
           upstreamController = new AbortController();
           activeUpstreamRequests.add(upstreamController);
           const upstream = await fetchWithZeroizedBody(
@@ -22682,29 +22696,38 @@ async function startHostedCodexRelayProxy(input) {
             body
           );
           if (!downstreamClosed) {
-            const responseCompletion = await writeUpstreamResponse(
-              res,
-              upstream
-            );
+            let responseCompletion;
+            try {
+              responseCompletion = await writeUpstreamResponse(res, upstream);
+            } catch (writeError) {
+              if ((isDownstreamCloseError(writeError) || downstreamClosed) && upstream.status >= 200 && upstream.status < 300) {
+                successfulRelayRequests += 1;
+                failoverReason = void 0;
+                return;
+              }
+              throw writeError;
+            }
             if ((upstream.status === 401 || upstream.status === 429) && successfulRelayRequests === 0 && ordinal === 1) {
               failoverReason = upstream.status === 401 ? "authentication_failed" : "quota_exhausted";
-              replayFenced = false;
             } else if (responseCompletion === "successful") {
               successfulRelayRequests += 1;
               failoverReason = void 0;
-              replayFenced = false;
-            } else {
-              replayFenced = true;
+            } else if (upstream.status >= 200 && upstream.status < 300) {
+              successfulRelayRequests += 1;
+              failoverReason = void 0;
             }
           } else {
             await upstream.body?.cancel().catch(() => void 0);
-            replayFenced = true;
+            if (upstream.status >= 200 && upstream.status < 300) {
+              successfulRelayRequests += 1;
+              failoverReason = void 0;
+            }
           }
         } finally {
           inFlightRelayRequests -= 1;
+          notifyRelaySlot();
         }
       } catch (error51) {
-        replayFenced = true;
         if (!downstreamClosed) {
           const code = error51 instanceof Error && error51.message === "proxy_request_body_too_large" ? "proxy_request_body_too_large" : "proxy_upstream_failed";
           if (res.headersSent) {
@@ -22986,7 +23009,7 @@ function isProvablySuccessfulRelayResponse(upstream, completionTail) {
   const contentType = upstream.headers.get("content-type")?.toLowerCase() ?? "";
   const mediaType = contentType.split(";", 1)[0]?.trim();
   if (mediaType === "text/event-stream") {
-    return completionTail.trimEnd().split(/\r?\n/u).at(-1)?.trim() === "data: [DONE]" ? "successful" : "non_successful";
+    return isSuccessfulHostedSseTail(completionTail) ? "successful" : "non_successful";
   }
   if (mediaType === "application/json") {
     try {
@@ -22997,6 +23020,12 @@ function isProvablySuccessfulRelayResponse(upstream, completionTail) {
     }
   }
   return "non_successful";
+}
+function isSuccessfulHostedSseTail(completionTail) {
+  const normalized = completionTail.replace(/\r\n/g, "\n").trimEnd();
+  const lastLine = normalized.split("\n").at(-1)?.trim();
+  if (lastLine === "data: [DONE]") return true;
+  return /"type"\s*:\s*"response\.completed"/.test(normalized);
 }
 function throwHostedRelayFailover(reason, cause) {
   if (reason === "authentication_failed") {
