@@ -161,7 +161,7 @@
     "zustand": "^5.0.12"
   },
   "optionalDependencies": {
-    "@777genius/subscription-runtime": "git+ssh://git@github.com/777genius/ar.git#6467c59a06a2ac26e3874cf0d104073e7a6c8a2b"
+    "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#83a7329f4383b05ac5c39356b79f82f029182d42"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

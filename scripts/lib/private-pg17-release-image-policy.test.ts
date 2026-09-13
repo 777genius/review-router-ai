@@ -9,7 +9,7 @@ import {
 describe("private PG17 trusted release image policy", () => {
   it("derives the expected policy digest only from trusted release configuration", () => {
     const input = {
-      sourceRepository: "777genius/review-router-saas",
+      sourceRepository: "777genius/review-router-ai",
       sourceRevision: "a".repeat(40),
     };
     const policy = privatePg17ReleaseImagePolicy(input);
@@ -25,7 +25,7 @@ describe("private PG17 trusted release image policy", () => {
 
   it("changes the trusted digest when repository ownership or revision changes", () => {
     const canonical = privatePg17ReleaseImagePolicy({
-      sourceRepository: "777genius/review-router-saas",
+      sourceRepository: "777genius/review-router-ai",
       sourceRevision: "a".repeat(40),
     });
     const alternateRepository = privatePg17ReleaseImagePolicy({
@@ -33,7 +33,7 @@ describe("private PG17 trusted release image policy", () => {
       sourceRevision: "a".repeat(40),
     });
     const staleRevision = privatePg17ReleaseImagePolicy({
-      sourceRepository: "777genius/review-router-saas",
+      sourceRepository: "777genius/review-router-ai",
       sourceRevision: "b".repeat(40),
     });
 

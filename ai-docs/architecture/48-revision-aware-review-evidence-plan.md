@@ -33,7 +33,7 @@ reuse modes are enabled only after exact-revision correctness and shadow verific
 
 ReviewRouter has two release-coupled repositories with independent Git histories:
 
-- `777genius/review-router-saas` owns the control plane, persistence, hosted OAuth
+- `777genius/review-router-ai` owns the control plane, persistence, hosted OAuth
   wrapper source, and generated `action-dist/` wrapper bundle.
 - `777genius/review-router` owns the review runtime source, committed `dist/`
   runtime bundle, and the deployed public Action tree. It receives the generated
@@ -56,7 +56,7 @@ the public review runtime `dist/`. Review-domain changes therefore belong in the
 public Action source and require its own rebuilt `dist/index.js` commit. Wrapper
 changes belong in SaaS and are synchronized as generated artifacts.
 
-This plan was created from `review-router-saas` `origin/main` at
+This plan was created from `review-router-ai` `origin/main` at
 `bbecfbc45269c29535e18dcf49ef0bde93be375f`. Implementation must start by fetching
 both repositories again. No design assumes that either recorded SHA remains the
 latest revision.

@@ -40,10 +40,8 @@ jobs:
           persist-credentials: false
       - name: Enable pnpm
         run: corepack enable
-      - name: Install private dependencies
-        env:
-          SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
-        run: node scripts/install-private-dependencies.mjs --frozen-lockfile --require-deploy-key
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - id: runs
         env:
           GITHUB_CONTROL_READ_TOKEN: ${{ github.token }}
@@ -71,10 +69,8 @@ jobs:
           ref: ${{ matrix.target.head_sha }}
       - name: Enable pnpm
         run: corepack enable
-      - name: Install private dependencies
-        env:
-          SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
-        run: node scripts/install-private-dependencies.mjs --frozen-lockfile --require-deploy-key
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - id: context
         env:
           GITHUB_CONTROL_READ_TOKEN: ${{ github.token }}
@@ -149,10 +145,8 @@ jobs:
           persist-credentials: false
       - name: Enable pnpm
         run: corepack enable
-      - name: Install private dependencies
-        env:
-          SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
-        run: node scripts/install-private-dependencies.mjs --frozen-lockfile --require-deploy-key
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Dispatch the exact next bounded sweep window with bounded backoff
         env:
           GITHUB_CONTROL_WRITE_TOKEN: ${{ github.token }}
@@ -183,10 +177,8 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
       - name: Enable pnpm
         run: corepack enable
-      - name: Install private dependencies
-        env:
-          SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
-        run: node scripts/install-private-dependencies.mjs --frozen-lockfile --require-deploy-key
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - id: context
         env:
           GITHUB_CONTROL_READ_TOKEN: ${{ github.token }}
@@ -261,10 +253,8 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
       - name: Enable pnpm
         run: corepack enable
-      - name: Install private dependencies
-        env:
-          SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: ${{ secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 }}
-        run: node scripts/install-private-dependencies.mjs --frozen-lockfile --require-deploy-key
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - id: context
         env:
           GITHUB_CONTROL_READ_TOKEN: ${{ github.token }}

@@ -197,7 +197,7 @@ export async function runCodexRotatingRolloutVerifierCli(
     const headSha = required("REVIEW_ROUTER_ROLLOUT_EVIDENCE_HEAD_SHA");
     const trusted = await fetchTrustedGitHubEvidence({
       token: required("REVIEW_ROUTER_ROLLOUT_GITHUB_TOKEN"),
-      repository: "777genius/review-router-saas",
+      repository: "777genius/review-router-ai",
       repositoryId: required("REVIEW_ROUTER_ROLLOUT_EVIDENCE_REPOSITORY_ID"),
       workflowPath,
       workflowSha: gitBlobSha(

@@ -81,7 +81,7 @@ const protectedEnvironment = {
 };
 
 const releaseEnvironment = {
-  GITHUB_REPOSITORY: "777genius/review-router-saas",
+  GITHUB_REPOSITORY: "777genius/review-router-ai",
   GITHUB_EVENT_NAME: "workflow_dispatch",
   GITHUB_REF: "refs/heads/main",
   GITHUB_SHA: sha,
@@ -90,11 +90,11 @@ const releaseEnvironment = {
   REVIEW_ROUTER_RELEASE_APPROVAL_MODE: "solo_owner",
 };
 const releaseFixture: Fixture = {
-  "/repos/777genius/review-router-saas/branches/main": {
+  "/repos/777genius/review-router-ai/branches/main": {
     protected: true,
     commit: { sha },
   },
-  "/repos/777genius/review-router-saas/environments/production-release":
+  "/repos/777genius/review-router-ai/environments/production-release":
     protectedEnvironment,
 };
 
@@ -104,11 +104,11 @@ const authorityMigrationEnvironment = {
   REQUIRED_ENVIRONMENT: "production-release-authority-migration",
 };
 const authorityMigrationFixture: Fixture = {
-  "/repos/777genius/review-router-saas/branches/main": {
+  "/repos/777genius/review-router-ai/branches/main": {
     protected: true,
     commit: { sha },
   },
-  "/repos/777genius/review-router-saas/environments/production-release-authority-migration":
+  "/repos/777genius/review-router-ai/environments/production-release-authority-migration":
     protectedEnvironment,
 };
 
@@ -119,7 +119,7 @@ const rolloutEnvironment = {
   RELEASE_RUN_ID: "7001",
   RELEASE_ARTIFACT_ID: "8001",
   EXPECTED_ORGANIZATION: "777genius",
-  EXPECTED_REPOSITORY: "777genius/review-router-saas",
+  EXPECTED_REPOSITORY: "777genius/review-router-ai",
   REVIEW_ROUTER_RELEASE_APPROVAL_MODE: "solo_owner",
   REQUIRED_ENVIRONMENTS_JSON: JSON.stringify([
     "production-release-preflight",
@@ -131,11 +131,11 @@ const rolloutEnvironment = {
   ]),
 };
 const rolloutFixture: Fixture = {
-  "/repos/777genius/review-router-saas/branches/main": {
+  "/repos/777genius/review-router-ai/branches/main": {
     protected: true,
     commit: { sha },
   },
-  "/repos/777genius/review-router-saas/actions/runs/7001": {
+  "/repos/777genius/review-router-ai/actions/runs/7001": {
     id: 7001,
     event: "workflow_dispatch",
     path: ".github/workflows/release.yml",
@@ -144,7 +144,7 @@ const rolloutFixture: Fixture = {
     run_attempt: 1,
     conclusion: "success",
   },
-  "/repos/777genius/review-router-saas/actions/artifacts/8001": {
+  "/repos/777genius/review-router-ai/actions/artifacts/8001": {
     id: 8001,
     expired: false,
     name: "hosted-runtime-image-v1.2.3",
@@ -153,7 +153,7 @@ const rolloutFixture: Fixture = {
   ...Object.fromEntries(
     JSON.parse(rolloutEnvironment.REQUIRED_ENVIRONMENTS_JSON).map(
       (name: string) => [
-        `/repos/777genius/review-router-saas/environments/${name}`,
+        `/repos/777genius/review-router-ai/environments/${name}`,
         protectedEnvironment,
       ],
     ),
@@ -182,7 +182,7 @@ describe("release workflow immutable trust bootstrap", () => {
       {},
       {
         ...releaseFixture,
-        "/repos/777genius/review-router-saas/branches/main": {
+        "/repos/777genius/review-router-ai/branches/main": {
           protected: true,
           commit: { sha: "a".repeat(40) },
         },
@@ -193,7 +193,7 @@ describe("release workflow immutable trust bootstrap", () => {
       {},
       {
         ...releaseFixture,
-        "/repos/777genius/review-router-saas/environments/production-release": {
+        "/repos/777genius/review-router-ai/environments/production-release": {
           protection_rules: [],
           deployment_branch_policy: { protected_branches: false },
         },
@@ -257,7 +257,7 @@ describe("release-authority migration protected environment bootstrap", () => {
         authorityMigrationEnvironment,
         {
           ...authorityMigrationFixture,
-          "/repos/777genius/review-router-saas/environments/production-release-authority-migration":
+          "/repos/777genius/review-router-ai/environments/production-release-authority-migration":
             environment,
         },
       );
@@ -295,7 +295,7 @@ describe("release-authority migration protected environment bootstrap", () => {
         REVIEW_ROUTER_RELEASE_AUTHORITY_MIGRATION_DATABASE_URL: ownerCredential,
       },
       {
-        "/repos/777genius/review-router-saas/branches/main": {
+        "/repos/777genius/review-router-ai/branches/main": {
           protected: true,
           commit: { sha },
         },
@@ -340,7 +340,7 @@ describe("PG17 workflow immutable trust bootstrap", () => {
       {},
       {
         ...rolloutFixture,
-        "/repos/777genius/review-router-saas/branches/main": {
+        "/repos/777genius/review-router-ai/branches/main": {
           protected: true,
           commit: { sha: "c".repeat(40) },
         },
@@ -351,7 +351,7 @@ describe("PG17 workflow immutable trust bootstrap", () => {
       {},
       {
         ...rolloutFixture,
-        "/repos/777genius/review-router-saas/actions/artifacts/8001": {
+        "/repos/777genius/review-router-ai/actions/artifacts/8001": {
           id: 8001,
           expired: false,
           name: "hosted-runtime-image-v1.2.3",
@@ -480,9 +480,9 @@ describe("privileged workflow structure", () => {
     );
     expect(prepare).not.toContain("secrets.");
     expect(attestation).not.toContain("secrets.");
-    expect(
-      runtime?.match(/secrets\.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64/gu),
-    ).toHaveLength(1);
+    expect(runtime).not.toContain(
+      "secrets.SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64",
+    );
     expect(publication?.match(/secrets\.RENDER_API_KEY/gu)).toHaveLength(2);
   });
 

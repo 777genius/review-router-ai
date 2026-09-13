@@ -12,7 +12,7 @@ const manifest = JSON.parse(
 const dependencySource =
   manifest.optionalDependencies?.["@777genius/subscription-runtime"];
 const sourceMatch =
-  /^git\+ssh:\/\/git@github\.com\/777genius\/ar\.git#([0-9a-f]{40})$/u.exec(
+  /^git\+https:\/\/github\.com\/777genius\/ar\.git#([0-9a-f]{40})$/u.exec(
     dependencySource ?? "",
   );
 
@@ -23,7 +23,7 @@ if (!sourceMatch) {
 }
 
 const pinnedCommit = sourceMatch[1];
-const expectedSpecifier = `git+ssh://git@github.com/777genius/ar.git#${pinnedCommit}`;
+const expectedSpecifier = `git+https://github.com/777genius/ar.git#${pinnedCommit}`;
 const expectedTarball = `https://codeload.github.com/777genius/ar/tar.gz/${pinnedCommit}`;
 const expectedPackageKey = `@vioxen/subscription-runtime@${expectedTarball}`;
 const lockfile = parse(await readFile(resolve(root, "pnpm-lock.yaml"), "utf8"));

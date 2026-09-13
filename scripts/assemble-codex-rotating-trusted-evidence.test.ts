@@ -18,7 +18,7 @@ function fixture() {
       GITHUB_SHA: commit,
       GITHUB_RUN_ATTEMPT: "1",
       GITHUB_REPOSITORY_ID: "17",
-      GITHUB_REPOSITORY: "777genius/review-router-saas",
+      GITHUB_REPOSITORY: "777genius/review-router-ai",
       GITHUB_RUN_ID: "101",
       REVIEW_ROUTER_GITHUB_JOB_ID: "202",
       RENDER_OWNER_ID: "owner-1",

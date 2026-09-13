@@ -379,7 +379,7 @@ COMMENT ON DATABASE review_router IS
 
 The verifiable boundary assumes GitHub and Render faithfully serve their
 authenticated API records and artifact digest, TLS is not compromised, and
-administrators of the fixed `777genius/review-router-saas` production
+administrators of the fixed `777genius/review-router-ai` production
 environment protect its variables, secrets, and approval rules. Neither
 provider signs arbitrary Render response bodies. The immutable GitHub job
 therefore performs those authenticated reads itself, archives the exact bodies
