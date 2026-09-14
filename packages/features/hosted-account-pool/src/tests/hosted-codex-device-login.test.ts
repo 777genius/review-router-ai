@@ -295,43 +295,27 @@ function gateway(
   pollAuthorization: ReturnType<typeof vi.fn>;
   exchangeAuthorizationCode: ReturnType<typeof vi.fn>;
 } {
-  const requestUserCode = vi.fn(
-    async (): Promise<HostedCodexDeviceAuthUserCode> => ({
-      deviceAuthId: "device-auth-secret",
-      userCode: "ABCD-EFGH",
-      verificationUrl: "https://auth.openai.com/codex/device",
-      intervalSeconds: 3,
-    }),
-  );
-  const pollAuthorization = vi.fn(
-    async (_input: {
-      readonly deviceAuthId: string;
-      readonly userCode: string;
-    }): Promise<HostedCodexDeviceAuthPollResult> => ({
-      status: "pending",
-    }),
-  );
-  const exchangeAuthorizationCode = vi.fn(
-    async (_input: {
-      readonly authorizationCode: string;
-      readonly codeVerifier: string;
-    }): Promise<HostedCodexDeviceAuthTokens> => chatgptTokens("refresh"),
-  );
-  if (overrides.requestUserCode) {
-    requestUserCode.mockImplementation(overrides.requestUserCode);
-  }
-  if (overrides.pollAuthorization) {
-    pollAuthorization.mockImplementation(overrides.pollAuthorization);
-  }
-  if (overrides.exchangeAuthorizationCode) {
-    exchangeAuthorizationCode.mockImplementation(
-      overrides.exchangeAuthorizationCode,
-    );
-  }
   return {
-    requestUserCode,
-    pollAuthorization,
-    exchangeAuthorizationCode,
+    requestUserCode: vi.fn(
+      overrides.requestUserCode ??
+        (async (): Promise<HostedCodexDeviceAuthUserCode> => ({
+          deviceAuthId: "device-auth-secret",
+          userCode: "ABCD-EFGH",
+          verificationUrl: "https://auth.openai.com/codex/device",
+          intervalSeconds: 3,
+        })),
+    ),
+    pollAuthorization: vi.fn(
+      overrides.pollAuthorization ??
+        (async (): Promise<HostedCodexDeviceAuthPollResult> => ({
+          status: "pending",
+        })),
+    ),
+    exchangeAuthorizationCode: vi.fn(
+      overrides.exchangeAuthorizationCode ??
+        (async (): Promise<HostedCodexDeviceAuthTokens> =>
+          chatgptTokens("refresh")),
+    ),
   };
 }
 
