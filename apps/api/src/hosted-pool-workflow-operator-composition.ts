@@ -6,10 +6,12 @@ import {
   PrismaEntitlementRepository,
 } from "@reviewrouter/features-entitlements";
 import {
+  createGithubHostedPoolActionCatalog,
   readGitHubAppPrivateKey,
-  resolveHostedPoolActionRelease,
+  resolveHostedPoolActionReleaseForProvision,
   resolveReviewRouterCodexRotatingTrustedActionRefs,
   resolveReviewRouterPublicApiUrl,
+  type HostedPoolPublicActionCatalog,
 } from "@reviewrouter/platform-config";
 import {
   activateConfirmedHostedPoolBindingAfterWorkflowMerge,
@@ -27,6 +29,7 @@ import { hasMatchingHostedPoolWorkflow } from "./hosted-pool-workflow-readiness.
 export function createDefaultHostedPoolOperatorConnect(input: {
   readonly prisma: PrismaClient;
   readonly env: Readonly<Record<string, string | undefined>>;
+  readonly actionReleaseCatalog?: HostedPoolPublicActionCatalog;
 }): HostedPoolOperatorConnect {
   return async (command) => {
     const scope = readHostedPoolOperatorScope(input.env);
@@ -51,7 +54,17 @@ export function createDefaultHostedPoolOperatorConnect(input: {
     if (!appId || !privateKey)
       throw new Error("hosted_pool_github_app_not_configured");
     const app = new App({ appId, privateKey });
-    const actionRef = resolveHostedPoolActionRelease(input.env).actionRef;
+    const githubToken =
+      input.env.GITHUB_TOKEN?.trim() || input.env.GH_TOKEN?.trim();
+    const actionRef = (
+      await resolveHostedPoolActionReleaseForProvision(
+        input.env,
+        input.actionReleaseCatalog ??
+          createGithubHostedPoolActionCatalog(
+            githubToken ? { token: githubToken } : {},
+          ),
+      )
+    ).actionRef;
     const apiUrl = resolveReviewRouterPublicApiUrl(input.env);
     if (!apiUrl) throw new Error("hosted_pool_api_url_not_configured");
     const connect = createHostedPoolOperatorConnect({
@@ -81,8 +94,9 @@ export function createDefaultHostedPoolOperatorConnect(input: {
           }))
         )
           return "pending";
-        const result =
-          await activateConfirmedHostedPoolBindingAfterWorkflowMerge({
+        let result;
+        try {
+          result = await activateConfirmedHostedPoolBindingAfterWorkflowMerge({
             prisma: input.prisma,
             octokit,
             workspaceId: repository.workspaceId,
@@ -106,6 +120,14 @@ export function createDefaultHostedPoolOperatorConnect(input: {
             },
             beforeActivation: () => authorize(command.workspaceId),
           });
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message === "hosted_workflow_stored_attestation_mismatch"
+          )
+            return "pending";
+          throw error;
+        }
         return result.status === "not_configured" ? "pending" : "active";
       },
     });

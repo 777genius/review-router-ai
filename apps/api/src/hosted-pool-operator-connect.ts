@@ -228,7 +228,8 @@ export function createHostedPoolOperatorConnect(
                 classify(response.data, binding) === "repository_owned";
               if (
                 !migrateRepositoryOwned &&
-                current.actionVersion !== input.actionRef
+                current.actionVersion !== input.actionRef &&
+                current.status !== "configured"
               )
                 throw new Error("hosted_pool_setup_conflict");
             } catch (error) {
@@ -246,8 +247,12 @@ export function createHostedPoolOperatorConnect(
                 throw new Error("hosted_pool_setup_conflict", { cause: error });
             }
             if (current.status === "configured") {
-              if (!migrateRepositoryOwned) return { pullRequestUrl: null };
-              // A merged repository-owned setup is terminal. Start one new Hosted attempt.
+              if (
+                !migrateRepositoryOwned &&
+                current.actionVersion === input.actionRef
+              )
+                return { pullRequestUrl: null };
+              // A merged setup with a drifted Action pin needs one new Hosted attempt.
               current = null;
             } else {
               if (

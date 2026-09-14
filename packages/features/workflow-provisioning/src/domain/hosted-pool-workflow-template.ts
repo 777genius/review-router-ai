@@ -354,19 +354,9 @@ function assertHostedPoolWorkflowBytes(input: {
   ) {
     throw new Error("hosted_workflow_attestation_binding_mismatch");
   }
-  if (
-    attestation.workflowSourceBlobSha !==
-    input.expectedWorkflowSourceBlobSha.toLowerCase()
-  )
-    throw new Error("hosted_workflow_attestation_blob_mismatch");
-  const matchesAttestedDigests = (workflow: string): boolean => {
-    const contentDigest = createHash("sha256").update(workflow).digest("hex");
-    const semanticDigest = hostedPoolWorkflowSemanticSha256(workflow);
-    return (
-      attestation.workflowSourceSha256 === contentDigest &&
-      attestation.workflowSemanticSha256 === semanticDigest
-    );
-  };
+  const matchesAttestedDigests = (workflow: string): boolean =>
+    hostedPoolWorkflowSemanticSha256(workflow) ===
+    attestation.workflowSemanticSha256;
   const rewritten =
     input.attestedActionSha === undefined
       ? input.expectedWorkflow
@@ -374,10 +364,16 @@ function assertHostedPoolWorkflowBytes(input: {
           input.expectedWorkflow,
           input.attestedActionSha,
         );
+  const semanticallyAttested =
+    matchesAttestedDigests(input.expectedWorkflow) ||
+    matchesAttestedDigests(rewritten);
   if (
-    !matchesAttestedDigests(input.expectedWorkflow) &&
-    !matchesAttestedDigests(rewritten)
-  ) {
+    attestation.workflowSourceBlobSha !==
+      input.expectedWorkflowSourceBlobSha.toLowerCase() &&
+    !semanticallyAttested
+  )
+    throw new Error("hosted_workflow_attestation_blob_mismatch");
+  if (!semanticallyAttested) {
     throw new Error("hosted_workflow_attestation_digest_mismatch");
   }
   const scan = scanCanonicalHostedPoolWorkflowV2(input.expectedWorkflow);

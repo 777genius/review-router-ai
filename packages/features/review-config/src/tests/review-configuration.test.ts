@@ -24,6 +24,24 @@ const enabledInvestigationRollout = {
   productionEffectsEnabled: true,
 } as const;
 
+const disabledInvestigationRollout = {
+  recordingEnabled: false,
+  shadowEnabled: false,
+  contextCriticEnabled: false,
+  verifiedCleanEnabled: false,
+  crossRevisionReplayEnabled: false,
+  productionEffectsEnabled: false,
+} as const;
+
+const defaultInvestigationRuntimeEnv = {
+  REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: "1",
+  REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: "1",
+  REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED: "1",
+  REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED: "1",
+  REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED: "0",
+  REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "1",
+} as const;
+
 const disabledInvestigationRuntimeEnv = {
   REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: "0",
   REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: "0",
@@ -81,15 +99,15 @@ describe("review configuration", () => {
       INLINE_MIN_AGREEMENT: "1",
       FAIL_ON_SEVERITY: "critical",
       INLINE_MAX_COMMENTS: "5",
-      ...disabledInvestigationRuntimeEnv,
+      ...defaultInvestigationRuntimeEnv,
     });
     expect(safeDefaultReviewConfiguration.investigationRollout).toEqual({
-      recordingEnabled: false,
-      shadowEnabled: false,
-      contextCriticEnabled: false,
-      verifiedCleanEnabled: false,
+      recordingEnabled: true,
+      shadowEnabled: true,
+      contextCriticEnabled: true,
+      verifiedCleanEnabled: true,
       crossRevisionReplayEnabled: false,
-      productionEffectsEnabled: false,
+      productionEffectsEnabled: true,
     });
     expect(Object.keys(env).join("\n")).not.toContain("SECRET");
     expect(Object.keys(env).join("\n")).not.toContain("KEY");
@@ -171,6 +189,17 @@ describe("review configuration", () => {
         investigationRollout: { recordingEnabled: "1" },
       }),
     ).toThrow();
+  });
+
+  it("keeps an explicitly disabled investigation rollout disabled", () => {
+    const config = parseReviewConfiguration({
+      ...safeDefaultReviewConfiguration,
+      investigationRollout: disabledInvestigationRollout,
+    });
+
+    expect(mapConfigToRuntimeEnv(config)).toMatchObject(
+      disabledInvestigationRuntimeEnv,
+    );
   });
 
   it("maps OpenRouter API-key config to fully-qualified runtime models", () => {
@@ -479,6 +508,7 @@ describe("review configuration", () => {
             ...safeDefaultReviewConfiguration,
             provider,
             providers: [provider],
+            investigationRollout: disabledInvestigationRollout,
           };
         })(),
       },
@@ -490,7 +520,10 @@ describe("review configuration", () => {
       findReviewConfiguration(target, { configurations }),
     ).resolves.toMatchObject({
       version: 2,
-      config: { provider: { reasoningEffort: "high", fastMode: true } },
+      config: {
+        provider: { reasoningEffort: "high", fastMode: true },
+        investigationRollout: disabledInvestigationRollout,
+      },
     });
   });
 
@@ -715,6 +748,7 @@ describe("review configuration", () => {
             ...safeDefaultReviewConfiguration,
             provider,
             providers: [provider],
+            investigationRollout: disabledInvestigationRollout,
           };
         })(),
       },
@@ -724,7 +758,13 @@ describe("review configuration", () => {
       resolveReviewConfiguration(repositoryTarget, { configurations }),
     ).resolves.toMatchObject({
       source: "workspace",
-      config: { provider: { model: "gpt-5.4" } },
+      config: {
+        provider: { model: "gpt-5.4" },
+        investigationRollout: {
+          recordingEnabled: false,
+          productionEffectsEnabled: false,
+        },
+      },
     });
 
     await saveReviewConfiguration(
@@ -740,6 +780,7 @@ describe("review configuration", () => {
             provider,
             providers: [provider],
             blockingPolicy: { failOnSeverity: "major" as const },
+            investigationRollout: enabledInvestigationRollout,
           };
         })(),
       },
@@ -754,6 +795,8 @@ describe("review configuration", () => {
         CODEX_MODEL: "gpt-5.4-mini",
         CODEX_FAST_MODE: "false",
         FAIL_ON_SEVERITY: "major",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "1",
       },
     });
   });
