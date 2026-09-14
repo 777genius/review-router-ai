@@ -63,6 +63,31 @@ describe("HostedCodexGrantIssuer", () => {
     expect(fixture.replayNonces.tryConsumeNonce).toHaveBeenCalledOnce();
   });
 
+  it("admits an allowlisted Action pin bump when the caller dropped the trailing newline", async () => {
+    const canarySha = "b".repeat(40);
+    const canaryWorkflow = renderCanonicalHostedPoolWorkflowV2({
+      actionRef: `777genius/review-router@${canarySha}`,
+      apiUrl: "https://api.reviewrouter.dev",
+      providerInstanceId: "hosted-pool:repository:123",
+      bindingId: "binding-1",
+      bindingRevision: 7,
+    }).trimEnd();
+    const fixture = createFixture(
+      {
+        workflowContents: canaryWorkflow,
+        workflowSourceBlobSha: "9".repeat(40),
+      },
+      {
+        job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${canarySha}`,
+        job_workflow_sha: canarySha,
+      },
+      [`777genius/review-router@${canarySha}`],
+    );
+    await expect(fixture.issuer.issue(request())).resolves.toMatchObject({
+      repository: "acme/private-repo",
+    });
+  });
+
   it("admits an allowlisted newer Action pin when only the canary uses line changed", async () => {
     const canarySha = "b".repeat(40);
     const canaryWorkflow = renderCanonicalHostedPoolWorkflowV2({
