@@ -1,5 +1,9 @@
+import { request as httpRequest } from "node:http";
 import { describe, expect, it, vi } from "vitest";
-import { runHostedCodexRelayTransport } from "../action/hosted-codex-relay";
+import {
+  runHostedCodexRelayTransport,
+  startHostedCodexRelayProxy,
+} from "../action/hosted-codex-relay";
 import {
   hasHostedPoolRetryBudget,
   hostedPoolAccountFailureReason,
@@ -201,7 +205,7 @@ describe("hosted pool account failover", () => {
           status: 200,
           headers: { "content-type": "text/event-stream" },
         }),
-      "runtime_rejected_response",
+      "hosted_pool_effect_ambiguous",
     ],
   ] as const)(
     "does not run the outer loop again after a %s",
@@ -291,7 +295,278 @@ describe("hosted pool account failover", () => {
     ).rejects.toThrow("hosted_pool_capacity_exhausted");
     expect(attempts).toEqual([1]);
   });
+
+  it("rechecks the replay fence when capacity waiters wake", async () => {
+    const releases: Array<() => void> = [];
+    const startedSignals = [deferred<void>(), deferred<void>()];
+    let relayCalls = 0;
+    const proxy = await startHostedCodexRelayProxy({
+      ...proxyInput({ maxRequests: 4 }),
+      fetchImpl: vi.fn(async () => {
+        const call = relayCalls++;
+        startedSignals[call]?.resolve();
+        if (call < 2) {
+          await new Promise<void>((resolve) => releases.push(resolve));
+        }
+        return successfulSse();
+      }) as unknown as typeof fetch,
+    });
+    const firstActive = fetch(`${proxy.baseUrl}/responses`, {
+      method: "POST",
+      body: "{}",
+    });
+    const secondActive = fetch(`${proxy.baseUrl}/responses`, {
+      method: "POST",
+      body: "{}",
+    });
+    let slow: ReturnType<typeof httpRequest> | undefined;
+    let other: ReturnType<typeof httpRequest> | undefined;
+    try {
+      await Promise.all(startedSignals.map((signal) => signal.promise));
+      slow = httpRequest(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        agent: false,
+        headers: { connection: "close", expect: "100-continue" },
+      });
+      const slowResponse = responseStatus(slow);
+      const slowContinued = waitForContinue(slow);
+      slow.flushHeaders();
+      await slowContinued;
+      slow.write('{"input":"');
+
+      other = httpRequest(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        agent: false,
+        headers: {
+          connection: "close",
+          "content-length": 2,
+          "content-type": "application/json",
+          expect: "100-continue",
+        },
+      });
+      const otherResponse = responseStatus(other);
+      const otherContinued = waitForContinue(other);
+      other.flushHeaders();
+      await otherContinued;
+      other.end("{}");
+
+      releases.shift()?.();
+      const firstResponse = await firstActive;
+      await firstResponse.text();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      releases.shift()?.();
+
+      await expect(otherResponse).resolves.toBe(409);
+      expect(relayCalls).toBe(2);
+      slow.end('review"}');
+      await expect(slowResponse).resolves.toBe(200);
+      expect(relayCalls).toBe(3);
+      const secondResponse = await secondActive;
+      await secondResponse.text();
+    } finally {
+      for (const release of releases) release();
+      slow?.destroy();
+      other?.destroy();
+      await proxy.close();
+    }
+  });
+
+  it.each([401, 429] as const)(
+    "fails closed for ordinal-one %s after another relay was admitted",
+    async (status) => {
+      const firstGate = deferred<void>();
+      const secondGate = deferred<void>();
+      const firstStarted = deferred<void>();
+      const secondStarted = deferred<void>();
+      let relayCalls = 0;
+      const proxy = await startHostedCodexRelayProxy({
+        ...proxyInput({ maxRequests: 2 }),
+        fetchImpl: vi.fn(async () => {
+          relayCalls += 1;
+          if (relayCalls === 1) {
+            firstStarted.resolve();
+            await firstGate.promise;
+            return new Response("rejected", { status });
+          }
+          secondStarted.resolve();
+          await secondGate.promise;
+          return successfulSse();
+        }) as unknown as typeof fetch,
+      });
+      try {
+        const first = fetch(`${proxy.baseUrl}/responses`, {
+          method: "POST",
+          body: "{}",
+        });
+        await firstStarted.promise;
+        const second = fetch(`${proxy.baseUrl}/responses`, {
+          method: "POST",
+          body: "{}",
+        });
+        await secondStarted.promise;
+        firstGate.resolve();
+        const firstResponse = await first;
+        await firstResponse.text();
+        expect(proxy.failoverReason()).toBe("ambiguous");
+        secondGate.resolve();
+        const secondResponse = await second;
+        await secondResponse.text();
+      } finally {
+        firstGate.resolve();
+        secondGate.resolve();
+        await proxy.close();
+      }
+    },
+  );
+
+  it("releases body-read admission without consuming the relay budget", async () => {
+    const ordinals: string[] = [];
+    const proxy = await startHostedCodexRelayProxy({
+      ...proxyInput({ maxRequests: 1, maxRequestBodyBytes: 2 }),
+      fetchImpl: vi.fn(async (_url, init) => {
+        ordinals.push(
+          new Headers(init?.headers).get("x-reviewrouter-request-ordinal") ??
+            "",
+        );
+        return successfulSse();
+      }) as unknown as typeof fetch,
+    });
+    try {
+      const oversized = await fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "too large",
+      });
+      expect(oversized.status).toBe(413);
+      expect(await oversized.json()).toEqual({
+        error: "proxy_request_body_too_large",
+      });
+
+      const valid = await fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      expect(valid.status).toBe(200);
+      await valid.text();
+      expect(ordinals).toEqual(["1"]);
+    } finally {
+      await proxy.close();
+    }
+  });
+
+  it("admits a second response while the first SSE is still streaming", async () => {
+    const firstStarted = deferred<void>();
+    const secondStarted = deferred<void>();
+    const finishFirst = deferred<void>();
+    let relayCalls = 0;
+    const proxy = await startHostedCodexRelayProxy({
+      ...proxyInput({ maxRequests: 2 }),
+      fetchImpl: vi.fn(async () => {
+        relayCalls += 1;
+        if (relayCalls === 1) {
+          firstStarted.resolve();
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    'data: {"type":"response.output_text.delta"}\n\n',
+                  ),
+                );
+                void finishFirst.promise.then(() => {
+                  controller.enqueue(
+                    new TextEncoder().encode("data: [DONE]\n\n"),
+                  );
+                  controller.close();
+                });
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        }
+        secondStarted.resolve();
+        return successfulSse();
+      }) as unknown as typeof fetch,
+    });
+    try {
+      const first = fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      await firstStarted.promise;
+      const second = fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      await secondStarted.promise;
+      const secondResponse = await second;
+      expect(secondResponse.status).toBe(200);
+      await secondResponse.text();
+      finishFirst.resolve();
+      const firstResponse = await first;
+      expect(firstResponse.status).toBe(200);
+      await firstResponse.text();
+    } finally {
+      finishFirst.resolve();
+      await proxy.close();
+    }
+  });
 });
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function waitForContinue(
+  request: ReturnType<typeof httpRequest>,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    request.once("continue", resolve);
+    request.once("error", reject);
+  });
+}
+
+function responseStatus(
+  request: ReturnType<typeof httpRequest>,
+): Promise<number> {
+  return new Promise((resolve, reject) => {
+    request.once("response", (response) => {
+      response.resume();
+      response.once("end", () => resolve(response.statusCode ?? 0));
+      response.once("error", reject);
+    });
+    request.once("error", reject);
+  });
+}
+
+function proxyInput(policy: {
+  maxRequests: number;
+  maxRequestBodyBytes?: number;
+}) {
+  return {
+    grant: "grant",
+    commentTokenRefreshCapability: "refresh",
+    invocationLeaseId: "lease",
+    bindingId: "binding",
+    bindingVersion: 1,
+    relayUrl: "https://relay.reviewrouter.test/v1/responses",
+    upstreamCommentTokenRefreshUrl:
+      "https://relay.reviewrouter.test/v1/comment-token",
+    policy,
+  };
+}
+
+function successfulSse(): Response {
+  return new Response("data: [DONE]\n\n", {
+    headers: { "content-type": "text/event-stream" },
+  });
+}
 
 function freshOidcEnv(): NodeJS.ProcessEnv {
   return {
