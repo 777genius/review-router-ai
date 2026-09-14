@@ -54,7 +54,7 @@ const actionBundle = jest.requireActual("../../../action-dist/index.cjs") as {
     invocationLeaseId: string;
     bindingId: string;
     bindingVersion: number;
-    policy: { maxRequests: number };
+    policy: { maxRequests: number; maxRequestBodyBytes?: number };
   }): Promise<HostedProxy>;
 };
 
@@ -254,29 +254,42 @@ describe("hosted pool replay-fenced failover artifact", () => {
         });
       }) as typeof fetch,
     });
+    let slow: ReturnType<typeof httpRequest> | undefined;
+    let slowSettled: Promise<void> | undefined;
     try {
-      const slow = httpRequest(`${proxy.baseUrl}/responses`, {
+      const slowRequest = httpRequest(`${proxy.baseUrl}/responses`, {
         method: "POST",
+        agent: false,
+        headers: { connection: "close", expect: "100-continue" },
       });
-      slow.write('{"input":"');
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      const concurrent = await fetch(`${proxy.baseUrl}/responses`, {
-        method: "POST",
-        body: "{}",
-      });
-      expect(concurrent.status).toBe(409);
-      expect(relayCalls).toBe(0);
-      const finished = new Promise<void>((resolve, reject) => {
-        slow.once("response", (response) => {
+      slow = slowRequest;
+      const slowFinished = new Promise<void>((resolve, reject) => {
+        slowRequest.once("response", (response) => {
           response.resume();
           response.once("end", resolve);
+          response.once("error", reject);
         });
-        slow.once("error", reject);
+        slowRequest.once("error", reject);
       });
-      slow.end('review"}');
-      await finished;
+      const slowClosed = new Promise<void>((resolve) => {
+        slowRequest.once("close", resolve);
+      });
+      slowSettled = Promise.race([slowFinished, slowClosed]).catch(
+        () => undefined,
+      );
+      const slowAdmitted = waitForContinue(slowRequest);
+      slowRequest.flushHeaders();
+      await slowAdmitted;
+      slowRequest.write('{"input":"');
+      const concurrent = await requestProxy(`${proxy.baseUrl}/responses`, "{}");
+      expect(concurrent.status).toBe(409);
+      expect(relayCalls).toBe(0);
+      slowRequest.end('review"}');
+      await slowFinished;
       expect(relayCalls).toBe(1);
     } finally {
+      slow?.destroy();
+      await slowSettled;
       await proxy.close();
     }
   });
@@ -335,6 +348,226 @@ describe("hosted pool replay-fenced failover artifact", () => {
     }
   });
 
+  it("rechecks the replay fence when capacity waiters wake", async () => {
+    const releases: Array<() => void> = [];
+    let relayCalls = 0;
+    const relayStarted: Array<() => void> = [];
+    const started = [
+      new Promise<void>((resolve) => relayStarted.push(resolve)),
+      new Promise<void>((resolve) => relayStarted.push(resolve)),
+    ];
+    const proxy = await actionBundle.startHostedCodexRelayProxy({
+      grant: "grant",
+      commentTokenRefreshCapability: "refresh",
+      invocationLeaseId: "lease",
+      bindingId: "binding",
+      bindingVersion: 1,
+      relayUrl: "https://relay.reviewrouter.test/v1/responses",
+      upstreamCommentTokenRefreshUrl:
+        "https://relay.reviewrouter.test/v1/comment-token",
+      policy: { maxRequests: 4 },
+      fetchImpl: jest.fn(async () => {
+        const call = relayCalls++;
+        relayStarted[call]?.();
+        if (call < 2) {
+          await new Promise<void>((resolve) => releases.push(resolve));
+        }
+        return new Response("data: [DONE]\n\n", {
+          headers: { "content-type": "text/event-stream" },
+        });
+      }) as typeof fetch,
+    });
+    const active = [
+      fetch(`${proxy.baseUrl}/responses`, { method: "POST", body: "{}" }),
+      fetch(`${proxy.baseUrl}/responses`, { method: "POST", body: "{}" }),
+    ];
+    let slow: ReturnType<typeof httpRequest> | undefined;
+    let slowSettled: Promise<void> | undefined;
+    try {
+      await Promise.all(started);
+      const slowRequest = httpRequest(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        agent: false,
+        headers: { connection: "close", expect: "100-continue" },
+      });
+      slow = slowRequest;
+      const slowFinished = new Promise<void>((resolve, reject) => {
+        slowRequest.once("response", (response) => {
+          response.resume();
+          response.once("end", resolve);
+          response.once("error", reject);
+        });
+        slowRequest.once("error", reject);
+      });
+      const slowClosed = new Promise<void>((resolve) => {
+        slowRequest.once("close", resolve);
+      });
+      slowSettled = Promise.race([slowFinished, slowClosed]).catch(
+        () => undefined,
+      );
+      const slowContinued = waitForContinue(slowRequest);
+      slowRequest.flushHeaders();
+      await slowContinued;
+      slowRequest.write('{"input":"');
+
+      const otherRequest = httpRequest(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        agent: false,
+        headers: {
+          connection: "close",
+          "content-length": 2,
+          "content-type": "application/json",
+          expect: "100-continue",
+        },
+      });
+      const otherWaiter = new Promise<{ status: number }>((resolve, reject) => {
+        otherRequest.once("response", (response) => {
+          response.resume();
+          response.once("end", () => {
+            resolve({ status: response.statusCode ?? 0 });
+          });
+          response.once("error", reject);
+        });
+        otherRequest.once("error", reject);
+      });
+      const otherContinued = waitForContinue(otherRequest);
+      otherRequest.flushHeaders();
+      await otherContinued;
+      otherRequest.end("{}");
+
+      releases.shift()?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      releases.shift()?.();
+
+      await expect(otherWaiter).resolves.toEqual({ status: 409 });
+      expect(relayCalls).toBe(2);
+      slowRequest.end('review"}');
+      await slowFinished;
+      expect(relayCalls).toBe(3);
+      const responses = await Promise.all(active);
+      await Promise.all(responses.map((response) => response.text()));
+    } finally {
+      for (const release of releases) release();
+      slow?.destroy();
+      await slowSettled;
+      await proxy.close();
+    }
+  });
+
+  it.each([401, 429] as const)(
+    "fails closed for ordinal-one %s after another relay was admitted",
+    async (status) => {
+      let releaseFirst!: () => void;
+      let releaseSecond!: () => void;
+      let firstStarted!: () => void;
+      let secondStarted!: () => void;
+      const firstGate = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      const secondGate = new Promise<void>((resolve) => {
+        releaseSecond = resolve;
+      });
+      const firstUpstream = new Promise<void>((resolve) => {
+        firstStarted = resolve;
+      });
+      const secondUpstream = new Promise<void>((resolve) => {
+        secondStarted = resolve;
+      });
+      let relayCalls = 0;
+      const proxy = await actionBundle.startHostedCodexRelayProxy({
+        grant: "grant",
+        commentTokenRefreshCapability: "refresh",
+        invocationLeaseId: "lease",
+        bindingId: "binding",
+        bindingVersion: 1,
+        relayUrl: "https://relay.reviewrouter.test/v1/responses",
+        upstreamCommentTokenRefreshUrl:
+          "https://relay.reviewrouter.test/v1/comment-token",
+        policy: { maxRequests: 2 },
+        fetchImpl: jest.fn(async () => {
+          relayCalls += 1;
+          if (relayCalls === 1) {
+            firstStarted();
+            await firstGate;
+            return new Response("rejected", { status });
+          }
+          secondStarted();
+          await secondGate;
+          return new Response("data: [DONE]\n\n", {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }) as typeof fetch,
+      });
+      try {
+        const first = fetch(`${proxy.baseUrl}/responses`, {
+          method: "POST",
+          body: "{}",
+        });
+        await firstUpstream;
+        const second = fetch(`${proxy.baseUrl}/responses`, {
+          method: "POST",
+          body: "{}",
+        });
+        await secondUpstream;
+        releaseFirst();
+        const firstResponse = await first;
+        await firstResponse.text();
+        expect(proxy.failoverReason()).toBe("ambiguous");
+        releaseSecond();
+        const secondResponse = await second;
+        await secondResponse.text();
+      } finally {
+        releaseFirst();
+        releaseSecond();
+        await proxy.close();
+      }
+    },
+  );
+
+  it("releases body-read admission without consuming the relay budget", async () => {
+    const ordinals: string[] = [];
+    const proxy = await actionBundle.startHostedCodexRelayProxy({
+      grant: "grant",
+      commentTokenRefreshCapability: "refresh",
+      invocationLeaseId: "lease",
+      bindingId: "binding",
+      bindingVersion: 1,
+      relayUrl: "https://relay.reviewrouter.test/v1/responses",
+      upstreamCommentTokenRefreshUrl:
+        "https://relay.reviewrouter.test/v1/comment-token",
+      policy: { maxRequests: 1, maxRequestBodyBytes: 2 },
+      fetchImpl: jest.fn(async (_url, init) => {
+        ordinals.push(
+          new Headers(init?.headers).get("x-reviewrouter-request-ordinal") ??
+            "",
+        );
+        return new Response("data: [DONE]\n\n", {
+          headers: { "content-type": "text/event-stream" },
+        });
+      }) as typeof fetch,
+    });
+    try {
+      const oversized = await fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "too large",
+      });
+      expect(oversized.status).toBe(413);
+      expect(await oversized.json()).toEqual({
+        error: "proxy_request_body_too_large",
+      });
+
+      const valid = await fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      expect(valid.status).toBe(200);
+      await valid.text();
+      expect(ordinals).toEqual(["1"]);
+    } finally {
+      await proxy.close();
+    }
+  });
+
   it("allows no third grant and rejects the former three-attempt budget", async () => {
     const attempts: number[] = [];
     await expect(
@@ -363,6 +596,53 @@ function freshOidcEnv(): NodeJS.ProcessEnv {
     ACTIONS_ID_TOKEN_REQUEST_URL: oidcUrl,
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: "github-request-token",
   };
+}
+
+function waitForContinue(
+  request: ReturnType<typeof httpRequest>,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = (): void => {
+      request.off("continue", onContinue);
+      request.off("error", onError);
+    };
+    const onContinue = (): void => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error): void => {
+      cleanup();
+      reject(error);
+    };
+    request.once("continue", onContinue);
+    request.once("error", onError);
+  });
+}
+
+function requestProxy(url: string, body: string): Promise<{ status: number }> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      url,
+      {
+        method: "POST",
+        agent: false,
+        headers: {
+          connection: "close",
+          "content-length": Buffer.byteLength(body),
+          "content-type": "application/json",
+        },
+      },
+      (response) => {
+        response.resume();
+        response.once("end", () => {
+          resolve({ status: response.statusCode ?? 0 });
+        });
+        response.once("error", reject);
+      },
+    );
+    request.once("error", reject);
+    request.end(body);
+  });
 }
 
 function validGrant(ordinal: number): Record<string, unknown> {

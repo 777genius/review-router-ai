@@ -540,7 +540,7 @@ describe("hosted Codex relay transport", () => {
     }
   });
 
-  it("admits the next Codex turn after a 200 SSE that ends on response.completed", async () => {
+  it("keeps failover ambiguous after a 200 SSE without the DONE sentinel", async () => {
     let upstreamCalls = 0;
     const proxy = await startHostedCodexRelayProxy({
       grant: "opaque-relay-grant",
@@ -573,7 +573,7 @@ describe("hosted Codex relay transport", () => {
       });
       expect(nextTurn.status).toBe(200);
       expect(upstreamCalls).toBe(2);
-      expect(proxy.failoverReason()).toBeUndefined();
+      expect(proxy.failoverReason()).toBe("ambiguous");
     } finally {
       await proxy.close();
     }
