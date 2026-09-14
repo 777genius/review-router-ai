@@ -1,6 +1,8 @@
 # ReviewRouter
 
-ReviewRouter is an open-source control plane for AI pull request review. It can
+<img width="916" height="622" alt="image" src="https://github.com/user-attachments/assets/fc11accd-dbd4-457b-ad6a-a43cccd075d1" />
+
+ReviewRouter is an open-source control plane for AI pull request review (or local code). It can
 run as the hosted ReviewRouter service or as a self-hosted deployment on your
 own infrastructure. The public GitHub Action runtime lives at
 [777genius/review-router](https://github.com/777genius/review-router).
