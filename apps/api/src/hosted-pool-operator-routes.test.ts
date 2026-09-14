@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 const scope = {
   operatorId: "operator",
   workspaceId: "workspace",
+  workspaceIds: ["workspace"],
   ownerGitHubUserId: "123",
 };
 const credential = "temporary-fake-credential-for-tests";
@@ -16,8 +17,8 @@ async function fixture() {
     scope,
     credentialSha256: createHash("sha256").update(credential).digest("hex"),
     membership: {
-      isCurrentAdmin: async (_scope, workspace) =>
-        member && workspace === scope.workspaceId,
+      resolveAdminWorkspace: async (_scope, workspace) =>
+        member && workspace === scope.workspaceId ? scope.workspaceId : null,
     },
   });
   const execute = vi.fn(async (scope, command, auth?: Uint8Array) => {
