@@ -800,13 +800,19 @@ const investigationPreservedFlagNames = Object.freeze([
   "REVIEW_ROUTER_REVIEW_INVESTIGATION_MAINTENANCE_ENABLED",
 ]);
 
-const investigationPrerequisiteEnvNames = Object.freeze([
+const investigationPolicyEnvNames = Object.freeze([
   "REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON",
+]);
+
+const investigationApiPrerequisiteEnvNames = Object.freeze([
   "REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_ACTIVE_KEY_ID",
   "REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_KEYS_JSON",
   "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_ACTIVE_KEY_ID",
   "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_KEYS_JSON",
   "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_TTL_MS",
+]);
+
+const investigationWorkerPrerequisiteEnvNames = Object.freeze([
   "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_PRUNE_BATCH_SIZE",
   "REVIEW_ROUTER_REVIEW_INVESTIGATION_DOSSIER_PRUNE_BATCH_SIZE",
   "REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_EVIDENCE_PRUNE_BATCH_SIZE",
@@ -814,7 +820,7 @@ const investigationPrerequisiteEnvNames = Object.freeze([
   "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_LOCK_TTL_MS",
 ]);
 
-function investigationRuntimeEnv(env) {
+function investigationRuntimeEnv(env, role) {
   const selected = Object.fromEntries(
     investigationPreservedFlagNames.map((name) => [
       name,
@@ -823,7 +829,18 @@ function investigationRuntimeEnv(env) {
   );
   Object.assign(
     selected,
-    readOptionalEnvVars(env, investigationPrerequisiteEnvNames),
+    readOptionalEnvVars(
+      env,
+      role === "api" || role === "worker" ? investigationPolicyEnvNames : [],
+    ),
+    readOptionalEnvVars(
+      env,
+      role === "api" ? investigationApiPrerequisiteEnvNames : [],
+    ),
+    readOptionalEnvVars(
+      env,
+      role === "worker" ? investigationWorkerPrerequisiteEnvNames : [],
+    ),
   );
   // Cross-revision replay is intentionally outside this delivery's rollout.
   selected.REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED =
@@ -1086,7 +1103,7 @@ export function buildServiceEnv({
     values.REVIEW_ROUTER_REVIEW_V2_PROJECTION_POLICY_VERSION =
       reviewV2ProjectionPolicyVersion;
   }
-  Object.assign(values, investigationRuntimeEnv(env));
+  Object.assign(values, investigationRuntimeEnv(env, role));
   if (role !== "worker") values.PORT = "10000";
   return asEnvVars(values);
 }

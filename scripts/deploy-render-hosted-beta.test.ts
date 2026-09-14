@@ -841,82 +841,129 @@ describe("Render hosted deploy hardening", () => {
     ).toHaveProperty("preDeployCommand", null);
   });
 
-  it("preserves explicit investigation effects and their rollout prerequisites", () => {
-    const selectors = JSON.stringify({
-      production_effects: [{ workspaceIds: ["workspace-1"] }],
-      verified_clean: [{ workspaceIds: ["workspace-1"] }],
-    });
-    const leaseKeys = JSON.stringify([
-      {
-        keyId: "investigation-lease-active",
-        secretBase64: Buffer.alloc(32, 10).toString("base64"),
-        verifyUntil: null,
-      },
-    ]);
-    const privateMaterialKeys = JSON.stringify({
-      "investigation-private-active": Buffer.alloc(32, 11).toString("base64"),
-    });
-    const investigation = {
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: "1",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: "1",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED: "1",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED: "1",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED: "1",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "1",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_EMERGENCY_DISABLED: "0",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON: selectors,
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_ACTIVE_KEY_ID:
-        "investigation-lease-active",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_KEYS_JSON: leaseKeys,
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_ACTIVE_KEY_ID:
-        "investigation-private-active",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_KEYS_JSON:
-        privateMaterialKeys,
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_TTL_MS: "86400000",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_MAINTENANCE_ENABLED: "1",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_PRUNE_BATCH_SIZE:
-        "100",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_DOSSIER_PRUNE_BATCH_SIZE: "101",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_EVIDENCE_PRUNE_BATCH_SIZE:
-        "102",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_INTERVAL_MS: "3600000",
-      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_LOCK_TTL_MS: "300000",
-    };
-    const result = Object.fromEntries(
-      buildServiceEnv({
-        databaseUrl: "postgres://internal/db",
-        privateKey: "private-key-not-logged",
-        role: "api",
-        webUrl: "https://reviewrouter.example",
-        apiUrl: "https://api.reviewrouter.example",
-        env: {
-          GITHUB_APP_CLIENT_ID: "client",
-          GITHUB_APP_CLIENT_SECRET: "secret",
-          GITHUB_APP_ID: "1",
-          GITHUB_APP_SLUG: "reviewrouter",
-          GITHUB_WEBHOOK_SECRET: "secret",
-          AUTH_SECRET: "a".repeat(32),
-          REVIEW_ROUTER_ACTION_SESSION_SECRET: "s".repeat(32),
-          REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY: "t".repeat(32),
-          REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: "w".repeat(43),
-          REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: actionRef,
-          ...installerTuple,
-          ...hostedPoolEnv,
-          ...dormantReviewV2Env,
-          ...investigation,
+  it.each([
+    {
+      role: "api",
+      requiredPrerequisites: [
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_ACTIVE_KEY_ID",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_KEYS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_ACTIVE_KEY_ID",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_KEYS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_TTL_MS",
+      ],
+    },
+    {
+      role: "worker",
+      requiredPrerequisites: [
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_DOSSIER_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_EVIDENCE_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_INTERVAL_MS",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_LOCK_TTL_MS",
+      ],
+    },
+    { role: "web", requiredPrerequisites: [] },
+  ])(
+    "preserves investigation rollout inputs consumed by the $role role only",
+    ({ role, requiredPrerequisites }) => {
+      const selectors = JSON.stringify({
+        production_effects: [{ workspaceIds: ["workspace-1"] }],
+        verified_clean: [{ workspaceIds: ["workspace-1"] }],
+      });
+      const leaseKeys = JSON.stringify([
+        {
+          keyId: "investigation-lease-active",
+          secretBase64: Buffer.alloc(32, 10).toString("base64"),
+          verifyUntil: null,
         },
-      }).map(({ key, value }) => [key, value]),
-    );
-
-    for (const [key, value] of Object.entries(investigation)) {
-      expect(result[key], key).toBe(
-        key ===
-          "REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED"
-          ? "0"
-          : value,
+      ]);
+      const privateMaterialKeys = JSON.stringify({
+        "investigation-private-active": Buffer.alloc(32, 11).toString("base64"),
+      });
+      const investigation = {
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_EMERGENCY_DISABLED: "0",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON: selectors,
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_ACTIVE_KEY_ID:
+          "investigation-lease-active",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_KEYS_JSON:
+          leaseKeys,
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_ACTIVE_KEY_ID:
+          "investigation-private-active",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_KEYS_JSON:
+          privateMaterialKeys,
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_TTL_MS: "86400000",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_MAINTENANCE_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_PRUNE_BATCH_SIZE:
+          "100",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_DOSSIER_PRUNE_BATCH_SIZE: "101",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_EVIDENCE_PRUNE_BATCH_SIZE:
+          "102",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_INTERVAL_MS: "3600000",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_LOCK_TTL_MS: "300000",
+      };
+      const result = Object.fromEntries(
+        buildServiceEnv({
+          databaseUrl: "postgres://internal/db",
+          privateKey: "private-key-not-logged",
+          role,
+          webUrl: "https://reviewrouter.example",
+          apiUrl: "https://api.reviewrouter.example",
+          env: {
+            GITHUB_APP_CLIENT_ID: "client",
+            GITHUB_APP_CLIENT_SECRET: "secret",
+            GITHUB_APP_ID: "1",
+            GITHUB_APP_SLUG: "reviewrouter",
+            GITHUB_WEBHOOK_SECRET: "secret",
+            AUTH_SECRET: "a".repeat(32),
+            REVIEW_ROUTER_ACTION_SESSION_SECRET: "s".repeat(32),
+            REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY: "t".repeat(32),
+            REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: "w".repeat(43),
+            REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: actionRef,
+            ...installerTuple,
+            ...hostedPoolEnv,
+            ...dormantReviewV2Env,
+            ...investigation,
+          },
+        }).map(({ key, value }) => [key, value]),
       );
-    }
-  });
+
+      const prerequisiteNames = [
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_ACTIVE_KEY_ID",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_KEYS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_ACTIVE_KEY_ID",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_KEYS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_TTL_MS",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_DOSSIER_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_EVIDENCE_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_INTERVAL_MS",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_LOCK_TTL_MS",
+      ];
+      for (const [key, value] of Object.entries(investigation)) {
+        if (prerequisiteNames.includes(key)) {
+          expect(result[key], key).toBe(
+            requiredPrerequisites.includes(key) ? value : undefined,
+          );
+        } else {
+          expect(result[key], key).toBe(
+            key ===
+              "REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED"
+              ? "0"
+              : value,
+          );
+        }
+      }
+    },
+  );
 
   it.each([
     ["REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED", "true"],
