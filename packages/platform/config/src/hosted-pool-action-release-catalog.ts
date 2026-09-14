@@ -317,6 +317,8 @@ async function githubResponse(
     ) {
       throw error;
     }
-    throw new Error("hosted_pool_action_release_lookup_failed");
+    throw new Error("hosted_pool_action_release_lookup_failed", {
+      cause: error,
+    });
   }
 }
