@@ -6,7 +6,7 @@ then owns its encrypted generations. Do not copy provider credentials into GitHu
 or keep synchronizing the native file back into ReviewRouter.
 
 Server configuration is disabled by default. Set `REVIEW_ROUTER_HOSTED_POOL_OPERATOR_ENABLED=1`,
-`REVIEW_ROUTER_HOSTED_POOL_OPERATOR_WORKSPACE_ID`, and
+`REVIEW_ROUTER_HOSTED_POOL_OPERATOR_WORKSPACE_ID` (one ID, or a comma-separated allowlist of unique workspace IDs), and
 `REVIEW_ROUTER_HOSTED_POOL_OPERATOR_OWNER_GITHUB_USER_ID` only in trusted configuration.
 The last value is the numeric GitHub user ID, not a login. The existing
 `REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL_SHA256` authenticates the

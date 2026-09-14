@@ -32,7 +32,7 @@ export function createDefaultHostedPoolOperatorConnect(input: {
     const scope = readHostedPoolOperatorScope(input.env);
     if (
       !scope ||
-      command.workspaceId !== scope.workspaceId ||
+      !scope.workspaceIds.includes(command.workspaceId) ||
       command.operatorId !== scope.operatorId
     )
       throw new Error("hosted_pool_operator_forbidden");
