@@ -51,7 +51,8 @@ import {
   isWorkflowProvisioningEnabled,
   isHostedCodexPoolEnabled,
   requireReviewRouterDatabaseRecoveryWitness,
-  resolveHostedPoolActionRelease,
+  createGithubHostedPoolActionCatalog,
+  resolveHostedPoolActionReleaseForProvision,
   resolveReviewRouterActionRef,
   resolveReviewRouterCodexRotatingActionRef,
   resolveReviewRouterCodexRotatingTrustedActionRefs,
@@ -366,13 +367,23 @@ async function provisionPendingHostedPoolWorkflow(input: {
   return new PostgresLeaseLock(prisma).withLock(
     `repo:${input.repositoryId}:workflow-provision`,
     5 * 60_000,
-    async () =>
-      provisionHostedPoolRepositoryWorkflow(
+    async () => {
+      const githubToken =
+        process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+      const actionRef = (
+        await resolveHostedPoolActionReleaseForProvision(
+          process.env,
+          createGithubHostedPoolActionCatalog(
+            githubToken ? { token: githubToken } : {},
+          ),
+        )
+      ).actionRef;
+      return provisionHostedPoolRepositoryWorkflow(
         {
           workspaceId: input.workspaceId,
           installationId: githubRepository.installation.id,
           repositoryId: input.repositoryId,
-          actionRef: resolveHostedPoolActionRelease().actionRef,
+          actionRef,
           apiUrl: resolveWorkflowPublicApiUrl(),
           providerInstanceId: canonicalHostedPoolProviderInstanceId(
             githubRepository.githubRepositoryId.toString(),
@@ -389,7 +400,8 @@ async function provisionPendingHostedPoolWorkflow(input: {
           enabled: isWorkflowProvisioningEnabled(),
           auditMetadata: dashboardMutationAccessAuditMetadata(actor),
         },
-      ),
+      );
+    },
   );
 }
 
