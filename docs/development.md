@@ -42,8 +42,9 @@ REVIEW_ROUTER_HOSTED_ENV_FILE=/path/to/configured.env pnpm hosted:check
 REVIEW_ROUTER_API_URL=https://api.reviewrouter.site pnpm hosted:api-demo:check
 ```
 
-Include database and protocol checks with
-`REVIEW_ROUTER_BETA_CHECK_DB_E2E=1 pnpm beta:check`.
+Include database checks with
+`REVIEW_ROUTER_BETA_CHECK_DB_E2E=1 pnpm beta:check`. Run `pnpm protocol:check`
+separately to verify the protocol contract.
 
 ## Live GitHub verification
 
