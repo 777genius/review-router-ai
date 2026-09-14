@@ -94,8 +94,9 @@ export function createDefaultHostedPoolOperatorConnect(input: {
           }))
         )
           return "pending";
-        const result =
-          await activateConfirmedHostedPoolBindingAfterWorkflowMerge({
+        let result;
+        try {
+          result = await activateConfirmedHostedPoolBindingAfterWorkflowMerge({
             prisma: input.prisma,
             octokit,
             workspaceId: repository.workspaceId,
@@ -119,6 +120,14 @@ export function createDefaultHostedPoolOperatorConnect(input: {
             },
             beforeActivation: () => authorize(command.workspaceId),
           });
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message === "hosted_workflow_stored_attestation_mismatch"
+          )
+            return "pending";
+          throw error;
+        }
         return result.status === "not_configured" ? "pending" : "active";
       },
     });
