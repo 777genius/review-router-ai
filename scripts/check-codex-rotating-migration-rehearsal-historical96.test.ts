@@ -20,6 +20,7 @@ const historical = readRenderHistorical96CheckoutInventory();
 const extensions = [
   "000098_certified_fork_effect_archive",
   "000099_certified_fork_proof_facts",
+  "000100_hosted_codex_device_login",
 ];
 function body(name: string) {
   const match = source.match(
@@ -67,7 +68,7 @@ function noOp(
 }
 
 describe("historical96 Prisma deploy boundary", () => {
-  it("gives the actual Prisma config loader all 96 admitted SQL files and excludes only checkout-only 098/099", () => {
+  it("gives the actual Prisma config loader all 96 admitted SQL files and excludes only checkout-only 098/099/100", () => {
     for (const extension of extensions)
       expect(
         fs.existsSync(join(migrationsDirectory, extension, "migration.sql")),

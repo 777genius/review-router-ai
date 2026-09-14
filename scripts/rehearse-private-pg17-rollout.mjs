@@ -305,6 +305,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     // Checkout-only additions do not enter the immutable historical rehearsal.
     "000098_certified_fork_effect_archive",
     "000099_certified_fork_proof_facts",
+    "000100_hosted_codex_device_login",
   ]),
   retained: Object.freeze([
     "000067_review_live_progress",

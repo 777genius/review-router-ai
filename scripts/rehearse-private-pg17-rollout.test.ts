@@ -1289,6 +1289,7 @@ describe("disposable dual-version rehearsal", () => {
       "000096_hosted_pool_public_repository_eligibility",
       "000098_certified_fork_effect_archive",
       "000099_certified_fork_proof_facts",
+      "000100_hosted_codex_device_login",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1327,7 +1328,8 @@ describe("disposable dual-version rehearsal", () => {
         migrationNames.filter(
           (name) =>
             name !== "000098_certified_fork_effect_archive" &&
-            name !== "000099_certified_fork_proof_facts",
+            name !== "000099_certified_fork_proof_facts" &&
+            name !== "000100_hosted_codex_device_login",
         ),
       ),
     ).toBe(canonicalReleaseMigrationArtifact.postManifestIdentity);
@@ -1338,7 +1340,8 @@ describe("disposable dual-version rehearsal", () => {
           (name) =>
             name !== "000096_hosted_pool_public_repository_eligibility" &&
             name !== "000098_certified_fork_effect_archive" &&
-            name !== "000099_certified_fork_proof_facts",
+            name !== "000099_certified_fork_proof_facts" &&
+            name !== "000100_hosted_codex_device_login",
         ),
       ),
     ).toBe(
@@ -1375,6 +1378,7 @@ describe("disposable dual-version rehearsal", () => {
     "000096_hosted_pool_public_repository_eligibility",
     "000098_certified_fork_effect_archive",
     "000099_certified_fork_proof_facts",
+    "000100_hosted_codex_device_login",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1402,7 +1406,8 @@ describe("disposable dual-version rehearsal", () => {
             current.filter(
               (name) =>
                 name !== "000098_certified_fork_effect_archive" &&
-                name !== "000099_certified_fork_proof_facts",
+                name !== "000099_certified_fork_proof_facts" &&
+                name !== "000100_hosted_codex_device_login",
             ),
           ),
         ).toBe(
