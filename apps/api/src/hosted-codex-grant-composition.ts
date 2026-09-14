@@ -503,9 +503,7 @@ export function hostedWorkflowSourcesArePinEquivalent(
     hostedPoolWorkflowSemanticSha256(
       rewriteHostedWorkflowActionSha(left, pin),
     ) ===
-    hostedPoolWorkflowSemanticSha256(
-      rewriteHostedWorkflowActionSha(right, pin),
-    )
+    hostedPoolWorkflowSemanticSha256(rewriteHostedWorkflowActionSha(right, pin))
   );
 }
 
