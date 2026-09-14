@@ -35,6 +35,7 @@ model Workspace {
   reviewSnapshots              ReviewSnapshot[]
   reviewExecutionCheckpoints   ReviewExecutionCheckpoint[]
   hostedCodexPools             HostedCodexPool[]
+  hostedCodexDeviceLogins      HostedCodexDeviceLogin[]
 }
 
 model User {
@@ -1993,6 +1994,26 @@ model HostedCodexGenerationReceipt {
   @@index([previousReceiptHash])
 }
 
+model HostedCodexDeviceLogin {
+  id              String                       @id
+  workspaceId     String
+  actor           String
+  label           String
+  priority        Int
+  userCode        String
+  verificationUrl String
+  deviceAuthId    String?
+  status          HostedCodexDeviceLoginStatus @default(pending)
+  expiresAt       DateTime
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, status, expiresAt])
+  @@index([id, workspaceId, actor])
+}
+
 model ReviewExecutionObservationRefV2 {
   observationRefId         String                            @id
   executionId              String
@@ -3379,6 +3400,13 @@ enum HostedCodexGenerationReceiptKind {
   activated
   deactivated
   tombstoned
+}
+
+enum HostedCodexDeviceLoginStatus {
+  pending
+  imported
+  failed
+  expired
 }
 
 enum ReviewObservationAttachmentKindV2 {

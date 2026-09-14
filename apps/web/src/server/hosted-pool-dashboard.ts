@@ -1,7 +1,12 @@
 import {
+  hostedDeviceLoginId,
+  pollHostedCodexDeviceLogin,
   repositoryId,
+  startHostedCodexDeviceLogin,
   workspaceId,
   type HostedAccountSafeSummary,
+  type HostedCodexDeviceAuthGateway,
+  type HostedCodexDeviceLoginStore,
   type HostedPoolQueryPort,
   type HostedPoolSafeSummary,
   type HostedRepositoryBindingSafeSummary,
@@ -76,6 +81,14 @@ export type HostedPoolDashboardMutationDependencies = Readonly<{
   now(): Date;
 }>;
 
+export type HostedPoolDeviceLoginDependencies =
+  HostedPoolDashboardMutationDependencies &
+    Readonly<{
+      deviceLoginStore: HostedCodexDeviceLoginStore;
+      deviceAuth: HostedCodexDeviceAuthGateway;
+      createLoginId(): string;
+    }>;
+
 export async function loadHostedPoolDashboardView(input: {
   readonly workspaceId: string;
   readonly repositories: readonly HostedPoolDashboardRepository[];
@@ -143,6 +156,102 @@ export async function importHostedPoolAccount(
     authJson.fill(0);
   }
   void actor;
+}
+
+export async function startHostedPoolDeviceLogin(
+  input: {
+    readonly workspaceId: string;
+    readonly label: string;
+    readonly priority: number;
+  },
+  dependencies: HostedPoolDeviceLoginDependencies,
+): Promise<{
+  readonly loginId: string;
+  readonly userCode: string;
+  readonly verificationUrl: string;
+  readonly expiresAt: string;
+  readonly intervalSeconds: number;
+}> {
+  const actor = await authorizeAndEntitle(input.workspaceId, dependencies);
+  if (!input.label.trim() || input.label.trim().length > 80)
+    throw new Error("hosted_account_label_invalid");
+  if (!Number.isSafeInteger(input.priority) || input.priority < 0)
+    throw new Error("hosted_account_priority_invalid");
+  const started = await startHostedCodexDeviceLogin(
+    {
+      id: hostedDeviceLoginId(dependencies.createLoginId()),
+      workspaceId: workspaceId(input.workspaceId),
+      actor: actor.actor,
+      label: input.label.trim(),
+      priority: input.priority,
+      now: dependencies.now(),
+    },
+    {
+      store: dependencies.deviceLoginStore,
+      deviceAuth: dependencies.deviceAuth,
+    },
+  );
+  return {
+    loginId: started.loginId,
+    userCode: started.userCode,
+    verificationUrl: started.verificationUrl,
+    expiresAt: started.expiresAt.toISOString(),
+    intervalSeconds: started.intervalSeconds,
+  };
+}
+
+export async function pollHostedPoolDeviceLogin(
+  input: {
+    readonly workspaceId: string;
+    readonly loginId: string;
+  },
+  dependencies: HostedPoolDeviceLoginDependencies,
+): Promise<
+  | {
+      readonly status: "pending";
+      readonly loginId: string;
+      readonly userCode: string;
+      readonly verificationUrl: string;
+      readonly expiresAt: string;
+    }
+  | { readonly status: "imported"; readonly loginId: string }
+> {
+  const actor = await authorizeAndEntitle(input.workspaceId, dependencies);
+  const polled = await pollHostedCodexDeviceLogin(
+    {
+      id: hostedDeviceLoginId(input.loginId),
+      workspaceId: workspaceId(input.workspaceId),
+      actor: actor.actor,
+      now: dependencies.now(),
+    },
+    {
+      store: dependencies.deviceLoginStore,
+      deviceAuth: dependencies.deviceAuth,
+      enroll: {
+        enrollAuthJson: async (command) => {
+          await importHostedPoolAccount(
+            {
+              workspaceId: command.workspaceId,
+              label: command.label,
+              priority: command.priority,
+              authJson: command.authJson,
+            },
+            dependencies,
+          );
+        },
+      },
+    },
+  );
+  if (polled.status === "pending") {
+    return {
+      status: "pending",
+      loginId: polled.loginId,
+      userCode: polled.userCode,
+      verificationUrl: polled.verificationUrl,
+      expiresAt: polled.expiresAt.toISOString(),
+    };
+  }
+  return { status: "imported", loginId: polled.loginId };
 }
 
 export async function changeHostedPoolAccountState(

@@ -37,12 +37,12 @@ still count against your own plan or billing.
 
 ## Current status
 
-| Integration       | What to expect                                                                            |
-| ----------------- | ----------------------------------------------------------------------------------------- |
-| GitHub            | App installation, setup PRs, inline review and a shared dashboard.                        |
-| GitLab            | Setup wizard and CI-based merge request review. Setup uses a request-scoped access token. |
-| Self-hosted       | Docker Compose deployment on your infrastructure; operator setup required.                |
-| Hosted Codex pool | Gated, opt-in account management for a workspace; operator activation required.           |
+| Integration       | What to expect                                                                                                                                                  |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub            | App installation, setup PRs, inline review and a shared dashboard.                                                                                              |
+| GitLab            | Setup wizard and CI-based merge request review. Setup uses a request-scoped access token.                                                                       |
+| Self-hosted       | Docker Compose deployment on your infrastructure; operator setup required.                                                                                      |
+| Hosted Codex pool | Gated, opt-in account management for a workspace. Entitled workspace admins enroll a ChatGPT session from the dashboard (device sign-in or `auth.json` upload). |
 
 The hosted pool holds encrypted credentials and relays model traffic through
 ReviewRouter, unlike the default repository-secret setup. Advanced investigations

@@ -35,7 +35,9 @@ repository activation. It is not a one-click installer.
 See the [complete deployment guide](./operations/review-router-self-hosted-end-to-end.md).
 
 **Hosted Codex pool:** an opt-in, operator-managed mode centralizes accounts,
-encrypted credential generations and repository bindings. Checkout and tools stay
+encrypted credential generations and repository bindings. Entitled workspace
+admins enroll a ChatGPT session from the dashboard by signing in with device
+auth or by uploading a local `auth.json`. Checkout and tools stay
 in Actions, but model requests, tool outputs and responses pass through the SaaS
 relay. Relay bodies must not be retained. This is a different trust boundary,
 not the default mode where provider secrets stay in CI. The checked-in operator guide retains

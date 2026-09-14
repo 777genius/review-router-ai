@@ -60,6 +60,17 @@ describe("safeDashboardErrorCode", () => {
     ]) {
       expect(safeDashboardErrorCode(new Error(code))).toBe(code);
     }
+    expect(
+      safeDashboardErrorCode(new Error("hosted_pool_device_login_in_flight")),
+    ).toBe("hosted_pool_device_login_in_flight");
+    expect(
+      safeDashboardErrorCode(
+        new Error("hosted_pool_device_login_artifact_invalid"),
+      ),
+    ).toBe("hosted_pool_device_login_artifact_invalid");
+    expect(
+      safeDashboardErrorCode(new Error("hosted_codex_auth_json_invalid")),
+    ).toBe("hosted_codex_auth_json_invalid");
     expect(safeDashboardErrorCode(new Error("rate_limit_exceeded:setup"))).toBe(
       "rate_limited",
     );

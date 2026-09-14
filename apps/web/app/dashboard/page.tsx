@@ -84,6 +84,8 @@ import {
   retryOutboxEventClientAction,
   enableOrgRulesetWorkflowClientAction,
   importHostedPoolAccountClientAction,
+  pollHostedPoolDeviceLoginClientAction,
+  startHostedPoolDeviceLoginClientAction,
   setHostedPoolAccountStateClientAction,
   setHostedRepositorySessionSourceClientAction,
 } from "./actions";
@@ -2120,6 +2122,8 @@ function WorkspaceCard({
                 mutationsEnabled={mutationsEnabled}
                 actions={{
                   importAccount: importHostedPoolAccountClientAction,
+                  startDeviceLogin: startHostedPoolDeviceLoginClientAction,
+                  pollDeviceLogin: pollHostedPoolDeviceLoginClientAction,
                   setAccountState: setHostedPoolAccountStateClientAction,
                   setRepositorySource:
                     setHostedRepositorySessionSourceClientAction,

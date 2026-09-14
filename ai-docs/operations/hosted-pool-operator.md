@@ -1,7 +1,9 @@
 # Hosted pool operator (bounded lane; Production HOLD)
 
 This CLI extends the existing ReviewRouter operator profile and credential transport.
-Use the normal native Codex login locally; import its private auth file once. ReviewRouter
+Workspace admins can also enroll from the dashboard without the operator secret:
+sign in with ChatGPT (device auth) or upload a local `auth.json` produced by
+`codex login`. Use the operator CLI when you are driving import yourself. ReviewRouter
 then owns its encrypted generations. Do not copy provider credentials into GitHub Secrets
 or keep synchronizing the native file back into ReviewRouter.
 

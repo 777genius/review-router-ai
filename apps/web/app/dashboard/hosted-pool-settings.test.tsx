@@ -17,6 +17,14 @@ describe("HostedPoolSettingsPanel", () => {
         mutationsEnabled
         actions={{
           importAccount: action,
+          startDeviceLogin: async () => ({
+            ok: false as const,
+            params: { error: "hosted_pool_action_failed" },
+          }),
+          pollDeviceLogin: async () => ({
+            ok: false as const,
+            params: { error: "hosted_pool_action_failed" },
+          }),
           setAccountState: action,
           setRepositorySource: action,
         }}
@@ -56,6 +64,14 @@ describe("HostedPoolSettingsPanel", () => {
         mutationsEnabled
         actions={{
           importAccount: action,
+          startDeviceLogin: async () => ({
+            ok: false as const,
+            params: { error: "hosted_pool_action_failed" },
+          }),
+          pollDeviceLogin: async () => ({
+            ok: false as const,
+            params: { error: "hosted_pool_action_failed" },
+          }),
           setAccountState: action,
           setRepositorySource: action,
         }}

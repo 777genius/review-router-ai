@@ -193,6 +193,12 @@ function dashboardActionToast(
         title: "Retry skipped",
         body: "The background event could not be manually retried in its current state.",
       };
+    case "hosted_pool_account_added":
+      return {
+        tone: "success",
+        title: "Hosted Codex account added",
+        body: "The ChatGPT session is enrolled in this workspace pool. Credentials stay on the server.",
+      };
     default:
       return {
         tone: "success",
@@ -236,6 +242,18 @@ function dashboardActionErrorText(error: string): string {
     case "contains_secret_like_text":
     case "too_long":
       return "Memory text did not pass safety and shape checks.";
+    case "hosted_pool_device_login_in_flight":
+      return "A ChatGPT sign-in is already waiting for this workspace. Finish or wait for it to expire.";
+    case "hosted_pool_device_login_expired":
+      return "That ChatGPT sign-in expired. Start a new one from the dashboard.";
+    case "hosted_pool_device_login_denied":
+      return "ChatGPT sign-in was denied. Start a new one if you still want to enroll this account.";
+    case "hosted_pool_device_login_artifact_invalid":
+    case "hosted_codex_auth_json_invalid":
+    case "hosted_account_auth_file_invalid":
+      return "The ChatGPT session could not be imported. Start a new sign-in or upload a fresh auth.json.";
+    case "hosted_pool_device_login_provider_unavailable":
+      return "ChatGPT sign-in is temporarily unavailable. Try again shortly, or upload auth.json.";
     default:
       return "The dashboard action could not be completed.";
   }
