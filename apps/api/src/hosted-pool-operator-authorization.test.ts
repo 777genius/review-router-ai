@@ -16,7 +16,7 @@ const credentialSha256 = createHash("sha256").update(credential).digest("hex");
 
 function membership(
   resolveAdminWorkspace: (
-    scope: typeof scope,
+    current: (typeof scope),
     workspace: string,
   ) => Promise<string | null>,
 ) {
