@@ -79,24 +79,30 @@ export function HostedPoolDeviceLogin({
         startTransition(() => router.refresh());
         return;
       }
-      setFlight((current) =>
-        current
-          ? {
-              ...current,
-              userCode: result.userCode,
-              verificationUrl: result.verificationUrl,
-              expiresAt: result.expiresAt,
-            }
-          : current,
-      );
+      setFlight((current) => {
+        if (
+          !current ||
+          (current.userCode === result.userCode &&
+            current.verificationUrl === result.verificationUrl &&
+            current.expiresAt === result.expiresAt)
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          userCode: result.userCode,
+          verificationUrl: result.verificationUrl,
+          expiresAt: result.expiresAt,
+        };
+      });
     };
-    const interval = window.setInterval(() => {
+    const interval = setInterval(() => {
       void tick();
     }, flight.intervalMs);
     void tick();
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      clearInterval(interval);
     };
   }, [flight?.loginId, flight?.intervalMs, router, workspaceId]);
 

@@ -25,7 +25,7 @@ describe("HostedPoolDeviceLogin", () => {
       verificationUrl: "https://auth.openai.com/codex/device",
       expiresAt: "2026-09-14T12:15:00.000Z",
     }));
-    render(
+    const view = render(
       <HostedPoolDeviceLogin
         workspaceId="workspace-1"
         mutationsEnabled
@@ -44,5 +44,7 @@ describe("HostedPoolDeviceLogin", () => {
     expect(document.body.textContent).not.toMatch(
       /refresh|device-auth|id_token|access_token/iu,
     );
+    view.unmount();
+    await Promise.resolve();
   });
 });
