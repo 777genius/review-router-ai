@@ -25,6 +25,8 @@ import {
   resolveReviewRouterActionRef,
   resolveReviewRouterCodexRotatingActionRef,
   resolveHostedPoolActionRelease,
+  resolveHostedPoolActionReleaseForProvision,
+  parseHostedPoolActionChannel,
   assertHostedCodexProductionReadiness,
   resolveReviewRouterCodexRotatingTrustedActionRefs,
   resolveReviewRouterPublicApiUrl,
@@ -147,7 +149,7 @@ describe("platform config", () => {
     }
   });
 
-  it("binds hosted pool workflow consumption to an immutable tag, commit, and bundle digest", () => {
+  it("binds hosted pool workflow consumption to an immutable tag, commit, and bundle digest", async () => {
     const sha = "a".repeat(40);
     expect(
       resolveHostedPoolActionRelease({
@@ -171,6 +173,17 @@ describe("platform config", () => {
         REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: "b".repeat(64),
       }),
     ).toThrow("hosted_pool_action_release_ref_mismatch");
+    expect(parseHostedPoolActionChannel("main")).toEqual({
+      kind: "official_latest",
+    });
+    await expect(
+      resolveHostedPoolActionReleaseForProvision({
+        REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: `777genius/review-router@${sha}`,
+        REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: "v1.2.3",
+        REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: sha,
+        REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: "b".repeat(64),
+      }),
+    ).resolves.toMatchObject({ commitSha: sha, tag: "v1.2.3" });
   });
 
   it("fails closed on hosted flag order, role/KMS binding, and provider resource identity", () => {

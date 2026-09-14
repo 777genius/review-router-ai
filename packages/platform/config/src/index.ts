@@ -3,6 +3,17 @@ import { readFileSync } from "node:fs";
 import { isLoopbackHostname } from "@reviewrouter/shared";
 export { isLoopbackHostname } from "@reviewrouter/shared";
 import { z } from "zod";
+import { resolveHostedPoolActionRelease } from "./hosted-pool-action-release-catalog";
+export {
+  createGithubHostedPoolActionCatalog,
+  hostedPoolActionReleaseSnapshotComplete,
+  parseHostedPoolActionChannel,
+  resolveHostedPoolActionRelease,
+  resolveHostedPoolActionReleaseForProvision,
+  type HostedPoolActionChannel,
+  type HostedPoolActionRelease,
+  type HostedPoolPublicActionCatalog,
+} from "./hosted-pool-action-release-catalog";
 
 export const REVIEW_ROUTER_ACTION_REPOSITORY = "777genius/review-router";
 export const DEFAULT_REVIEW_ROUTER_ACTION_VERSION = "main";
@@ -136,14 +147,6 @@ export function resolveReviewRouterCodexRotatingActionRef(
     "REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF",
   );
 }
-
-export type HostedPoolActionRelease = Readonly<{
-  repository: typeof REVIEW_ROUTER_ACTION_REPOSITORY;
-  tag: string;
-  commitSha: string;
-  distSha256: string;
-  actionRef: string;
-}>;
 
 export type HostedCodexRuntimeRole = "api" | "web" | "worker";
 
@@ -329,42 +332,6 @@ function requireCanonicalBase64Secret(
   if (decoded.byteLength < 32 || decoded.toString("base64") !== encoded) {
     throw new Error(error);
   }
-}
-
-/**
- * Resolves the independently recorded public Action release consumed by the
- * hosted pool. The mutable general Action channel and an unpaired rotating SHA
- * are deliberately insufficient for hosted credential custody.
- */
-export function resolveHostedPoolActionRelease(
-  input: ReviewRouterActionRefEnv = process.env,
-): HostedPoolActionRelease {
-  const tag = input.REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG?.trim() ?? "";
-  const commitSha =
-    input.REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA?.trim().toLowerCase() ?? "";
-  const distSha256 =
-    input.REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256?.trim().toLowerCase() ??
-    "";
-  if (!/^v[1-9][0-9]*\.[0-9]+\.[0-9]+$/u.test(tag)) {
-    throw new Error("invalid_env:REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG");
-  }
-  if (!/^[a-f0-9]{40}$/u.test(commitSha)) {
-    throw new Error("invalid_env:REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA");
-  }
-  if (!/^[a-f0-9]{64}$/u.test(distSha256)) {
-    throw new Error("invalid_env:REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256");
-  }
-  const actionRef = resolveReviewRouterCodexRotatingActionRef(input);
-  if (actionRef !== `${REVIEW_ROUTER_ACTION_REPOSITORY}@${commitSha}`) {
-    throw new Error("hosted_pool_action_release_ref_mismatch");
-  }
-  return Object.freeze({
-    repository: REVIEW_ROUTER_ACTION_REPOSITORY,
-    tag,
-    commitSha,
-    distSha256,
-    actionRef,
-  });
 }
 
 export function resolveReviewRouterCodexRotatingTrustedActionRefs(

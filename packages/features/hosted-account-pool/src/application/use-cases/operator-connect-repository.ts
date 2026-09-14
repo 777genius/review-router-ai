@@ -59,12 +59,27 @@ export async function operatorConnectRepository(
         throw new Error("hosted_pool_binding_conflict");
       }
     };
-    if (ensured.status === "already_active")
+    if (ensured.status === "already_active") {
+      await guard();
+      const activation = await dependencies.activateExact(binding);
+      if (activation === "active")
+        return {
+          status: "already_active" as const,
+          bindingId: binding.bindingId,
+          bindingRevision: binding.revision,
+        };
+      await guard();
+      const setup = await dependencies.provisionOrResume(binding);
+      await guard();
       return {
-        status: "already_active" as const,
+        status: setup.pullRequestUrl
+          ? ("setup_pr_open" as const)
+          : ("pending_activation" as const),
         bindingId: binding.bindingId,
         bindingRevision: binding.revision,
+        setupPrUrl: setup.pullRequestUrl,
       };
+    }
     await guard();
     const activation = await dependencies.activateExact(binding);
     if (activation === "active")

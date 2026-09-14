@@ -68,8 +68,9 @@ function fixture(
   };
 }
 describe("operator repository connect orchestration", () => {
-  it("active same-pool reconnect is a no-op without workflow or configuration writes", async () => {
+  it("active same-pool reconnect rechecks the exact workflow before staying active", async () => {
     const f = fixture("active");
+    f.dependencies.activateExact.mockResolvedValue("active");
     expect(
       await operatorConnectRepository(f.input, f.dependencies),
     ).toMatchObject({
@@ -77,8 +78,22 @@ describe("operator repository connect orchestration", () => {
       bindingId: "original",
       bindingRevision: 1,
     });
-    expect(f.dependencies.activateExact).not.toHaveBeenCalled();
+    expect(f.dependencies.activateExact).toHaveBeenCalledTimes(1);
     expect(f.dependencies.provisionOrResume).not.toHaveBeenCalled();
+    expect(f.dependencies.bindings.save).not.toHaveBeenCalled();
+  });
+  it("active reconnect with a drifted hosted workflow opens a setup PR", async () => {
+    const f = fixture("active");
+    expect(
+      await operatorConnectRepository(f.input, f.dependencies),
+    ).toMatchObject({
+      status: "setup_pr_open",
+      bindingId: "original",
+      bindingRevision: 1,
+      setupPrUrl: "https://github.invalid/owner/repo/pull/1",
+    });
+    expect(f.dependencies.activateExact).toHaveBeenCalledTimes(1);
+    expect(f.dependencies.provisionOrResume).toHaveBeenCalledTimes(1);
     expect(f.dependencies.bindings.save).not.toHaveBeenCalled();
   });
   it("pending resumes the same binding and setup PR", async () => {

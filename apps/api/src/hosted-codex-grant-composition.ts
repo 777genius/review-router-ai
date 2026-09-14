@@ -34,6 +34,7 @@ import {
 import {
   assertExactHostedPoolCallerWorkflow,
   canonicalHostedPoolReusableWorkflowIdentity,
+  hostedPoolWorkflowSemanticSha256,
   readCanonicalHostedPoolWorkflowMetadata,
   type HostedPoolWorkflowSourceAttestation,
   hostedPoolWorkflowSchemaVersion,
@@ -499,8 +500,10 @@ export function hostedWorkflowSourcesArePinEquivalent(
 ): boolean {
   const pin = "0".repeat(40);
   return (
-    rewriteHostedWorkflowActionSha(left, pin) ===
-    rewriteHostedWorkflowActionSha(right, pin)
+    hostedPoolWorkflowSemanticSha256(
+      rewriteHostedWorkflowActionSha(left, pin),
+    ) ===
+    hostedPoolWorkflowSemanticSha256(rewriteHostedWorkflowActionSha(right, pin))
   );
 }
 
@@ -524,23 +527,18 @@ function workflowBytesForAttestedActionPin(
     admission.workflowContents,
     admission.workflowJobSha,
   );
-  if (rewritten === admission.workflowContents) {
-    return {
-      contents: admission.workflowContents,
-      blobSha: admission.workflowSourceBlobSha,
-    };
-  }
   if (
-    sha256(rewritten) !== admission.workflowAttestation.workflowSourceSha256
+    hostedPoolWorkflowSemanticSha256(rewritten) ===
+    admission.workflowAttestation.workflowSemanticSha256
   ) {
     return {
-      contents: admission.workflowContents,
-      blobSha: admission.workflowSourceBlobSha,
+      contents: rewritten,
+      blobSha: admission.workflowAttestation.workflowSourceBlobSha,
     };
   }
   return {
-    contents: rewritten,
-    blobSha: admission.workflowAttestation.workflowSourceBlobSha,
+    contents: admission.workflowContents,
+    blobSha: admission.workflowSourceBlobSha,
   };
 }
 
