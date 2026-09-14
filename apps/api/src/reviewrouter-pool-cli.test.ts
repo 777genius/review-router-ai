@@ -3,8 +3,32 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { executePoolCli, readPoolAuthFile } from "./reviewrouter-pool-cli";
+import {
+  CODEX_DEVICE_AUTH_URL,
+  executePoolCli,
+  parseCodexDeviceAuthOutput,
+  poolCliOptions,
+  readPoolAuthFile,
+  resolvePoolLoginAuthHome,
+  type PoolLoginProcess,
+} from "./reviewrouter-pool-cli";
 import { executeReviewRouterOperatorCli } from "./reviewrouter-operator-cli";
+
+const deviceAuthOutput = [
+  `Visit ${CODEX_DEVICE_AUTH_URL} and enter the code:\n`,
+  "ABCD-EFGHI\n",
+].join("");
+
+function fakeLoginProcess(
+  chunks: string[] = [deviceAuthOutput],
+  wait: () => Promise<number> = () => new Promise(() => {}),
+): PoolLoginProcess {
+  return {
+    chunks: [...chunks],
+    wait,
+    kill: vi.fn(),
+  };
+}
 
 describe("pool operator CLI", () => {
   it("uses existing profile credential and redirect-error transport", async () => {
@@ -121,5 +145,228 @@ describe("pool operator CLI", () => {
     });
     expect(request).toHaveBeenCalledTimes(1);
     expect(request).toHaveBeenCalledWith("GET", expect.any(String));
+  });
+  it("accepts login options and isolates the default Codex home", () => {
+    expect(poolCliOptions("pool accounts login")).toEqual([
+      "workspace",
+      "profile",
+      "api-url",
+      "label",
+      "auth-home",
+    ]);
+    const home = "/home/operator";
+    const isolated = resolvePoolLoginAuthHome(undefined, home);
+    expect(
+      isolated.startsWith(`${home}/.reviewrouter/codex-homes/login-`),
+    ).toBe(true);
+    expect(isolated).not.toBe(`${home}/.codex`);
+    expect(() => resolvePoolLoginAuthHome(`${home}/.codex`, home)).toThrow(
+      "hosted_pool_auth_home_invalid",
+    );
+    expect(parseCodexDeviceAuthOutput(deviceAuthOutput)).toEqual({
+      url: CODEX_DEVICE_AUTH_URL,
+      code: "ABCD-EFGHI",
+    });
+  });
+  it("prints the device URL and code, then imports only safe fields", async () => {
+    const bytes = Buffer.from("temporary-fake-auth");
+    const writes: string[] = [];
+    const opened: string[] = [];
+    const spawned: string[] = [];
+    let ready = false;
+    const request = vi.fn(async (_method, pathname, body) => {
+      expect(pathname).toBe("/api/operator/v1/hosted-pool/accounts/import");
+      expect(body).toEqual({
+        workspace: "padelapp",
+        label: "padel-oct",
+        authBase64: Buffer.from("temporary-fake-auth").toString("base64"),
+      });
+      return {
+        status: "imported",
+        accountId: "account-1",
+        generation: 1,
+        refreshToken: "never-print",
+      };
+    });
+    const process = fakeLoginProcess();
+    const result = await executePoolCli({
+      command: "pool accounts login",
+      options: {
+        workspace: "padelapp",
+        label: "padel-oct",
+        "auth-home": "/tmp/rr-isolated-codex",
+      },
+      request,
+      readAuthFile: async (filename) => {
+        expect(filename).toBe("/tmp/rr-isolated-codex/auth.json");
+        return bytes;
+      },
+      homeDirectory: "/home/operator",
+      login: {
+        spawnCodexLogin: (authHome) => {
+          spawned.push(authHome);
+          return process;
+        },
+        openBrowser: async (url) => {
+          opened.push(url);
+        },
+        sleep: async () => {
+          ready = true;
+        },
+        now: () => 0,
+        write: (text) => writes.push(text),
+        ensureAuthHome: async () => {},
+        isAuthReady: async () => ready,
+        timeoutMs: 15 * 60 * 1000,
+        pollIntervalMs: 3_000,
+      },
+    });
+    expect(spawned).toEqual(["/tmp/rr-isolated-codex"]);
+    expect(opened).toEqual([CODEX_DEVICE_AUTH_URL]);
+    expect(writes.join("")).toContain(CODEX_DEVICE_AUTH_URL);
+    expect(writes.join("")).toContain("ABCD-EFGHI");
+    expect(writes.join("")).not.toContain("temporary-fake-auth");
+    expect(result).toEqual({
+      status: "imported",
+      accountId: "account-1",
+      generation: 1,
+    });
+    expect(JSON.stringify(result)).not.toContain("never-print");
+    expect(JSON.stringify(result)).not.toContain("temporary-fake-auth");
+    expect(bytes.every((byte) => byte === 0)).toBe(true);
+    expect(process.kill).toHaveBeenCalled();
+  });
+  it("rejects a pre-existing auth.json before spawning Codex login", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "rr-pool-login-"));
+    const spawnCodexLogin = vi.fn(() => fakeLoginProcess());
+    const request = vi.fn();
+    try {
+      await writeFile(path.join(directory, "auth.json"), "stale-fake-auth");
+      await expect(
+        executePoolCli({
+          command: "pool accounts login",
+          options: {
+            workspace: "a",
+            label: "new-label",
+            "auth-home": directory,
+          },
+          request,
+          homeDirectory: "/home/operator",
+          login: { spawnCodexLogin },
+        }),
+      ).rejects.toThrow("hosted_pool_auth_file_already_exists");
+      expect(spawnCodexLogin).not.toHaveBeenCalled();
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it("continues when the browser cannot open", async () => {
+    const request = vi.fn(async () => ({
+      status: "already_imported",
+      accountId: "account-2",
+      generation: 3,
+    }));
+    await expect(
+      executePoolCli({
+        command: "pool accounts login",
+        options: { workspace: "a", label: "e2e-public-20260912" },
+        request,
+        readAuthFile: async () => Buffer.from("fake-small-auth"),
+        homeDirectory: "/home/operator",
+        login: {
+          spawnCodexLogin: () => fakeLoginProcess(),
+          openBrowser: async () => {
+            throw new Error("xdg-open missing");
+          },
+          sleep: async () => {},
+          now: () => 0,
+          write: () => {},
+          ensureAuthHome: async () => {},
+          isAuthReady: async () => true,
+        },
+      }),
+    ).resolves.toEqual({
+      status: "already_imported",
+      accountId: "account-2",
+      generation: 3,
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+  it("times out without importing when auth.json never appears", async () => {
+    let now = 0;
+    const request = vi.fn();
+    await expect(
+      executePoolCli({
+        command: "pool accounts login",
+        options: { workspace: "a", label: "primary" },
+        request,
+        readAuthFile: async () => Buffer.from("never-read"),
+        homeDirectory: "/home/operator",
+        login: {
+          spawnCodexLogin: () => fakeLoginProcess(),
+          openBrowser: async () => {},
+          sleep: async (ms) => {
+            now += ms;
+          },
+          now: () => now,
+          write: () => {},
+          ensureAuthHome: async () => {},
+          isAuthReady: async () => false,
+          timeoutMs: 15 * 60 * 1000,
+          pollIntervalMs: 3_000,
+        },
+      }),
+    ).rejects.toThrow("hosted_pool_login_timeout");
+    expect(request).not.toHaveBeenCalled();
+    expect(now).toBeGreaterThanOrEqual(15 * 60 * 1000);
+  });
+  it("fails without importing when the login process exits nonzero", async () => {
+    const request = vi.fn();
+    await expect(
+      executePoolCli({
+        command: "pool accounts login",
+        options: { workspace: "a", label: "primary" },
+        request,
+        readAuthFile: async () => Buffer.from("never-read"),
+        homeDirectory: "/home/operator",
+        login: {
+          spawnCodexLogin: () => fakeLoginProcess([], async () => 1),
+          openBrowser: async () => {},
+          sleep: async () => {},
+          now: () => 0,
+          write: () => {},
+          ensureAuthHome: async () => {},
+          isAuthReady: async () => false,
+        },
+      }),
+    ).rejects.toThrow("hosted_pool_login_failed");
+    expect(request).not.toHaveBeenCalled();
+  });
+  it("imports after the login process exits 0 with a ready auth file", async () => {
+    const request = vi.fn(async () => ({
+      status: "imported",
+      accountId: "account-3",
+      generation: 1,
+    }));
+    await expect(
+      executePoolCli({
+        command: "pool accounts login",
+        options: { workspace: "a", label: "primary" },
+        request,
+        readAuthFile: async () => Buffer.from("fake-small-auth"),
+        homeDirectory: "/home/operator",
+        login: {
+          spawnCodexLogin: () => fakeLoginProcess([], async () => 0),
+          openBrowser: async () => {},
+          sleep: async () => {},
+          now: () => 0,
+          write: () => {},
+          ensureAuthHome: async () => {},
+          isAuthReady: async () => true,
+        },
+      }),
+    ).resolves.toMatchObject({ status: "imported", accountId: "account-3" });
+    expect(request).toHaveBeenCalledTimes(1);
   });
 });

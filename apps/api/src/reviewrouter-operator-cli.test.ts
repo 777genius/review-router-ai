@@ -257,6 +257,34 @@ describe("ReviewRouter operator CLI", () => {
     expect((error as Error).message).not.toContain(credential);
   });
 
+  it("lists pool accounts login in usage text", async () => {
+    const result = await executeReviewRouterOperatorCli(["--help"], {});
+    expect(result).toMatchObject({
+      usage: expect.stringContaining(
+        "reviewrouter pool accounts login --workspace SLUG --label LABEL [--auth-home PATH]",
+      ),
+    });
+    await expect(
+      executeReviewRouterOperatorCli(
+        [
+          "pool",
+          "accounts",
+          "login",
+          "--workspace",
+          "padelapp",
+          "--label",
+          "padel-oct",
+          "--auth-file",
+          "secret.json",
+        ],
+        {
+          REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
+          REVIEW_ROUTER_API_URL: "https://api.reviewrouter.site",
+        },
+      ),
+    ).rejects.toThrow("reviewrouter_operator_option_unknown");
+  });
+
   it("rejects a profile readable by other users", async () => {
     await expect(
       executeReviewRouterOperatorCli(

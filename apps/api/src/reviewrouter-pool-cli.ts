@@ -1,8 +1,13 @@
-import { open } from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { lstat, mkdir, open, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
 
 const commands = {
   "pool status": [],
   "pool accounts import": ["label", "auth-file"],
+  "pool accounts login": ["label", "auth-home"],
   "pool accounts replace": [
     "account-id",
     "expected-generation",
@@ -13,6 +18,31 @@ const commands = {
   "pool accounts resume": ["account-id", "expected-health-version"],
   "pool repositories connect": ["repo", "all", "dry-run"],
 } as const;
+
+export const CODEX_DEVICE_AUTH_URL = "https://auth.openai.com/codex/device";
+const DEVICE_CODE = /\b([A-Z0-9]{4}-[A-Z0-9]{5})\b/i;
+const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
+const LOGIN_POLL_MS = 3_000;
+const AUTH_FILE_MAX_BYTES = 1024 * 1024;
+
+export type PoolLoginProcess = {
+  readonly chunks: string[];
+  wait(): Promise<number>;
+  kill(): void;
+};
+
+export type PoolAccountsLoginHooks = {
+  readonly spawnCodexLogin?: (authHome: string) => PoolLoginProcess;
+  readonly openBrowser?: (url: string) => Promise<void> | void;
+  readonly sleep?: (ms: number) => Promise<void>;
+  readonly now?: () => number;
+  readonly write?: (text: string) => void;
+  readonly ensureAuthHome?: (authHome: string) => Promise<void>;
+  readonly isAuthReady?: (authFile: string) => Promise<boolean>;
+  readonly timeoutMs?: number;
+  readonly pollIntervalMs?: number;
+  readonly platform?: NodeJS.Platform;
+};
 export function poolCliOptions(command: string): readonly string[] | null {
   const options = commands[command as keyof typeof commands];
   return options ? ["workspace", "profile", "api-url", ...options] : null;
@@ -45,6 +75,17 @@ export async function readPoolAuthFile(filename: string): Promise<Buffer> {
   }
 }
 
+export function parseCodexDeviceAuthOutput(text: string): {
+  readonly url?: string;
+  readonly code?: string;
+} {
+  const url = text.includes(CODEX_DEVICE_AUTH_URL)
+    ? CODEX_DEVICE_AUTH_URL
+    : undefined;
+  const code = DEVICE_CODE.exec(text)?.[1];
+  return { ...(url ? { url } : {}), ...(code ? { code } : {}) };
+}
+
 export async function executePoolCli(input: {
   readonly command: string;
   readonly options: Readonly<Record<string, string | true>>;
@@ -54,6 +95,8 @@ export async function executePoolCli(input: {
     body?: unknown,
   ): Promise<unknown>;
   readonly readAuthFile?: typeof readPoolAuthFile;
+  readonly homeDirectory?: string;
+  readonly login?: PoolAccountsLoginHooks;
 }) {
   const required = (name: string) => {
     const value = input.options[name];
@@ -142,7 +185,8 @@ export async function executePoolCli(input: {
       results,
     };
   }
-  const action = input.command.split(" ")[2]!;
+  const login = input.command === "pool accounts login";
+  const action = login ? "import" : input.command.split(" ")[2]!;
   const body: Record<string, unknown> = { workspace };
   if (action === "import") body.label = required("label");
   else {
@@ -151,24 +195,255 @@ export async function executePoolCli(input: {
   }
   if (action === "replace")
     body.expectedGeneration = integer("expected-generation");
+  const authFile = login
+    ? path.join(
+        await completeCodexDeviceLogin({
+          authHome: input.options["auth-home"],
+          ...(input.homeDirectory === undefined
+            ? {}
+            : { homeDirectory: input.homeDirectory }),
+          ...(input.login === undefined ? {} : { hooks: input.login }),
+        }),
+        "auth.json",
+      )
+    : action === "import" || action === "replace"
+      ? required("auth-file")
+      : undefined;
   let auth: Buffer | undefined;
   try {
-    if (action === "import" || action === "replace") {
-      auth = await (input.readAuthFile ?? readPoolAuthFile)(
-        required("auth-file"),
-      );
+    if (authFile) {
+      auth = await (input.readAuthFile ?? readPoolAuthFile)(authFile);
       body.authBase64 = auth.toString("base64");
     }
     try {
-      return await input.request("POST", `${base}/accounts/${action}`, body);
+      const result = await input.request(
+        "POST",
+        `${base}/accounts/${action}`,
+        body,
+      );
+      return login ? safePoolImportResult(result) : result;
     } catch {
       // Never retry enrollment or relogin blindly after an uncertain response.
       if (auth)
-        return { status: "reconcile_required", observed: await status() };
+        return login
+          ? { status: "reconcile_required" }
+          : { status: "reconcile_required", observed: await status() };
       throw new Error("hosted_pool_account_mutation_failed");
     }
   } finally {
     auth?.fill(0);
     delete body.authBase64;
   }
+}
+
+async function completeCodexDeviceLogin(input: {
+  readonly authHome: string | true | undefined;
+  readonly homeDirectory?: string;
+  readonly hooks?: PoolAccountsLoginHooks;
+}): Promise<string> {
+  const hooks = input.hooks ?? {};
+  const home = input.homeDirectory ?? homedir();
+  const authHome = resolvePoolLoginAuthHome(input.authHome, home);
+  await (hooks.ensureAuthHome ?? defaultEnsureAuthHome)(authHome);
+  const authFile = path.join(authHome, "auth.json");
+  if (await authFileExists(authFile))
+    throw new Error("hosted_pool_auth_file_already_exists");
+  const child = (hooks.spawnCodexLogin ?? defaultSpawnCodexLogin)(authHome);
+  const write = hooks.write ?? ((text: string) => process.stdout.write(text));
+  const now = hooks.now ?? Date.now;
+  const sleep = hooks.sleep ?? defaultSleep;
+  const isAuthReady = hooks.isAuthReady ?? defaultIsAuthReady;
+  const timeoutMs = hooks.timeoutMs ?? LOGIN_TIMEOUT_MS;
+  const pollIntervalMs = hooks.pollIntervalMs ?? LOGIN_POLL_MS;
+  const deadline = now() + timeoutMs;
+  let exitCode: number | undefined;
+  const exited = child.wait().then((code) => {
+    exitCode = code;
+    return code;
+  });
+  const printed = { url: false, code: false, pending: "" };
+  try {
+    while (now() < deadline) {
+      await announceDeviceAuth(child.chunks, printed, write, (url) =>
+        openDeviceAuthUrl(url, hooks),
+      );
+      if (await isAuthReady(authFile)) {
+        child.kill();
+        return authHome;
+      }
+      if (exitCode !== undefined) {
+        if (exitCode !== 0 || !(await isAuthReady(authFile)))
+          throw new Error("hosted_pool_login_failed");
+        return authHome;
+      }
+      await Promise.race([sleep(pollIntervalMs), exited]);
+    }
+    child.kill();
+    if (await isAuthReady(authFile)) return authHome;
+    throw new Error("hosted_pool_login_timeout");
+  } catch (error) {
+    child.kill();
+    throw error;
+  }
+}
+
+export function resolvePoolLoginAuthHome(
+  authHome: string | true | undefined,
+  homeDirectory: string,
+): string {
+  if (authHome === true || (typeof authHome === "string" && !authHome.trim()))
+    throw new Error("reviewrouter_operator_option_required:auth-home");
+  const resolved = path.resolve(
+    typeof authHome === "string"
+      ? authHome.trim()
+      : path.join(
+          homeDirectory,
+          ".reviewrouter",
+          "codex-homes",
+          `login-${randomBytes(8).toString("hex")}`,
+        ),
+  );
+  if (resolved === path.resolve(homeDirectory, ".codex"))
+    throw new Error("hosted_pool_auth_home_invalid");
+  return resolved;
+}
+
+function safePoolImportResult(result: unknown): {
+  readonly status: string;
+  readonly accountId?: string;
+  readonly generation?: number;
+} {
+  if (!result || typeof result !== "object")
+    throw new Error("hosted_pool_account_mutation_failed");
+  const value = result as Record<string, unknown>;
+  if (typeof value.status !== "string")
+    throw new Error("hosted_pool_account_mutation_failed");
+  return {
+    status: value.status,
+    ...(typeof value.accountId === "string"
+      ? { accountId: value.accountId }
+      : {}),
+    ...(typeof value.generation === "number" &&
+    Number.isSafeInteger(value.generation)
+      ? { generation: value.generation }
+      : {}),
+  };
+}
+
+async function announceDeviceAuth(
+  chunks: string[],
+  printed: { url: boolean; code: boolean; pending: string },
+  write: (text: string) => void,
+  openUrl: (url: string) => Promise<void>,
+): Promise<void> {
+  if (chunks.length > 0) printed.pending += chunks.splice(0).join("");
+  const parsed = parseCodexDeviceAuthOutput(printed.pending);
+  if (parsed.url && !printed.url) {
+    printed.url = true;
+    write(`Open this URL to continue Codex device login:\n${parsed.url}\n`);
+    await openUrl(parsed.url);
+  }
+  if (parsed.code && !printed.code) {
+    printed.code = true;
+    write(`One-time code: ${parsed.code}\n`);
+  }
+  if (printed.pending.length > 8_192)
+    printed.pending = printed.pending.slice(-512);
+}
+
+async function openDeviceAuthUrl(
+  url: string,
+  hooks: PoolAccountsLoginHooks,
+): Promise<void> {
+  try {
+    await (hooks.openBrowser ?? defaultOpenBrowser(hooks.platform))(url);
+  } catch {
+    // Browser launch is best-effort; the operator can open the printed URL.
+  }
+}
+
+function defaultOpenBrowser(
+  platform = process.platform,
+): (url: string) => Promise<void> {
+  return async (url) => {
+    const command =
+      platform === "darwin" ? "open" : platform === "linux" ? "xdg-open" : null;
+    if (!command) return;
+    await new Promise<void>((resolve) => {
+      const child = spawn(command, [url], {
+        stdio: "ignore",
+        detached: true,
+      });
+      child.unref();
+      child.once("error", () => resolve());
+      child.once("spawn", () => resolve());
+    });
+  };
+}
+
+function defaultSpawnCodexLogin(authHome: string): PoolLoginProcess {
+  const child = spawn("codex", ["login", "--device-auth"], {
+    env: { ...process.env, CODEX_HOME: authHome },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return wrapCodexLoginProcess(child);
+}
+
+function wrapCodexLoginProcess(child: ChildProcess): PoolLoginProcess {
+  const chunks: string[] = [];
+  const onData = (data: Buffer | string) =>
+    chunks.push(typeof data === "string" ? data : data.toString("utf8"));
+  child.stdout?.on("data", onData);
+  child.stderr?.on("data", onData);
+  const exit = new Promise<number>((resolve) => {
+    child.once("error", () => resolve(1));
+    child.once("exit", (code) => resolve(code ?? 1));
+  });
+  return {
+    chunks,
+    wait: () => exit,
+    kill() {
+      child.kill("SIGTERM");
+    },
+  };
+}
+
+async function defaultEnsureAuthHome(authHome: string): Promise<void> {
+  await mkdir(authHome, { recursive: true, mode: 0o700 });
+  try {
+    await writeFile(
+      path.join(authHome, "config.toml"),
+      'cli_auth_credentials_store = "file"\n',
+      { mode: 0o600, flag: "wx" },
+    );
+  } catch (error) {
+    if ((error as { code?: string }).code !== "EEXIST") throw error;
+  }
+}
+
+async function defaultIsAuthReady(authFile: string): Promise<boolean> {
+  try {
+    const metadata = await stat(authFile);
+    return (
+      metadata.isFile() &&
+      metadata.size > 0 &&
+      metadata.size <= AUTH_FILE_MAX_BYTES
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function authFileExists(authFile: string): Promise<boolean> {
+  try {
+    await lstat(authFile);
+    return true;
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

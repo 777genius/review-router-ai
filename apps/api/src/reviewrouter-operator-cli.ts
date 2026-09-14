@@ -8,7 +8,11 @@ import { ReviewReasoningEffort } from "@reviewrouter/features-review-config/revi
 import { isScmProvider, type ScmProvider } from "@reviewrouter/shared/scm";
 import { ReviewInvestigationPromotionRequestVersion } from "./review-investigation-operator-routes.js";
 
-import { executePoolCli, poolCliOptions } from "./reviewrouter-pool-cli.js";
+import {
+  executePoolCli,
+  poolCliOptions,
+  type PoolAccountsLoginHooks,
+} from "./reviewrouter-pool-cli.js";
 
 type OperatorCliEnvironment = Readonly<Record<string, string | undefined>>;
 type OperatorCliFetch = typeof fetch;
@@ -28,6 +32,7 @@ export type ReviewRouterOperatorCliDependencies = Readonly<{
   readFileImpl?: typeof readFile;
   statImpl?: typeof stat;
   homeDirectory?: string;
+  poolLogin?: PoolAccountsLoginHooks;
 }>;
 
 export async function executeReviewRouterOperatorCli(
@@ -66,6 +71,12 @@ export async function executeReviewRouterOperatorCli(
     return executePoolCli({
       command,
       options: parsed.options,
+      ...(dependencies.homeDirectory === undefined
+        ? {}
+        : { homeDirectory: dependencies.homeDirectory }),
+      ...(dependencies.poolLogin === undefined
+        ? {}
+        : { login: dependencies.poolLogin }),
       request: async (method, pathname, body) => {
         try {
           return await requestJson(
@@ -424,6 +435,7 @@ function usageText(): string {
     "ReviewRouter operator CLI",
     "  reviewrouter pool status --workspace SLUG",
     "  reviewrouter pool accounts import --workspace SLUG --label LABEL --auth-file PATH",
+    "  reviewrouter pool accounts login --workspace SLUG --label LABEL [--auth-home PATH]",
     "  reviewrouter pool accounts replace --workspace SLUG --account-id ID --expected-generation N --expected-health-version N --auth-file PATH",
     "  reviewrouter pool accounts pause|resume --workspace SLUG --account-id ID --expected-health-version N",
     "  reviewrouter pool repositories connect --workspace SLUG (--repo OWNER/REPO | --all) [--dry-run]",
