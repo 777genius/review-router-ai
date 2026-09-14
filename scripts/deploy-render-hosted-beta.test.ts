@@ -772,7 +772,7 @@ describe("Render hosted deploy hardening", () => {
     expect(client.request).not.toHaveBeenCalled();
   });
 
-  it("forces every cutover-sensitive flag dormant despite stale input", () => {
+  it("keeps dormant investigation defaults and forces cross-revision replay off", () => {
     const result = Object.fromEntries(
       buildServiceEnv({
         databaseUrl: "postgres://internal/db",
@@ -802,9 +802,7 @@ describe("Render hosted deploy hardening", () => {
           REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH: "1",
           REVIEW_ROUTER_CODEX_ROTATING_NEW_WORK_ADMISSION_ENABLED: "1",
           REVIEW_ROUTER_CODEX_ROTATING_SETUP_ISSUANCE_ENABLED: "1",
-          REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED: "1",
           REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED: "1",
-          REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "1",
           REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE: "1",
           REVIEW_ROUTER_PROGRESS_FILE_COVERAGE: "1",
           REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES: "1",
@@ -841,6 +839,161 @@ describe("Render hosted deploy hardening", () => {
     expect(
       serviceDetails({ type: "web_service", startCommand: "start" }),
     ).toHaveProperty("preDeployCommand", null);
+  });
+
+  it.each([
+    {
+      role: "api",
+      requiredPrerequisites: [
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_ACTIVE_KEY_ID",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_KEYS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_ACTIVE_KEY_ID",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_KEYS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_TTL_MS",
+      ],
+    },
+    {
+      role: "worker",
+      requiredPrerequisites: [
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_DOSSIER_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_EVIDENCE_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_INTERVAL_MS",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_LOCK_TTL_MS",
+      ],
+    },
+    { role: "web", requiredPrerequisites: [] },
+  ])(
+    "preserves investigation rollout inputs consumed by the $role role only",
+    ({ role, requiredPrerequisites }) => {
+      const selectors = JSON.stringify({
+        production_effects: [{ workspaceIds: ["workspace-1"] }],
+        verified_clean: [{ workspaceIds: ["workspace-1"] }],
+      });
+      const leaseKeys = JSON.stringify([
+        {
+          keyId: "investigation-lease-active",
+          secretBase64: Buffer.alloc(32, 10).toString("base64"),
+          verifyUntil: null,
+        },
+      ]);
+      const privateMaterialKeys = JSON.stringify({
+        "investigation-private-active": Buffer.alloc(32, 11).toString("base64"),
+      });
+      const investigation = {
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_EMERGENCY_DISABLED: "0",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON: selectors,
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_ACTIVE_KEY_ID:
+          "investigation-lease-active",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_KEYS_JSON:
+          leaseKeys,
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_ACTIVE_KEY_ID:
+          "investigation-private-active",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_KEYS_JSON:
+          privateMaterialKeys,
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_TTL_MS: "86400000",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_MAINTENANCE_ENABLED: "1",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_PRUNE_BATCH_SIZE:
+          "100",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_DOSSIER_PRUNE_BATCH_SIZE: "101",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_EVIDENCE_PRUNE_BATCH_SIZE:
+          "102",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_INTERVAL_MS: "3600000",
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_LOCK_TTL_MS: "300000",
+      };
+      const result = Object.fromEntries(
+        buildServiceEnv({
+          databaseUrl: "postgres://internal/db",
+          privateKey: "private-key-not-logged",
+          role,
+          webUrl: "https://reviewrouter.example",
+          apiUrl: "https://api.reviewrouter.example",
+          env: {
+            GITHUB_APP_CLIENT_ID: "client",
+            GITHUB_APP_CLIENT_SECRET: "secret",
+            GITHUB_APP_ID: "1",
+            GITHUB_APP_SLUG: "reviewrouter",
+            GITHUB_WEBHOOK_SECRET: "secret",
+            AUTH_SECRET: "a".repeat(32),
+            REVIEW_ROUTER_ACTION_SESSION_SECRET: "s".repeat(32),
+            REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY: "t".repeat(32),
+            REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: "w".repeat(43),
+            REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: actionRef,
+            ...installerTuple,
+            ...hostedPoolEnv,
+            ...dormantReviewV2Env,
+            ...investigation,
+          },
+        }).map(({ key, value }) => [key, value]),
+      );
+
+      const prerequisiteNames = [
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_ACTIVE_KEY_ID",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_KEYS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_ACTIVE_KEY_ID",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_KEYS_JSON",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_TTL_MS",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_DOSSIER_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_EVIDENCE_PRUNE_BATCH_SIZE",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_INTERVAL_MS",
+        "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_LOCK_TTL_MS",
+      ];
+      for (const [key, value] of Object.entries(investigation)) {
+        if (prerequisiteNames.includes(key)) {
+          expect(result[key], key).toBe(
+            requiredPrerequisites.includes(key) ? value : undefined,
+          );
+        } else {
+          expect(result[key], key).toBe(
+            key ===
+              "REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED"
+              ? "0"
+              : value,
+          );
+        }
+      }
+    },
+  );
+
+  it.each([
+    ["REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED", "true"],
+    ["REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED", " 1"],
+  ])("rejects malformed investigation rollout input for %s", (name, value) => {
+    expect(() =>
+      buildServiceEnv({
+        databaseUrl: "postgres://internal/db",
+        privateKey: "private-key-not-logged",
+        role: "api",
+        webUrl: "https://reviewrouter.example",
+        apiUrl: "https://api.reviewrouter.example",
+        env: {
+          GITHUB_APP_CLIENT_ID: "client",
+          GITHUB_APP_CLIENT_SECRET: "secret",
+          GITHUB_APP_ID: "1",
+          GITHUB_APP_SLUG: "reviewrouter",
+          GITHUB_WEBHOOK_SECRET: "secret",
+          AUTH_SECRET: "a".repeat(32),
+          REVIEW_ROUTER_ACTION_SESSION_SECRET: "s".repeat(32),
+          REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY: "t".repeat(32),
+          REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: "w".repeat(43),
+          REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: actionRef,
+          ...installerTuple,
+          ...hostedPoolEnv,
+          ...dormantReviewV2Env,
+          [name]: value,
+        },
+      }),
+    ).toThrow(`${name} must be exactly 0 or 1`);
   });
 
   it("preserves the explicit active review v2 tuple without copying unknown env", () => {
@@ -1221,6 +1374,145 @@ describe("Render hosted deploy hardening", () => {
         "PUT",
         expect.anything(),
         expect.anything(),
+      );
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("full-PUTs and GET-verifies the exact investigation rollout environment", async () => {
+    const fixture = descriptorFixture();
+    const installerDescriptor = readVerifiedInstallerReleaseDescriptor(
+      fixture.env,
+    );
+    const env = {
+      ...fixture.env,
+      GITHUB_APP_CLIENT_ID: "client",
+      GITHUB_APP_CLIENT_SECRET: "secret",
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_SLUG: "reviewrouter",
+      GITHUB_WEBHOOK_SECRET: "secret",
+      AUTH_SECRET: "a".repeat(32),
+      REVIEW_ROUTER_ACTION_SESSION_SECRET: "s".repeat(32),
+      REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY: "t".repeat(32),
+      REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: "w".repeat(43),
+      ...installerTuple,
+      ...hostedPoolEnv,
+      ...dormantReviewV2Env,
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: "1",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: "1",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED: "1",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "1",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED: "1",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON:
+        '{"production_effects":[{"workspaceIds":["workspace-1"]}]}',
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_ACTIVE_KEY_ID:
+        "lease-active",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_LEASE_CAPABILITY_KEYS_JSON:
+        '[{"keyId":"lease-active","secretBase64":"secret","verifyUntil":null}]',
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_ACTIVE_KEY_ID:
+        "private-active",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_KEYS_JSON:
+        '{"private-active":"private-secret"}',
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_TTL_MS: "86400000",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_MAINTENANCE_ENABLED: "1",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRIVATE_MATERIAL_PRUNE_BATCH_SIZE:
+        "100",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_DOSSIER_PRUNE_BATCH_SIZE: "101",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_EVIDENCE_PRUNE_BATCH_SIZE:
+        "102",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_INTERVAL_MS: "3600000",
+      REVIEW_ROUTER_REVIEW_INVESTIGATION_PRUNE_LOCK_TTL_MS: "300000",
+    };
+    const expected = buildServiceEnv({
+      databaseUrl: "postgres://internal/db",
+      databaseUrls: { api: "postgres://internal/db" },
+      privateKey: "private-key-not-logged",
+      role: "api",
+      webUrl: "https://reviewrouter.example",
+      apiUrl: "https://api.reviewrouter.example",
+      env,
+    });
+    let putBody: Array<{ key: string; value: string }> | undefined;
+    const request = vi.fn(
+      async (method: string, endpoint: string, body?: unknown) => {
+        if (endpoint === "/projects/project-1") {
+          return { id: "project-1", ownerId: "owner-1" };
+        }
+        if (endpoint === "/environments/production") {
+          return {
+            id: "production",
+            ownerId: "owner-1",
+            projectId: "project-1",
+          };
+        }
+        if (endpoint === "/environments/production/resources") {
+          return [{ id: "srv-1" }];
+        }
+        if (method === "GET" && endpoint === "/services/srv-1") {
+          return {
+            service: {
+              id: "srv-1",
+              ownerId: "owner-1",
+              projectId: "project-1",
+              environmentId: "production",
+            },
+          };
+        }
+        if (method === "PUT" && endpoint === "/services/srv-1/env-vars") {
+          putBody = body as Array<{ key: string; value: string }>;
+          return {};
+        }
+        if (
+          method === "GET" &&
+          endpoint === "/services/srv-1/env-vars?limit=100"
+        ) {
+          return putBody?.map((envVar) => ({ envVar }));
+        }
+        throw new Error(`unexpected request ${method} ${endpoint}`);
+      },
+    );
+
+    try {
+      const observed = await syncService(
+        { request } as never,
+        { id: "srv-1", name: "reviewrouter-api" },
+        { name: "reviewrouter-api", role: "api" },
+        {
+          ownerId: "owner-1",
+          projectId: "project-1",
+          environmentId: "production",
+          env,
+          installerDescriptor,
+          databaseUrls: { api: "postgres://internal/db" },
+          privateKey: "private-key-not-logged",
+          webUrl: "https://reviewrouter.example",
+          apiUrl: "https://api.reviewrouter.example",
+        } as never,
+      );
+      const written = Object.fromEntries(
+        (putBody ?? []).map(({ key, value }) => [key, value]),
+      );
+      expect(putBody).toEqual(expected);
+      expect(
+        written.REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED,
+      ).toBe("1");
+      expect(
+        written.REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED,
+      ).toBe("1");
+      expect(
+        written.REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED,
+      ).toBe("0");
+      expect(written.REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON).toBe(
+        env.REVIEW_ROUTER_REVIEW_INVESTIGATION_SELECTORS_JSON,
+      );
+      expect(observed).toEqual(
+        Object.fromEntries(expected.map(({ key, value }) => [key, value])),
+      );
+      expect(request).toHaveBeenCalledWith(
+        "PUT",
+        "/services/srv-1/env-vars",
+        expected,
       );
     } finally {
       rmSync(fixture.directory, { recursive: true, force: true });

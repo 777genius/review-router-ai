@@ -76,6 +76,15 @@ export const disabledReviewInvestigationRolloutConfiguration = Object.freeze({
   productionEffectsEnabled: false,
 });
 
+export const defaultReviewInvestigationRolloutConfiguration = Object.freeze({
+  recordingEnabled: true,
+  shadowEnabled: true,
+  contextCriticEnabled: true,
+  verifiedCleanEnabled: true,
+  crossRevisionReplayEnabled: false,
+  productionEffectsEnabled: true,
+});
+
 export const reviewInvestigationRolloutConfigurationSchema = z
   .object({
     recordingEnabled: z.boolean().default(false),
@@ -169,6 +178,7 @@ export const safeDefaultReviewConfiguration = parseReviewConfiguration({
   ],
   blockingPolicy: { failOnSeverity: "critical" },
   limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  investigationRollout: defaultReviewInvestigationRolloutConfiguration,
 });
 
 export function parseReviewConfiguration(input: unknown): ReviewConfiguration {
