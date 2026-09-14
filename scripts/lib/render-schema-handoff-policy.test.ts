@@ -265,7 +265,12 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
   });
 
   it("rejects SQL100 with every incomplete predecessor extension set", () => {
-    const predecessors = [...extension, migration96, migration098, migration099];
+    const predecessors = [
+      ...extension,
+      migration96,
+      migration098,
+      migration099,
+    ];
     for (let bits = 0; bits < 63; bits++) {
       const partial = predecessors.filter((_, i) => bits & (1 << i));
       expect(() =>

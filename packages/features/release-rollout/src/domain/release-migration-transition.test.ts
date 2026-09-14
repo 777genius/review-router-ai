@@ -109,9 +109,7 @@ describe("canonical release migration transition", () => {
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
     expect(full).toHaveLength(99);
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.at(-1)?.migrationName).toBe(
-      "000100_hosted_codex_device_login",
-    );
+    expect(full.at(-1)?.migrationName).toBe("000100_hosted_codex_device_login");
     expect(manifest(full)).toBe(
       "sha256:5b967b29970341cad78f4388cd046606464928c5f20392dc7353fa929b1278dc",
     );
