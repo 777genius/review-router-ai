@@ -72,15 +72,30 @@ const migration099 = {
     .digest("hex"),
 };
 const checkout98 = [...checkout97, migration099];
+const migration100 = {
+  migrationName: "000100_hosted_codex_device_login",
+  checksum: createHash("sha256")
+    .update(
+      readFileSync(
+        new URL(
+          "../../packages/platform/db/prisma/migrations/000100_hosted_codex_device_login/migration.sql",
+          import.meta.url,
+        ),
+      ),
+    )
+    .digest("hex"),
+};
+const checkout99 = [...checkout98, migration100];
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("projects exactly92, exactly95, exactly96, exactly97 and exactly98 to the same ordered rows", () => {
+  it("projects exactly92, exactly95, exactly96, exactly97, exactly98 and exactly99 to the same ordered rows", () => {
     for (const source of [
       catalog,
       expanded,
       checkout96,
       checkout97,
       checkout98,
+      checkout99,
     ]) {
       const before = structuredClone(source);
       const managed = partitionRenderSchemaHandoffCheckout(source);
@@ -107,6 +122,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       checkout96,
       checkout97,
       checkout98,
+      checkout99,
     ]) {
       for (const [index] of source.entries()) {
         const changed = source.map((row) => ({ ...row }));
@@ -116,7 +132,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
         if (
           (source === checkout96 && index === 95) ||
           (source === checkout97 && index === 96) ||
-          (source === checkout98 && index === 97)
+          (source === checkout98 && index === 97) ||
+          (source === checkout99 && index === 98)
         )
           expect(partitionRenderSchemaHandoffCheckout(removed)).toEqual(
             catalog,
@@ -132,7 +149,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       canonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration098.migrationName &&
-          name !== migration099.migrationName,
+          name !== migration099.migrationName &&
+          name !== migration100.migrationName,
       ),
     );
     expect(
@@ -155,7 +173,9 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     );
     expect(checkout97.map((row) => row.migrationName)).toEqual(
       canonicalPrismaMigrationNames.filter(
-        (name) => name !== migration099.migrationName,
+        (name) =>
+          name !== migration099.migrationName &&
+          name !== migration100.migrationName,
       ),
     );
     expect(
@@ -177,7 +197,9 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "c40a8c3ccdf14c5f84a79b5310dbf67c9306ac8c0a0cfb4f1090ced4c7c01fbd",
     );
     expect(checkout98.map((row) => row.migrationName)).toEqual(
-      canonicalPrismaMigrationNames,
+      canonicalPrismaMigrationNames.filter(
+        (name) => name !== migration100.migrationName,
+      ),
     );
     expect(
       createHash("sha256")
@@ -189,6 +211,27 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
         .digest("hex"),
     ).toBe("c6b3c39ffd4631d53402f7402700a352d75208bb125b9e48d52d42d5e6a1398c");
     expect(() => assertRenderSchemaHandoffCatalog(checkout98)).toThrow(
+      "migration_catalog",
+    );
+  });
+
+  it("pins checkout99 to actual SQL100 bytes and the complete manifest", () => {
+    expect(migration100.checksum).toBe(
+      "495fd9321ffb92fc75aa60807ef644bd720778cd2529fb08d2a0a183fc7404b6",
+    );
+    expect(checkout99.map((row) => row.migrationName)).toEqual(
+      canonicalPrismaMigrationNames,
+    );
+    expect(
+      createHash("sha256")
+        .update(
+          checkout99
+            .map((row) => `${row.migrationName}:${row.checksum}`)
+            .join(","),
+        )
+        .digest("hex"),
+    ).toBe("5b967b29970341cad78f4388cd046606464928c5f20392dc7353fa929b1278dc");
+    expect(() => assertRenderSchemaHandoffCatalog(checkout99)).toThrow(
       "migration_catalog",
     );
   });
@@ -216,6 +259,25 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
           ...catalog,
           ...partial,
           migration099,
+        ]),
+      ).toThrow();
+    }
+  });
+
+  it("rejects SQL100 with every incomplete predecessor extension set", () => {
+    const predecessors = [
+      ...extension,
+      migration96,
+      migration098,
+      migration099,
+    ];
+    for (let bits = 0; bits < 63; bits++) {
+      const partial = predecessors.filter((_, i) => bits & (1 << i));
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout([
+          ...catalog,
+          ...partial,
+          migration100,
         ]),
       ).toThrow();
     }
@@ -260,6 +322,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
         checkout96,
         checkout97,
         checkout98,
+        checkout99,
       ]) {
         const unknown = { migrationName, checksum: "a".repeat(64) };
         for (const changed of [
@@ -282,6 +345,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       checkout96,
       checkout97,
       checkout98,
+      checkout99,
     ]) {
       for (const changed of [
         [...source].reverse(),
@@ -300,7 +364,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
   });
 });
 
-// Exercise the real98 inventory and all historical checkouts with actual SQL bytes.
+// Exercise the real99 inventory and all historical checkouts with actual SQL bytes.
 describe("complete filesystem checkout inventory", () => {
   const directories: string[] = [];
   afterEach(() => {
@@ -338,15 +402,20 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads checkout98/97, historical96/95 and original92 as identical frozen92 rows", async () => {
+  it("reads checkout99/98/97, historical96/95 and original92 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(98);
+    expect(inventory).toHaveLength(99);
     const actual = fixture.read();
     expect(actual).toEqual(catalog);
     expect(Object.isFrozen(actual)).toBe(true);
     expect(actual.every(Object.isFrozen)).toBe(true);
+    rmSync(join(fixture.migrations, migration100.migrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(98);
+    expect(fixture.read()).toEqual(actual);
     rmSync(join(fixture.migrations, migration099.migrationName), {
       recursive: true,
     });
@@ -389,13 +458,19 @@ describe("complete filesystem checkout inventory", () => {
 
   it("admits only complete extension sets from actual filesystem bytes", async () => {
     const fixture = await checkout();
-    const tail = [...extension, migration96, migration098, migration099];
+    const tail = [
+      ...extension,
+      migration96,
+      migration098,
+      migration099,
+      migration100,
+    ];
     const bytes = tail.map((row) =>
       readFileSync(
         join(fixture.migrations, row.migrationName, "migration.sql"),
       ),
     );
-    for (let bits = 0; bits < 64; bits++) {
+    for (let bits = 0; bits < 128; bits++) {
       for (const [index, row] of tail.entries()) {
         const directory = join(fixture.migrations, row.migrationName);
         rmSync(directory, { recursive: true, force: true });
@@ -404,7 +479,7 @@ describe("complete filesystem checkout inventory", () => {
           writeFileSync(join(directory, "migration.sql"), bytes[index]!);
         }
       }
-      if ([0, 7, 15, 31, 63].includes(bits))
+      if ([0, 7, 15, 31, 63, 127].includes(bits))
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
     }
@@ -464,7 +539,7 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      if (name === migration099.migrationName)
+      if (name === migration100.migrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

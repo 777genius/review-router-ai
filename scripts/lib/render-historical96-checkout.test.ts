@@ -20,6 +20,7 @@ const reader = vi.mocked(readRenderManagedCheckoutInventory);
 const full = readRenderManagedCheckoutInventory();
 const historical = full.slice(0, 96);
 const checkout97 = full.slice(0, 97);
+const checkout98 = full.slice(0, 98);
 const manifest = (rows: typeof full) =>
   `sha256:${createHash("sha256")
     .update(rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","))
@@ -27,8 +28,9 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full98 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(98);
+  it("validates the full99 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(99);
+    expect(full[98]?.migrationName).toBe("000100_hosted_codex_device_login");
     expect(full[97]?.migrationName).toBe("000099_certified_fork_proof_facts");
     expect(full[96]?.migrationName).toBe(
       "000098_certified_fork_effect_archive",
@@ -45,7 +47,11 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
   });
 
-  it.each([{ checkout: historical }, { checkout: checkout97 }])(
+  it.each([
+    { checkout: historical },
+    { checkout: checkout97 },
+    { checkout: checkout98 },
+  ])(
     "also accepts a complete validated older checkout (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
@@ -78,7 +84,7 @@ describe("trusted historical96 checkout reader", () => {
     ["duplicate extension", [...full, full[96]!]],
     [
       "future replacement",
-      [...full.slice(0, 97), { ...full[97]!, migrationName: "000100_unknown" }],
+      [...full.slice(0, 98), { ...full[98]!, migrationName: "000101_unknown" }],
     ],
     [
       "digest drift",
@@ -96,7 +102,7 @@ describe("trusted historical96 checkout reader", () => {
     },
   );
 
-  it.each([96, 97])(
+  it.each([96, 97, 98])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {
       reader.mockImplementationOnce(() => {

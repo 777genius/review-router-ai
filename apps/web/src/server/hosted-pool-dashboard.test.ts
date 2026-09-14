@@ -4,7 +4,10 @@ import {
   changeHostedRepositorySessionSource,
   importHostedPoolAccount,
   loadHostedPoolDashboardView,
+  pollHostedPoolDeviceLogin,
+  startHostedPoolDeviceLogin,
   type HostedPoolDashboardMutationDependencies,
+  type HostedPoolDeviceLoginDependencies,
 } from "./hosted-pool-dashboard";
 
 function mutationDependencies(
@@ -28,6 +31,96 @@ function mutationDependencies(
       })),
     },
     now: () => new Date("2026-08-15T12:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+function deviceLoginDependencies(
+  overrides: Partial<HostedPoolDeviceLoginDependencies> = {},
+): HostedPoolDeviceLoginDependencies {
+  const pending = new Map<
+    string,
+    {
+      actor: string;
+      workspaceId: string;
+      deviceAuthId: string;
+      userCode: string;
+      verificationUrl: string;
+      expiresAt: Date;
+      status: "pending";
+    }
+  >();
+  return {
+    ...mutationDependencies(),
+    deviceLoginStore: {
+      expireStalePending: vi.fn(async () => undefined),
+      findPendingByWorkspace: vi.fn(async (workspaceId) => {
+        const row = [...pending.values()].find(
+          (item) =>
+            item.workspaceId === workspaceId && item.status === "pending",
+        );
+        return row
+          ? ({
+              id: "login-1" as never,
+              workspaceId: workspaceId as never,
+              actor: row.actor,
+              label: "Primary",
+              priority: 10,
+              userCode: row.userCode,
+              verificationUrl: row.verificationUrl,
+              deviceAuthId: row.deviceAuthId,
+              status: "pending",
+              expiresAt: row.expiresAt,
+              createdAt: new Date("2026-08-15T12:00:00.000Z"),
+              updatedAt: new Date("2026-08-15T12:00:00.000Z"),
+            } as never)
+          : null;
+      }),
+      createPending: vi.fn(async (record) => {
+        pending.set(record.id, {
+          actor: record.actor,
+          workspaceId: record.workspaceId,
+          deviceAuthId: record.deviceAuthId ?? "device-auth-secret",
+          userCode: record.userCode,
+          verificationUrl: record.verificationUrl,
+          expiresAt: record.expiresAt,
+          status: "pending",
+        });
+      }),
+      findById: vi.fn(async (id) => {
+        const row = pending.get(id);
+        return row
+          ? ({
+              id: id as never,
+              workspaceId: row.workspaceId as never,
+              actor: row.actor,
+              label: "Primary",
+              priority: 10,
+              userCode: row.userCode,
+              verificationUrl: row.verificationUrl,
+              deviceAuthId: row.deviceAuthId,
+              status: row.status,
+              expiresAt: row.expiresAt,
+              createdAt: new Date("2026-08-15T12:00:00.000Z"),
+              updatedAt: new Date("2026-08-15T12:00:00.000Z"),
+            } as never)
+          : null;
+      }),
+      markTerminal: vi.fn(async () => true),
+    },
+    deviceAuth: {
+      requestUserCode: vi.fn(async () => ({
+        deviceAuthId: "device-auth-secret",
+        userCode: "ABCD-EFGH",
+        verificationUrl: "https://auth.openai.com/codex/device",
+        intervalSeconds: 3,
+      })),
+      pollAuthorization: vi.fn(async () => ({ status: "pending" as const })),
+      exchangeAuthorizationCode: vi.fn(async () => {
+        throw new Error("not used");
+      }),
+    },
+    createLoginId: () => "login-1",
     ...overrides,
   };
 }
@@ -95,6 +188,37 @@ describe("hosted pool dashboard boundary", () => {
       ),
     ).rejects.toThrow("credential_enrollment_failed");
     expect(authJson.every((byte) => byte === 0)).toBe(true);
+  });
+
+  it("requires a workspace admin before starting device login", async () => {
+    const dependencies = deviceLoginDependencies({
+      authorizeWorkspaceAdmin: vi.fn(async () => {
+        throw new Error("not_workspace_admin");
+      }),
+    });
+    await expect(
+      startHostedPoolDeviceLogin(
+        { workspaceId: "workspace-1", label: "Primary", priority: 10 },
+        dependencies,
+      ),
+    ).rejects.toThrow("not_workspace_admin");
+    expect(dependencies.deviceAuth.requestUserCode).not.toHaveBeenCalled();
+  });
+
+  it("keeps device_auth_id off the dashboard poll result", async () => {
+    const dependencies = deviceLoginDependencies();
+    const started = await startHostedPoolDeviceLogin(
+      { workspaceId: "workspace-1", label: "Primary", priority: 10 },
+      dependencies,
+    );
+    expect(started.userCode).toBe("ABCD-EFGH");
+    expect(JSON.stringify(started)).not.toMatch(/device-auth-secret|refresh/iu);
+    const pending = await pollHostedPoolDeviceLogin(
+      { workspaceId: "workspace-1", loginId: started.loginId },
+      dependencies,
+    );
+    expect(pending.status).toBe("pending");
+    expect(JSON.stringify(pending)).not.toMatch(/device-auth-secret|refresh/iu);
   });
 
   it("rejects unknown visibility before a hosted binding mutation", async () => {

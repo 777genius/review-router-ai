@@ -8,9 +8,20 @@ import {
   DashboardActionForm,
   type DashboardActionFormAction,
 } from "./dashboard-action-form";
+import {
+  HostedPoolDeviceLogin,
+  type HostedPoolDeviceLoginPollResult,
+  type HostedPoolDeviceLoginStartResult,
+} from "./hosted-pool-device-login";
 
 type HostedPoolSettingsActions = Readonly<{
   importAccount: DashboardActionFormAction;
+  startDeviceLogin: (
+    formData: FormData,
+  ) => Promise<HostedPoolDeviceLoginStartResult>;
+  pollDeviceLogin: (
+    formData: FormData,
+  ) => Promise<HostedPoolDeviceLoginPollResult>;
   setAccountState: DashboardActionFormAction;
   setRepositorySource: DashboardActionFormAction;
 }>;
@@ -55,11 +66,21 @@ export function HostedPoolSettingsPanel({
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
             Add workspace-owned Codex sessions for explicitly opted-in GitHub
-            repositories. ReviewRouter stores the session and transiently relays
-            model prompts, tool results, and responses.
+            repositories. Sign in with ChatGPT here, or upload a local
+            <span className="font-mono"> auth.json</span> as a fallback.
+            ReviewRouter stores the session and transiently relays model
+            prompts, tool results, and responses. ChatGPT credentials never go
+            to the browser.
           </p>
         </div>
       </div>
+
+      <HostedPoolDeviceLogin
+        workspaceId={workspaceId}
+        mutationsEnabled={mutationsEnabled}
+        startAction={actions.startDeviceLogin}
+        pollAction={actions.pollDeviceLogin}
+      />
 
       <DashboardActionForm
         action={actions.importAccount}
@@ -73,7 +94,7 @@ export function HostedPoolSettingsPanel({
         <input type="hidden" name="workspaceId" value={workspaceId} />
         <label className="grid gap-2 text-sm text-slate-300">
           <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-            Account label
+            Or upload auth.json
           </span>
           <input
             name="label"
@@ -90,6 +111,10 @@ export function HostedPoolSettingsPanel({
             accept="application/json,.json"
             className="text-xs text-slate-400 file:mr-3 file:rounded-lg file:border file:border-cyan-200/20 file:bg-cyan-300/10 file:px-3 file:py-2 file:text-cyan-50"
           />
+          <span className="text-xs leading-5 text-slate-400">
+            Run <span className="font-mono">codex login</span> locally, then
+            upload <span className="font-mono">~/.codex/auth.json</span>.
+          </span>
         </label>
         <label className="grid gap-2 text-sm text-slate-300">
           <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">

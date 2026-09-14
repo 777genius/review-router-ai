@@ -113,7 +113,7 @@ export const renderSchemaHandoffCheckoutExtension = Object.freeze([
   }),
 ]);
 
-// Checkout admission only; SQL96, SQL098 and SQL099 remain outside managed repair.
+// Checkout admission only; SQL96, SQL098, SQL099 and SQL100 remain outside managed repair.
 const checkoutExtensions = Object.freeze([
   ...renderSchemaHandoffCheckoutExtension,
   Object.freeze({
@@ -130,6 +130,11 @@ const checkoutExtensions = Object.freeze([
     migrationName: "000099_certified_fork_proof_facts",
     checksum:
       "c40a8c3ccdf14c5f84a79b5310dbf67c9306ac8c0a0cfb4f1090ced4c7c01fbd",
+  }),
+  Object.freeze({
+    migrationName: "000100_hosted_codex_device_login",
+    checksum:
+      "495fd9321ffb92fc75aa60807ef644bd720778cd2529fb08d2a0a183fc7404b6",
   }),
 ]);
 
@@ -157,7 +162,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
       extensions++;
     }
   }
-  if (![0, 3, 4, 5, 6].includes(extensions)) fail("checkout_extension");
+  if (![0, 3, 4, 5, 6, 7].includes(extensions)) fail("checkout_extension");
   if (
     extensions === 3 &&
     manifest(catalog) !==
@@ -180,6 +185,12 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     extensions === 6 &&
     manifest(catalog) !==
       "sha256:c6b3c39ffd4631d53402f7402700a352d75208bb125b9e48d52d42d5e6a1398c"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 7 &&
+    manifest(catalog) !==
+      "sha256:5b967b29970341cad78f4388cd046606464928c5f20392dc7353fa929b1278dc"
   )
     fail("checkout_manifest");
   assertRenderSchemaHandoffCatalog(managed);

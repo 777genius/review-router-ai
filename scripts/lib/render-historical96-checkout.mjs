@@ -8,12 +8,13 @@ const historical96Manifest =
 const checkoutOnlyMigrations = Object.freeze([
   "000098_certified_fork_effect_archive",
   "000099_certified_fork_proof_facts",
+  "000100_hosted_codex_device_login",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
 export function readRenderHistorical96CheckoutInventory() {
   const checkout = readRenderManagedCheckoutInventory();
-  if (![96, 97, 98].includes(checkout.length))
+  if (![96, 97, 98, 99].includes(checkout.length))
     throw new Error("render_historical96_checkout_rejected:count");
   const historical = checkout.filter(
     (row) => !checkoutOnlyMigrations.includes(row.migrationName),

@@ -15,6 +15,7 @@ export type RepositoryId = Identifier<"RepositoryId">;
 export type InvocationId = Identifier<"InvocationId">;
 export type InvocationGrantId = Identifier<"InvocationGrantId">;
 export type RelayRequestId = Identifier<"RelayRequestId">;
+export type HostedDeviceLoginId = Identifier<"HostedDeviceLoginId">;
 
 function parseId<Name extends string>(value: string): Identifier<Name> {
   return opaqueIdSchema.parse(value) as Identifier<Name>;
@@ -36,3 +37,5 @@ export const invocationGrantId = (value: string): InvocationGrantId =>
   parseId<"InvocationGrantId">(value);
 export const relayRequestId = (value: string): RelayRequestId =>
   parseId<"RelayRequestId">(value);
+export const hostedDeviceLoginId = (value: string): HostedDeviceLoginId =>
+  parseId<"HostedDeviceLoginId">(value);

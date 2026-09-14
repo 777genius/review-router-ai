@@ -1,6 +1,6 @@
 "use server";
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
@@ -44,6 +44,10 @@ import {
 } from "@reviewrouter/features-memory";
 import type { ProviderKind } from "@reviewrouter/features-review-providers";
 import type { PrismaClient } from "@reviewrouter/platform-db";
+import {
+  CodexDeviceAuthGateway,
+  PrismaHostedCodexDeviceLoginStore,
+} from "@reviewrouter/features-hosted-account-pool";
 import {
   isCodexRotatingOAuthAllowedForRepository,
   isCodexRotatingOAuthAllowedForWorkspaceDefault,
@@ -144,7 +148,10 @@ import {
   changeHostedPoolAccountState,
   changeHostedRepositorySessionSource,
   importHostedPoolAccount,
+  pollHostedPoolDeviceLogin,
+  startHostedPoolDeviceLogin,
   type HostedPoolDashboardMutationDependencies,
+  type HostedPoolDeviceLoginDependencies,
   type HostedSessionSource,
 } from "../../src/server/hosted-pool-dashboard";
 import { createPrismaHostedPoolDashboardMutationPort } from "../../src/server/prisma-hosted-pool-mutations";
@@ -198,6 +205,94 @@ export async function importHostedPoolAccountClientAction(
     };
   } finally {
     authJson.fill(0);
+  }
+}
+
+export async function startHostedPoolDeviceLoginClientAction(
+  formData: FormData,
+): Promise<
+  | {
+      readonly ok: true;
+      readonly loginId: string;
+      readonly userCode: string;
+      readonly verificationUrl: string;
+      readonly expiresAt: string;
+      readonly intervalSeconds: number;
+    }
+  | { readonly ok: false; readonly params: Record<string, string> }
+> {
+  const workspaceId = readFormString(formData, "workspaceId");
+  try {
+    const started = await startHostedPoolDeviceLogin(
+      {
+        workspaceId,
+        label: readFormString(formData, "label"),
+        priority: readNonNegativeInteger(formData, "priority"),
+      },
+      createHostedPoolDeviceLoginDependencies(),
+    );
+    return { ok: true, ...started };
+  } catch (error) {
+    return {
+      ok: false,
+      params: {
+        error: safeDashboardErrorCode(error),
+        workspace: workspaceId,
+        section: "setup",
+      },
+    };
+  }
+}
+
+export async function pollHostedPoolDeviceLoginClientAction(
+  formData: FormData,
+): Promise<
+  | {
+      readonly ok: true;
+      readonly status: "pending";
+      readonly loginId: string;
+      readonly userCode: string;
+      readonly verificationUrl: string;
+      readonly expiresAt: string;
+    }
+  | {
+      readonly ok: true;
+      readonly status: "imported";
+      readonly params: Record<string, string>;
+    }
+  | { readonly ok: false; readonly params: Record<string, string> }
+> {
+  const workspaceId = readFormString(formData, "workspaceId");
+  try {
+    const polled = await pollHostedPoolDeviceLogin(
+      {
+        workspaceId,
+        loginId: readFormString(formData, "loginId"),
+      },
+      createHostedPoolDeviceLoginDependencies(),
+    );
+    if (polled.status === "imported") {
+      revalidatePath("/dashboard");
+      return {
+        ok: true,
+        status: "imported",
+        params: {
+          notice: "hosted_pool_account_added",
+          workspace: workspaceId,
+          section: "setup",
+        },
+      };
+    }
+    return { ok: true, ...polled };
+  } catch (error) {
+    return {
+      ok: false,
+      params: {
+        error: safeDashboardErrorCode(error),
+        workspace: workspaceId,
+        section: "setup",
+      },
+    };
   }
 }
 
@@ -605,6 +700,21 @@ function createHostedPoolDashboardMutationDependencies(): HostedPoolDashboardMut
       env: process.env,
     }),
     now: () => new Date(),
+  };
+}
+
+function createHostedPoolDeviceLoginDependencies(): HostedPoolDeviceLoginDependencies {
+  return {
+    ...createHostedPoolDashboardMutationDependencies(),
+    deviceLoginStore: new PrismaHostedCodexDeviceLoginStore(
+      getPrisma() as unknown as ConstructorParameters<
+        typeof PrismaHostedCodexDeviceLoginStore
+      >[0],
+    ),
+    deviceAuth: new CodexDeviceAuthGateway({
+      fetch: globalThis.fetch.bind(globalThis),
+    }),
+    createLoginId: () => randomUUID(),
   };
 }
 
