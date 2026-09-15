@@ -257,6 +257,14 @@ try {
     where: { id: "repo-7" },
     data: { installationId: "runtime-proof-installation" },
   });
+  await adminPrisma.scmRepositoryIdentity.update({
+    where: { scmRepositoryIdentityId: "scm-identity-proof" },
+    data: {
+      currentWorkspaceId: "ws-proof",
+      currentRepositoryConnectionId: "repo-7",
+      boundAt: now,
+    },
+  });
   const row = await adminPrisma.repositoryConnection.findUniqueOrThrow({
     where: { id: "repo-7" },
     select: {
@@ -309,6 +317,7 @@ try {
     workspaceId: "ws-proof",
     repositoryId: "repo-7",
     repositoryFullName: "local/proof-7",
+    repositoryDefaultBranch: "main",
     githubRepositoryId: "900007",
     installer,
     databaseRecoveryWitness: databaseRecoveryWitnessW1,
@@ -385,6 +394,7 @@ try {
     claimId: initialClaim.claimId,
     attemptId: initialDispatch.attemptId,
     repositoryId: "900007",
+    repositoryFullName: repository.fullName,
     namespaceId: initialDispatch.namespaceId,
     namespaceEpoch: initialDispatch.namespaceEpoch,
     secretName: initialDispatch.secretName,
@@ -818,6 +828,7 @@ try {
     workspaceId: "ws-proof",
     repositoryId: "repo-7",
     repositoryFullName: "local/proof-7",
+    repositoryDefaultBranch: "main",
     githubRepositoryId: "900007",
     installer,
     databaseRecoveryWitness: databaseRecoveryWitnessW2,
@@ -847,6 +858,7 @@ try {
   const manifest = codexRotatingSetupManifestSchema.parse(
     JSON.parse(Buffer.from(fetched.manifestBase64, "base64").toString("utf8")),
   );
+  const repositoryFullName = manifest.repositoryFullName;
   if (!manifest.repositoryId) {
     throw new Error("runtime proof recovery manifest repository missing");
   }
@@ -901,6 +913,7 @@ try {
     claimId: prepared.claimId,
     attemptId: replacement.attemptId,
     repositoryId: "900007",
+    repositoryFullName,
     namespaceId: replacement.namespaceId,
     namespaceEpoch: replacement.namespaceEpoch,
     secretName: replacement.secretName,
@@ -928,6 +941,7 @@ try {
       attemptId: replacement.attemptId,
       expectedGenerationHash: "h".repeat(43),
       repositoryId: "900007",
+      repositoryFullName,
       workflowPath: ".github/workflows/reviewrouter-codex.yml",
       namespace: recoveredNamespace,
     },
@@ -936,7 +950,7 @@ try {
       defaultWorkflowSource: {
         readDefaultSourceIdentity: async () => ({
           repositoryId: "900007",
-          repositoryFullName: "reviewrouter/runtime-proof",
+          repositoryFullName,
           defaultBranch: "main",
           headCommitSha: reattestedWorkflow.workflowSourceCommitSha,
         }),

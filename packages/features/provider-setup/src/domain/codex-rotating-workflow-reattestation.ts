@@ -1,5 +1,8 @@
 import {
   assertSameVersionedProviderSecretNamespace,
+  codexWorkflowPathForRepository,
+  isCodexWorkflowRepositoryIdentityAdmitted,
+  isolatedQualityWorkflowPath,
   WorkflowSourceTrust,
   type VersionedSecretWorkflowSourceAttestation,
 } from "@reviewrouter/features-codex-oauth-rotating";
@@ -57,5 +60,45 @@ export function assertCodexRotatingWorkflowAlreadyActiveTransition(input: {
     persisted.workflowSemanticSha256 !== verified.workflowSemanticSha256
   ) {
     throw new Error("codex_rotating_workflow_reattestation_stale");
+  }
+}
+
+export function assertCodexRotatingWorkflowReplacementTransition(input: {
+  readonly current: VersionedSecretWorkflowSourceAttestation;
+  readonly replacement: VersionedSecretWorkflowSourceAttestation;
+  readonly compatibilityWindowSeconds: number;
+  readonly repositoryFullName: string;
+}): void {
+  if (input.current.workflowSchemaVersion === 4) {
+    assertCodexRotatingWorkflowV4ToV5Transition(input);
+    return;
+  }
+  const { current, replacement } = input;
+  assertSameVersionedProviderSecretNamespace({
+    expected: current.secretNamespace,
+    actual: replacement.secretNamespace,
+  });
+  if (
+    input.compatibilityWindowSeconds !== 0 ||
+    current.workflowSchemaVersion !== 5 ||
+    replacement.workflowSchemaVersion !== 5 ||
+    current.repositoryId !== replacement.repositoryId ||
+    !isCodexWorkflowRepositoryIdentityAdmitted({
+      repositoryId: current.repositoryId,
+      repositoryFullName: input.repositoryFullName,
+    }) ||
+    replacement.workflowPath !== isolatedQualityWorkflowPath ||
+    (current.workflowPath !== isolatedQualityWorkflowPath &&
+      current.workflowPath !== ".github/workflows/reviewrouter-codex.yml") ||
+    replacement.workflowPath !==
+      codexWorkflowPathForRepository({
+        repositoryId: current.repositoryId,
+        repositoryFullName: input.repositoryFullName,
+      }) ||
+    current.sourceTrust !== WorkflowSourceTrust.TrustedDefaultBranchRevision ||
+    replacement.sourceTrust !== current.sourceTrust ||
+    current.workflowSourceSha256 === replacement.workflowSourceSha256
+  ) {
+    throw new Error("codex_rotating_workflow_reattestation_transition_invalid");
   }
 }

@@ -110,8 +110,25 @@ const repositoryWebhookRepositorySchema = z
     archived: z.boolean().default(false),
     stargazers_count: z.number().int().nonnegative().nullable().optional(),
     watchers_count: z.number().int().nonnegative().nullable().optional(),
+    updated_at: z.string().datetime({ offset: true }).optional(),
   })
   .passthrough();
+
+const repositoryChangesSchema = z
+  .object({
+    repository: z
+      .object({
+        name: z.object({ from: z.string().min(1) }).passthrough(),
+      })
+      .passthrough()
+      .optional(),
+    default_branch: z
+      .object({ from: z.string().min(1) })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough()
+  .optional();
 
 export const githubInstallationWebhookPayloadSchema = z.object({
   action: z.string().min(1),
@@ -155,6 +172,7 @@ export const githubRepositoryWebhookPayloadSchema = z.object({
   action: z.string().min(1),
   installation: installationReferenceSchema,
   repository: repositoryWebhookRepositorySchema,
+  changes: repositoryChangesSchema,
   sender: senderSchema.optional(),
 });
 

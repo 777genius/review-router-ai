@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   parseReviewConfiguration,
   type ReviewProviderConfiguration,
@@ -27,7 +27,21 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
   async findSelectedRepositoryByGithubId(
     githubRepositoryId: string,
   ): Promise<ActionRepositoryContext | null> {
-    const repository = await this.prisma.repositoryConnection.findFirst({
+    return this.prisma.$transaction(
+      (transaction) =>
+        this.findSelectedRepositoryByGithubIdSnapshot(
+          transaction,
+          githubRepositoryId,
+        ),
+      { isolationLevel: "RepeatableRead" },
+    );
+  }
+
+  private async findSelectedRepositoryByGithubIdSnapshot(
+    transaction: Prisma.TransactionClient,
+    githubRepositoryId: string,
+  ): Promise<ActionRepositoryContext | null> {
+    const repository = await transaction.repositoryConnection.findFirst({
       where: {
         provider: "github",
         githubRepositoryId: BigInt(githubRepositoryId),
@@ -77,6 +91,19 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
       return null;
     }
     const repositoryGithubId = repository.githubRepositoryId.toString();
+    const identityBindings = await transaction.$queryRaw<
+      Array<{ version: number; boundAt: Date }>
+    >`
+            SELECT identity."version", identity."boundAt"
+            FROM "ScmRepositoryIdentity" identity
+            WHERE identity."currentRepositoryConnectionId" = ${repository.id}
+              AND identity."currentWorkspaceId" = ${repository.workspaceId}
+              AND identity."externalRepositoryId" = ${repositoryGithubId}
+              AND identity."boundAt" IS NOT NULL
+              AND identity."unboundAt" IS NULL
+          `;
+    const identityBinding =
+      identityBindings.length === 1 ? identityBindings[0] : undefined;
 
     return {
       workspaceId: repository.workspaceId,
@@ -86,6 +113,11 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
         repository.installation.githubInstallationId.toString(),
       fullName: repository.fullName,
       owner: repository.owner,
+      ...(identityBinding
+        ? {
+            identityBindingEpoch: `${identityBinding.version}:${identityBinding.boundAt.toISOString()}`,
+          }
+        : {}),
       selected: repository.selected,
       trustedWorkflowRefs: [
         ...repository.workspace.orgRulesets

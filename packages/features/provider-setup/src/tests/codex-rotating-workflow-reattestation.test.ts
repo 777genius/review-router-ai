@@ -4,7 +4,10 @@ import {
   WorkflowSourceTrust,
 } from "@reviewrouter/features-codex-oauth-rotating";
 import { describe, expect, it, vi } from "vitest";
-import { reattestCodexRotatingWorkflow } from "../application/use-cases/reattest-codex-rotating-workflow";
+import {
+  assertCodexRotatingWorkflowReplacementTransition,
+  reattestCodexRotatingWorkflow,
+} from "../index";
 
 const namespace = allocateVersionedProviderSecretNamespace({
   scope: {
@@ -19,6 +22,7 @@ const target = {
   attemptId: "attempt_1",
   expectedGenerationHash: "9".repeat(64),
   repositoryId: "1228051727",
+  repositoryFullName: "777genius/review-router-saas-e2e",
   workflowPath: ".github/workflows/reviewrouter-codex.yml",
   namespace,
 } as const;
@@ -44,6 +48,126 @@ const sourceIdentity = (headCommitSha: string) => ({
 });
 
 describe("reattestCodexRotatingWorkflow", () => {
+  it("replaces changed V5 bytes only for the isolated repository path", async () => {
+    const qualityTarget = {
+      ...target,
+      workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
+    } as const;
+    const qualityAttestation = (marker: string) =>
+      createVersionedSecretWorkflowSourceAttestation({
+        ...attestation(5, marker),
+        workflowPath: qualityTarget.workflowPath,
+      });
+    const current = attestation(5, "4");
+    const replacement = qualityAttestation("5");
+    const replaceActiveWorkflowSource = vi.fn().mockResolvedValue({
+      status: "active" as const,
+    });
+
+    expect(() =>
+      assertCodexRotatingWorkflowReplacementTransition({
+        current,
+        replacement,
+        compatibilityWindowSeconds: 0,
+        repositoryFullName: qualityTarget.repositoryFullName,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertCodexRotatingWorkflowReplacementTransition({
+        current,
+        replacement,
+        compatibilityWindowSeconds: 0,
+        repositoryFullName: "attacker/renamed",
+      }),
+    ).toThrow("codex_rotating_workflow_reattestation_transition_invalid");
+
+    await expect(
+      reattestCodexRotatingWorkflow(qualityTarget, {
+        currentWorkflowAttestation: {
+          readActiveWorkflowAttestation: vi.fn().mockResolvedValue(current),
+        },
+        defaultWorkflowSource: {
+          readDefaultSourceIdentity: vi
+            .fn()
+            .mockResolvedValue(
+              sourceIdentity(replacement.workflowSourceCommitSha),
+            ),
+          readVerifiedWorkflowAt: vi.fn().mockResolvedValue(replacement),
+        },
+        workflowReattestation: {
+          validateActiveWorkflowSource: vi.fn(),
+          replaceActiveWorkflowSource,
+        },
+      }),
+    ).resolves.toMatchObject({ status: "reattested" });
+    expect(replaceActiveWorkflowSource).toHaveBeenCalledWith({
+      target: qualityTarget,
+      expectedCurrent: current,
+      replacement,
+      compatibilityWindowSeconds: 0,
+    });
+  });
+
+  it("rejects an isolated V5 transition after the observed full name changes", async () => {
+    const qualityTarget = {
+      ...target,
+      workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
+    } as const;
+    const replacement = createVersionedSecretWorkflowSourceAttestation({
+      ...attestation(5, "5"),
+      workflowPath: qualityTarget.workflowPath,
+    });
+    const readVerifiedWorkflowAt = vi.fn().mockResolvedValue(replacement);
+    const replaceActiveWorkflowSource = vi.fn();
+
+    await expect(
+      reattestCodexRotatingWorkflow(qualityTarget, {
+        currentWorkflowAttestation: {
+          readActiveWorkflowAttestation: vi.fn(),
+        },
+        defaultWorkflowSource: {
+          readDefaultSourceIdentity: vi.fn().mockResolvedValue({
+            ...sourceIdentity(replacement.workflowSourceCommitSha),
+            repositoryFullName: "attacker/renamed",
+          }),
+          readVerifiedWorkflowAt,
+        },
+        workflowReattestation: {
+          validateActiveWorkflowSource: vi.fn(),
+          replaceActiveWorkflowSource,
+        },
+      }),
+    ).rejects.toThrow("codex_rotating_workflow_repository_identity_changed");
+    expect(readVerifiedWorkflowAt).not.toHaveBeenCalled();
+    expect(replaceActiveWorkflowSource).not.toHaveBeenCalled();
+  });
+
+  it("rejects changed V5 bytes on the normal managed path", async () => {
+    await expect(
+      reattestCodexRotatingWorkflow(target, {
+        currentWorkflowAttestation: {
+          readActiveWorkflowAttestation: vi
+            .fn()
+            .mockResolvedValue(attestation(5, "4")),
+        },
+        defaultWorkflowSource: {
+          readDefaultSourceIdentity: vi
+            .fn()
+            .mockResolvedValue(sourceIdentity("5".repeat(40))),
+          readVerifiedWorkflowAt: vi
+            .fn()
+            .mockResolvedValue(attestation(5, "5")),
+        },
+        workflowReattestation: {
+          validateActiveWorkflowSource: vi.fn(),
+          replaceActiveWorkflowSource: vi.fn(),
+        },
+      }),
+    ).rejects.toThrow(
+      "codex_rotating_workflow_reattestation_transition_invalid",
+    );
+  });
+
   it("owns the exact V4-to-V5 evidence policy and transactional transition", async () => {
     const current = attestation(4, "4");
     const replacement = attestation(5, "5");

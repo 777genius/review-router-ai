@@ -209,8 +209,7 @@ export class InMemoryCodexRotatingOAuthRepository
     if (
       input.binding.githubRepositoryId !==
         input.repository.githubRepositoryId ||
-      input.binding.repositoryFullName.toLowerCase() !==
-        input.repository.fullName.toLowerCase()
+      input.binding.repositoryFullName !== input.repository.fullName
     ) {
       throw new Error("codex_rotating_provider_identity_mismatch");
     }
@@ -725,6 +724,38 @@ export class InMemoryCodexRotatingOAuthRepository
     this.writebacks.set(key, { ...record, providerConfirmed: true });
   }
 
+  async withVersionedWritebackDispatchAuthorization<T>(
+    input: {
+      readonly intentId: string;
+      readonly attemptId: string;
+      readonly executorOwner: string;
+      readonly now?: Date;
+    },
+    dispatch: () => Promise<T>,
+  ): Promise<T> {
+    const now = this.durableNow(input.now);
+    const entry = this.findVersionedWriteback(input);
+    if (!entry) throw new Error("codex_rotating_writeback_attempt_not_found");
+    const record = entry[1];
+    this.assertExecutorOwner(record, input.executorOwner, now);
+    this.assertAutomaticRuntimeDatabaseRecoveryWitness(
+      this.providers.get(record.request.providerInstanceId),
+      record.databaseRecoveryWitness,
+    );
+    this.assertVersionedTransitionAuthorized(record, now);
+    const repository = this.providers.get(
+      record.request.providerInstanceId,
+    )?.repository;
+    if (
+      !repository ||
+      !repository.selected ||
+      repository.installationStatus !== "active"
+    ) {
+      throw new Error("codex_rotating_writeback_dispatch_revoked");
+    }
+    return dispatch();
+  }
+
   async retireAmbiguousVersionedWriteback(input: {
     readonly intentId: string;
     readonly attemptId: string;
@@ -900,6 +931,7 @@ export class InMemoryCodexRotatingOAuthRepository
       provider.mutationOwner !== "runtime" ||
       provider.mutationOwnerId !== record.request.leaseId ||
       input.attestation.repositoryId !== provider.binding.githubRepositoryId ||
+      input.attestation.workflowPath !== provider.binding.workflowPath ||
       input.attestation.sourceTrust !==
         WorkflowSourceTrust.TrustedDefaultBranchRevision
     ) {
@@ -982,89 +1014,106 @@ export class InMemoryCodexRotatingOAuthRepository
     });
   }
 
-  async findCompletedLeaseWriteTarget(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly now: Date;
-    readonly completedLeaseTtlMs?: number | undefined;
-  }): Promise<
-    | {
-        readonly status: "ready";
-        readonly writeTarget: {
-          readonly githubInstallationId: string;
-          readonly githubRepositoryId: string;
-          readonly repositoryFullName: string;
-          readonly owner: string;
-          readonly repo: string;
-          readonly secretName: string;
-        };
-      }
-    | {
-        readonly status: "lease_not_completed" | "lease_not_active";
-      }
-  > {
+  async withCompletedLeaseWriteTarget<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly now: Date;
+      readonly completedLeaseTtlMs?: number | undefined;
+    },
+    effect: (writeTarget: {
+      readonly githubInstallationId: string;
+      readonly githubRepositoryId: string;
+      readonly repositoryFullName: string;
+      readonly owner: string;
+      readonly repo: string;
+      readonly secretName: string;
+    }) => Promise<T>,
+  ): Promise<T> {
     const context = this.findCompletedLeaseContext(input);
-    if (context.status !== "ready") return context;
-    return {
-      status: "ready" as const,
-      writeTarget: toWriteTarget(context.repository, context.namespace.name),
-    };
+    if (context.status !== "ready") {
+      throw new Error(`codex_rotating_${context.status}`);
+    }
+    return effect(toWriteTarget(context.repository, context.namespace.name));
   }
 
-  async authorizeReviewSnapshotAccess(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly pullRequestNumber: number;
-    readonly now: Date;
-  }) {
+  async withAuthorizedReviewSnapshotAccess<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly pullRequestNumber: number;
+      readonly now: Date;
+    },
+    effect: (scope: {
+      readonly workspaceId: string;
+      readonly repositoryId: string;
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly pullRequestNumber: number;
+    }) => Promise<T>,
+  ): Promise<T> {
+    return this.withAuthorizedCompletedLeaseAccess(
+      input,
+      codexRotatingReviewSnapshotAccessTtlMs,
+      effect,
+    );
+  }
+
+  async withAuthorizedReviewExecutionCheckpointAccess<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly pullRequestNumber: number;
+      readonly now: Date;
+    },
+    effect: (scope: {
+      readonly workspaceId: string;
+      readonly repositoryId: string;
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly pullRequestNumber: number;
+    }) => Promise<T>,
+  ): Promise<T> {
+    return this.withAuthorizedCompletedLeaseAccess(
+      input,
+      codexRotatingReviewExecutionCheckpointAccessTtlMs,
+      effect,
+    );
+  }
+
+  private async withAuthorizedCompletedLeaseAccess<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly pullRequestNumber: number;
+      readonly now: Date;
+    },
+    completedLeaseTtlMs: number,
+    effect: (scope: {
+      readonly workspaceId: string;
+      readonly repositoryId: string;
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly pullRequestNumber: number;
+    }) => Promise<T>,
+  ): Promise<T> {
     const context = this.findCompletedLeaseContext({
       ...input,
-      completedLeaseTtlMs: codexRotatingReviewSnapshotAccessTtlMs,
+      completedLeaseTtlMs,
     });
     if (
       context.status !== "ready" ||
       context.source.pullRequestNumber !== input.pullRequestNumber
     ) {
-      return { status: "lease_not_active" as const };
+      throw new Error("codex_rotating_lease_not_active");
     }
-    return {
-      status: "ready" as const,
-      scope: {
-        workspaceId: context.repository.workspaceId,
-        repositoryId: context.repository.repositoryId,
-        sourceRunId: context.source.runId,
-        sourceRunAttempt: context.source.runAttempt,
-        pullRequestNumber: context.source.pullRequestNumber,
-      },
-    };
-  }
-
-  async authorizeReviewExecutionCheckpointAccess(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly pullRequestNumber: number;
-    readonly now: Date;
-  }) {
-    const context = this.findCompletedLeaseContext({
-      ...input,
-      completedLeaseTtlMs: codexRotatingReviewExecutionCheckpointAccessTtlMs,
+    return effect({
+      workspaceId: context.repository.workspaceId,
+      repositoryId: context.repository.repositoryId,
+      sourceRunId: context.source.runId,
+      sourceRunAttempt: context.source.runAttempt,
+      pullRequestNumber: context.source.pullRequestNumber,
     });
-    if (
-      context.status !== "ready" ||
-      context.source.pullRequestNumber !== input.pullRequestNumber
-    ) {
-      return { status: "lease_not_active" as const };
-    }
-    return {
-      status: "ready" as const,
-      scope: {
-        workspaceId: context.repository.workspaceId,
-        repositoryId: context.repository.repositoryId,
-        sourceRunId: context.source.runId,
-        sourceRunAttempt: context.source.runAttempt,
-        pullRequestNumber: context.source.pullRequestNumber,
-      },
-    };
   }
 
   private findCompletedLeaseContext(input: {
@@ -1075,6 +1124,14 @@ export class InMemoryCodexRotatingOAuthRepository
   }): CompletedLeaseContext {
     const source = this.leaseSourceById.get(input.leaseId);
     if (!source || source.providerInstanceId !== input.providerInstanceId) {
+      return { status: "lease_not_active" as const };
+    }
+    const provider = this.providers.get(input.providerInstanceId);
+    if (
+      provider?.state === "needs_reconnect" ||
+      provider?.state === "unknown_auth_state" ||
+      provider?.state === "permission_required"
+    ) {
       return { status: "lease_not_active" as const };
     }
     const writeback = [...this.writebacks.values()].find(
@@ -1104,7 +1161,6 @@ export class InMemoryCodexRotatingOAuthRepository
     ) {
       return { status: "lease_not_active" as const };
     }
-    const provider = this.providers.get(input.providerInstanceId);
     this.assertAutomaticRuntimeDatabaseRecoveryWitness(provider);
     const leaseNamespace = this.leaseNamespaceById.get(input.leaseId);
     if (

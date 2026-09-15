@@ -11,6 +11,7 @@ import {
   codexRotatingSetupLiveClaimStatuses,
   codexRotatingSetupTerminalAttemptStatuses,
   codexRotatingSetupTerminalClaimStatuses,
+  codexRotatingActivationSchema,
   authorizeCodexRotatingSetupDispatch,
   getCodexRotatingSetupStatus,
   InMemoryCodexRotatingSetupPayloadClaim,
@@ -18,6 +19,7 @@ import {
   recordCodexRotatingSetupDispatchOutcome,
 } from "../index";
 import {
+  allocateVersionedProviderSecretNamespace,
   ProviderSecretNamespaceMode,
   WorkflowSourceTrust,
 } from "@reviewrouter/features-codex-oauth-rotating";
@@ -38,6 +40,7 @@ const claim = {
   installerVersion: "2026.08.09",
   installerDigest: "b".repeat(64),
 };
+const repositoryFullName = "owner/repository";
 
 function mutableClock(initial = "2026-08-10T00:00:00.000Z") {
   let current = new Date(initial);
@@ -50,6 +53,50 @@ function mutableClock(initial = "2026-08-10T00:00:00.000Z") {
 }
 
 describe("versioned rotating setup recovery ledger", () => {
+  it("binds the isolated activation path to the observed repository full name", () => {
+    const isolatedNamespace = allocateVersionedProviderSecretNamespace({
+      scope: {
+        repositoryId: "1228051727",
+        providerInstanceId: "codex-rotating:1228051727",
+      },
+      epoch: 2n,
+      randomBytes: () => new Uint8Array(16),
+    });
+    const activation = {
+      claimId: "claim_id_12345678",
+      attemptId: "attempt_id_12345678",
+      repositoryId: "1228051727",
+      repositoryFullName: "777genius/review-router-saas-e2e",
+      namespaceId: "namespace_id_12345678",
+      namespaceEpoch: "2",
+      secretName: isolatedNamespace.name,
+      workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
+      workflowSourceCommitSha: "a".repeat(40),
+      workflowSourceBlobSha: "b".repeat(40),
+      workflowSourceSha256: "c".repeat(64),
+      workflowSemanticSha256: "d".repeat(64),
+      sourceTrust: "trusted_default_branch_revision",
+      workflowSchemaVersion: 5,
+    };
+
+    expect(codexRotatingActivationSchema.safeParse(activation).success).toBe(
+      true,
+    );
+    expect(
+      codexRotatingActivationSchema.safeParse({
+        ...activation,
+        repositoryId: "123456",
+        repositoryFullName,
+        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      }).success,
+    ).toBe(true);
+    expect(
+      codexRotatingActivationSchema.safeParse({
+        ...activation,
+        repositoryFullName: "attacker/renamed",
+      }).success,
+    ).toBe(false);
+  });
   it("defines one exhaustive live/terminal state model and recovery policy", () => {
     expect([
       ...codexRotatingSetupLiveClaimStatuses,
@@ -250,6 +297,7 @@ describe("versioned rotating setup recovery ledger", () => {
         claimId: prepared.claimId,
         attemptId: attempt.attemptId,
         repositoryId: claim.repositoryId,
+        repositoryFullName,
         namespaceId: attempt.namespaceId,
         namespaceEpoch: attempt.namespaceEpoch,
         secretName: attempt.secretName,
@@ -344,6 +392,7 @@ describe("versioned rotating setup recovery ledger", () => {
       claimId: prepared.claimId,
       attemptId: attempt.attemptId,
       repositoryId: claim.repositoryId,
+      repositoryFullName,
       namespaceId: attempt.namespaceId,
       namespaceEpoch: attempt.namespaceEpoch,
       secretName: attempt.secretName,
@@ -497,6 +546,7 @@ describe("versioned rotating setup recovery ledger", () => {
         claimId: prepared.claimId,
         attemptId: attempt.attemptId,
         repositoryId: claim.repositoryId,
+        repositoryFullName,
         namespaceId: attempt.namespaceId,
         namespaceEpoch: attempt.namespaceEpoch,
         secretName: attempt.secretName,
@@ -669,6 +719,7 @@ describe("versioned rotating setup recovery ledger", () => {
       claimId: prepared.claimId,
       attemptId: attempt.attemptId,
       repositoryId: claim.repositoryId,
+      repositoryFullName,
       namespaceId: attempt.namespaceId,
       namespaceEpoch: attempt.namespaceEpoch,
       secretName: attempt.secretName,
@@ -760,6 +811,7 @@ describe("versioned rotating setup recovery ledger", () => {
           attemptId: attempt.attemptId,
           expectedGenerationHash: claim.generationHash,
           repositoryId: claim.repositoryId,
+          repositoryFullName,
           workflowPath: current.workflowPath,
           namespace,
         },
@@ -798,6 +850,7 @@ describe("versioned rotating setup recovery ledger", () => {
       claimId: prepared.claimId,
       attemptId: attempt.attemptId,
       repositoryId: claim.repositoryId,
+      repositoryFullName,
       namespaceId: attempt.namespaceId,
       namespaceEpoch: attempt.namespaceEpoch,
       secretName: attempt.secretName,
@@ -834,6 +887,7 @@ describe("versioned rotating setup recovery ledger", () => {
       attemptId: attempt.attemptId,
       expectedGenerationHash: claim.generationHash,
       repositoryId: claim.repositoryId,
+      repositoryFullName,
       workflowPath: activation.workflowPath,
       namespace,
     };

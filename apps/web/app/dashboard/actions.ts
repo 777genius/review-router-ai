@@ -64,8 +64,10 @@ import {
 import { OctokitRepositoryWorkflowProbe } from "@reviewrouter/features-repo-health";
 import {
   CodexRotatingReviewActionV2Mode,
+  codexWorkflowPathForRepository,
   defaultCodexRotatingWorkflowPath,
   defaultWorkflowPath,
+  isolatedQualityWorkflowPath,
   OctokitWorkflowSetupGateway,
   preferredSetupBaseBranches,
   PrismaWorkflowProvisioningRepository,
@@ -79,6 +81,7 @@ import {
   createVersionedSecretWorkflowSourceAttestation,
   isVersionedSecretNamespaceCodexWorkflowSchemaVersion,
   readCanonicalCodexRotatingT0WorkflowSourceMetadata,
+  readCanonicalIsolatedQualityWorkflowSourceMetadata,
   readCanonicalHostedPoolWorkflowMetadata,
   workflowDocumentSemanticSha256,
   WorkflowSourceTrust,
@@ -1227,10 +1230,18 @@ async function createSetupPullRequestMutation(
     const conflictReviewFallbackAllowed = codexRotatingProviderInstanceId
       ? false
       : isConflictReviewFallbackAllowedForRepository(repository.fullName);
+    const workflowPath = codexRotatingProviderInstanceId
+      ? codexWorkflowPathForRepository({
+          repositoryId: githubRepository.githubRepositoryId.toString(),
+          repositoryFullName: repository.fullName,
+        })
+      : defaultWorkflowPath;
     const workflowReady = await isWorkflowSetupAlreadyCurrent(
       {
         githubInstallationId:
           githubRepository.installation.githubInstallationId.toString(),
+        githubRepositoryId: githubRepository.githubRepositoryId.toString(),
+        repositoryFullName: repository.fullName,
         owner: repository.owner,
         name: repository.name,
         defaultBranch: setupBaseBranch,
@@ -1268,9 +1279,7 @@ async function createSetupPullRequestMutation(
             reason: "workflow_already_current",
             actionVersion: actionRef,
             baseBranch: setupBaseBranch,
-            workflowPath: codexRotatingProviderInstanceId
-              ? defaultCodexRotatingWorkflowPath
-              : defaultWorkflowPath,
+            workflowPath,
             ...dashboardMutationAccessAuditMetadata(actor),
           },
         },
@@ -1319,6 +1328,10 @@ async function createSetupPullRequestMutation(
               workspaceId,
               installationId: githubRepository.installation.id,
               repositoryId,
+              githubRepositoryId:
+                githubRepository.githubRepositoryId.toString(),
+              repositoryFullName: repository.fullName,
+              workflowPath,
               actionRef,
               apiUrl: resolveWorkflowPublicApiUrl(),
               runtimeConfigMode: "oidc",
@@ -1406,6 +1419,7 @@ async function confirmSetupPullRequestMergedMutation(
             attemptId: true,
             revision: true,
             branch: true,
+            workflowPath: true,
             pullRequestUrl: true,
             pullRequestHeadSha: true,
           },
@@ -1540,6 +1554,17 @@ async function confirmSetupPullRequestMergedMutation(
           provider.authMode === "codex_subscription_oauth_hosted_pool" ||
           provider.authMode === "codex_subscription_oauth_rotating",
       );
+    const rotatingWorkflowExpected = resolvedRuntime.config.providers.some(
+      (provider) => provider.authMode === "codex_subscription_oauth_rotating",
+    );
+    const selectedCodexWorkflowPath =
+      setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
+      (!setupProvisioning?.workflowPath && rotatingWorkflowExpected)
+        ? codexWorkflowPathForRepository({
+            repositoryId: githubRepository.githubRepositoryId.toString(),
+            repositoryFullName: repository.fullName,
+          })
+        : defaultCodexRotatingWorkflowPath;
     let workflowOctokit: {
       request(
         route: string,
@@ -1585,12 +1610,12 @@ async function confirmSetupPullRequestMergedMutation(
       );
       const content = await octokit.request(contentRoute, {
         ...location,
-        path: defaultCodexRotatingWorkflowPath,
+        path: selectedCodexWorkflowPath,
         ref: commitSha,
       });
       if (
         (content.data as { path?: unknown } | null)?.path !==
-        defaultCodexRotatingWorkflowPath
+        selectedCodexWorkflowPath
       )
         throw new Error("workflow_provisioning_match_not_found");
       const blob = readGitHubWorkflowBlob(content.data);
@@ -1604,9 +1629,10 @@ async function confirmSetupPullRequestMergedMutation(
           commitSha,
         };
       } catch {
-        const metadata = readCanonicalCodexRotatingT0WorkflowSourceMetadata(
-          blob.source,
-        );
+        const metadata =
+          selectedCodexWorkflowPath === defaultCodexRotatingWorkflowPath
+            ? readCanonicalCodexRotatingT0WorkflowSourceMetadata(blob.source)
+            : readCanonicalIsolatedQualityWorkflowSourceMetadata(blob.source);
         codexWorkflow = {
           hosted: false,
           actionRef: metadata.actionRef,
@@ -1643,7 +1669,7 @@ async function confirmSetupPullRequestMergedMutation(
             const observed = readGitHubWorkflowBlob(response.data);
             if (
               pinned.ref === commitSha &&
-              pinned.path === defaultCodexRotatingWorkflowPath &&
+              pinned.path === selectedCodexWorkflowPath &&
               observed.blobSha !== blob.blobSha
             )
               throw new Error("workflow_provisioning_match_not_found");
@@ -1733,6 +1759,8 @@ async function confirmSetupPullRequestMergedMutation(
           {
             githubInstallationId:
               githubRepository.installation.githubInstallationId.toString(),
+            githubRepositoryId: githubRepository.githubRepositoryId.toString(),
+            repositoryFullName: repository.fullName,
             owner: repository.owner,
             name: repository.name,
             defaultBranch: setupBaseBranch,
@@ -1828,7 +1856,7 @@ async function confirmSetupPullRequestMergedMutation(
       throw new Error("workflow_provisioning_match_not_found");
     let verifiedWorkflowArtifact = {
       workflowPath: codexWorkflow
-        ? defaultCodexRotatingWorkflowPath
+        ? selectedCodexWorkflowPath
         : defaultWorkflowPath,
       workflowStyle: codexWorkflow
         ? ("reusable" as const)
@@ -3565,8 +3593,18 @@ async function resolveCodexRotatingProvisioningActionRef(input: {
         attestedRepositoryId: true,
       },
     });
+  const selectedWorkflowPath = codexWorkflowPathForRepository({
+    repositoryId: input.expectedRepositoryId,
+    repositoryFullName: input.expectedRepositoryFullName,
+  });
+  const isolatedWorkflowMigration =
+    selectedWorkflowPath === isolatedQualityWorkflowPath &&
+    expectedSource?.workflowPath === defaultCodexRotatingWorkflowPath;
   if (
-    expectedSource?.workflowPath !== defaultCodexRotatingWorkflowPath ||
+    !expectedSource ||
+    (expectedSource.workflowPath !== selectedWorkflowPath &&
+      !isolatedWorkflowMigration) ||
+    !expectedSource.workflowPath ||
     !expectedSource.workflowSourceCommitSha ||
     !expectedSource.workflowSourceBlobSha ||
     !expectedSource.workflowSourceSha256 ||
@@ -3588,7 +3626,10 @@ async function resolveCodexRotatingProvisioningActionRef(input: {
     },
   );
   const { source, blobSha } = readGitHubWorkflowBlob(contentResponse.data);
-  const metadata = readCanonicalCodexRotatingT0WorkflowSourceMetadata(source);
+  const metadata =
+    expectedSource.workflowPath === defaultCodexRotatingWorkflowPath
+      ? readCanonicalCodexRotatingT0WorkflowSourceMetadata(source)
+      : readCanonicalIsolatedQualityWorkflowSourceMetadata(source);
   if (
     !isVersionedSecretNamespaceCodexWorkflowSchemaVersion(
       metadata.workflowSchemaVersion,

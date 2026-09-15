@@ -54,7 +54,9 @@ import {
   defaultActionOidcAudience,
   githubActionsOidcIssuer,
   githubActionsOidcClaimsSchema,
+  isManagedV2SessionBootstrapSource,
   parseActionConflictReviewDispatchPayload,
+  validateOidcClaimsAgainstRepository,
   type ActionConflictReviewPostingSessionClaims,
   type ActionHealthReport,
   type ActionRepositoryContext,
@@ -769,6 +771,263 @@ describe("action control plane", () => {
     expect(sessions.signedClaims).toMatchObject({
       repository: "777genius/example",
       workflowPath: ".github/workflows/reviewrouter-codex.yml",
+    });
+  });
+
+  it("admits the isolated quality path only for its bound repository identity", () => {
+    const qualityClaims = githubOidcClaims({
+      repository: "777genius/review-router-saas-e2e",
+      repository_id: "1228051727",
+      workflow_ref: [
+        "777genius/review-router-saas-e2e",
+        ".github/workflows/reviewrouter-quality-stand.yml@refs/heads/main",
+      ].join("/"),
+      event_name: "workflow_dispatch",
+    });
+    const qualityRepository = {
+      ...repositoryContext,
+      githubRepositoryId: "1228051727",
+      fullName: "777genius/review-router-saas-e2e",
+      identityBindingEpoch: "2:2026-05-03T10:00:00.000Z",
+    };
+    expect(() =>
+      validateOidcClaimsAgainstRepository({
+        claims: qualityClaims,
+        repository: qualityRepository,
+      }),
+    ).not.toThrow();
+    expect(
+      isManagedV2SessionBootstrapSource({
+        eventName: "workflow_dispatch",
+        workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
+        githubRepositoryId: qualityRepository.githubRepositoryId,
+        repositoryFullName: qualityRepository.fullName,
+      }),
+    ).toBe(true);
+    expect(
+      isManagedV2SessionBootstrapSource({
+        eventName: "pull_request_target",
+        workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
+        githubRepositoryId: qualityRepository.githubRepositoryId,
+        repositoryFullName: qualityRepository.fullName,
+      }),
+    ).toBe(false);
+    expect(
+      isManagedV2SessionBootstrapSource({
+        eventName: "issue_comment",
+        workflowPath: ".github/workflows/reviewrouter-interaction.yml",
+        githubRepositoryId: qualityRepository.githubRepositoryId,
+        repositoryFullName: qualityRepository.fullName,
+      }),
+    ).toBe(false);
+    expect(
+      isManagedV2SessionBootstrapSource({
+        eventName: "schedule",
+        workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
+        githubRepositoryId: qualityRepository.githubRepositoryId,
+        repositoryFullName: qualityRepository.fullName,
+      }),
+    ).toBe(false);
+    expect(
+      isManagedV2SessionBootstrapSource({
+        eventName: "workflow_dispatch",
+        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        githubRepositoryId: qualityRepository.githubRepositoryId,
+        repositoryFullName: "attacker/renamed",
+      }),
+    ).toBe(false);
+    expect(
+      isManagedV2SessionBootstrapSource({
+        eventName: "workflow_dispatch",
+        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        githubRepositoryId: qualityRepository.githubRepositoryId,
+        repositoryFullName: qualityRepository.fullName,
+      }),
+    ).toBe(false);
+    expect(() =>
+      validateOidcClaimsAgainstRepository({
+        claims: {
+          ...qualityClaims,
+          workflow_ref:
+            "777genius/review-router-saas-e2e/.github/workflows/reviewrouter-codex.yml@refs/heads/main",
+        },
+        repository: qualityRepository,
+      }),
+    ).toThrow("workflow_ref_not_allowed");
+    expect(() =>
+      validateOidcClaimsAgainstRepository({
+        claims: {
+          ...qualityClaims,
+          repository: "attacker/renamed",
+          repository_owner: "attacker",
+          workflow_ref:
+            "attacker/renamed/.github/workflows/reviewrouter-quality-stand.yml@refs/heads/main",
+        },
+        repository: {
+          ...qualityRepository,
+          fullName: "attacker/renamed",
+          owner: "attacker",
+        },
+      }),
+    ).toThrow("repository_name_mismatch");
+    expect(() =>
+      validateOidcClaimsAgainstRepository({
+        claims: {
+          ...qualityClaims,
+          event_name: "repository_dispatch",
+          workflow_ref:
+            "777genius/review-router-saas-e2e/.github/workflows/reviewrouter.yml@refs/heads/main",
+          job_workflow_ref:
+            "777genius/review-router/.github/workflows/reviewrouter-conflict-reusable.yml@refs/tags/v1",
+        },
+        repository: {
+          ...qualityRepository,
+          trustedWorkflowRefs: [
+            "777genius/review-router-saas-e2e/.github/workflows/reviewrouter.yml@refs/heads/main",
+          ],
+        },
+      }),
+    ).toThrow("workflow_ref_not_allowed");
+    expect(() =>
+      validateOidcClaimsAgainstRepository({
+        claims: {
+          ...qualityClaims,
+          workflow_ref:
+            "777genius/review-router-saas-e2e/.github/workflows/reviewrouter.yml@refs/heads/main",
+        },
+        repository: qualityRepository,
+      }),
+    ).toThrow("workflow_ref_not_allowed");
+    expect(
+      isManagedV2SessionBootstrapSource({
+        eventName: "pull_request_target",
+        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        githubRepositoryId: repositoryContext.githubRepositoryId,
+        repositoryFullName: repositoryContext.fullName,
+      }),
+    ).toBe(true);
+    expect(
+      isManagedV2SessionBootstrapSource({
+        eventName: "schedule",
+        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        githubRepositoryId: repositoryContext.githubRepositoryId,
+        repositoryFullName: repositoryContext.fullName,
+      }),
+    ).toBe(true);
+    expect(() =>
+      validateOidcClaimsAgainstRepository({
+        claims: {
+          ...qualityClaims,
+          repository: "777Genius/review-router-saas-e2e",
+        },
+        repository: qualityRepository,
+      }),
+    ).toThrow("repository_name_mismatch");
+    expect(() =>
+      validateOidcClaimsAgainstRepository({
+        claims: { ...qualityClaims, repository_id: "1228051728" },
+        repository: {
+          ...qualityRepository,
+          githubRepositoryId: "1228051728",
+        },
+      }),
+    ).toThrow("workflow_ref_not_allowed");
+    expect(() =>
+      validateOidcClaimsAgainstRepository({
+        claims: {
+          ...qualityClaims,
+          workflow_ref:
+            "777genius/review-router-saas-e2e/.github/workflows/arbitrary.yml@refs/heads/main",
+        },
+        repository: qualityRepository,
+      }),
+    ).toThrow("workflow_ref_not_allowed");
+  });
+
+  it.each(["schedule", "pull_request", "pull_request_target"] as const)(
+    "rejects isolated quality %s before nonce consumption or session signing",
+    async (eventName) => {
+      const repository = new InMemoryActionControlPlaneRepository();
+      repository.repository = {
+        ...repositoryContext,
+        githubRepositoryId: "1228051727",
+        fullName: "777genius/review-router-saas-e2e",
+        identityBindingEpoch: "2:2026-05-03T10:00:00.000Z",
+      };
+      const sessions = new StaticSessionTokenService();
+      const replayNonces = new InMemoryActionOidcReplayNonceStore();
+      let admissionCalls = 0;
+
+      await expect(
+        exchangeGitHubOidcToken(
+          { oidcToken: "oidc", audience: defaultActionOidcAudience },
+          {
+            oidcVerifier: new StaticOidcVerifier(
+              githubOidcClaims({
+                repository: "777genius/review-router-saas-e2e",
+                repository_id: "1228051727",
+                repository_owner: "777genius",
+                event_name: eventName,
+                workflow_ref:
+                  "777genius/review-router-saas-e2e/.github/workflows/reviewrouter-quality-stand.yml@refs/heads/main",
+                jti: `isolated-${eventName}`,
+              }),
+            ),
+            repositories: repository,
+            sessions,
+            replayNonces,
+            legacyMutationAdmission: {
+              assertLegacyReviewMutationAllowed: async () => {
+                admissionCalls += 1;
+              },
+            },
+            clock,
+          },
+        ),
+      ).rejects.toThrow("workflow_ref_not_allowed");
+      expect(replayNonces.consumed.size).toBe(0);
+      expect(sessions.signedClaims).toBeNull();
+      expect(admissionCalls).toBe(0);
+    },
+  );
+
+  it("exchanges isolated quality workflow_dispatch sessions", async () => {
+    const repository = new InMemoryActionControlPlaneRepository();
+    repository.repository = {
+      ...repositoryContext,
+      githubRepositoryId: "1228051727",
+      fullName: "777genius/review-router-saas-e2e",
+      identityBindingEpoch: "2:2026-05-03T10:00:00.000Z",
+    };
+    const sessions = new StaticSessionTokenService();
+    const replayNonces = new InMemoryActionOidcReplayNonceStore();
+
+    await expect(
+      exchangeGitHubOidcToken(
+        { oidcToken: "oidc", audience: defaultActionOidcAudience },
+        {
+          oidcVerifier: new StaticOidcVerifier(
+            githubOidcClaims({
+              repository: "777genius/review-router-saas-e2e",
+              repository_id: "1228051727",
+              repository_owner: "777genius",
+              event_name: "workflow_dispatch",
+              workflow_ref:
+                "777genius/review-router-saas-e2e/.github/workflows/reviewrouter-quality-stand.yml@refs/heads/main",
+              jti: "isolated-workflow-dispatch",
+            }),
+          ),
+          repositories: repository,
+          sessions,
+          replayNonces,
+          clock,
+        },
+      ),
+    ).resolves.toMatchObject({ repository: repository.repository.fullName });
+    expect(replayNonces.consumed.size).toBe(1);
+    expect(sessions.signedClaims).toMatchObject({
+      eventName: "workflow_dispatch",
+      workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
     });
   });
 
@@ -2146,6 +2405,77 @@ describe("action control plane", () => {
     });
   });
 
+  it("binds rotating runtime config to the isolated repository workflow path", async () => {
+    const repositories = new InMemoryActionControlPlaneRepository();
+    repositories.repository = {
+      ...repositoryContext,
+      githubRepositoryId: "1228051727",
+      fullName: "777genius/review-router-saas-e2e",
+      identityBindingEpoch: "4:2026-09-14T10:00:00.000Z",
+    };
+    repositories.runtimeConfig = parseReviewConfiguration({
+      ...safeDefaultReviewConfiguration,
+      providers: [
+        {
+          kind: "codex",
+          authMode: "codex_subscription_oauth_rotating",
+          model: "gpt-5.5",
+          reasoningEffort: "medium",
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+    });
+    const isolatedSession = {
+      ...sessionClaims,
+      githubRepositoryId: "1228051727",
+      repository: "777genius/review-router-saas-e2e",
+      identityBindingEpoch: "4:2026-09-14T10:00:00.000Z",
+    };
+
+    await expect(
+      getActionRuntimeConfig(
+        { sessionToken: "session" },
+        {
+          repositories,
+          sessions: new StaticSessionTokenService({
+            ...isolatedSession,
+            workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
+          }),
+          clock,
+        },
+      ),
+    ).resolves.toMatchObject({
+      provider: { authMode: "codex_subscription_oauth_rotating" },
+    });
+    await expect(
+      getActionRuntimeConfig(
+        { sessionToken: "session" },
+        {
+          repositories,
+          sessions: new StaticSessionTokenService({
+            ...isolatedSession,
+            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+          }),
+          clock,
+        },
+      ),
+    ).rejects.toThrow("workflow_ref_not_allowed");
+    await expect(
+      getActionRuntimeConfig(
+        { sessionToken: "session" },
+        {
+          repositories,
+          sessions: new StaticSessionTokenService({
+            ...isolatedSession,
+            workflowPath: ".github/workflows/reviewrouter.yml",
+          }),
+          clock,
+        },
+      ),
+    ).rejects.toThrow("workflow_ref_not_allowed");
+  });
+
   it("returns Claude runtime config without provider secrets", async () => {
     const repositories = new InMemoryActionControlPlaneRepository();
     repositories.runtimeConfig = parseReviewConfiguration({
@@ -3117,6 +3447,31 @@ describe("action control plane", () => {
       ),
     ).rejects.toThrow("repository_name_mismatch");
     expect(repositories.healthReports).toHaveLength(0);
+  });
+
+  it("invalidates an isolated session after the durable binding epoch changes", async () => {
+    const repositories = new InMemoryActionControlPlaneRepository();
+    repositories.repository = {
+      ...repositoryContext,
+      githubRepositoryId: "1228051727",
+      fullName: "777genius/review-router-saas-e2e",
+      identityBindingEpoch: "3:2026-05-03T11:00:00.000Z",
+    };
+    await expect(
+      recordActionHealthReport(
+        { sessionToken: "session", report: safeHealthReport() },
+        {
+          repositories,
+          sessions: new StaticSessionTokenService({
+            ...sessionClaims,
+            githubRepositoryId: "1228051727",
+            repository: "777genius/review-router-saas-e2e",
+            identityBindingEpoch: "2:2026-05-03T10:00:00.000Z",
+          }),
+          clock,
+        },
+      ),
+    ).rejects.toThrow("repository_identity_binding_epoch_mismatch");
   });
 
   it("rejects raw health payloads with extra fields, code, secrets, or oversized content", () => {

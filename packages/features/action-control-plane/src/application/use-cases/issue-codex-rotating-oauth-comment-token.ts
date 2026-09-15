@@ -35,31 +35,29 @@ export async function issueCodexRotatingOAuthCommentToken(
   if (input.authCleared !== true) {
     throw new Error("codex_rotating_auth_clear_required");
   }
-  const target =
-    await dependencies.codexRotatingOAuth.findCompletedLeaseWriteTarget({
+  return dependencies.codexRotatingOAuth.withCompletedLeaseWriteTarget(
+    {
       leaseId: input.leaseId,
       providerInstanceId: input.providerInstanceId,
       now: dependencies.clock.now(),
-    });
-  if (target.status !== "ready") {
-    throw new Error(`codex_rotating_${target.status}`);
-  }
-  await dependencies.legacyMutationAdmission?.assertLegacyReviewMutationAllowed(
-    {
-      operation: LegacyReviewMutationOperation.CodexRotatingCommentToken,
-      githubRepositoryId: target.writeTarget.githubRepositoryId,
-      repositoryFullName: target.writeTarget.repositoryFullName,
+    },
+    async (writeTarget) => {
+      await dependencies.legacyMutationAdmission?.assertLegacyReviewMutationAllowed(
+        {
+          operation: LegacyReviewMutationOperation.CodexRotatingCommentToken,
+          githubRepositoryId: writeTarget.githubRepositoryId,
+          repositoryFullName: writeTarget.repositoryFullName,
+        },
+      );
+      const issued =
+        await dependencies.commentTokens.issueCommentToken(writeTarget);
+      return {
+        protocolVersion: 1 as const,
+        token: issued.token,
+        expiresAt: issued.expiresAt.toISOString(),
+        repository: issued.repository,
+        permissions: issued.permissions,
+      };
     },
   );
-
-  const issued = await dependencies.commentTokens.issueCommentToken(
-    target.writeTarget,
-  );
-  return {
-    protocolVersion: 1,
-    token: issued.token,
-    expiresAt: issued.expiresAt.toISOString(),
-    repository: issued.repository,
-    permissions: issued.permissions,
-  };
 }

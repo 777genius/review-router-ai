@@ -7,18 +7,13 @@ export type CodexRotatingReviewExecutionCheckpointScope = {
 };
 
 export interface CodexRotatingReviewExecutionCheckpointAccessPort {
-  authorizeReviewExecutionCheckpointAccess(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly pullRequestNumber: number;
-    readonly now: Date;
-  }): Promise<
-    | {
-        readonly status: "ready";
-        readonly scope: CodexRotatingReviewExecutionCheckpointScope;
-      }
-    | {
-        readonly status: "lease_not_completed" | "lease_not_active";
-      }
-  >;
+  withAuthorizedReviewExecutionCheckpointAccess<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly pullRequestNumber: number;
+      readonly now: Date;
+    },
+    effect: (scope: CodexRotatingReviewExecutionCheckpointScope) => Promise<T>,
+  ): Promise<T>;
 }

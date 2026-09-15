@@ -22160,6 +22160,7 @@ var codexRotatingSetupManifestSchema = external_exports.object({
   protocolVersion: external_exports.literal(codexRotatingProtocolVersion),
   repositoryFullName: external_exports.string().regex(repoFullNamePattern),
   repositoryId: external_exports.string().regex(/^[0-9]+$/),
+  repositoryIdentityVersion: external_exports.number().int().positive(),
   providerInstanceId: external_exports.string().regex(safeOpaqueIdPattern),
   setupNonce: external_exports.string().regex(safeOpaqueIdPattern),
   authMode: external_exports.literal(codexRotatingAuthMode),

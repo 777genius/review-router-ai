@@ -27,30 +27,26 @@ export async function startCodexRotatingReviewExecutionCheckpoint(
   dependencies: StartCodexRotatingReviewExecutionCheckpointDependencies,
 ) {
   const now = dependencies.clock.now();
-  const access =
-    await dependencies.codexRotatingReviewExecutionCheckpointAccess.authorizeReviewExecutionCheckpointAccess(
-      {
-        leaseId: input.leaseId,
-        providerInstanceId: input.providerInstanceId,
-        pullRequestNumber: input.candidate.pullRequestNumber,
-        now,
-      },
-    );
-  if (access.status !== "ready") {
-    throw new Error("codex_rotating_lease_not_active");
-  }
-
-  return startOrReplaceReviewExecutionCheckpoint(
+  return dependencies.codexRotatingReviewExecutionCheckpointAccess.withAuthorizedReviewExecutionCheckpointAccess(
     {
-      expectedVersion: input.expectedVersion,
-      candidate: {
-        ...input.candidate,
-        workspaceId: access.scope.workspaceId,
-        repositoryId: access.scope.repositoryId,
-        sourceRunId: access.scope.sourceRunId,
-        sourceRunAttempt: access.scope.sourceRunAttempt,
-      },
+      leaseId: input.leaseId,
+      providerInstanceId: input.providerInstanceId,
+      pullRequestNumber: input.candidate.pullRequestNumber,
+      now,
     },
-    { checkpoints: dependencies.reviewExecutionCheckpoints, now },
+    async (scope) =>
+      startOrReplaceReviewExecutionCheckpoint(
+        {
+          expectedVersion: input.expectedVersion,
+          candidate: {
+            ...input.candidate,
+            workspaceId: scope.workspaceId,
+            repositoryId: scope.repositoryId,
+            sourceRunId: scope.sourceRunId,
+            sourceRunAttempt: scope.sourceRunAttempt,
+          },
+        },
+        { checkpoints: dependencies.reviewExecutionCheckpoints, now },
+      ),
   );
 }

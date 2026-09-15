@@ -30,6 +30,7 @@ const setupCommand = renderCodexRotatingInstallerCommand({
   manifest: buildCodexRotatingSetupManifest({
     repositoryFullName: "Padelapp-Club/monorepository",
     repositoryId: "1185393047",
+    repositoryIdentityVersion: 1,
     installerUrl: "https://reviewrouter.site/install/codex-rotating",
     installerVersion: "route-test",
     installerSha256: "a".repeat(64),

@@ -4,6 +4,9 @@ import {
 } from "../../domain/codex-rotating-workflow-reattestation";
 import {
   assertSameVersionedProviderSecretNamespace,
+  codexWorkflowPathForRepository,
+  isCodexWorkflowRepositoryIdentityAdmitted,
+  isolatedQualityWorkflowPath,
   createVersionedSecretWorkflowSourceAttestation,
   WorkflowSourceTrust,
   type VersionedSecretWorkflowSourceAttestation,
@@ -33,13 +36,17 @@ export async function reattestCodexRotatingWorkflow(
   const initialIdentity =
     await dependencies.defaultWorkflowSource.readDefaultSourceIdentity();
   assertRepositoryIdentityMatchesTarget(initialIdentity, target);
+  const boundTarget = {
+    ...target,
+    repositoryFullName: initialIdentity.repositoryFullName,
+  };
   const initialHead = initialIdentity.headCommitSha;
   const replacement = canonicalBoundAttestation(
     await dependencies.defaultWorkflowSource.readVerifiedWorkflowAt({
       commitSha: initialHead,
       expectedSchemaVersion: 5,
     }),
-    target,
+    boundTarget,
   );
   if (
     replacement.workflowSourceCommitSha !== initialHead ||
@@ -55,7 +62,18 @@ export async function reattestCodexRotatingWorkflow(
   if (!currentValue) {
     throw new Error("codex_rotating_workflow_source_attestation_missing");
   }
-  const current = canonicalBoundAttestation(currentValue, target);
+  const isolatedQualityTarget =
+    boundTarget.workflowPath === isolatedQualityWorkflowPath &&
+    boundTarget.workflowPath ===
+      codexWorkflowPathForRepository({
+        repositoryId: initialIdentity.repositoryId,
+        repositoryFullName: initialIdentity.repositoryFullName,
+      });
+  const current = canonicalBoundAttestation(
+    currentValue,
+    boundTarget,
+    isolatedQualityTarget,
+  );
 
   if (sameTrustedWorkflowBytes(current, replacement)) {
     if (current.workflowSchemaVersion !== 5) {
@@ -65,7 +83,7 @@ export async function reattestCodexRotatingWorkflow(
     }
     await assertDefaultSourceIdentityUnchanged(initialIdentity, dependencies);
     await dependencies.workflowReattestation.validateActiveWorkflowSource({
-      target,
+      target: boundTarget,
       expectedCurrent: current,
       verifiedActive: replacement,
     });
@@ -75,7 +93,24 @@ export async function reattestCodexRotatingWorkflow(
     };
   }
   if (current.workflowSchemaVersion !== 4) {
-    throw new Error("codex_rotating_workflow_reattestation_transition_invalid");
+    const isolatedV5Replacement =
+      current.workflowSchemaVersion === 5 && isolatedQualityTarget;
+    if (!isolatedV5Replacement) {
+      throw new Error(
+        "codex_rotating_workflow_reattestation_transition_invalid",
+      );
+    }
+    await assertDefaultSourceIdentityUnchanged(initialIdentity, dependencies);
+    await dependencies.workflowReattestation.replaceActiveWorkflowSource({
+      target: boundTarget,
+      expectedCurrent: current,
+      replacement,
+      compatibilityWindowSeconds: 0,
+    });
+    return {
+      status: "reattested",
+      workflowSourceCommitSha: initialHead,
+    };
   }
 
   const verifiedCurrent = canonicalBoundAttestation(
@@ -83,14 +118,14 @@ export async function reattestCodexRotatingWorkflow(
       commitSha: current.workflowSourceCommitSha,
       expectedSchemaVersion: 4,
     }),
-    target,
+    boundTarget,
   );
   if (!sameExactAttestation(current, verifiedCurrent)) {
     throw new Error("codex_rotating_workflow_previous_attestation_mismatch");
   }
   await assertDefaultSourceIdentityUnchanged(initialIdentity, dependencies);
   const transition = {
-    target,
+    target: boundTarget,
     expectedCurrent: current,
     replacement,
     compatibilityWindowSeconds: codexRotatingV4CompatibilityWindowSeconds,
@@ -112,6 +147,7 @@ export async function reattestCodexRotatingWorkflow(
 function canonicalBoundAttestation(
   value: VersionedSecretWorkflowSourceAttestation,
   target: CodexRotatingWorkflowReattestationRequest,
+  allowManagedPreviousPath = false,
 ): VersionedSecretWorkflowSourceAttestation {
   const attestation = createVersionedSecretWorkflowSourceAttestation(value);
   try {
@@ -124,7 +160,10 @@ function canonicalBoundAttestation(
   }
   if (
     attestation.repositoryId !== target.repositoryId ||
-    attestation.workflowPath !== target.workflowPath ||
+    (attestation.workflowPath !== target.workflowPath &&
+      (!allowManagedPreviousPath ||
+        attestation.workflowPath !==
+          ".github/workflows/reviewrouter-codex.yml")) ||
     attestation.sourceTrust !== WorkflowSourceTrust.TrustedDefaultBranchRevision
   ) {
     throw new Error("codex_rotating_workflow_source_attestation_missing");
@@ -167,7 +206,14 @@ function assertRepositoryIdentityMatchesTarget(
   identity: DefaultSourceIdentity,
   target: CodexRotatingWorkflowReattestationRequest,
 ): void {
-  if (identity.repositoryId !== target.repositoryId) {
+  if (
+    !isCodexWorkflowRepositoryIdentityAdmitted({
+      repositoryId: identity.repositoryId,
+      repositoryFullName: identity.repositoryFullName,
+    }) ||
+    identity.repositoryId !== target.repositoryId ||
+    identity.repositoryFullName !== target.repositoryFullName
+  ) {
     throw new Error("codex_rotating_workflow_repository_identity_changed");
   }
 }

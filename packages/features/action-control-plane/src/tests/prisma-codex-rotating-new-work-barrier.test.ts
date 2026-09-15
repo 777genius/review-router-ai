@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   allocateVersionedProviderSecretNamespace,
@@ -9,6 +10,27 @@ import {
 import { PrismaCodexRotatingOAuthRepository } from "../infrastructure/prisma/prisma-codex-rotating-oauth-repository.js";
 
 describe("Prisma Codex rotating new-work barrier", () => {
+  it("locks the observed isolated identity epoch before lease creation", () => {
+    const source = readFileSync(
+      new URL(
+        "../infrastructure/prisma/prisma-codex-rotating-oauth-repository.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const identityRead = source.indexOf(
+      'SELECT namespace."id", identity."version" AS "identityVersion"',
+    );
+    const identityLock = source.indexOf("FOR UPDATE OF identity", identityRead);
+    const leaseWrite = source.indexOf(
+      "tx.codexOAuthLease.upsert",
+      identityLock,
+    );
+    expect(identityRead).toBeGreaterThan(-1);
+    expect(identityLock).toBeGreaterThan(identityRead);
+    expect(leaseWrite).toBeGreaterThan(identityLock);
+  });
+
   const databaseRecoveryWitness = "witness_generation_one_12345678901234567890";
   const databaseRecoveryWitnessFingerprint = fingerprintDatabaseRecoveryWitness(
     databaseRecoveryWitness,

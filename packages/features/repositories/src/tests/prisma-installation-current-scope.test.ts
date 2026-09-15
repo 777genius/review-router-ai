@@ -12,10 +12,19 @@ function fixture() {
       return value;
     });
   const tx = {
-    $queryRaw: vi.fn(async (sql: Prisma.Sql) => {
+    $queryRaw: vi.fn(async (sql: Prisma.Sql | TemplateStringsArray) => {
+      const text = "text" in sql ? sql.text : Array.from(sql).join("?");
+      if (text.includes('UPDATE "ScmRepositoryIdentity"')) {
+        events.push("identity-rotate");
+        return [{ version: 2 }];
+      }
+      if (text.includes("transaction_timestamp()")) {
+        events.push("identity-time");
+        return [{ fencedAt: new Date("2026-09-14T00:00:00.000Z") }];
+      }
       events.push("guard");
-      expect(sql.text).toContain("pg_advisory_xact_lock(");
-      expect(sql.values).toEqual([
+      expect(text).toContain("pg_advisory_xact_lock(");
+      expect("values" in sql ? sql.values : []).toEqual([
         createHash("sha256")
           .update("review-current-scope-v1\0global")
           .digest("hex"),
@@ -26,6 +35,7 @@ function fixture() {
       findUnique: guarded("installation-read", {
         id: "installation",
         workspaceId: "destination",
+        status: "active",
       }),
       upsert: guarded("installation-upsert", {}),
       update: guarded("installation-remove", {}),
@@ -39,12 +49,17 @@ function fixture() {
     },
     repositoryConnection: {
       findUnique: guarded("repository-read", null),
+      findMany: guarded("removal-read", []),
       upsert: guarded("repository-upsert", { id: "repository" }),
       updateMany: guarded("unselect", { count: 2 }),
+    },
+    scmRepositoryIdentity: {
+      updateMany: guarded("identity-rotate", { count: 1 }),
     },
     workflowProvisioning: {
       findUnique: guarded("provisioning-read", null),
       create: guarded("provisioning-create", {}),
+      updateMany: guarded("provisioning-invalidate", { count: 1 }),
     },
   };
   const prisma = {
@@ -120,6 +135,39 @@ describe("actual installation/inventory current-scope writers", () => {
       "commit",
     ]);
   });
+  it.each([
+    ["suspension", "active", "suspended"],
+    ["reactivation", "suspended", "active"],
+  ])(
+    "rotates repository identity on installation %s",
+    async (_name, before, after) => {
+      const f = fixture();
+      f.tx.gitHubInstallation.findUnique.mockResolvedValueOnce({
+        id: "installation",
+        workspaceId: "destination",
+        status: before,
+      });
+      f.tx.repositoryConnection.findMany.mockResolvedValueOnce([
+        {
+          id: "repository",
+          workspaceId: "destination",
+          scmRepositoryIdentityId: "identity-1",
+        },
+      ]);
+
+      await f.installations.upsertInstallation({
+        ...snapshot,
+        status: after as "active" | "suspended",
+      });
+
+      expect(f.events.indexOf("identity-rotate")).toBeGreaterThan(
+        f.events.indexOf("installation-upsert"),
+      );
+      expect(f.events.indexOf("identity-rotate")).toBeLessThan(
+        f.events.indexOf("commit"),
+      );
+    },
+  );
   it("keeps uninstall fanout and cache invalidation in the same guarded transaction", async () => {
     const f = fixture();
     await f.installations.markInstallationRemoved("123");
@@ -127,6 +175,8 @@ describe("actual installation/inventory current-scope writers", () => {
       "begin",
       "guard",
       "installation-read",
+      "identity-time",
+      "removal-read",
       "installation-remove",
       "unselect",
       "cache-delete",
@@ -161,6 +211,7 @@ describe("actual installation/inventory current-scope writers", () => {
       "begin",
       "guard",
       "installation-read",
+      "removal-read",
       "unselect",
       "commit",
     ]);
@@ -171,6 +222,7 @@ describe("actual installation/inventory current-scope writers", () => {
       expect.objectContaining({
         where: {
           installationId: "installation",
+          selected: true,
           inventoryGeneration: { lt: 2n },
           githubRepositoryId: { notIn: [456n] },
         },
@@ -187,23 +239,105 @@ describe("actual installation/inventory current-scope writers", () => {
       "begin",
       "guard",
       "installation-read",
+      "removal-read",
       "unselect",
       "commit",
     ]);
+  });
+  it("rotates a removed identity once and requires another epoch on restore", async () => {
+    const f = fixture();
+    f.tx.repositoryConnection.findMany.mockResolvedValueOnce([
+      {
+        id: "repository",
+        workspaceId: "destination",
+        scmRepositoryIdentityId: "identity-1",
+      },
+    ]);
+    await f.inventory.syncInstallationRepositories({
+      ...input,
+      repositories: [],
+    });
+    expect(f.events).toContain("identity-rotate");
+
+    f.tx.repositoryConnection.findUnique.mockResolvedValueOnce({
+      id: "repository",
+      inventoryGeneration: 2n,
+      workspaceId: "destination",
+      installationId: "installation",
+      fullName: "test/repo",
+      defaultBranch: "main",
+      selected: false,
+      scmRepositoryIdentityId: "identity-1",
+    });
+    await f.inventory.syncInstallationRepositories({
+      ...input,
+      inventoryGeneration: 3n,
+    });
+    expect(
+      f.events.filter((event) => event === "identity-rotate"),
+    ).toHaveLength(2);
   });
   it("preserves inventory generation replay fence", async () => {
     const f = fixture();
     f.tx.repositoryConnection.findUnique.mockResolvedValue({
       id: "repository",
       inventoryGeneration: 2n,
+      workspaceId: "destination",
+      installationId: "installation",
     });
     expect(await f.inventory.syncInstallationRepositories(input)).toMatchObject(
       { upserted: 0 },
     );
     expect(f.tx.repositoryConnection.upsert).not.toHaveBeenCalled();
   });
+  it("fences an installation mismatch before applying the inventory replay fence", async () => {
+    const f = fixture();
+    f.tx.repositoryConnection.findUnique.mockImplementation(async () => {
+      f.events.push("repository-read");
+      return {
+        id: "repository",
+        inventoryGeneration: 2n,
+        workspaceId: "destination",
+        installationId: "old-installation",
+        selected: true,
+        scmRepositoryIdentityId: "identity-1",
+      };
+    });
+    f.tx.repositoryConnection.updateMany.mockImplementationOnce(async () => {
+      f.events.push("unselect");
+      return { count: 1 };
+    });
+
+    await expect(
+      f.inventory.syncInstallationRepositories(input),
+    ).rejects.toThrow("repository_transfer_reconnect_reselection_required");
+    expect(f.events).toEqual([
+      "begin",
+      "guard",
+      "installation-read",
+      "repository-read",
+      "identity-rotate",
+      "unselect",
+      "provisioning-read",
+      "commit",
+    ]);
+    expect(f.tx.repositoryConnection.upsert).not.toHaveBeenCalled();
+  });
   it("guards transfer plus provisioning invalidation before either workspace is touched", async () => {
     const f = fixture();
+    f.tx.repositoryConnection.updateMany.mockImplementationOnce(async () => {
+      f.events.push("unselect");
+      return { count: 1 };
+    });
+    f.tx.workflowProvisioning.findUnique.mockImplementationOnce(async () => {
+      f.events.push("provisioning-read");
+      return {
+        id: "provisioning-1",
+        attemptId: "attempt-1",
+        revision: 3,
+        status: "configured",
+      };
+    });
     f.tx.repositoryConnection.findUnique.mockImplementation(async () => {
       f.events.push("repository-read");
       return {
@@ -211,20 +345,201 @@ describe("actual installation/inventory current-scope writers", () => {
         inventoryGeneration: 1n,
         workspaceId: "old",
         installationId: "old-installation",
+        selected: true,
+        scmRepositoryIdentityId: "identity-1",
       };
     });
-    await f.inventory.syncInstallationRepositories(input);
-    expect(f.events.slice(0, 9)).toEqual([
+    await expect(
+      f.inventory.syncInstallationRepositories(input),
+    ).rejects.toThrow("repository_transfer_reconnect_reselection_required");
+    expect(f.events).toEqual([
       "begin",
       "guard",
       "installation-read",
       "repository-read",
-      "repository-upsert",
+      "identity-rotate",
+      "unselect",
       "provisioning-read",
-      "provisioning-create",
+      "provisioning-invalidate",
       "commit",
-      "begin",
     ]);
+    expect(f.tx.repositoryConnection.upsert).not.toHaveBeenCalled();
+    expect(f.events.indexOf("identity-rotate")).toBeLessThan(
+      f.events.indexOf("commit"),
+    );
+    expect(f.tx.repositoryConnection.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "repository",
+        selected: true,
+      },
+      data: {
+        selected: false,
+        lastSyncedAt: input.syncedAt,
+        inventoryGeneration: input.inventoryGeneration,
+      },
+    });
+    expect(f.tx.workflowProvisioning.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "provisioning-1",
+        attemptId: "attempt-1",
+        revision: 3,
+        status: "configured",
+      },
+      data: expect.objectContaining({
+        status: "not_started",
+        errorMessage: "repository_transfer_reconnect_reselection_required",
+      }),
+    });
+  });
+  it("replays an already-fenced transfer without rotating identity or provisioning again", async () => {
+    const f = fixture();
+    f.tx.repositoryConnection.findUnique.mockImplementation(async () => {
+      f.events.push("repository-read");
+      return {
+        id: "repository",
+        inventoryGeneration: 2n,
+        workspaceId: "old",
+        installationId: "old-installation",
+        selected: false,
+        scmRepositoryIdentityId: "identity-1",
+      };
+    });
+    f.tx.repositoryConnection.updateMany.mockImplementationOnce(async () => {
+      f.events.push("fence-generation");
+      return { count: 1 };
+    });
+    f.tx.workflowProvisioning.findUnique.mockImplementationOnce(async () => {
+      f.events.push("provisioning-read");
+      return {
+        id: "provisioning-1",
+        attemptId: "attempt-2",
+        revision: 4,
+        status: "not_started",
+        errorMessage: "repository_transfer_reconnect_reselection_required",
+        pullRequestUrl: null,
+        pullRequestHeadSha: null,
+      };
+    });
+
+    await expect(
+      f.inventory.syncInstallationRepositories(input),
+    ).rejects.toThrow("repository_transfer_reconnect_reselection_required");
+    expect(f.events).toEqual([
+      "begin",
+      "guard",
+      "installation-read",
+      "repository-read",
+      "fence-generation",
+      "provisioning-read",
+      "commit",
+    ]);
+    expect(f.events).not.toContain("identity-rotate");
+    expect(f.tx.workflowProvisioning.updateMany).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["rename", "test/old-repo", "destination", "installation"],
+    ["case change", "Test/repo", "destination", "installation"],
+    ["default branch change", "test/repo", "destination", "installation"],
+  ])(
+    "rotates the durable repository identity epoch on %s",
+    async (
+      _change,
+      previousFullName,
+      previousWorkspace,
+      previousInstallation,
+    ) => {
+      const f = fixture();
+      f.tx.repositoryConnection.findUnique.mockImplementation(async () => {
+        f.events.push("repository-read");
+        return {
+          id: "repository",
+          inventoryGeneration: 1n,
+          workspaceId: previousWorkspace,
+          installationId: previousInstallation,
+          defaultBranch:
+            _change === "default branch change" ? "master" : "main",
+          fullName: previousFullName,
+          scmRepositoryIdentityId: "identity-1",
+        };
+      });
+
+      await f.inventory.syncInstallationRepositories(input);
+
+      expect(f.events.indexOf("identity-rotate")).toBeGreaterThan(
+        f.events.indexOf("repository-upsert"),
+      );
+      expect(f.events.indexOf("identity-rotate")).toBeLessThan(
+        f.events.indexOf("commit"),
+      );
+      if (_change === "default branch change") {
+        expect(f.tx.repositoryConnection.findUnique).toHaveBeenCalledWith({
+          where: { githubRepositoryId: 456n },
+          select: expect.objectContaining({ defaultBranch: true }),
+        });
+      }
+    },
+  );
+  it("preserves the durable identity epoch for an unchanged repository", async () => {
+    const f = fixture();
+    f.tx.repositoryConnection.findUnique.mockResolvedValue({
+      id: "repository",
+      inventoryGeneration: 1n,
+      workspaceId: "destination",
+      installationId: "installation",
+      defaultBranch: "main",
+      fullName: "test/repo",
+      scmRepositoryIdentityId: "identity-1",
+    });
+
+    await f.inventory.syncInstallationRepositories(input);
+
+    expect(f.events).not.toContain("identity-rotate");
+  });
+  it("rotates again when a repository returns to its previous exact name", async () => {
+    const f = fixture();
+    f.tx.repositoryConnection.findUnique
+      .mockResolvedValueOnce({
+        id: "repository",
+        inventoryGeneration: 1n,
+        workspaceId: "destination",
+        installationId: "installation",
+        fullName: "test/repo",
+        defaultBranch: "main",
+        scmRepositoryIdentityId: "identity-1",
+      })
+      .mockResolvedValueOnce({
+        id: "repository",
+        inventoryGeneration: 2n,
+        workspaceId: "destination",
+        installationId: "installation",
+        fullName: "test/renamed",
+        defaultBranch: "main",
+        scmRepositoryIdentityId: "identity-1",
+      });
+    const renamedAt = new Date("2026-09-14T01:00:00.000Z");
+    const restoredAt = new Date("2026-09-14T02:00:00.000Z");
+
+    await f.inventory.syncInstallationRepositories({
+      ...input,
+      syncedAt: renamedAt,
+      inventoryGeneration: 2n,
+      repositories: [
+        {
+          ...input.repositories[0]!,
+          name: "renamed",
+          fullName: "test/renamed",
+        },
+      ],
+    });
+    await f.inventory.syncInstallationRepositories({
+      ...input,
+      syncedAt: restoredAt,
+      inventoryGeneration: 3n,
+    });
+
+    expect(
+      f.events.filter((event) => event === "identity-rotate"),
+    ).toHaveLength(2);
   });
   it("reacquires before retry reads after a serialization conflict", async () => {
     const f = fixture();

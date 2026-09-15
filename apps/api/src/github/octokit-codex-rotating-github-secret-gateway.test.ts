@@ -274,6 +274,96 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     },
   );
 
+  it("selects the isolated durable workflow path for namespace publication", async () => {
+    const namespace = allocateVersionedProviderSecretNamespace({
+      scope: {
+        repositoryId: "1228051727",
+        providerInstanceId: "codex-rotating:1228051727",
+      },
+      epoch: 3,
+      randomBytes: () => new Uint8Array(16).fill(0x44),
+    });
+    mocks.auth.mockResolvedValueOnce({
+      token: "ghs_contents_write_token",
+      expiresAt: "2026-05-25T12:15:00.000Z",
+      permissions: { contents: "write" },
+    });
+    mocks.request
+      .mockResolvedValueOnce({
+        data: {
+          id: 1228051727,
+          full_name: "777genius/review-router-saas-e2e",
+          default_branch: "main",
+        },
+      })
+      .mockResolvedValueOnce({
+        data: { name: "main", commit: { sha: "a".repeat(40) } },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          type: "file",
+          encoding: "base64",
+          sha: "b".repeat(40),
+          content: Buffer.from("invalid isolated source").toString("base64"),
+        },
+      });
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+
+    await expect(
+      gateway.publishAndVerifyVersionedWorkflow({
+        repository: {
+          workspaceId: "workspace-1",
+          repositoryId: "repository-1",
+          githubInstallationId: "129500385",
+          githubRepositoryId: "1228051727",
+          fullName: "777genius/review-router-saas-e2e",
+          owner: "777genius",
+          selected: true,
+          installationStatus: "active",
+        },
+        providerInstanceId: "codex-rotating:1228051727",
+        namespace,
+      }),
+    ).rejects.toThrow();
+    expect(
+      mocks.request.mock.calls.filter(
+        ([route]) => route === "PUT /repos/{owner}/{repo}/contents/{path}",
+      ),
+    ).toHaveLength(0);
+    expect(mocks.request).toHaveBeenNthCalledWith(
+      3,
+      "GET /repos/{owner}/{repo}/contents/{path}",
+      expect.objectContaining({
+        path: ".github/workflows/reviewrouter-quality-stand.yml",
+      }),
+    );
+    expect(JSON.stringify(mocks.request.mock.calls)).not.toContain(
+      ".github/workflows/reviewrouter-codex.yml",
+    );
+  });
+
+  it("selects isolated bootstrap parsing only for the exact repository name", async () => {
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+    await expect(
+      gateway.verifyManagedV2SessionBootstrapSource({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "1228051727",
+        repositoryFullName: "777Genius/review-router-saas-e2e",
+        owner: "777Genius",
+        workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
+        workflowSha: "a".repeat(40),
+      }),
+    ).resolves.toEqual({ compatible: false });
+    expect(mocks.auth).not.toHaveBeenCalled();
+    expect(mocks.request).not.toHaveBeenCalled();
+  });
+
   it("pins an unchanged active namespace before the default branch moves", async () => {
     const activeNamespace = allocateVersionedProviderSecretNamespace({
       scope: {
@@ -613,6 +703,95 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     });
   });
 
+  it("inventories and parses only the repository-selected isolated workflow", async () => {
+    const actionSha = "a".repeat(40);
+    const activeSecretNamespace = allocateVersionedProviderSecretNamespace({
+      scope: {
+        repositoryId: "1228051727",
+        providerInstanceId: "codex-rotating:1228051727",
+      },
+      epoch: 1n,
+      randomBytes: () => new Uint8Array(16),
+    });
+    const unrelatedCanonicalWorkflow = renderCodexRotatingAdvisoryWorkflow({
+      actionRef: `777genius/review-router@${actionSha}`,
+      apiUrl: "https://api.reviewrouter.site",
+      providerInstanceId: "codex-rotating:1228051727",
+      workflowSchemaVersion: 5,
+      activeSecretNamespace,
+      refreshScheduleCron: null,
+      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    });
+    mockManagedWorkflowInventory({
+      reviewWorkflow: unrelatedCanonicalWorkflow,
+      repositoryId: 1228051727,
+      repositoryFullName: "777genius/review-router-saas-e2e",
+      reviewPath: ".github/workflows/reviewrouter-quality-stand.yml",
+    });
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+
+    await expect(
+      gateway.inspectReviewV2ManagedWorkflowInventory({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "1228051727",
+        repositoryFullName: "777genius/review-router-saas-e2e",
+        owner: "777genius",
+      }),
+    ).resolves.toMatchObject({ compatible: false });
+    const contentPaths = mocks.request.mock.calls
+      .filter(
+        ([route]) => route === "GET /repos/{owner}/{repo}/contents/{path}",
+      )
+      .map(([, request]) => request.path);
+    expect(contentPaths).toContain(
+      ".github/workflows/reviewrouter-quality-stand.yml",
+    );
+    expect(contentPaths).toContain(".github/workflows/reviewrouter-codex.yml");
+  });
+
+  it("fails closed and never selects the standard workflow for a renamed isolated repository id", async () => {
+    const actionSha = "a".repeat(40);
+    const standardWorkflow = renderCodexRotatingAdvisoryWorkflow({
+      actionRef: `777genius/review-router@${actionSha}`,
+      apiUrl: "https://api.reviewrouter.site",
+      providerInstanceId: "codex-rotating:1228051727",
+      refreshScheduleCron: null,
+      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    });
+    mockManagedWorkflowInventory({
+      reviewWorkflow: standardWorkflow,
+      repositoryId: 1228051727,
+      repositoryFullName: "777genius/renamed-quality-stand",
+      reviewPath: ".github/workflows/reviewrouter-quality-stand.yml",
+      competingStandardWorkflow: standardWorkflow,
+    });
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+
+    await expect(
+      gateway.inspectReviewV2ManagedWorkflowInventory({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "1228051727",
+        repositoryFullName: "777genius/renamed-quality-stand",
+        owner: "777genius",
+      }),
+    ).resolves.toMatchObject({ compatible: false });
+    const contentPaths = mocks.request.mock.calls
+      .filter(
+        ([route]) => route === "GET /repos/{owner}/{repo}/contents/{path}",
+      )
+      .map(([, request]) => request.path);
+    expect(contentPaths).toContain(
+      ".github/workflows/reviewrouter-quality-stand.yml",
+    );
+    expect(contentPaths).toContain(".github/workflows/reviewrouter-codex.yml");
+  });
+
   it("reports canonical client-triggered T0 workflow schema v2", async () => {
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
@@ -728,6 +907,38 @@ ${renderInteractionWorkflow({
         repositoryFullName: "777genius/example",
         owner: "777genius",
         workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowSha: "b".repeat(40),
+      }),
+    ).resolves.toEqual({ compatible: false });
+  });
+
+  it("rejects a non-quality source at the isolated quality path", async () => {
+    const actionRef = `777genius/review-router@${"a".repeat(40)}`;
+    const workflow = renderCodexRotatingAdvisoryWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.site",
+      providerInstanceId: "codex-rotating:1228051727",
+      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    });
+    mocks.auth.mockResolvedValueOnce({
+      token: "ghs_contents_read_token",
+      expiresAt: "2026-05-25T12:15:00.000Z",
+      permissions: { contents: "read" },
+    });
+    mocks.request.mockResolvedValueOnce(fileContent(workflow));
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+      trustedActionRefs: [actionRef],
+    });
+
+    await expect(
+      gateway.verifyManagedV2SessionBootstrapSource({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "1228051727",
+        repositoryFullName: "777genius/review-router-saas-e2e",
+        owner: "777genius",
+        workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
         workflowSha: "b".repeat(40),
       }),
     ).resolves.toEqual({ compatible: false });
@@ -1875,6 +2086,10 @@ ${renderInteractionWorkflow({
 
 function mockManagedWorkflowInventory(input: {
   readonly reviewWorkflow: string;
+  readonly repositoryId?: number;
+  readonly repositoryFullName?: string;
+  readonly reviewPath?: string;
+  readonly competingStandardWorkflow?: string;
   readonly interactionWorkflow?: string;
   readonly activePullRequests?: readonly {
     readonly number: number;
@@ -1952,8 +2167,8 @@ function mockManagedWorkflowInventory(input: {
       if (route === "GET /repos/{owner}/{repo}") {
         return {
           data: {
-            id: 123456,
-            full_name: "777genius/example",
+            id: input.repositoryId ?? 123456,
+            full_name: input.repositoryFullName ?? "777genius/example",
             default_branch: "main",
           },
         };
@@ -1981,7 +2196,7 @@ function mockManagedWorkflowInventory(input: {
                         ? pullRequest.movedBaseHeadSha
                         : (pullRequest.listedBaseSha ??
                           pullRequest.baseHeadSha),
-                    repo: { id: 123456 },
+                    repo: { id: input.repositoryId ?? 123456 },
                   },
                   head: { sha: pullRequest.headSha },
                 }))
@@ -2003,7 +2218,7 @@ function mockManagedWorkflowInventory(input: {
             base: {
               ref: pullRequest.baseRef,
               sha: pullRequest.listedBaseSha ?? pullRequest.baseHeadSha,
-              repo: { id: 123456 },
+              repo: { id: input.repositoryId ?? 123456 },
             },
             head: { sha: pullRequest.headSha },
           },
@@ -2035,7 +2250,10 @@ function mockManagedWorkflowInventory(input: {
           mergeReferences.find((candidate) => candidate.ref === request.ref);
         if (!reference) throw { status: 404 };
         const path = String(request.path);
-        if (path === ".github/workflows/reviewrouter-codex.yml") {
+        if (
+          path ===
+          (input.reviewPath ?? ".github/workflows/reviewrouter-codex.yml")
+        ) {
           if (!reference.reviewWorkflow) throw { status: 404 };
           return fileContent(reference.reviewWorkflow);
         }
@@ -2047,6 +2265,13 @@ function mockManagedWorkflowInventory(input: {
             throw { status: 404 };
           }
           return fileContent(reference.legacyWorkflow);
+        }
+        if (
+          path === ".github/workflows/reviewrouter-codex.yml" &&
+          input.reviewPath !== ".github/workflows/reviewrouter-codex.yml"
+        ) {
+          if (!input.competingStandardWorkflow) throw { status: 404 };
+          return fileContent(input.competingStandardWorkflow);
         }
         if (path === ".github/workflows/reviewrouter-interaction.yml") {
           if (

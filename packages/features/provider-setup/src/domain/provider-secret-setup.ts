@@ -68,6 +68,7 @@ export function buildProviderSecretSetupGuidance(input: {
     readonly installerSha256: string;
     readonly setupManifestUrl?: string;
     readonly repositoryId: string;
+    readonly repositoryIdentityVersion: number;
     readonly providerInstanceId?: string;
     readonly setupNonce?: string;
     readonly now?: Date;
@@ -89,6 +90,7 @@ export function buildProviderSecretSetupGuidance(input: {
       installerVersion: input.rotatingSetup.installerVersion,
       installerSha256: input.rotatingSetup.installerSha256,
       repositoryId: input.rotatingSetup.repositoryId,
+      repositoryIdentityVersion: input.rotatingSetup.repositoryIdentityVersion,
       ...(input.rotatingSetup?.providerInstanceId
         ? { providerInstanceId: input.rotatingSetup.providerInstanceId }
         : {}),

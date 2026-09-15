@@ -78,6 +78,8 @@ export class ReviewRunControlLegacyMutationAdmission implements LegacyReviewMuta
     return isManagedV2SessionBootstrapSource({
       eventName: input.eventName,
       workflowPath: input.workflowPath,
+      githubRepositoryId: input.githubRepositoryId,
+      repositoryFullName: input.repositoryFullName,
     });
   }
 
@@ -88,7 +90,11 @@ export class ReviewRunControlLegacyMutationAdmission implements LegacyReviewMuta
       return false;
     }
     if (
-      !isManagedV2SessionBootstrapSource(input) ||
+      !isManagedV2SessionBootstrapSource({
+        ...input,
+        githubRepositoryId: input.githubRepositoryId,
+        repositoryFullName: input.repositoryFullName,
+      }) ||
       !input.workflowSha ||
       !this.dependencies.workflowSourceVerifier
     ) {

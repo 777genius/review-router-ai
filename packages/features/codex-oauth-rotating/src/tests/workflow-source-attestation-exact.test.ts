@@ -10,10 +10,12 @@ import {
   isTrustedDefaultBranchTriggeredCodexWorkflowSchemaVersion,
   isVersionedSecretNamespaceCodexWorkflowSchemaVersion,
   readCanonicalCodexRotatingT0WorkflowSourceMetadata,
+  readCanonicalIsolatedQualityWorkflowSourceMetadata,
   renderCodexRotatingAdvisoryWorkflow,
   renderCanonicalCodexRotatingT0WorkflowV4,
   renderCanonicalCodexRotatingT0WorkflowV5,
   scanCodexRotatingAdvisoryWorkflow,
+  serializeVersionedProviderSecretNamespaceMetadata,
   WorkflowSourceTrust,
 } from "../index.js";
 
@@ -38,6 +40,122 @@ const evidence = {
 } as const;
 
 describe("exact active workflow attestation", () => {
+  it("attests the authoritative isolated workflow as dispatch-only schema V5", () => {
+    const workflow = `name: ReviewRouter Codex OAuth [namespace=sns_e9c2956ba412321fa27816e6cee3bd06;epoch=2;secret=REVIEWROUTER_CODEX_AUTH_JSON_R1228051727_P01cfca27f31e5f85_E2_e9c2956ba412321fa27816e6cee3bd06]
+
+run-name: ReviewRouter review \${{ inputs.review_request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      review_request_id:
+        required: true
+        type: string
+      pr_number:
+        required: true
+        type: string
+      review_head_sha:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  quality-preflight:
+    if: \${{ github.event_name == 'workflow_dispatch' && github.repository_id == '1228051727' && github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main' && vars.REVIEW_ROUTER_REVIEW_DRAFTS != 'true' && inputs.review_request_id != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Verify isolated draft revision
+        shell: bash
+        env:
+          GH_TOKEN: \${{ github.token }}
+          GH_REPO: \${{ github.repository }}
+          PR_NUMBER: \${{ inputs.pr_number }}
+          REVIEW_HEAD_SHA: \${{ inputs.review_head_sha }}
+          REVIEW_DRAFTS: \${{ vars.REVIEW_ROUTER_REVIEW_DRAFTS }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$REVIEW_HEAD_SHA" =~ ^[a-fA-F0-9]{40}$ ]]
+          [[ "\${REVIEW_DRAFTS,,}" != true ]]
+          gh api "repos/$GH_REPO" --jq '.id == 1228051727 and .default_branch == "main"' | grep -qx true
+          gh api "repos/$GH_REPO/pulls/$PR_NUMBER" | jq -e --arg sha "$REVIEW_HEAD_SHA" --arg number "$PR_NUMBER" '
+            (.number | tostring) == $number and
+            .state == "open" and .draft == true and
+            .user.type == "User" and
+            .head.repo.id == 1228051727 and .base.repo.id == 1228051727 and
+            .head.sha == $sha' > /dev/null
+  codex-review:
+    name: codex-review
+    needs: quality-preflight
+    if: \${{ github.event_name == 'workflow_dispatch' && inputs.review_request_id != '' && inputs.pr_number != '' && inputs.review_head_sha != '' }}
+    concurrency:
+      group: reviewrouter-codex-oauth-\${{ github.repository_id }}-codex-rotating-1228051727
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    uses: 777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@bc3925e88470bf36d914d8d7ede74994455b69c8
+    with:
+      runtime_ref: "bc3925e88470bf36d914d8d7ede74994455b69c8"
+      api_url: "https://mag-terminology-easter-email.trycloudflare.com"
+      runtime_config_mode: oidc
+      pr_number: \${{ inputs.pr_number }}
+      review_head_sha: \${{ inputs.review_head_sha }}
+      provider_instance_id: "codex-rotating:1228051727"
+      workflow_schema_version: 5
+      max_changed_lines: \${{ vars.REVIEW_ROUTER_MAX_CHANGED_LINES }}
+      review_timeout_minutes: \${{ fromJSON(vars.REVIEW_ROUTER_TIMEOUT_MINUTES || '60') }}
+    secrets:
+      CODEX_AUTH_JSON: \${{ secrets.REVIEWROUTER_CODEX_AUTH_JSON_R1228051727_P01cfca27f31e5f85_E2_e9c2956ba412321fa27816e6cee3bd06 }}
+`;
+
+    expect(workflow).toContain("  workflow_dispatch:");
+    expect(workflow).not.toContain("  pull_request_target:");
+    expect(
+      readCanonicalIsolatedQualityWorkflowSourceMetadata(workflow),
+    ).toMatchObject({
+      providerInstanceId: "codex-rotating:1228051727",
+      workflowSchemaVersion: 5,
+    });
+    const current =
+      readCanonicalIsolatedQualityWorkflowSourceMetadata(
+        workflow,
+      ).secretNamespace!;
+    const next = allocateVersionedProviderSecretNamespace({
+      scope: current.scope,
+      epoch: current.epoch + 1n,
+      randomBytes: () => Buffer.alloc(16, 7),
+    });
+    const rotated = workflow
+      .replace(
+        serializeVersionedProviderSecretNamespaceMetadata(current),
+        serializeVersionedProviderSecretNamespaceMetadata(next),
+      )
+      .replaceAll(current.name, next.name);
+    expect(
+      readCanonicalIsolatedQualityWorkflowSourceMetadata(rotated),
+    ).toMatchObject({ secretNamespace: next });
+    expect(() =>
+      readCanonicalIsolatedQualityWorkflowSourceMetadata(
+        workflow.replace("  workflow_dispatch:", "  pull_request_target:"),
+      ),
+    ).toThrow("codex_rotating_t0_workflow_source_not_canonical");
+    expect(() =>
+      readCanonicalIsolatedQualityWorkflowSourceMetadata(
+        workflow.replace(
+          `secrets.${current.name}`,
+          "secrets.REVIEWROUTER_CODEX_AUTH_JSON_R1228051727_P01cfca27f31e5f85_E3_07070707070707070707070707070707",
+        ),
+      ),
+    ).toThrow("codex_rotating_t0_workflow_source_not_canonical");
+  });
+
   it("binds blob, content, semantic, repository, trust, revision and namespace", () => {
     const assert = (
       attestation: Parameters<

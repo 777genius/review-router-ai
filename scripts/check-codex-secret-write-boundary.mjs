@@ -24,6 +24,9 @@ const runtimeDispatcher =
 const runtimeLedger =
   "packages/features/action-control-plane/src/infrastructure/prisma/prisma-codex-rotating-oauth-repository.ts";
 const runtimeComposition = "apps/api/src/app.ts";
+const setupDispatcher = "apps/web/src/server/codex-rotating-setup-ledger.ts";
+const setupLedger =
+  "apps/web/src/server/prisma-codex-rotating-setup-payload-claim.ts";
 
 export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
   const failures = [];
@@ -68,13 +71,8 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
     if (path === rotatingInstaller) {
       const rotatingWrites =
         source.match(
-          /gh\s+secret\s+set\s+"\$SECRET_NAME"[^\n]*(?:\\\n[^\n]*)?/gu,
+          /gh\s+secret\s+set\s+"REVIEWROUTER_CODEX_AUTH_JSON_ENCRYPT_ONLY"[^\n]*(?:\\\n[^\n]*)?/gu,
         ) ?? [];
-      const curlConfig = extractShellFunction(source, "write_github_secret");
-      const providerConfigBoundary = curlConfig.match(
-        /provider_status="\$\(\{([\s\S]*?)\}\s*\|\s*curl\s+-q\s+--config\s+-\s+--data-binary\s+"@\$provider_body"\)/u,
-      );
-      const providerConfigProducer = providerConfigBoundary?.[1] ?? "";
       const sensitiveCurlInvocations = extractShellCurlInvocations(source);
       const ledgerFunctions = [
         "fetch_setup_manifest",
@@ -83,7 +81,10 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
         "retire_journal_attempt_or_fail",
         "authorize_new_dispatch",
         "record_definite_dispatch_success",
-      ].map((name) => extractShellFunction(source, name));
+      ].map((name) => ({
+        name,
+        body: extractShellFunction(source, name),
+      }));
       const ledgerUrlValidation = extractShellFunction(
         source,
         "validate_versioned_ledger_urls",
@@ -97,28 +98,22 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
         directGhSecretSetCount !== 1 ||
         rotatingWrites.length !== 1 ||
         !/--no-store(?:\s|\\|$)/u.test(rotatingWrites[0]) ||
-        !curlConfig.includes('url = "https://api.github.com/repos/') ||
-        !curlConfig.includes("'http1.1'") ||
-        !curlConfig.includes("'no-location'") ||
-        !curlConfig.includes("'no-keepalive'") ||
-        !curlConfig.includes("'retry = 0'") ||
-        !curlConfig.includes("'proto = \"=https\"'") ||
-        curlConfig.includes("'data-binary =") ||
-        !providerConfigBoundary ||
-        providerConfigProducer.includes("provider_body") ||
-        /fresh-connect|forbid-reuse|location\s*=\s*false/u.test(curlConfig) ||
-        !/\|\s*curl\s+-q\s+--config\s+-\s+--data-binary\s+"@\$provider_body"\)/u.test(
-          curlConfig,
-        ) ||
-        sensitiveCurlInvocations.length !== 7 ||
+        source.includes("gh auth token") ||
+        source.includes('url = "https://api.github.com/repos/') ||
+        !source.includes("encryptedValue:provider.encrypted_value") ||
+        !source.includes("keyId:provider.key_id") ||
+        sensitiveCurlInvocations.length !== 6 ||
         sensitiveCurlInvocations.some(
           ({ firstArgument }) =>
             firstArgument !== "-q" && firstArgument !== "--disable",
         ) ||
         ledgerFunctions.some(
-          (body) =>
-            !body.includes("curl -q -fsS --max-redirs 0") ||
-            /\s(?:-L|--location)(?:\s|$)/u.test(body),
+          ({ name, body }) =>
+            !body.includes(
+              name === "authorize_new_dispatch"
+                ? "curl -q -sS --max-redirs 0"
+                : "curl -q -fsS --max-redirs 0",
+            ) || /\s(?:-L|--location)(?:\s|$)/u.test(body),
         ) ||
         ![
           "SETUP_URL",
@@ -167,11 +162,13 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
     }
 
     const isAuditedRuntimeWriter = path === allowedOneShotTransport;
+    const isSerializedSetupWriter = path === setupDispatcher;
     const providerPutCount = countProviderSecretPutSites(source);
     if (
       providerPutCount > 0 &&
       path !== rotatingInstaller &&
       !isAuditedRuntimeWriter &&
+      !isSerializedSetupWriter &&
       !path.endsWith(".test.ts")
     ) {
       failures.push(`${path}: provider secret PUT outside audited adapter`);
@@ -183,6 +180,7 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
     }
   }
   requireRuntimeWritebackAudit(checkoutRoot, failures);
+  requireSetupWriteAudit(checkoutRoot, failures);
   if (failures.length > 0) throw new Error(failures.join("\n"));
   return {
     status: "pass",
@@ -194,8 +192,38 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
       runtimeDispatcher,
       runtimeLedger,
       runtimeComposition,
+      setupDispatcher,
+      setupLedger,
     ],
   };
+}
+
+function requireSetupWriteAudit(checkoutRoot, failures) {
+  if (!existsSync(resolve(checkoutRoot, "package.json"))) return;
+  const dispatcher = readFileSync(
+    resolve(checkoutRoot, setupDispatcher),
+    "utf8",
+  );
+  const ledger = readFileSync(resolve(checkoutRoot, setupLedger), "utf8");
+  const dispatchCallIndex = ledger.indexOf(
+    "return dispatchSetupSecretUnderLock({",
+  );
+  const transactionTimeoutIndex = ledger.indexOf("{ timeout: 40_000");
+  if (
+    !dispatcher.includes("claims.authorizeDispatch(") ||
+    !dispatcher.includes(
+      "PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}",
+    ) ||
+    !ledger.includes("dispatchSetupSecretUnderLock") ||
+    !ledger.includes("response = await input.dispatch(") ||
+    dispatchCallIndex < 0 ||
+    transactionTimeoutIndex < 0 ||
+    dispatchCallIndex > transactionTimeoutIndex
+  ) {
+    failures.push(
+      "setup secret PUT is not serialized by the setup identity transaction",
+    );
+  }
 }
 
 function extractShellCurlInvocations(source) {

@@ -235,6 +235,7 @@ describe("dashboard setup PR recovery", () => {
               attemptId: true,
               revision: true,
               branch: true,
+              workflowPath: true,
               pullRequestUrl: true,
               pullRequestHeadSha: true,
             },

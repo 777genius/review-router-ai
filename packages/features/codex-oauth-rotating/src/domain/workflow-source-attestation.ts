@@ -14,6 +14,7 @@ import {
   assertSameVersionedProviderSecretNamespace,
   createVersionedProviderSecretNamespace,
   parseVersionedProviderSecretNamespaceMetadata,
+  serializeVersionedProviderSecretNamespaceMetadata,
   type VersionedProviderSecretNamespace,
 } from "./provider-secret-namespace";
 
@@ -21,6 +22,133 @@ export enum WorkflowSourceTrust {
   TrustedDefaultBranchRevision = "trusted_default_branch_revision",
   TrustedCanonicalBranchMirrorRevision = "trusted_canonical_branch_mirror_revision",
   MutableOrUntrusted = "mutable_or_untrusted",
+}
+
+export const isolatedQualityWorkflowRepositoryId = "1228051727";
+export const isolatedQualityWorkflowRepository =
+  "777genius/review-router-saas-e2e";
+export const isolatedQualityWorkflowPath =
+  ".github/workflows/reviewrouter-quality-stand.yml";
+
+export function renderCanonicalIsolatedQualityWorkflow(input: {
+  readonly actionRef: string;
+  readonly apiUrl: string;
+  readonly providerInstanceId: string;
+  readonly activeSecretNamespace: VersionedProviderSecretNamespace;
+}): string {
+  const actionSha = input.actionRef.match(
+    /^777genius\/review-router@([a-fA-F0-9]{40})$/u,
+  )?.[1];
+  if (
+    !actionSha ||
+    input.providerInstanceId !==
+      `codex-rotating:${isolatedQualityWorkflowRepositoryId}`
+  ) {
+    throw new Error("isolated_quality_workflow_identity_mismatch");
+  }
+  const namespace = createVersionedProviderSecretNamespace(
+    input.activeSecretNamespace,
+  );
+  if (
+    namespace.scope.repositoryId !== isolatedQualityWorkflowRepositoryId ||
+    namespace.scope.providerInstanceId !== input.providerInstanceId
+  ) {
+    throw new Error("isolated_quality_workflow_identity_mismatch");
+  }
+  const source = `name: ReviewRouter Codex OAuth [${serializeVersionedProviderSecretNamespaceMetadata(namespace)}]
+
+run-name: ReviewRouter review \${{ inputs.review_request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      review_request_id:
+        required: true
+        type: string
+      pr_number:
+        required: true
+        type: string
+      review_head_sha:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  quality-preflight:
+    if: \${{ github.event_name == 'workflow_dispatch' && github.repository_id == '1228051727' && github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main' && vars.REVIEW_ROUTER_REVIEW_DRAFTS != 'true' && inputs.review_request_id != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Verify isolated draft revision
+        shell: bash
+        env:
+          GH_TOKEN: \${{ github.token }}
+          GH_REPO: \${{ github.repository }}
+          PR_NUMBER: \${{ inputs.pr_number }}
+          REVIEW_HEAD_SHA: \${{ inputs.review_head_sha }}
+          REVIEW_DRAFTS: \${{ vars.REVIEW_ROUTER_REVIEW_DRAFTS }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$REVIEW_HEAD_SHA" =~ ^[a-fA-F0-9]{40}$ ]]
+          [[ "\${REVIEW_DRAFTS,,}" != true ]]
+          gh api "repos/$GH_REPO" --jq '.id == 1228051727 and .default_branch == "main"' | grep -qx true
+          gh api "repos/$GH_REPO/pulls/$PR_NUMBER" | jq -e --arg sha "$REVIEW_HEAD_SHA" --arg number "$PR_NUMBER" '
+            (.number | tostring) == $number and
+            .state == "open" and .draft == true and
+            .user.type == "User" and
+            .head.repo.id == 1228051727 and .base.repo.id == 1228051727 and
+            .head.sha == $sha' > /dev/null
+  codex-review:
+    name: codex-review
+    needs: quality-preflight
+    if: \${{ github.event_name == 'workflow_dispatch' && inputs.review_request_id != '' && inputs.pr_number != '' && inputs.review_head_sha != '' }}
+    concurrency:
+      group: reviewrouter-codex-oauth-\${{ github.repository_id }}-codex-rotating-1228051727
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    uses: ${input.actionRef.replace("@", "/.github/workflows/reviewrouter-t0-reusable.yml@")}
+    with:
+      runtime_ref: ${JSON.stringify(actionSha)}
+      api_url: ${JSON.stringify(input.apiUrl)}
+      runtime_config_mode: oidc
+      pr_number: \${{ inputs.pr_number }}
+      review_head_sha: \${{ inputs.review_head_sha }}
+      provider_instance_id: ${JSON.stringify(input.providerInstanceId)}
+      workflow_schema_version: 5
+      max_changed_lines: \${{ vars.REVIEW_ROUTER_MAX_CHANGED_LINES }}
+      review_timeout_minutes: \${{ fromJSON(vars.REVIEW_ROUTER_TIMEOUT_MINUTES || '60') }}
+    secrets:
+      CODEX_AUTH_JSON: \${{ secrets.${namespace.name} }}
+`;
+  readCanonicalIsolatedQualityWorkflowSourceMetadata(source);
+  return source;
+}
+
+export function isCodexWorkflowRepositoryIdentityAdmitted(input: {
+  readonly repositoryId: string;
+  readonly repositoryFullName: string;
+}): boolean {
+  return (
+    input.repositoryId !== isolatedQualityWorkflowRepositoryId ||
+    input.repositoryFullName === isolatedQualityWorkflowRepository
+  );
+}
+
+export function codexWorkflowPathForRepository(input: {
+  readonly repositoryId: string;
+  readonly repositoryFullName: string;
+}): string {
+  return input.repositoryId === isolatedQualityWorkflowRepositoryId
+    ? isolatedQualityWorkflowPath
+    : ".github/workflows/reviewrouter-codex.yml";
 }
 
 export type VersionedSecretWorkflowSourceAttestation = Readonly<{
@@ -224,6 +352,69 @@ export function readCanonicalCodexRotatingT0WorkflowSourceMetadata(
     providerInstanceId,
     workflowSchemaVersion,
     ...(secretNamespace ? { secretNamespace } : {}),
+  };
+}
+
+/** Exact, repository-bound schema-5 source used only by the disposable quality stand. */
+export function readCanonicalIsolatedQualityWorkflowSourceMetadata(
+  workflow: string,
+): CodexRotatingWorkflowSourceMetadata {
+  const document = readCanonicalWorkflowDocument(workflow);
+  const root = requireMapping(document);
+  const jobs = requireMapping(root.jobs);
+  const reviewJob = requireMapping(jobs["codex-review"]);
+  const reviewInputs = requireMapping(reviewJob.with);
+  const actionRef = readCanonicalT0ActionRef(reviewJob.uses);
+  const apiUrl = requireNonEmptyString(reviewInputs.api_url);
+  const providerInstanceId = requireNonEmptyString(
+    reviewInputs.provider_instance_id,
+  );
+  const workflowSchemaVersion = reviewInputs.workflow_schema_version;
+  if (workflowSchemaVersion !== 5) {
+    throw new Error("codex_rotating_t0_workflow_metadata_missing");
+  }
+  const namespace = readVersionedSecretNamespace(root.name, providerInstanceId);
+  const reviewSecrets = requireMapping(reviewJob.secrets);
+  if (reviewSecrets.CODEX_AUTH_JSON !== `\${{ secrets.${namespace.name} }}`) {
+    throw new Error("codex_rotating_t0_workflow_source_not_canonical");
+  }
+  const actionSha = actionRef.split("@")[1]!;
+  const qualityStandBaselineNamespace = createVersionedProviderSecretNamespace({
+    scope: {
+      repositoryId: isolatedQualityWorkflowRepositoryId,
+      providerInstanceId: `codex-rotating:${isolatedQualityWorkflowRepositoryId}`,
+    },
+    namespaceId: "sns_e9c2956ba412321fa27816e6cee3bd06",
+    epoch: 2n,
+    name: "REVIEWROUTER_CODEX_AUTH_JSON_R1228051727_P01cfca27f31e5f85_E2_e9c2956ba412321fa27816e6cee3bd06",
+  });
+  const normalizedSourceSha256 = createHash("sha256")
+    .update(
+      workflow
+        .replace(
+          serializeVersionedProviderSecretNamespaceMetadata(namespace),
+          serializeVersionedProviderSecretNamespaceMetadata(
+            qualityStandBaselineNamespace,
+          ),
+        )
+        .replaceAll(namespace.name, qualityStandBaselineNamespace.name)
+        .replaceAll(actionSha, "__ACTION_SHA__")
+        .replaceAll(apiUrl, "__API_URL__"),
+      "utf8",
+    )
+    .digest("hex");
+  if (
+    normalizedSourceSha256 !==
+    "4e44ec0322513825695b4ddc4bdadaa6d755ce08c8770aa750e73abf6dc313d9"
+  ) {
+    throw new Error("codex_rotating_t0_workflow_source_not_canonical");
+  }
+  return {
+    actionRef,
+    apiUrl,
+    providerInstanceId,
+    workflowSchemaVersion,
+    secretNamespace: namespace,
   };
 }
 

@@ -32,6 +32,7 @@ const setupCommand = renderCodexRotatingInstallerCommand({
   manifest: buildCodexRotatingSetupManifest({
     repositoryFullName: "777genius/review-router-saas-e2e",
     repositoryId: "123456",
+    repositoryIdentityVersion: 1,
     installerUrl: "https://reviewrouter.site/install/codex-rotating",
     installerVersion: "route-test",
     installerSha256: "a".repeat(64),

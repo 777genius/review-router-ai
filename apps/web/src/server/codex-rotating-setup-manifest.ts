@@ -87,6 +87,7 @@ export async function issueCodexRotatingSetupCommand(input: {
   readonly repositoryFullName: string;
   readonly githubRepositoryId: string;
   readonly installer: CodexRotatingSeedScriptDescriptor;
+  readonly repositoryDefaultBranch: string;
   readonly setupManifestUrl: string;
   readonly setupPrepareUrl?: string;
   readonly setupDispatchUrl?: string;
@@ -343,6 +344,17 @@ export async function issueCodexRotatingSetupCommand(input: {
         tx,
         provider.id,
       );
+      const repositoryIdentity =
+        await lockAndAssertCurrentSetupRepositoryIdentity(tx, {
+          repositoryId: input.repositoryId,
+          workspaceId: input.workspaceId,
+          repositoryFullName: input.repositoryFullName,
+          repositoryDefaultBranch: input.repositoryDefaultBranch,
+          githubRepositoryId: input.githubRepositoryId,
+        });
+      if (repositoryIdentity.boundAt > now) {
+        throw new Error("codex_rotating_setup_repository_identity_changed");
+      }
       const parsedActive = allocationActive
         ? codexRotatingSetupManifestSchema.safeParse(
             allocationActive.manifestJson,
@@ -362,6 +374,7 @@ export async function issueCodexRotatingSetupCommand(input: {
             provider,
             repositoryFullName: input.repositoryFullName,
             githubRepositoryId: input.githubRepositoryId,
+            identityVersion: repositoryIdentity.version,
             installer: input.installer,
           }))
       ) {
@@ -376,6 +389,7 @@ export async function issueCodexRotatingSetupCommand(input: {
         manifest = buildCodexRotatingSetupManifest({
           repositoryFullName: input.repositoryFullName,
           repositoryId: input.githubRepositoryId,
+          repositoryIdentityVersion: repositoryIdentity.version,
           providerInstanceId,
           setupNonce,
           installerUrl: input.installer.url,
@@ -461,6 +475,75 @@ export async function issueCodexRotatingSetupCommand(input: {
     },
     { timeout: setupTransactionTimeoutMs },
   );
+}
+
+export async function lockAndAssertCurrentSetupRepositoryIdentity(
+  tx: SetupManifestQueryClient,
+  input: {
+    readonly repositoryId: string;
+    readonly workspaceId: string;
+    readonly repositoryFullName: string;
+    readonly repositoryDefaultBranch: string;
+    readonly githubRepositoryId: string;
+  },
+): Promise<{ readonly version: number; readonly boundAt: Date }> {
+  const locator = await tx.$queryRaw<
+    readonly { readonly scmRepositoryIdentityId: string | null }[]
+  >`
+    SELECT repository."scmRepositoryIdentityId"
+    FROM "RepositoryConnection" repository
+    WHERE repository."id" = ${input.repositoryId}
+  `;
+  const scmRepositoryIdentityId = locator[0]?.scmRepositoryIdentityId;
+  if (!scmRepositoryIdentityId) {
+    throw new Error("codex_rotating_setup_repository_identity_changed");
+  }
+  const locked = await tx.$queryRaw<
+    readonly { readonly version: number; readonly boundAt: Date }[]
+  >`
+    SELECT identity."version", identity."boundAt"
+    FROM "ScmRepositoryIdentity" identity
+    WHERE identity."scmRepositoryIdentityId" = ${scmRepositoryIdentityId}
+    FOR UPDATE OF identity
+  `;
+  const lockedIdentity = locked[0];
+  if (!lockedIdentity) {
+    throw new Error("codex_rotating_setup_repository_identity_changed");
+  }
+  const current = await tx.$queryRaw<
+    readonly { readonly version: number; readonly boundAt: Date }[]
+  >`
+    SELECT identity."version", identity."boundAt"
+    FROM "RepositoryConnection" repository
+    JOIN "GitHubInstallation" installation
+      ON installation."id" = repository."installationId"
+    JOIN "ScmRepositoryIdentity" identity
+      ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
+    WHERE repository."id" = ${input.repositoryId}
+      AND repository."workspaceId" = ${input.workspaceId}
+      AND repository."provider" = 'github'
+      AND repository."githubRepositoryId" = ${BigInt(input.githubRepositoryId)}
+      AND repository."externalRepositoryId" = ${input.githubRepositoryId}
+      AND repository."fullName" = ${input.repositoryFullName}
+      AND repository."defaultBranch" = ${input.repositoryDefaultBranch}
+      AND repository."selected" = true
+      AND repository."archived" = false
+      AND installation."workspaceId" = repository."workspaceId"
+      AND installation."status" = 'active'
+      AND identity."scmRepositoryIdentityId" = ${scmRepositoryIdentityId}
+      AND identity."version" = ${lockedIdentity.version}
+      AND identity."provider" = 'github'
+      AND identity."normalizedSourceBaseUrl" = repository."sourceBaseUrl"
+      AND identity."externalRepositoryId" = ${input.githubRepositoryId}
+      AND identity."currentWorkspaceId" = repository."workspaceId"
+      AND identity."currentRepositoryConnectionId" = repository."id"
+      AND identity."boundAt" IS NOT NULL
+      AND identity."unboundAt" IS NULL
+  `;
+  if (current.length !== 1 || !current[0]) {
+    throw new Error("codex_rotating_setup_repository_identity_changed");
+  }
+  return current[0];
 }
 
 export async function assertCodexRotatingSetupRecoveryWitness(
@@ -676,6 +759,10 @@ export async function resolveCodexRotatingSetupManifestForNonce(input: {
         input.databaseRecoveryWitness,
       );
       const manifest = codexRotatingSetupManifestSchema.parse(row.manifestJson);
+      await assertCurrentSetupManifestRepositoryIdentity(tx, {
+        providerInstanceRowId: row.providerInstanceRowId,
+        manifest,
+      });
       if (
         !isCodexRotatingOAuthAllowedForRepository(
           manifest.repositoryFullName,
@@ -766,6 +853,47 @@ export function assertSetupManifestRecoveryWitness(
   }
   if (persistedFingerprint !== currentFingerprint) {
     throw new Error("codex_rotating_setup_recovery_required");
+  }
+}
+
+export async function assertCurrentSetupManifestRepositoryIdentity(
+  tx: SetupManifestQueryClient,
+  input: {
+    readonly providerInstanceRowId: string;
+    readonly manifest: ReturnType<
+      typeof codexRotatingSetupManifestSchema.parse
+    >;
+  },
+): Promise<void> {
+  const rows = await tx.$queryRaw<readonly { version: number }[]>`
+    SELECT identity."version"
+    FROM "CodexOAuthProviderInstance" provider
+    JOIN "RepositoryConnection" repository
+      ON repository."id" = provider."repositoryId"
+    JOIN "GitHubInstallation" installation
+      ON installation."id" = repository."installationId"
+    JOIN "ScmRepositoryIdentity" identity
+      ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
+    WHERE provider."id" = ${input.providerInstanceRowId}
+      AND repository."workspaceId" = provider."workspaceId"
+      AND repository."provider" = 'github'
+      AND repository."fullName" = ${input.manifest.repositoryFullName}
+      AND repository."externalRepositoryId" = ${input.manifest.repositoryId}
+      AND repository."selected" = true
+      AND repository."archived" = false
+      AND installation."workspaceId" = repository."workspaceId"
+      AND installation."status" = 'active'
+      AND identity."provider" = 'github'
+      AND identity."externalRepositoryId" = ${input.manifest.repositoryId}
+      AND identity."currentWorkspaceId" = repository."workspaceId"
+      AND identity."currentRepositoryConnectionId" = repository."id"
+      AND identity."version" = ${input.manifest.repositoryIdentityVersion}
+      AND identity."boundAt" IS NOT NULL
+      AND identity."unboundAt" IS NULL
+    FOR UPDATE OF identity
+  `;
+  if (rows.length !== 1) {
+    throw new Error("codex_rotating_setup_repository_identity_changed");
   }
 }
 
@@ -988,7 +1116,7 @@ async function supersedeSetupManifest(
   `;
 }
 
-function isReusableIssuedManifest(input: {
+export function isReusableIssuedManifest(input: {
   readonly manifest: ReturnType<typeof codexRotatingSetupManifestSchema.parse>;
   readonly provider: {
     readonly generationHashSalt: string;
@@ -996,11 +1124,13 @@ function isReusableIssuedManifest(input: {
   };
   readonly repositoryFullName: string;
   readonly githubRepositoryId: string;
+  readonly identityVersion: number;
   readonly installer: CodexRotatingSeedScriptDescriptor;
 }): boolean {
   return (
     input.manifest.repositoryFullName === input.repositoryFullName &&
     input.manifest.repositoryId === input.githubRepositoryId &&
+    input.manifest.repositoryIdentityVersion === input.identityVersion &&
     input.manifest.generationHashSalt === input.provider.generationHashSalt &&
     input.manifest.accountFingerprintSalt ===
       input.provider.accountFingerprintSalt &&

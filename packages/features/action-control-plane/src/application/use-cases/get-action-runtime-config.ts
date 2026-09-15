@@ -5,9 +5,9 @@ import {
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import type { Clock } from "@reviewrouter/shared";
+import { codexWorkflowPathForRepository } from "@reviewrouter/features-codex-oauth-rotating";
 import {
   buildActionConflictReviewRuntimeConfig,
-  managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
   validateActionSessionAgainstRepository,
   type ActionSessionClaims,
@@ -22,11 +22,6 @@ import type { ActionConflictReviewRuntimeGatePort } from "../ports/action-confli
 import type { ActionRuntimeCompatibilityPolicyPort } from "../ports/action-runtime-compatibility-policy-port.js";
 import type { ActionLedgerKeyPort } from "../ports/action-ledger-key-port.js";
 import type { ActionSessionTokenServicePort } from "../ports/action-session-token-service-port.js";
-
-const codexRotatingRuntimeWorkflowPaths = new Set([
-  managedCodexWorkflowPath,
-  managedInteractionWorkflowPath,
-]);
 
 export type GetActionRuntimeConfigDependencies = {
   readonly repositories: ActionControlPlaneRepositoryPort;
@@ -95,7 +90,7 @@ export async function getActionRuntimeConfig(
   const config =
     record?.config ??
     buildDefaultReviewConfiguration(dependencies.defaultProvider);
-  assertStandardRuntimeProviderSupport(config, session);
+  assertStandardRuntimeProviderSupport(config, session, repository);
   if (session.reviewKind === "conflict-head") {
     assertConflictRuntimeProviderSupport(config);
   }
@@ -193,6 +188,10 @@ function buildDefaultReviewConfiguration(
 function assertStandardRuntimeProviderSupport(
   config: ReviewConfiguration,
   session: ActionSessionClaims,
+  repository: Readonly<{
+    githubRepositoryId: string;
+    fullName: string;
+  }>,
 ): void {
   const codexProvider = config.providers.find(
     (provider) => provider.kind === "codex",
@@ -203,7 +202,12 @@ function assertStandardRuntimeProviderSupport(
   if (
     codexProvider.authMode === "codex_subscription_oauth_rotating" &&
     session.workflowPath &&
-    codexRotatingRuntimeWorkflowPaths.has(session.workflowPath)
+    (session.workflowPath === managedInteractionWorkflowPath ||
+      session.workflowPath ===
+        codexWorkflowPathForRepository({
+          repositoryId: repository.githubRepositoryId,
+          repositoryFullName: repository.fullName,
+        }))
   ) {
     return;
   }

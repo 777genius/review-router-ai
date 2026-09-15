@@ -25,8 +25,16 @@ vi.mock("@reviewrouter/features-workflow-provisioning", () => ({
   },
   assertTrustedCanonicalVersionedWorkflow: mocks.assertTrusted,
   createVersionedSecretWorkflowSourceAttestation: mocks.createAttestation,
+  codexWorkflowPathForRepository: (input: { repositoryId: string }) =>
+    input.repositoryId === "isolated"
+      ? ".github/workflows/reviewrouter-quality-stand.yml"
+      : ".github/workflows/reviewrouter-codex.yml",
+  isCodexWorkflowRepositoryIdentityAdmitted: () => true,
   defaultCodexRotatingWorkflowPath: ".github/workflows/reviewrouter-codex.yml",
+  isolatedQualityWorkflowPath:
+    ".github/workflows/reviewrouter-quality-stand.yml",
   readCanonicalCodexRotatingT0WorkflowSourceMetadata: mocks.readMetadata,
+  readCanonicalIsolatedQualityWorkflowSourceMetadata: mocks.readMetadata,
   workflowDocumentSemanticSha256: mocks.semanticSha,
   WorkflowSourceTrust: {
     TrustedDefaultBranchRevision: "trusted_default_branch_revision",
@@ -118,6 +126,7 @@ describe("activateConfirmedCodexNamespaceAfterWorkflowMerge", () => {
       expect.objectContaining({
         claimId: "claim_1",
         attemptId: "attempt_1",
+        repositoryFullName: "777genius/review-router-saas-e2e",
         namespaceEpoch: "2",
         workflowSourceCommitSha: firstHead,
       }),
@@ -398,6 +407,7 @@ describe("activateConfirmedCodexNamespaceAfterWorkflowMerge", () => {
         claimId: "claim_1",
         attemptId: "attempt_1",
         expectedGenerationHash: "9".repeat(64),
+        repositoryFullName: "777genius/review-router-saas-e2e",
         namespace: expect.objectContaining({ namespaceId: "namespace_2" }),
       }),
       expect.objectContaining({
@@ -530,6 +540,20 @@ describe("activateConfirmedCodexNamespaceAfterWorkflowMerge", () => {
       activateConfirmedCodexNamespaceAfterWorkflowMerge(input),
     ).rejects.toThrow("codex_rotating_workflow_default_branch_mismatch");
     expect(mocks.activate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-main configured branch for the isolated quality workflow", async () => {
+    const { input, request, findUnique } = fixture();
+
+    await expect(
+      activateConfirmedCodexNamespaceAfterWorkflowMerge({
+        ...input,
+        githubRepositoryId: "isolated",
+        defaultBranch: "trunk",
+      }),
+    ).rejects.toThrow("codex_rotating_workflow_default_branch_mismatch");
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("fails closed when decoded content does not match its blob SHA", async () => {

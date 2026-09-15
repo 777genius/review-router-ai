@@ -645,6 +645,65 @@ export async function createGitHubAppInstallationOctokit(
   return app.getInstallationOctokit(Number(githubInstallationId));
 }
 
+type GitHubAppInstallationAuthentication = Readonly<{
+  token?: unknown;
+  permissions?: Readonly<Record<string, unknown>>;
+  repositoryIds?: readonly unknown[];
+}>;
+
+/**
+ * Mints uncached authority for the setup secret write. This is intentionally
+ * separate from the broad dashboard installation Octokit factory above: a
+ * setup PUT must never inherit all repositories or all installation grants.
+ */
+export async function mintFreshGitHubAppRepositorySecretWriteToken(input: {
+  readonly githubInstallationId: string;
+  readonly githubRepositoryId: string;
+}): Promise<string> {
+  const installationId = parsePositiveSafeGitHubId(
+    input.githubInstallationId,
+    "github_installation_id_invalid",
+  );
+  const repositoryId = parsePositiveSafeGitHubId(
+    input.githubRepositoryId,
+    "github_repository_id_invalid",
+  );
+  const app = new App({
+    appId: requiredEnv("GITHUB_APP_ID"),
+    privateKey: requireGitHubAppPrivateKey(),
+  });
+  const authentication = (await app.octokit.auth({
+    type: "installation",
+    installationId,
+    repositoryIds: [repositoryId],
+    permissions: { secrets: "write" },
+    refresh: true,
+  })) as GitHubAppInstallationAuthentication;
+
+  if (typeof authentication.token !== "string" || !authentication.token) {
+    throw new Error("setup_secret_token_invalid_response");
+  }
+  if (
+    authentication.repositoryIds?.length !== 1 ||
+    authentication.repositoryIds[0] !== repositoryId
+  ) {
+    throw new Error("setup_secret_token_repository_scope_mismatch");
+  }
+  const permissions = authentication.permissions;
+  if (
+    !permissions ||
+    permissions.secrets !== "write" ||
+    Object.entries(permissions).some(
+      ([name, access]) =>
+        name !== "secrets" && !(name === "metadata" && access === "read"),
+    )
+  ) {
+    throw new Error("setup_secret_token_permissions_mismatch");
+  }
+
+  return authentication.token;
+}
+
 export async function createGitHubUserOctokit(
   actor: DashboardMutationActor,
 ): Promise<GitHubRequester> {
@@ -882,4 +941,11 @@ function requiredEnv(name: string): string {
     throw new Error(`missing_env:${name}`);
   }
   return value;
+}
+
+function parsePositiveSafeGitHubId(value: string, error: string): number {
+  if (!/^[1-9][0-9]*$/u.test(value)) throw new Error(error);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new Error(error);
+  return parsed;
 }

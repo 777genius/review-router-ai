@@ -7,18 +7,13 @@ export type CodexRotatingReviewSnapshotScope = {
 };
 
 export interface CodexRotatingReviewSnapshotAccessPort {
-  authorizeReviewSnapshotAccess(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly pullRequestNumber: number;
-    readonly now: Date;
-  }): Promise<
-    | {
-        readonly status: "ready";
-        readonly scope: CodexRotatingReviewSnapshotScope;
-      }
-    | {
-        readonly status: "lease_not_completed" | "lease_not_active";
-      }
-  >;
+  withAuthorizedReviewSnapshotAccess<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly pullRequestNumber: number;
+      readonly now: Date;
+    },
+    effect: (scope: CodexRotatingReviewSnapshotScope) => Promise<T>,
+  ): Promise<T>;
 }

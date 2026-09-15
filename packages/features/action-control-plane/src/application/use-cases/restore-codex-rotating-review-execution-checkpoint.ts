@@ -24,29 +24,25 @@ export async function restoreCodexRotatingReviewExecutionCheckpoint(
   dependencies: RestoreCodexRotatingReviewExecutionCheckpointDependencies,
 ) {
   const now = dependencies.clock.now();
-  const access =
-    await dependencies.codexRotatingReviewExecutionCheckpointAccess.authorizeReviewExecutionCheckpointAccess(
-      {
-        leaseId: input.leaseId,
-        providerInstanceId: input.providerInstanceId,
-        pullRequestNumber: input.pullRequestNumber,
-        now,
-      },
-    );
-  if (access.status !== "ready") {
-    throw new Error("codex_rotating_lease_not_active");
-  }
-
-  return restoreReviewExecutionCheckpoint(
+  return dependencies.codexRotatingReviewExecutionCheckpointAccess.withAuthorizedReviewExecutionCheckpointAccess(
     {
-      workspaceId: access.scope.workspaceId,
-      repositoryId: access.scope.repositoryId,
+      leaseId: input.leaseId,
+      providerInstanceId: input.providerInstanceId,
       pullRequestNumber: input.pullRequestNumber,
-      baseSha: input.baseSha,
-      headSha: input.headSha,
-      compatibilityKey: input.compatibilityKey,
-      planHash: input.planHash,
+      now,
     },
-    { checkpoints: dependencies.reviewExecutionCheckpoints, now },
+    async (scope) =>
+      restoreReviewExecutionCheckpoint(
+        {
+          workspaceId: scope.workspaceId,
+          repositoryId: scope.repositoryId,
+          pullRequestNumber: input.pullRequestNumber,
+          baseSha: input.baseSha,
+          headSha: input.headSha,
+          compatibilityKey: input.compatibilityKey,
+          planHash: input.planHash,
+        },
+        { checkpoints: dependencies.reviewExecutionCheckpoints, now },
+      ),
   );
 }

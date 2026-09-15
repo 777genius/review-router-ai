@@ -95,6 +95,32 @@ describeDatabase("Codex rotating setup serialization", () => {
     sha256: "a".repeat(64),
   } as const;
 
+  async function bindCurrentRepositoryIdentity(
+    boundRepositoryId: string,
+    externalRepositoryId: string,
+  ): Promise<void> {
+    const identityId = `scm-identity:${boundRepositoryId}`;
+    const boundAt = new Date("2026-01-01T00:00:00.000Z");
+    await prisma.$transaction(async (tx) => {
+      await tx.scmRepositoryIdentity.create({
+        data: {
+          scmRepositoryIdentityId: identityId,
+          provider: "github",
+          normalizedSourceBaseUrl: "https://github.com",
+          externalRepositoryId,
+          currentWorkspaceId: workspaceId,
+          currentRepositoryConnectionId: boundRepositoryId,
+          createdAt: boundAt,
+          boundAt,
+        },
+      });
+      await tx.repositoryConnection.update({
+        where: { id: boundRepositoryId },
+        data: { scmRepositoryIdentityId: identityId },
+      });
+    });
+  }
+
   beforeAll(async () => {
     vi.stubEnv("REVIEW_ROUTER_CODEX_ROTATING_SETUP_ISSUANCE_ENABLED", "1");
     vi.stubEnv("REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH", "1");
@@ -146,6 +172,72 @@ describeDatabase("Codex rotating setup serialization", () => {
         visibility: "private",
       },
     });
+    await bindCurrentRepositoryIdentity(repositoryId, githubRepositoryId);
+  });
+
+  it("rejects an old manifest after identity rotation and reuses only the current epoch", async () => {
+    const rotatedRepositoryId = `codex-identity-race-repository-${randomUUID()}`;
+    const rotatedGithubRepositoryId = `${Date.now()}${Math.floor(Math.random() * 1_000)}`;
+    const rotatedFullName = "777genius/review-router-identity-race";
+    await prisma.repositoryConnection.create({
+      data: {
+        id: rotatedRepositoryId,
+        workspaceId,
+        provider: "github",
+        externalRepositoryId: rotatedGithubRepositoryId,
+        githubRepositoryId: BigInt(rotatedGithubRepositoryId),
+        installationId,
+        owner: "777genius",
+        name: "review-router-identity-race",
+        fullName: rotatedFullName,
+        defaultBranch: "main",
+        visibility: "private",
+      },
+    });
+    await bindCurrentRepositoryIdentity(
+      rotatedRepositoryId,
+      rotatedGithubRepositoryId,
+    );
+    const issue = (now: Date) =>
+      issueCodexRotatingSetupCommand({
+        prisma,
+        workspaceId,
+        repositoryId: rotatedRepositoryId,
+        repositoryFullName: rotatedFullName,
+        repositoryDefaultBranch: "main",
+        githubRepositoryId: rotatedGithubRepositoryId,
+        installer,
+        databaseRecoveryWitness: "w".repeat(43),
+        setupManifestUrl:
+          "https://reviewrouter.site/api/codex-rotating/setup-manifest",
+        now,
+      });
+    const first = await issue(new Date("2026-08-10T00:00:00.000Z"));
+    const rotatedAt = new Date("2026-08-10T00:01:00.000Z");
+    await prisma.scmRepositoryIdentity.update({
+      where: {
+        scmRepositoryIdentityId: `scm-identity:${rotatedRepositoryId}`,
+      },
+      data: { version: { increment: 1 }, boundAt: rotatedAt },
+    });
+
+    const current = await issue(new Date("2026-08-10T00:02:00.000Z"));
+    const replay = await issue(new Date("2026-08-10T00:02:01.000Z"));
+
+    expect(current.command).not.toBe(first.command);
+    expect(replay).toEqual(current);
+    await expect(
+      prisma.codexOAuthSetupManifest.groupBy({
+        by: ["status"],
+        where: { repositoryId: rotatedRepositoryId },
+        _count: { _all: true },
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "superseded", _count: { _all: 1 } }),
+        expect.objectContaining({ status: "issued", _count: { _all: 1 } }),
+      ]),
+    );
   });
 
   afterAll(async () => {
@@ -182,6 +274,10 @@ describeDatabase("Codex rotating setup serialization", () => {
         visibility: "private",
       },
     });
+    await bindCurrentRepositoryIdentity(
+      admittedRepositoryId,
+      admittedGithubRepositoryId,
+    );
     vi.stubEnv("REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS", "w".repeat(43));
     vi.stubEnv("REVIEW_ROUTER_PUBLIC_WEB_URL", "https://reviewrouter.site");
     vi.stubEnv("REVIEW_ROUTER_CODEX_ROTATING_INSTALLER_URL", installer.url);
@@ -202,6 +298,7 @@ describeDatabase("Codex rotating setup serialization", () => {
         provider: "github",
         githubRepositoryId: BigInt(admittedGithubRepositoryId),
         fullName: admittedFullName,
+        defaultBranch: "main",
         selected: true,
         archived: false,
         installation: { status: "active" },
@@ -248,11 +345,16 @@ describeDatabase("Codex rotating setup serialization", () => {
         visibility: "private",
       },
     });
+    await bindCurrentRepositoryIdentity(
+      fencedRepositoryId,
+      fencedGithubRepositoryId,
+    );
     await issueCodexRotatingSetupCommand({
       prisma,
       workspaceId,
       repositoryId: fencedRepositoryId,
       repositoryFullName: fencedFullName,
+      repositoryDefaultBranch: "main",
       githubRepositoryId: fencedGithubRepositoryId,
       installer,
       databaseRecoveryWitness: firstRecoveryWitness,
@@ -375,6 +477,7 @@ describeDatabase("Codex rotating setup serialization", () => {
       provider: "github",
       githubRepositoryId: BigInt(fencedGithubRepositoryId),
       fullName: fencedFullName,
+      defaultBranch: "main",
       selected: true,
       archived: false,
       installation: { status: "active" },
@@ -486,6 +589,7 @@ describeDatabase("Codex rotating setup serialization", () => {
         workspaceId,
         repositoryId: fencedRepositoryId,
         repositoryFullName: fencedFullName,
+        repositoryDefaultBranch: "main",
         githubRepositoryId: fencedGithubRepositoryId,
         installer,
         databaseRecoveryWitness: "w".repeat(43),
@@ -519,11 +623,16 @@ describeDatabase("Codex rotating setup serialization", () => {
         visibility: "private",
       },
     });
+    await bindCurrentRepositoryIdentity(
+      recoveryRepositoryId,
+      recoveryGithubRepositoryId,
+    );
     const original = await issueCodexRotatingSetupCommand({
       prisma,
       workspaceId,
       repositoryId: recoveryRepositoryId,
       repositoryFullName: recoveryFullName,
+      repositoryDefaultBranch: "main",
       githubRepositoryId: recoveryGithubRepositoryId,
       installer,
       databaseRecoveryWitness: "v".repeat(43),
@@ -673,6 +782,7 @@ describeDatabase("Codex rotating setup serialization", () => {
         workspaceId,
         repositoryId: recoveryRepositoryId,
         repositoryFullName: recoveryFullName,
+        repositoryDefaultBranch: "main",
         githubRepositoryId: recoveryGithubRepositoryId,
         installer,
         databaseRecoveryWitness: options.witness ?? "w".repeat(43),
@@ -845,6 +955,7 @@ describeDatabase("Codex rotating setup serialization", () => {
       workspaceId,
       repositoryId: recoveryRepositoryId,
       repositoryFullName: recoveryFullName,
+      repositoryDefaultBranch: "main",
       githubRepositoryId: recoveryGithubRepositoryId,
       installer,
       databaseRecoveryWitness: "w".repeat(43),
@@ -936,6 +1047,7 @@ describeDatabase("Codex rotating setup serialization", () => {
       workspaceId,
       repositoryId: recoveryRepositoryId,
       repositoryFullName: recoveryFullName,
+      repositoryDefaultBranch: "main",
       githubRepositoryId: recoveryGithubRepositoryId,
       installer,
       databaseRecoveryWitness: "w".repeat(43),
@@ -999,6 +1111,7 @@ describeDatabase("Codex rotating setup serialization", () => {
       workspaceId,
       repositoryId: recoveryRepositoryId,
       repositoryFullName: recoveryFullName,
+      repositoryDefaultBranch: "main",
       githubRepositoryId: recoveryGithubRepositoryId,
       installer,
       databaseRecoveryWitness: "w".repeat(43),

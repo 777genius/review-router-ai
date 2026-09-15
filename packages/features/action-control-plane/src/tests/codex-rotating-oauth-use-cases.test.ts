@@ -80,6 +80,85 @@ const pullRequestTargetClaims = {
   ref: "refs/heads/main",
 } as const;
 
+async function inspectCompletedLeaseWriteTarget(
+  ledger: InMemoryCodexRotatingOAuthRepository,
+  input: Parameters<
+    InMemoryCodexRotatingOAuthRepository["withCompletedLeaseWriteTarget"]
+  >[0],
+) {
+  try {
+    return await ledger.withCompletedLeaseWriteTarget(
+      input,
+      async (writeTarget) => ({
+        status: "ready" as const,
+        writeTarget,
+      }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+async function inspectReviewSnapshotAccess(
+  ledger: InMemoryCodexRotatingOAuthRepository,
+  input: Parameters<
+    InMemoryCodexRotatingOAuthRepository["withAuthorizedReviewSnapshotAccess"]
+  >[0],
+) {
+  try {
+    return await ledger.withAuthorizedReviewSnapshotAccess(
+      input,
+      async (scope) => ({
+        status: "ready" as const,
+        scope,
+      }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+async function inspectReviewExecutionCheckpointAccess(
+  ledger: InMemoryCodexRotatingOAuthRepository,
+  input: Parameters<
+    InMemoryCodexRotatingOAuthRepository["withAuthorizedReviewExecutionCheckpointAccess"]
+  >[0],
+) {
+  try {
+    return await ledger.withAuthorizedReviewExecutionCheckpointAccess(
+      input,
+      async (scope) => ({ status: "ready" as const, scope }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+function completedLeaseAccessFailure(error: unknown): {
+  readonly status: "lease_not_active" | "lease_not_completed";
+} {
+  if (!(error instanceof Error)) throw error;
+  const status = error.message.replace(/^codex_rotating_/, "");
+  if (status === "lease_not_active" || status === "lease_not_completed") {
+    return { status };
+  }
+  throw error;
+}
+
+function setInMemoryProviderState(
+  ledger: InMemoryCodexRotatingOAuthRepository,
+  providerInstanceId: string,
+  state: "needs_reconnect" | "unknown_auth_state" | "permission_required",
+): void {
+  const providers = Reflect.get(ledger, "providers") as Map<
+    string,
+    Readonly<{ state: string }>
+  >;
+  const provider = providers.get(providerInstanceId);
+  if (!provider) throw new Error("expected_in_memory_provider");
+  providers.set(providerInstanceId, { ...provider, state });
+}
+
 describe("Codex rotating OAuth action control plane", () => {
   it("fails closed when runtime workflow verification omits its mandatory attestation", async () => {
     const dependencies = buildRotatingDependencies();
@@ -288,13 +367,30 @@ describe("Codex rotating OAuth action control plane", () => {
     ).rejects.toThrow("codex_rotating_database_recovery_witness_mismatch");
 
     currentWitness = witnessOne;
+    const authorized = await ledger.prepareVersionedWriteback({
+      request,
+      encryptedPayloadDigest: "encrypted-digest",
+      now,
+    });
+    expect(authorized).toMatchObject({ status: "ready" });
+    if (authorized.status !== "ready") {
+      throw new Error("expected_ready_writeback");
+    }
+
+    currentWitness = witnessTwo;
+    const dispatch = vi.fn(async () => ({ statusCode: 201 as const }));
     await expect(
-      ledger.prepareVersionedWriteback({
-        request,
-        encryptedPayloadDigest: "encrypted-digest",
-        now,
-      }),
-    ).resolves.toMatchObject({ status: "ready" });
+      ledger.withVersionedWritebackDispatchAuthorization(
+        {
+          intentId: authorized.intentId,
+          attemptId: authorized.attemptId,
+          executorOwner: authorized.executorOwner,
+          now,
+        },
+        dispatch,
+      ),
+    ).rejects.toThrow("codex_rotating_database_recovery_witness_mismatch");
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it("never falls back to the legacy fixed-name writer", async () => {
@@ -771,7 +867,7 @@ describe("Codex rotating OAuth action control plane", () => {
     ).resolves.toMatchObject({ status: "finalized" });
 
     await expect(
-      codexRotatingOAuth.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(codexRotatingOAuth, {
         leaseId: prelease.leaseId,
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -782,7 +878,7 @@ describe("Codex rotating OAuth action control plane", () => {
       scope: { pullRequestNumber: 240 },
     });
     await expect(
-      codexRotatingOAuth.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(codexRotatingOAuth, {
         leaseId: prelease.leaseId,
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1230,6 +1326,48 @@ describe("Codex rotating OAuth action control plane", () => {
     expect(replayNonces.tryConsumeNonce).not.toHaveBeenCalled();
   });
 
+  it("allows an ordinary scheduled refresh without review intent", async () => {
+    const replayNonces = {
+      tryConsumeNonce: vi.fn().mockResolvedValue(true),
+    };
+    const hostedReviewPreleaseGate = {
+      evaluate: vi
+        .fn()
+        .mockResolvedValue({ status: "not_applicable" as const }),
+    };
+    const dependencies = buildRotatingDependencies({
+      oidcVerifier: {
+        verify: vi.fn().mockResolvedValue({
+          ...claims,
+          event_name: "schedule" as const,
+          ref: "refs/heads/main",
+        }),
+      },
+      replayNonces,
+      hostedReviewPreleaseGate,
+    });
+
+    await expect(
+      preleaseCodexRotatingOAuth(
+        {
+          oidcToken: "jwt",
+          audience: "reviewrouter",
+          providerInstanceId: "codex-rotating:123456",
+          workflowSchemaVersion: 4,
+        },
+        dependencies,
+      ),
+    ).resolves.toMatchObject({ protocolVersion: 1 });
+    expect(hostedReviewPreleaseGate.evaluate).toHaveBeenCalledWith({
+      repository,
+      sourceRunId: "9001",
+      sourceRunAttempt: "1",
+      intentRequired: false,
+      now,
+    });
+    expect(replayNonces.tryConsumeNonce).toHaveBeenCalledOnce();
+  });
+
   it("allows a canonical client-triggered T0 run when durable intent admission is disabled", async () => {
     const replayNonces = {
       tryConsumeNonce: vi.fn().mockResolvedValue(true),
@@ -1323,6 +1461,114 @@ describe("Codex rotating OAuth action control plane", () => {
       now,
     });
     expect(replayNonces.tryConsumeNonce).not.toHaveBeenCalled();
+  });
+
+  it("applies managed intent and reusable-job attestation to the isolated workflow", async () => {
+    const isolatedRepository = {
+      ...repository,
+      githubRepositoryId: "1228051727",
+      fullName: "777genius/review-router-saas-e2e",
+    };
+    const isolatedPath =
+      ".github/workflows/reviewrouter-quality-stand.yml" as const;
+    const isolatedBinding = {
+      providerInstanceId: "codex-rotating:1228051727",
+      repositoryFullName: isolatedRepository.fullName,
+      githubRepositoryId: isolatedRepository.githubRepositoryId,
+      actionRef: `777genius/review-router@${workflowSha}`,
+      workflowPath: isolatedPath,
+      workflowSchemaVersion: 5,
+    } as const;
+    const isolatedAttestation = createVersionedSecretWorkflowSourceAttestation({
+      ...memoryWorkflowAttestation(5),
+      repositoryId: isolatedRepository.githubRepositoryId,
+      workflowPath: isolatedPath,
+      secretNamespace: allocateVersionedProviderSecretNamespace({
+        scope: {
+          repositoryId: isolatedRepository.githubRepositoryId,
+          providerInstanceId: isolatedBinding.providerInstanceId,
+        },
+        epoch: 1n,
+        randomBytes: () => new Uint8Array(16),
+      }),
+    });
+    const validClaims = {
+      ...claims,
+      repository: isolatedRepository.fullName,
+      repository_id: isolatedRepository.githubRepositoryId,
+      event_name: "workflow_dispatch" as const,
+      ref: "refs/heads/main",
+      workflow_ref: `${isolatedRepository.fullName}/${isolatedPath}@refs/heads/main`,
+      job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${workflowSha}`,
+      job_workflow_sha: workflowSha,
+    };
+    const verify = vi.fn().mockResolvedValue(validClaims);
+    const hostedReviewPreleaseGate = {
+      evaluate: vi
+        .fn()
+        .mockResolvedValue({ status: "not_applicable" as const }),
+    };
+    const dependencies = buildRotatingDependencies({
+      oidcVerifier: { verify },
+      repositories: {
+        findSelectedRepositoryByGithubId: vi
+          .fn()
+          .mockResolvedValue(isolatedRepository),
+        findRuntimeReviewConfiguration: vi.fn(),
+        recordHealthReport: vi.fn(),
+      },
+      codexRotatingOAuth: new InMemoryCodexRotatingOAuthRepository([
+        isolatedBinding,
+      ]),
+      codexRotatingWorkflowSourceVerifier: {
+        verifyWorkflowSource: vi.fn().mockResolvedValue({
+          binding: isolatedBinding,
+          attestation: isolatedAttestation,
+        }),
+      },
+      hostedReviewPreleaseGate,
+    });
+    const request = {
+      oidcToken: "jwt",
+      audience: "reviewrouter",
+      providerInstanceId: isolatedBinding.providerInstanceId,
+      workflowSchemaVersion: 5,
+    } as const;
+
+    await expect(
+      preleaseCodexRotatingOAuth(request, dependencies),
+    ).rejects.toThrow("review_request_intent_required");
+    expect(hostedReviewPreleaseGate.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({ intentRequired: true }),
+    );
+
+    verify.mockResolvedValueOnce({
+      ...validClaims,
+      job_workflow_ref: `attacker/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${workflowSha}`,
+    });
+    await expect(
+      preleaseCodexRotatingOAuth(request, dependencies),
+    ).rejects.toThrow("codex_rotating_review_job_attestation_invalid");
+    expect(hostedReviewPreleaseGate.evaluate).toHaveBeenCalledTimes(1);
+
+    verify.mockResolvedValueOnce({
+      ...validClaims,
+      event_name: "pull_request_target" as const,
+      ref: "refs/heads/main",
+    });
+    await expect(
+      preleaseCodexRotatingOAuth(request, dependencies),
+    ).rejects.toThrow("codex_rotating_workflow_trigger_not_allowed");
+    expect(hostedReviewPreleaseGate.evaluate).toHaveBeenCalledTimes(1);
+
+    verify.mockResolvedValueOnce({
+      ...validClaims,
+      event_name: "schedule" as const,
+    });
+    await expect(
+      preleaseCodexRotatingOAuth(request, dependencies),
+    ).rejects.toThrow("codex_rotating_workflow_trigger_not_allowed");
+    expect(hostedReviewPreleaseGate.evaluate).toHaveBeenCalledTimes(1);
   });
 
   it("allows direct managed workflow dispatch to refresh OAuth without an intent", async () => {
@@ -1531,7 +1777,7 @@ describe("Codex rotating OAuth action control plane", () => {
     const ledger =
       dependencies.codexRotatingOAuth as InMemoryCodexRotatingOAuthRepository;
     const first = await completeRotatingWriteback(dependencies);
-    const firstTarget = await ledger.findCompletedLeaseWriteTarget({
+    const firstTarget = await inspectCompletedLeaseWriteTarget(ledger, {
       leaseId: first.prelease.leaseId,
       providerInstanceId: "codex-rotating:123456",
       now,
@@ -1548,7 +1794,7 @@ describe("Codex rotating OAuth action control plane", () => {
       latestGenerationHash: "latest-generation-hash-value-second-0123456789",
       idempotencyKey: "idem:9001:second",
     });
-    const secondTarget = await ledger.findCompletedLeaseWriteTarget({
+    const secondTarget = await inspectCompletedLeaseWriteTarget(ledger, {
       leaseId: second.prelease.leaseId,
       providerInstanceId: "codex-rotating:123456",
       now,
@@ -1561,7 +1807,7 @@ describe("Codex rotating OAuth action control plane", () => {
     );
 
     await expect(
-      ledger.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(ledger, {
         leaseId: first.prelease.leaseId,
         providerInstanceId: "codex-rotating:123456",
         now,
@@ -1573,7 +1819,7 @@ describe("Codex rotating OAuth action control plane", () => {
       },
     });
     await expect(
-      ledger.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(ledger, {
         leaseId: second.prelease.leaseId,
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1581,7 +1827,7 @@ describe("Codex rotating OAuth action control plane", () => {
       }),
     ).resolves.toMatchObject({ status: "ready" });
     await expect(
-      ledger.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(ledger, {
         leaseId: second.prelease.leaseId,
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1631,6 +1877,46 @@ describe("Codex rotating OAuth action control plane", () => {
       ),
     ).rejects.toThrow("codex_rotating_lease_not_active");
   });
+
+  it.each(
+    (
+      ["needs_reconnect", "unknown_auth_state", "permission_required"] as const
+    ).flatMap((providerState) =>
+      (["token", "snapshot", "checkpoint"] as const).map(
+        (effectKind) => [providerState, effectKind] as const,
+      ),
+    ),
+  )(
+    "keeps in-memory completed-lease effects closed for a %s provider during %s access",
+    async (providerState, effectKind) => {
+      const dependencies = buildRotatingDependencies();
+      const ledger =
+        dependencies.codexRotatingOAuth as InMemoryCodexRotatingOAuthRepository;
+      const { prelease } = await completeRotatingWriteback(dependencies);
+      setInMemoryProviderState(ledger, "codex-rotating:123456", providerState);
+      const effect = vi.fn(async () => "published");
+      const accessInput = {
+        leaseId: prelease.leaseId,
+        providerInstanceId: "codex-rotating:123456",
+        pullRequestNumber: 240,
+        now,
+      };
+      const operation =
+        effectKind === "token"
+          ? ledger.withCompletedLeaseWriteTarget(accessInput, effect)
+          : effectKind === "snapshot"
+            ? ledger.withAuthorizedReviewSnapshotAccess(accessInput, effect)
+            : ledger.withAuthorizedReviewExecutionCheckpointAccess(
+                accessInput,
+                effect,
+              );
+
+      await expect(operation).rejects.toThrow(
+        "codex_rotating_lease_not_active",
+      );
+      expect(effect).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps expired unfinished rotating leases closed for comment tokens", async () => {
     let currentNow = now;

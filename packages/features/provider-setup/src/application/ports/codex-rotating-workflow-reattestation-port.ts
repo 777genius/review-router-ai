@@ -8,6 +8,7 @@ export type CodexRotatingWorkflowReattestationRequest = Readonly<{
   attemptId: string;
   expectedGenerationHash: string;
   repositoryId: string;
+  repositoryFullName: string;
   workflowPath: string;
   namespace: VersionedProviderSecretNamespace;
 }>;

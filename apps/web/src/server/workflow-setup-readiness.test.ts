@@ -12,6 +12,8 @@ import {
   defaultCodexRotatingWorkflowPath,
   defaultInteractionWorkflowPath,
   defaultWorkflowPath,
+  isolatedQualityWorkflowPath,
+  renderCanonicalIsolatedQualityWorkflow,
   renderCanonicalCodexRotatingInteractionWorkflowV2,
   renderCodexRotatingInteractionWorkflow,
   renderCodexRotatingAdvisoryWorkflow,
@@ -35,6 +37,8 @@ class CapturingWorkflowProbe implements RepositoryWorkflowProbePort {
 
 const readinessInput = {
   githubInstallationId: "123",
+  githubRepositoryId: "123456",
+  repositoryFullName: "777genius/example",
   owner: "777genius",
   name: "example",
   defaultBranch: "main",
@@ -377,6 +381,202 @@ describe("workflow setup readiness", () => {
     });
   });
 
+  it("never probes the standard Codex workflow for the isolated repository", async () => {
+    const probe = new CapturingWorkflowProbe({
+      status: "missing",
+    });
+
+    await isWorkflowSetupAlreadyCurrent(
+      {
+        ...readinessInput,
+        githubRepositoryId: "1228051727",
+        repositoryFullName: "777genius/review-router-saas-e2e",
+        codexRotatingProviderInstanceId: "codex-rotating:1228051727",
+      },
+      { workflowProbe: probe },
+    );
+
+    expect(probe.input?.workflowPath).toBe(
+      ".github/workflows/reviewrouter-quality-stand.yml",
+    );
+    expect(probe.input?.workflowPath).not.toBe(
+      defaultCodexRotatingWorkflowPath,
+    );
+  });
+
+  it("requires the isolated quality repository default branch to be exactly main", async () => {
+    const probe = new CapturingWorkflowProbe({
+      status: "present",
+      expectedActionRefFound: true,
+    });
+
+    await expect(
+      isWorkflowSetupAlreadyCurrent(
+        {
+          ...readinessInput,
+          githubRepositoryId: "1228051727",
+          repositoryFullName: "777genius/review-router-saas-e2e",
+          defaultBranch: "trunk",
+          codexRotatingProviderInstanceId: "codex-rotating:1228051727",
+        },
+        { workflowProbe: probe },
+      ),
+    ).resolves.toBe(false);
+    expect(probe.input).toBeNull();
+  });
+
+  it.each([
+    ["exact generated content", (workflow: string) => workflow, true],
+    [
+      "standard trigger substituted",
+      (workflow: string) =>
+        workflow.replace("  workflow_dispatch:", "  pull_request_target:"),
+      false,
+    ],
+    [
+      "repository identity guard removed",
+      (workflow: string) =>
+        workflow.replace("github.repository_id == '1228051727'", "true"),
+      false,
+    ],
+    [
+      "public API URL changed",
+      (workflow: string) =>
+        workflow.replace(
+          "https://api.reviewrouter.site",
+          "https://attacker.example",
+        ),
+      false,
+    ],
+  ])(
+    "validates isolated readiness with the isolated parser: %s",
+    async (_case, mutate, expected) => {
+      const namespace = createVersionedProviderSecretNamespace({
+        scope: {
+          repositoryId: "1228051727",
+          providerInstanceId: "codex-rotating:1228051727",
+        },
+        namespaceId: "sns_e9c2956ba412321fa27816e6cee3bd06",
+        epoch: 2n,
+        name: "REVIEWROUTER_CODEX_AUTH_JSON_R1228051727_P01cfca27f31e5f85_E2_e9c2956ba412321fa27816e6cee3bd06",
+      });
+      const workflow = mutate(
+        renderCanonicalIsolatedQualityWorkflow({
+          actionRef: versionedActionRef,
+          apiUrl: "https://api.reviewrouter.site",
+          providerInstanceId: "codex-rotating:1228051727",
+          activeSecretNamespace: namespace,
+        }),
+      );
+      const workflowProbe: RepositoryWorkflowProbePort = {
+        probeWorkflow: async (input) => {
+          if (
+            input.workflowPath === defaultWorkflowPath ||
+            input.workflowPath === defaultCodexRotatingWorkflowPath
+          ) {
+            return { status: "missing" };
+          }
+          const probedWorkflow =
+            input.workflowPath === defaultInteractionWorkflowPath
+              ? canonicalV3InteractionWorkflow()
+              : workflow;
+          const valid =
+            input.expectedContentValidator?.(probedWorkflow) ?? true;
+          return {
+            status: "present",
+            expectedActionRefFound: true,
+            expectedContentMarkersFound: valid,
+          };
+        },
+      };
+
+      await expect(
+        isWorkflowSetupAlreadyCurrent(
+          {
+            ...readinessInput,
+            githubRepositoryId: "1228051727",
+            repositoryFullName: "777genius/review-router-saas-e2e",
+            actionRef: versionedActionRef,
+            codexRotatingProviderInstanceId: "codex-rotating:1228051727",
+            codexRotatingWorkflowSchemaVersion:
+              CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+            codexRotatingWorkflowSecretNamespace: namespace,
+          },
+          {
+            workflowProbe,
+            resolvePublicApiUrl: () => "https://api.reviewrouter.site",
+          },
+        ),
+      ).resolves.toBe(expected);
+      expect(isolatedQualityWorkflowPath).toBe(
+        ".github/workflows/reviewrouter-quality-stand.yml",
+      );
+    },
+  );
+
+  it.each([defaultWorkflowPath, defaultCodexRotatingWorkflowPath])(
+    "does not treat isolated setup as current while competing workflow %s survives",
+    async (competingWorkflowPath) => {
+      const namespace = createVersionedProviderSecretNamespace({
+        scope: {
+          repositoryId: "1228051727",
+          providerInstanceId: "codex-rotating:1228051727",
+        },
+        namespaceId: "sns_e9c2956ba412321fa27816e6cee3bd06",
+        epoch: 2n,
+        name: "REVIEWROUTER_CODEX_AUTH_JSON_R1228051727_P01cfca27f31e5f85_E2_e9c2956ba412321fa27816e6cee3bd06",
+      });
+      const qualityWorkflow = renderCanonicalIsolatedQualityWorkflow({
+        actionRef: versionedActionRef,
+        apiUrl: "https://api.reviewrouter.site",
+        providerInstanceId: "codex-rotating:1228051727",
+        activeSecretNamespace: namespace,
+      });
+      const workflowProbe: RepositoryWorkflowProbePort = {
+        probeWorkflow: async (input) => {
+          if (input.workflowPath === competingWorkflowPath) {
+            return {
+              status: "present",
+              expectedActionRefFound: true,
+            };
+          }
+          if (
+            input.workflowPath === defaultWorkflowPath ||
+            input.workflowPath === defaultCodexRotatingWorkflowPath
+          ) {
+            return { status: "missing" };
+          }
+          const workflow =
+            input.workflowPath === isolatedQualityWorkflowPath
+              ? qualityWorkflow
+              : canonicalV3InteractionWorkflow();
+          return {
+            status: "present",
+            expectedActionRefFound: true,
+            expectedContentMarkersFound:
+              input.expectedContentValidator?.(workflow) ?? true,
+          };
+        },
+      };
+
+      await expect(
+        isWorkflowSetupAlreadyCurrent(
+          {
+            ...readinessInput,
+            githubRepositoryId: "1228051727",
+            repositoryFullName: "777genius/review-router-saas-e2e",
+            actionRef: versionedActionRef,
+            codexRotatingProviderInstanceId: "codex-rotating:1228051727",
+            codexRotatingWorkflowSchemaVersion:
+              CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+            codexRotatingWorkflowSecretNamespace: namespace,
+          },
+          { workflowProbe },
+        ),
+      ).resolves.toBe(false);
+    },
+  );
+
   it("requires fork sandbox markers when rotating Codex fork mode is enabled", async () => {
     const probe = new CapturingWorkflowProbe({
       status: "present",
@@ -497,6 +697,17 @@ describe("workflow setup readiness", () => {
     await expect(checkV5WorkflowReadiness(canonicalV5Workflow())).resolves.toBe(
       true,
     );
+  });
+
+  it("rejects a standard versioned workflow whose public API URL changed", async () => {
+    await expect(
+      checkV5WorkflowReadiness(
+        canonicalV5Workflow().replace(
+          "https://api.reviewrouter.site",
+          "https://attacker.example",
+        ),
+      ),
+    ).resolves.toBe(false);
   });
 
   it("rejects a schema-v5 workflow with a mismatched secret namespace", async () => {

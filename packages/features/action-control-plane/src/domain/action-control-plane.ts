@@ -4,6 +4,11 @@ import {
   providerAuthModeBelongsToKind,
 } from "@reviewrouter/features-review-providers";
 import {
+  codexWorkflowPathForRepository,
+  isolatedQualityWorkflowRepositoryId,
+  isCodexWorkflowRepositoryIdentityAdmitted,
+} from "@reviewrouter/features-codex-oauth-rotating";
+import {
   collectPayloadStrings,
   looksLikeCodeOrDiff,
   looksLikeSecretValue,
@@ -39,14 +44,40 @@ export const allowedWorkflowPaths = managedReviewRouterWorkflowPaths;
 export function isManagedV2SessionBootstrapSource(input: {
   readonly eventName: GitHubActionsOidcClaims["event_name"];
   readonly workflowPath: string;
+  readonly githubRepositoryId?: string;
+  readonly repositoryFullName?: string;
 }): boolean {
   if (
+    !isCodexWorkflowRepositoryIdentityAdmitted({
+      repositoryId: input.githubRepositoryId ?? "",
+      repositoryFullName: input.repositoryFullName ?? "",
+    })
+  ) {
+    return false;
+  }
+  const repositoryReviewWorkflowPath = codexWorkflowPathForRepository({
+    repositoryId: input.githubRepositoryId ?? "",
+    repositoryFullName: input.repositoryFullName ?? "",
+  });
+  if (
     input.workflowPath === managedCodexWorkflowPath &&
+    repositoryReviewWorkflowPath === managedCodexWorkflowPath &&
     (input.eventName === "workflow_dispatch" ||
+      input.eventName === "schedule" ||
       input.eventName === "pull_request" ||
       input.eventName === "pull_request_target")
   ) {
     return true;
+  }
+  if (
+    input.workflowPath === repositoryReviewWorkflowPath &&
+    input.workflowPath !== managedCodexWorkflowPath &&
+    input.eventName === "workflow_dispatch"
+  ) {
+    return true;
+  }
+  if (input.githubRepositoryId === isolatedQualityWorkflowRepositoryId) {
+    return false;
   }
   return (
     input.workflowPath === managedInteractionWorkflowPath &&
@@ -111,6 +142,8 @@ export type ActionRepositoryContext = {
   readonly githubInstallationId: string;
   readonly fullName: string;
   readonly owner: string;
+  /** Durable SCM binding epoch; changes on every unbind/rebind cycle. */
+  readonly identityBindingEpoch?: string;
   readonly selected: boolean;
   readonly trustedWorkflowRefs?: readonly string[];
   readonly installationStatus:
@@ -128,6 +161,7 @@ export type ActionSessionClaims = {
   readonly repositoryId: string;
   readonly githubRepositoryId: string;
   readonly repository: string;
+  readonly identityBindingEpoch?: string;
   readonly githubActorLogin: string | null;
   readonly githubRunId: string;
   readonly githubRunAttempt: string;
@@ -671,8 +705,19 @@ export function validateOidcClaimsAgainstRepository(input: {
 }): void {
   const claimRepositoryId = input.claims.repository_id;
   const repository = input.repository;
+  const codexWorkflowIdentityAdmitted =
+    isCodexWorkflowRepositoryIdentityAdmitted({
+      repositoryId: repository.githubRepositoryId,
+      repositoryFullName: repository.fullName,
+    });
   if (repository.selected !== true) {
     throw new Error("repository_not_selected");
+  }
+  if (
+    repository.githubRepositoryId === isolatedQualityWorkflowRepositoryId &&
+    !codexWorkflowIdentityAdmitted
+  ) {
+    throw new Error("repository_name_mismatch");
   }
   if (repository.installationStatus !== "active") {
     throw new Error("installation_not_active");
@@ -681,15 +726,22 @@ export function validateOidcClaimsAgainstRepository(input: {
     throw new Error("repository_id_mismatch");
   }
   if (
-    input.claims.repository.toLowerCase() !== repository.fullName.toLowerCase()
+    repository.githubRepositoryId === isolatedQualityWorkflowRepositoryId &&
+    !repository.identityBindingEpoch
   ) {
+    throw new Error("repository_identity_binding_epoch_mismatch");
+  }
+  if (input.claims.repository !== repository.fullName) {
     throw new Error("repository_name_mismatch");
   }
-  if (
-    input.claims.repository_owner.toLowerCase() !==
-    repository.owner.toLowerCase()
-  ) {
+  if (input.claims.repository_owner !== repository.owner) {
     throw new Error("repository_owner_mismatch");
+  }
+  if (
+    input.claims.event_name === "repository_dispatch" &&
+    repository.githubRepositoryId === isolatedQualityWorkflowRepositoryId
+  ) {
+    throw new Error("workflow_ref_not_allowed");
   }
   if (
     input.claims.event_name === "repository_dispatch" &&
@@ -714,7 +766,23 @@ export function validateOidcClaimsAgainstRepository(input: {
       workflowRef: input.claims.workflow_ref,
       jobWorkflowRef: input.claims.job_workflow_ref,
       repository: repository.fullName,
-      ...(repository.trustedWorkflowRefs
+      allowedPaths:
+        repository.githubRepositoryId === isolatedQualityWorkflowRepositoryId
+          ? [
+              codexWorkflowPathForRepository({
+                repositoryId: repository.githubRepositoryId,
+                repositoryFullName: repository.fullName,
+              }),
+            ]
+          : [
+              ...allowedWorkflowPaths.filter(
+                (path) =>
+                  path !== managedCodexWorkflowPath ||
+                  codexWorkflowIdentityAdmitted,
+              ),
+            ],
+      ...(repository.githubRepositoryId !==
+        isolatedQualityWorkflowRepositoryId && repository.trustedWorkflowRefs
         ? { trustedWorkflowRefs: repository.trustedWorkflowRefs }
         : {}),
     }) === false
@@ -740,10 +808,31 @@ export function validateActionSessionAgainstRepository(input: {
   if (input.session.repositoryId !== repository.repositoryId) {
     throw new Error("repository_id_mismatch");
   }
-  if (
-    input.session.repository.toLowerCase() !== repository.fullName.toLowerCase()
-  ) {
+  if (input.session.repository !== repository.fullName) {
     throw new Error("repository_name_mismatch");
+  }
+  if (
+    repository.githubRepositoryId === isolatedQualityWorkflowRepositoryId &&
+    (!repository.identityBindingEpoch ||
+      input.session.identityBindingEpoch !== repository.identityBindingEpoch)
+  ) {
+    throw new Error("repository_identity_binding_epoch_mismatch");
+  }
+  if (
+    repository.githubRepositoryId === isolatedQualityWorkflowRepositoryId &&
+    input.session.workflowPath !==
+      codexWorkflowPathForRepository({
+        repositoryId: repository.githubRepositoryId,
+        repositoryFullName: repository.fullName,
+      })
+  ) {
+    throw new Error("workflow_ref_not_allowed");
+  }
+  if (
+    repository.identityBindingEpoch &&
+    input.session.identityBindingEpoch !== repository.identityBindingEpoch
+  ) {
+    throw new Error("repository_identity_binding_epoch_mismatch");
   }
 }
 

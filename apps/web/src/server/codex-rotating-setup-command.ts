@@ -17,6 +17,7 @@ export type CodexRotatingSetupRepository = {
   readonly provider: string;
   readonly githubRepositoryId: bigint | null;
   readonly fullName: string;
+  readonly defaultBranch: string;
   readonly selected: boolean;
   readonly archived: boolean;
   readonly installation: { readonly status: string } | null;
@@ -40,6 +41,7 @@ export async function issueCodexRotatingSetupForRepository(input: {
     workspaceId: input.repository.workspaceId,
     repositoryId: input.repository.id,
     repositoryFullName: input.repository.fullName,
+    repositoryDefaultBranch: input.repository.defaultBranch,
     githubRepositoryId: input.repository.githubRepositoryId!.toString(),
     installer: resolveCodexRotatingSeedScriptDescriptor(),
     runtimeEnvironment: process.env,

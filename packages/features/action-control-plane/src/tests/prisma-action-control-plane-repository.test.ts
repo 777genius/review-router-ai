@@ -20,6 +20,108 @@ import { PrismaCodexRotatingOAuthRepository } from "../infrastructure/prisma/pri
 const databaseRecoveryWitness = "witness_generation_one_12345678901234567890";
 
 describe("persisted workflow schema admission", () => {
+  it("does not revive isolated authority after rename-transfer-rename rebinds identity", async () => {
+    const repositoryId = "1228051727";
+    const fullName = "777genius/review-router-saas-e2e";
+    const namespace = allocateVersionedProviderSecretNamespace({
+      scope: {
+        repositoryId,
+        providerInstanceId: `codex-rotating:${repositoryId}`,
+      },
+      epoch: 2n,
+      randomBytes: () => new Uint8Array(16).fill(5),
+    });
+    const manifest = {
+      protocolVersion: 2,
+      repositoryFullName: fullName,
+      repositoryId,
+      repositoryIdentityVersion: 1,
+      providerInstanceId: `codex-rotating:${repositoryId}`,
+      setupNonce: "setup:durable-name-binding",
+      authMode: "codex_subscription_oauth_rotating",
+      generatedAt: "2026-09-14T00:00:00.000Z",
+      expiresAt: "2026-09-14T00:15:00.000Z",
+      installer: {
+        url: "https://reviewrouter.site/install",
+        version: "test",
+        sha256: "a".repeat(64),
+      },
+      generationHashSalt: "s".repeat(43),
+      accountFingerprintSalt: "f".repeat(43),
+    };
+    const provider = {
+      id: "provider-isolated",
+      workspaceId: "workspace-1",
+      repositoryId: "repository-1",
+      authMode: "codex_subscription_oauth_rotating",
+      activeSecretNamespaceId: namespace.namespaceId,
+      activeSecretNamespaceEpoch: namespace.epoch,
+      activeSecretNamespace: {
+        id: namespace.namespaceId,
+        githubRepositoryId: repositoryId,
+        namespaceEpoch: namespace.epoch,
+        secretName: namespace.name,
+        status: "active",
+        workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
+        workflowSourceCommitSha: "a".repeat(40),
+        workflowSourceBlobSha: "b".repeat(40),
+        workflowSourceSha256: "c".repeat(64),
+        workflowSemanticSha256: "d".repeat(64),
+        workflowSourceTrust: "trusted_default_branch_revision",
+        workflowSchemaVersion: 5,
+        attestedRepositoryId: repositoryId,
+        dispatchAttempt: {
+          status: "confirmed",
+          claim: {
+            status: "active",
+            manifest: { status: "consumed", manifestJson: manifest },
+          },
+        },
+      },
+    };
+    const prisma = {
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([
+          { boundAt: new Date("2026-09-13T00:00:00.000Z") },
+        ])
+        .mockResolvedValueOnce([]),
+      codexOAuthProviderInstance: {
+        findUnique: vi.fn().mockResolvedValue(provider),
+      },
+    };
+    const oauth = new PrismaCodexRotatingOAuthRepository(prisma as never, {
+      actionOwnerRepo: "777genius/review-router",
+    });
+    const request = (repositoryFullName: string) => ({
+      repository: {
+        workspaceId: "workspace-1",
+        repositoryId: "repository-1",
+        githubRepositoryId: repositoryId,
+        githubInstallationId: "789",
+        fullName: repositoryFullName,
+        owner: repositoryFullName.split("/")[0]!,
+        selected: true,
+        installationStatus: "active" as const,
+      },
+      providerInstanceId: `codex-rotating:${repositoryId}`,
+      workflowSha: "e".repeat(40),
+      workflowSchemaVersion: 5,
+    });
+
+    await expect(
+      oauth.findProviderBinding(request(fullName)),
+    ).resolves.toMatchObject({
+      workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
+    });
+    await expect(
+      oauth.findProviderBinding(request("attacker/renamed")),
+    ).resolves.toBeNull();
+    await expect(
+      oauth.findProviderBinding(request(fullName)),
+    ).resolves.toBeNull();
+  });
+
   it.each([4, 5] as const)(
     "admits V%s only when the subsequent request equals the persisted version",
     async (workflowSchemaVersion) => {
@@ -534,6 +636,147 @@ describe("ambiguous versioned writeback lock ordering", () => {
   });
 });
 
+describe("versioned writeback external dispatch fencing", () => {
+  it.each([
+    ["rotation", 201, "setup"],
+    ["revocation", 204, "recovery"],
+  ] as const)(
+    "holds the identity transaction through a slow PUT before concurrent %s at %s",
+    async (_interleaving, statusCode, nextOwner) => {
+      const now = new Date("2026-09-14T12:00:00.000Z");
+      let inTransaction = false;
+      let resolvePut!: (value: { statusCode: 201 | 204 }) => void;
+      const put = new Promise<{ statusCode: 201 | 204 }>((resolve) => {
+        resolvePut = resolve;
+      });
+      const intent = {
+        id: "intent:slow-put",
+        status: "pending",
+        dispatchAttemptId: "attempt:slow-put",
+        executorOwner: "executor:slow-put",
+        executorLeaseExpiresAt: new Date(now.getTime() + 60_000),
+        mutationEpoch: 7n,
+        leaseId: "lease:slow-put",
+        secretNamespaceId: "namespace:slow-put",
+        databaseIncarnation: "7612345678901234567",
+        databaseRecoveryWitness: fingerprintDatabaseRecoveryWitness(
+          databaseRecoveryWitness,
+        ),
+        accountIdentityHash: "account:slow-put",
+        accountIdentityAlgorithm: "provider_issuer_subject_account_v1",
+        lease: {
+          id: "lease:slow-put",
+          status: "finalized",
+          expiresAt: new Date(now.getTime() + 60_000),
+          leaseKey: "codex-rotating:123456:run:attempt",
+          mutationEpoch: 7n,
+        },
+        providerInstance: {
+          mutationEpoch: 7n,
+          mutationOwner: "runtime",
+          mutationOwnerId: "lease:slow-put",
+          activeLeaseId: "lease:slow-put",
+          activeLeaseExpiresAt: new Date(now.getTime() + 60_000),
+          repository: {
+            id: "repository:slow-put",
+            workspaceId: "workspace:slow-put",
+            provider: "github",
+            githubRepositoryId: 123456n,
+            fullName: "777genius/example",
+            owner: "777genius",
+            name: "example",
+            selected: true,
+            installation: { githubInstallationId: 789n, status: "active" },
+          },
+        },
+      };
+      const tx = {
+        $executeRawUnsafe: vi.fn().mockResolvedValue(0),
+        $queryRaw: vi.fn(async (sql) =>
+          (sql as { text?: string }).text?.includes("pg_control_system")
+            ? [{ databaseIncarnation: intent.databaseIncarnation }]
+            : [{ id: "provider:slow-put" }],
+        ),
+        codexOAuthProviderInstance: {
+          findUniqueOrThrow: vi
+            .fn()
+            .mockResolvedValue({ providerInstanceId: "codex-rotating:123456" }),
+        },
+        codexOAuthWritebackIntent: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValueOnce({
+              providerInstanceRowId: "provider:slow-put",
+            })
+            .mockResolvedValueOnce(intent)
+            .mockResolvedValueOnce({
+              providerInstanceRowId: "provider:slow-put",
+            })
+            .mockResolvedValueOnce(intent),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+      };
+      const prisma = {
+        $transaction: vi.fn(
+          async (callback: (client: typeof tx) => unknown) => {
+            inTransaction = true;
+            try {
+              return await callback(tx);
+            } finally {
+              inTransaction = false;
+            }
+          },
+        ),
+      };
+      const repository = new PrismaCodexRotatingOAuthRepository(
+        prisma as never,
+        {
+          actionOwnerRepo: "777genius/review-router",
+          databaseRecoveryWitness,
+          transactionClock: fixedClock(now),
+        },
+      );
+
+      const result = repository.withVersionedWritebackDispatchAuthorization(
+        {
+          intentId: intent.id,
+          attemptId: intent.dispatchAttemptId,
+          executorOwner: intent.executorOwner,
+        },
+        async () => {
+          expect(inTransaction).toBe(true);
+          return put;
+        },
+      );
+      await vi.waitFor(() => {
+        expect(tx.codexOAuthWritebackIntent.updateMany).toHaveBeenCalledOnce();
+      });
+      expect(inTransaction).toBe(true);
+      // The repository/provider mutation is serialized behind the transaction
+      // while GitHub owns the in-flight request.
+      const concurrentMutation = vi
+        .waitFor(() => expect(inTransaction).toBe(false))
+        .then(() => {
+          intent.providerInstance.mutationEpoch += 1n;
+          intent.providerInstance.mutationOwner = nextOwner;
+        });
+      resolvePut({ statusCode });
+
+      await expect(result).resolves.toEqual({ statusCode });
+      await concurrentMutation;
+      expect(prisma.$transaction).toHaveBeenCalledOnce();
+      await expect(
+        repository.confirmVersionedProviderWrite({
+          intentId: intent.id,
+          attemptId: intent.dispatchAttemptId,
+          executorOwner: intent.executorOwner,
+          statusCode,
+        }),
+      ).rejects.toThrow("codex_rotating_versioned_confirmation_stale_epoch");
+    },
+  );
+});
+
 describe("PrismaActionControlPlaneRepository helpers", () => {
   it("does not trust org ruleset workflows for the source repository itself", () => {
     expect(
@@ -563,6 +806,62 @@ describe("PrismaActionControlPlaneRepository helpers", () => {
         githubRepositoryId: "1003",
       }),
     ).toBe(false);
+  });
+
+  it("reads repository metadata and identity from one repeatable snapshot", async () => {
+    const rootFindFirst = vi.fn();
+    const rootQueryRaw = vi.fn();
+    const transactionFindFirst = vi.fn().mockResolvedValue({
+      id: "repository_1",
+      workspaceId: "workspace_1",
+      githubRepositoryId: 123456n,
+      fullName: "777genius/example",
+      owner: "777genius",
+      selected: true,
+      workspace: { orgRulesets: [] },
+      provisioning: [],
+      installation: {
+        githubInstallationId: 789n,
+        status: "active",
+      },
+    });
+    const boundAt = new Date("2026-09-15T10:00:00.000Z");
+    const transactionQueryRaw = vi
+      .fn()
+      .mockResolvedValue([{ version: 7, boundAt }]);
+    const transaction = {
+      repositoryConnection: { findFirst: transactionFindFirst },
+      $queryRaw: transactionQueryRaw,
+    };
+    const prisma = {
+      repositoryConnection: { findFirst: rootFindFirst },
+      $queryRaw: rootQueryRaw,
+      $transaction: vi.fn(
+        async (
+          callback: (client: typeof transaction) => unknown,
+          options: { isolationLevel: string },
+        ) => {
+          expect(options).toEqual({ isolationLevel: "RepeatableRead" });
+          return callback(transaction);
+        },
+      ),
+    };
+    const repository = new PrismaActionControlPlaneRepository(
+      prisma as unknown as PrismaClient,
+    );
+
+    await expect(
+      repository.findSelectedRepositoryByGithubId("123456"),
+    ).resolves.toMatchObject({
+      repositoryId: "repository_1",
+      githubRepositoryId: "123456",
+      identityBindingEpoch: "7:" + boundAt.toISOString(),
+    });
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(transactionFindFirst).toHaveBeenCalledOnce();
+    expect(transactionQueryRaw).toHaveBeenCalledOnce();
+    expect(rootFindFirst).not.toHaveBeenCalled();
+    expect(rootQueryRaw).not.toHaveBeenCalled();
   });
 
   it.each(["max", "ultra"] as const)(
@@ -638,6 +937,76 @@ describe("PrismaActionControlPlaneRepository helpers", () => {
   );
 });
 
+type CompletedLeaseRepository = Pick<
+  PrismaCodexRotatingOAuthRepository,
+  | "withCompletedLeaseWriteTarget"
+  | "withAuthorizedReviewSnapshotAccess"
+  | "withAuthorizedReviewExecutionCheckpointAccess"
+>;
+
+async function inspectCompletedLeaseWriteTarget(
+  repository: CompletedLeaseRepository,
+  input: Parameters<
+    CompletedLeaseRepository["withCompletedLeaseWriteTarget"]
+  >[0],
+) {
+  try {
+    return await repository.withCompletedLeaseWriteTarget(
+      input,
+      async (writeTarget) => ({
+        status: "ready" as const,
+        writeTarget,
+      }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+async function inspectReviewSnapshotAccess(
+  repository: CompletedLeaseRepository,
+  input: Parameters<
+    CompletedLeaseRepository["withAuthorizedReviewSnapshotAccess"]
+  >[0],
+) {
+  try {
+    return await repository.withAuthorizedReviewSnapshotAccess(
+      input,
+      async (scope) => ({
+        status: "ready" as const,
+        scope,
+      }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+async function inspectReviewExecutionCheckpointAccess(
+  repository: CompletedLeaseRepository,
+  input: Parameters<
+    CompletedLeaseRepository["withAuthorizedReviewExecutionCheckpointAccess"]
+  >[0],
+) {
+  try {
+    return await repository.withAuthorizedReviewExecutionCheckpointAccess(
+      input,
+      async (scope) => ({ status: "ready" as const, scope }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+function completedLeaseAccessFailure(error: unknown) {
+  if (!(error instanceof Error)) throw error;
+  const status = error.message.replace(/^codex_rotating_/, "");
+  if (status === "lease_not_active" || status === "lease_not_completed") {
+    return { status };
+  }
+  throw error;
+}
+
 describe("PrismaCodexRotatingOAuthRepository", () => {
   const now = new Date("2026-05-25T12:00:00.000Z");
 
@@ -649,7 +1018,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
@@ -665,7 +1034,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       },
     });
     await expect(
-      repository.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -692,7 +1061,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
@@ -710,14 +1079,14 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
       }),
     ).resolves.toEqual({ status: "lease_not_active" });
     await expect(
-      repository.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -725,7 +1094,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       }),
     ).resolves.toMatchObject({ status: "ready" });
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
@@ -744,7 +1113,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       ),
     });
     await expect(
-      expired.repository.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(expired.repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -764,14 +1133,14 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
       }),
     ).resolves.toEqual({ status: "lease_not_active" });
     await expect(
-      repository.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -779,7 +1148,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       }),
     ).resolves.toEqual({ status: "lease_not_active" });
     await expect(
-      repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -790,7 +1159,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       scope: { workspaceId: "workspace_1", repositoryId: "repo_1" },
     });
     await expect(
-      repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 241,
@@ -806,7 +1175,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       ),
     });
     await expect(
-      expired.repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(expired.repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -823,14 +1192,14 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
       }),
     ).resolves.toEqual({ status: "lease_not_active" });
     await expect(
-      repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -847,7 +1216,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -858,7 +1227,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       scope: { workspaceId: "workspace_1", repositoryId: "repo_1" },
     });
     await expect(
-      repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -878,7 +1247,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       completedAt: new Date(now.getTime() - 20 * 60 * 1000),
     });
     await expect(
-      rebound.repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(rebound.repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:rebound",
         pullRequestNumber: 240,
@@ -893,7 +1262,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       leaseWorkspaceId: "workspace_other",
     });
     await expect(
-      mismatchedWorkspace.repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(mismatchedWorkspace.repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -911,13 +1280,199 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
       }),
     ).resolves.toEqual({ status: "lease_not_active" });
   });
+
+  it.each(
+    (
+      ["needs_reconnect", "unknown_auth_state", "permission_required"] as const
+    ).flatMap((providerState) =>
+      (["token", "snapshot", "checkpoint"] as const).map(
+        (effectKind) => [providerState, effectKind] as const,
+      ),
+    ),
+  )(
+    "rejects a %s provider before invoking the completed-lease %s effect",
+    async (providerState, effectKind) => {
+      const { repository } = buildCodexRotatingRepository({
+        status: "completed",
+        expiresAt: new Date(now.getTime() - 5 * 60 * 1000),
+        completedAt: new Date(now.getTime() - 20 * 60 * 1000),
+        providerState,
+      });
+      const effect = vi.fn(async () => "published");
+      const accessInput = {
+        leaseId: "lease_1",
+        providerInstanceId: "codex-rotating:123456",
+        pullRequestNumber: 240,
+        now,
+      };
+      const operation =
+        effectKind === "token"
+          ? repository.withCompletedLeaseWriteTarget(accessInput, effect)
+          : effectKind === "snapshot"
+            ? repository.withAuthorizedReviewSnapshotAccess(accessInput, effect)
+            : repository.withAuthorizedReviewExecutionCheckpointAccess(
+                accessInput,
+                effect,
+              );
+
+      await expect(operation).rejects.toThrow(
+        "codex_rotating_lease_not_active",
+      );
+      expect(effect).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["token", "snapshot", "checkpoint"] as const)(
+    "holds provider and repository identity authorization through the %s effect",
+    async (effectKind) => {
+      const { providerState, queryOrder, repository, revokeOrRecoverProvider } =
+        buildCodexRotatingRepository({
+          status: "completed",
+          expiresAt: new Date(now.getTime() - 5 * 60 * 1000),
+          completedAt: new Date(now.getTime() - 20 * 60 * 1000),
+          repositoryId: "1228051727",
+          repositoryFullName: "777genius/review-router-saas-e2e",
+          leaseKey: "codex-rotating:1228051727:9001:2:identity-v2",
+          identityRows: [{ version: 2 }],
+        });
+      let releaseEffect!: () => void;
+      const effectGate = new Promise<void>((resolve) => {
+        releaseEffect = resolve;
+      });
+      let markEffectStarted!: () => void;
+      const effectStarted = new Promise<void>((resolve) => {
+        markEffectStarted = resolve;
+      });
+      const effect = vi.fn(async () => {
+        markEffectStarted();
+        await effectGate;
+        return "published";
+      });
+      const accessInput = {
+        leaseId: "lease_1",
+        providerInstanceId: "codex-rotating:1228051727",
+        pullRequestNumber: 240,
+        now,
+      };
+      const operation =
+        effectKind === "token"
+          ? repository.withCompletedLeaseWriteTarget(accessInput, effect)
+          : effectKind === "snapshot"
+            ? repository.withAuthorizedReviewSnapshotAccess(accessInput, effect)
+            : repository.withAuthorizedReviewExecutionCheckpointAccess(
+                accessInput,
+                effect,
+              );
+
+      await effectStarted;
+      let recoveryApplied = false;
+      const recovery = revokeOrRecoverProvider().then(() => {
+        recoveryApplied = true;
+      });
+      await Promise.resolve();
+      expect(recoveryApplied).toBe(false);
+      expect(providerState()).toBe("active");
+      expect(queryOrder).toEqual([
+        "provider_lock",
+        "lease_read",
+        "identity_lock",
+      ]);
+
+      releaseEffect();
+      await expect(operation).resolves.toBe("published");
+      await recovery;
+      expect(recoveryApplied).toBe(true);
+      expect(providerState()).toBe("needs_reconnect");
+      expect(effect).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["token", "snapshot", "checkpoint"] as const)(
+    "does not invoke a stale %s effect after identity rotation",
+    async (effectKind) => {
+      const { repository } = buildCodexRotatingRepository({
+        status: "completed",
+        expiresAt: new Date(now.getTime() - 5 * 60 * 1000),
+        completedAt: new Date(now.getTime() - 20 * 60 * 1000),
+        repositoryId: "1228051727",
+        repositoryFullName: "777genius/review-router-saas-e2e",
+        leaseKey: "codex-rotating:1228051727:9001:2:identity-v2",
+        identityRows: [{ version: 3 }],
+      });
+      const effect = vi.fn(async () => "published");
+
+      const accessInput = {
+        leaseId: "lease_1",
+        providerInstanceId: "codex-rotating:1228051727",
+        pullRequestNumber: 240,
+        now,
+      };
+      const operation =
+        effectKind === "token"
+          ? repository.withCompletedLeaseWriteTarget(accessInput, effect)
+          : effectKind === "snapshot"
+            ? repository.withAuthorizedReviewSnapshotAccess(accessInput, effect)
+            : repository.withAuthorizedReviewExecutionCheckpointAccess(
+                accessInput,
+                effect,
+              );
+
+      await expect(operation).rejects.toThrow(
+        "codex_rotating_lease_repository_identity_stale",
+      );
+      expect(effect).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["missing exact-name binding", []],
+    ["advanced durable identity epoch", [{ version: 3 }]],
+  ] as const)(
+    "rejects completed isolated lease capabilities for %s",
+    async (_reason, identityRows) => {
+      const { repository } = buildCodexRotatingRepository({
+        status: "completed",
+        expiresAt: new Date(now.getTime() - 5 * 60 * 1000),
+        completedAt: new Date(now.getTime() - 20 * 60 * 1000),
+        repositoryId: "1228051727",
+        repositoryFullName: "777genius/review-router-saas-e2e",
+        leaseKey: "codex-rotating:1228051727:9001:2:identity-v2",
+        identityRows,
+      });
+      const providerInstanceId = "codex-rotating:1228051727";
+
+      await expect(
+        inspectCompletedLeaseWriteTarget(repository, {
+          leaseId: "lease_1",
+          providerInstanceId,
+          now,
+        }),
+      ).rejects.toThrow("codex_rotating_lease_repository_identity_stale");
+      await expect(
+        inspectReviewSnapshotAccess(repository, {
+          leaseId: "lease_1",
+          providerInstanceId,
+          pullRequestNumber: 240,
+          now,
+        }),
+      ).rejects.toThrow("codex_rotating_lease_repository_identity_stale");
+      await expect(
+        inspectReviewExecutionCheckpointAccess(repository, {
+          leaseId: "lease_1",
+          providerInstanceId,
+          pullRequestNumber: 240,
+          now,
+        }),
+      ).rejects.toThrow("codex_rotating_lease_repository_identity_stale");
+    },
+  );
 
   it.each([
     ["V4 promoted candidate", "confirmed_candidate", null, true, 4],
@@ -996,10 +1551,25 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
                 mutationEpoch: 4n,
                 mutationOwner: "runtime",
                 mutationOwnerId: "lease-1",
+                repository: {
+                  id: "repo-1",
+                  workspaceId: "workspace-1",
+                  provider: "github",
+                  githubRepositoryId: 123456n,
+                  fullName: "777genius/example",
+                  owner: "777genius",
+                  name: "example",
+                  selected: true,
+                  installation: {
+                    githubInstallationId: 789n,
+                    status: "active",
+                  },
+                },
               },
               lease: {
                 status: "finalized",
                 expiresAt: new Date(now.getTime() + 60_000),
+                createdAt: new Date(now.getTime() - 60_000),
               },
             }),
           update: vi.fn(async () => ({})),
@@ -1075,6 +1645,71 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       }
     },
   );
+
+  it("rejects an isolated lease issued before the current identity binding epoch", async () => {
+    const tx = {
+      $executeRawUnsafe: vi.fn(async () => 0),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ version: 3 }]),
+      codexOAuthProviderInstance: {
+        findUnique: vi.fn(async () => ({
+          id: "provider-row-1",
+          activeLeaseId: "lease-1",
+          activeLeaseExpiresAt: new Date(now.getTime() + 60_000),
+          mutationEpoch: 4n,
+          mutationOwner: "runtime",
+          mutationOwnerId: "lease-1",
+          latestGeneration: 1,
+          latestGenerationHash: "generation-hash-1",
+          activeSecretNamespace: {
+            databaseRecoveryWitness: fingerprintDatabaseRecoveryWitness(
+              databaseRecoveryWitness,
+            ),
+          },
+          repository: {
+            id: "repo-1",
+            workspaceId: "workspace-1",
+            provider: "github",
+            githubRepositoryId: 1228051727n,
+            fullName: "777genius/review-router-saas-e2e",
+            owner: "777genius",
+            name: "review-router-saas-e2e",
+            selected: true,
+            installation: {
+              githubInstallationId: 789n,
+              status: "active",
+            },
+          },
+          leases: [
+            {
+              mutationEpoch: 4n,
+              leaseKey: "codex-rotating:1228051727:run-1:1:identity-v2",
+            },
+          ],
+        })),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaClient;
+    const repository = new PrismaCodexRotatingOAuthRepository(prisma, {
+      actionOwnerRepo: "777genius/review-router",
+      databaseRecoveryWitness,
+      transactionClock: fixedClock(now),
+    });
+
+    await expect(
+      repository.finalizeLease({
+        leaseId: "lease-1",
+        providerInstanceId: "codex-rotating:1228051727",
+        restoredGenerationHash: "generation-hash-1",
+      }),
+    ).rejects.toThrow("codex_rotating_lease_repository_identity_stale");
+  });
 });
 
 function buildCodexRotatingRepository(lease: {
@@ -1083,7 +1718,18 @@ function buildCodexRotatingRepository(lease: {
   readonly completedAt: Date | null;
   readonly leaseWorkspaceId?: string;
   readonly leaseSecretNamespaceEpoch?: bigint;
+  readonly repositoryId?: string;
+  readonly repositoryFullName?: string;
+  readonly leaseKey?: string;
+  readonly identityRows?: readonly { readonly version: number }[];
+  readonly providerState?:
+    | "active"
+    | "needs_reconnect"
+    | "unknown_auth_state"
+    | "permission_required";
 }) {
+  const repositoryId = lease.repositoryId ?? "123456";
+  const repositoryFullName = lease.repositoryFullName ?? "777genius/example";
   const namespaceId = "namespace_1";
   const namespaceEpoch = 1n;
   const namespaceName =
@@ -1094,10 +1740,10 @@ function buildCodexRotatingRepository(lease: {
       id: "repo_1",
       workspaceId: "workspace_1",
       provider: "github",
-      githubRepositoryId: 123456n,
-      fullName: "777genius/example",
-      owner: "777genius",
-      name: "example",
+      githubRepositoryId: BigInt(repositoryId),
+      fullName: repositoryFullName,
+      owner: repositoryFullName.split("/")[0]!,
+      name: repositoryFullName.split("/")[1]!,
       selected: true,
       installation: {
         githubInstallationId: 789n,
@@ -1108,9 +1754,11 @@ function buildCodexRotatingRepository(lease: {
     githubRunId: "9001",
     githubRunAttempt: "2",
     pullRequestNumber: 240,
+    leaseKey: lease.leaseKey ?? `codex-rotating:${repositoryId}:9001:2`,
     secretNamespaceId: namespaceId,
     secretNamespaceEpoch: lease.leaseSecretNamespaceEpoch ?? namespaceEpoch,
     providerInstance: {
+      state: lease.providerState ?? "active",
       activeSecretNamespaceId: namespaceId,
       activeSecretNamespaceEpoch: namespaceEpoch,
       activeSecretNamespaceName: namespaceName,
@@ -1123,7 +1771,24 @@ function buildCodexRotatingRepository(lease: {
       },
     },
   };
-  const prisma = {
+  const queryOrder: string[] = [];
+  let providerRowLocked = false;
+  const providerLockWaiters: Array<() => void> = [];
+  const tx = {
+    $executeRawUnsafe: vi.fn(async () => 0),
+    $queryRaw: vi.fn(async (query: { strings?: readonly string[] }) => {
+      const queryText = query.strings?.join("") ?? "";
+      if (queryText.includes('FROM "CodexOAuthProviderInstance"')) {
+        providerRowLocked = true;
+        queryOrder.push("provider_lock");
+        return [{ id: "provider_row_1" }];
+      }
+      if (queryText.includes('FROM "ScmRepositoryIdentity"')) {
+        queryOrder.push("identity_lock");
+        return lease.identityRows ?? [];
+      }
+      return [];
+    }),
     codexOAuthLease: {
       findFirst: vi.fn(
         async (input: {
@@ -1131,17 +1796,39 @@ function buildCodexRotatingRepository(lease: {
             readonly id: string;
             readonly providerInstanceId: string;
           };
-        }) =>
-          input.where.id === "lease_1" &&
-          input.where.providerInstanceId === "codex-rotating:123456"
+        }) => {
+          queryOrder.push("lease_read");
+          return input.where.id === "lease_1" &&
+            input.where.providerInstanceId === `codex-rotating:${repositoryId}`
             ? leaseRecord
-            : null,
+            : null;
+        },
       ),
     },
+  };
+  const prisma = {
+    ...tx,
+    $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => {
+      try {
+        return await callback(tx);
+      } finally {
+        providerRowLocked = false;
+        for (const resolve of providerLockWaiters.splice(0)) {
+          resolve();
+        }
+      }
+    }),
   } as unknown as PrismaClient;
 
   return {
     prisma,
+    queryOrder,
+    providerState: () => leaseRecord.providerInstance.state,
+    async revokeOrRecoverProvider() {
+      if (!providerRowLocked) return;
+      await new Promise<void>((resolve) => providerLockWaiters.push(resolve));
+      leaseRecord.providerInstance.state = "needs_reconnect";
+    },
     repository: new PrismaCodexRotatingOAuthRepository(prisma, {
       actionOwnerRepo: "777genius/review-router",
       databaseRecoveryWitness,

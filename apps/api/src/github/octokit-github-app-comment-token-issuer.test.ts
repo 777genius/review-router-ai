@@ -766,14 +766,13 @@ describe("OctokitGitHubAppCommentTokenIssuer", () => {
         }),
       },
       codexRotatingOAuth: {
-        findCompletedLeaseWriteTarget: vi.fn().mockResolvedValue({
-          status: "ready",
-          writeTarget: {
+        withCompletedLeaseWriteTarget: vi.fn(async (_input, effect) =>
+          effect({
             githubInstallationId: repository.githubInstallationId,
             githubRepositoryId: repository.githubRepositoryId,
             repositoryFullName: repository.fullName,
-          },
-        }),
+          }),
+        ),
       },
     } as unknown as Parameters<typeof registerActionControlPlaneRoutes>[1]);
     try {

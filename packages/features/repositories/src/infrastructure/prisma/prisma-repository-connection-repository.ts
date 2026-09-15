@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { workflowProvisioningTransaction } from "@reviewrouter/features-workflow-provisioning";
-import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
+import {
+  acquireCurrentScopeGuards,
+  rotateRemovedScmRepositoryIdentityEpoch,
+  rotateScmRepositoryIdentityEpoch,
+} from "@reviewrouter/platform-db";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import type {
   GitHubRepositorySnapshot,
@@ -51,15 +55,38 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
               workspaceId: true,
               installationId: true,
               inventoryGeneration: true,
+              defaultBranch: true,
+              fullName: true,
+              selected: true,
+              scmRepositoryIdentityId: true,
             },
           });
-          // Serializable retries re-read ownership and its monotonic inventory fence.
+          if (
+            previous &&
+            (previous.workspaceId !== installation.workspaceId ||
+              previous.installationId !== installation.id)
+          ) {
+            await fenceRepositoryForReconnect(tx, {
+              repositoryId: previous.id,
+              workspaceId: previous.workspaceId,
+              wasSelected: previous.selected,
+              scmRepositoryIdentityId: previous.scmRepositoryIdentityId,
+              fencedAt: input.syncedAt,
+              inventoryGeneration:
+                previous.inventoryGeneration > input.inventoryGeneration
+                  ? previous.inventoryGeneration
+                  : input.inventoryGeneration,
+            });
+            return "reconnect_required" as const;
+          }
+          // Binding mismatches must be fenced even when the incoming inventory
+          // generation would otherwise be treated as a replay.
           if (
             previous &&
             previous.inventoryGeneration >= input.inventoryGeneration
           )
             return false;
-          const saved = await tx.repositoryConnection.upsert({
+          await tx.repositoryConnection.upsert({
             where: {
               githubRepositoryId: BigInt(repository.githubRepositoryId),
             },
@@ -99,56 +126,27 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
               inventoryGeneration: input.inventoryGeneration,
             },
           });
-          if (
-            previous &&
-            (previous.workspaceId !== installation.workspaceId ||
-              previous.installationId !== installation.id)
-          ) {
-            // Transfer invalidates setup evidence and all in-flight attempt tokens.
-            // Retain a row so legacy RepositoryConnection status cannot resurface.
-            const current = await tx.workflowProvisioning.findUnique({
-              where: { repositoryId: saved.id },
+          const durableIdentityChanged =
+            previous !== null &&
+            (previous.selected === false ||
+              previous.fullName !== repository.fullName ||
+              previous.defaultBranch !== repository.defaultBranch ||
+              previous.workspaceId !== installation.workspaceId ||
+              previous.installationId !== installation.id);
+          if (durableIdentityChanged && previous.scmRepositoryIdentityId) {
+            await rotateScmRepositoryIdentityEpoch(tx, {
+              scmRepositoryIdentityId: previous.scmRepositoryIdentityId,
+              repositoryConnectionId: previous.id,
+              currentWorkspaceId: installation.workspaceId,
+              boundAt: input.syncedAt,
             });
-            if (current) {
-              const invalidated = await tx.workflowProvisioning.updateMany({
-                where: {
-                  id: current.id,
-                  attemptId: current.attemptId,
-                  revision: current.revision,
-                  workspaceId: current.workspaceId,
-                  installationId: current.installationId,
-                  status: current.status,
-                },
-                data: {
-                  workspaceId: installation.workspaceId,
-                  installationId: installation.id,
-                  attemptId: randomUUID(),
-                  revision: { increment: 1 },
-                  status: "not_started",
-                  pullRequestUrl: null,
-                  pullRequestHeadSha: null,
-                  errorMessage: null,
-                },
-              });
-              if (invalidated.count !== 1)
-                throw new Error("workflow_provisioning_concurrent_transition");
-            } else {
-              await tx.workflowProvisioning.create({
-                data: {
-                  workspaceId: installation.workspaceId,
-                  repositoryId: saved.id,
-                  installationId: installation.id,
-                  status: "not_started",
-                  branch: "reviewrouter/setup",
-                  workflowPath: ".github/workflows/reviewrouter-codex.yml",
-                  actionVersion: "",
-                },
-              });
-            }
           }
           return true;
         },
       );
+      if (applied === "reconnect_required") {
+        throw new Error("repository_transfer_reconnect_reselection_required");
+      }
       if (applied) upserted++;
     }
 
@@ -160,14 +158,34 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
         tx,
         input.githubInstallationId,
       );
-      return tx.repositoryConnection.updateMany({
-        where: {
-          installationId: installation.id,
-          inventoryGeneration: { lt: input.inventoryGeneration },
-          ...(seenRepositoryIds.length > 0
-            ? { githubRepositoryId: { notIn: seenRepositoryIds } }
-            : {}),
+      const removalWhere = {
+        installationId: installation.id,
+        selected: true,
+        inventoryGeneration: { lt: input.inventoryGeneration },
+        ...(seenRepositoryIds.length > 0
+          ? { githubRepositoryId: { notIn: seenRepositoryIds } }
+          : {}),
+      } as const;
+      const removed = await tx.repositoryConnection.findMany({
+        where: removalWhere,
+        select: {
+          id: true,
+          workspaceId: true,
+          scmRepositoryIdentityId: true,
         },
+      });
+      for (const repository of removed) {
+        if (repository.scmRepositoryIdentityId) {
+          await rotateRemovedScmRepositoryIdentityEpoch(tx, {
+            scmRepositoryIdentityId: repository.scmRepositoryIdentityId,
+            repositoryConnectionId: repository.id,
+            currentWorkspaceId: repository.workspaceId,
+            removedAt: input.syncedAt,
+          });
+        }
+      }
+      return tx.repositoryConnection.updateMany({
+        where: removalWhere,
         data: {
           selected: false,
           lastSyncedAt: input.syncedAt,
@@ -213,6 +231,73 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
       setupStatus: repository.setupStatus,
       lastSyncedAt: repository.lastSyncedAt,
     }));
+  }
+}
+
+async function fenceRepositoryForReconnect(
+  tx: Prisma.TransactionClient,
+  input: Readonly<{
+    repositoryId: string;
+    workspaceId: string;
+    wasSelected: boolean;
+    scmRepositoryIdentityId: string | null;
+    fencedAt: Date;
+    inventoryGeneration: bigint;
+  }>,
+): Promise<void> {
+  if (input.wasSelected && input.scmRepositoryIdentityId) {
+    await rotateRemovedScmRepositoryIdentityEpoch(tx, {
+      scmRepositoryIdentityId: input.scmRepositoryIdentityId,
+      repositoryConnectionId: input.repositoryId,
+      currentWorkspaceId: input.workspaceId,
+      removedAt: input.fencedAt,
+    });
+  }
+  const revoked = await tx.repositoryConnection.updateMany({
+    where: {
+      id: input.repositoryId,
+      selected: input.wasSelected,
+    },
+    data: {
+      selected: false,
+      lastSyncedAt: input.fencedAt,
+      inventoryGeneration: input.inventoryGeneration,
+    },
+  });
+  if (revoked.count !== 1) {
+    throw new Error("repository_transfer_revocation_failed");
+  }
+  const current = await tx.workflowProvisioning.findUnique({
+    where: { repositoryId: input.repositoryId },
+  });
+  if (!current) return;
+  if (
+    !input.wasSelected &&
+    current.status === "not_started" &&
+    current.errorMessage ===
+      "repository_transfer_reconnect_reselection_required" &&
+    current.pullRequestUrl === null &&
+    current.pullRequestHeadSha === null
+  )
+    return;
+  const invalidated = await tx.workflowProvisioning.updateMany({
+    where: {
+      id: current.id,
+      attemptId: current.attemptId,
+      revision: current.revision,
+      status: current.status,
+    },
+    data: {
+      attemptId: randomUUID(),
+      revision: { increment: 1 },
+      status: "not_started",
+      pullRequestUrl: null,
+      pullRequestHeadSha: null,
+      errorMessage: "repository_transfer_reconnect_reselection_required",
+    },
+  });
+  if (invalidated.count !== 1) {
+    throw new Error("workflow_provisioning_concurrent_transition");
   }
 }
 

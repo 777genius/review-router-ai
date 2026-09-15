@@ -27,30 +27,26 @@ export async function commitCodexRotatingReviewSnapshot(
   dependencies: CommitCodexRotatingReviewSnapshotDependencies,
 ) {
   const now = dependencies.clock.now();
-  const access =
-    await dependencies.codexRotatingReviewSnapshotAccess.authorizeReviewSnapshotAccess(
-      {
-        leaseId: input.leaseId,
-        providerInstanceId: input.providerInstanceId,
-        pullRequestNumber: input.candidate.pullRequestNumber,
-        now,
-      },
-    );
-  if (access.status !== "ready") {
-    throw new Error(`codex_rotating_${access.status}`);
-  }
-
-  return commitReviewSnapshot(
+  return dependencies.codexRotatingReviewSnapshotAccess.withAuthorizedReviewSnapshotAccess(
     {
-      expectedVersion: input.expectedVersion,
-      candidate: {
-        ...input.candidate,
-        workspaceId: access.scope.workspaceId,
-        repositoryId: access.scope.repositoryId,
-        sourceRunId: access.scope.sourceRunId,
-        sourceRunAttempt: access.scope.sourceRunAttempt,
-      },
+      leaseId: input.leaseId,
+      providerInstanceId: input.providerInstanceId,
+      pullRequestNumber: input.candidate.pullRequestNumber,
+      now,
     },
-    { snapshots: dependencies.reviewSnapshots, now },
+    async (scope) =>
+      commitReviewSnapshot(
+        {
+          expectedVersion: input.expectedVersion,
+          candidate: {
+            ...input.candidate,
+            workspaceId: scope.workspaceId,
+            repositoryId: scope.repositoryId,
+            sourceRunId: scope.sourceRunId,
+            sourceRunAttempt: scope.sourceRunAttempt,
+          },
+        },
+        { snapshots: dependencies.reviewSnapshots, now },
+      ),
   );
 }

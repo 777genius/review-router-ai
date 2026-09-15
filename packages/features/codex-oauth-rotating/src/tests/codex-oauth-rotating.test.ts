@@ -206,6 +206,7 @@ printf '%s  %s\\n' "$hash" "$file"
     const manifest = buildCodexRotatingSetupManifest({
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
+      repositoryIdentityVersion: 1,
       providerInstanceId: "codex-rotating:123456",
       setupNonce: "stp:sandbox-command",
       installerUrl,
@@ -313,6 +314,7 @@ describe("Codex rotating auth domain", () => {
     const manifest = buildCodexRotatingSetupManifest({
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
+      repositoryIdentityVersion: 1,
       installerUrl: "https://reviewrouter.site/install/codex-rotating",
       installerVersion: "v1.2.3",
       installerSha256:
@@ -335,6 +337,7 @@ describe("Codex rotating auth domain", () => {
     const manifest = buildCodexRotatingSetupManifest({
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
+      repositoryIdentityVersion: 1,
       installerUrl: "https://reviewrouter.site/install/codex-rotating",
       installerVersion: "v1.2.3",
       installerSha256:
@@ -349,6 +352,13 @@ describe("Codex rotating auth domain", () => {
         encodeRaw({ ...manifest, protocolVersion: 1 }),
       ),
     ).toThrow();
+    const legacyManifest = {
+      ...manifest,
+      repositoryIdentityVersion: undefined,
+    };
+    expect(() =>
+      decodeCodexRotatingSetupManifest(encodeRaw(legacyManifest)),
+    ).toThrow();
     expect(() =>
       decodeCodexRotatingSetupManifest(
         encodeRaw({ ...manifest, secretName: codexRotatingSecretName }),
@@ -360,6 +370,7 @@ describe("Codex rotating auth domain", () => {
     const manifest = buildCodexRotatingSetupManifest({
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
+      repositoryIdentityVersion: 1,
       installerUrl: "https://reviewrouter.site/install/codex-rotating",
       installerVersion: "v1.2.3",
       installerSha256:
@@ -398,6 +409,7 @@ describe("Codex rotating auth domain", () => {
     const manifest = buildCodexRotatingSetupManifest({
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
+      repositoryIdentityVersion: 1,
       installerUrl: "https://reviewrouter.site/install/codex-rotating",
       installerVersion: "v1.2.3",
       installerSha256:
@@ -494,6 +506,7 @@ exit 17
     const manifest = buildCodexRotatingSetupManifest({
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
+      repositoryIdentityVersion: 1,
       installerUrl: "https://reviewrouter.site/install/codex-rotating",
       installerVersion: "v1.2.3",
       installerSha256:

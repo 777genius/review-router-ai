@@ -31,37 +31,33 @@ export async function commitCodexRotatingReviewExecutionBatchResult(
   dependencies: CommitCodexRotatingReviewExecutionBatchResultDependencies,
 ) {
   const now = dependencies.clock.now();
-  const access =
-    await dependencies.codexRotatingReviewExecutionCheckpointAccess.authorizeReviewExecutionCheckpointAccess(
-      {
-        leaseId: input.leaseId,
-        providerInstanceId: input.providerInstanceId,
-        pullRequestNumber: input.pullRequestNumber,
-        now,
-      },
-    );
-  if (access.status !== "ready") {
-    throw new Error("codex_rotating_lease_not_active");
-  }
-
-  assertReviewExecutionCheckpointHeadAndPlan(input);
-  const scope = {
-    workspaceId: access.scope.workspaceId,
-    repositoryId: access.scope.repositoryId,
-    pullRequestNumber: input.pullRequestNumber,
-  };
-  return commitReviewExecutionBatchResult(
+  return dependencies.codexRotatingReviewExecutionCheckpointAccess.withAuthorizedReviewExecutionCheckpointAccess(
     {
-      scope,
-      expectedVersion: input.expectedVersion,
-      headSha: input.headSha,
-      planHash: input.planHash,
-      candidate: {
-        ...input.candidate,
-        sourceRunId: access.scope.sourceRunId,
-        sourceRunAttempt: access.scope.sourceRunAttempt,
-      },
+      leaseId: input.leaseId,
+      providerInstanceId: input.providerInstanceId,
+      pullRequestNumber: input.pullRequestNumber,
+      now,
     },
-    { checkpoints: dependencies.reviewExecutionCheckpoints, now },
+    async (scope) => {
+      assertReviewExecutionCheckpointHeadAndPlan(input);
+      return commitReviewExecutionBatchResult(
+        {
+          scope: {
+            workspaceId: scope.workspaceId,
+            repositoryId: scope.repositoryId,
+            pullRequestNumber: input.pullRequestNumber,
+          },
+          expectedVersion: input.expectedVersion,
+          headSha: input.headSha,
+          planHash: input.planHash,
+          candidate: {
+            ...input.candidate,
+            sourceRunId: scope.sourceRunId,
+            sourceRunAttempt: scope.sourceRunAttempt,
+          },
+        },
+        { checkpoints: dependencies.reviewExecutionCheckpoints, now },
+      );
+    },
   );
 }

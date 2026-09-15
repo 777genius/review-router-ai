@@ -10,6 +10,11 @@ import type {
   CodexRotatingT0WorkflowSchemaVersion,
   VersionedProviderSecretNamespace,
 } from "@reviewrouter/features-codex-oauth-rotating";
+import {
+  codexWorkflowPathForRepository,
+  isolatedQualityWorkflowRepositoryId,
+  isCodexWorkflowRepositoryIdentityAdmitted,
+} from "@reviewrouter/features-codex-oauth-rotating";
 
 export type WorkflowProvisioningStatus =
   | "not_started"
@@ -51,6 +56,8 @@ export type ProvisionWorkflowInput = {
   readonly installationId: string;
   readonly workspaceId: string;
   readonly repositoryId: string;
+  readonly githubRepositoryId?: string;
+  readonly repositoryFullName?: string;
   readonly owner: string;
   readonly name: string;
   readonly defaultBranch: string;
@@ -78,6 +85,54 @@ export type ProvisionWorkflowPlan = Required<
 export function createProvisionWorkflowPlan(
   input: ProvisionWorkflowInput,
 ): ProvisionWorkflowPlan {
+  const rotatingRepositoryId = input.codexRotatingProviderInstanceId?.match(
+    /^codex-rotating:([1-9][0-9]*)$/u,
+  )?.[1];
+  if (
+    rotatingRepositoryId &&
+    input.githubRepositoryId &&
+    rotatingRepositoryId !== input.githubRepositoryId
+  ) {
+    throw new Error("codex_workflow_repository_identity_mismatch");
+  }
+  if (
+    rotatingRepositoryId === isolatedQualityWorkflowRepositoryId &&
+    (!input.githubRepositoryId || !input.repositoryFullName)
+  ) {
+    throw new Error("isolated_workflow_repository_identity_required");
+  }
+  if (
+    rotatingRepositoryId === isolatedQualityWorkflowRepositoryId &&
+    input.defaultBranch !== "main"
+  ) {
+    throw new Error("isolated_workflow_default_branch_must_be_main");
+  }
+  const repositoryWorkflowPath =
+    input.codexRotatingProviderInstanceId &&
+    input.githubRepositoryId &&
+    input.repositoryFullName
+      ? codexWorkflowPathForRepository({
+          repositoryId: input.githubRepositoryId,
+          repositoryFullName: input.repositoryFullName,
+        })
+      : undefined;
+  if (
+    input.githubRepositoryId &&
+    input.repositoryFullName &&
+    !isCodexWorkflowRepositoryIdentityAdmitted({
+      repositoryId: input.githubRepositoryId,
+      repositoryFullName: input.repositoryFullName,
+    })
+  ) {
+    throw new Error("codex_workflow_repository_identity_mismatch");
+  }
+  if (
+    input.workflowPath &&
+    repositoryWorkflowPath &&
+    input.workflowPath !== repositoryWorkflowPath
+  ) {
+    throw new Error("codex_workflow_repository_path_mismatch");
+  }
   return {
     ...input,
     workflowStyle: input.workflowStyle ?? "reusable",
@@ -85,7 +140,7 @@ export function createProvisionWorkflowPlan(
     workflowPath:
       input.workflowPath ??
       (input.codexRotatingProviderInstanceId
-        ? defaultCodexRotatingWorkflowPath
+        ? (repositoryWorkflowPath ?? defaultCodexRotatingWorkflowPath)
         : defaultWorkflowPath),
   };
 }

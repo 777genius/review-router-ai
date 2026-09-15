@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getPrisma: vi.fn(),
   getServerSession: vi.fn(),
   getValidGitHubUserAccessToken: vi.fn(),
+  appAuth: vi.fn(),
   octokitRequest: vi.fn(),
   updateRepositoryPermissionCacheFromLiveCheck: vi.fn(),
 }));
@@ -25,6 +26,8 @@ vi.mock("@reviewrouter/platform-config", () => ({
 
 vi.mock("@octokit/app", () => ({
   App: class App {
+    octokit = { auth: mocks.appAuth };
+
     getInstallationOctokit() {
       return { request: mocks.octokitRequest };
     }
@@ -59,6 +62,7 @@ import {
   assertDashboardRepositoryRecoveryAllowed,
   createGitHubUserOctokit,
   getDashboardSignedInActor,
+  mintFreshGitHubAppRepositorySecretWriteToken,
 } from "./dashboard-mutations";
 
 const repository = {
@@ -474,6 +478,65 @@ describe("dashboard repository mutations", () => {
         githubLogin: "",
       }),
       expect.any(Object),
+    );
+  });
+});
+
+describe("setup repository secret installation token", () => {
+  beforeEach(() => {
+    vi.stubEnv("GITHUB_APP_ID", "12345");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+  });
+
+  it("requests a fresh token for only the target repository and secrets write", async () => {
+    mocks.appAuth.mockResolvedValue({
+      token: "ghs_repository_secret_write",
+      repositoryIds: [1001],
+      permissions: { metadata: "read", secrets: "write" },
+    });
+
+    await expect(
+      mintFreshGitHubAppRepositorySecretWriteToken({
+        githubInstallationId: "101",
+        githubRepositoryId: "1001",
+      }),
+    ).resolves.toBe("ghs_repository_secret_write");
+    expect(mocks.appAuth).toHaveBeenCalledWith({
+      type: "installation",
+      installationId: 101,
+      repositoryIds: [1001],
+      permissions: { secrets: "write" },
+      refresh: true,
+    });
+  });
+
+  it.each([
+    [{ repositoryIds: [1001, 1002], permissions: { secrets: "write" } }],
+    [{ repositoryIds: [1002], permissions: { secrets: "write" } }],
+    [{ repositoryIds: [1001], permissions: { secrets: "read" } }],
+    [
+      {
+        repositoryIds: [1001],
+        permissions: { contents: "write", secrets: "write" },
+      },
+    ],
+  ])("rejects a broader or mismatched returned scope %#", async (returned) => {
+    mocks.appAuth.mockResolvedValue({
+      token: "ghs_invalid_scope",
+      ...returned,
+    });
+
+    await expect(
+      mintFreshGitHubAppRepositorySecretWriteToken({
+        githubInstallationId: "101",
+        githubRepositoryId: "1001",
+      }),
+    ).rejects.toThrow(
+      /setup_secret_token_(?:repository_scope|permissions)_mismatch/u,
     );
   });
 });

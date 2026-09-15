@@ -18,7 +18,7 @@ function deferred() {
 }
 
 describe("repository inventory ownership order", () => {
-  it("ignores a delayed I1 snapshot after I2 transfers and configures the repository", async () => {
+  it("keeps a delayed I1 snapshot behind the I2 reconnect fence", async () => {
     const state = createProvisioningPrisma({
       ...initialCandidate,
       status: "configured",
@@ -28,16 +28,25 @@ describe("repository inventory ownership order", () => {
       workspaceId: record.workspaceId,
       installationId: record.installationId,
       inventoryGeneration: 0n,
+      selected: true,
+      scmRepositoryIdentityId: null,
     };
     let generation = 0n;
     const repositoryConnection = {
+      findMany: vi.fn(async () => []),
       ...state.repositoryConnection,
       findUnique: vi.fn(async () => ({ ...repository })),
       upsert: vi.fn(async ({ update }: { update: typeof repository }) => {
         repository = { ...repository, ...update };
         return repository;
       }),
-      updateMany: vi.fn(async () => ({ count: 0 })),
+      updateMany: vi.fn(
+        async ({ where, data }: { where: { id?: string }; data: object }) => {
+          if (where.id !== repository.id) return { count: 0 };
+          repository = { ...repository, ...data };
+          return { count: 1 };
+        },
+      ),
     };
     const tx = {
       workflowProvisioning: state.workflowProvisioning,
@@ -90,23 +99,30 @@ describe("repository inventory ownership order", () => {
     });
     await fetched.promise;
     try {
-      await syncInstallationRepositories("2", {
-        repositories: store,
-        clock: { now: () => new Date("2026-01-01") },
-        github: {
-          async listInstallationRepositories() {
-            return snapshot;
+      await expect(
+        syncInstallationRepositories("2", {
+          repositories: store,
+          clock: { now: () => new Date("2026-01-01") },
+          github: {
+            async listInstallationRepositories() {
+              return snapshot;
+            },
           },
-        },
-      });
-      const configured = { ...state.current()!, status: "configured" as const };
-      state.replace(configured);
+        }),
+      ).rejects.toThrow("repository_transfer_reconnect_reselection_required");
       const before = { ...repository };
+      const provisioningBefore = { ...state.current()! };
+      expect(before).toMatchObject({
+        workspaceId: record.workspaceId,
+        installationId: record.installationId,
+        inventoryGeneration: 2n,
+        selected: false,
+      });
       resume.resolve();
       expect(await old).toMatchObject({ upserted: 0, unselected: 0 });
       expect(repository).toEqual(before);
-      expect(state.current()).toEqual(configured);
-      expect(repositoryConnection.upsert).toHaveBeenCalledTimes(1);
+      expect(state.current()).toEqual(provisioningBefore);
+      expect(repositoryConnection.upsert).not.toHaveBeenCalled();
     } finally {
       resume.resolve();
       await old;

@@ -36,6 +36,7 @@ const now = new Date("2026-08-10T00:00:00.000Z");
 const manifest = buildCodexRotatingSetupManifest({
   repositoryFullName: "owner/repository",
   repositoryId: "900001",
+  repositoryIdentityVersion: 1,
   providerInstanceId: "codex-rotating:900001",
   setupNonce,
   installerUrl: "https://reviewrouter.example/install",
@@ -120,5 +121,7 @@ describe("setup manifest fetch lock ordering", () => {
     ]);
     expect(queryTexts[0]).not.toContain("FOR UPDATE");
     expect(queryTexts[1]).toContain("FOR UPDATE");
+    expect(queryTexts[2]).toContain('identity."version" = ?');
+    expect(queryTexts[2]).toContain("FOR UPDATE OF identity");
   });
 });

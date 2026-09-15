@@ -88,6 +88,12 @@ function harness() {
         },
       };
     }),
+    withVersionedWritebackDispatchAuthorization: vi.fn(
+      async (_input, dispatch) => {
+        events.push("authorize-put");
+        return dispatch();
+      },
+    ),
     confirmVersionedProviderWrite: vi.fn(async () => {
       events.push("confirm-provider");
     }),
@@ -269,6 +275,7 @@ describe("versioned rotating runtime writeback dispatcher", () => {
     ).resolves.toEqual({ status: "accepted", generation: 2 });
     expect(h.events).toEqual([
       "claim",
+      "authorize-put",
       "put",
       "confirm-provider",
       "publish-verify-v4",
@@ -278,6 +285,26 @@ describe("versioned rotating runtime writeback dispatcher", () => {
     expect(h.provider.putEncryptedRepositorySecret).toHaveBeenCalledWith(
       expect.objectContaining({ secretName: namespace.name }),
     );
+  });
+
+  it("does not issue a provider PUT after the dispatch intent is revoked", async () => {
+    const h = harness();
+    h.ledger.withVersionedWritebackDispatchAuthorization.mockRejectedValueOnce(
+      new Error("codex_rotating_writeback_dispatch_revoked"),
+    );
+
+    await expect(
+      new CodexRotatingVersionedWritebackDispatcher(
+        h.ledger,
+        h.provider,
+        h.workflows,
+      ).dispatchOneShot({
+        request,
+        encryptedPayloadDigest: "digest-1",
+      }),
+    ).resolves.toEqual({ status: "writeback_recovery_required" });
+    expect(h.provider.putEncryptedRepositorySecret).not.toHaveBeenCalled();
+    expect(h.ledger.retireAmbiguousVersionedWriteback).toHaveBeenCalledOnce();
   });
 
   it.each(["provider", "workflow"] as const)(

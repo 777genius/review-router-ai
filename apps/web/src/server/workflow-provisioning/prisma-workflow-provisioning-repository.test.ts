@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { PrismaRepositoryConnectionRepository } from "@reviewrouter/features-repositories";
-import { projectRepositorySetupStatus } from "@reviewrouter/features-workflow-provisioning";
 import { PrismaWorkflowProvisioningRepository } from "@reviewrouter/features-workflow-provisioning";
 import { PrismaWorkflowProvisioningStatusAuthority } from "@reviewrouter/features-workflow-provisioning";
 import {
@@ -116,7 +115,7 @@ describe("provisioning attempt writers", () => {
   });
 
   it.each([true, false])(
-    "invalidates a two-workspace transfer and replays sync safely (existing authority: %s)",
+    "fences a two-workspace transfer idempotently (existing authority: %s)",
     async (hasAuthority) => {
       const f = createProvisioningPrisma(
         hasAuthority ? { ...initialCandidate, status: "configured" } : null,
@@ -125,6 +124,11 @@ describe("provisioning attempt writers", () => {
         id: record.repositoryId,
         workspaceId: record.workspaceId,
         installationId: record.installationId,
+        inventoryGeneration: 0n,
+        selected: true,
+        scmRepositoryIdentityId: null,
+        defaultBranch: "main",
+        fullName: "acme/widget",
       };
       const destination = {
         id: "installation_2",
@@ -133,18 +137,14 @@ describe("provisioning attempt writers", () => {
       const repositoryConnection = {
         ...f.repositoryConnection,
         findUnique: vi.fn(async () => ({ ...repository })),
-        upsert: vi.fn(
-          async ({ update }: { update: Omit<typeof repository, "id"> }) => {
-            repository = {
-              ...repository,
-              workspaceId: update.workspaceId,
-              installationId: update.installationId,
-            };
-            f.transfer();
-            return { ...repository };
+        upsert: vi.fn(),
+        updateMany: vi.fn(
+          async ({ where, data }: { where: { id?: string }; data: object }) => {
+            if (where.id !== repository.id) return { count: 0 };
+            repository = { ...repository, ...data };
+            return { count: 1 };
           },
         ),
-        updateMany: vi.fn(async () => ({ count: 0 })),
       };
       const tx = {
         $queryRaw: vi.fn(async () => [{ locked: 1 }]),
@@ -176,81 +176,42 @@ describe("provisioning attempt writers", () => {
           },
         ],
       };
-      await sync.syncInstallationRepositories(input);
-      expect(repository).toEqual({
-        id: record.repositoryId,
-        workspaceId: destination.workspaceId,
-        installationId: destination.id,
-      });
-      const transferred = { ...f.current()! };
-      expect(transferred).toMatchObject({
-        repositoryId: record.repositoryId,
-        workspaceId: destination.workspaceId,
-        installationId: destination.id,
-        status: "not_started",
-        pullRequestUrl: null,
-        errorMessage: null,
-      });
-      if (hasAuthority)
-        expect(transferred.attemptId).not.toBe(initialCandidate.attemptId);
-      expect(
-        projectRepositorySetupStatus({
-          workflowProvisioningStatus: transferred.status,
-          legacySetupStatus: "configured",
-        }),
-      ).toBe("not_configured");
-      await new PrismaWorkflowProvisioningRepository(
-        prisma as never,
-      ).markFailed({
-        ...record,
-        ...initialCandidate,
-        errorMessage: "old workspace callback",
-      });
-      expect(
-        await new PrismaWorkflowProvisioningStatusAuthority(
-          prisma as never,
-        ).markConfigured(identity),
-      ).toBe(false);
-      await sync.syncInstallationRepositories(input);
-      expect(f.current()).toEqual(transferred);
-      expect(f.workflowProvisioning.create).toHaveBeenCalledTimes(
-        hasAuthority ? 0 : 1,
+
+      await expect(sync.syncInstallationRepositories(input)).rejects.toThrow(
+        "repository_transfer_reconnect_reselection_required",
       );
+      expect(repository).toMatchObject({
+        workspaceId: record.workspaceId,
+        installationId: record.installationId,
+        inventoryGeneration: 1n,
+        selected: false,
+      });
+      expect(repositoryConnection.upsert).not.toHaveBeenCalled();
+      const fenced = f.current() ? { ...f.current()! } : null;
+      if (hasAuthority) {
+        expect(fenced).toMatchObject({
+          workspaceId: record.workspaceId,
+          installationId: record.installationId,
+          status: "not_started",
+          pullRequestUrl: null,
+          pullRequestHeadSha: null,
+          errorMessage: "repository_transfer_reconnect_reselection_required",
+        });
+        expect(fenced!.attemptId).not.toBe(initialCandidate.attemptId);
+      } else {
+        expect(fenced).toBeNull();
+      }
+
+      await expect(sync.syncInstallationRepositories(input)).rejects.toThrow(
+        "repository_transfer_reconnect_reselection_required",
+      );
+      expect(f.current()).toEqual(fenced);
       expect(f.workflowProvisioning.updateMany).toHaveBeenCalledTimes(
         hasAuthority ? 1 : 0,
       );
+      expect(repositoryConnection.upsert).not.toHaveBeenCalled();
       expect(f.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
         isolationLevel: "Serializable",
-      });
-      const authority = new PrismaWorkflowProvisioningStatusAuthority(
-        prisma as never,
-      );
-      await expect(
-        authority.confirmInstalledWorkflow({
-          ...record,
-          baseBranch: "main",
-          expectedAttempt: transferred,
-        }),
-      ).rejects.toThrow("workflow_provisioning_match_not_found");
-      const installed = {
-        ...record,
-        workspaceId: destination.workspaceId,
-        installationId: destination.id,
-        // A marker created without previous authority has no artifact binding.
-        workflowPath: hasAuthority
-          ? record.workflowPath
-          : ".github/workflows/reviewrouter.yml",
-        baseBranch: "main",
-        expectedAttempt: transferred,
-      };
-      await authority.confirmInstalledWorkflow(installed);
-      expect(f.current()).toMatchObject({
-        status: "configured",
-        workflowPath: installed.workflowPath,
-        workflowStyle: "reusable",
-        actionVersion: record.actionVersion,
-        pullRequestHeadSha: null,
-        revision: transferred.revision + 1,
       });
     },
   );

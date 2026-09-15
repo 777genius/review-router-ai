@@ -63,6 +63,10 @@ export class JoseActionSessionTokenService implements ActionSessionTokenServiceP
         "githubRepositoryId",
       ),
       repository: assertString(payload.repository, "repository"),
+      ...(typeof payload.identityBindingEpoch === "string" &&
+      payload.identityBindingEpoch.length > 0
+        ? { identityBindingEpoch: payload.identityBindingEpoch }
+        : {}),
       githubActorLogin: optionalString(payload.githubActorLogin),
       githubRunId: assertString(payload.githubRunId, "githubRunId"),
       githubRunAttempt: assertString(

@@ -6,7 +6,7 @@ import {
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
-    const result = await codexRotatingSetupLedger.authorizeDispatch(
+    const result = await codexRotatingSetupLedger.authorizeAndPutSecret(
       await request.json(),
     );
     return NextResponse.json(result, {

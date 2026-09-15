@@ -23,8 +23,10 @@ import {
   type CodexRotatingSetupRecoveryFence,
   type CodexRotatingSetupStatus,
 } from "../../domain/codex-rotating-setup-payload-claim";
-import { assertCodexRotatingWorkflowAlreadyActiveTransition } from "../../domain/codex-rotating-workflow-reattestation";
-import { assertCodexRotatingWorkflowV4ToV5Transition } from "../../domain/codex-rotating-workflow-reattestation";
+import {
+  assertCodexRotatingWorkflowAlreadyActiveTransition,
+  assertCodexRotatingWorkflowReplacementTransition,
+} from "../../domain/codex-rotating-workflow-reattestation";
 import {
   allocateVersionedProviderSecretNamespace,
   assertProviderSecretAuthorizationUnexpired,
@@ -47,6 +49,7 @@ type Stored = {
   workflowAttestation: VersionedSecretWorkflowSourceAttestation | null;
   retiringWorkflowAttestation: VersionedSecretWorkflowSourceAttestation | null;
   retiringWorkflowAt: Date | null;
+  activatedRepositoryFullName: string | null;
 };
 
 export class InMemoryCodexRotatingSetupPayloadClaim
@@ -125,6 +128,7 @@ export class InMemoryCodexRotatingSetupPayloadClaim
       workflowAttestation: null,
       retiringWorkflowAttestation: null,
       retiringWorkflowAt: null,
+      activatedRepositoryFullName: null,
     };
     this.#claims.set(key, stored);
     this.#claims.set(claimId, stored);
@@ -284,6 +288,7 @@ export class InMemoryCodexRotatingSetupPayloadClaim
         }),
       },
     );
+    stored.activatedRepositoryFullName = attestation.repositoryFullName;
     stored.status = "active";
     return { status: "active" as const };
   }
@@ -366,6 +371,7 @@ export class InMemoryCodexRotatingSetupPayloadClaim
       attempt.secretName !== input.target.namespace.name ||
       stored.claim.repositoryId !== input.target.repositoryId ||
       stored.claim.generationHash !== input.target.expectedGenerationHash ||
+      stored.activatedRepositoryFullName !== input.target.repositoryFullName ||
       !persisted ||
       !sameExactWorkflowAttestation(persisted, input.expectedCurrent)
     ) {
@@ -404,6 +410,8 @@ export class InMemoryCodexRotatingSetupPayloadClaim
       stored.claim.repositoryId !== transition.target.repositoryId ||
       stored.claim.generationHash !==
         transition.target.expectedGenerationHash ||
+      stored.activatedRepositoryFullName !==
+        transition.target.repositoryFullName ||
       !persisted ||
       !sameExactWorkflowAttestation(persisted, transition.expectedCurrent)
     ) {
@@ -422,10 +430,7 @@ export class InMemoryCodexRotatingSetupPayloadClaim
       throw new Error("codex_rotating_workflow_reattestation_stale");
     }
     if (
-      persisted.workflowSchemaVersion !== 4 ||
-      transition.replacement.workflowSchemaVersion !== 5 ||
       transition.replacement.repositoryId !== persisted.repositoryId ||
-      transition.replacement.workflowPath !== persisted.workflowPath ||
       transition.replacement.sourceTrust !== persisted.sourceTrust ||
       transition.replacement.workflowSourceSha256 ===
         persisted.workflowSourceSha256 ||
@@ -435,19 +440,23 @@ export class InMemoryCodexRotatingSetupPayloadClaim
       throw new Error("codex_rotating_workflow_reattestation_stale");
     }
     try {
-      assertCodexRotatingWorkflowV4ToV5Transition({
+      assertCodexRotatingWorkflowReplacementTransition({
         current: persisted,
         replacement: transition.replacement,
         compatibilityWindowSeconds: transition.compatibilityWindowSeconds,
+        repositoryFullName: transition.target.repositoryFullName,
       });
     } catch {
       throw new Error("codex_rotating_workflow_reattestation_stale");
     }
-    stored.retiringWorkflowAttestation =
-      createVersionedSecretWorkflowSourceAttestation(persisted);
-    stored.retiringWorkflowAt = new Date(
-      this.clock.now().getTime() + transition.compatibilityWindowSeconds * 1000,
-    );
+    if (persisted.workflowSchemaVersion === 4) {
+      stored.retiringWorkflowAttestation =
+        createVersionedSecretWorkflowSourceAttestation(persisted);
+      stored.retiringWorkflowAt = new Date(
+        this.clock.now().getTime() +
+          transition.compatibilityWindowSeconds * 1000,
+      );
+    }
     stored.workflowAttestation = createVersionedSecretWorkflowSourceAttestation(
       transition.replacement,
     );

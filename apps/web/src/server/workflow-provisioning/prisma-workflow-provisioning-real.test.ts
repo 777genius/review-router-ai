@@ -459,7 +459,16 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
     }
   });
 
-  it("atomically invalidates setup on two-workspace transfer and aligns every projection", async () => {
+  it("atomically fences a two-workspace transfer and replays it idempotently", async () => {
+    await prisma.repositoryConnection.update({
+      where: { id: repositoryId },
+      data: {
+        workspaceId,
+        installationId,
+        selected: true,
+        inventoryGeneration: 0n,
+      },
+    });
     const { writer, attempt } = await open();
     const sync = new PrismaRepositoryConnectionRepository(prisma);
     const input = {
@@ -479,75 +488,89 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
         },
       ],
     };
-    await sync.syncInstallationRepositories(input);
-    const transferred = await prisma.workflowProvisioning.findUniqueOrThrow({
+    await expect(sync.syncInstallationRepositories(input)).rejects.toThrow(
+      "repository_transfer_reconnect_reselection_required",
+    );
+    expect(
+      await prisma.repositoryConnection.findUniqueOrThrow({
+        where: { id: repositoryId },
+      }),
+    ).toMatchObject({
+      workspaceId,
+      installationId,
+      selected: false,
+      inventoryGeneration: input.inventoryGeneration,
+    });
+    const fenced = await prisma.workflowProvisioning.findUniqueOrThrow({
       where: { repositoryId },
     });
-    expect(transferred).toMatchObject({
-      workspaceId: otherWorkspaceId,
-      installationId: otherInstallationId,
+    expect(fenced).toMatchObject({
+      workspaceId,
+      installationId,
       status: "not_started",
       pullRequestUrl: null,
+      pullRequestHeadSha: null,
+      errorMessage: "repository_transfer_reconnect_reselection_required",
     });
-    expect(transferred.attemptId).not.toBe(attempt.attemptId);
-    await writer.markFailed({ ...record, ...attempt });
-    expect(
-      await new PrismaWorkflowProvisioningStatusAuthority(
-        prisma,
-      ).markConfigured(identity),
-    ).toBe(false);
+    expect(fenced.attemptId).not.toBe(attempt.attemptId);
     const query = new PrismaWorkflowProvisioningQuery(prisma);
     expect(
       await query.listLatestForRepositories({
         workspaceId,
         repositoryIds: [repositoryId],
       }),
-    ).toEqual([]);
+    ).toMatchObject([{ status: "not_started" }]);
     expect(
       await query.listLatestForRepositories({
         workspaceId: otherWorkspaceId,
         repositoryIds: [repositoryId],
       }),
-    ).toMatchObject([{ status: "not_started" }]);
+    ).toEqual([]);
+    expect(
+      await new PrismaRepositoryHealthRepository(
+        prisma,
+      ).listWorkspaceHealthInputs(workspaceId),
+    ).toMatchObject([{ setupStatus: "not_configured" }]);
     expect(
       await new PrismaRepositoryHealthRepository(
         prisma,
       ).listWorkspaceHealthInputs(otherWorkspaceId),
-    ).toMatchObject([{ setupStatus: "not_configured" }]);
+    ).toEqual([]);
     const diagnostics = new PrismaSupportDiagnosticsRepository(prisma);
     expect(
-      (await diagnostics.getWorkspaceDiagnosticsInput(workspaceId))
-        ?.workflowProvisioning,
-    ).toEqual([]);
-    expect(
-      await diagnostics.getWorkspaceDiagnosticsInput(otherWorkspaceId),
+      await diagnostics.getWorkspaceDiagnosticsInput(workspaceId),
     ).toMatchObject({
-      repositories: [{ setupStatus: "not_configured" }],
+      repositories: [{ selected: false, setupStatus: "not_configured" }],
       workflowProvisioning: [{ status: "not_started" }],
     });
-    await sync.syncInstallationRepositories(input);
     expect(
-      (
-        await prisma.workflowProvisioning.findUniqueOrThrow({
-          where: { repositoryId },
-        })
-      ).attemptId,
-    ).toBe(transferred.attemptId);
-    // The transferred installation can recover only with fresh installed evidence.
-    await new PrismaWorkflowProvisioningStatusAuthority(
-      prisma,
-    ).confirmInstalledWorkflow({
-      ...record,
-      workspaceId: otherWorkspaceId,
-      installationId: otherInstallationId,
-      baseBranch: "main",
-      expectedAttempt: transferred,
-    });
+      await diagnostics.getWorkspaceDiagnosticsInput(otherWorkspaceId),
+    ).toMatchObject({ repositories: [], workflowProvisioning: [] });
+    await writer.markFailed({ ...record, ...attempt });
+    expect(
+      await new PrismaWorkflowProvisioningStatusAuthority(
+        prisma,
+      ).markConfigured(identity),
+    ).toBe(false);
+
+    await expect(sync.syncInstallationRepositories(input)).rejects.toThrow(
+      "repository_transfer_reconnect_reselection_required",
+    );
+    expect(
+      await prisma.workflowProvisioning.findUniqueOrThrow({
+        where: { repositoryId },
+      }),
+    ).toEqual(fenced);
   });
-  it("does not let an older I1 inventory reverse a concurrent I2 transfer", async () => {
+  it("does not let an older I1 inventory reverse a concurrent I2 fence", async () => {
     await prisma.repositoryConnection.update({
       where: { id: repositoryId },
-      data: { workspaceId, installationId },
+      data: {
+        workspaceId,
+        installationId,
+        selected: true,
+        inventoryGeneration: 0n,
+      },
     });
     const sync = new PrismaRepositoryConnectionRepository(prisma);
     const entered = deferred();
@@ -566,7 +589,6 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
     ];
     const older = syncInstallationRepositories(githubId.toString(), {
       repositories: sync,
-      // A deliberately fast I1 clock cannot overrule the database generation.
       clock: { now: () => new Date("2099-01-01") },
       github: {
         async listInstallationRepositories() {
@@ -578,37 +600,26 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
     });
     await entered.promise;
     try {
-      await syncInstallationRepositories((githubId + 1n).toString(), {
-        repositories: sync,
-        clock: { now: () => new Date("2026-01-01") },
-        github: {
-          async listInstallationRepositories() {
-            return snapshot;
+      await expect(
+        syncInstallationRepositories((githubId + 1n).toString(), {
+          repositories: sync,
+          clock: { now: () => new Date("2026-01-01") },
+          github: {
+            async listInstallationRepositories() {
+              return snapshot;
+            },
           },
-        },
-      });
-      const destination = {
-        ...record,
-        workspaceId: otherWorkspaceId,
-        installationId: otherInstallationId,
-      };
-      const attempt = await new PrismaWorkflowProvisioningRepository(
-        prisma,
-      ).beginAttempt(destination);
-      await new PrismaWorkflowProvisioningStatusAuthority(
-        prisma,
-      ).confirmInstalledWorkflow({
-        ...destination,
-        expectedAttempt: attempt,
-        baseBranch: "main",
-      });
-      const before = await prisma.workflowProvisioning.findUniqueOrThrow({
-        where: { repositoryId },
-      });
+        }),
+      ).rejects.toThrow("repository_transfer_reconnect_reselection_required");
       const repositoryBefore =
         await prisma.repositoryConnection.findUniqueOrThrow({
           where: { id: repositoryId },
         });
+      const provisioningBefore =
+        await prisma.workflowProvisioning.findUniqueOrThrow({
+          where: { repositoryId },
+        });
+      expect(repositoryBefore.selected).toBe(false);
       resume.resolve();
       expect(await older).toMatchObject({ upserted: 0, unselected: 0 });
       expect(
@@ -620,24 +631,28 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
         await prisma.workflowProvisioning.findUniqueOrThrow({
           where: { repositoryId },
         }),
-      ).toEqual(before);
+      ).toEqual(provisioningBefore);
     } finally {
       resume.resolve();
       await older;
     }
   });
-
   it.each([
     { pauseAfterLookup: false, enabled: true },
     { pauseAfterLookup: true, enabled: true },
     { pauseAfterLookup: false, enabled: false },
     { pauseAfterLookup: true, enabled: false },
   ])(
-    "keeps the authorized scope through a transfer interleaving: %j",
+    "rejects old-scope provisioning through a transfer fence: %j",
     async ({ pauseAfterLookup, enabled }) => {
       await prisma.repositoryConnection.update({
         where: { id: repositoryId },
-        data: { workspaceId, installationId },
+        data: {
+          workspaceId,
+          installationId,
+          selected: true,
+          inventoryGeneration: 0n,
+        },
       });
       const target = new PrismaWorkflowProvisioningTarget(prisma);
       const writer = new PrismaWorkflowProvisioningRepository(prisma);
@@ -674,51 +689,32 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
         },
       );
       const rejected = expect(oldRequest).rejects.toThrow(
-        "repository_not_found",
+        pauseAfterLookup ? "repository_not_found" : "repository_not_selected",
       );
       await entered.promise;
       try {
         const sync = new PrismaRepositoryConnectionRepository(prisma);
-        await sync.syncInstallationRepositories({
-          inventoryGeneration: await sync.beginInstallationInventory(),
-          githubInstallationId: (githubId + 1n).toString(),
-          syncedAt: new Date(),
-          repositories: [
-            {
-              githubRepositoryId: githubId.toString(),
-              owner: "acme",
-              name: "widget",
-              fullName: "acme/widget",
-              defaultBranch: "main",
-              visibility: "private",
-              archived: false,
-              stargazersCount: 0,
-            },
-          ],
-        });
-        const destination = {
-          ...record,
-          workspaceId: otherWorkspaceId,
-          installationId: otherInstallationId,
-        };
-        const current = await writer.beginAttempt(destination);
-        await new PrismaWorkflowProvisioningStatusAuthority(
-          prisma,
-        ).confirmInstalledWorkflow({
-          ...destination,
-          expectedAttempt: current,
-          baseBranch: "main",
-        });
-        const before = await prisma.workflowProvisioning.findUniqueOrThrow({
-          where: { repositoryId },
-        });
+        await expect(
+          sync.syncInstallationRepositories({
+            inventoryGeneration: await sync.beginInstallationInventory(),
+            githubInstallationId: (githubId + 1n).toString(),
+            syncedAt: new Date(),
+            repositories: [
+              {
+                githubRepositoryId: githubId.toString(),
+                owner: "acme",
+                name: "widget",
+                fullName: "acme/widget",
+                defaultBranch: "main",
+                visibility: "private",
+                archived: false,
+                stargazersCount: 0,
+              },
+            ],
+          }),
+        ).rejects.toThrow("repository_transfer_reconnect_reselection_required");
         resume.resolve();
         await rejected;
-        expect(
-          await prisma.workflowProvisioning.findUniqueOrThrow({
-            where: { repositoryId },
-          }),
-        ).toEqual(before);
         expect(gateway.createOrUpdateSetupPullRequest).not.toHaveBeenCalled();
       } finally {
         resume.resolve();
@@ -726,7 +722,7 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
       }
     },
   );
-  it("binds a transferred no-history placeholder and rejects recovery captured in the old scope", async () => {
+  it("fences a transferred no-history repository without inventing authority", async () => {
     const transferredRepositoryId = `${prefix}-unbound`;
     const transferredGithubId = githubId + 2n;
     await prisma.repositoryConnection.create({
@@ -745,79 +741,49 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
       },
     });
     const sync = new PrismaRepositoryConnectionRepository(prisma);
-    const transfer = async (githubInstallationId: bigint) =>
-      sync.syncInstallationRepositories({
-        inventoryGeneration: await sync.beginInstallationInventory(),
-        githubInstallationId: githubInstallationId.toString(),
-        syncedAt: new Date(),
-        repositories: [
-          {
-            githubRepositoryId: transferredGithubId.toString(),
-            owner: "acme",
-            name: "unbound",
-            fullName: "acme/unbound",
-            defaultBranch: "main",
-            visibility: "private",
-            archived: false,
-            stargazersCount: 0,
-          },
-        ],
-      });
-    await transfer(githubId + 1n);
-    const marker = await prisma.workflowProvisioning.findUniqueOrThrow({
-      where: { repositoryId: transferredRepositoryId },
-    });
-    expect(marker).toMatchObject({
-      status: "not_started",
-      workflowPath: record.workflowPath,
-      workflowStyle: "explicit",
-      actionVersion: "",
-      pullRequestUrl: null,
-      pullRequestHeadSha: null,
-    });
-    const authority = new PrismaWorkflowProvisioningStatusAuthority(prisma);
-    const installed = {
-      ...record,
-      repositoryId: transferredRepositoryId,
-      workspaceId: otherWorkspaceId,
-      installationId: otherInstallationId,
-      workflowPath: ".github/workflows/reviewrouter.yml",
-      baseBranch: "main",
-      expectedAttempt: marker,
+    const input = {
+      inventoryGeneration: await sync.beginInstallationInventory(),
+      githubInstallationId: (githubId + 1n).toString(),
+      syncedAt: new Date(),
+      repositories: [
+        {
+          githubRepositoryId: transferredGithubId.toString(),
+          owner: "acme",
+          name: "unbound",
+          fullName: "acme/unbound",
+          defaultBranch: "main",
+          visibility: "private" as const,
+          archived: false,
+          stargazersCount: 0,
+        },
+      ],
     };
-    // A verification started in I2 completes after transfer back to I1.
-    await transfer(githubId);
-    const current = await prisma.workflowProvisioning.findUniqueOrThrow({
-      where: { repositoryId: transferredRepositoryId },
-    });
-    await expect(authority.confirmInstalledWorkflow(installed)).rejects.toThrow(
-      "workflow_provisioning_match_not_found",
+    await expect(sync.syncInstallationRepositories(input)).rejects.toThrow(
+      "repository_transfer_reconnect_reselection_required",
     );
     expect(
-      await prisma.workflowProvisioning.findUniqueOrThrow({
-        where: { repositoryId: transferredRepositoryId },
-      }),
-    ).toEqual(current);
-    await authority.confirmInstalledWorkflow({
-      ...installed,
-      workspaceId,
-      installationId,
-      expectedAttempt: current,
-    });
-    expect(
-      await prisma.workflowProvisioning.findUniqueOrThrow({
-        where: { repositoryId: transferredRepositoryId },
+      await prisma.repositoryConnection.findUniqueOrThrow({
+        where: { id: transferredRepositoryId },
       }),
     ).toMatchObject({
       workspaceId,
       installationId,
-      status: "configured",
-      workflowPath: installed.workflowPath,
-      workflowStyle: installed.workflowStyle,
-      actionVersion: installed.actionVersion,
-      pullRequestHeadSha: null,
-      revision: current.revision + 1,
+      selected: false,
+      inventoryGeneration: input.inventoryGeneration,
     });
+    expect(
+      await prisma.workflowProvisioning.findUnique({
+        where: { repositoryId: transferredRepositoryId },
+      }),
+    ).toBeNull();
+    await expect(sync.syncInstallationRepositories(input)).rejects.toThrow(
+      "repository_transfer_reconnect_reselection_required",
+    );
+    expect(
+      await prisma.workflowProvisioning.findUnique({
+        where: { repositoryId: transferredRepositoryId },
+      }),
+    ).toBeNull();
   });
 });
 
