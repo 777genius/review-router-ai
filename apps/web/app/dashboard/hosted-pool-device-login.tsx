@@ -70,7 +70,7 @@ export function HostedPoolDeviceLogin({
   readonly children?: ReactNode;
   readonly startAction: DeviceLoginAction<HostedPoolDeviceLoginStartResult>;
   readonly pollAction: DeviceLoginAction<HostedPoolDeviceLoginPollResult>;
-  readonly previewFlight?: HostedPoolDeviceLoginFlight;
+  readonly previewFlight?: HostedPoolDeviceLoginFlight | undefined;
 }): React.ReactElement {
   const router = useRouter();
   const [, startTransition] = useTransition();

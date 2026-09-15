@@ -21,7 +21,7 @@ export function HostedPoolPreviewClient({
       workspaceId="workspace-preview"
       mutationsEnabled
       view={view}
-      previewDeviceLoginFlight={previewDeviceLoginFlight}
+      {...(previewDeviceLoginFlight ? { previewDeviceLoginFlight } : {})}
       actions={{
         importAccount: noopAction,
         setAccountState: noopAction,
