@@ -807,6 +807,62 @@ describe("PrismaActionControlPlaneRepository helpers", () => {
     ).toBe(false);
   });
 
+  it("reads repository metadata and identity from one repeatable snapshot", async () => {
+    const rootFindFirst = vi.fn();
+    const rootQueryRaw = vi.fn();
+    const transactionFindFirst = vi.fn().mockResolvedValue({
+      id: "repository_1",
+      workspaceId: "workspace_1",
+      githubRepositoryId: 123456n,
+      fullName: "777genius/example",
+      owner: "777genius",
+      selected: true,
+      workspace: { orgRulesets: [] },
+      provisioning: [],
+      installation: {
+        githubInstallationId: 789n,
+        status: "active",
+      },
+    });
+    const boundAt = new Date("2026-09-15T10:00:00.000Z");
+    const transactionQueryRaw = vi
+      .fn()
+      .mockResolvedValue([{ version: 7, boundAt }]);
+    const transaction = {
+      repositoryConnection: { findFirst: transactionFindFirst },
+      $queryRaw: transactionQueryRaw,
+    };
+    const prisma = {
+      repositoryConnection: { findFirst: rootFindFirst },
+      $queryRaw: rootQueryRaw,
+      $transaction: vi.fn(
+        async (
+          callback: (client: typeof transaction) => unknown,
+          options: { isolationLevel: string },
+        ) => {
+          expect(options).toEqual({ isolationLevel: "RepeatableRead" });
+          return callback(transaction);
+        },
+      ),
+    };
+    const repository = new PrismaActionControlPlaneRepository(
+      prisma as unknown as PrismaClient,
+    );
+
+    await expect(
+      repository.findSelectedRepositoryByGithubId("123456"),
+    ).resolves.toMatchObject({
+      repositoryId: "repository_1",
+      githubRepositoryId: "123456",
+      identityBindingEpoch: "7:" + boundAt.toISOString(),
+    });
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(transactionFindFirst).toHaveBeenCalledOnce();
+    expect(transactionQueryRaw).toHaveBeenCalledOnce();
+    expect(rootFindFirst).not.toHaveBeenCalled();
+    expect(rootQueryRaw).not.toHaveBeenCalled();
+  });
+
   it.each(["max", "ultra"] as const)(
     "hydrates stored %s effort without downgrading it",
     async (reasoningEffort) => {
@@ -1308,11 +1364,11 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
         effectKind === "token"
           ? repository.withCompletedLeaseWriteTarget(accessInput, effect)
           : effectKind === "snapshot"
-          ? repository.withAuthorizedReviewSnapshotAccess(accessInput, effect)
-          : repository.withAuthorizedReviewExecutionCheckpointAccess(
-              accessInput,
-              effect,
-            );
+            ? repository.withAuthorizedReviewSnapshotAccess(accessInput, effect)
+            : repository.withAuthorizedReviewExecutionCheckpointAccess(
+                accessInput,
+                effect,
+              );
 
       await effectStarted;
       let recoveryApplied = false;
@@ -1361,11 +1417,11 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
         effectKind === "token"
           ? repository.withCompletedLeaseWriteTarget(accessInput, effect)
           : effectKind === "snapshot"
-          ? repository.withAuthorizedReviewSnapshotAccess(accessInput, effect)
-          : repository.withAuthorizedReviewExecutionCheckpointAccess(
-              accessInput,
-              effect,
-            );
+            ? repository.withAuthorizedReviewSnapshotAccess(accessInput, effect)
+            : repository.withAuthorizedReviewExecutionCheckpointAccess(
+                accessInput,
+                effect,
+              );
 
       await expect(operation).rejects.toThrow(
         "codex_rotating_lease_repository_identity_stale",
@@ -1458,8 +1514,8 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
           )?.includes("codex_oauth_database_authority_challenge")
             ? [{ challenge: '["reviewrouter_api",1,2,"effect","owner",0]' }]
             : query.strings?.join("").includes("pg_control_system")
-            ? [{ databaseIncarnation: "7777777777777777777" }]
-            : [],
+              ? [{ databaseIncarnation: "7777777777777777777" }]
+              : [],
         ),
         codexOAuthWritebackIntent: {
           findUniqueOrThrow: vi

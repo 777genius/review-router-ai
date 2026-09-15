@@ -367,13 +367,30 @@ describe("Codex rotating OAuth action control plane", () => {
     ).rejects.toThrow("codex_rotating_database_recovery_witness_mismatch");
 
     currentWitness = witnessOne;
+    const authorized = await ledger.prepareVersionedWriteback({
+      request,
+      encryptedPayloadDigest: "encrypted-digest",
+      now,
+    });
+    expect(authorized).toMatchObject({ status: "ready" });
+    if (authorized.status !== "ready") {
+      throw new Error("expected_ready_writeback");
+    }
+
+    currentWitness = witnessTwo;
+    const dispatch = vi.fn(async () => ({ statusCode: 201 as const }));
     await expect(
-      ledger.prepareVersionedWriteback({
-        request,
-        encryptedPayloadDigest: "encrypted-digest",
-        now,
-      }),
-    ).resolves.toMatchObject({ status: "ready" });
+      ledger.withVersionedWritebackDispatchAuthorization(
+        {
+          intentId: authorized.intentId,
+          attemptId: authorized.attemptId,
+          executorOwner: authorized.executorOwner,
+          now,
+        },
+        dispatch,
+      ),
+    ).rejects.toThrow("codex_rotating_database_recovery_witness_mismatch");
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it("never falls back to the legacy fixed-name writer", async () => {

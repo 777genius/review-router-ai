@@ -738,6 +738,10 @@ export class InMemoryCodexRotatingOAuthRepository
     if (!entry) throw new Error("codex_rotating_writeback_attempt_not_found");
     const record = entry[1];
     this.assertExecutorOwner(record, input.executorOwner, now);
+    this.assertAutomaticRuntimeDatabaseRecoveryWitness(
+      this.providers.get(record.request.providerInstanceId),
+      record.databaseRecoveryWitness,
+    );
     this.assertVersionedTransitionAuthorized(record, now);
     const repository = this.providers.get(
       record.request.providerInstanceId,
@@ -1281,10 +1285,10 @@ function assertMemoryWorkflowAdmissionMatches(input: {
     input.verified.workflowSchemaVersion
       ? provider.binding.activeWorkflowSource
       : provider?.binding.retiringWorkflowSource?.workflowSchemaVersion ===
-          input.verified.workflowSchemaVersion &&
-        provider.binding.retiringWorkflowSource.retireAt > input.now
-      ? provider.binding.retiringWorkflowSource
-      : undefined;
+            input.verified.workflowSchemaVersion &&
+          provider.binding.retiringWorkflowSource.retireAt > input.now
+        ? provider.binding.retiringWorkflowSource
+        : undefined;
   let verified: VersionedSecretWorkflowSourceAttestation;
   try {
     verified = createVersionedSecretWorkflowSourceAttestation(input.verified);

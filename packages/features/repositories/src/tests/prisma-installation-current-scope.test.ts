@@ -265,6 +265,7 @@ describe("actual installation/inventory current-scope writers", () => {
       workspaceId: "destination",
       installationId: "installation",
       fullName: "test/repo",
+      defaultBranch: "main",
       selected: false,
       scmRepositoryIdentityId: "identity-1",
     });
@@ -451,6 +452,7 @@ describe("actual installation/inventory current-scope writers", () => {
         workspaceId: "destination",
         installationId: "installation",
         fullName: "test/repo",
+        defaultBranch: "main",
         scmRepositoryIdentityId: "identity-1",
       })
       .mockResolvedValueOnce({
@@ -459,6 +461,7 @@ describe("actual installation/inventory current-scope writers", () => {
         workspaceId: "destination",
         installationId: "installation",
         fullName: "test/renamed",
+        defaultBranch: "main",
         scmRepositoryIdentityId: "identity-1",
       });
     const renamedAt = new Date("2026-09-14T01:00:00.000Z");
