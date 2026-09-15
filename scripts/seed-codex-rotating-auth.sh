@@ -340,6 +340,7 @@ const required = [
   "protocolVersion",
   "repositoryFullName",
   "repositoryId",
+  "repositoryIdentityVersion",
   "providerInstanceId",
   "setupNonce",
   "authMode",
@@ -358,6 +359,7 @@ if (manifest.protocolVersion !== 2) fail("setup manifest protocol version is uns
 if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(manifest.repositoryFullName)) fail("setup manifest repository is invalid");
 if (expectedRepo && manifest.repositoryFullName !== expectedRepo) fail("setup manifest repository does not match --repo");
 if (!/^[1-9][0-9]*$/.test(manifest.repositoryId)) fail("setup manifest repository id is invalid");
+if (!Number.isSafeInteger(manifest.repositoryIdentityVersion) || manifest.repositoryIdentityVersion <= 0) fail("setup manifest repository identity version is invalid");
 if (manifest.providerInstanceId !== `codex-rotating:${manifest.repositoryId}`) fail("setup manifest provider identity is invalid");
 if (expectedProviderInstanceId && manifest.providerInstanceId !== expectedProviderInstanceId) fail("setup manifest provider does not match installer command");
 if (manifest.authMode !== "codex_subscription_oauth_rotating") fail("setup manifest auth mode is invalid");

@@ -333,6 +333,26 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
     expect(`${result.stdout}${result.stderr}`).not.toContain(
       retiredStableSecretName,
     );
+
+    const { repositoryIdentityVersion: _removed, ...legacyManifest } = manifest;
+    const legacyResult = decode(
+      Buffer.from(JSON.stringify(legacyManifest)).toString("base64url"),
+    );
+    expect(legacyResult.status).not.toBe(0);
+    expect(`${legacyResult.stdout}${legacyResult.stderr}`).toContain(
+      "setup manifest missing repositoryIdentityVersion",
+    );
+    for (const repositoryIdentityVersion of [0, -1, 1.5, "1"]) {
+      const malformedResult = decode(
+        Buffer.from(
+          JSON.stringify({ ...manifest, repositoryIdentityVersion }),
+        ).toString("base64url"),
+      );
+      expect(malformedResult.status).not.toBe(0);
+      expect(`${malformedResult.stdout}${malformedResult.stderr}`).toContain(
+        "setup manifest repository identity version is invalid",
+      );
+    }
   });
 
   it("installer falls back to sha256sum when shasum is unavailable", () => {
