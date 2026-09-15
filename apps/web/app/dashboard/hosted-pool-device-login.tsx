@@ -226,8 +226,8 @@ export function HostedPoolDeviceLogin({
         {flight.userCode}
       </p>
       <p className="mt-3 text-xs text-slate-400">
-        Waiting for ChatGPT. This code expires in 15 minutes. Session secrets
-        stay on the server.
+        Waiting for ChatGPT. {deviceLoginExpiryCopy(flight.expiresAt)} Session
+        secrets stay on the server.
       </p>
     </div>
   ) : null;
@@ -310,4 +310,18 @@ function deviceLoginErrorText(error: string): string {
     default:
       return "The dashboard action could not be completed.";
   }
+}
+
+function deviceLoginExpiryCopy(expiresAt: string): string {
+  const expiresMs = Date.parse(expiresAt);
+  if (!Number.isFinite(expiresMs)) {
+    return "This code will expire soon.";
+  }
+  const remainingMs = expiresMs - Date.now();
+  const expiryLabel = new Date(expiresMs).toISOString().slice(11, 16);
+  if (remainingMs <= 0) {
+    return `This code expired at ${expiryLabel} UTC.`;
+  }
+  const minutes = Math.max(1, Math.ceil(remainingMs / 60_000));
+  return `This code expires in ${minutes} minute${minutes === 1 ? "" : "s"} (${expiryLabel} UTC).`;
 }

@@ -84,6 +84,8 @@ describe("HostedPoolDeviceLogin", () => {
     );
     expect(await screen.findByText("ABCD-EFGH")).toBeTruthy();
     expect(screen.getByText(/Waiting for ChatGPT/)).toBeTruthy();
+    expect(screen.getByText(/12:15 UTC/)).toBeTruthy();
+    expect(screen.queryByText(/expires in 15 minutes/)).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Start ChatGPT sign-in" }),
     ).toBeNull();
