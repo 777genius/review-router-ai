@@ -78,15 +78,12 @@ function HostedPoolAccountCard({
             <h4 className="mt-1 truncate text-sm font-semibold text-cyan-50">
               {account.label}
             </h4>
-            <p className="mt-1 text-xs text-slate-400">
-              Priority {account.priority}
-            </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {primary ? (
             <Badge size="xs" tone="accent">
-              Highest priority
+              Used first
             </Badge>
           ) : null}
           <Badge size="xs" tone={accountStatusTone(state)}>
@@ -160,7 +157,9 @@ function HostedPoolAccountCard({
               variant="outline"
               size="sm"
               disabled={!mutationsEnabled}
-              idleLabel={paused ? "Resume" : "Pause"}
+              idleLabel={
+                paused ? "Use for reviews again" : "Stop using for reviews"
+              }
               pendingLabel="Saving..."
             />
           </DashboardActionForm>
@@ -193,7 +192,7 @@ function accountNeedsAttention(account: HostedAccountCardModel): boolean {
 function safeAccountStateLabel(status: string): string {
   switch (status) {
     case "healthy":
-      return "Healthy";
+      return "Ready";
     case "paused":
       return "Paused";
     case "cooldown":

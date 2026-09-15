@@ -13,31 +13,35 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 
+function futureExpiry(minutes = 15): string {
+  return new Date(Date.now() + minutes * 60_000).toISOString();
+}
+
 function expectNoCredentialLeak(): void {
   expect(document.body.textContent).not.toMatch(
     /token|fingerprint|credentialRef|refresh|device-auth|id_token|access_token/iu,
   );
 }
 
-function pendingStart() {
+function pendingStart(expiresAt = futureExpiry()) {
   return vi.fn(async () => ({
     ok: true as const,
     loginId: "login-1",
     userCode: "ABCD-EFGH",
     verificationUrl: "https://auth.openai.com/codex/device",
-    expiresAt: "2026-09-14T12:15:00.000Z",
+    expiresAt,
     intervalSeconds: 3,
   }));
 }
 
-function pendingPoll() {
+function pendingPoll(expiresAt = futureExpiry()) {
   return vi.fn(async () => ({
     ok: true as const,
     status: "pending" as const,
     loginId: "login-1",
     userCode: "ABCD-EFGH",
     verificationUrl: "https://auth.openai.com/codex/device",
-    expiresAt: "2026-09-14T12:15:00.000Z",
+    expiresAt,
   }));
 }
 
@@ -61,13 +65,21 @@ describe("HostedPoolDeviceLogin", () => {
     expect(
       screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
     ).toBeTruthy();
+    expect(screen.queryByText("Priority")).toBeNull();
+    expect(document.querySelector('input[name="priority"]')).toHaveProperty(
+      "type",
+      "hidden",
+    );
     expect(screen.queryByText("Add another ChatGPT account")).toBeNull();
     expectNoCredentialLeak();
   });
 
   it("shows the verification code without credential material", async () => {
-    const startAction = pendingStart();
-    const pollAction = pendingPoll();
+    const expiresAt = futureExpiry();
+    const startAction = pendingStart(expiresAt);
+    const pollAction = pendingPoll(expiresAt);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
     const view = render(
       <HostedPoolDeviceLogin
         workspaceId="workspace-1"
@@ -83,9 +95,17 @@ describe("HostedPoolDeviceLogin", () => {
       screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
     );
     expect(await screen.findByText("ABCD-EFGH")).toBeTruthy();
-    expect(screen.getByText(/Waiting for ChatGPT/)).toBeTruthy();
-    expect(screen.getByText(/12:15 UTC/)).toBeTruthy();
-    expect(screen.queryByText(/expires in 15 minutes/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Open ChatGPT" })).toHaveProperty(
+      "href",
+      "https://auth.openai.com/codex/device",
+    );
+    expect(screen.getByText(/detect the login automatically/i)).toBeTruthy();
+    expect(screen.getByText(/expires in \d+:\d{2}/i)).toBeTruthy();
+    expect(screen.queryByText(/UTC/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("ABCD-EFGH"),
+    );
     expect(
       screen.queryByRole("button", { name: "Start ChatGPT sign-in" }),
     ).toBeNull();
@@ -96,8 +116,9 @@ describe("HostedPoolDeviceLogin", () => {
   });
 
   it("collapses the start form after accounts exist until waiting", async () => {
-    const startAction = pendingStart();
-    const pollAction = pendingPoll();
+    const expiresAt = futureExpiry();
+    const startAction = pendingStart(expiresAt);
+    const pollAction = pendingPoll(expiresAt);
     render(
       <HostedPoolDeviceLogin
         workspaceId="workspace-1"
@@ -123,7 +144,7 @@ describe("HostedPoolDeviceLogin", () => {
       screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
     );
     expect(await screen.findByText("ABCD-EFGH")).toBeTruthy();
-    expect(screen.getByText(/Waiting for ChatGPT/)).toBeTruthy();
+    expect(screen.getByText(/detect the login automatically/i)).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Add another ChatGPT account" }),
     ).toBeNull();
