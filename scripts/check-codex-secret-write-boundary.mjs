@@ -81,7 +81,10 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
         "retire_journal_attempt_or_fail",
         "authorize_new_dispatch",
         "record_definite_dispatch_success",
-      ].map((name) => extractShellFunction(source, name));
+      ].map((name) => ({
+        name,
+        body: extractShellFunction(source, name),
+      }));
       const ledgerUrlValidation = extractShellFunction(
         source,
         "validate_versioned_ledger_urls",
@@ -105,9 +108,12 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
             firstArgument !== "-q" && firstArgument !== "--disable",
         ) ||
         ledgerFunctions.some(
-          (body) =>
-            !body.includes("curl -q -fsS --max-redirs 0") ||
-            /\s(?:-L|--location)(?:\s|$)/u.test(body),
+          ({ name, body }) =>
+            !body.includes(
+              name === "authorize_new_dispatch"
+                ? "curl -q -sS --max-redirs 0"
+                : "curl -q -fsS --max-redirs 0",
+            ) || /\s(?:-L|--location)(?:\s|$)/u.test(body),
         ) ||
         ![
           "SETUP_URL",
@@ -199,6 +205,10 @@ function requireSetupWriteAudit(checkoutRoot, failures) {
     "utf8",
   );
   const ledger = readFileSync(resolve(checkoutRoot, setupLedger), "utf8");
+  const dispatchCallIndex = ledger.indexOf(
+    "return dispatchSetupSecretUnderLock({",
+  );
+  const transactionTimeoutIndex = ledger.indexOf("{ timeout: 40_000");
   if (
     !dispatcher.includes("claims.authorizeDispatch(") ||
     !dispatcher.includes(
@@ -206,8 +216,9 @@ function requireSetupWriteAudit(checkoutRoot, failures) {
     ) ||
     !ledger.includes("dispatchSetupSecretUnderLock") ||
     !ledger.includes("response = await input.dispatch(") ||
-    ledger.indexOf("return dispatchSetupSecretUnderLock({") >
-      ledger.indexOf("{ timeout: 40_000")
+    dispatchCallIndex < 0 ||
+    transactionTimeoutIndex < 0 ||
+    dispatchCallIndex > transactionTimeoutIndex
   ) {
     failures.push(
       "setup secret PUT is not serialized by the setup identity transaction",

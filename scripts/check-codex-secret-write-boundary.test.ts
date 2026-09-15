@@ -1,4 +1,10 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -93,6 +99,11 @@ describe("Codex rotating secret write boundary", () => {
       "curl -q -fsS",
     ],
     [
+      "dispatch adapter gains fail-fast mode",
+      "curl -q -sS --max-redirs 0",
+      "curl -q -fsS --max-redirs 0",
+    ],
+    [
       "ledger URL validation removal",
       "  validate_versioned_ledger_urls\n}",
       "}",
@@ -110,6 +121,40 @@ describe("Codex rotating secret write boundary", () => {
 
     expect(() => checkCodexSecretWriteBoundary(root)).toThrow(
       "rotating write is not the pinned one-shot adapter",
+    );
+  });
+
+  it.each([
+    ["dispatch call", "return dispatchSetupSecretUnderLock({"],
+    ["transaction timeout", "{ timeout: 40_000"],
+  ])("rejects a missing setup write ordering marker: %s", (_, marker) => {
+    const root = mkdtempSync(join(tmpdir(), "rr-write-boundary-ordering-"));
+    const auditedSources = [
+      "apps/api/src/app.ts",
+      "apps/web/src/server/codex-rotating-setup-ledger.ts",
+      "apps/web/src/server/prisma-codex-rotating-setup-payload-claim.ts",
+      "packages/features/action-control-plane/src/application/services/codex-rotating-versioned-writeback-dispatcher.ts",
+      "packages/features/action-control-plane/src/infrastructure/prisma/prisma-codex-rotating-oauth-repository.ts",
+    ];
+    writeFileSync(join(root, "package.json"), "{}");
+    for (const relativePath of auditedSources) {
+      const target = join(root, relativePath);
+      mkdirSync(join(target, ".."), { recursive: true });
+      cpSync(join(process.cwd(), relativePath), target);
+    }
+    const ledgerPath = join(
+      root,
+      "apps/web/src/server/prisma-codex-rotating-setup-payload-claim.ts",
+    );
+    const ledger = readFileSync(ledgerPath, "utf8");
+    expect(ledger).toContain(marker);
+    writeFileSync(
+      ledgerPath,
+      ledger.replace(marker, "ordering marker removed"),
+    );
+
+    expect(() => checkCodexSecretWriteBoundary(root)).toThrow(
+      "setup secret PUT is not serialized by the setup identity transaction",
     );
   });
 });

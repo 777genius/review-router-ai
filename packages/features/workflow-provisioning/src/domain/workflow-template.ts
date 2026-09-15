@@ -1358,6 +1358,17 @@ export function renderReviewRouterWorkflowFiles(
                   options.codexRotatingActiveSecretNamespace,
               }
             : {}),
+          ...(options.codexRotatingReviewActionV2Mode
+            ? {
+                reviewActionV2Mode: options.codexRotatingReviewActionV2Mode,
+              }
+            : {}),
+          ...(options.codexRotatingWorkflowSchemaVersion !== undefined
+            ? {
+                workflowSchemaVersion:
+                  options.codexRotatingWorkflowSchemaVersion,
+              }
+            : {}),
         }),
       });
     }
