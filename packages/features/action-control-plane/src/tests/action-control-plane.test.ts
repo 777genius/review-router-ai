@@ -944,6 +944,93 @@ describe("action control plane", () => {
     ).toThrow("workflow_ref_not_allowed");
   });
 
+  it.each(["schedule", "pull_request", "pull_request_target"] as const)(
+    "rejects isolated quality %s before nonce consumption or session signing",
+    async (eventName) => {
+      const repository = new InMemoryActionControlPlaneRepository();
+      repository.repository = {
+        ...repositoryContext,
+        githubRepositoryId: "1228051727",
+        fullName: "777genius/review-router-saas-e2e",
+        identityBindingEpoch: "2:2026-05-03T10:00:00.000Z",
+      };
+      const sessions = new StaticSessionTokenService();
+      const replayNonces = new InMemoryActionOidcReplayNonceStore();
+      let admissionCalls = 0;
+
+      await expect(
+        exchangeGitHubOidcToken(
+          { oidcToken: "oidc", audience: defaultActionOidcAudience },
+          {
+            oidcVerifier: new StaticOidcVerifier(
+              githubOidcClaims({
+                repository: "777genius/review-router-saas-e2e",
+                repository_id: "1228051727",
+                repository_owner: "777genius",
+                event_name: eventName,
+                workflow_ref:
+                  "777genius/review-router-saas-e2e/.github/workflows/reviewrouter-quality-stand.yml@refs/heads/main",
+                jti: `isolated-${eventName}`,
+              }),
+            ),
+            repositories: repository,
+            sessions,
+            replayNonces,
+            legacyMutationAdmission: {
+              assertLegacyReviewMutationAllowed: async () => {
+                admissionCalls += 1;
+              },
+            },
+            clock,
+          },
+        ),
+      ).rejects.toThrow("workflow_ref_not_allowed");
+      expect(replayNonces.consumed.size).toBe(0);
+      expect(sessions.signedClaims).toBeNull();
+      expect(admissionCalls).toBe(0);
+    },
+  );
+
+  it("exchanges isolated quality workflow_dispatch sessions", async () => {
+    const repository = new InMemoryActionControlPlaneRepository();
+    repository.repository = {
+      ...repositoryContext,
+      githubRepositoryId: "1228051727",
+      fullName: "777genius/review-router-saas-e2e",
+      identityBindingEpoch: "2:2026-05-03T10:00:00.000Z",
+    };
+    const sessions = new StaticSessionTokenService();
+    const replayNonces = new InMemoryActionOidcReplayNonceStore();
+
+    await expect(
+      exchangeGitHubOidcToken(
+        { oidcToken: "oidc", audience: defaultActionOidcAudience },
+        {
+          oidcVerifier: new StaticOidcVerifier(
+            githubOidcClaims({
+              repository: "777genius/review-router-saas-e2e",
+              repository_id: "1228051727",
+              repository_owner: "777genius",
+              event_name: "workflow_dispatch",
+              workflow_ref:
+                "777genius/review-router-saas-e2e/.github/workflows/reviewrouter-quality-stand.yml@refs/heads/main",
+              jti: "isolated-workflow-dispatch",
+            }),
+          ),
+          repositories: repository,
+          sessions,
+          replayNonces,
+          clock,
+        },
+      ),
+    ).resolves.toMatchObject({ repository: repository.repository.fullName });
+    expect(replayNonces.consumed.size).toBe(1);
+    expect(sessions.signedClaims).toMatchObject({
+      eventName: "workflow_dispatch",
+      workflowPath: ".github/workflows/reviewrouter-quality-stand.yml",
+    });
+  });
+
   it("rejects the legacy review-router.yml workflow path", async () => {
     await expect(
       exchangeGitHubOidcToken(

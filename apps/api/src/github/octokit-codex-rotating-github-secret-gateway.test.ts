@@ -328,6 +328,11 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
         namespace,
       }),
     ).rejects.toThrow();
+    expect(
+      mocks.request.mock.calls.filter(
+        ([route]) => route === "PUT /repos/{owner}/{repo}/contents/{path}",
+      ),
+    ).toHaveLength(0);
     expect(mocks.request).toHaveBeenNthCalledWith(
       3,
       "GET /repos/{owner}/{repo}/contents/{path}",

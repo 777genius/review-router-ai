@@ -374,6 +374,10 @@ export function readCanonicalIsolatedQualityWorkflowSourceMetadata(
     throw new Error("codex_rotating_t0_workflow_metadata_missing");
   }
   const namespace = readVersionedSecretNamespace(root.name, providerInstanceId);
+  const reviewSecrets = requireMapping(reviewJob.secrets);
+  if (reviewSecrets.CODEX_AUTH_JSON !== `\${{ secrets.${namespace.name} }}`) {
+    throw new Error("codex_rotating_t0_workflow_source_not_canonical");
+  }
   const actionSha = actionRef.split("@")[1]!;
   const qualityStandBaselineNamespace = createVersionedProviderSecretNamespace({
     scope: {

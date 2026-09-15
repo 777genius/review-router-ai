@@ -406,7 +406,12 @@ export class OctokitCodexRotatingGitHubSecretGateway
       : readCanonicalCodexRotatingT0WorkflowSourceMetadata(nextSource);
     if (
       nextMetadata.workflowSchemaVersion !== workflowSchemaVersion ||
-      !nextMetadata.secretNamespace
+      !nextMetadata.secretNamespace ||
+      nextMetadata.secretNamespace.namespaceId !==
+        input.namespace.namespaceId ||
+      nextMetadata.secretNamespace.epoch !== input.namespace.epoch ||
+      nextMetadata.secretNamespace.name !== input.namespace.name ||
+      !nextSource.includes(`secrets.${input.namespace.name}`)
     ) {
       throw new Error("codex_rotating_workflow_publish_render_invalid");
     }

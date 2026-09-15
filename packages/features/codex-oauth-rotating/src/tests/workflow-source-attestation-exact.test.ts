@@ -146,6 +146,14 @@ jobs:
         workflow.replace("  workflow_dispatch:", "  pull_request_target:"),
       ),
     ).toThrow("codex_rotating_t0_workflow_source_not_canonical");
+    expect(() =>
+      readCanonicalIsolatedQualityWorkflowSourceMetadata(
+        workflow.replace(
+          `secrets.${current.name}`,
+          "secrets.REVIEWROUTER_CODEX_AUTH_JSON_R1228051727_P01cfca27f31e5f85_E3_07070707070707070707070707070707",
+        ),
+      ),
+    ).toThrow("codex_rotating_t0_workflow_source_not_canonical");
   });
 
   it("binds blob, content, semantic, repository, trust, revision and namespace", () => {

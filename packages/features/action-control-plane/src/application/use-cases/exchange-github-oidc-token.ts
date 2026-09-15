@@ -1,7 +1,9 @@
 import type { Clock } from "@reviewrouter/shared";
+import { isolatedQualityWorkflowRepositoryId } from "@reviewrouter/features-codex-oauth-rotating";
 import {
   actionSessionTtlSeconds,
   buildActionOidcReplayNonceKey,
+  isManagedV2SessionBootstrapSource,
   resolveActionOidcReplayNonceExpiresAt,
   validateOidcClaimsAgainstRepository,
   type ActionSessionClaims,
@@ -68,6 +70,17 @@ export async function exchangeGitHubOidcToken(
     claims.workflow_ref,
     repository.fullName,
   );
+  if (
+    repository.githubRepositoryId === isolatedQualityWorkflowRepositoryId &&
+    !isManagedV2SessionBootstrapSource({
+      eventName: claims.event_name,
+      workflowPath,
+      githubRepositoryId: repository.githubRepositoryId,
+      repositoryFullName: repository.fullName,
+    })
+  ) {
+    throw new Error("workflow_ref_not_allowed");
+  }
   const issuedAt = dependencies.clock.now();
   await consumeOidcReplayNonceIfConfigured({
     claims,
