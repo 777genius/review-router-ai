@@ -3,6 +3,7 @@ import type { HostedPoolQueryPort } from "@reviewrouter/features-hosted-account-
 import {
   changeHostedRepositorySessionSource,
   importHostedPoolAccount,
+  isHostedWorkspacePoolSessionReady,
   loadHostedPoolDashboardView,
   pollHostedPoolDeviceLogin,
   startHostedPoolDeviceLogin,
@@ -422,5 +423,26 @@ describe("hosted pool dashboard boundary", () => {
       bindingVersion: 4,
       activation: "legacy",
     });
+  });
+
+  it("marks only an active hosted workspace pool binding as session-ready", () => {
+    expect(
+      isHostedWorkspacePoolSessionReady({
+        source: "hosted_workspace_pool",
+        activation: "active",
+      }),
+    ).toBe(true);
+    expect(
+      isHostedWorkspacePoolSessionReady({
+        source: "hosted_workspace_pool",
+        activation: "pending",
+      }),
+    ).toBe(false);
+    expect(
+      isHostedWorkspacePoolSessionReady({
+        source: "repository_secret",
+        activation: "legacy",
+      }),
+    ).toBe(false);
   });
 });

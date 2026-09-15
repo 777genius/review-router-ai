@@ -105,7 +105,20 @@ export function repositoryHealthStatusWithProviderSetupReadiness(input: {
     DashboardEffectiveProviderSetupState
   >;
   readonly providerSetupMismatchRepositoryIds: ReadonlySet<string>;
+  readonly hostedSessionReady?: boolean;
 }): RepositoryHealthStatus | undefined {
+  if (input.hostedSessionReady) {
+    if (
+      input.healthStatus === "provider_needs_setup" ||
+      input.healthStatus === "healthy" ||
+      input.healthStatus === undefined
+    ) {
+      return input.healthStatus === "provider_needs_setup"
+        ? "healthy"
+        : (input.healthStatus ?? "healthy");
+    }
+    return input.healthStatus;
+  }
   if (input.healthStatus !== "healthy") {
     return input.healthStatus;
   }

@@ -4,6 +4,7 @@ import type {
   HostedPoolRepositoryView,
 } from "../../src/server/hosted-pool-dashboard";
 import { FormSubmitButton } from "../form-submit-button";
+import { HostedPoolAccountCards } from "./hosted-pool-account-card";
 import {
   DashboardActionForm,
   type DashboardActionFormAction,
@@ -95,21 +96,38 @@ export function HostedPoolSettingsPanel({
       </div>
 
       {enrolled ? (
-        <HostedPoolEnrolledAccounts
+        <HostedPoolDeviceLogin
           workspaceId={workspaceId}
-          accounts={view.accounts}
-          setAccountState={actions.setAccountState}
           mutationsEnabled={mutationsEnabled}
+          enrolled
+          startAction={actions.startDeviceLogin}
+          pollAction={actions.pollDeviceLogin}
+          header={
+            <div>
+              <h3 className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                Enrolled accounts
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Attached ChatGPT sessions for this workspace pool.
+              </p>
+            </div>
+          }
+        >
+          <HostedPoolAccountCards
+            workspaceId={workspaceId}
+            accounts={view.accounts}
+            setAccountState={actions.setAccountState}
+            mutationsEnabled={mutationsEnabled}
+          />
+        </HostedPoolDeviceLogin>
+      ) : (
+        <HostedPoolDeviceLogin
+          workspaceId={workspaceId}
+          mutationsEnabled={mutationsEnabled}
+          startAction={actions.startDeviceLogin}
+          pollAction={actions.pollDeviceLogin}
         />
-      ) : null}
-
-      <HostedPoolDeviceLogin
-        workspaceId={workspaceId}
-        mutationsEnabled={mutationsEnabled}
-        hasHealthyAccount={hasHealthyAccount}
-        startAction={actions.startDeviceLogin}
-        pollAction={actions.pollDeviceLogin}
-      />
+      )}
 
       {!enrolled ? (
         <p className="mt-4 text-sm text-slate-400">
@@ -127,98 +145,6 @@ export function HostedPoolSettingsPanel({
   );
 }
 
-function HostedPoolEnrolledAccounts({
-  workspaceId,
-  accounts,
-  setAccountState,
-  mutationsEnabled,
-}: {
-  readonly workspaceId: string;
-  readonly accounts: HostedPoolDashboardView["accounts"];
-  readonly setAccountState: DashboardActionFormAction;
-  readonly mutationsEnabled: boolean;
-}): React.ReactElement {
-  return (
-    <div className="mt-5">
-      <h3 className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-        Enrolled accounts
-      </h3>
-      <ul className="mt-3 divide-y divide-cyan-200/10 overflow-hidden rounded-2xl border border-cyan-200/15 bg-slate-950/50">
-        {accounts.map((account) => {
-          const state = account.availability.status;
-          const paused = state === "paused";
-          return (
-            <li
-              key={String(account.id)}
-              className="flex flex-wrap items-center justify-between gap-3 px-4 py-4"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-cyan-50">
-                  {account.label}
-                </p>
-                <p className="mt-1 text-xs text-slate-400">
-                  Priority {account.priority}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Badge
-                  tone={
-                    state === "healthy"
-                      ? "success"
-                      : state === "paused"
-                        ? "neutral"
-                        : "warning"
-                  }
-                >
-                  {safeAccountStateLabel(state)}
-                </Badge>
-                {(state === "healthy" || state === "paused") && (
-                  <DashboardActionForm
-                    action={setAccountState}
-                    fallbackParams={{
-                      error: "hosted_pool_action_failed",
-                      workspace: workspaceId,
-                      section: "setup",
-                    }}
-                  >
-                    <input
-                      type="hidden"
-                      name="workspaceId"
-                      value={workspaceId}
-                    />
-                    <input
-                      type="hidden"
-                      name="accountId"
-                      value={String(account.id)}
-                    />
-                    <input
-                      type="hidden"
-                      name="expectedVersion"
-                      value={account.healthVersion}
-                    />
-                    <input
-                      type="hidden"
-                      name="state"
-                      value={paused ? "healthy" : "paused"}
-                    />
-                    <FormSubmitButton
-                      variant="ghost"
-                      size="sm"
-                      disabled={!mutationsEnabled}
-                      idleLabel={paused ? "Resume" : "Pause"}
-                      pendingLabel="Saving..."
-                    />
-                  </DashboardActionForm>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
 function HostedPoolAuthJsonFallback({
   workspaceId,
   importAccount,
@@ -229,12 +155,12 @@ function HostedPoolAuthJsonFallback({
   readonly mutationsEnabled: boolean;
 }): React.ReactElement {
   return (
-    <details className="mt-4 rounded-xl border border-cyan-200/10 bg-slate-950/30 p-4">
-      <summary className="cursor-pointer list-none text-sm text-slate-300">
-        <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+    <details className="mt-4 rounded-xl border border-cyan-200/8 bg-transparent p-3">
+      <summary className="cursor-pointer list-none text-sm text-slate-400">
+        <span className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
           Upload auth.json fallback
         </span>
-        <p className="mt-1 text-xs leading-5 text-slate-500">
+        <p className="mt-1 text-xs leading-5 text-slate-600">
           Optional. Use only if ChatGPT sign-in is unavailable.
         </p>
       </summary>
@@ -395,19 +321,4 @@ export function RepositorySessionSourceSelector({
       ) : null}
     </div>
   );
-}
-
-function safeAccountStateLabel(status: string): string {
-  switch (status) {
-    case "healthy":
-      return "Healthy";
-    case "paused":
-      return "Paused";
-    case "cooldown":
-      return "Cooling down";
-    case "quarantined":
-      return "Needs reconnect";
-    default:
-      return "Unavailable";
-  }
 }

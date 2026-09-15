@@ -164,7 +164,10 @@ import {
   HostedPoolSettingsPanel,
   RepositorySessionSourceSelector,
 } from "./hosted-pool-settings";
-import { loadHostedPoolDashboardView } from "../../src/server/hosted-pool-dashboard";
+import {
+  isHostedWorkspacePoolSessionReady,
+  loadHostedPoolDashboardView,
+} from "../../src/server/hosted-pool-dashboard";
 import {
   buildInstallationSettingsUrl,
   dashboardErrorText,
@@ -1684,6 +1687,7 @@ function WorkspaceCard({
     repositoryConfigs,
     activeConfig,
     providerSecretCheckFailedRepositoryFullName,
+    hostedRepositories: hostedPool.repositories,
   });
   const activeInstallations = workspace.installations.filter(
     (installation) => installation.status === "active",
@@ -2541,6 +2545,7 @@ function summarizeWorkspaceSetupReadiness({
   repositoryConfigs,
   activeConfig,
   providerSecretCheckFailedRepositoryFullName,
+  hostedRepositories,
 }: {
   readonly repositories: DashboardWorkspaceData["repositories"];
   readonly health: DashboardWorkspaceData["health"];
@@ -2549,6 +2554,7 @@ function summarizeWorkspaceSetupReadiness({
   readonly repositoryConfigs: DashboardWorkspaceData["repositoryConfigs"];
   readonly activeConfig: ReviewConfiguration;
   readonly providerSecretCheckFailedRepositoryFullName: string | null;
+  readonly hostedRepositories: DashboardWorkspaceData["hostedPool"]["repositories"];
 }): WorkspaceHealthSummary {
   const repositoryHealthById = new Map(
     health.map((item) => [item.repositoryId, item] as const),
@@ -2577,6 +2583,9 @@ function summarizeWorkspaceSetupReadiness({
       repositoryConfigs,
       activeConfig,
     });
+  const hostedById = new Map(
+    hostedRepositories.map((item) => [item.id, item] as const),
+  );
   const counts = repositories.reduce(
     (accumulator, repository) => {
       const repositoryHealth = repositoryHealthById.get(repository.id);
@@ -2585,12 +2594,16 @@ function summarizeWorkspaceSetupReadiness({
           repositoryProvisioningById.get(repository.id)?.status ?? null,
         legacySetupStatus: repository.setupStatus,
       });
+      const hostedSessionReady = isHostedWorkspacePoolSessionReady(
+        hostedById.get(repository.id),
+      );
       const effectiveHealthStatus =
         repositoryHealthStatusWithProviderSetupReadiness({
           repositoryId: repository.id,
           healthStatus: repositoryHealth?.status,
           effectiveProviderSetupStateByRepositoryId,
           providerSetupMismatchRepositoryIds,
+          hostedSessionReady,
         });
       const workflowCurrent = workflowSetupAlreadyCurrent(
         effectiveHealthStatus,
@@ -2604,6 +2617,7 @@ function summarizeWorkspaceSetupReadiness({
           repositoryHealth,
           configuredProviderSetupByRepositoryId,
           providerSecretCheckFailedRepositoryFullName,
+          hostedSessionReady,
         }),
       });
       const readiness = repositorySearchReadiness({
@@ -2652,6 +2666,7 @@ function isRepositoryProviderSetupConfirmed({
   repositoryHealth,
   configuredProviderSetupByRepositoryId,
   providerSecretCheckFailedRepositoryFullName,
+  hostedSessionReady = false,
 }: {
   readonly repository: DashboardWorkspaceData["repositories"][number];
   readonly repositoryHealth:
@@ -2662,7 +2677,9 @@ function isRepositoryProviderSetupConfirmed({
     { readonly updatedAt: Date }
   >;
   readonly providerSecretCheckFailedRepositoryFullName: string | null;
+  readonly hostedSessionReady?: boolean;
 }): boolean {
+  if (hostedSessionReady) return true;
   const providerSetupConfirmedAt = configuredProviderSetupByRepositoryId.get(
     repository.id,
   )?.updatedAt;
@@ -2776,12 +2793,18 @@ function RepositoryTable({
       repositoryProvisioning?.pullRequestUrl ?? "",
     );
     const setupIssue = repositoryProvisioning?.errorMessage ?? null;
+    const hostedSessionReady = isHostedWorkspacePoolSessionReady(
+      hostedPool.repositories.find(
+        (candidate) => candidate.id === repository.id,
+      ),
+    );
     const effectiveHealthStatus =
       repositoryHealthStatusWithProviderSetupReadiness({
         repositoryId: repository.id,
         healthStatus: repositoryHealth?.status,
         effectiveProviderSetupStateByRepositoryId,
         providerSetupMismatchRepositoryIds,
+        hostedSessionReady,
       });
     const workflowCurrent = workflowSetupAlreadyCurrent(effectiveHealthStatus);
     const setupProgressStep = repositorySetupProgressStep({
@@ -2794,6 +2817,7 @@ function RepositoryTable({
         repositoryHealth,
         configuredProviderSetupByRepositoryId,
         providerSecretCheckFailedRepositoryFullName,
+        hostedSessionReady,
       }),
     });
     const readiness = repositorySearchReadiness({
