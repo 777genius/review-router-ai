@@ -352,7 +352,7 @@ describe("Codex rotating auth domain", () => {
         encodeRaw({ ...manifest, protocolVersion: 1 }),
       ),
     ).toThrow();
-    const { repositoryIdentityVersion: _removed, ...legacyManifest } = manifest;
+    const legacyManifest = { ...manifest, repositoryIdentityVersion: undefined };
     expect(() =>
       decodeCodexRotatingSetupManifest(encodeRaw(legacyManifest)),
     ).toThrow();
