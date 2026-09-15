@@ -42,7 +42,7 @@ export function HostedPoolSettingsPanel({
   readonly view: HostedPoolDashboardView;
   readonly actions: HostedPoolSettingsActions;
   readonly mutationsEnabled: boolean;
-  readonly previewDeviceLoginFlight?: HostedPoolDeviceLoginFlight;
+  readonly previewDeviceLoginFlight?: HostedPoolDeviceLoginFlight | undefined;
 }): React.ReactElement | null {
   if (view.gate === "feature_disabled") return null;
   if (view.gate === "entitlement_denied") {
