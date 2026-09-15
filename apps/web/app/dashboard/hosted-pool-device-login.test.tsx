@@ -100,6 +100,7 @@ describe("HostedPoolDeviceLogin", () => {
       "https://auth.openai.com/codex/device",
     );
     expect(screen.getByText(/detect the login automatically/i)).toBeTruthy();
+    expect(screen.queryByText(/Connect ChatGPT to get started/)).toBeNull();
     expect(screen.getByText(/expires in \d+:\d{2}/i)).toBeTruthy();
     expect(screen.queryByText(/UTC/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));

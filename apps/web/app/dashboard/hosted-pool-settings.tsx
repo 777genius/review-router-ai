@@ -86,21 +86,29 @@ export function HostedPoolSettingsPanel({
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
             {enrolled ? (
-              <>
-                These ChatGPT accounts run reviews for opted-in GitHub
-                repositories. Add another if you need more capacity.
-                ReviewRouter stores the session and transiently relays model
-                prompts, tool results, and responses. Credentials stay on the
-                server and never go to the browser.
-              </>
+              hasHealthyAccount ? (
+                <>
+                  These ChatGPT accounts run reviews for opted-in GitHub
+                  repositories. ReviewRouter stores the session and transiently
+                  relays model prompts, tool results, and responses. Credentials
+                  stay on the server and never go to the browser.
+                </>
+              ) : (
+                <>
+                  These ChatGPT accounts are connected, but none are ready for
+                  reviews right now. Resume or reconnect a session before hosted
+                  reviews can run. Credentials stay on the server and never go
+                  to the browser.
+                </>
+              )
             ) : (
               <>
                 Connect ChatGPT so ReviewRouter can run reviews for opted-in
-                GitHub repositories. Sign in below. Upload a local
-                <span className="font-mono"> auth.json</span> only if ChatGPT
-                sign-in is unavailable. ReviewRouter stores the session and
-                transiently relays model prompts, tool results, and responses.
-                ChatGPT credentials never go to the browser.
+                GitHub repositories. Sign in below. Upload a local{" "}
+                <span className="whitespace-nowrap font-mono">auth.json</span>{" "}
+                only if ChatGPT sign-in is unavailable. ReviewRouter stores the
+                session and transiently relays model prompts, tool results, and
+                responses. ChatGPT credentials never go to the browser.
               </>
             )}
           </p>
@@ -121,7 +129,9 @@ export function HostedPoolSettingsPanel({
                 Connected accounts
               </h3>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                ReviewRouter uses these ChatGPT accounts for reviews.
+                {hasHealthyAccount
+                  ? "ReviewRouter uses these ChatGPT accounts for reviews."
+                  : "Resume or reconnect a session before ReviewRouter can run reviews."}
               </p>
             </div>
           }
@@ -142,13 +152,6 @@ export function HostedPoolSettingsPanel({
           previewFlight={previewDeviceLoginFlight}
         />
       )}
-
-      {!enrolled ? (
-        <p className="mt-4 text-sm text-slate-400">
-          Connect ChatGPT to get started. No repository can use hosted reviews
-          until an account is ready.
-        </p>
-      ) : null}
 
       <HostedPoolAuthJsonFallback
         workspaceId={workspaceId}

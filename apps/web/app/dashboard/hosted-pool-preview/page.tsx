@@ -62,9 +62,7 @@ export default async function HostedPoolPreviewPage({
           ))}
         </nav>
       </section>
-      <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-        <HostedPoolPreviewClient scenario={scenario} />
-      </section>
+      <HostedPoolPreviewClient scenario={scenario} />
     </main>
   );
 }
