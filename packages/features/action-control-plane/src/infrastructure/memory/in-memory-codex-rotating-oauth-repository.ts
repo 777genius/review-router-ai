@@ -1122,6 +1122,14 @@ export class InMemoryCodexRotatingOAuthRepository
     if (!source || source.providerInstanceId !== input.providerInstanceId) {
       return { status: "lease_not_active" as const };
     }
+    const provider = this.providers.get(input.providerInstanceId);
+    if (
+      provider?.state === "needs_reconnect" ||
+      provider?.state === "unknown_auth_state" ||
+      provider?.state === "permission_required"
+    ) {
+      return { status: "lease_not_active" as const };
+    }
     const writeback = [...this.writebacks.values()].find(
       (record) =>
         record.request.leaseId === input.leaseId &&
@@ -1149,7 +1157,6 @@ export class InMemoryCodexRotatingOAuthRepository
     ) {
       return { status: "lease_not_active" as const };
     }
-    const provider = this.providers.get(input.providerInstanceId);
     this.assertAutomaticRuntimeDatabaseRecoveryWitness(provider);
     const leaseNamespace = this.leaseNamespaceById.get(input.leaseId);
     if (

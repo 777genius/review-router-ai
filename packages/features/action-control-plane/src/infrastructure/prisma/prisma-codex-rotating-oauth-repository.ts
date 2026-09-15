@@ -2493,6 +2493,7 @@ export class PrismaCodexRotatingOAuthRepository
     },
     tx: Prisma.TransactionClient,
   ) {
+    await lockProviderByInstanceId(tx, input.providerInstanceId);
     const lease = await tx.codexOAuthLease.findFirst({
       where: {
         id: input.leaseId,
@@ -2512,6 +2513,7 @@ export class PrismaCodexRotatingOAuthRepository
         secretNamespaceEpoch: true,
         providerInstance: {
           select: {
+            state: true,
             activeSecretNamespaceId: true,
             activeSecretNamespaceEpoch: true,
             activeSecretNamespaceName: true,
@@ -2527,6 +2529,13 @@ export class PrismaCodexRotatingOAuthRepository
       },
     });
     if (!lease) {
+      return { status: "lease_not_active" as const };
+    }
+    if (
+      lease.providerInstance.state === "needs_reconnect" ||
+      lease.providerInstance.state === "unknown_auth_state" ||
+      lease.providerInstance.state === "permission_required"
+    ) {
       return { status: "lease_not_active" as const };
     }
     if (lease.status !== "completed" || !lease.completedAt) {

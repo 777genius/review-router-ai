@@ -145,6 +145,20 @@ function completedLeaseAccessFailure(error: unknown): {
   throw error;
 }
 
+function setInMemoryProviderState(
+  ledger: InMemoryCodexRotatingOAuthRepository,
+  providerInstanceId: string,
+  state: "needs_reconnect" | "unknown_auth_state" | "permission_required",
+): void {
+  const providers = Reflect.get(ledger, "providers") as Map<
+    string,
+    Readonly<{ state: string }>
+  >;
+  const provider = providers.get(providerInstanceId);
+  if (!provider) throw new Error("expected_in_memory_provider");
+  providers.set(providerInstanceId, { ...provider, state });
+}
+
 describe("Codex rotating OAuth action control plane", () => {
   it("fails closed when runtime workflow verification omits its mandatory attestation", async () => {
     const dependencies = buildRotatingDependencies();
@@ -1846,6 +1860,46 @@ describe("Codex rotating OAuth action control plane", () => {
       ),
     ).rejects.toThrow("codex_rotating_lease_not_active");
   });
+
+  it.each(
+    (
+      ["needs_reconnect", "unknown_auth_state", "permission_required"] as const
+    ).flatMap((providerState) =>
+      (["token", "snapshot", "checkpoint"] as const).map(
+        (effectKind) => [providerState, effectKind] as const,
+      ),
+    ),
+  )(
+    "keeps in-memory completed-lease effects closed for a %s provider during %s access",
+    async (providerState, effectKind) => {
+      const dependencies = buildRotatingDependencies();
+      const ledger =
+        dependencies.codexRotatingOAuth as InMemoryCodexRotatingOAuthRepository;
+      const { prelease } = await completeRotatingWriteback(dependencies);
+      setInMemoryProviderState(ledger, "codex-rotating:123456", providerState);
+      const effect = vi.fn(async () => "published");
+      const accessInput = {
+        leaseId: prelease.leaseId,
+        providerInstanceId: "codex-rotating:123456",
+        pullRequestNumber: 240,
+        now,
+      };
+      const operation =
+        effectKind === "token"
+          ? ledger.withCompletedLeaseWriteTarget(accessInput, effect)
+          : effectKind === "snapshot"
+            ? ledger.withAuthorizedReviewSnapshotAccess(accessInput, effect)
+            : ledger.withAuthorizedReviewExecutionCheckpointAccess(
+                accessInput,
+                effect,
+              );
+
+      await expect(operation).rejects.toThrow(
+        "codex_rotating_lease_not_active",
+      );
+      expect(effect).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps expired unfinished rotating leases closed for comment tokens", async () => {
     let currentNow = now;

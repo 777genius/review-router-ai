@@ -1231,10 +1231,51 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     ).resolves.toEqual({ status: "lease_not_active" });
   });
 
+  it.each(
+    (
+      ["needs_reconnect", "unknown_auth_state", "permission_required"] as const
+    ).flatMap((providerState) =>
+      (["token", "snapshot", "checkpoint"] as const).map(
+        (effectKind) => [providerState, effectKind] as const,
+      ),
+    ),
+  )(
+    "rejects a %s provider before invoking the completed-lease %s effect",
+    async (providerState, effectKind) => {
+      const { repository } = buildCodexRotatingRepository({
+        status: "completed",
+        expiresAt: new Date(now.getTime() - 5 * 60 * 1000),
+        completedAt: new Date(now.getTime() - 20 * 60 * 1000),
+        providerState,
+      });
+      const effect = vi.fn(async () => "published");
+      const accessInput = {
+        leaseId: "lease_1",
+        providerInstanceId: "codex-rotating:123456",
+        pullRequestNumber: 240,
+        now,
+      };
+      const operation =
+        effectKind === "token"
+          ? repository.withCompletedLeaseWriteTarget(accessInput, effect)
+          : effectKind === "snapshot"
+            ? repository.withAuthorizedReviewSnapshotAccess(accessInput, effect)
+            : repository.withAuthorizedReviewExecutionCheckpointAccess(
+                accessInput,
+                effect,
+              );
+
+      await expect(operation).rejects.toThrow(
+        "codex_rotating_lease_not_active",
+      );
+      expect(effect).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["token", "snapshot", "checkpoint"] as const)(
-    "holds repository identity authorization through the %s effect",
+    "holds provider and repository identity authorization through the %s effect",
     async (effectKind) => {
-      const { identityQuery, repository, transactionState } =
+      const { providerState, queryOrder, repository, revokeOrRecoverProvider } =
         buildCodexRotatingRepository({
           status: "completed",
           expiresAt: new Date(now.getTime() - 5 * 60 * 1000),
@@ -1274,21 +1315,24 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
             );
 
       await effectStarted;
-      expect(transactionState.active).toBe(true);
-      let rotationApplied = false;
-      const rotation = transactionState.waitForRelease().then(() => {
-        rotationApplied = true;
+      let recoveryApplied = false;
+      const recovery = revokeOrRecoverProvider().then(() => {
+        recoveryApplied = true;
       });
       await Promise.resolve();
-      expect(rotationApplied).toBe(false);
-      expect(JSON.stringify(identityQuery.mock.calls)).toContain(
-        "FOR UPDATE OF identity, repository, installation",
-      );
+      expect(recoveryApplied).toBe(false);
+      expect(providerState()).toBe("active");
+      expect(queryOrder).toEqual([
+        "provider_lock",
+        "lease_read",
+        "identity_lock",
+      ]);
 
       releaseEffect();
       await expect(operation).resolves.toBe("published");
-      await rotation;
-      expect(rotationApplied).toBe(true);
+      await recovery;
+      expect(recoveryApplied).toBe(true);
+      expect(providerState()).toBe("needs_reconnect");
       expect(effect).toHaveBeenCalledOnce();
     },
   );
@@ -1621,6 +1665,11 @@ function buildCodexRotatingRepository(lease: {
   readonly repositoryFullName?: string;
   readonly leaseKey?: string;
   readonly identityRows?: readonly { readonly version: number }[];
+  readonly providerState?:
+    | "active"
+    | "needs_reconnect"
+    | "unknown_auth_state"
+    | "permission_required";
 }) {
   const repositoryId = lease.repositoryId ?? "123456";
   const repositoryFullName = lease.repositoryFullName ?? "777genius/example";
@@ -1652,6 +1701,7 @@ function buildCodexRotatingRepository(lease: {
     secretNamespaceId: namespaceId,
     secretNamespaceEpoch: lease.leaseSecretNamespaceEpoch ?? namespaceEpoch,
     providerInstance: {
+      state: lease.providerState ?? "active",
       activeSecretNamespaceId: namespaceId,
       activeSecretNamespaceEpoch: namespaceEpoch,
       activeSecretNamespaceName: namespaceName,
@@ -1664,8 +1714,24 @@ function buildCodexRotatingRepository(lease: {
       },
     },
   };
+  const queryOrder: string[] = [];
+  let providerRowLocked = false;
+  const providerLockWaiters: Array<() => void> = [];
   const tx = {
-    $queryRaw: vi.fn(async () => lease.identityRows ?? []),
+    $executeRawUnsafe: vi.fn(async () => 0),
+    $queryRaw: vi.fn(async (query: { strings?: readonly string[] }) => {
+      const queryText = query.strings?.join("") ?? "";
+      if (queryText.includes('FROM "CodexOAuthProviderInstance"')) {
+        providerRowLocked = true;
+        queryOrder.push("provider_lock");
+        return [{ id: "provider_row_1" }];
+      }
+      if (queryText.includes('FROM "ScmRepositoryIdentity"')) {
+        queryOrder.push("identity_lock");
+        return lease.identityRows ?? [];
+      }
+      return [];
+    }),
     codexOAuthLease: {
       findFirst: vi.fn(
         async (input: {
@@ -1673,31 +1739,24 @@ function buildCodexRotatingRepository(lease: {
             readonly id: string;
             readonly providerInstanceId: string;
           };
-        }) =>
-          input.where.id === "lease_1" &&
-          input.where.providerInstanceId === `codex-rotating:${repositoryId}`
+        }) => {
+          queryOrder.push("lease_read");
+          return input.where.id === "lease_1" &&
+            input.where.providerInstanceId === `codex-rotating:${repositoryId}`
             ? leaseRecord
-            : null,
+            : null;
+        },
       ),
-    },
-  };
-  const transactionState = {
-    active: false,
-    releaseWaiters: [] as Array<() => void>,
-    async waitForRelease() {
-      if (!this.active) return;
-      await new Promise<void>((resolve) => this.releaseWaiters.push(resolve));
     },
   };
   const prisma = {
     ...tx,
     $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => {
-      transactionState.active = true;
       try {
         return await callback(tx);
       } finally {
-        transactionState.active = false;
-        for (const resolve of transactionState.releaseWaiters.splice(0)) {
+        providerRowLocked = false;
+        for (const resolve of providerLockWaiters.splice(0)) {
           resolve();
         }
       }
@@ -1706,8 +1765,13 @@ function buildCodexRotatingRepository(lease: {
 
   return {
     prisma,
-    identityQuery: tx.$queryRaw,
-    transactionState,
+    queryOrder,
+    providerState: () => leaseRecord.providerInstance.state,
+    async revokeOrRecoverProvider() {
+      if (!providerRowLocked) return;
+      await new Promise<void>((resolve) => providerLockWaiters.push(resolve));
+      leaseRecord.providerInstance.state = "needs_reconnect";
+    },
     repository: new PrismaCodexRotatingOAuthRepository(prisma, {
       actionOwnerRepo: "777genius/review-router",
       databaseRecoveryWitness,
