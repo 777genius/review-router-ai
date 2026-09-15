@@ -880,6 +880,76 @@ describe("PrismaActionControlPlaneRepository helpers", () => {
   );
 });
 
+type CompletedLeaseRepository = Pick<
+  PrismaCodexRotatingOAuthRepository,
+  | "withCompletedLeaseWriteTarget"
+  | "withAuthorizedReviewSnapshotAccess"
+  | "withAuthorizedReviewExecutionCheckpointAccess"
+>;
+
+async function inspectCompletedLeaseWriteTarget(
+  repository: CompletedLeaseRepository,
+  input: Parameters<
+    CompletedLeaseRepository["withCompletedLeaseWriteTarget"]
+  >[0],
+) {
+  try {
+    return await repository.withCompletedLeaseWriteTarget(
+      input,
+      async (writeTarget) => ({
+        status: "ready" as const,
+        writeTarget,
+      }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+async function inspectReviewSnapshotAccess(
+  repository: CompletedLeaseRepository,
+  input: Parameters<
+    CompletedLeaseRepository["withAuthorizedReviewSnapshotAccess"]
+  >[0],
+) {
+  try {
+    return await repository.withAuthorizedReviewSnapshotAccess(
+      input,
+      async (scope) => ({
+        status: "ready" as const,
+        scope,
+      }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+async function inspectReviewExecutionCheckpointAccess(
+  repository: CompletedLeaseRepository,
+  input: Parameters<
+    CompletedLeaseRepository["withAuthorizedReviewExecutionCheckpointAccess"]
+  >[0],
+) {
+  try {
+    return await repository.withAuthorizedReviewExecutionCheckpointAccess(
+      input,
+      async (scope) => ({ status: "ready" as const, scope }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+function completedLeaseAccessFailure(error: unknown) {
+  if (!(error instanceof Error)) throw error;
+  const status = error.message.replace(/^codex_rotating_/, "");
+  if (status === "lease_not_active" || status === "lease_not_completed") {
+    return { status };
+  }
+  throw error;
+}
+
 describe("PrismaCodexRotatingOAuthRepository", () => {
   const now = new Date("2026-05-25T12:00:00.000Z");
 
@@ -891,7 +961,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
@@ -907,7 +977,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       },
     });
     await expect(
-      repository.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -934,7 +1004,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
@@ -952,14 +1022,14 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
       }),
     ).resolves.toEqual({ status: "lease_not_active" });
     await expect(
-      repository.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -967,7 +1037,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       }),
     ).resolves.toMatchObject({ status: "ready" });
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
@@ -986,7 +1056,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       ),
     });
     await expect(
-      expired.repository.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(expired.repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1006,14 +1076,14 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
       }),
     ).resolves.toEqual({ status: "lease_not_active" });
     await expect(
-      repository.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1021,7 +1091,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       }),
     ).resolves.toEqual({ status: "lease_not_active" });
     await expect(
-      repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1032,7 +1102,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       scope: { workspaceId: "workspace_1", repositoryId: "repo_1" },
     });
     await expect(
-      repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 241,
@@ -1048,7 +1118,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       ),
     });
     await expect(
-      expired.repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(expired.repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1065,14 +1135,14 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
       }),
     ).resolves.toEqual({ status: "lease_not_active" });
     await expect(
-      repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1089,7 +1159,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1100,7 +1170,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       scope: { workspaceId: "workspace_1", repositoryId: "repo_1" },
     });
     await expect(
-      repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1120,7 +1190,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       completedAt: new Date(now.getTime() - 20 * 60 * 1000),
     });
     await expect(
-      rebound.repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(rebound.repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:rebound",
         pullRequestNumber: 240,
@@ -1135,7 +1205,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       leaseWorkspaceId: "workspace_other",
     });
     await expect(
-      mismatchedWorkspace.repository.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(mismatchedWorkspace.repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1153,13 +1223,112 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
     });
 
     await expect(
-      repository.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(repository, {
         leaseId: "lease_1",
         providerInstanceId: "codex-rotating:123456",
         now,
       }),
     ).resolves.toEqual({ status: "lease_not_active" });
   });
+
+  it.each(["token", "snapshot", "checkpoint"] as const)(
+    "holds repository identity authorization through the %s effect",
+    async (effectKind) => {
+      const { identityQuery, repository, transactionState } =
+        buildCodexRotatingRepository({
+          status: "completed",
+          expiresAt: new Date(now.getTime() - 5 * 60 * 1000),
+          completedAt: new Date(now.getTime() - 20 * 60 * 1000),
+          repositoryId: "1228051727",
+          repositoryFullName: "777genius/review-router-saas-e2e",
+          leaseKey: "codex-rotating:1228051727:9001:2:identity-v2",
+          identityRows: [{ version: 2 }],
+        });
+      let releaseEffect!: () => void;
+      const effectGate = new Promise<void>((resolve) => {
+        releaseEffect = resolve;
+      });
+      let markEffectStarted!: () => void;
+      const effectStarted = new Promise<void>((resolve) => {
+        markEffectStarted = resolve;
+      });
+      const effect = vi.fn(async () => {
+        markEffectStarted();
+        await effectGate;
+        return "published";
+      });
+      const accessInput = {
+        leaseId: "lease_1",
+        providerInstanceId: "codex-rotating:1228051727",
+        pullRequestNumber: 240,
+        now,
+      };
+      const operation =
+        effectKind === "token"
+          ? repository.withCompletedLeaseWriteTarget(accessInput, effect)
+          : effectKind === "snapshot"
+          ? repository.withAuthorizedReviewSnapshotAccess(accessInput, effect)
+          : repository.withAuthorizedReviewExecutionCheckpointAccess(
+              accessInput,
+              effect,
+            );
+
+      await effectStarted;
+      expect(transactionState.active).toBe(true);
+      let rotationApplied = false;
+      const rotation = transactionState.waitForRelease().then(() => {
+        rotationApplied = true;
+      });
+      await Promise.resolve();
+      expect(rotationApplied).toBe(false);
+      expect(JSON.stringify(identityQuery.mock.calls)).toContain(
+        "FOR UPDATE OF identity, repository, installation",
+      );
+
+      releaseEffect();
+      await expect(operation).resolves.toBe("published");
+      await rotation;
+      expect(rotationApplied).toBe(true);
+      expect(effect).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["token", "snapshot", "checkpoint"] as const)(
+    "does not invoke a stale %s effect after identity rotation",
+    async (effectKind) => {
+      const { repository } = buildCodexRotatingRepository({
+        status: "completed",
+        expiresAt: new Date(now.getTime() - 5 * 60 * 1000),
+        completedAt: new Date(now.getTime() - 20 * 60 * 1000),
+        repositoryId: "1228051727",
+        repositoryFullName: "777genius/review-router-saas-e2e",
+        leaseKey: "codex-rotating:1228051727:9001:2:identity-v2",
+        identityRows: [{ version: 3 }],
+      });
+      const effect = vi.fn(async () => "published");
+
+      const accessInput = {
+        leaseId: "lease_1",
+        providerInstanceId: "codex-rotating:1228051727",
+        pullRequestNumber: 240,
+        now,
+      };
+      const operation =
+        effectKind === "token"
+          ? repository.withCompletedLeaseWriteTarget(accessInput, effect)
+          : effectKind === "snapshot"
+          ? repository.withAuthorizedReviewSnapshotAccess(accessInput, effect)
+          : repository.withAuthorizedReviewExecutionCheckpointAccess(
+              accessInput,
+              effect,
+            );
+
+      await expect(operation).rejects.toThrow(
+        "codex_rotating_lease_repository_identity_stale",
+      );
+      expect(effect).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["missing exact-name binding", []],
@@ -1179,14 +1348,14 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       const providerInstanceId = "codex-rotating:1228051727";
 
       await expect(
-        repository.findCompletedLeaseWriteTarget({
+        inspectCompletedLeaseWriteTarget(repository, {
           leaseId: "lease_1",
           providerInstanceId,
           now,
         }),
       ).rejects.toThrow("codex_rotating_lease_repository_identity_stale");
       await expect(
-        repository.authorizeReviewSnapshotAccess({
+        inspectReviewSnapshotAccess(repository, {
           leaseId: "lease_1",
           providerInstanceId,
           pullRequestNumber: 240,
@@ -1194,7 +1363,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
         }),
       ).rejects.toThrow("codex_rotating_lease_repository_identity_stale");
       await expect(
-        repository.authorizeReviewExecutionCheckpointAccess({
+        inspectReviewExecutionCheckpointAccess(repository, {
           leaseId: "lease_1",
           providerInstanceId,
           pullRequestNumber: 240,
@@ -1245,8 +1414,8 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
           )?.includes("codex_oauth_database_authority_challenge")
             ? [{ challenge: '["reviewrouter_api",1,2,"effect","owner",0]' }]
             : query.strings?.join("").includes("pg_control_system")
-              ? [{ databaseIncarnation: "7777777777777777777" }]
-              : [],
+            ? [{ databaseIncarnation: "7777777777777777777" }]
+            : [],
         ),
         codexOAuthWritebackIntent: {
           findUniqueOrThrow: vi
@@ -1495,7 +1664,7 @@ function buildCodexRotatingRepository(lease: {
       },
     },
   };
-  const prisma = {
+  const tx = {
     $queryRaw: vi.fn(async () => lease.identityRows ?? []),
     codexOAuthLease: {
       findFirst: vi.fn(
@@ -1511,10 +1680,34 @@ function buildCodexRotatingRepository(lease: {
             : null,
       ),
     },
+  };
+  const transactionState = {
+    active: false,
+    releaseWaiters: [] as Array<() => void>,
+    async waitForRelease() {
+      if (!this.active) return;
+      await new Promise<void>((resolve) => this.releaseWaiters.push(resolve));
+    },
+  };
+  const prisma = {
+    ...tx,
+    $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => {
+      transactionState.active = true;
+      try {
+        return await callback(tx);
+      } finally {
+        transactionState.active = false;
+        for (const resolve of transactionState.releaseWaiters.splice(0)) {
+          resolve();
+        }
+      }
+    }),
   } as unknown as PrismaClient;
 
   return {
     prisma,
+    identityQuery: tx.$queryRaw,
+    transactionState,
     repository: new PrismaCodexRotatingOAuthRepository(prisma, {
       actionOwnerRepo: "777genius/review-router",
       databaseRecoveryWitness,

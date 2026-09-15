@@ -10,9 +10,11 @@ import {
 } from "@reviewrouter/features-workflow-provisioning";
 import {
   completeSetupRecoveryAssociation,
+  CodexRotatingSetupPreDispatchError,
   CodexRotatingWorkflowReattestationError,
   PrismaCodexRotatingSetupPayloadClaim,
   retireAttemptAndNamespace,
+  retirePredispatchAttemptAndNamespace,
   translateWorkflowReattestationDatabaseError,
 } from "./prisma-codex-rotating-setup-payload-claim";
 
@@ -615,6 +617,151 @@ describe("Prisma rotating setup writer proof", () => {
     );
   });
 
+  it("allocates one deterministic derived attempt only after durable pre-PUT proof", async () => {
+    const now = new Date("2026-08-10T00:05:00.000Z");
+    const rootAttempt = {
+      claimId: claim.id,
+      attemptId: "attempt:predispatch-root",
+      namespaceId: "namespace:predispatch-root",
+      namespaceEpoch: 1n,
+      secretName:
+        "REVIEWROUTER_CODEX_AUTH_JSON_R123456_P0000000000000000_E1_33333333333333333333333333333333",
+      status: "retired_ambiguous",
+      idempotencyKey: "dispatch:same-external-key",
+      ordinal: 1,
+      dispatchExpiresAt: new Date("2026-08-10T00:10:00.000Z"),
+      definiteResponseCode: null,
+      attemptRetiredAt: now,
+      namespaceStatus: "retired_predispatch",
+      namespacePermanentlyRetired: true,
+      namespaceRetiredAt: now,
+    };
+    const tx = {
+      $executeRawUnsafe: vi.fn().mockResolvedValue(0),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          { writer: true, databaseIncarnation: claim.databaseIncarnation },
+        ])
+        .mockResolvedValueOnce([{ id: claim.providerInstanceRowId }])
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          {
+            mutationOwner: "setup",
+            mutationOwnerId: claim.manifestId,
+            mutationEpoch: claim.recoveryEpoch,
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: claim.manifestId,
+            status: "fetched",
+            mutationEpoch: claim.recoveryEpoch,
+            recoveryExpiresAt: claim.recoveryExpiresAt,
+            manifestJson: manifest,
+          },
+        ])
+        .mockResolvedValueOnce([{ version: 1 }])
+        .mockResolvedValueOnce([rootAttempt])
+        .mockResolvedValueOnce([rootAttempt])
+        .mockResolvedValueOnce([{ count: 1n }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ epoch: 2n }])
+        .mockResolvedValueOnce([
+          { providerInstanceId: manifest.providerInstanceId },
+        ]),
+    };
+    const ledger = new PrismaCodexRotatingSetupPayloadClaim(
+      { $transaction: vi.fn((callback) => callback(tx)) } as never,
+      recoveryWitness,
+      { now: async () => now },
+    );
+
+    await expect(
+      ledger.authorizeDispatch({
+        claimId: claim.id,
+        idempotencyKey: rootAttempt.idempotencyKey,
+      }),
+    ).resolves.toMatchObject({
+      status: "dispatch_authorized",
+      namespaceEpoch: "2",
+    });
+
+    const insertedAttempt = tx.$executeRaw.mock.calls[1] ?? [];
+    expect(insertedAttempt).toContain(
+      `${"rr-internal/predispatch/"}${createHash("sha256")
+        .update(rootAttempt.attemptId)
+        .digest("hex")}/1`,
+    );
+    expect(insertedAttempt).not.toContain(rootAttempt.namespaceId);
+  });
+
+  it("fails closed on an incomplete pre-PUT retirement pair", async () => {
+    const now = new Date("2026-08-10T00:05:00.000Z");
+    const mixedAttempt = {
+      claimId: claim.id,
+      attemptId: "attempt:mixed-predispatch",
+      namespaceId: "namespace:mixed-predispatch",
+      namespaceEpoch: 1n,
+      secretName:
+        "REVIEWROUTER_CODEX_AUTH_JSON_R123456_P0000000000000000_E1_44444444444444444444444444444444",
+      status: "retired_ambiguous",
+      idempotencyKey: "dispatch:mixed-predispatch",
+      ordinal: 1,
+      dispatchExpiresAt: new Date("2026-08-10T00:10:00.000Z"),
+      definiteResponseCode: null,
+      attemptRetiredAt: now,
+      namespaceStatus: "retired_predispatch",
+      namespacePermanentlyRetired: false,
+      namespaceRetiredAt: now,
+    };
+    const tx = {
+      $executeRawUnsafe: vi.fn().mockResolvedValue(0),
+      $executeRaw: vi.fn(),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          { writer: true, databaseIncarnation: claim.databaseIncarnation },
+        ])
+        .mockResolvedValueOnce([{ id: claim.providerInstanceRowId }])
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          {
+            mutationOwner: "setup",
+            mutationOwnerId: claim.manifestId,
+            mutationEpoch: claim.recoveryEpoch,
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: claim.manifestId,
+            status: "fetched",
+            mutationEpoch: claim.recoveryEpoch,
+            recoveryExpiresAt: claim.recoveryExpiresAt,
+            manifestJson: manifest,
+          },
+        ])
+        .mockResolvedValueOnce([{ version: 1 }])
+        .mockResolvedValueOnce([mixedAttempt]),
+    };
+    const ledger = new PrismaCodexRotatingSetupPayloadClaim(
+      { $transaction: vi.fn((callback) => callback(tx)) } as never,
+      recoveryWitness,
+      { now: async () => now },
+    );
+
+    await expect(
+      ledger.authorizeDispatch({
+        claimId: claim.id,
+        idempotencyKey: mixedAttempt.idempotencyKey,
+      }),
+    ).rejects.toThrow("codex_rotating_setup_retirement_conflict");
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
   it("holds the repository identity transaction through the setup secret PUT", async () => {
     const now = new Date("2026-08-10T00:00:00.000Z");
     const attempt = {
@@ -738,6 +885,112 @@ describe("Prisma rotating setup writer proof", () => {
     );
     expect(prisma.$transaction).toHaveBeenCalledTimes(2);
     expect(inTransaction).toBe(false);
+  });
+
+  it("commits proven pre-PUT retirement before surfacing retryable 503 state", async () => {
+    const now = new Date("2026-08-10T00:00:00.000Z");
+    const attempt = {
+      claimId: claim.id,
+      attemptId: "attempt:predispatch-dispatch",
+      namespaceId: "namespace:predispatch-dispatch",
+      namespaceEpoch: 1n,
+      secretName:
+        "REVIEWROUTER_CODEX_AUTH_JSON_R123456_P0000000000000000_E1_55555555555555555555555555555555",
+      status: "dispatch_authorized" as const,
+      idempotencyKey: "dispatch:predispatch-dispatch",
+      ordinal: 1,
+      dispatchExpiresAt: new Date("2026-08-10T00:10:00.000Z"),
+      definiteResponseCode: null,
+      attemptRetiredAt: null,
+      namespaceStatus: "dispatch_authorized",
+      namespacePermanentlyRetired: false,
+      namespaceRetiredAt: null,
+    };
+    const fenceRows = [
+      {
+        mutationOwner: "setup",
+        mutationOwnerId: claim.manifestId,
+        mutationEpoch: claim.recoveryEpoch,
+      },
+    ];
+    const manifestRows = [
+      {
+        id: claim.manifestId,
+        status: "fetched",
+        mutationEpoch: claim.recoveryEpoch,
+        recoveryExpiresAt: claim.recoveryExpiresAt,
+        manifestJson: manifest,
+      },
+    ];
+    const tx = {
+      $executeRawUnsafe: vi.fn().mockResolvedValue(0),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          { writer: true, databaseIncarnation: claim.databaseIncarnation },
+        ])
+        .mockResolvedValueOnce([{ id: claim.providerInstanceRowId }])
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce(fenceRows)
+        .mockResolvedValueOnce(manifestRows)
+        .mockResolvedValueOnce([{ version: 1 }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ count: 0n }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ epoch: 1n }])
+        .mockResolvedValueOnce([
+          { providerInstanceId: manifest.providerInstanceId },
+        ])
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          { writer: true, databaseIncarnation: claim.databaseIncarnation },
+        ])
+        .mockResolvedValueOnce([{ id: claim.providerInstanceRowId }])
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce(fenceRows)
+        .mockResolvedValueOnce(manifestRows)
+        .mockResolvedValueOnce([{ version: 1 }])
+        .mockResolvedValueOnce([attempt])
+        .mockResolvedValueOnce([
+          {
+            githubInstallationId: 789n,
+            githubRepositoryId: 123456n,
+            owner: "777genius",
+            repo: "example",
+          },
+        ])
+        .mockResolvedValueOnce([retirementRow(attempt)]),
+    };
+    let committedTransactions = 0;
+    const prisma = {
+      $transaction: vi.fn(async (callback) => {
+        const result = await callback(tx);
+        committedTransactions += 1;
+        return result;
+      }),
+    };
+    const ledger = new PrismaCodexRotatingSetupPayloadClaim(
+      prisma as never,
+      recoveryWitness,
+      { now: async () => now },
+    );
+
+    await expect(
+      ledger.authorizeDispatch(
+        {
+          claimId: claim.id,
+          idempotencyKey: attempt.idempotencyKey,
+        },
+        async () => {
+          throw new CodexRotatingSetupPreDispatchError(new Error("dns failed"));
+        },
+      ),
+    ).rejects.toThrow("codex_rotating_retryable_uncommitted");
+    expect(committedTransactions).toBe(2);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(4);
+    expect(tx.$executeRaw.mock.calls[3]).toContain("retired_predispatch");
   });
 
   it("does not allocate setup dispatch authority after identity revocation", async () => {
@@ -943,6 +1196,75 @@ describe("Prisma rotating setup writer proof", () => {
         "?",
       ),
     ).toContain("codex_oauth_authorize_setup_confirmation");
+  });
+
+  it("persists the durable pre-PUT retirement pair under the full mutation fence", async () => {
+    const attempt = {
+      attemptId: "attempt:predispatch",
+      namespaceId: "namespace:predispatch",
+      status: "dispatch_authorized",
+    };
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([retirementRow(attempt)]),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+    };
+
+    await expect(
+      retirePredispatchAttemptAndNamespace(
+        tx as never,
+        attempt.attemptId,
+        attempt.namespaceId,
+        new Date("2999-01-01T00:05:00Z"),
+        expectedFence,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
+    expect(tx.$executeRaw.mock.calls[1]).toContain("retired_predispatch");
+  });
+
+  it("serializes concurrent pre-PUT retirement and accepts only the exact durable pair", async () => {
+    const attempt = {
+      attemptId: "attempt:predispatch-concurrent",
+      namespaceId: "namespace:predispatch-concurrent",
+      status: "dispatch_authorized",
+    };
+    const terminal = retirementRow(
+      { ...attempt, status: "retired_ambiguous" },
+      {
+        attemptRetiredAt: new Date("2999-01-01T00:05:00Z"),
+        namespaceStatus: "retired_predispatch",
+        namespacePermanentlyRetired: true,
+        namespaceRetiredAt: new Date("2999-01-01T00:05:00Z"),
+      },
+    );
+    const tx = {
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([retirementRow(attempt)])
+        .mockResolvedValueOnce([terminal]),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+    };
+
+    await expect(
+      Promise.all([
+        retirePredispatchAttemptAndNamespace(
+          tx as never,
+          attempt.attemptId,
+          attempt.namespaceId,
+          new Date("2999-01-01T00:05:00Z"),
+          expectedFence,
+        ),
+        retirePredispatchAttemptAndNamespace(
+          tx as never,
+          attempt.attemptId,
+          attempt.namespaceId,
+          new Date("2999-01-01T00:05:00Z"),
+          expectedFence,
+        ),
+      ]),
+    ).resolves.toEqual([undefined, undefined]);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
   });
 
   it("requires both retirement writes to affect exactly one bound row", async () => {

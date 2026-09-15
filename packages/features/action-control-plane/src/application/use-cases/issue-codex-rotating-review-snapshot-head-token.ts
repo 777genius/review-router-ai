@@ -27,26 +27,25 @@ export async function issueCodexRotatingReviewSnapshotHeadToken(
     readonly pullRequests: "read";
   };
 }> {
-  const target =
-    await dependencies.codexRotatingOAuth.findCompletedLeaseWriteTarget({
+  return dependencies.codexRotatingOAuth.withCompletedLeaseWriteTarget(
+    {
       leaseId: input.leaseId,
       providerInstanceId: input.providerInstanceId,
       now: dependencies.clock.now(),
       completedLeaseTtlMs: codexRotatingReviewSnapshotAccessTtlMs,
-    });
-  if (target.status !== "ready") {
-    throw new Error(`codex_rotating_${target.status}`);
-  }
-
-  const issued =
-    await dependencies.codexRotatingCheckoutTokens.issueContentsReadToken(
-      target.writeTarget,
-    );
-  return {
-    protocolVersion: 1,
-    token: issued.token,
-    expiresAt: issued.expiresAt.toISOString(),
-    repository: target.writeTarget.repositoryFullName,
-    permissions: issued.permissions,
-  };
+    },
+    async (writeTarget) => {
+      const issued =
+        await dependencies.codexRotatingCheckoutTokens.issueContentsReadToken(
+          writeTarget,
+        );
+      return {
+        protocolVersion: 1 as const,
+        token: issued.token,
+        expiresAt: issued.expiresAt.toISOString(),
+        repository: writeTarget.repositoryFullName,
+        permissions: issued.permissions,
+      };
+    },
+  );
 }

@@ -49,8 +49,25 @@ type VersionedSecretWorkflowSourceAttestation = ReturnType<
 
 const transactionTimeoutMs = 10_000;
 const maximumAttempts = 3;
+const internalPredispatchRetryPrefix = "rr-internal/predispatch/";
 const expiredDispatchRetired = Symbol("expired_dispatch_retired");
 const failedRemoteDispatchRetired = Symbol("failed_remote_dispatch_retired");
+const predispatchRemoteDispatchRetired = Symbol(
+  "predispatch_remote_dispatch_retired",
+);
+
+export class CodexRotatingSetupPreDispatchError extends Error {
+  override readonly name = "CodexRotatingSetupPreDispatchError";
+
+  constructor(cause?: unknown) {
+    super(
+      cause instanceof Error
+        ? cause.message
+        : "codex_rotating_setup_predispatch_failure",
+      { cause },
+    );
+  }
+}
 
 export type CodexRotatingSetupSecretWriteTarget = Readonly<{
   githubInstallationId: string;
@@ -194,8 +211,14 @@ type AttemptRow = {
   namespaceEpoch: bigint;
   secretName: string;
   status: CodexRotatingSetupAttemptStatus;
+  idempotencyKey: string;
+  ordinal: number;
   dispatchExpiresAt: Date;
   definiteResponseCode: number | null;
+  attemptRetiredAt: Date | null;
+  namespaceStatus: string;
+  namespacePermanentlyRetired: boolean;
+  namespaceRetiredAt: Date | null;
 };
 
 export class PrismaCodexRotatingSetupPayloadClaim
@@ -458,6 +481,9 @@ export class PrismaCodexRotatingSetupPayloadClaim
       if (dispatched === failedRemoteDispatchRetired) {
         throw new Error("codex_rotating_setup_secret_put_failed");
       }
+      if (dispatched === predispatchRemoteDispatchRetired) {
+        throw new Error("codex_rotating_retryable_uncommitted");
+      }
       if (dispatched === expiredDispatchRetired) {
         throw new Error("codex_rotating_setup_dispatch_expired");
       }
@@ -465,6 +491,9 @@ export class PrismaCodexRotatingSetupPayloadClaim
     }
     const result = await this.prisma.$transaction(
       async (tx) => {
+        if (input.idempotencyKey.startsWith(internalPredispatchRetryPrefix)) {
+          throw new Error("codex_rotating_setup_payload_claim_mismatch");
+        }
         const initial = await findClaim(tx, input.claimId);
         await requireProvenWriter(
           tx,
@@ -477,31 +506,63 @@ export class PrismaCodexRotatingSetupPayloadClaim
         assertClaimNotRetired(claim.status);
         const now = await this.clock.now(tx);
         await assertClaimOwnsSetupFence(tx, claim, now);
+        let allocationKey = input.idempotencyKey;
+        let requiredOrdinal: number | null = null;
         const replay = await findAttemptByKey(
           tx,
           input.claimId,
           input.idempotencyKey,
         );
         if (replay) {
-          if (replay.dispatchExpiresAt <= now) {
-            if (replay.status === "dispatch_authorized") {
-              await retireAttemptAndNamespace(
-                tx,
-                replay.attemptId,
-                replay.namespaceId,
-                now,
-                setupFenceForClaim(claim),
-              );
-            }
+          if (
+            replay.status === "dispatch_authorized" &&
+            replay.dispatchExpiresAt <= now
+          ) {
+            await retireAttemptAndNamespace(
+              tx,
+              replay.attemptId,
+              replay.namespaceId,
+              now,
+              setupFenceForClaim(claim),
+            );
             return expiredDispatchRetired;
           }
-          return {
-            ...attemptResult(replay),
-            authorizationReplay: true,
-            definiteResponseCode: asDefiniteResponseCode(
-              replay.definiteResponseCode,
-            ),
-          };
+          const replayState = classifyAttemptNamespaceState(replay);
+          if (replayState === "retired_predispatch") {
+            const chain = await findDispatchAttemptChain(
+              tx,
+              input.claimId,
+              replay,
+            );
+            const latest = chain[chain.length - 1]!;
+            const latestState = classifyAttemptNamespaceState(latest);
+            if (latestState === "retired_predispatch") {
+              if (chain.length >= maximumAttempts) {
+                throw new Error("codex_rotating_setup_attempt_limit");
+              }
+              allocationKey = internalPredispatchRetryKey(
+                replay.attemptId,
+                chain.length,
+              );
+              requiredOrdinal = latest.ordinal + 1;
+            } else {
+              return {
+                ...attemptResult(latest),
+                authorizationReplay: true,
+                definiteResponseCode: asDefiniteResponseCode(
+                  latest.definiteResponseCode,
+                ),
+              };
+            }
+          } else {
+            return {
+              ...attemptResult(replay),
+              authorizationReplay: true,
+              definiteResponseCode: asDefiniteResponseCode(
+                replay.definiteResponseCode,
+              ),
+            };
+          }
         }
         if (claim.status !== "prepared" || claim.recoveryExpiresAt <= now) {
           throw new Error(
@@ -517,6 +578,9 @@ export class PrismaCodexRotatingSetupPayloadClaim
         const ordinal = Number(attempts[0]?.count ?? 0n) + 1;
         if (ordinal > maximumAttempts)
           throw new Error("codex_rotating_setup_attempt_limit");
+        if (requiredOrdinal !== null && requiredOrdinal !== ordinal) {
+          throw new Error("codex_rotating_setup_retirement_conflict");
+        }
 
         // A previous authorization may already have dispatched. It is therefore
         // terminal before a replacement name is allocated, even if it expired or
@@ -555,7 +619,7 @@ export class PrismaCodexRotatingSetupPayloadClaim
           "id", "claimId", "namespaceId", "ordinal", "idempotencyKey", "status",
           "authorizedAt", "dispatchExpiresAt", "createdAt", "updatedAt"
         ) VALUES (${attemptId}, ${claim.id}, ${namespaceId}, ${ordinal},
-          ${input.idempotencyKey}, 'dispatch_authorized', ${now}, ${dispatchExpiresAt}, ${now}, ${now})
+          ${allocationKey}, 'dispatch_authorized', ${now}, ${dispatchExpiresAt}, ${now}, ${now})
       `;
         const result = {
           claimId: claim.id,
@@ -772,7 +836,11 @@ export class PrismaCodexRotatingSetupPayloadClaim
         );
         const attempts = await tx.$queryRaw<AttemptRow[]>`
       SELECT a."claimId", a."id" AS "attemptId", a."namespaceId", n."namespaceEpoch",
-             n."secretName", a."status", a."dispatchExpiresAt", a."definiteResponseCode"
+             n."secretName", a."status", a."idempotencyKey", a."ordinal",
+             a."dispatchExpiresAt", a."definiteResponseCode",
+             a."retiredAt" AS "attemptRetiredAt", n."status" AS "namespaceStatus",
+             n."permanentlyRetired" AS "namespacePermanentlyRetired",
+             n."retiredAt" AS "namespaceRetiredAt"
       FROM "CodexOAuthSetupDispatchAttempt" a
       JOIN "CodexOAuthSecretNamespace" n ON n."id" = a."namespaceId"
       WHERE a."claimId" = ${claimId}
@@ -1517,12 +1585,106 @@ async function findAttemptByKey(
 ) {
   const rows = await tx.$queryRaw<AttemptRow[]>`
     SELECT a."claimId", a."id" AS "attemptId", a."namespaceId", n."namespaceEpoch",
-      n."secretName", a."status", a."dispatchExpiresAt", a."definiteResponseCode"
+      n."secretName", a."status", a."idempotencyKey", a."ordinal",
+             a."dispatchExpiresAt", a."definiteResponseCode",
+             a."retiredAt" AS "attemptRetiredAt", n."status" AS "namespaceStatus",
+             n."permanentlyRetired" AS "namespacePermanentlyRetired",
+             n."retiredAt" AS "namespaceRetiredAt"
     FROM "CodexOAuthSetupDispatchAttempt" a JOIN "CodexOAuthSecretNamespace" n ON n."id" = a."namespaceId"
     WHERE a."claimId" = ${claimId} AND a."idempotencyKey" = ${key}
     LIMIT 1 FOR UPDATE OF a, n
   `;
   return rows[0] ?? null;
+}
+
+function internalPredispatchRetryKey(
+  rootAttemptId: string,
+  retryIndex: number,
+) {
+  const rootHash = createHash("sha256")
+    .update(rootAttemptId, "utf8")
+    .digest("hex");
+  return `${internalPredispatchRetryPrefix}${rootHash}/${retryIndex}`;
+}
+
+function classifyAttemptNamespaceState(
+  row: AttemptRow,
+):
+  | "dispatch_authorized"
+  | "retired_predispatch"
+  | "retired_ambiguous"
+  | "confirmed" {
+  if (
+    row.status === "dispatch_authorized" &&
+    row.namespaceStatus === "dispatch_authorized" &&
+    !row.attemptRetiredAt &&
+    !row.namespacePermanentlyRetired &&
+    !row.namespaceRetiredAt
+  ) {
+    return "dispatch_authorized";
+  }
+  if (
+    row.status === "retired_ambiguous" &&
+    row.attemptRetiredAt &&
+    row.namespacePermanentlyRetired &&
+    row.namespaceRetiredAt &&
+    (row.namespaceStatus === "retired_predispatch" ||
+      row.namespaceStatus === "retired_ambiguous")
+  ) {
+    return row.namespaceStatus;
+  }
+  if (
+    row.status === "confirmed" &&
+    (row.namespaceStatus === "confirmed_candidate" ||
+      row.namespaceStatus === "active") &&
+    !row.attemptRetiredAt &&
+    !row.namespacePermanentlyRetired &&
+    !row.namespaceRetiredAt
+  ) {
+    return "confirmed";
+  }
+  throw new Error("codex_rotating_setup_retirement_conflict");
+}
+
+async function findDispatchAttemptChain(
+  tx: Prisma.TransactionClient,
+  claimId: string,
+  root: AttemptRow,
+) {
+  const keys = [
+    root.idempotencyKey,
+    internalPredispatchRetryKey(root.attemptId, 1),
+    internalPredispatchRetryKey(root.attemptId, 2),
+  ];
+  const rows = await tx.$queryRaw<AttemptRow[]>`
+    SELECT a."claimId", a."id" AS "attemptId", a."namespaceId", n."namespaceEpoch",
+      n."secretName", a."status", a."idempotencyKey", a."ordinal",
+      a."dispatchExpiresAt", a."definiteResponseCode",
+      a."retiredAt" AS "attemptRetiredAt", n."status" AS "namespaceStatus",
+      n."permanentlyRetired" AS "namespacePermanentlyRetired",
+      n."retiredAt" AS "namespaceRetiredAt"
+    FROM "CodexOAuthSetupDispatchAttempt" a
+    JOIN "CodexOAuthSecretNamespace" n ON n."id" = a."namespaceId"
+    WHERE a."claimId" = ${claimId}
+      AND a."idempotencyKey" IN (${Prisma.join(keys)})
+    ORDER BY a."ordinal"
+    FOR UPDATE OF a, n
+  `;
+  if (rows.length === 0 || rows[0]?.attemptId !== root.attemptId) {
+    throw new Error("codex_rotating_setup_retirement_conflict");
+  }
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    if (
+      row.idempotencyKey !== keys[index] ||
+      row.ordinal !== root.ordinal + index ||
+      (index < rows.length - 1 &&
+        classifyAttemptNamespaceState(row) !== "retired_predispatch")
+    ) {
+      throw new Error("codex_rotating_setup_retirement_conflict");
+    }
+  }
+  return rows;
 }
 
 async function findAttemptForUpdate(
@@ -1532,7 +1694,11 @@ async function findAttemptForUpdate(
 ) {
   const rows = await tx.$queryRaw<AttemptRow[]>`
     SELECT a."claimId", a."id" AS "attemptId", a."namespaceId", n."namespaceEpoch",
-      n."secretName", a."status", a."dispatchExpiresAt", a."definiteResponseCode"
+      n."secretName", a."status", a."idempotencyKey", a."ordinal",
+             a."dispatchExpiresAt", a."definiteResponseCode",
+             a."retiredAt" AS "attemptRetiredAt", n."status" AS "namespaceStatus",
+             n."permanentlyRetired" AS "namespacePermanentlyRetired",
+             n."retiredAt" AS "namespaceRetiredAt"
     FROM "CodexOAuthSetupDispatchAttempt" a JOIN "CodexOAuthSecretNamespace" n ON n."id" = a."namespaceId"
     WHERE a."claimId" = ${claimId} AND a."id" = ${attemptId}
     LIMIT 1 FOR UPDATE OF a, n
@@ -1570,6 +1736,49 @@ export async function retireAttemptAndNamespace(
     ownerId: string;
     epoch: bigint;
   }>,
+) {
+  return retireAttemptAndNamespaceWithStatus(
+    tx,
+    attemptId,
+    namespaceId,
+    now,
+    expectedFence,
+    "retired_ambiguous",
+  );
+}
+
+export async function retirePredispatchAttemptAndNamespace(
+  tx: Prisma.TransactionClient,
+  attemptId: string,
+  namespaceId: string,
+  now: Date,
+  expectedFence: Readonly<{
+    providerInstanceRowId: string;
+    ownerId: string;
+    epoch: bigint;
+  }>,
+) {
+  return retireAttemptAndNamespaceWithStatus(
+    tx,
+    attemptId,
+    namespaceId,
+    now,
+    expectedFence,
+    "retired_predispatch",
+  );
+}
+
+async function retireAttemptAndNamespaceWithStatus(
+  tx: Prisma.TransactionClient,
+  attemptId: string,
+  namespaceId: string,
+  now: Date,
+  expectedFence: Readonly<{
+    providerInstanceRowId: string;
+    ownerId: string;
+    epoch: bigint;
+  }>,
+  namespaceRetirementStatus: "retired_ambiguous" | "retired_predispatch",
 ) {
   const rows = await tx.$queryRaw<
     Array<{
@@ -1629,7 +1838,7 @@ export async function retireAttemptAndNamespace(
   if (
     row.attemptStatus === "retired_ambiguous" &&
     row.attemptRetiredAt &&
-    row.namespaceStatus === "retired_ambiguous" &&
+    row.namespaceStatus === namespaceRetirementStatus &&
     row.namespacePermanentlyRetired &&
     row.namespaceRetiredAt
   ) {
@@ -1653,7 +1862,7 @@ export async function retireAttemptAndNamespace(
   `;
   const retiredNamespace = await tx.$executeRaw`
     UPDATE "CodexOAuthSecretNamespace"
-    SET "status" = 'retired_ambiguous', "permanentlyRetired" = true,
+    SET "status" = ${namespaceRetirementStatus}, "permanentlyRetired" = true,
         "retiredAt" = ${now}
     WHERE "id" = ${namespaceId}
       AND "providerInstanceRowId" = ${row.namespaceProviderInstanceRowId}
@@ -1723,7 +1932,17 @@ async function dispatchSetupSecretUnderLock(input: {
       repo: target.repo,
       secretName: input.attempt.secretName,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof CodexRotatingSetupPreDispatchError) {
+      await retirePredispatchAttemptAndNamespace(
+        input.tx,
+        input.attempt.attemptId,
+        input.attempt.namespaceId,
+        input.now,
+        setupFenceForClaim(input.claim),
+      );
+      return predispatchRemoteDispatchRetired;
+    }
     await retireAttemptAndNamespace(
       input.tx,
       input.attempt.attemptId,

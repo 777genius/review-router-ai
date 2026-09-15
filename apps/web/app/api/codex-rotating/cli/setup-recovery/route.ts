@@ -66,6 +66,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         provider: true,
         githubRepositoryId: true,
         fullName: true,
+        defaultBranch: true,
         selected: true,
         archived: true,
         installation: { select: { status: true } },

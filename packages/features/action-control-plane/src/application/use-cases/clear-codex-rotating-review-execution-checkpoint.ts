@@ -23,30 +23,26 @@ export async function clearCodexRotatingReviewExecutionCheckpoint(
   dependencies: ClearCodexRotatingReviewExecutionCheckpointDependencies,
 ) {
   const now = dependencies.clock.now();
-  const access =
-    await dependencies.codexRotatingReviewExecutionCheckpointAccess.authorizeReviewExecutionCheckpointAccess(
-      {
-        leaseId: input.leaseId,
-        providerInstanceId: input.providerInstanceId,
-        pullRequestNumber: input.pullRequestNumber,
-        now,
-      },
-    );
-  if (access.status !== "ready") {
-    throw new Error("codex_rotating_lease_not_active");
-  }
-
-  return clearReviewExecutionCheckpoint(
+  return dependencies.codexRotatingReviewExecutionCheckpointAccess.withAuthorizedReviewExecutionCheckpointAccess(
     {
-      scope: {
-        workspaceId: access.scope.workspaceId,
-        repositoryId: access.scope.repositoryId,
-        pullRequestNumber: input.pullRequestNumber,
-      },
-      expectedVersion: input.expectedVersion,
-      headSha: input.headSha,
-      planHash: input.planHash,
+      leaseId: input.leaseId,
+      providerInstanceId: input.providerInstanceId,
+      pullRequestNumber: input.pullRequestNumber,
+      now,
     },
-    { checkpoints: dependencies.reviewExecutionCheckpoints },
+    async (scope) =>
+      clearReviewExecutionCheckpoint(
+        {
+          scope: {
+            workspaceId: scope.workspaceId,
+            repositoryId: scope.repositoryId,
+            pullRequestNumber: input.pullRequestNumber,
+          },
+          expectedVersion: input.expectedVersion,
+          headSha: input.headSha,
+          planHash: input.planHash,
+        },
+        { checkpoints: dependencies.reviewExecutionCheckpoints },
+      ),
   );
 }

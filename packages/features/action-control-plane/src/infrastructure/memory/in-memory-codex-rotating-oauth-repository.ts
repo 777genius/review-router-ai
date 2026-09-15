@@ -1010,89 +1010,106 @@ export class InMemoryCodexRotatingOAuthRepository
     });
   }
 
-  async findCompletedLeaseWriteTarget(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly now: Date;
-    readonly completedLeaseTtlMs?: number | undefined;
-  }): Promise<
-    | {
-        readonly status: "ready";
-        readonly writeTarget: {
-          readonly githubInstallationId: string;
-          readonly githubRepositoryId: string;
-          readonly repositoryFullName: string;
-          readonly owner: string;
-          readonly repo: string;
-          readonly secretName: string;
-        };
-      }
-    | {
-        readonly status: "lease_not_completed" | "lease_not_active";
-      }
-  > {
+  async withCompletedLeaseWriteTarget<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly now: Date;
+      readonly completedLeaseTtlMs?: number | undefined;
+    },
+    effect: (writeTarget: {
+      readonly githubInstallationId: string;
+      readonly githubRepositoryId: string;
+      readonly repositoryFullName: string;
+      readonly owner: string;
+      readonly repo: string;
+      readonly secretName: string;
+    }) => Promise<T>,
+  ): Promise<T> {
     const context = this.findCompletedLeaseContext(input);
-    if (context.status !== "ready") return context;
-    return {
-      status: "ready" as const,
-      writeTarget: toWriteTarget(context.repository, context.namespace.name),
-    };
+    if (context.status !== "ready") {
+      throw new Error(`codex_rotating_${context.status}`);
+    }
+    return effect(toWriteTarget(context.repository, context.namespace.name));
   }
 
-  async authorizeReviewSnapshotAccess(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly pullRequestNumber: number;
-    readonly now: Date;
-  }) {
+  async withAuthorizedReviewSnapshotAccess<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly pullRequestNumber: number;
+      readonly now: Date;
+    },
+    effect: (scope: {
+      readonly workspaceId: string;
+      readonly repositoryId: string;
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly pullRequestNumber: number;
+    }) => Promise<T>,
+  ): Promise<T> {
+    return this.withAuthorizedCompletedLeaseAccess(
+      input,
+      codexRotatingReviewSnapshotAccessTtlMs,
+      effect,
+    );
+  }
+
+  async withAuthorizedReviewExecutionCheckpointAccess<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly pullRequestNumber: number;
+      readonly now: Date;
+    },
+    effect: (scope: {
+      readonly workspaceId: string;
+      readonly repositoryId: string;
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly pullRequestNumber: number;
+    }) => Promise<T>,
+  ): Promise<T> {
+    return this.withAuthorizedCompletedLeaseAccess(
+      input,
+      codexRotatingReviewExecutionCheckpointAccessTtlMs,
+      effect,
+    );
+  }
+
+  private async withAuthorizedCompletedLeaseAccess<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly pullRequestNumber: number;
+      readonly now: Date;
+    },
+    completedLeaseTtlMs: number,
+    effect: (scope: {
+      readonly workspaceId: string;
+      readonly repositoryId: string;
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly pullRequestNumber: number;
+    }) => Promise<T>,
+  ): Promise<T> {
     const context = this.findCompletedLeaseContext({
       ...input,
-      completedLeaseTtlMs: codexRotatingReviewSnapshotAccessTtlMs,
+      completedLeaseTtlMs,
     });
     if (
       context.status !== "ready" ||
       context.source.pullRequestNumber !== input.pullRequestNumber
     ) {
-      return { status: "lease_not_active" as const };
+      throw new Error("codex_rotating_lease_not_active");
     }
-    return {
-      status: "ready" as const,
-      scope: {
-        workspaceId: context.repository.workspaceId,
-        repositoryId: context.repository.repositoryId,
-        sourceRunId: context.source.runId,
-        sourceRunAttempt: context.source.runAttempt,
-        pullRequestNumber: context.source.pullRequestNumber,
-      },
-    };
-  }
-
-  async authorizeReviewExecutionCheckpointAccess(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly pullRequestNumber: number;
-    readonly now: Date;
-  }) {
-    const context = this.findCompletedLeaseContext({
-      ...input,
-      completedLeaseTtlMs: codexRotatingReviewExecutionCheckpointAccessTtlMs,
+    return effect({
+      workspaceId: context.repository.workspaceId,
+      repositoryId: context.repository.repositoryId,
+      sourceRunId: context.source.runId,
+      sourceRunAttempt: context.source.runAttempt,
+      pullRequestNumber: context.source.pullRequestNumber,
     });
-    if (
-      context.status !== "ready" ||
-      context.source.pullRequestNumber !== input.pullRequestNumber
-    ) {
-      return { status: "lease_not_active" as const };
-    }
-    return {
-      status: "ready" as const,
-      scope: {
-        workspaceId: context.repository.workspaceId,
-        repositoryId: context.repository.repositoryId,
-        sourceRunId: context.source.runId,
-        sourceRunAttempt: context.source.runAttempt,
-        pullRequestNumber: context.source.pullRequestNumber,
-      },
-    };
   }
 
   private findCompletedLeaseContext(input: {
@@ -1257,10 +1274,10 @@ function assertMemoryWorkflowAdmissionMatches(input: {
     input.verified.workflowSchemaVersion
       ? provider.binding.activeWorkflowSource
       : provider?.binding.retiringWorkflowSource?.workflowSchemaVersion ===
-            input.verified.workflowSchemaVersion &&
-          provider.binding.retiringWorkflowSource.retireAt > input.now
-        ? provider.binding.retiringWorkflowSource
-        : undefined;
+          input.verified.workflowSchemaVersion &&
+        provider.binding.retiringWorkflowSource.retireAt > input.now
+      ? provider.binding.retiringWorkflowSource
+      : undefined;
   let verified: VersionedSecretWorkflowSourceAttestation;
   try {
     verified = createVersionedSecretWorkflowSourceAttestation(input.verified);

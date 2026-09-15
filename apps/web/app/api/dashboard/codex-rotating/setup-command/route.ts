@@ -29,6 +29,7 @@ export async function POST(request: Request): Promise<
         owner: true,
         name: true,
         fullName: true,
+        defaultBranch: true,
         visibility: true,
         selected: true,
         archived: true,

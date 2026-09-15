@@ -80,6 +80,71 @@ const pullRequestTargetClaims = {
   ref: "refs/heads/main",
 } as const;
 
+async function inspectCompletedLeaseWriteTarget(
+  ledger: InMemoryCodexRotatingOAuthRepository,
+  input: Parameters<
+    InMemoryCodexRotatingOAuthRepository["withCompletedLeaseWriteTarget"]
+  >[0],
+) {
+  try {
+    return await ledger.withCompletedLeaseWriteTarget(
+      input,
+      async (writeTarget) => ({
+        status: "ready" as const,
+        writeTarget,
+      }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+async function inspectReviewSnapshotAccess(
+  ledger: InMemoryCodexRotatingOAuthRepository,
+  input: Parameters<
+    InMemoryCodexRotatingOAuthRepository["withAuthorizedReviewSnapshotAccess"]
+  >[0],
+) {
+  try {
+    return await ledger.withAuthorizedReviewSnapshotAccess(
+      input,
+      async (scope) => ({
+        status: "ready" as const,
+        scope,
+      }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+async function inspectReviewExecutionCheckpointAccess(
+  ledger: InMemoryCodexRotatingOAuthRepository,
+  input: Parameters<
+    InMemoryCodexRotatingOAuthRepository["withAuthorizedReviewExecutionCheckpointAccess"]
+  >[0],
+) {
+  try {
+    return await ledger.withAuthorizedReviewExecutionCheckpointAccess(
+      input,
+      async (scope) => ({ status: "ready" as const, scope }),
+    );
+  } catch (error) {
+    return completedLeaseAccessFailure(error);
+  }
+}
+
+function completedLeaseAccessFailure(error: unknown): {
+  readonly status: "lease_not_active" | "lease_not_completed";
+} {
+  if (!(error instanceof Error)) throw error;
+  const status = error.message.replace(/^codex_rotating_/, "");
+  if (status === "lease_not_active" || status === "lease_not_completed") {
+    return { status };
+  }
+  throw error;
+}
+
 describe("Codex rotating OAuth action control plane", () => {
   it("fails closed when runtime workflow verification omits its mandatory attestation", async () => {
     const dependencies = buildRotatingDependencies();
@@ -771,7 +836,7 @@ describe("Codex rotating OAuth action control plane", () => {
     ).resolves.toMatchObject({ status: "finalized" });
 
     await expect(
-      codexRotatingOAuth.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(codexRotatingOAuth, {
         leaseId: prelease.leaseId,
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -782,7 +847,7 @@ describe("Codex rotating OAuth action control plane", () => {
       scope: { pullRequestNumber: 240 },
     });
     await expect(
-      codexRotatingOAuth.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(codexRotatingOAuth, {
         leaseId: prelease.leaseId,
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1681,7 +1746,7 @@ describe("Codex rotating OAuth action control plane", () => {
     const ledger =
       dependencies.codexRotatingOAuth as InMemoryCodexRotatingOAuthRepository;
     const first = await completeRotatingWriteback(dependencies);
-    const firstTarget = await ledger.findCompletedLeaseWriteTarget({
+    const firstTarget = await inspectCompletedLeaseWriteTarget(ledger, {
       leaseId: first.prelease.leaseId,
       providerInstanceId: "codex-rotating:123456",
       now,
@@ -1698,7 +1763,7 @@ describe("Codex rotating OAuth action control plane", () => {
       latestGenerationHash: "latest-generation-hash-value-second-0123456789",
       idempotencyKey: "idem:9001:second",
     });
-    const secondTarget = await ledger.findCompletedLeaseWriteTarget({
+    const secondTarget = await inspectCompletedLeaseWriteTarget(ledger, {
       leaseId: second.prelease.leaseId,
       providerInstanceId: "codex-rotating:123456",
       now,
@@ -1711,7 +1776,7 @@ describe("Codex rotating OAuth action control plane", () => {
     );
 
     await expect(
-      ledger.findCompletedLeaseWriteTarget({
+      inspectCompletedLeaseWriteTarget(ledger, {
         leaseId: first.prelease.leaseId,
         providerInstanceId: "codex-rotating:123456",
         now,
@@ -1723,7 +1788,7 @@ describe("Codex rotating OAuth action control plane", () => {
       },
     });
     await expect(
-      ledger.authorizeReviewSnapshotAccess({
+      inspectReviewSnapshotAccess(ledger, {
         leaseId: second.prelease.leaseId,
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,
@@ -1731,7 +1796,7 @@ describe("Codex rotating OAuth action control plane", () => {
       }),
     ).resolves.toMatchObject({ status: "ready" });
     await expect(
-      ledger.authorizeReviewExecutionCheckpointAccess({
+      inspectReviewExecutionCheckpointAccess(ledger, {
         leaseId: second.prelease.leaseId,
         providerInstanceId: "codex-rotating:123456",
         pullRequestNumber: 240,

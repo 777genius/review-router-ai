@@ -88,20 +88,15 @@ export interface CodexRotatingOAuthRepositoryPort {
       }
   >;
 
-  findCompletedLeaseWriteTarget(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly now: Date;
-    readonly completedLeaseTtlMs?: number | undefined;
-  }): Promise<
-    | {
-        readonly status: "ready";
-        readonly writeTarget: CodexRotatingSecretWriteTarget;
-      }
-    | {
-        readonly status: "lease_not_completed" | "lease_not_active";
-      }
-  >;
+  withCompletedLeaseWriteTarget<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly now: Date;
+      readonly completedLeaseTtlMs?: number | undefined;
+    },
+    effect: (writeTarget: CodexRotatingSecretWriteTarget) => Promise<T>,
+  ): Promise<T>;
 }
 
 export class CodexRotatingSecretPutPreDispatchError extends Error {

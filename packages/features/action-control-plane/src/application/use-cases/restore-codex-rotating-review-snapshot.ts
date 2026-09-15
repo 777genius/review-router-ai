@@ -21,26 +21,22 @@ export async function restoreCodexRotatingReviewSnapshot(
   dependencies: RestoreCodexRotatingReviewSnapshotDependencies,
 ) {
   const now = dependencies.clock.now();
-  const access =
-    await dependencies.codexRotatingReviewSnapshotAccess.authorizeReviewSnapshotAccess(
-      {
-        leaseId: input.leaseId,
-        providerInstanceId: input.providerInstanceId,
-        pullRequestNumber: input.pullRequestNumber,
-        now,
-      },
-    );
-  if (access.status !== "ready") {
-    throw new Error(`codex_rotating_${access.status}`);
-  }
-
-  return restoreReviewSnapshot(
+  return dependencies.codexRotatingReviewSnapshotAccess.withAuthorizedReviewSnapshotAccess(
     {
-      workspaceId: access.scope.workspaceId,
-      repositoryId: access.scope.repositoryId,
+      leaseId: input.leaseId,
+      providerInstanceId: input.providerInstanceId,
       pullRequestNumber: input.pullRequestNumber,
-      baseSha: input.baseSha,
+      now,
     },
-    { snapshots: dependencies.reviewSnapshots, now },
+    async (scope) =>
+      restoreReviewSnapshot(
+        {
+          workspaceId: scope.workspaceId,
+          repositoryId: scope.repositoryId,
+          pullRequestNumber: input.pullRequestNumber,
+          baseSha: input.baseSha,
+        },
+        { snapshots: dependencies.reviewSnapshots, now },
+      ),
   );
 }

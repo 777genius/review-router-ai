@@ -92,12 +92,9 @@ export class PrismaRepositoryWebhookHandler {
             status: "reconnect_reselection_required",
           };
         }
-        const metadataTimestamp =
-          payload.action === "renamed" || payload.action === "edited"
-            ? repository.updated_at
-              ? new Date(repository.updated_at)
-              : null
-            : syncedAt;
+        const metadataTimestamp = parseRepositoryUpdatedAt(
+          repository.updated_at,
+        );
         const sameSecondChange =
           metadataTimestamp &&
           existing.lastSyncedAt &&
@@ -271,6 +268,41 @@ function resolveSameSecondRepositoryChange(input: {
 
 function startOfSecond(value: Date): number {
   return Math.floor(value.getTime() / 1_000) * 1_000;
+}
+
+const repositoryUpdatedAtPattern =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
+
+function parseRepositoryUpdatedAt(value: string | undefined): Date | null {
+  if (value === undefined) return null;
+
+  const match = repositoryUpdatedAtPattern.exec(value);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offsetHour = Number(match[7] ?? 0);
+  const offsetMinute = Number(match[8] ?? 0);
+  if (
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > new Date(Date.UTC(year, month, 0)).getUTCDate() ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59 ||
+    offsetHour > 23 ||
+    offsetMinute > 59
+  ) {
+    return null;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp) : null;
 }
 
 async function fenceRepositoryAuthority(

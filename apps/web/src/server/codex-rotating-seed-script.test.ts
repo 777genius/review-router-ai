@@ -1172,6 +1172,80 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
     expect(readFileSync(tamperedEvents, "utf8")).not.toContain("gh:secret set");
   }, 45_000);
 
+  it.each([
+    ["retryable 503", "http"],
+    ["lost transport response", "transport"],
+  ])("retries the same journal key after a %s", (_label, failureKind) => {
+    const fixture = createRotatingInstallerFixture();
+    const marker = join(fixture.home, `${failureKind}-dispatch-once`);
+    const keyCapture = join(fixture.home, `${failureKind}-dispatch-keys`);
+    const failureEnvironment =
+      failureKind === "http"
+        ? { REVIEW_ROUTER_TEST_DISPATCH_HTTP_FAIL_ONCE_MARKER: marker }
+        : { REVIEW_ROUTER_TEST_DISPATCH_TRANSPORT_FAIL_ONCE_MARKER: marker };
+    const first = spawnSync("bash", [fixture.scriptPath, "--confirm-write"], {
+      cwd: process.cwd(),
+      env: recoveryInstallerEnv(fixture, {
+        REVIEW_ROUTER_FORCE_CODEX_RESEED: "1",
+        REVIEW_ROUTER_TEST_CODEX_LOGIN_WRITES_AUTH: "1",
+        REVIEW_ROUTER_TEST_DISPATCH_KEY_CAPTURE: keyCapture,
+        ...failureEnvironment,
+      }),
+      encoding: "utf8",
+    });
+    expect(first.status).not.toBe(0);
+
+    const second = spawnSync("bash", [fixture.scriptPath, "--confirm-write"], {
+      cwd: process.cwd(),
+      env: recoveryInstallerEnv(fixture, {
+        REVIEW_ROUTER_FORCE_CODEX_RESEED: "1",
+        REVIEW_ROUTER_TEST_CODEX_LOGIN_WRITES_AUTH: "1",
+        REVIEW_ROUTER_TEST_PAYLOAD_CLAIMED: "true",
+        REVIEW_ROUTER_TEST_DISPATCH_KEY_CAPTURE: keyCapture,
+        ...failureEnvironment,
+      }),
+      encoding: "utf8",
+    });
+    expect(second.status, `${second.stdout}\n${second.stderr}`).toBe(0);
+    const keys = readFileSync(keyCapture, "utf8").trim().split("\n");
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+  });
+
+  it("retires the journal key after an outcome-unknown terminal response", () => {
+    const fixture = createRotatingInstallerFixture();
+    const marker = join(fixture.home, "ambiguous-dispatch-once");
+    const keyCapture = join(fixture.home, "ambiguous-dispatch-keys");
+    const common = {
+      REVIEW_ROUTER_FORCE_CODEX_RESEED: "1",
+      REVIEW_ROUTER_TEST_CODEX_LOGIN_WRITES_AUTH: "1",
+      REVIEW_ROUTER_TEST_DISPATCH_KEY_CAPTURE: keyCapture,
+      REVIEW_ROUTER_TEST_DISPATCH_HTTP_FAIL_ONCE_MARKER: marker,
+      REVIEW_ROUTER_TEST_DISPATCH_STATUS: "409",
+      REVIEW_ROUTER_TEST_DISPATCH_ERROR:
+        "codex_rotating_setup_secret_put_failed",
+    };
+    const first = spawnSync("bash", [fixture.scriptPath, "--confirm-write"], {
+      cwd: process.cwd(),
+      env: recoveryInstallerEnv(fixture, common),
+      encoding: "utf8",
+    });
+    expect(first.status).not.toBe(0);
+
+    const second = spawnSync("bash", [fixture.scriptPath, "--confirm-write"], {
+      cwd: process.cwd(),
+      env: recoveryInstallerEnv(fixture, {
+        ...common,
+        REVIEW_ROUTER_TEST_PAYLOAD_CLAIMED: "true",
+      }),
+      encoding: "utf8",
+    });
+    expect(second.status, `${second.stdout}\n${second.stderr}`).toBe(0);
+    const keys = readFileSync(keyCapture, "utf8").trim().split("\n");
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).not.toBe(keys[0]);
+  });
+
   it("does not redispatch a payload that the server already confirmed", () => {
     const fixture = createRotatingInstallerFixture();
     const firstEvents = join(fixture.home, "confirmed-first.log");
@@ -1567,6 +1641,18 @@ function createRotatingInstallerFixture(
       'if [[ "$args" == *"/dispatch"* ]] && [[ "$args" != *"/dispatch-outcome"* ]]; then',
       '  out=""; prev=""; for arg in "$@"; do if [ "$prev" = "-o" ]; then out="$arg"; fi; prev="$arg"; done',
       '  [ -n "$out" ] || out="/dev/stdout"',
+      '  payload=""; prev=""; for arg in "$@"; do if [ "$prev" = "--data-binary" ]; then payload="${arg#@}"; fi; prev="$arg"; done',
+      '  if [ -n "${REVIEW_ROUTER_TEST_DISPATCH_KEY_CAPTURE:-}" ]; then node - "$payload" "$REVIEW_ROUTER_TEST_DISPATCH_KEY_CAPTURE" <<\'NODE\'',
+      'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); fs.appendFileSync(process.argv[3],`${value.idempotencyKey}\\n`);',
+      "NODE",
+      "  fi",
+      '  if [ -n "${REVIEW_ROUTER_TEST_DISPATCH_TRANSPORT_FAIL_ONCE_MARKER:-}" ] && [ ! -e "$REVIEW_ROUTER_TEST_DISPATCH_TRANSPORT_FAIL_ONCE_MARKER" ]; then : > "$REVIEW_ROUTER_TEST_DISPATCH_TRANSPORT_FAIL_ONCE_MARKER"; exit 28; fi',
+      '  if [ -n "${REVIEW_ROUTER_TEST_DISPATCH_HTTP_FAIL_ONCE_MARKER:-}" ] && [ ! -e "$REVIEW_ROUTER_TEST_DISPATCH_HTTP_FAIL_ONCE_MARKER" ]; then',
+      '    : > "$REVIEW_ROUTER_TEST_DISPATCH_HTTP_FAIL_ONCE_MARKER"',
+      '    printf \'{"error":"%s"}\\n\' "${REVIEW_ROUTER_TEST_DISPATCH_ERROR:-codex_rotating_retryable_uncommitted}" > "$out"',
+      '    printf "%s" "${REVIEW_ROUTER_TEST_DISPATCH_STATUS:-503}"',
+      "    exit 0",
+      "  fi",
       '  printf \'{"claimId":"codex_claim_11111111-1111-4111-8111-111111111111","attemptId":"attempt:test-12345678","namespaceId":"namespace:test-12345678","namespaceEpoch":"1","secretName":"REVIEWROUTER_CODEX_AUTH_JSON_R900001_P0123456789abcdef_E1_0123456789abcdef0123456789abcdef","status":"confirmed","responseCode":204,"dispatchExpiresAt":"2999-01-01T00:00:00.000Z"}\\n\' > "$out"',
       '  printf "200"',
       "  exit 0",

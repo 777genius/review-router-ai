@@ -38,6 +38,7 @@ const repository = {
   provider: "github",
   githubRepositoryId: 123456n,
   fullName: "777genius/review-router-saas-e2e",
+  defaultBranch: "main",
   selected: true,
   archived: false,
   installation: { status: "active" },
@@ -78,6 +79,7 @@ describe("Codex rotating setup command composition", () => {
       expect.objectContaining({
         workspaceId: repository.workspaceId,
         repositoryId: repository.id,
+        repositoryDefaultBranch: repository.defaultBranch,
         githubRepositoryId: "123456",
         databaseRecoveryWitness: "w".repeat(43),
         runtimeEnvironment: process.env,

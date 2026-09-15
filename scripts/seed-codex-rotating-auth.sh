@@ -1196,7 +1196,8 @@ if (kind === "claim_response") {
   if (!/^codex_claim_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(response.claimId)) {
     throw new Error("invalid claim capability");
   }
-  Object.assign(state, { claimId: response.claimId, lifecycle: "prepared" });
+  Object.assign(state, { claimId: response.claimId });
+  if (state.lifecycle !== "retired_ambiguous") state.lifecycle = "prepared";
 }
 if (kind === "dispatch_request") Object.assign(state, { idempotencyKey: args[0], lifecycle: "dispatch_requested", mayHaveDispatched: false });
 if (kind === "attempt") Object.assign(state, { attemptId: args[0], namespaceId: args[1], namespaceEpoch: args[2], secretName: args[3], idempotencyKey: args[4], lifecycle: "dispatch_authorized", mayHaveDispatched: true });
@@ -1314,10 +1315,29 @@ const provider=JSON.parse(fs.readFileSync(process.argv[4],"utf8"));
 if (typeof provider.encrypted_value!=="string" || typeof provider.key_id!=="string") process.exit(1);
 fs.writeFileSync(process.argv[2],JSON.stringify({claimId:state.claimId,idempotencyKey:state.idempotencyKey,encryptedValue:provider.encrypted_value,keyId:provider.key_id}),{mode:0o600});
 NODE
-  dispatch_http_status="$(curl -q -fsS --max-redirs 0 --connect-timeout 10 --max-time 30 -X POST -H 'content-type: application/json' --data-binary "@$request" "$SETUP_DISPATCH_URL" -o "$response" --write-out '%{http_code}')" || { rm -f "$request" "$response"; fatal "Dispatch authorization was not recovered. No PUT was attempted."; }
+  if ! dispatch_http_status="$(curl -q -sS --max-redirs 0 --connect-timeout 10 --max-time 30 -X POST -H 'content-type: application/json' --data-binary "@$request" "$SETUP_DISPATCH_URL" -o "$response" --write-out '%{http_code}')"; then
+    rm -f "$request" "$response"
+    fatal "Dispatch response was lost. Re-run this command; it will retry the same idempotency key and will never repeat an outcome-unknown PUT."
+  fi
   case "$dispatch_http_status" in
     2??) ;;
-    *) rm -f "$request" "$response"; fatal "Dispatch authorization was not recovered. No PUT was attempted." ;;
+    *)
+      dispatch_error="$(node - "$response" <<'NODE'
+const fs=require("node:fs");
+try {
+  const value=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
+  if (typeof value.error==="string") process.stdout.write(value.error);
+} catch {}
+NODE
+)"
+      case "$dispatch_error" in
+        codex_rotating_setup_secret_put_failed|codex_rotating_setup_namespace_retired)
+          journal_update retired
+          ;;
+      esac
+      rm -f "$request" "$response"
+      fatal "Dispatch authorization was not recovered (HTTP $dispatch_http_status${dispatch_error:+: $dispatch_error})."
+      ;;
   esac
   dispatch_values="$(node - "$response" <<'NODE'
 const fs=require("node:fs"); const r=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));

@@ -13,7 +13,10 @@ import { requireReviewRouterDatabaseRecoveryWitness } from "@reviewrouter/platfo
 import { getCodexEffectAuthorityPrisma, getPrisma } from "./prisma";
 import { z } from "zod";
 import { mintFreshGitHubAppRepositorySecretWriteToken } from "./dashboard-mutations";
-import { PrismaCodexRotatingSetupPayloadClaim } from "./prisma-codex-rotating-setup-payload-claim";
+import {
+  CodexRotatingSetupPreDispatchError,
+  PrismaCodexRotatingSetupPayloadClaim,
+} from "./prisma-codex-rotating-setup-payload-claim";
 
 const setupSecretDispatchSchema = z.object({
   claimId: z.string().min(1),
@@ -43,30 +46,39 @@ type OneShotSetupSecretPutInput = Readonly<{
 async function putGitHubSetupSecretExactlyOnce(
   input: OneShotSetupSecretPutInput,
 ): Promise<{ readonly status: number }> {
-  if (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs <= 0) {
-    throw new Error("setup_secret_put_timeout_invalid");
+  let url: URL;
+  let body: Buffer;
+  try {
+    if (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs <= 0) {
+      throw new Error("setup_secret_put_timeout_invalid");
+    }
+    const path = [
+      "repos",
+      input.owner,
+      input.repo,
+      "actions",
+      "secrets",
+      input.secretName,
+    ]
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+    url = new URL(path, "https://api.github.com/");
+    body = Buffer.from(
+      JSON.stringify({
+        encrypted_value: input.encryptedValue,
+        key_id: input.keyId,
+      }),
+      "utf8",
+    );
+  } catch (cause) {
+    throw new CodexRotatingSetupPreDispatchError(cause);
   }
-  const path = [
-    "repos",
-    input.owner,
-    input.repo,
-    "actions",
-    "secrets",
-    input.secretName,
-  ]
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-  const url = new URL(path, "https://api.github.com/");
-  const body = Buffer.from(
-    JSON.stringify({
-      encrypted_value: input.encryptedValue,
-      key_id: input.keyId,
-    }),
-    "utf8",
-  );
 
   return new Promise((resolve, reject) => {
     let settled = false;
+    let timedOut = false;
+    let requestBytesMayHaveLeft = false;
+    let timeout: NodeJS.Timeout | undefined;
     const settle = (
       outcome:
         | { readonly status: "resolved"; readonly statusCode: number }
@@ -74,7 +86,7 @@ async function putGitHubSetupSecretExactlyOnce(
     ) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       if (outcome.status === "resolved") {
         resolve({ status: outcome.statusCode });
       } else {
@@ -124,16 +136,33 @@ async function putGitHubSetupSecretExactlyOnce(
         },
       );
     } catch (cause) {
-      reject(new Error("setup_secret_put_construction_failed", { cause }));
+      reject(new CodexRotatingSetupPreDispatchError(cause));
       return;
     }
+    request.once("socket", (socket) => {
+      if ("encrypted" in socket) {
+        socket.once("secureConnect", () => {
+          requestBytesMayHaveLeft = true;
+        });
+        return;
+      }
+      requestBytesMayHaveLeft = true;
+    });
     request.once("error", (cause) =>
       settle({
         status: "rejected",
-        error: new Error("setup_secret_put_transport_unknown", { cause }),
+        error: requestBytesMayHaveLeft
+          ? new Error(
+              timedOut
+                ? "setup_secret_put_timeout"
+                : "setup_secret_put_transport_unknown",
+              { cause },
+            )
+          : new CodexRotatingSetupPreDispatchError(cause),
       }),
     );
-    const timeout = setTimeout(() => {
+    timeout = setTimeout(() => {
+      timedOut = true;
       request.destroy(new Error("setup_secret_put_timeout"));
     }, input.timeoutMs);
     try {
@@ -141,7 +170,9 @@ async function putGitHubSetupSecretExactlyOnce(
     } catch (cause) {
       settle({
         status: "rejected",
-        error: new Error("setup_secret_put_transport_unknown", { cause }),
+        error: requestBytesMayHaveLeft
+          ? new Error("setup_secret_put_transport_unknown", { cause })
+          : new CodexRotatingSetupPreDispatchError(cause),
       });
     }
   });
@@ -169,10 +200,15 @@ export const codexRotatingSetupLedger = {
     return claims.authorizeDispatch(
       { claimId: parsed.claimId, idempotencyKey: parsed.idempotencyKey },
       async (target) => {
-        const token = await mintFreshGitHubAppRepositorySecretWriteToken({
-          githubInstallationId: target.githubInstallationId,
-          githubRepositoryId: target.githubRepositoryId,
-        });
+        let token: string;
+        try {
+          token = await mintFreshGitHubAppRepositorySecretWriteToken({
+            githubInstallationId: target.githubInstallationId,
+            githubRepositoryId: target.githubRepositoryId,
+          });
+        } catch (cause) {
+          throw new CodexRotatingSetupPreDispatchError(cause);
+        }
         // PUT /repos/{owner}/{repo}/actions/secrets/{secret_name} is issued by
         // the no-retry, no-redirect native transport below.
         const response = await putGitHubSetupSecretExactlyOnce({

@@ -4,6 +4,7 @@ import { InMemoryReviewExecutionCheckpointRepository } from "@reviewrouter/featu
 import {
   registerActionControlPlaneRoutes,
   type CodexRotatingReviewExecutionCheckpointAccessPort,
+  type CodexRotatingReviewExecutionCheckpointScope,
 } from "../index.js";
 
 const routePrefix = "/api/action/v1/codex-oauth/review-execution-checkpoint";
@@ -369,7 +370,7 @@ describe("Codex OAuth review execution checkpoint routes", () => {
       });
       expect(forged.statusCode).toBe(400);
       expect(
-        access.authorizeReviewExecutionCheckpointAccess,
+        access.withAuthorizedReviewExecutionCheckpointAccess,
       ).not.toHaveBeenCalled();
 
       const nestedUnknown = await post(
@@ -502,15 +503,30 @@ async function buildRouteContext(
     ...additionalScopes,
   };
   const access: CodexRotatingReviewExecutionCheckpointAccessPort = {
-    authorizeReviewExecutionCheckpointAccess: vi.fn(async (input) => {
-      if (input.providerInstanceId !== providerInstanceId) {
-        return { status: "lease_not_active" as const };
-      }
-      const scope = scopes[input.leaseId as keyof typeof scopes];
-      return scope && scope.pullRequestNumber === input.pullRequestNumber
-        ? { status: "ready" as const, scope }
-        : { status: "lease_not_active" as const };
-    }),
+    withAuthorizedReviewExecutionCheckpointAccess: vi.fn(
+      async <T>(
+        input: {
+          readonly leaseId: string;
+          readonly providerInstanceId: string;
+          readonly pullRequestNumber: number;
+          readonly now: Date;
+        },
+        effect: (
+          scope: CodexRotatingReviewExecutionCheckpointScope,
+        ) => Promise<T>,
+      ): Promise<T> => {
+        if (input.providerInstanceId !== providerInstanceId) {
+          throw new Error("codex_rotating_lease_not_active");
+        }
+        const scope = scopes[input.leaseId as keyof typeof scopes];
+        if (!scope || scope.pullRequestNumber !== input.pullRequestNumber) {
+          throw new Error("codex_rotating_lease_not_active");
+        }
+        return effect(scope);
+      },
+    ) as unknown as CodexRotatingReviewExecutionCheckpointAccessPort[
+      "withAuthorizedReviewExecutionCheckpointAccess"
+    ],
   };
   const app = Fastify({ logger: false });
   await registerActionControlPlaneRoutes(app, {

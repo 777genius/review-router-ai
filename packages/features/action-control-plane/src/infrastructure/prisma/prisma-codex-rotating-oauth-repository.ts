@@ -227,23 +227,33 @@ export class PrismaCodexRotatingOAuthRepository
         FROM "ScmRepositoryIdentity" identity
         WHERE identity.provider = 'github'
           AND identity."normalizedSourceBaseUrl" = 'https://github.com'
-          AND identity."externalRepositoryId" = ${input.repository.githubRepositoryId}
+          AND identity."externalRepositoryId" = ${
+            input.repository.githubRepositoryId
+          }
           AND EXISTS (
             SELECT 1 FROM "RepositoryConnection" repository
             WHERE repository."id" = ${input.repository.repositoryId}
               AND repository."fullName" = ${input.repository.fullName}
-              AND repository."externalRepositoryId" = ${input.repository.githubRepositoryId}
+              AND repository."externalRepositoryId" = ${
+                input.repository.githubRepositoryId
+              }
           )
           AND identity."currentWorkspaceId" = ${input.repository.workspaceId}
-          AND identity."currentRepositoryConnectionId" = ${input.repository.repositoryId}
+          AND identity."currentRepositoryConnectionId" = ${
+            input.repository.repositoryId
+          }
           AND identity."boundAt" IS NOT NULL
-          AND identity."boundAt" <= ${new Date(durableManifest.data.generatedAt)}
+          AND identity."boundAt" <= ${new Date(
+            durableManifest.data.generatedAt,
+          )}
       `;
       if (
         identityBinding.length !== 1 ||
         (input.repository.identityBindingEpoch &&
           input.repository.identityBindingEpoch !==
-            `${identityBinding[0]!.version}:${identityBinding[0]!.boundAt.toISOString()}`)
+            `${
+              identityBinding[0]!.version
+            }:${identityBinding[0]!.boundAt.toISOString()}`)
       )
         return null;
     }
@@ -560,7 +570,9 @@ export class PrismaCodexRotatingOAuthRepository
         if (exactIdentityBindings.length !== 1) {
           throw new Error("codex_rotating_provider_identity_mismatch");
         }
-        leaseKey = `${leaseKey}:identity-v${exactIdentityBindings[0]!.identityVersion}`;
+        leaseKey = `${leaseKey}:identity-v${
+          exactIdentityBindings[0]!.identityVersion
+        }`;
       }
       assertAutomaticRuntimeDatabaseRecoveryWitness(
         provider.activeSecretNamespace?.databaseRecoveryWitness,
@@ -2365,91 +2377,123 @@ export class PrismaCodexRotatingOAuthRepository
     });
   }
 
-  async findCompletedLeaseWriteTarget(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly now: Date;
-    readonly completedLeaseTtlMs?: number | undefined;
-  }): Promise<
-    | {
-        readonly status: "ready";
-        readonly writeTarget: CodexRotatingSecretWriteTarget;
-      }
-    | {
-        readonly status: "lease_not_completed" | "lease_not_active";
-      }
-  > {
-    const context = await this.findCompletedLeaseContext(input);
-    if (context.status !== "ready") return context;
-    return {
-      status: "ready" as const,
-      writeTarget: toSecretWriteTarget(context.repository, context.secretName),
-    };
-  }
-
-  async authorizeReviewSnapshotAccess(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly pullRequestNumber: number;
-    readonly now: Date;
-  }) {
-    const context = await this.findCompletedLeaseContext({
-      ...input,
-      completedLeaseTtlMs: codexRotatingReviewSnapshotAccessTtlMs,
-    });
-    if (
-      context.status !== "ready" ||
-      context.pullRequestNumber !== input.pullRequestNumber
-    ) {
-      return { status: "lease_not_active" as const };
-    }
-    return {
-      status: "ready" as const,
-      scope: {
-        workspaceId: context.repository.workspaceId,
-        repositoryId: context.repository.id,
-        sourceRunId: context.sourceRunId,
-        sourceRunAttempt: context.sourceRunAttempt,
-        pullRequestNumber: context.pullRequestNumber,
+  async withCompletedLeaseWriteTarget<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly now: Date;
+      readonly completedLeaseTtlMs?: number | undefined;
+    },
+    effect: (writeTarget: CodexRotatingSecretWriteTarget) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const context = await this.findCompletedLeaseContext(input, tx);
+        if (context.status !== "ready") {
+          throw new Error(`codex_rotating_${context.status}`);
+        }
+        return effect(
+          toSecretWriteTarget(context.repository, context.secretName),
+        );
       },
-    };
+      { timeout: 30_000 },
+    );
   }
 
-  async authorizeReviewExecutionCheckpointAccess(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly pullRequestNumber: number;
-    readonly now: Date;
-  }) {
-    const context = await this.findCompletedLeaseContext({
-      ...input,
-      completedLeaseTtlMs: codexRotatingReviewExecutionCheckpointAccessTtlMs,
-    });
-    if (
-      context.status !== "ready" ||
-      context.pullRequestNumber !== input.pullRequestNumber
-    ) {
-      return { status: "lease_not_active" as const };
-    }
-    return {
-      status: "ready" as const,
-      scope: {
-        workspaceId: context.repository.workspaceId,
-        repositoryId: context.repository.id,
-        sourceRunId: context.sourceRunId,
-        sourceRunAttempt: context.sourceRunAttempt,
-        pullRequestNumber: context.pullRequestNumber,
+  async withAuthorizedReviewSnapshotAccess<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly pullRequestNumber: number;
+      readonly now: Date;
+    },
+    effect: (scope: {
+      readonly workspaceId: string;
+      readonly repositoryId: string;
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly pullRequestNumber: number;
+    }) => Promise<T>,
+  ): Promise<T> {
+    return this.withAuthorizedCompletedLeaseAccess(
+      input,
+      codexRotatingReviewSnapshotAccessTtlMs,
+      effect,
+    );
+  }
+
+  async withAuthorizedReviewExecutionCheckpointAccess<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly pullRequestNumber: number;
+      readonly now: Date;
+    },
+    effect: (scope: {
+      readonly workspaceId: string;
+      readonly repositoryId: string;
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly pullRequestNumber: number;
+    }) => Promise<T>,
+  ): Promise<T> {
+    return this.withAuthorizedCompletedLeaseAccess(
+      input,
+      codexRotatingReviewExecutionCheckpointAccessTtlMs,
+      effect,
+    );
+  }
+
+  private async withAuthorizedCompletedLeaseAccess<T>(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly pullRequestNumber: number;
+      readonly now: Date;
+    },
+    completedLeaseTtlMs: number,
+    effect: (scope: {
+      readonly workspaceId: string;
+      readonly repositoryId: string;
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly pullRequestNumber: number;
+    }) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const context = await this.findCompletedLeaseContext(
+          { ...input, completedLeaseTtlMs },
+          tx,
+        );
+        if (
+          context.status !== "ready" ||
+          context.pullRequestNumber !== input.pullRequestNumber
+        ) {
+          throw new Error("codex_rotating_lease_not_active");
+        }
+        return effect({
+          workspaceId: context.repository.workspaceId,
+          repositoryId: context.repository.id,
+          sourceRunId: context.sourceRunId,
+          sourceRunAttempt: context.sourceRunAttempt,
+          pullRequestNumber: context.pullRequestNumber,
+        });
       },
-    };
+      { timeout: 30_000 },
+    );
   }
 
-  private async findCompletedLeaseContext(input: {
-    readonly leaseId: string;
-    readonly providerInstanceId: string;
-    readonly now: Date;
-    readonly completedLeaseTtlMs?: number | undefined;
-  }) {
-    const lease = await this.prisma.codexOAuthLease.findFirst({
+  private async findCompletedLeaseContext(
+    input: {
+      readonly leaseId: string;
+      readonly providerInstanceId: string;
+      readonly now: Date;
+      readonly completedLeaseTtlMs?: number | undefined;
+    },
+    tx: Prisma.TransactionClient,
+  ) {
+    const lease = await tx.codexOAuthLease.findFirst({
       where: {
         id: input.leaseId,
         providerInstanceId: input.providerInstanceId,
@@ -2507,7 +2551,7 @@ export class PrismaCodexRotatingOAuthRepository
       return { status: "lease_not_active" as const };
     }
     await assertLeaseRepositoryIdentityBinding({
-      tx: this.prisma,
+      tx,
       repository: toActionRepositoryContext(repository),
       leaseKey: lease.leaseKey,
     });
@@ -2678,11 +2722,11 @@ function assertLockedWorkflowAdmissionMatches(input: {
     input.persisted?.workflowSchemaVersion === verified.workflowSchemaVersion
       ? input.persisted
       : input.compatibility?.workflowSchemaVersion ===
-            verified.workflowSchemaVersion &&
-          input.compatibility.retireAt !== undefined &&
-          input.compatibility.retireAt > input.now
-        ? input.compatibility
-        : null;
+          verified.workflowSchemaVersion &&
+        input.compatibility.retireAt !== undefined &&
+        input.compatibility.retireAt > input.now
+      ? input.compatibility
+      : null;
   if (
     !persisted ||
     persisted.status !== "active" ||
@@ -2758,7 +2802,7 @@ async function assertLeaseRepositoryIdentityBinding(input: {
         AND identity."currentRepositoryConnectionId" = ${input.repository.repositoryId}
         AND identity."boundAt" IS NOT NULL
         AND identity."unboundAt" IS NULL
-      FOR UPDATE OF identity
+      FOR UPDATE OF identity, repository, installation
     `,
   );
   if (

@@ -4,6 +4,7 @@ import {
   assertCodexRotatingSetupRecoveryWitness,
   assertSetupManifestRecoveryWitness,
   issueCodexRotatingSetupCommand,
+  lockAndAssertCurrentSetupRepositoryIdentity,
   transitionRecoveryRequestToManifestIssued,
 } from "./codex-rotating-setup-manifest";
 
@@ -11,6 +12,69 @@ const firstWitness = "a".repeat(43);
 const secondWitness = "b".repeat(43);
 const firstFingerprint = fingerprintDatabaseRecoveryWitness(firstWitness);
 const secondFingerprint = fingerprintDatabaseRecoveryWitness(secondWitness);
+
+const repositoryIdentityInput = {
+  repositoryId: "repository:exact",
+  workspaceId: "workspace:exact",
+  repositoryFullName: "owner/repository",
+  repositoryDefaultBranch: "main",
+  githubRepositoryId: "123456",
+} as const;
+
+describe("setup manifest repository identity locking", () => {
+  it("locks the located identity and re-reads every repository admission field", async () => {
+    const boundAt = new Date("2026-08-10T00:00:00.000Z");
+    const tx = {
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ scmRepositoryIdentityId: "identity:exact" }])
+        .mockResolvedValueOnce([{ version: 7, boundAt }])
+        .mockResolvedValueOnce([{ version: 7, boundAt }]),
+    };
+
+    await expect(
+      lockAndAssertCurrentSetupRepositoryIdentity(
+        tx as never,
+        repositoryIdentityInput,
+      ),
+    ).resolves.toEqual({ version: 7, boundAt });
+
+    const sql = tx.$queryRaw.mock.calls.map(([strings]) =>
+      Array.from(strings as readonly string[]).join("?"),
+    );
+    expect(sql[0]).not.toContain("FOR UPDATE");
+    expect(sql[1]).toContain("FOR UPDATE OF identity");
+    for (const token of [
+      'repository."id"',
+      'repository."workspaceId"',
+      'repository."fullName"',
+      'repository."defaultBranch"',
+      'repository."selected" = true',
+      "installation.\"status\" = 'active'",
+      'identity."version"',
+      'identity."currentRepositoryConnectionId"',
+    ]) {
+      expect(sql[2]).toContain(token);
+    }
+  });
+
+  it("rejects a repository that changed while waiting for the identity lock", async () => {
+    const tx = {
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ scmRepositoryIdentityId: "identity:old" }])
+        .mockResolvedValueOnce([{ version: 8, boundAt: new Date() }])
+        .mockResolvedValueOnce([]),
+    };
+
+    await expect(
+      lockAndAssertCurrentSetupRepositoryIdentity(
+        tx as never,
+        repositoryIdentityInput,
+      ),
+    ).rejects.toThrow("codex_rotating_setup_repository_identity_changed");
+  });
+});
 
 function transition(affectedRows: number) {
   const tx = { $executeRaw: vi.fn().mockResolvedValue(affectedRows) };
@@ -130,7 +194,14 @@ describe("ordinary setup recovery-witness admission", () => {
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]),
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ scmRepositoryIdentityId: "identity:new" }])
+        .mockResolvedValueOnce([
+          { version: 1, boundAt: new Date("2026-08-09T00:00:00.000Z") },
+        ])
+        .mockResolvedValueOnce([
+          { version: 1, boundAt: new Date("2026-08-09T00:00:00.000Z") },
+        ]),
       $executeRawUnsafe: vi.fn(),
       $executeRaw: vi.fn(async () => {
         order.push("setup_sql_allocation");
@@ -150,6 +221,7 @@ describe("ordinary setup recovery-witness admission", () => {
       workspaceId: provider.workspaceId,
       repositoryId: provider.repositoryId,
       repositoryFullName: "owner/repository",
+      repositoryDefaultBranch: "main",
       githubRepositoryId: "123456",
       installer: {
         url: "https://reviewrouter.site/installer.sh",
@@ -207,6 +279,7 @@ describe("ordinary setup recovery-witness admission", () => {
         workspaceId: "workspace:denied",
         repositoryId: "repository:denied",
         repositoryFullName: "owner/repository",
+        repositoryDefaultBranch: "main",
         githubRepositoryId: "123456",
         installer: {
           url: "https://reviewrouter.site/installer.sh",
@@ -268,6 +341,7 @@ describe("ordinary setup recovery-witness admission", () => {
         workspaceId: provider.workspaceId,
         repositoryId: provider.repositoryId,
         repositoryFullName: "owner/repository",
+        repositoryDefaultBranch: "main",
         githubRepositoryId: "123456",
         installer: {
           url: "https://reviewrouter.site/install/codex-rotating",
@@ -307,6 +381,7 @@ describe("ordinary setup recovery-witness admission", () => {
         workspaceId: "workspace:exact",
         repositoryId: "repository:exact",
         repositoryFullName: "owner/repository",
+        repositoryDefaultBranch: "main",
         githubRepositoryId: "123456",
         installer: {
           url: "https://reviewrouter.site/install/codex-rotating",

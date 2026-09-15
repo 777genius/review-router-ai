@@ -100,6 +100,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         owner: true,
         name: true,
         fullName: true,
+        defaultBranch: true,
         selected: true,
         archived: true,
         installation: {

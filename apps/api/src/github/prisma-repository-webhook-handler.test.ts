@@ -767,4 +767,171 @@ describe("PrismaRepositoryWebhookHandler", () => {
     });
     expect(transaction.$queryRaw).toHaveBeenCalledTimes(2);
   });
+
+  it("ignores a delayed non-rename event after newer repository metadata was stored", async () => {
+    const repositoryConnection = {
+      findUnique: vi.fn().mockResolvedValue({
+        id: "repo_1",
+        workspaceId: "workspace_1",
+        installationId: "installation_1",
+        defaultBranch: "main",
+        fullName: "777genius/example",
+        lastSyncedAt: new Date("2026-09-14T10:00:00.000Z"),
+        selected: true,
+        scmRepositoryIdentityId: "identity_1",
+        installation: { githubInstallationId: 111n },
+      }),
+      updateMany: vi.fn(),
+    };
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{ locked: 1 }]),
+      repositoryConnection,
+      gitHubInstallation: { findUnique: vi.fn() },
+    };
+    const handler = new PrismaRepositoryWebhookHandler({
+      $transaction: vi.fn(async (work) => work(transaction)),
+    } as never);
+
+    await expect(
+      handler.handleGitHubRepositoryWebhook({
+        deliveryId: "delivery_delayed_archive",
+        eventName: "repository",
+        payload: {
+          action: "archived",
+          installation: { id: 111 },
+          repository: {
+            id: 123456,
+            owner: { login: "777genius" },
+            name: "example",
+            full_name: "777genius/example",
+            default_branch: "master",
+            private: true,
+            archived: true,
+            updated_at: "2026-09-14T09:59:59.000Z",
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      processed: true,
+      repository: "777genius/example",
+      status: "stale_ignored",
+    });
+    expect(repositoryConnection.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["not a timestamp", "not-a-timestamp"],
+    ["nonexistent calendar date", "2026-02-30T10:00:00.000Z"],
+  ])("ignores %s updated_at", async (_label, updatedAt) => {
+    const repositoryConnection = {
+      findUnique: vi.fn().mockResolvedValue({
+        id: "repo_1",
+        workspaceId: "workspace_1",
+        installationId: "installation_1",
+        defaultBranch: "main",
+        fullName: "777genius/example",
+        lastSyncedAt: null,
+        selected: true,
+        scmRepositoryIdentityId: "identity_1",
+        installation: { githubInstallationId: 111n },
+      }),
+      updateMany: vi.fn(),
+    };
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{ locked: 1 }]),
+      repositoryConnection,
+      gitHubInstallation: { findUnique: vi.fn() },
+    };
+    const handler = new PrismaRepositoryWebhookHandler({
+      $transaction: vi.fn(async (work) => work(transaction)),
+    } as never);
+
+    await expect(
+      handler.handleGitHubRepositoryWebhook({
+        deliveryId: "delivery_invalid_updated_at",
+        eventName: "repository",
+        payload: {
+          action: "archived",
+          installation: { id: 111 },
+          repository: {
+            id: 123456,
+            owner: { login: "777genius" },
+            name: "example",
+            full_name: "777genius/example",
+            default_branch: "main",
+            private: false,
+            archived: true,
+            updated_at: updatedAt,
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      processed: true,
+      repository: "777genius/example",
+      status: "stale_ignored",
+    });
+    expect(repositoryConnection.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("applies an in-order non-rename metadata event using repository.updated_at", async () => {
+    const previousTimestamp = new Date("2026-09-14T10:00:00.000Z");
+    const repositoryConnection = {
+      findUnique: vi.fn().mockResolvedValue({
+        id: "repo_1",
+        workspaceId: "workspace_1",
+        installationId: "installation_1",
+        defaultBranch: "main",
+        fullName: "777genius/example",
+        lastSyncedAt: previousTimestamp,
+        selected: true,
+        scmRepositoryIdentityId: "identity_1",
+        installation: { githubInstallationId: 111n },
+      }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    };
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{ locked: 1 }]),
+      repositoryConnection,
+      gitHubInstallation: { findUnique: vi.fn() },
+    };
+    const handler = new PrismaRepositoryWebhookHandler({
+      $transaction: vi.fn(async (work) => work(transaction)),
+    } as never);
+
+    await expect(
+      handler.handleGitHubRepositoryWebhook({
+        deliveryId: "delivery_in_order_archive",
+        eventName: "repository",
+        payload: {
+          action: "archived",
+          installation: { id: 111 },
+          repository: {
+            id: 123456,
+            owner: { login: "777genius" },
+            name: "example",
+            full_name: "777genius/example",
+            default_branch: "main",
+            visibility: "private",
+            private: true,
+            archived: true,
+            stargazers_count: 12,
+            updated_at: "2026-09-14T10:00:01.000Z",
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      processed: true,
+      repository: "777genius/example",
+      status: "synced",
+    });
+    expect(repositoryConnection.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ lastSyncedAt: previousTimestamp }),
+      data: expect.objectContaining({
+        archived: true,
+        stargazersCount: 12,
+        lastSyncedAt: new Date("2026-09-14T10:00:01.000Z"),
+      }),
+    });
+  });
 });
