@@ -334,7 +334,10 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
       retiredStableSecretName,
     );
 
-    const legacyManifest = { ...manifest, repositoryIdentityVersion: undefined };
+    const legacyManifest = {
+      ...manifest,
+      repositoryIdentityVersion: undefined,
+    };
     const legacyResult = decode(
       Buffer.from(JSON.stringify(legacyManifest)).toString("base64url"),
     );
