@@ -103,9 +103,7 @@ describe("HostedPoolDeviceLogin", () => {
     expect(screen.getByText(/expires in \d+:\d{2}/i)).toBeTruthy();
     expect(screen.queryByText(/UTC/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-    await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith("ABCD-EFGH"),
-    );
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("ABCD-EFGH"));
     expect(
       screen.queryByRole("button", { name: "Start ChatGPT sign-in" }),
     ).toBeNull();
