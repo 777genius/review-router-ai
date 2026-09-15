@@ -368,8 +368,15 @@ describe("actual installation/inventory current-scope writers", () => {
       f.events.indexOf("commit"),
     );
     expect(f.tx.repositoryConnection.updateMany).toHaveBeenCalledWith({
-      where: { id: "repository", selected: true },
-      data: { selected: false, lastSyncedAt: input.syncedAt },
+      where: {
+        id: "repository",
+        selected: true,
+      },
+      data: {
+        selected: false,
+        lastSyncedAt: input.syncedAt,
+        inventoryGeneration: input.inventoryGeneration,
+      },
     });
     expect(f.tx.workflowProvisioning.updateMany).toHaveBeenCalledWith({
       where: {
@@ -383,6 +390,51 @@ describe("actual installation/inventory current-scope writers", () => {
         errorMessage: "repository_transfer_reconnect_reselection_required",
       }),
     });
+  });
+  it("replays an already-fenced transfer without rotating identity or provisioning again", async () => {
+    const f = fixture();
+    f.tx.repositoryConnection.findUnique.mockImplementation(async () => {
+      f.events.push("repository-read");
+      return {
+        id: "repository",
+        inventoryGeneration: 2n,
+        workspaceId: "old",
+        installationId: "old-installation",
+        selected: false,
+        scmRepositoryIdentityId: "identity-1",
+      };
+    });
+    f.tx.repositoryConnection.updateMany.mockImplementationOnce(async () => {
+      f.events.push("fence-generation");
+      return { count: 1 };
+    });
+    f.tx.workflowProvisioning.findUnique.mockImplementationOnce(async () => {
+      f.events.push("provisioning-read");
+      return {
+        id: "provisioning-1",
+        attemptId: "attempt-2",
+        revision: 4,
+        status: "not_started",
+        errorMessage: "repository_transfer_reconnect_reselection_required",
+        pullRequestUrl: null,
+        pullRequestHeadSha: null,
+      };
+    });
+
+    await expect(
+      f.inventory.syncInstallationRepositories(input),
+    ).rejects.toThrow("repository_transfer_reconnect_reselection_required");
+    expect(f.events).toEqual([
+      "begin",
+      "guard",
+      "installation-read",
+      "repository-read",
+      "fence-generation",
+      "provisioning-read",
+      "commit",
+    ]);
+    expect(f.events).not.toContain("identity-rotate");
+    expect(f.tx.workflowProvisioning.updateMany).not.toHaveBeenCalled();
   });
   it.each([
     ["rename", "test/old-repo", "destination", "installation"],

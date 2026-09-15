@@ -72,6 +72,10 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
               wasSelected: previous.selected,
               scmRepositoryIdentityId: previous.scmRepositoryIdentityId,
               fencedAt: input.syncedAt,
+              inventoryGeneration:
+                previous.inventoryGeneration > input.inventoryGeneration
+                  ? previous.inventoryGeneration
+                  : input.inventoryGeneration,
             });
             return "reconnect_required" as const;
           }
@@ -238,9 +242,10 @@ async function fenceRepositoryForReconnect(
     wasSelected: boolean;
     scmRepositoryIdentityId: string | null;
     fencedAt: Date;
+    inventoryGeneration: bigint;
   }>,
 ): Promise<void> {
-  if (input.scmRepositoryIdentityId) {
+  if (input.wasSelected && input.scmRepositoryIdentityId) {
     await rotateRemovedScmRepositoryIdentityEpoch(tx, {
       scmRepositoryIdentityId: input.scmRepositoryIdentityId,
       repositoryConnectionId: input.repositoryId,
@@ -249,16 +254,32 @@ async function fenceRepositoryForReconnect(
     });
   }
   const revoked = await tx.repositoryConnection.updateMany({
-    where: { id: input.repositoryId, selected: true },
-    data: { selected: false, lastSyncedAt: input.fencedAt },
+    where: {
+      id: input.repositoryId,
+      selected: input.wasSelected,
+    },
+    data: {
+      selected: false,
+      lastSyncedAt: input.fencedAt,
+      inventoryGeneration: input.inventoryGeneration,
+    },
   });
-  if (revoked.count !== (input.wasSelected ? 1 : 0)) {
+  if (revoked.count !== 1) {
     throw new Error("repository_transfer_revocation_failed");
   }
   const current = await tx.workflowProvisioning.findUnique({
     where: { repositoryId: input.repositoryId },
   });
   if (!current) return;
+  if (
+    !input.wasSelected &&
+    current.status === "not_started" &&
+    current.errorMessage ===
+      "repository_transfer_reconnect_reselection_required" &&
+    current.pullRequestUrl === null &&
+    current.pullRequestHeadSha === null
+  )
+    return;
   const invalidated = await tx.workflowProvisioning.updateMany({
     where: {
       id: current.id,

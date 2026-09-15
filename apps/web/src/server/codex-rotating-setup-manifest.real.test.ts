@@ -101,21 +101,23 @@ describeDatabase("Codex rotating setup serialization", () => {
   ): Promise<void> {
     const identityId = `scm-identity:${boundRepositoryId}`;
     const boundAt = new Date("2026-01-01T00:00:00.000Z");
-    await prisma.scmRepositoryIdentity.create({
-      data: {
-        scmRepositoryIdentityId: identityId,
-        provider: "github",
-        normalizedSourceBaseUrl: "https://github.com",
-        externalRepositoryId,
-        currentWorkspaceId: workspaceId,
-        currentRepositoryConnectionId: boundRepositoryId,
-        createdAt: boundAt,
-        boundAt,
-      },
-    });
-    await prisma.repositoryConnection.update({
-      where: { id: boundRepositoryId },
-      data: { scmRepositoryIdentityId: identityId },
+    await prisma.$transaction(async (tx) => {
+      await tx.scmRepositoryIdentity.create({
+        data: {
+          scmRepositoryIdentityId: identityId,
+          provider: "github",
+          normalizedSourceBaseUrl: "https://github.com",
+          externalRepositoryId,
+          currentWorkspaceId: workspaceId,
+          currentRepositoryConnectionId: boundRepositoryId,
+          createdAt: boundAt,
+          boundAt,
+        },
+      });
+      await tx.repositoryConnection.update({
+        where: { id: boundRepositoryId },
+        data: { scmRepositoryIdentityId: identityId },
+      });
     });
   }
 
@@ -211,7 +213,7 @@ describeDatabase("Codex rotating setup serialization", () => {
         now,
       });
     const first = await issue(new Date("2026-08-10T00:00:00.000Z"));
-    const rotatedAt = new Date("2026-08-11T00:00:00.000Z");
+    const rotatedAt = new Date("2026-08-10T00:01:00.000Z");
     await prisma.scmRepositoryIdentity.update({
       where: {
         scmRepositoryIdentityId: `scm-identity:${rotatedRepositoryId}`,
@@ -219,8 +221,8 @@ describeDatabase("Codex rotating setup serialization", () => {
       data: { version: { increment: 1 }, boundAt: rotatedAt },
     });
 
-    const current = await issue(new Date("2026-08-12T00:00:00.000Z"));
-    const replay = await issue(new Date("2026-08-12T00:00:01.000Z"));
+    const current = await issue(new Date("2026-08-10T00:02:00.000Z"));
+    const replay = await issue(new Date("2026-08-10T00:02:01.000Z"));
 
     expect(current.command).not.toBe(first.command);
     expect(replay).toEqual(current);

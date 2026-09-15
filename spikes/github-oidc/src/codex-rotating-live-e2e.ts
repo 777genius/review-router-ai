@@ -204,6 +204,7 @@ try {
     provider: repository.provider,
     repositoryFullName: repository.fullName,
     githubRepositoryId: repository.githubRepositoryId.toString(),
+    defaultBranch: repository.defaultBranch,
     selected: repository.selected,
     archived: repository.archived,
     installation: repository.installation,
@@ -494,6 +495,7 @@ async function seedRotatingCodexAuth(input: {
   readonly provider: string;
   readonly repositoryFullName: string;
   readonly githubRepositoryId: string;
+  readonly defaultBranch: string;
   readonly selected: boolean;
   readonly archived: boolean;
   readonly installation: { readonly status: string } | null;
@@ -519,6 +521,7 @@ async function seedRotatingCodexAuth(input: {
       provider: input.provider,
       githubRepositoryId: BigInt(input.githubRepositoryId),
       fullName: input.repositoryFullName,
+      defaultBranch: input.defaultBranch,
       selected: input.selected,
       archived: input.archived,
       installation: input.installation,
