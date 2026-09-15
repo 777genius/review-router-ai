@@ -257,6 +257,14 @@ try {
     where: { id: "repo-7" },
     data: { installationId: "runtime-proof-installation" },
   });
+  await adminPrisma.scmRepositoryIdentity.update({
+    where: { scmRepositoryIdentityId: "scm-identity-proof" },
+    data: {
+      currentWorkspaceId: "ws-proof",
+      currentRepositoryConnectionId: "repo-7",
+      boundAt: now,
+    },
+  });
   const row = await adminPrisma.repositoryConnection.findUniqueOrThrow({
     where: { id: "repo-7" },
     select: {
@@ -309,6 +317,7 @@ try {
     workspaceId: "ws-proof",
     repositoryId: "repo-7",
     repositoryFullName: "local/proof-7",
+    repositoryDefaultBranch: "main",
     githubRepositoryId: "900007",
     installer,
     databaseRecoveryWitness: databaseRecoveryWitnessW1,
@@ -385,6 +394,7 @@ try {
     claimId: initialClaim.claimId,
     attemptId: initialDispatch.attemptId,
     repositoryId: "900007",
+    repositoryFullName: repository.fullName,
     namespaceId: initialDispatch.namespaceId,
     namespaceEpoch: initialDispatch.namespaceEpoch,
     secretName: initialDispatch.secretName,
@@ -818,6 +828,7 @@ try {
     workspaceId: "ws-proof",
     repositoryId: "repo-7",
     repositoryFullName: "local/proof-7",
+    repositoryDefaultBranch: "main",
     githubRepositoryId: "900007",
     installer,
     databaseRecoveryWitness: databaseRecoveryWitnessW2,
