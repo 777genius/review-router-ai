@@ -96,11 +96,11 @@ export function HostedPoolSettingsPanel({
             ) : (
               <>
                 Connect ChatGPT so ReviewRouter can run reviews for opted-in
-                GitHub repositories. Sign in below. Upload a local
-                <span className="font-mono"> auth.json</span> only if ChatGPT
-                sign-in is unavailable. ReviewRouter stores the session and
-                transiently relays model prompts, tool results, and responses.
-                ChatGPT credentials never go to the browser.
+                GitHub repositories. Sign in below. Upload a local{" "}
+                <span className="whitespace-nowrap font-mono">auth.json</span>{" "}
+                only if ChatGPT sign-in is unavailable. ReviewRouter stores the
+                session and transiently relays model prompts, tool results, and
+                responses. ChatGPT credentials never go to the browser.
               </>
             )}
           </p>
