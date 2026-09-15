@@ -11,6 +11,7 @@ import {
 } from "./dashboard-action-form";
 import {
   HostedPoolDeviceLogin,
+  type HostedPoolDeviceLoginFlight,
   type HostedPoolDeviceLoginPollResult,
   type HostedPoolDeviceLoginStartResult,
 } from "./hosted-pool-device-login";
@@ -35,11 +36,13 @@ export function HostedPoolSettingsPanel({
   view,
   actions,
   mutationsEnabled,
+  previewDeviceLoginFlight,
 }: {
   readonly workspaceId: string;
   readonly view: HostedPoolDashboardView;
   readonly actions: HostedPoolSettingsActions;
   readonly mutationsEnabled: boolean;
+  readonly previewDeviceLoginFlight?: HostedPoolDeviceLoginFlight;
 }): React.ReactElement | null {
   if (view.gate === "feature_disabled") return null;
   if (view.gate === "entitlement_denied") {
@@ -111,6 +114,7 @@ export function HostedPoolSettingsPanel({
           enrolled
           startAction={actions.startDeviceLogin}
           pollAction={actions.pollDeviceLogin}
+          previewFlight={previewDeviceLoginFlight}
           header={
             <div>
               <h3 className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
@@ -135,6 +139,7 @@ export function HostedPoolSettingsPanel({
           mutationsEnabled={mutationsEnabled}
           startAction={actions.startDeviceLogin}
           pollAction={actions.pollDeviceLogin}
+          previewFlight={previewDeviceLoginFlight}
         />
       )}
 
