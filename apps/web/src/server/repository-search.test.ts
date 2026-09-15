@@ -28,6 +28,17 @@ describe("repositorySetupProgressStep", () => {
       }),
     ).toBe(3);
   });
+
+  it("completes setup when the hosted workspace pool session is ready", () => {
+    expect(
+      repositorySetupProgressStep({
+        setupStatus: "configured",
+        healthStatus: "healthy",
+        workflowCurrent: true,
+        providerSetupConfirmed: true,
+      }),
+    ).toBe(4);
+  });
 });
 
 describe("repositorySearchReadiness", () => {

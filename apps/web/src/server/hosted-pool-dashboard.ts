@@ -25,6 +25,18 @@ export type HostedPoolRepositoryView = Readonly<{
   eligible: boolean;
 }>;
 
+export function isHostedWorkspacePoolSessionReady(
+  repository:
+    | Pick<HostedPoolRepositoryView, "source" | "activation">
+    | null
+    | undefined,
+): boolean {
+  return (
+    repository?.source === "hosted_workspace_pool" &&
+    repository.activation === "active"
+  );
+}
+
 export type HostedPoolDashboardView = Readonly<{
   gate: "enabled" | "feature_disabled" | "entitlement_denied";
   pool: HostedPoolSafeSummary | null;

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   reviewConfigurationFindUnique: vi.fn(),
   repositoryConnectionFindMany: vi.fn(),
   workspaceFindMany: vi.fn(),
+  hostedCodexRepositoryBindingFindMany: vi.fn(),
 }));
 
 vi.mock("@reviewrouter/features-repo-health", () => ({
@@ -57,6 +58,9 @@ vi.mock("../../../../../src/server/prisma", () => ({
     reviewConfiguration: { findUnique: mocks.reviewConfigurationFindUnique },
     repositoryConnection: { findMany: mocks.repositoryConnectionFindMany },
     workspace: { findMany: mocks.workspaceFindMany },
+    hostedCodexRepositoryBinding: {
+      findMany: mocks.hostedCodexRepositoryBindingFindMany,
+    },
   }),
 }));
 
@@ -83,6 +87,7 @@ describe("dashboard repository search route", () => {
       },
     ]);
     mocks.providerSetupFindMany.mockResolvedValue([]);
+    mocks.hostedCodexRepositoryBindingFindMany.mockResolvedValue([]);
     mocks.reviewConfigurationFindUnique.mockResolvedValue(null);
     mocks.listWorkspaceRepositoryHealth.mockResolvedValue([]);
     mocks.deriveDashboardProviderSetupReadiness.mockImplementation(

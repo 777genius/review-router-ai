@@ -137,7 +137,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       stargazersCount: true,
     },
   });
-  const [health, cachedProviderSetup] = await Promise.all([
+  const [health, cachedProviderSetup, hostedBindings] = await Promise.all([
     listWorkspaceRepositoryHealth(
       {
         workspaceId: workspace.id,
@@ -161,6 +161,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         updatedAt: true,
       },
     }),
+    prisma.hostedCodexRepositoryBinding.findMany({
+      where: {
+        workspaceId: workspace.id,
+        status: "active",
+        repositoryConnectionId: {
+          in: repositories.map((repository) => repository.id),
+        },
+      },
+      select: { repositoryConnectionId: true },
+    }),
   ]);
   const providerSetup = await deriveDashboardProviderSetupReadiness({
     providerSetup: cachedProviderSetup,
@@ -173,6 +183,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
   const repositoryHealthById = new Map(
     health.map((item) => [item.repositoryId, item] as const),
+  );
+  const hostedSessionReadyIds = new Set(
+    hostedBindings.map((binding) => binding.repositoryConnectionId),
   );
   const providerSetupConfigRepositoryIds = [
     ...new Set(
@@ -235,12 +248,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         legacySetupStatus: repository.setupStatus,
       });
       const repositoryHealth = repositoryHealthById.get(repository.id);
+      const hostedSessionReady = hostedSessionReadyIds.has(repository.id);
       const effectiveHealthStatus =
         repositoryHealthStatusWithProviderSetupReadiness({
           repositoryId: repository.id,
           healthStatus: repositoryHealth?.status,
           effectiveProviderSetupStateByRepositoryId,
           providerSetupMismatchRepositoryIds,
+          hostedSessionReady,
         });
       const workflowCurrent = workflowSetupAlreadyCurrent(
         effectiveHealthStatus,
@@ -248,10 +263,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const providerSetupConfirmedAt =
         configuredProviderSetupByRepositoryId.get(repository.id)?.updatedAt;
       const providerSetupConfirmed =
-        providerSetupConfirmedAt !== undefined &&
-        (!repositoryHealth?.latestActionHealthReceivedAt ||
-          providerSetupConfirmedAt >=
-            repositoryHealth.latestActionHealthReceivedAt);
+        hostedSessionReady ||
+        (providerSetupConfirmedAt !== undefined &&
+          (!repositoryHealth?.latestActionHealthReceivedAt ||
+            providerSetupConfirmedAt >=
+              repositoryHealth.latestActionHealthReceivedAt));
       const setupProgressStep = repositorySetupProgressStep({
         setupStatus,
         healthStatus: effectiveHealthStatus,

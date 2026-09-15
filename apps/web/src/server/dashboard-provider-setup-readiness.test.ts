@@ -347,6 +347,34 @@ describe("dashboard provider setup readiness", () => {
       }),
     ).toBe("healthy");
   });
+  it("treats an active hosted workspace pool session as provider-ready", () => {
+    const effectiveProviderSetupStateByRepositoryId =
+      buildEffectiveProviderSetupStateByRepositoryId({
+        providerSetup: [],
+        repositories: [{ id: "repo_1" }],
+        repositoryConfigs: [],
+        activeConfig: safeDefaultReviewConfiguration,
+      });
+
+    expect(
+      repositoryHealthStatusWithProviderSetupReadiness({
+        repositoryId: "repo_1",
+        healthStatus: "healthy",
+        effectiveProviderSetupStateByRepositoryId,
+        providerSetupMismatchRepositoryIds: new Set(),
+        hostedSessionReady: true,
+      }),
+    ).toBe("healthy");
+    expect(
+      repositoryHealthStatusWithProviderSetupReadiness({
+        repositoryId: "repo_1",
+        healthStatus: "provider_needs_setup",
+        effectiveProviderSetupStateByRepositoryId,
+        providerSetupMismatchRepositoryIds: new Set(),
+        hostedSessionReady: true,
+      }),
+    ).toBe("healthy");
+  });
 });
 
 function providerSetup(input: {
