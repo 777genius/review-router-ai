@@ -637,6 +637,7 @@ describe("PrismaRepositoryWebhookHandler", () => {
 
   it("applies a legitimate same-second default-branch edit after an inventory sync", async () => {
     const lastSyncedAt = new Date("2026-09-14T10:00:00.750Z");
+    const events: string[] = [];
     const repositoryConnection = {
       findUnique: vi.fn().mockResolvedValue({
         id: "repo_1",
@@ -649,10 +650,23 @@ describe("PrismaRepositoryWebhookHandler", () => {
         scmRepositoryIdentityId: "identity_1",
         installation: { githubInstallationId: 111n },
       }),
-      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      updateMany: vi.fn().mockImplementation(async () => {
+        events.push("metadata-update");
+        return { count: 1 };
+      }),
     };
     const transaction = {
-      $queryRaw: vi.fn().mockResolvedValue([{ locked: 1 }]),
+      $queryRaw: vi.fn().mockImplementation(async (sql) => {
+        const text = sql?.text ?? Array.from(sql ?? []).join("?");
+        events.push(
+          text.includes('UPDATE "ScmRepositoryIdentity"')
+            ? "identity-rotate"
+            : "guard",
+        );
+        return text.includes('UPDATE "ScmRepositoryIdentity"')
+          ? [{ version: 2 }]
+          : [{ locked: 1 }];
+      }),
       repositoryConnection,
       gitHubInstallation: { findUnique: vi.fn() },
     };
@@ -692,6 +706,7 @@ describe("PrismaRepositoryWebhookHandler", () => {
         lastSyncedAt,
       },
     });
+    expect(events).toEqual(["guard", "metadata-update", "identity-rotate"]);
   });
 
   it("fences a delayed same-second default-branch edit whose preimage no longer matches", async () => {

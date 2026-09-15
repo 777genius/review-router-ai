@@ -55,6 +55,7 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
               workspaceId: true,
               installationId: true,
               inventoryGeneration: true,
+              defaultBranch: true,
               fullName: true,
               selected: true,
               scmRepositoryIdentityId: true,
@@ -125,6 +126,7 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
             previous !== null &&
             (previous.selected === false ||
               previous.fullName !== repository.fullName ||
+              previous.defaultBranch !== repository.defaultBranch ||
               previous.workspaceId !== installation.workspaceId ||
               previous.installationId !== installation.id);
           if (durableIdentityChanged && previous.scmRepositoryIdentityId) {

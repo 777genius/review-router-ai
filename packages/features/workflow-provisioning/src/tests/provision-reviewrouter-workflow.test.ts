@@ -42,7 +42,10 @@ class CapturingSetupGateway implements WorkflowSetupGatewayPort {
 }
 
 class CapturingProvisioningRepository implements WorkflowProvisioningRepositoryPort {
+  public attempts = 0;
+
   async beginAttempt(record: WorkflowProvisioningRecord) {
+    this.attempts += 1;
     return {
       workspaceId: record.workspaceId,
       repositoryId: record.repositoryId,
@@ -522,6 +525,39 @@ describe("provisionReviewRouterWorkflow", () => {
       ]),
     );
     expect(provisioning.opened).toMatchObject({ workflowPath });
+  });
+
+  it("rejects isolated non-main provisioning before any side effect", async () => {
+    const gateway = new CapturingSetupGateway();
+    const provisioning = new CapturingProvisioningRepository();
+    const auditLog = new CapturingAuditLog();
+
+    await expect(
+      provisionReviewRouterWorkflow(
+        {
+          workspaceId: "workspace-1",
+          installationId: "installation-1",
+          repositoryId: "repo-1",
+          githubRepositoryId: "1228051727",
+          repositoryFullName: "777genius/review-router-saas-e2e",
+          owner: "777genius",
+          name: "review-router-saas-e2e",
+          defaultBranch: "trunk",
+          actionRef:
+            "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+          apiUrl: "https://app.reviewrouter.dev",
+          runtimeConfigMode: "oidc",
+          codexRotatingProviderInstanceId: "codex-rotating:1228051727",
+        },
+        { setupGateway: gateway, provisioning, auditLog },
+      ),
+    ).rejects.toThrow("isolated_workflow_default_branch_must_be_main");
+
+    expect(provisioning.attempts).toBe(0);
+    expect(provisioning.opened).toBeNull();
+    expect(provisioning.failed).toBeNull();
+    expect(gateway.input).toBeNull();
+    expect(auditLog.events).toEqual([]);
   });
 
   it("rejects rotating Codex workflow provisioning on a mutable main action ref", async () => {

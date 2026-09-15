@@ -64,6 +64,15 @@ export async function isWorkflowSetupAlreadyCurrent(
   if (isolatedCodexWorkflow && input.defaultBranch !== "main") {
     return false;
   }
+  let expectedPublicApiUrl: string | undefined;
+  if (input.codexRotatingProviderInstanceId) {
+    try {
+      expectedPublicApiUrl =
+        dependencies.resolvePublicApiUrl?.() ?? resolveWorkflowPublicApiUrl();
+    } catch {
+      return false;
+    }
+  }
   const workflowCheck = await dependencies.workflowProbe.probeWorkflow({
     githubInstallationId: input.githubInstallationId,
     owner: input.owner,
@@ -111,6 +120,7 @@ export async function isWorkflowSetupAlreadyCurrent(
                       input.codexRotatingWorkflowSchemaVersion!,
                     expectedSecretNamespace:
                       input.codexRotatingWorkflowSecretNamespace!,
+                    expectedApiUrl: expectedPublicApiUrl!,
                   }),
               }
             : {}),
@@ -139,8 +149,7 @@ export async function isWorkflowSetupAlreadyCurrent(
     expectedInteractionWorkflow =
       renderCanonicalCodexRotatingInteractionWorkflowV3({
         actionRef: input.actionRef,
-        apiUrl:
-          dependencies.resolvePublicApiUrl?.() ?? resolveWorkflowPublicApiUrl(),
+        apiUrl: expectedPublicApiUrl!,
         runtimeConfigMode: "oidc",
       });
   } catch {
@@ -192,6 +201,7 @@ function isCanonicalVersionedCodexWorkflowReady(input: {
   readonly expectedProviderInstanceId: string;
   readonly expectedWorkflowSchemaVersion: CodexRotatingT0WorkflowSchemaVersion;
   readonly expectedSecretNamespace: VersionedProviderSecretNamespace;
+  readonly expectedApiUrl: string;
   readonly isolated: boolean;
 }): boolean {
   try {
@@ -206,6 +216,7 @@ function isCanonicalVersionedCodexWorkflowReady(input: {
       : readCanonicalCodexRotatingT0WorkflowSourceMetadata(input.workflow);
     if (
       metadata.actionRef !== input.expectedActionRef ||
+      metadata.apiUrl !== input.expectedApiUrl ||
       metadata.providerInstanceId !== input.expectedProviderInstanceId ||
       metadata.workflowSchemaVersion !== input.expectedWorkflowSchemaVersion ||
       !metadata.secretNamespace

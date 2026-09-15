@@ -1,3 +1,4 @@
+import { request as httpsRequest } from "node:https";
 import {
   activateCodexRotatingSetup,
   authorizeCodexRotatingSetupDispatch,
@@ -11,7 +12,7 @@ import {
 import { requireReviewRouterDatabaseRecoveryWitness } from "@reviewrouter/platform-config";
 import { getCodexEffectAuthorityPrisma, getPrisma } from "./prisma";
 import { z } from "zod";
-import { createGitHubAppInstallationOctokit } from "./dashboard-mutations";
+import { mintFreshGitHubAppRepositorySecretWriteToken } from "./dashboard-mutations";
 import { PrismaCodexRotatingSetupPayloadClaim } from "./prisma-codex-rotating-setup-payload-claim";
 
 const setupSecretDispatchSchema = z.object({
@@ -23,6 +24,128 @@ const setupSecretDispatchSchema = z.object({
     .max(1_000_000),
   keyId: z.string().min(1).max(512),
 });
+
+type OneShotSetupSecretPutInput = Readonly<{
+  owner: string;
+  repo: string;
+  secretName: string;
+  encryptedValue: string;
+  keyId: string;
+  token: string;
+  timeoutMs: number;
+}>;
+
+/**
+ * Constructs exactly one non-reused HTTPS request. Node's native transport
+ * does not follow redirects or retry, and the response must finish completely
+ * before GitHub's status is accepted.
+ */
+async function putGitHubSetupSecretExactlyOnce(
+  input: OneShotSetupSecretPutInput,
+): Promise<{ readonly status: number }> {
+  if (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs <= 0) {
+    throw new Error("setup_secret_put_timeout_invalid");
+  }
+  const path = [
+    "repos",
+    input.owner,
+    input.repo,
+    "actions",
+    "secrets",
+    input.secretName,
+  ]
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const url = new URL(path, "https://api.github.com/");
+  const body = Buffer.from(
+    JSON.stringify({
+      encrypted_value: input.encryptedValue,
+      key_id: input.keyId,
+    }),
+    "utf8",
+  );
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (
+      outcome:
+        | { readonly status: "resolved"; readonly statusCode: number }
+        | { readonly status: "rejected"; readonly error: Error },
+    ) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (outcome.status === "resolved") {
+        resolve({ status: outcome.statusCode });
+      } else {
+        reject(outcome.error);
+      }
+    };
+    let request: ReturnType<typeof httpsRequest>;
+    try {
+      request = httpsRequest(
+        url,
+        {
+          method: "PUT",
+          agent: false,
+          headers: {
+            accept: "application/vnd.github+json",
+            authorization: `Bearer ${input.token}`,
+            "content-length": body.byteLength,
+            "content-type": "application/json",
+            "user-agent": "ReviewRouter-Codex-Rotating-Setup/1",
+            "x-github-api-version": "2022-11-28",
+          },
+        },
+        (response) => {
+          response.once("aborted", () =>
+            settle({
+              status: "rejected",
+              error: new Error("setup_secret_put_response_incomplete"),
+            }),
+          );
+          response.once("error", () =>
+            settle({
+              status: "rejected",
+              error: new Error("setup_secret_put_response_incomplete"),
+            }),
+          );
+          response.on("data", () => undefined);
+          response.once("end", () => {
+            if (!response.complete || response.statusCode === undefined) {
+              settle({
+                status: "rejected",
+                error: new Error("setup_secret_put_response_incomplete"),
+              });
+              return;
+            }
+            settle({ status: "resolved", statusCode: response.statusCode });
+          });
+        },
+      );
+    } catch (cause) {
+      reject(new Error("setup_secret_put_construction_failed", { cause }));
+      return;
+    }
+    request.once("error", (cause) =>
+      settle({
+        status: "rejected",
+        error: new Error("setup_secret_put_transport_unknown", { cause }),
+      }),
+    );
+    const timeout = setTimeout(() => {
+      request.destroy(new Error("setup_secret_put_timeout"));
+    }, input.timeoutMs);
+    try {
+      request.end(body);
+    } catch (cause) {
+      settle({
+        status: "rejected",
+        error: new Error("setup_secret_put_transport_unknown", { cause }),
+      });
+    }
+  });
+}
 
 function ledger() {
   return {
@@ -46,19 +169,21 @@ export const codexRotatingSetupLedger = {
     return claims.authorizeDispatch(
       { claimId: parsed.claimId, idempotencyKey: parsed.idempotencyKey },
       async (target) => {
-        const octokit = await createGitHubAppInstallationOctokit(
-          target.githubInstallationId,
-        );
-        const response = await octokit.request(
-          "PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}",
-          {
-            owner: target.owner,
-            repo: target.repo,
-            secret_name: target.secretName,
-            encrypted_value: parsed.encryptedValue,
-            key_id: parsed.keyId,
-          },
-        );
+        const token = await mintFreshGitHubAppRepositorySecretWriteToken({
+          githubInstallationId: target.githubInstallationId,
+          githubRepositoryId: target.githubRepositoryId,
+        });
+        // PUT /repos/{owner}/{repo}/actions/secrets/{secret_name} is issued by
+        // the no-retry, no-redirect native transport below.
+        const response = await putGitHubSetupSecretExactlyOnce({
+          owner: target.owner,
+          repo: target.repo,
+          secretName: target.secretName,
+          encryptedValue: parsed.encryptedValue,
+          keyId: parsed.keyId,
+          token,
+          timeoutMs: 30_000,
+        });
         if (response.status !== 201 && response.status !== 204) {
           throw new Error("codex_rotating_setup_secret_put_failed");
         }

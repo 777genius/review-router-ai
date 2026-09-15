@@ -183,10 +183,12 @@ export class PrismaRepositoryWebhookHandler {
         if (updated.count !== 1) {
           throw new Error("repository_webhook_binding_cas_failed");
         }
-        if (
-          existing.fullName !== repository.full_name &&
-          existing.scmRepositoryIdentityId
-        ) {
+        const repositoryIdentityChanged =
+          existing.fullName !== repository.full_name ||
+          (repository.default_branch !== null &&
+            repository.default_branch !== undefined &&
+            existing.defaultBranch !== repository.default_branch);
+        if (repositoryIdentityChanged && existing.scmRepositoryIdentityId) {
           await rotateScmRepositoryIdentityEpoch(tx, {
             scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
             repositoryConnectionId: existing.id,

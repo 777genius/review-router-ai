@@ -386,6 +386,7 @@ describe("actual installation/inventory current-scope writers", () => {
   it.each([
     ["rename", "test/old-repo", "destination", "installation"],
     ["case change", "Test/repo", "destination", "installation"],
+    ["default branch change", "test/repo", "destination", "installation"],
   ])(
     "rotates the durable repository identity epoch on %s",
     async (
@@ -402,6 +403,8 @@ describe("actual installation/inventory current-scope writers", () => {
           inventoryGeneration: 1n,
           workspaceId: previousWorkspace,
           installationId: previousInstallation,
+          defaultBranch:
+            _change === "default branch change" ? "master" : "main",
           fullName: previousFullName,
           scmRepositoryIdentityId: "identity-1",
         };
@@ -415,6 +418,12 @@ describe("actual installation/inventory current-scope writers", () => {
       expect(f.events.indexOf("identity-rotate")).toBeLessThan(
         f.events.indexOf("commit"),
       );
+      if (_change === "default branch change") {
+        expect(f.tx.repositoryConnection.findUnique).toHaveBeenCalledWith({
+          where: { githubRepositoryId: 456n },
+          select: expect.objectContaining({ defaultBranch: true }),
+        });
+      }
     },
   );
   it("preserves the durable identity epoch for an unchanged repository", async () => {
@@ -424,6 +433,7 @@ describe("actual installation/inventory current-scope writers", () => {
       inventoryGeneration: 1n,
       workspaceId: "destination",
       installationId: "installation",
+      defaultBranch: "main",
       fullName: "test/repo",
       scmRepositoryIdentityId: "identity-1",
     });

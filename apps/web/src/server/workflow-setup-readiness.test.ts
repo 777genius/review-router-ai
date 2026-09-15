@@ -439,6 +439,15 @@ describe("workflow setup readiness", () => {
         workflow.replace("github.repository_id == '1228051727'", "true"),
       false,
     ],
+    [
+      "public API URL changed",
+      (workflow: string) =>
+        workflow.replace(
+          "https://api.reviewrouter.site",
+          "https://attacker.example",
+        ),
+      false,
+    ],
   ])(
     "validates isolated readiness with the isolated parser: %s",
     async (_case, mutate, expected) => {
@@ -688,6 +697,17 @@ describe("workflow setup readiness", () => {
     await expect(checkV5WorkflowReadiness(canonicalV5Workflow())).resolves.toBe(
       true,
     );
+  });
+
+  it("rejects a standard versioned workflow whose public API URL changed", async () => {
+    await expect(
+      checkV5WorkflowReadiness(
+        canonicalV5Workflow().replace(
+          "https://api.reviewrouter.site",
+          "https://attacker.example",
+        ),
+      ),
+    ).resolves.toBe(false);
   });
 
   it("rejects a schema-v5 workflow with a mismatched secret namespace", async () => {

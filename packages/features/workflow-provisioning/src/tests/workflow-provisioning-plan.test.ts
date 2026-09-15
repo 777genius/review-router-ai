@@ -41,4 +41,15 @@ describe("createProvisionWorkflowPlan repository-bound Codex path", () => {
       }),
     ).toThrow("codex_workflow_repository_path_mismatch");
   });
+
+  it("rejects a non-main default branch for the isolated repository", () => {
+    expect(() =>
+      createProvisionWorkflowPlan({
+        ...base,
+        githubRepositoryId: "1228051727",
+        repositoryFullName: "777genius/review-router-saas-e2e",
+        defaultBranch: "trunk",
+      }),
+    ).toThrow("isolated_workflow_default_branch_must_be_main");
+  });
 });

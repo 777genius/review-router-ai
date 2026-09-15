@@ -101,6 +101,12 @@ export function createProvisionWorkflowPlan(
   ) {
     throw new Error("isolated_workflow_repository_identity_required");
   }
+  if (
+    rotatingRepositoryId === isolatedQualityWorkflowRepositoryId &&
+    input.defaultBranch !== "main"
+  ) {
+    throw new Error("isolated_workflow_default_branch_must_be_main");
+  }
   const repositoryWorkflowPath =
     input.codexRotatingProviderInstanceId &&
     input.githubRepositoryId &&
