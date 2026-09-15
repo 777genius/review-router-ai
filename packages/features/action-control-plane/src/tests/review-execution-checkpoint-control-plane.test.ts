@@ -524,9 +524,7 @@ async function buildRouteContext(
         }
         return effect(scope);
       },
-    ) as unknown as CodexRotatingReviewExecutionCheckpointAccessPort[
-      "withAuthorizedReviewExecutionCheckpointAccess"
-    ],
+    ) as unknown as CodexRotatingReviewExecutionCheckpointAccessPort["withAuthorizedReviewExecutionCheckpointAccess"],
   };
   const app = Fastify({ logger: false });
   await registerActionControlPlaneRoutes(app, {

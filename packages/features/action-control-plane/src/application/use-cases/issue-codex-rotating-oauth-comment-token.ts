@@ -49,9 +49,8 @@ export async function issueCodexRotatingOAuthCommentToken(
           repositoryFullName: writeTarget.repositoryFullName,
         },
       );
-      const issued = await dependencies.commentTokens.issueCommentToken(
-        writeTarget,
-      );
+      const issued =
+        await dependencies.commentTokens.issueCommentToken(writeTarget);
       return {
         protocolVersion: 1 as const,
         token: issued.token,

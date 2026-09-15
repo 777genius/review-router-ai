@@ -2730,11 +2730,11 @@ function assertLockedWorkflowAdmissionMatches(input: {
     input.persisted?.workflowSchemaVersion === verified.workflowSchemaVersion
       ? input.persisted
       : input.compatibility?.workflowSchemaVersion ===
-          verified.workflowSchemaVersion &&
-        input.compatibility.retireAt !== undefined &&
-        input.compatibility.retireAt > input.now
-      ? input.compatibility
-      : null;
+            verified.workflowSchemaVersion &&
+          input.compatibility.retireAt !== undefined &&
+          input.compatibility.retireAt > input.now
+        ? input.compatibility
+        : null;
   if (
     !persisted ||
     persisted.status !== "active" ||
