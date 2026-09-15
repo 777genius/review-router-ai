@@ -150,10 +150,7 @@ export function HostedPoolDeviceLogin({
   }
 
   const startForm = (
-    <form
-      action={start}
-      className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
-    >
+    <form action={start} className="grid gap-3">
       <input type="hidden" name="workspaceId" value={workspaceId} />
       <input type="hidden" name="priority" value="100" />
       <label className="grid gap-2 text-sm text-slate-300">
@@ -172,7 +169,7 @@ export function HostedPoolDeviceLogin({
       <FormSubmitButton
         variant="outline"
         size="sm"
-        className="min-h-11 whitespace-nowrap"
+        className="w-fit min-h-11 whitespace-nowrap text-cyan-50"
         disabled={!mutationsEnabled}
         idleLabel="Start ChatGPT sign-in"
         pendingLabel="Starting..."
@@ -221,14 +218,14 @@ export function HostedPoolDeviceLogin({
   if (enrolled) {
     return (
       <div className="mt-5 grid gap-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="grid gap-3">
           {header}
           {flight ? null : (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="whitespace-nowrap"
+              className="w-fit max-w-full whitespace-nowrap text-cyan-50"
               disabled={!mutationsEnabled}
               aria-expanded={addOpen}
               onClick={() => setAddOpen((open) => !open)}
