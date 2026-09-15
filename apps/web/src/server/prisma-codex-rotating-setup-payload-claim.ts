@@ -50,6 +50,15 @@ type VersionedSecretWorkflowSourceAttestation = ReturnType<
 const transactionTimeoutMs = 10_000;
 const maximumAttempts = 3;
 const expiredDispatchRetired = Symbol("expired_dispatch_retired");
+const failedRemoteDispatchRetired = Symbol("failed_remote_dispatch_retired");
+
+export type CodexRotatingSetupSecretWriteTarget = Readonly<{
+  githubInstallationId: string;
+  githubRepositoryId: string;
+  owner: string;
+  repo: string;
+  secretName: string;
+}>;
 
 export type CodexRotatingWorkflowReattestationErrorCode =
   | "codex_rotating_workflow_reattestation_stale"
@@ -186,6 +195,7 @@ type AttemptRow = {
   secretName: string;
   status: CodexRotatingSetupAttemptStatus;
   dispatchExpiresAt: Date;
+  definiteResponseCode: number | null;
 };
 
 export class PrismaCodexRotatingSetupPayloadClaim
@@ -388,7 +398,71 @@ export class PrismaCodexRotatingSetupPayloadClaim
     );
   }
 
-  async authorizeDispatch(input: { claimId: string; idempotencyKey: string }) {
+  async authorizeDispatch(input: {
+    claimId: string;
+    idempotencyKey: string;
+  }): Promise<CodexRotatingDispatchAttempt>;
+  async authorizeDispatch(
+    input: { claimId: string; idempotencyKey: string },
+    dispatch: (
+      target: CodexRotatingSetupSecretWriteTarget,
+    ) => Promise<{ readonly statusCode: 201 | 204 }>,
+  ): Promise<
+    CodexRotatingDispatchAttempt & {
+      readonly status: "confirmed";
+      readonly responseCode: 201 | 204;
+    }
+  >;
+  async authorizeDispatch(
+    input: { claimId: string; idempotencyKey: string },
+    dispatch?: (
+      target: CodexRotatingSetupSecretWriteTarget,
+    ) => Promise<{ readonly statusCode: 201 | 204 }>,
+  ) {
+    if (dispatch) {
+      const authorization = (await this.authorizeDispatch(input)) as
+        | (CodexRotatingDispatchAttempt & {
+            readonly authorizationReplay: boolean;
+            readonly definiteResponseCode: 201 | 204 | null;
+          })
+        | CodexRotatingDispatchAttempt;
+      const internal = authorization as CodexRotatingDispatchAttempt & {
+        readonly authorizationReplay?: boolean;
+        readonly definiteResponseCode?: 201 | 204 | null;
+      };
+      if (
+        authorization.status === "confirmed" &&
+        internal.definiteResponseCode
+      ) {
+        return {
+          ...authorization,
+          status: "confirmed" as const,
+          responseCode: internal.definiteResponseCode,
+        };
+      }
+      if (internal.authorizationReplay) {
+        await this.recordDispatchOutcome({
+          claimId: authorization.claimId,
+          attemptId: authorization.attemptId,
+          outcome: "unknown",
+        });
+        throw new Error("codex_rotating_setup_secret_put_failed");
+      }
+      const dispatched = await this.dispatchAuthorizedSecret(
+        {
+          claimId: authorization.claimId,
+          attemptId: authorization.attemptId,
+        },
+        dispatch,
+      );
+      if (dispatched === failedRemoteDispatchRetired) {
+        throw new Error("codex_rotating_setup_secret_put_failed");
+      }
+      if (dispatched === expiredDispatchRetired) {
+        throw new Error("codex_rotating_setup_dispatch_expired");
+      }
+      return dispatched;
+    }
     const result = await this.prisma.$transaction(
       async (tx) => {
         const initial = await findClaim(tx, input.claimId);
@@ -421,7 +495,13 @@ export class PrismaCodexRotatingSetupPayloadClaim
             }
             return expiredDispatchRetired;
           }
-          return attemptResult(replay);
+          return {
+            ...attemptResult(replay),
+            authorizationReplay: true,
+            definiteResponseCode: asDefiniteResponseCode(
+              replay.definiteResponseCode,
+            ),
+          };
         }
         if (claim.status !== "prepared" || claim.recoveryExpiresAt <= now) {
           throw new Error(
@@ -477,7 +557,7 @@ export class PrismaCodexRotatingSetupPayloadClaim
         ) VALUES (${attemptId}, ${claim.id}, ${namespaceId}, ${ordinal},
           ${input.idempotencyKey}, 'dispatch_authorized', ${now}, ${dispatchExpiresAt}, ${now}, ${now})
       `;
-        return {
+        const result = {
           claimId: claim.id,
           attemptId,
           namespaceId,
@@ -486,6 +566,11 @@ export class PrismaCodexRotatingSetupPayloadClaim
           status: "dispatch_authorized" as const,
           dispatchExpiresAt: dispatchExpiresAt.toISOString(),
         };
+        return {
+          ...result,
+          authorizationReplay: false,
+          definiteResponseCode: null,
+        };
       },
       { timeout: transactionTimeoutMs },
     );
@@ -493,6 +578,59 @@ export class PrismaCodexRotatingSetupPayloadClaim
       throw new Error("codex_rotating_setup_dispatch_expired");
     }
     return result;
+  }
+
+  private async dispatchAuthorizedSecret(
+    input: { readonly claimId: string; readonly attemptId: string },
+    dispatch: (
+      target: CodexRotatingSetupSecretWriteTarget,
+    ) => Promise<{ readonly statusCode: 201 | 204 }>,
+  ) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const initial = await findClaim(tx, input.claimId);
+        await requireProvenWriter(
+          tx,
+          initial.databaseIncarnation,
+          initial.databaseRecoveryWitness,
+          this.databaseRecoveryWitness,
+        );
+        await lockCodexRotatingProviderRow(tx, initial.providerInstanceRowId);
+        const claim = await findClaimForUpdate(tx, input.claimId);
+        assertClaimNotRetired(claim.status);
+        const now = await this.clock.now(tx);
+        await assertClaimOwnsSetupFence(tx, claim, now);
+        const attempt = await findAttemptForUpdate(
+          tx,
+          input.claimId,
+          input.attemptId,
+        );
+        if (attempt.status !== "dispatch_authorized") {
+          throw new Error("codex_rotating_setup_dispatch_expired");
+        }
+        if (attempt.dispatchExpiresAt <= now) {
+          await retireAttemptAndNamespace(
+            tx,
+            attempt.attemptId,
+            attempt.namespaceId,
+            now,
+            setupFenceForClaim(claim),
+          );
+          return expiredDispatchRetired;
+        }
+        return dispatchSetupSecretUnderLock({
+          tx,
+          claim,
+          attempt,
+          now,
+          dispatch,
+          ...(this.databaseEffectAuthority
+            ? { databaseEffectAuthority: this.databaseEffectAuthority }
+            : {}),
+        });
+      },
+      { timeout: 40_000 },
+    );
   }
 
   async recordDispatchOutcome(input: {
@@ -634,7 +772,7 @@ export class PrismaCodexRotatingSetupPayloadClaim
         );
         const attempts = await tx.$queryRaw<AttemptRow[]>`
       SELECT a."claimId", a."id" AS "attemptId", a."namespaceId", n."namespaceEpoch",
-             n."secretName", a."status", a."dispatchExpiresAt"
+             n."secretName", a."status", a."dispatchExpiresAt", a."definiteResponseCode"
       FROM "CodexOAuthSetupDispatchAttempt" a
       JOIN "CodexOAuthSecretNamespace" n ON n."id" = a."namespaceId"
       WHERE a."claimId" = ${claimId}
@@ -1379,7 +1517,7 @@ async function findAttemptByKey(
 ) {
   const rows = await tx.$queryRaw<AttemptRow[]>`
     SELECT a."claimId", a."id" AS "attemptId", a."namespaceId", n."namespaceEpoch",
-      n."secretName", a."status", a."dispatchExpiresAt"
+      n."secretName", a."status", a."dispatchExpiresAt", a."definiteResponseCode"
     FROM "CodexOAuthSetupDispatchAttempt" a JOIN "CodexOAuthSecretNamespace" n ON n."id" = a."namespaceId"
     WHERE a."claimId" = ${claimId} AND a."idempotencyKey" = ${key}
     LIMIT 1 FOR UPDATE OF a, n
@@ -1394,7 +1532,7 @@ async function findAttemptForUpdate(
 ) {
   const rows = await tx.$queryRaw<AttemptRow[]>`
     SELECT a."claimId", a."id" AS "attemptId", a."namespaceId", n."namespaceEpoch",
-      n."secretName", a."status", a."dispatchExpiresAt"
+      n."secretName", a."status", a."dispatchExpiresAt", a."definiteResponseCode"
     FROM "CodexOAuthSetupDispatchAttempt" a JOIN "CodexOAuthSecretNamespace" n ON n."id" = a."namespaceId"
     WHERE a."claimId" = ${claimId} AND a."id" = ${attemptId}
     LIMIT 1 FOR UPDATE OF a, n
@@ -1537,6 +1675,119 @@ function setupFenceForClaim(claim: ClaimRow) {
   } as const;
 }
 
+async function dispatchSetupSecretUnderLock(input: {
+  readonly tx: Prisma.TransactionClient;
+  readonly claim: ClaimRow;
+  readonly attempt: AttemptRow;
+  readonly now: Date;
+  readonly dispatch: (
+    target: CodexRotatingSetupSecretWriteTarget,
+  ) => Promise<{ readonly statusCode: 201 | 204 }>;
+  readonly databaseEffectAuthority?: Pick<PrismaClient, "$queryRaw">;
+}) {
+  const targets = await input.tx.$queryRaw<
+    readonly {
+      githubInstallationId: bigint;
+      githubRepositoryId: bigint;
+      owner: string;
+      repo: string;
+    }[]
+  >`
+    SELECT installation."githubInstallationId", repository."githubRepositoryId",
+      repository."owner", repository."name" AS repo
+    FROM "CodexOAuthProviderInstance" provider
+    JOIN "RepositoryConnection" repository ON repository."id" = provider."repositoryId"
+    JOIN "GitHubInstallation" installation ON installation."id" = repository."installationId"
+    JOIN "ScmRepositoryIdentity" identity
+      ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
+    WHERE provider."id" = ${input.claim.providerInstanceRowId}
+      AND provider."mutationOwner" = 'setup'
+      AND provider."mutationOwnerId" = ${input.claim.manifestId}
+      AND provider."mutationEpoch" = ${input.claim.recoveryEpoch}
+      AND repository."externalRepositoryId" = ${input.claim.githubRepositoryId}
+      AND identity."externalRepositoryId" = ${input.claim.githubRepositoryId}
+      AND identity."currentWorkspaceId" = repository."workspaceId"
+      AND identity."currentRepositoryConnectionId" = repository."id"
+      AND identity."unboundAt" IS NULL
+  `;
+  const target = targets[0];
+  if (targets.length !== 1 || !target) {
+    throw new Error("codex_rotating_setup_confirmation_stale_epoch");
+  }
+  let response: { readonly statusCode: 201 | 204 };
+  try {
+    response = await input.dispatch({
+      githubInstallationId: target.githubInstallationId.toString(),
+      githubRepositoryId: target.githubRepositoryId.toString(),
+      owner: target.owner,
+      repo: target.repo,
+      secretName: input.attempt.secretName,
+    });
+  } catch {
+    await retireAttemptAndNamespace(
+      input.tx,
+      input.attempt.attemptId,
+      input.attempt.namespaceId,
+      input.now,
+      setupFenceForClaim(input.claim),
+    );
+    return failedRemoteDispatchRetired;
+  }
+  if (!input.databaseEffectAuthority) {
+    throw new Error("codex_oauth_database_effect_authority_unavailable");
+  }
+  const signature = await signDatabaseAuthorityChallenge({
+    tx: input.tx,
+    authority: input.databaseEffectAuthority,
+    effect: "setup_confirmation",
+    ownerId: input.attempt.attemptId,
+    effectCode: response.statusCode,
+  });
+  await input.tx.$executeRaw`
+    SELECT "codex_oauth_authorize_setup_confirmation"(
+      ${input.attempt.attemptId}, ${response.statusCode}, ${signature}
+    )
+  `;
+  const confirmedAttempt = await input.tx.$executeRaw`
+    UPDATE "CodexOAuthSetupDispatchAttempt"
+    SET "status" = 'confirmed', "definiteResponseCode" = ${response.statusCode},
+      "confirmedAt" = ${input.now}, "updatedAt" = ${input.now}
+    WHERE "id" = ${input.attempt.attemptId} AND "status" = 'dispatch_authorized'
+  `;
+  const confirmedNamespace = await input.tx.$executeRaw`
+    UPDATE "CodexOAuthSecretNamespace"
+    SET "status" = 'confirmed_candidate', "confirmedAt" = ${input.now}
+    WHERE "id" = ${input.attempt.namespaceId} AND "status" = 'dispatch_authorized'
+  `;
+  const confirmedClaim = await input.tx.$executeRaw`
+    UPDATE "CodexOAuthSetupPayloadClaim"
+    SET "status" = 'confirmed_candidate', "confirmedAttemptId" = ${input.attempt.attemptId},
+      "confirmedAt" = ${input.now}, "updatedAt" = ${input.now}
+    WHERE "id" = ${input.claim.id} AND "status" = 'prepared'
+  `;
+  const transitionedProvider = await input.tx.$executeRaw`
+    UPDATE "CodexOAuthProviderInstance"
+    SET "state" = 'workflow_update_required', "updatedAt" = ${input.now}
+    WHERE "id" = ${input.claim.providerInstanceRowId}
+      AND "mutationOwner" = 'setup'
+      AND "mutationOwnerId" = ${input.claim.manifestId}
+      AND "mutationEpoch" = ${input.claim.recoveryEpoch}
+  `;
+  if (
+    confirmedAttempt !== 1 ||
+    confirmedNamespace !== 1 ||
+    confirmedClaim !== 1 ||
+    transitionedProvider !== 1
+  ) {
+    throw new Error("codex_rotating_setup_confirmation_stale_epoch");
+  }
+  return {
+    ...attemptResult(input.attempt),
+    status: "confirmed" as const,
+    responseCode: response.statusCode,
+  };
+}
+
 function attemptResult(row: AttemptRow): CodexRotatingDispatchAttempt {
   return {
     claimId: row.claimId,
@@ -1547,6 +1798,10 @@ function attemptResult(row: AttemptRow): CodexRotatingDispatchAttempt {
     status: row.status,
     dispatchExpiresAt: row.dispatchExpiresAt.toISOString(),
   };
+}
+
+function asDefiniteResponseCode(value: number | null): 201 | 204 | null {
+  return value === 201 || value === 204 ? value : null;
 }
 
 async function findProviderInstanceId(

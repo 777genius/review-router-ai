@@ -44,31 +44,10 @@ export class PrismaRepositoryWebhookHandler {
         const installationChanged =
           existing.installation?.githubInstallationId !==
           BigInt(payload.installation.id);
-
-        if (payload.action === "deleted") {
-          if (installationChanged) return null;
-          const removedAt = new Date();
-          const removed = await tx.repositoryConnection.updateMany({
-            where: { id: existing.id, selected: true },
-            data: {
-              selected: false,
-              lastSyncedAt: removedAt,
-            },
-          });
-          if (removed.count === 1 && existing.scmRepositoryIdentityId) {
-            await rotateRemovedScmRepositoryIdentityEpoch(tx, {
-              scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
-              repositoryConnectionId: existing.id,
-              currentWorkspaceId: existing.workspaceId,
-              removedAt,
-            });
-          }
-          return { repository: existing.fullName, status: "unselected" };
-        }
-
         const syncedAt = new Date();
-        if (payload.action === "transferred") {
-          await fenceTransferredRepository(tx, {
+
+        if (installationChanged) {
+          await fenceRepositoryAuthority(tx, {
             repositoryId: existing.id,
             workspaceId: existing.workspaceId,
             wasSelected: existing.selected,
@@ -80,8 +59,38 @@ export class PrismaRepositoryWebhookHandler {
             status: "reconnect_reselection_required",
           };
         }
-        if (installationChanged) {
-          return null;
+
+        if (payload.action === "deleted") {
+          const removed = await tx.repositoryConnection.updateMany({
+            where: { id: existing.id, selected: true },
+            data: {
+              selected: false,
+              lastSyncedAt: syncedAt,
+            },
+          });
+          if (removed.count === 1 && existing.scmRepositoryIdentityId) {
+            await rotateRemovedScmRepositoryIdentityEpoch(tx, {
+              scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
+              repositoryConnectionId: existing.id,
+              currentWorkspaceId: existing.workspaceId,
+              removedAt: syncedAt,
+            });
+          }
+          return { repository: existing.fullName, status: "unselected" };
+        }
+
+        if (payload.action === "transferred") {
+          await fenceRepositoryAuthority(tx, {
+            repositoryId: existing.id,
+            workspaceId: existing.workspaceId,
+            wasSelected: existing.selected,
+            scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
+            fencedAt: syncedAt,
+          });
+          return {
+            repository: existing.fullName,
+            status: "reconnect_reselection_required",
+          };
         }
         const metadataTimestamp =
           payload.action === "renamed" || payload.action === "edited"
@@ -105,13 +114,30 @@ export class PrismaRepositoryWebhookHandler {
           metadataTimestamp === null ||
           (existing.lastSyncedAt !== null &&
             startOfSecond(metadataTimestamp) <
-              startOfSecond(existing.lastSyncedAt)) ||
-          (existing.lastSyncedAt !== null &&
-            startOfSecond(metadataTimestamp) ===
-              startOfSecond(existing.lastSyncedAt) &&
-            sameSecondChange === null)
+              startOfSecond(existing.lastSyncedAt))
         ) {
           return { repository: existing.fullName, status: "stale_ignored" };
+        }
+        if (
+          existing.lastSyncedAt !== null &&
+          startOfSecond(metadataTimestamp) ===
+            startOfSecond(existing.lastSyncedAt) &&
+          sameSecondChange === null
+        ) {
+          if (!hasRepositoryMetadataPreimage(payload.action, payload.changes)) {
+            return { repository: existing.fullName, status: "stale_ignored" };
+          }
+          await fenceRepositoryAuthority(tx, {
+            repositoryId: existing.id,
+            workspaceId: existing.workspaceId,
+            wasSelected: existing.selected,
+            scmRepositoryIdentityId: existing.scmRepositoryIdentityId,
+            fencedAt: syncedAt,
+          });
+          return {
+            repository: existing.fullName,
+            status: "reconnect_reselection_required",
+          };
         }
         const storedTimestamp =
           existing.lastSyncedAt && metadataTimestamp < existing.lastSyncedAt
@@ -185,6 +211,16 @@ export class PrismaRepositoryWebhookHandler {
 
 type SameSecondRepositoryChange = "renamed" | "default_branch";
 
+function hasRepositoryMetadataPreimage(
+  action: string,
+  changes: GitHubRepositoryWebhookEnvelope["payload"]["changes"] | undefined,
+): boolean {
+  return (
+    (action === "renamed" && changes?.repository !== undefined) ||
+    (action === "edited" && changes?.default_branch !== undefined)
+  );
+}
+
 function resolveSameSecondRepositoryChange(input: {
   readonly action: string;
   readonly changes:
@@ -235,7 +271,7 @@ function startOfSecond(value: Date): number {
   return Math.floor(value.getTime() / 1_000) * 1_000;
 }
 
-async function fenceTransferredRepository(
+async function fenceRepositoryAuthority(
   tx: Prisma.TransactionClient,
   input: Readonly<{
     repositoryId: string;

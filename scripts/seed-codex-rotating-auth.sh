@@ -26,8 +26,6 @@ AUTH_FILE="${REVIEW_ROUTER_CODEX_AUTH_FILE:-}"
 CODEX_HOME_OVERRIDE="${REVIEW_ROUTER_CODEX_HOME:-}"
 ALLOW_EXTERNAL_AUTH_FILE="${REVIEW_ROUTER_ALLOW_EXTERNAL_CODEX_AUTH_FILE:-0}"
 DRY_RUN="${REVIEW_ROUTER_DRY_RUN:-0}"
-CURL_TEST_UNIX_SOCKET="${REVIEW_ROUTER_CODEX_ROTATING_CURL_TEST_UNIX_SOCKET:-}"
-CURL_TEST_MAX_TIME="${REVIEW_ROUTER_CODEX_ROTATING_CURL_TEST_MAX_TIME:-}"
 CONFIRM_WRITE="${REVIEW_ROUTER_CONFIRM_WRITE:-${REVIEW_ROUTER_YES:-0}}"
 SKIP_LOGIN="${REVIEW_ROUTER_SKIP_CODEX_LOGIN:-0}"
 FORCE_RESEED="${REVIEW_ROUTER_FORCE_CODEX_RESEED:-0}"
@@ -40,6 +38,7 @@ NAMESPACE_ID=""
 NAMESPACE_EPOCH=""
 PREPARE_STATUS=""
 PROVIDER_PUT_STATUS=""
+PROVIDER_BODY_FILE=""
 REMOTE_PAYLOAD_CLAIMED="0"
 RETRY_EXISTING_PAYLOAD="0"
 SECRET_DISPATCH_REQUIRED="1"
@@ -1005,10 +1004,8 @@ assert_versioned_secret_name() {
     || fatal "Missing or invalid server-authorized versioned secret name."
 }
 
-write_github_secret() {
-  assert_versioned_secret_name
+prepare_github_secret_payload() {
   if is_true "$DRY_RUN"; then
-    log "[dry-run] one-shot encrypted GitHub PUT for $SECRET_NAME in $TARGET_REPO"
     return
   fi
 
@@ -1023,7 +1020,7 @@ write_github_secret() {
     rm -f "$key_before" "$key_after" "$encrypted_value" "$provider_body"
     return 1
   fi
-  if ! gh secret set "$SECRET_NAME" --repo "github.com/$TARGET_REPO" --app actions --no-store \
+  if ! gh secret set "REVIEWROUTER_CODEX_AUTH_JSON_ENCRYPT_ONLY" --repo "github.com/$TARGET_REPO" --app actions --no-store \
     <"$AUTH_COMPACT_FILE" >"$encrypted_value"; then
     rm -f "$key_before" "$key_after" "$encrypted_value" "$provider_body"
     return 1
@@ -1049,53 +1046,7 @@ NODE
     return 1
   fi
   rm -f "$key_before" "$key_after" "$encrypted_value"
-
-  # The token exists only in this anonymous pipe. It is never placed in argv,
-  # the environment, a shell variable, a log, or a file. A fresh curl process
-  # performs exactly one HTTP/1.1 request with retries and redirects disabled.
-  if [ -n "$CURL_TEST_UNIX_SOCKET" ]; then
-    [ "${REVIEW_ROUTER_SEED_LIBRARY_ONLY:-0}" = "1" ] || fatal "The curl Unix socket is test-only."
-    case "$CURL_TEST_UNIX_SOCKET" in
-      /*) ;;
-      *) fatal "The curl test Unix socket must be an absolute path." ;;
-    esac
-    case "$CURL_TEST_UNIX_SOCKET" in
-      *[!A-Za-z0-9_./-]*) fatal "The curl test Unix socket contains unsafe characters." ;;
-    esac
-  fi
-  curl_max_time=30
-  if [ -n "$CURL_TEST_MAX_TIME" ]; then
-    [ "${REVIEW_ROUTER_SEED_LIBRARY_ONLY:-0}" = "1" ] || fatal "The curl max-time override is test-only."
-    case "$CURL_TEST_MAX_TIME" in
-      ''|*[!0-9]*) fatal "The curl test max-time must be an integer." ;;
-      *) curl_max_time="$CURL_TEST_MAX_TIME" ;;
-    esac
-    [ "$curl_max_time" -ge 1 ] || fatal "The curl test max-time must be positive."
-  fi
-  provider_status="$({
-    if [ -n "$CURL_TEST_UNIX_SOCKET" ]; then
-      printf 'unix-socket = "%s"\n' "$CURL_TEST_UNIX_SOCKET"
-    fi
-    printf '%s\n' 'silent' 'show-error' 'request = "PUT"' \
-      'url = "https://api.github.com/repos/'"$TARGET_REPO"'/actions/secrets/'"$SECRET_NAME"'"' \
-      'http1.1' 'no-location' 'no-keepalive' 'retry = 0' 'proto = "=https"' \
-      'connect-timeout = 10' 'max-time = '"$curl_max_time" 'output = "/dev/null"' \
-      'header = "Accept: application/vnd.github+json"' \
-      'header = "X-GitHub-Api-Version: 2022-11-28"'
-    printf 'header = "Authorization: Bearer '
-    gh auth token --hostname github.com | tr -d '\r\n'
-    printf '"\n'
-    printf '%s\n' 'header = "Content-Type: application/json"' \
-      'write-out = "%{http_code}"'
-  } | curl -q --config - --data-binary "@$provider_body")" || {
-    rm -f "$provider_body"
-    return 1
-  }
-  rm -f "$provider_body"
-  case "$provider_status" in
-    201|204) PROVIDER_PUT_STATUS="$provider_status"; return 0 ;;
-    *) return 1 ;;
-  esac
+  PROVIDER_BODY_FILE="$provider_body"
 }
 
 verify_github_repository_identity() {
@@ -1341,6 +1292,7 @@ authorize_new_dispatch() {
     SECRET_DISPATCH_REQUIRED="0"
     return
   fi
+  prepare_github_secret_payload
   [ -n "$SETUP_DISPATCH_URL" ] || fatal "Missing dispatch authorization URL."
   if [ -n "${ATTEMPT_ID:-}" ] && [ "$(journal_read_field mayHaveDispatched)" = "true" ]; then
     current_status="$(setup_claim_status || true)"
@@ -1355,10 +1307,12 @@ authorize_new_dispatch() {
     journal_update dispatch_request "$idempotency_key"
   fi
   request="$(mktemp)"; response="$(mktemp)"
-  node - "$request" "$PAYLOAD_RETRY_STATE" <<'NODE'
+  node - "$request" "$PAYLOAD_RETRY_STATE" "$PROVIDER_BODY_FILE" <<'NODE'
 const fs=require("node:fs"); const state=JSON.parse(fs.readFileSync(process.argv[3],"utf8"));
 if (typeof state.claimId!=="string" || typeof state.idempotencyKey!=="string") process.exit(1);
-fs.writeFileSync(process.argv[2],JSON.stringify({claimId:state.claimId,idempotencyKey:state.idempotencyKey}),{mode:0o600});
+const provider=JSON.parse(fs.readFileSync(process.argv[4],"utf8"));
+if (typeof provider.encrypted_value!=="string" || typeof provider.key_id!=="string") process.exit(1);
+fs.writeFileSync(process.argv[2],JSON.stringify({claimId:state.claimId,idempotencyKey:state.idempotencyKey,encryptedValue:provider.encrypted_value,keyId:provider.key_id}),{mode:0o600});
 NODE
   dispatch_http_status="$(curl -q -fsS --max-redirs 0 --connect-timeout 10 --max-time 30 -X POST -H 'content-type: application/json' --data-binary "@$request" "$SETUP_DISPATCH_URL" -o "$response" --write-out '%{http_code}')" || { rm -f "$request" "$response"; fatal "Dispatch authorization was not recovered. No PUT was attempted."; }
   case "$dispatch_http_status" in
@@ -1367,14 +1321,15 @@ NODE
   esac
   dispatch_values="$(node - "$response" <<'NODE'
 const fs=require("node:fs"); const r=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
-if (r.status!=="dispatch_authorized" || !/^REVIEWROUTER_CODEX_AUTH_JSON_R[1-9][0-9]*_P[a-f0-9]{16}_E[1-9][0-9]*_[a-f0-9]{32}$/.test(r.secretName)) process.exit(1);
-console.log([r.attemptId,r.namespaceId,r.namespaceEpoch,r.secretName].join("\t"));
+if (r.status!=="confirmed" || ![201,204].includes(r.responseCode) || !/^REVIEWROUTER_CODEX_AUTH_JSON_R[1-9][0-9]*_P[a-f0-9]{16}_E[1-9][0-9]*_[a-f0-9]{32}$/.test(r.secretName)) process.exit(1);
+console.log([r.attemptId,r.namespaceId,r.namespaceEpoch,r.secretName,r.responseCode].join("\t"));
 NODE
 )" || fatal "Invalid dispatch authorization."
-  IFS="$(printf '\t')" read -r ATTEMPT_ID NAMESPACE_ID NAMESPACE_EPOCH SECRET_NAME <<EOF
+  IFS="$(printf '\t')" read -r ATTEMPT_ID NAMESPACE_ID NAMESPACE_EPOCH SECRET_NAME PROVIDER_PUT_STATUS <<EOF
 $dispatch_values
 EOF
   journal_update attempt "$ATTEMPT_ID" "$NAMESPACE_ID" "$NAMESPACE_EPOCH" "$SECRET_NAME" "$idempotency_key"
+  journal_update confirmed
   rm -f "$request" "$response"
 }
 
@@ -1413,6 +1368,9 @@ cleanup() {
   fi
   if [ -n "${PREPARE_RESPONSE_FILE:-}" ] && [ -f "$PREPARE_RESPONSE_FILE" ]; then
     rm -f "$PREPARE_RESPONSE_FILE"
+  fi
+  if [ -n "${PROVIDER_BODY_FILE:-}" ] && [ -f "$PROVIDER_BODY_FILE" ]; then
+    rm -f "$PROVIDER_BODY_FILE"
   fi
   if [ -n "${SETUP_NONCE_LOCK_DIR:-}" ] && [ -d "$SETUP_NONCE_LOCK_DIR" ]; then
     rmdir "$SETUP_NONCE_LOCK_DIR" 2>/dev/null || true
@@ -1482,10 +1440,6 @@ main() {
   prepare_secret_payload_v2
   authorize_new_dispatch
   if [ "$SECRET_DISPATCH_REQUIRED" = "1" ]; then
-    if ! write_github_secret; then
-      retire_journal_attempt_or_fail
-      fatal "GitHub PUT outcome is unknown. That versioned secret name is permanently retired; rerun to allocate a never-used name."
-    fi
     mark_ci_owned_auth_state
     record_definite_dispatch_success
   fi

@@ -33,19 +33,9 @@ describe("Codex rotating secret write boundary", () => {
 
   it.each([
     [
-      "unsupported curl option",
-      "scripts/seed-codex-rotating-auth.sh",
-      "write_github_secret() { fresh-connect; }",
-    ],
-    [
       "second rotating gh provider writer",
       "scripts/seed-codex-rotating-auth.sh",
-      `write_github_secret() {
-gh secret set "$SECRET_NAME" --repo "github.com/$TARGET_REPO" --app actions --no-store \\
-  <"$AUTH_COMPACT_FILE"
-gh secret set FORBIDDEN --repo owner/repo
-printf '%s\\n' 'http1.1' 'no-location' 'no-keepalive' 'retry = 0' 'proto = "=https"' 'url = "https://api.github.com/repos/'"$TARGET_REPO"'/actions/secrets/'"$SECRET_NAME"'"' | curl -q --config - --data-binary "@$provider_body")
-}`,
+      "gh secret set FIRST --no-store\ngh secret set SECOND --no-store",
     ],
     [
       "direct provider PUT",
@@ -81,17 +71,12 @@ printf '%s\\n' 'http1.1' 'no-location' 'no-keepalive' 'retry = 0' 'proto = "=htt
   });
 
   it.each([
-    ["provider -q after config", "curl -q --config -", "curl --config - -q"],
     [
-      "provider body is not one quoted argument",
-      '--data-binary "@$provider_body"',
-      "--data-binary @$provider_body",
+      "encrypted payload omission",
+      "encryptedValue:provider.encrypted_value",
+      "encryptedPayload:provider.encrypted_value",
     ],
-    [
-      "provider body path interpolated into config",
-      "'write-out = \"%{http_code}\"'",
-      "'data-binary = \"@'\"$provider_body\"'\"' 'write-out = \"%{http_code}\"'",
-    ],
+    ["key id omission", "keyId:provider.key_id", "providerKey:provider.key_id"],
     [
       "ledger curl without first-argument -q",
       "curl -q -fsS --max-redirs 0",

@@ -60,12 +60,6 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
               scmRepositoryIdentityId: true,
             },
           });
-          // Serializable retries re-read ownership and its monotonic inventory fence.
-          if (
-            previous &&
-            previous.inventoryGeneration >= input.inventoryGeneration
-          )
-            return false;
           if (
             previous &&
             (previous.workspaceId !== installation.workspaceId ||
@@ -80,6 +74,13 @@ export class PrismaRepositoryConnectionRepository implements RepositoryConnectio
             });
             return "reconnect_required" as const;
           }
+          // Binding mismatches must be fenced even when the incoming inventory
+          // generation would otherwise be treated as a replay.
+          if (
+            previous &&
+            previous.inventoryGeneration >= input.inventoryGeneration
+          )
+            return false;
           await tx.repositoryConnection.upsert({
             where: {
               githubRepositoryId: BigInt(repository.githubRepositoryId),

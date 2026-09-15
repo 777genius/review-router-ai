@@ -1058,7 +1058,7 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
     ).not.toContain(testClaimCapability);
   });
 
-  it("retires a lost PUT namespace and ignores later mutable auth", () => {
+  it("recovers an encryption failure before server-serialized dispatch without exposing later auth", () => {
     const fixture = createRotatingInstallerFixture();
     const putFailure = join(fixture.home, "put-failed-once");
     const firstEvents = join(fixture.home, "put-first.log");
@@ -1088,12 +1088,7 @@ describe("resolveCodexRotatingSeedScriptDescriptor", () => {
     });
     expect(retry.status).toBe(0);
     expect(readFileSync(retryEvents, "utf8")).not.toContain("codex:login");
-    const statusRequest = readFileSync(retryEvents, "utf8")
-      .split("\n")
-      .find((event) => event.includes("/status"));
-    expect(statusRequest).toContain("-X POST");
-    expect(statusRequest).toContain("--data-binary @");
-    expect(statusRequest).not.toContain("claimId=");
+    expect(readFileSync(retryEvents, "utf8")).not.toContain("/status");
 
     const rotated = createRotatingInstallerFixture();
     const rotatedFailure = join(rotated.home, "put-failed-once");
@@ -1572,7 +1567,7 @@ function createRotatingInstallerFixture(
       'if [[ "$args" == *"/dispatch"* ]] && [[ "$args" != *"/dispatch-outcome"* ]]; then',
       '  out=""; prev=""; for arg in "$@"; do if [ "$prev" = "-o" ]; then out="$arg"; fi; prev="$arg"; done',
       '  [ -n "$out" ] || out="/dev/stdout"',
-      '  printf \'{"claimId":"codex_claim_11111111-1111-4111-8111-111111111111","attemptId":"attempt:test-12345678","namespaceId":"namespace:test-12345678","namespaceEpoch":"1","secretName":"REVIEWROUTER_CODEX_AUTH_JSON_R900001_P0123456789abcdef_E1_0123456789abcdef0123456789abcdef","status":"dispatch_authorized","dispatchExpiresAt":"2999-01-01T00:00:00.000Z"}\\n\' > "$out"',
+      '  printf \'{"claimId":"codex_claim_11111111-1111-4111-8111-111111111111","attemptId":"attempt:test-12345678","namespaceId":"namespace:test-12345678","namespaceEpoch":"1","secretName":"REVIEWROUTER_CODEX_AUTH_JSON_R900001_P0123456789abcdef_E1_0123456789abcdef0123456789abcdef","status":"confirmed","responseCode":204,"dispatchExpiresAt":"2999-01-01T00:00:00.000Z"}\\n\' > "$out"',
       '  printf "200"',
       "  exit 0",
       "fi",

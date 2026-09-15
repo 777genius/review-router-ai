@@ -12,6 +12,7 @@ import {
   codexWorkflowPathForRepository,
   isCodexWorkflowRepositoryIdentityAdmitted,
   defaultCodexRotatingWorkflowPath,
+  isolatedQualityWorkflowPath,
   readCanonicalCodexRotatingT0WorkflowSourceMetadata,
   readCanonicalIsolatedQualityWorkflowSourceMetadata,
   workflowDocumentSemanticSha256,
@@ -63,6 +64,16 @@ export async function activateConfirmedCodexNamespaceAfterWorkflowMerge(input: {
   ) {
     throw new Error("codex_rotating_workflow_repository_identity_mismatch");
   }
+  const workflowPath = codexWorkflowPathForRepository({
+    repositoryId: input.githubRepositoryId,
+    repositoryFullName: input.expectedRepositoryFullName,
+  });
+  if (
+    workflowPath === isolatedQualityWorkflowPath &&
+    input.defaultBranch !== "main"
+  ) {
+    throw new Error("codex_rotating_workflow_default_branch_mismatch");
+  }
   const rotatingProvider =
     await input.prisma.codexOAuthProviderInstance.findUnique({
       where: {
@@ -106,10 +117,6 @@ export async function activateConfirmedCodexNamespaceAfterWorkflowMerge(input: {
       existingWorkflowSchemaVersion:
         activeNamespace?.workflowSchemaVersion ?? null,
     });
-  const workflowPath = codexWorkflowPathForRepository({
-    repositoryId: input.githubRepositoryId,
-    repositoryFullName: input.expectedRepositoryFullName,
-  });
   if (inspection.source === "active") {
     if (!rotatingProvider.latestGenerationHash) {
       throw new Error("codex_rotating_workflow_generation_missing");

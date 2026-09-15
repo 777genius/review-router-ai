@@ -1561,97 +1561,99 @@ export class PrismaCodexRotatingOAuthRepository
     },
     dispatch: () => Promise<T>,
   ): Promise<T> {
-    await this.prisma.$transaction(async (tx) => {
-      const locator = await tx.codexOAuthWritebackIntent.findUnique({
-        where: { id: input.intentId },
-        select: { providerInstanceRowId: true },
-      });
-      if (!locator) throw new Error("codex_rotating_writeback_not_found");
-      await lockProviderByInstanceId(
-        tx,
-        (
-          await tx.codexOAuthProviderInstance.findUniqueOrThrow({
-            where: { id: locator.providerInstanceRowId },
-            select: { providerInstanceId: true },
-          })
-        ).providerInstanceId,
-      );
-      const now = await this.transactionClock.now(tx);
-      const intent = await tx.codexOAuthWritebackIntent.findUnique({
-        where: { id: input.intentId },
-        select: {
-          id: true,
-          status: true,
-          dispatchAttemptId: true,
-          executorOwner: true,
-          executorLeaseExpiresAt: true,
-          mutationEpoch: true,
-          lease: {
-            select: {
-              id: true,
-              status: true,
-              expiresAt: true,
-              leaseKey: true,
-              mutationEpoch: true,
+    return this.prisma.$transaction(
+      async (tx) => {
+        const locator = await tx.codexOAuthWritebackIntent.findUnique({
+          where: { id: input.intentId },
+          select: { providerInstanceRowId: true },
+        });
+        if (!locator) throw new Error("codex_rotating_writeback_not_found");
+        await lockProviderByInstanceId(
+          tx,
+          (
+            await tx.codexOAuthProviderInstance.findUniqueOrThrow({
+              where: { id: locator.providerInstanceRowId },
+              select: { providerInstanceId: true },
+            })
+          ).providerInstanceId,
+        );
+        const now = await this.transactionClock.now(tx);
+        const intent = await tx.codexOAuthWritebackIntent.findUnique({
+          where: { id: input.intentId },
+          select: {
+            id: true,
+            status: true,
+            dispatchAttemptId: true,
+            executorOwner: true,
+            executorLeaseExpiresAt: true,
+            mutationEpoch: true,
+            lease: {
+              select: {
+                id: true,
+                status: true,
+                expiresAt: true,
+                leaseKey: true,
+                mutationEpoch: true,
+              },
+            },
+            providerInstance: {
+              select: {
+                mutationEpoch: true,
+                mutationOwner: true,
+                mutationOwnerId: true,
+                activeLeaseId: true,
+                activeLeaseExpiresAt: true,
+                repository: { select: codexRotatingRepositoryContextSelect },
+              },
             },
           },
-          providerInstance: {
-            select: {
-              mutationEpoch: true,
-              mutationOwner: true,
-              mutationOwnerId: true,
-              activeLeaseId: true,
-              activeLeaseExpiresAt: true,
-              repository: { select: codexRotatingRepositoryContextSelect },
-            },
+        });
+        if (
+          !intent ||
+          intent.status !== "pending" ||
+          intent.dispatchAttemptId !== input.attemptId ||
+          intent.executorOwner !== input.executorOwner ||
+          !intent.executorLeaseExpiresAt ||
+          intent.executorLeaseExpiresAt <= now ||
+          intent.providerInstance.mutationOwner !== "runtime" ||
+          intent.providerInstance.mutationOwnerId !== intent.lease.id ||
+          intent.providerInstance.activeLeaseId !== intent.lease.id ||
+          !intent.providerInstance.activeLeaseExpiresAt ||
+          intent.providerInstance.activeLeaseExpiresAt <= now ||
+          intent.lease.status !== "finalized" ||
+          intent.lease.expiresAt <= now ||
+          intent.mutationEpoch !== intent.providerInstance.mutationEpoch ||
+          intent.lease.mutationEpoch !== intent.providerInstance.mutationEpoch
+        ) {
+          throw new Error("codex_rotating_writeback_dispatch_revoked");
+        }
+        await assertLeaseRepositoryIdentityBinding({
+          tx,
+          repository: toActionRepositoryContext(
+            requireGitHubRepositoryContext(intent.providerInstance.repository),
+          ),
+          leaseKey: intent.lease.leaseKey,
+        });
+        const authorized = await tx.codexOAuthWritebackIntent.updateMany({
+          where: {
+            id: intent.id,
+            status: "pending",
+            dispatchAttemptId: input.attemptId,
+            executorOwner: input.executorOwner,
+            mutationEpoch: intent.mutationEpoch,
           },
-        },
-      });
-      if (
-        !intent ||
-        intent.status !== "pending" ||
-        intent.dispatchAttemptId !== input.attemptId ||
-        intent.executorOwner !== input.executorOwner ||
-        !intent.executorLeaseExpiresAt ||
-        intent.executorLeaseExpiresAt <= now ||
-        intent.providerInstance.mutationOwner !== "runtime" ||
-        intent.providerInstance.mutationOwnerId !== intent.lease.id ||
-        intent.providerInstance.activeLeaseId !== intent.lease.id ||
-        !intent.providerInstance.activeLeaseExpiresAt ||
-        intent.providerInstance.activeLeaseExpiresAt <= now ||
-        intent.lease.status !== "finalized" ||
-        intent.lease.expiresAt <= now ||
-        intent.mutationEpoch !== intent.providerInstance.mutationEpoch ||
-        intent.lease.mutationEpoch !== intent.providerInstance.mutationEpoch
-      ) {
-        throw new Error("codex_rotating_writeback_dispatch_revoked");
-      }
-      await assertLeaseRepositoryIdentityBinding({
-        tx,
-        repository: toActionRepositoryContext(
-          requireGitHubRepositoryContext(intent.providerInstance.repository),
-        ),
-        leaseKey: intent.lease.leaseKey,
-      });
-      const authorized = await tx.codexOAuthWritebackIntent.updateMany({
-        where: {
-          id: intent.id,
-          status: "pending",
-          dispatchAttemptId: input.attemptId,
-          executorOwner: input.executorOwner,
-          mutationEpoch: intent.mutationEpoch,
-        },
-        data: { dispatchAuthorizedAt: now },
-      });
-      if (authorized.count !== 1) {
-        throw new Error("codex_rotating_writeback_dispatch_revoked");
-      }
-      // Commit the durable dispatch fence before making the external request.
-      // Confirmation rechecks the provider mutation epoch and repository
-      // identity, so a transfer, rotation, or revocation that wins while the
-      // request is in flight makes even a late 201/204 non-authoritative.
-    });
-    return dispatch();
+          data: { dispatchAuthorizedAt: now },
+        });
+        if (authorized.count !== 1) {
+          throw new Error("codex_rotating_writeback_dispatch_revoked");
+        }
+        // Keep the provider and repository-identity row locks through the
+        // irreversible request. A transfer, rotation, or revocation cannot move
+        // the epoch between the last authorization check and the provider PUT.
+        return dispatch();
+      },
+      { timeout: 30_000 },
+    );
   }
 
   async confirmVersionedProviderWrite(input: {

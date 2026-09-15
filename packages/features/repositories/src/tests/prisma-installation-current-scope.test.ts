@@ -281,10 +281,45 @@ describe("actual installation/inventory current-scope writers", () => {
     f.tx.repositoryConnection.findUnique.mockResolvedValue({
       id: "repository",
       inventoryGeneration: 2n,
+      workspaceId: "destination",
+      installationId: "installation",
     });
     expect(await f.inventory.syncInstallationRepositories(input)).toMatchObject(
       { upserted: 0 },
     );
+    expect(f.tx.repositoryConnection.upsert).not.toHaveBeenCalled();
+  });
+  it("fences an installation mismatch before applying the inventory replay fence", async () => {
+    const f = fixture();
+    f.tx.repositoryConnection.findUnique.mockImplementation(async () => {
+      f.events.push("repository-read");
+      return {
+        id: "repository",
+        inventoryGeneration: 2n,
+        workspaceId: "destination",
+        installationId: "old-installation",
+        selected: true,
+        scmRepositoryIdentityId: "identity-1",
+      };
+    });
+    f.tx.repositoryConnection.updateMany.mockImplementationOnce(async () => {
+      f.events.push("unselect");
+      return { count: 1 };
+    });
+
+    await expect(
+      f.inventory.syncInstallationRepositories(input),
+    ).rejects.toThrow("repository_transfer_reconnect_reselection_required");
+    expect(f.events).toEqual([
+      "begin",
+      "guard",
+      "installation-read",
+      "repository-read",
+      "identity-rotate",
+      "unselect",
+      "provisioning-read",
+      "commit",
+    ]);
     expect(f.tx.repositoryConnection.upsert).not.toHaveBeenCalled();
   });
   it("guards transfer plus provisioning invalidation before either workspace is touched", async () => {

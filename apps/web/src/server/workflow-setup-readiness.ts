@@ -61,6 +61,9 @@ export async function isWorkflowSetupAlreadyCurrent(
     : null;
   const isolatedCodexWorkflow =
     codexWorkflowPath === isolatedQualityWorkflowPath;
+  if (isolatedCodexWorkflow && input.defaultBranch !== "main") {
+    return false;
+  }
   const workflowCheck = await dependencies.workflowProbe.probeWorkflow({
     githubInstallationId: input.githubInstallationId,
     owner: input.owner,

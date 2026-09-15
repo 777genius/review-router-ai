@@ -615,6 +615,131 @@ describe("Prisma rotating setup writer proof", () => {
     );
   });
 
+  it("holds the repository identity transaction through the setup secret PUT", async () => {
+    const now = new Date("2026-08-10T00:00:00.000Z");
+    const attempt = {
+      claimId: claim.id,
+      attemptId: "attempt:serialized-put",
+      namespaceId: "namespace:serialized-put",
+      namespaceEpoch: 1n,
+      secretName:
+        "REVIEWROUTER_CODEX_AUTH_JSON_R123456_P0000000000000000_E1_22222222222222222222222222222222",
+      status: "dispatch_authorized" as const,
+      dispatchExpiresAt: new Date("2026-08-10T00:10:00.000Z"),
+    };
+    const tx = {
+      $executeRawUnsafe: vi.fn().mockResolvedValue(0),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          { writer: true, databaseIncarnation: claim.databaseIncarnation },
+        ])
+        .mockResolvedValueOnce([{ id: claim.providerInstanceRowId }])
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          {
+            mutationOwner: "setup",
+            mutationOwnerId: claim.manifestId,
+            mutationEpoch: claim.recoveryEpoch,
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: claim.manifestId,
+            status: "fetched",
+            mutationEpoch: claim.recoveryEpoch,
+            recoveryExpiresAt: claim.recoveryExpiresAt,
+            manifestJson: manifest,
+          },
+        ])
+        .mockResolvedValueOnce([{ version: 1 }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ count: 0n }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ epoch: 1n }])
+        .mockResolvedValueOnce([
+          { providerInstanceId: manifest.providerInstanceId },
+        ])
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          { writer: true, databaseIncarnation: claim.databaseIncarnation },
+        ])
+        .mockResolvedValueOnce([{ id: claim.providerInstanceRowId }])
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          {
+            mutationOwner: "setup",
+            mutationOwnerId: claim.manifestId,
+            mutationEpoch: claim.recoveryEpoch,
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: claim.manifestId,
+            status: "fetched",
+            mutationEpoch: claim.recoveryEpoch,
+            recoveryExpiresAt: claim.recoveryExpiresAt,
+            manifestJson: manifest,
+          },
+        ])
+        .mockResolvedValueOnce([{ version: 1 }])
+        .mockResolvedValueOnce([attempt])
+        .mockResolvedValueOnce([
+          {
+            githubInstallationId: 789n,
+            githubRepositoryId: 123456n,
+            owner: "777genius",
+            repo: "example",
+          },
+        ])
+        .mockResolvedValueOnce([
+          { challenge: '["reviewrouter_web",1,2,"setup",204]' },
+        ]),
+    };
+    let inTransaction = false;
+    const prisma = {
+      $transaction: vi.fn(async (callback) => {
+        inTransaction = true;
+        try {
+          return await callback(tx);
+        } finally {
+          inTransaction = false;
+        }
+      }),
+    };
+    const authority = {
+      $queryRaw: vi.fn().mockResolvedValue([{ signature: "a".repeat(64) }]),
+    };
+    const ledger = new PrismaCodexRotatingSetupPayloadClaim(
+      prisma as never,
+      recoveryWitness,
+      { now: async () => now },
+      process.env,
+      authority as never,
+    );
+    const dispatch = vi.fn(async () => {
+      expect(inTransaction).toBe(true);
+      return { statusCode: 204 as const };
+    });
+
+    await expect(
+      ledger.authorizeDispatch(
+        { claimId: claim.id, idempotencyKey: "dispatch:serialized-put" },
+        dispatch,
+      ),
+    ).resolves.toMatchObject({ status: "confirmed", responseCode: 204 });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        githubRepositoryId: "123456",
+        secretName: attempt.secretName,
+      }),
+    );
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(inTransaction).toBe(false);
+  });
+
   it("does not allocate setup dispatch authority after identity revocation", async () => {
     const tx = {
       $executeRawUnsafe: vi.fn().mockResolvedValue(0),

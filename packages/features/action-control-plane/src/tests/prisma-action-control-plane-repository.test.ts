@@ -640,7 +640,7 @@ describe("versioned writeback external dispatch fencing", () => {
     ["rotation", 201, "setup"],
     ["revocation", 204, "recovery"],
   ] as const)(
-    "commits preflight before a slow PUT so concurrent %s fences a late %s",
+    "holds the identity transaction through a slow PUT before concurrent %s at %s",
     async (_interleaving, statusCode, nextOwner) => {
       const now = new Date("2026-09-14T12:00:00.000Z");
       let inTransaction = false;
@@ -743,21 +743,26 @@ describe("versioned writeback external dispatch fencing", () => {
           executorOwner: intent.executorOwner,
         },
         async () => {
-          expect(inTransaction).toBe(false);
+          expect(inTransaction).toBe(true);
           return put;
         },
       );
       await vi.waitFor(() => {
         expect(tx.codexOAuthWritebackIntent.updateMany).toHaveBeenCalledOnce();
       });
-      expect(inTransaction).toBe(false);
-      // Advance the durable authority fence while GitHub still owns the
-      // in-flight request.
-      intent.providerInstance.mutationEpoch += 1n;
-      intent.providerInstance.mutationOwner = nextOwner;
+      expect(inTransaction).toBe(true);
+      // The repository/provider mutation is serialized behind the transaction
+      // while GitHub owns the in-flight request.
+      const concurrentMutation = vi
+        .waitFor(() => expect(inTransaction).toBe(false))
+        .then(() => {
+          intent.providerInstance.mutationEpoch += 1n;
+          intent.providerInstance.mutationOwner = nextOwner;
+        });
       resolvePut({ statusCode });
 
       await expect(result).resolves.toEqual({ statusCode });
+      await concurrentMutation;
       expect(prisma.$transaction).toHaveBeenCalledOnce();
       await expect(
         repository.confirmVersionedProviderWrite({

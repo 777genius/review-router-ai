@@ -404,6 +404,27 @@ describe("workflow setup readiness", () => {
     );
   });
 
+  it("requires the isolated quality repository default branch to be exactly main", async () => {
+    const probe = new CapturingWorkflowProbe({
+      status: "present",
+      expectedActionRefFound: true,
+    });
+
+    await expect(
+      isWorkflowSetupAlreadyCurrent(
+        {
+          ...readinessInput,
+          githubRepositoryId: "1228051727",
+          repositoryFullName: "777genius/review-router-saas-e2e",
+          defaultBranch: "trunk",
+          codexRotatingProviderInstanceId: "codex-rotating:1228051727",
+        },
+        { workflowProbe: probe },
+      ),
+    ).resolves.toBe(false);
+    expect(probe.input).toBeNull();
+  });
+
   it.each([
     ["exact generated content", (workflow: string) => workflow, true],
     [

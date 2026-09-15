@@ -1418,6 +1418,7 @@ async function confirmSetupPullRequestMergedMutation(
             attemptId: true,
             revision: true,
             branch: true,
+            workflowPath: true,
             pullRequestUrl: true,
             pullRequestHeadSha: true,
           },
@@ -1552,10 +1553,17 @@ async function confirmSetupPullRequestMergedMutation(
           provider.authMode === "codex_subscription_oauth_hosted_pool" ||
           provider.authMode === "codex_subscription_oauth_rotating",
       );
-    const selectedCodexWorkflowPath = codexWorkflowPathForRepository({
-      repositoryId: githubRepository.githubRepositoryId.toString(),
-      repositoryFullName: repository.fullName,
-    });
+    const rotatingWorkflowExpected = resolvedRuntime.config.providers.some(
+      (provider) => provider.authMode === "codex_subscription_oauth_rotating",
+    );
+    const selectedCodexWorkflowPath =
+      setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
+      (!setupProvisioning?.workflowPath && rotatingWorkflowExpected)
+        ? codexWorkflowPathForRepository({
+            repositoryId: githubRepository.githubRepositoryId.toString(),
+            repositoryFullName: repository.fullName,
+          })
+        : defaultCodexRotatingWorkflowPath;
     let workflowOctokit: {
       request(
         route: string,
@@ -3592,7 +3600,8 @@ async function resolveCodexRotatingProvisioningActionRef(input: {
     selectedWorkflowPath === isolatedQualityWorkflowPath &&
     expectedSource?.workflowPath === defaultCodexRotatingWorkflowPath;
   if (
-    (expectedSource?.workflowPath !== selectedWorkflowPath &&
+    !expectedSource ||
+    (expectedSource.workflowPath !== selectedWorkflowPath &&
       !isolatedWorkflowMigration) ||
     !expectedSource.workflowPath ||
     !expectedSource.workflowSourceCommitSha ||
