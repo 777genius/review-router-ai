@@ -1057,7 +1057,8 @@ describe("repository webhook guard boundaries", () => {
       }));
       f.repositoryConnection.updateMany.mockImplementation(
         async ({ where, data }) => {
-          if (where.selected === true && !committed.selected) return { count: 0 };
+          if (where.selected === true && !committed.selected)
+            return { count: 0 };
           committed = { ...committed, ...data };
           return { count: 1 };
         },
@@ -1096,17 +1097,20 @@ describe("repository webhook guard boundaries", () => {
         action === "deleted" ? 2 : 1,
       );
       expect(f.prisma.$transaction).toHaveBeenCalledTimes(2);
-      expect(f.prisma.$transaction).toHaveBeenCalledWith(
-        expect.any(Function),
-        { isolationLevel: "Serializable" },
-      );
+      expect(f.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+        isolationLevel: "Serializable",
+      });
       if (action === "deleted") {
-        expect(f.repositoryConnection.updateMany.mock.calls[0]?.[0].data).toEqual({
+        expect(
+          f.repositoryConnection.updateMany.mock.calls[0]?.[0].data,
+        ).toEqual({
           selected: false,
           lastSyncedAt: expect.any(Date),
         });
       } else {
-        expect(f.repositoryConnection.updateMany.mock.calls[0]?.[0].data).toEqual({
+        expect(
+          f.repositoryConnection.updateMany.mock.calls[0]?.[0].data,
+        ).toEqual({
           owner: "new",
           name: "repo",
           fullName: "new/repo",

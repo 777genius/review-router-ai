@@ -416,9 +416,13 @@ describe.skipIf(
       const rebound = {
         ...target,
         workspaceId:
-          binding === "installation" ? target.workspaceId : destination.workspaceId,
+          binding === "installation"
+            ? target.workspaceId
+            : destination.workspaceId,
         installationId:
-          binding === "workspace" ? target.installationId : destination.installationId,
+          binding === "workspace"
+            ? target.installationId
+            : destination.installationId,
       };
       const entered = latch();
       const release = latch();
@@ -459,7 +463,9 @@ describe.skipIf(
             ? "metadata-repository"
             : "transferred-repository";
         expect(await writing).toEqual(result(expectedKind, target));
-        expect(await read(observer, rebound)).toEqual(after(expectedKind, target));
+        expect(await read(observer, rebound)).toEqual(
+          after(expectedKind, target),
+        );
         expect(
           await observer.repositoryConnection.findUniqueOrThrow({
             where: { id: destination.repositoryId },
