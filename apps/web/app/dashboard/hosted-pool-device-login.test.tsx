@@ -93,22 +93,27 @@ describe("HostedPoolDeviceLogin", () => {
     await Promise.resolve();
   });
 
-  it("collapses the start form after a healthy account exists until waiting", async () => {
+  it("collapses the start form after accounts exist until waiting", async () => {
     const startAction = pendingStart();
     const pollAction = pendingPoll();
     render(
       <HostedPoolDeviceLogin
         workspaceId="workspace-1"
         mutationsEnabled
-        hasHealthyAccount
+        enrolled
         startAction={startAction}
         pollAction={pollAction}
       />,
     );
 
-    expect(screen.getByText("Add another ChatGPT account")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Add another ChatGPT account" }),
+    ).toBeTruthy();
     expect(screen.getByText(/never go to the browser/i)).toBeTruthy();
-    fireEvent.click(screen.getByText("Add another ChatGPT account"));
+    expect(screen.queryByPlaceholderText("Primary")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add another ChatGPT account" }),
+    );
     fireEvent.change(screen.getByPlaceholderText("Primary"), {
       target: { value: "Primary" },
     });
@@ -116,7 +121,10 @@ describe("HostedPoolDeviceLogin", () => {
       screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
     );
     expect(await screen.findByText("ABCD-EFGH")).toBeTruthy();
-    expect(screen.queryByText("Add another ChatGPT account")).toBeNull();
+    expect(screen.getByText(/Waiting for ChatGPT/)).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Add another ChatGPT account" }),
+    ).toBeNull();
     expectNoCredentialLeak();
   });
 });
