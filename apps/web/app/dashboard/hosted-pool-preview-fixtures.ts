@@ -15,7 +15,9 @@ export function hostedPoolPreviewScenarios(): readonly HostedPoolPreviewScenario
 export function resolveHostedPoolPreviewScenario(
   value: string,
 ): HostedPoolPreviewScenario {
-  return hostedPoolPreviewScenarios().includes(value as HostedPoolPreviewScenario)
+  return hostedPoolPreviewScenarios().includes(
+    value as HostedPoolPreviewScenario,
+  )
     ? (value as HostedPoolPreviewScenario)
     : "empty";
 }
