@@ -306,6 +306,48 @@ describe("Prisma hosted pool admin adapters", () => {
     );
   });
 
+  it("loads default pool summary without selecting binding-only fields", async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: "pool-1",
+      workspaceId: "workspace-1",
+      isDefault: true,
+      revision: 2n,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+      accounts: [{ state: "healthy" }, { state: "paused" }],
+    });
+    const query = new PrismaHostedPoolQuery({
+      hostedCodexPool: { findFirst },
+    } as unknown as PrismaClient);
+
+    await expect(query.getDefaultPoolSummary(workspace)).resolves.toEqual({
+      id: pool,
+      workspaceId: workspace,
+      isDefault: true,
+      revision: 2,
+      status: "active",
+      accountCount: 2,
+      healthyAccountCount: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          workspaceId: workspace,
+          isDefault: true,
+          tombstonedAt: null,
+        },
+      }),
+    );
+    const select = findFirst.mock.calls[0]?.[0]?.select;
+    expect(select).not.toHaveProperty("stateVersion");
+    expect(select).not.toHaveProperty("activatedAt");
+    expect(select).not.toHaveProperty("authzEpoch");
+    expect(select.accounts.select).toEqual({ state: true });
+  });
+
   it("builds account read models without selecting fingerprint or credential id", async () => {
     const findMany = vi.fn().mockResolvedValue([
       {

@@ -557,8 +557,6 @@ export class PrismaHostedPoolQuery implements HostedPoolQueryPort {
         workspaceId: true,
         isDefault: true,
         revision: true,
-        stateVersion: true,
-        activatedAt: true,
         status: true,
         createdAt: true,
         updatedAt: true,
