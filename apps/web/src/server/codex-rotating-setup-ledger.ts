@@ -78,7 +78,6 @@ async function putGitHubSetupSecretExactlyOnce(
     let settled = false;
     let timedOut = false;
     let requestBytesMayHaveLeft = false;
-    let timeout: NodeJS.Timeout | undefined;
     const settle = (
       outcome:
         | { readonly status: "resolved"; readonly statusCode: number }
@@ -86,7 +85,7 @@ async function putGitHubSetupSecretExactlyOnce(
     ) => {
       if (settled) return;
       settled = true;
-      if (timeout) clearTimeout(timeout);
+      clearTimeout(timeout);
       if (outcome.status === "resolved") {
         resolve({ status: outcome.statusCode });
       } else {
@@ -161,7 +160,7 @@ async function putGitHubSetupSecretExactlyOnce(
           : new CodexRotatingSetupPreDispatchError(cause),
       }),
     );
-    timeout = setTimeout(() => {
+    const timeout = setTimeout(() => {
       timedOut = true;
       request.destroy(new Error("setup_secret_put_timeout"));
     }, input.timeoutMs);

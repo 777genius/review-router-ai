@@ -134,7 +134,3 @@ function listenOnLoopback(
     });
   });
 }
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
