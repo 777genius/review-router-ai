@@ -77,6 +77,30 @@ describe("dashboard rotating namespace activation contract", () => {
     expect(helper).not.toContain("resolveReviewRouterActionRef");
   });
 
+  it("allows only the exact standard-to-isolated one-time workflow transition", () => {
+    const source = readFileSync(
+      new URL("./actions.ts", import.meta.url),
+      "utf8",
+    );
+    const helper = sliceBetween(
+      source,
+      "async function resolveCodexRotatingProvisioningActionRef",
+      "function readGitHubRepositoryIdentity",
+    );
+
+    expect(helper).toContain(
+      "selectedWorkflowPath === isolatedQualityWorkflowPath",
+    );
+    expect(helper).toContain(
+      "expectedSource?.workflowPath === defaultCodexRotatingWorkflowPath",
+    );
+    expect(helper).toContain("!isolatedWorkflowMigration");
+    expect(helper).toContain(
+      "expectedSource.workflowPath === defaultCodexRotatingWorkflowPath",
+    );
+    expect(helper).toContain("codexWorkflowPathForRepository");
+  });
+
   it("exhaustively routes production writer callsites through the application policy", () => {
     const dashboard = readFileSync(
       new URL("./actions.ts", import.meta.url),

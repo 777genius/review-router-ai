@@ -4,6 +4,7 @@ import {
   CodexRotatingReviewActionV2Mode,
   CodexRotatingT0WorkflowSchemaVersion,
   createVersionedProviderSecretNamespace,
+  isolatedQualityWorkflowPath,
   workflowDocumentSemanticSha256,
 } from "@reviewrouter/features-codex-oauth-rotating";
 import {
@@ -175,6 +176,36 @@ describe("renderReviewRouterWorkflow", () => {
     expect(interactionWorkflowContent).not.toContain("auth-json:");
     expect(interactionWorkflowContent).not.toContain("secrets.CODEX_AUTH_JSON");
     expect(interactionWorkflowContent).not.toContain("OPENAI_API_KEY");
+  });
+
+  it("migrates the isolated workflow by deleting both competing managed paths idempotently", () => {
+    const namespace = createVersionedProviderSecretNamespace({
+      scope: {
+        repositoryId: "1228051727",
+        providerInstanceId: "codex-rotating:1228051727",
+      },
+      namespaceId: "sns_e9c2956ba412321fa27816e6cee3bd06",
+      epoch: 2n,
+      name: "REVIEWROUTER_CODEX_AUTH_JSON_R1228051727_P01cfca27f31e5f85_E2_e9c2956ba412321fa27816e6cee3bd06",
+    });
+    const options = {
+      actionRef:
+        "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+      apiUrl: "https://api.reviewrouter.site",
+      runtimeConfigMode: "oidc" as const,
+      codexRotatingProviderInstanceId: "codex-rotating:1228051727",
+      codexRotatingWorkflowPath: isolatedQualityWorkflowPath,
+      codexRotatingActiveSecretNamespace: namespace,
+    };
+
+    const files = renderReviewRouterWorkflowFiles(options);
+    expect(files.map(({ path, operation }) => ({ path, operation }))).toEqual([
+      { path: isolatedQualityWorkflowPath, operation: undefined },
+      { path: defaultWorkflowPath, operation: "delete" },
+      { path: defaultCodexRotatingWorkflowPath, operation: "delete" },
+      { path: defaultInteractionWorkflowPath, operation: undefined },
+    ]);
+    expect(renderReviewRouterWorkflowFiles(options)).toEqual(files);
   });
 
   it("keeps the managed interaction workflow installed in T0 mode", () => {

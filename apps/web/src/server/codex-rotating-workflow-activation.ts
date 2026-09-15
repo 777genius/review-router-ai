@@ -9,8 +9,11 @@ import {
   assertTrustedCanonicalVersionedWorkflow,
   CodexRotatingT0WorkflowSchemaVersion,
   createVersionedSecretWorkflowSourceAttestation,
+  codexWorkflowPathForRepository,
+  isCodexWorkflowRepositoryIdentityAdmitted,
   defaultCodexRotatingWorkflowPath,
   readCanonicalCodexRotatingT0WorkflowSourceMetadata,
+  readCanonicalIsolatedQualityWorkflowSourceMetadata,
   workflowDocumentSemanticSha256,
   WorkflowSourceTrust,
   type VersionedProviderSecretNamespace,
@@ -52,6 +55,14 @@ export async function activateConfirmedCodexNamespaceAfterWorkflowMerge(input: {
   readonly expectedApiUrl: string;
   readonly writerSchemaPolicy: CodexRotatingWriterSchemaPolicy;
 }): Promise<CodexRotatingWorkflowActivationResult> {
+  if (
+    !isCodexWorkflowRepositoryIdentityAdmitted({
+      repositoryId: input.githubRepositoryId,
+      repositoryFullName: input.expectedRepositoryFullName,
+    })
+  ) {
+    throw new Error("codex_rotating_workflow_repository_identity_mismatch");
+  }
   const rotatingProvider =
     await input.prisma.codexOAuthProviderInstance.findUnique({
       where: {
@@ -95,6 +106,10 @@ export async function activateConfirmedCodexNamespaceAfterWorkflowMerge(input: {
       existingWorkflowSchemaVersion:
         activeNamespace?.workflowSchemaVersion ?? null,
     });
+  const workflowPath = codexWorkflowPathForRepository({
+    repositoryId: input.githubRepositoryId,
+    repositoryFullName: input.expectedRepositoryFullName,
+  });
   if (inspection.source === "active") {
     if (!rotatingProvider.latestGenerationHash) {
       throw new Error("codex_rotating_workflow_generation_missing");
@@ -105,7 +120,8 @@ export async function activateConfirmedCodexNamespaceAfterWorkflowMerge(input: {
         attemptId: inspection.attemptId,
         expectedGenerationHash: rotatingProvider.latestGenerationHash,
         repositoryId: input.githubRepositoryId,
-        workflowPath: defaultCodexRotatingWorkflowPath,
+        repositoryFullName: input.expectedRepositoryFullName,
+        workflowPath,
         namespace,
       },
       defaultWorkflowSourcePort(
@@ -113,6 +129,7 @@ export async function activateConfirmedCodexNamespaceAfterWorkflowMerge(input: {
         providerInstanceId,
         namespace,
         expectedWorkflowSchemaVersion,
+        workflowPath,
       ),
     );
     return {
@@ -142,7 +159,6 @@ export async function activateConfirmedCodexNamespaceAfterWorkflowMerge(input: {
     refParameters,
   );
   const workflowSourceCommitSha = readGitHubCommitSha(refResponse.data);
-  const workflowPath = defaultCodexRotatingWorkflowPath;
   const contentResponse = await input.octokit.request(
     "GET /repos/{owner}/{repo}/contents/{path}",
     {
@@ -153,7 +169,10 @@ export async function activateConfirmedCodexNamespaceAfterWorkflowMerge(input: {
     },
   );
   const { source, blobSha } = readGitHubWorkflowBlob(contentResponse.data);
-  const metadata = readCanonicalCodexRotatingT0WorkflowSourceMetadata(source);
+  const metadata =
+    workflowPath === defaultCodexRotatingWorkflowPath
+      ? readCanonicalCodexRotatingT0WorkflowSourceMetadata(source)
+      : readCanonicalIsolatedQualityWorkflowSourceMetadata(source);
   assertTrustedCanonicalVersionedWorkflow({
     metadata,
     observedRepositoryId: observedRepository.id,
@@ -209,6 +228,7 @@ export async function activateConfirmedCodexNamespaceAfterWorkflowMerge(input: {
     namespaceEpoch: namespace.epoch.toString(),
     secretName: namespace.name,
     repositoryId: attestation.repositoryId,
+    repositoryFullName: finalRepository.fullName,
     workflowPath: attestation.workflowPath,
     workflowSourceCommitSha: attestation.workflowSourceCommitSha,
     workflowSourceBlobSha: attestation.workflowSourceBlobSha,
@@ -238,6 +258,7 @@ function defaultWorkflowSourcePort(
   providerInstanceId: string,
   namespace: VersionedProviderSecretNamespace,
   expectedWorkflowSchemaVersion: CodexRotatingT0WorkflowSchemaVersion,
+  workflowPath: string,
 ): CodexRotatingDefaultWorkflowSourcePort {
   let observedRepository:
     | Readonly<{ id: string; fullName: string; defaultBranch: string }>
@@ -272,7 +293,6 @@ function defaultWorkflowSourcePort(
       if (!observedRepository) {
         throw new Error("codex_rotating_workflow_repository_identity_missing");
       }
-      const workflowPath = defaultCodexRotatingWorkflowPath;
       const response = await input.octokit.request(
         "GET /repos/{owner}/{repo}/contents/{path}",
         {
@@ -284,7 +304,9 @@ function defaultWorkflowSourcePort(
       );
       const { source, blobSha } = readGitHubWorkflowBlob(response.data);
       const metadata =
-        readCanonicalCodexRotatingT0WorkflowSourceMetadata(source);
+        workflowPath === defaultCodexRotatingWorkflowPath
+          ? readCanonicalCodexRotatingT0WorkflowSourceMetadata(source)
+          : readCanonicalIsolatedQualityWorkflowSourceMetadata(source);
       assertTrustedCanonicalVersionedWorkflow({
         metadata,
         observedRepositoryId: observedRepository.id,

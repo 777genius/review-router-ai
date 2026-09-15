@@ -13,14 +13,19 @@ import {
   getWorkflowSetupContentMarkerGroups,
   isVersionedSecretNamespaceCodexWorkflowSchemaVersion,
   readCanonicalCodexRotatingT0WorkflowSourceMetadata,
+  readCanonicalIsolatedQualityWorkflowSourceMetadata,
   renderCanonicalCodexRotatingInteractionWorkflowV3,
   scanCodexRotatingAdvisoryWorkflow,
+  codexWorkflowPathForRepository,
+  isolatedQualityWorkflowPath,
   type ReviewRouterDiscussionMode,
 } from "@reviewrouter/features-workflow-provisioning";
 import { resolveWorkflowPublicApiUrl } from "./workflow-public-api-url";
 
 export type WorkflowSetupReadinessInput = {
   readonly githubInstallationId: string;
+  readonly githubRepositoryId: string;
+  readonly repositoryFullName: string;
   readonly owner: string;
   readonly name: string;
   readonly defaultBranch: string;
@@ -48,35 +53,46 @@ export async function isWorkflowSetupAlreadyCurrent(
     return false;
   }
 
+  const codexWorkflowPath = input.codexRotatingProviderInstanceId
+    ? codexWorkflowPathForRepository({
+        repositoryId: input.githubRepositoryId,
+        repositoryFullName: input.repositoryFullName,
+      })
+    : null;
+  const isolatedCodexWorkflow =
+    codexWorkflowPath === isolatedQualityWorkflowPath;
   const workflowCheck = await dependencies.workflowProbe.probeWorkflow({
     githubInstallationId: input.githubInstallationId,
     owner: input.owner,
     name: input.name,
     defaultBranch: input.defaultBranch,
-    workflowPath: input.codexRotatingProviderInstanceId
-      ? defaultCodexRotatingWorkflowPath
-      : defaultWorkflowPath,
+    workflowPath: codexWorkflowPath ?? defaultWorkflowPath,
     expectedActionRef: input.actionRef,
     ...(input.codexRotatingProviderInstanceId
       ? {
-          expectedContentMarkerGroups:
-            getCodexRotatingWorkflowSetupContentMarkerGroups({
-              providerInstanceId: input.codexRotatingProviderInstanceId,
-              claudeCodeOAuthTokenSecret:
-                input.codexRotatingClaudeCodeOAuthTokenSecret === true,
-              openRouterApiKeySecret:
-                input.codexRotatingOpenRouterApiKeySecret === true,
-              forkAgenticSandboxEnabled:
-                input.forkAgenticSandboxEnabled === true,
-              reviewActionV2Mode: input.codexRotatingReviewActionV2Mode,
-              workflowSchemaVersion: input.codexRotatingWorkflowSchemaVersion,
-              ...(input.codexRotatingWorkflowSecretNamespace
-                ? {
-                    activeSecretNamespace:
-                      input.codexRotatingWorkflowSecretNamespace,
-                  }
-                : {}),
-            }),
+          ...(!isolatedCodexWorkflow
+            ? {
+                expectedContentMarkerGroups:
+                  getCodexRotatingWorkflowSetupContentMarkerGroups({
+                    providerInstanceId: input.codexRotatingProviderInstanceId,
+                    claudeCodeOAuthTokenSecret:
+                      input.codexRotatingClaudeCodeOAuthTokenSecret === true,
+                    openRouterApiKeySecret:
+                      input.codexRotatingOpenRouterApiKeySecret === true,
+                    forkAgenticSandboxEnabled:
+                      input.forkAgenticSandboxEnabled === true,
+                    reviewActionV2Mode: input.codexRotatingReviewActionV2Mode,
+                    workflowSchemaVersion:
+                      input.codexRotatingWorkflowSchemaVersion,
+                    ...(input.codexRotatingWorkflowSecretNamespace
+                      ? {
+                          activeSecretNamespace:
+                            input.codexRotatingWorkflowSecretNamespace,
+                        }
+                      : {}),
+                  }),
+              }
+            : {}),
           ...(isVersionedSecretNamespaceCodexWorkflowSchemaVersion(
             input.codexRotatingWorkflowSchemaVersion,
           ) && input.codexRotatingWorkflowSecretNamespace
@@ -84,6 +100,7 @@ export async function isWorkflowSetupAlreadyCurrent(
                 expectedContentValidator: (workflow: string) =>
                   isCanonicalVersionedCodexWorkflowReady({
                     workflow,
+                    isolated: isolatedCodexWorkflow,
                     expectedActionRef: input.actionRef,
                     expectedProviderInstanceId:
                       input.codexRotatingProviderInstanceId!,
@@ -142,10 +159,28 @@ export async function isWorkflowSetupAlreadyCurrent(
         ),
     });
 
-  return (
+  const interactionWorkflowCurrent =
     interactionWorkflowCheck.status === "present" &&
-    interactionWorkflowCheck.expectedContentMarkersFound === true
+    interactionWorkflowCheck.expectedContentMarkersFound === true;
+  if (!interactionWorkflowCurrent || !isolatedCodexWorkflow) {
+    return interactionWorkflowCurrent;
+  }
+
+  const competingWorkflowChecks = await Promise.all(
+    [defaultWorkflowPath, defaultCodexRotatingWorkflowPath].map(
+      (workflowPath) =>
+        dependencies.workflowProbe.probeWorkflow({
+          githubInstallationId: input.githubInstallationId,
+          owner: input.owner,
+          name: input.name,
+          defaultBranch: input.defaultBranch,
+          workflowPath,
+          expectedActionRef: input.actionRef,
+        }),
+    ),
   );
+
+  return competingWorkflowChecks.every((check) => check.status === "missing");
 }
 
 function isCanonicalVersionedCodexWorkflowReady(input: {
@@ -154,14 +189,18 @@ function isCanonicalVersionedCodexWorkflowReady(input: {
   readonly expectedProviderInstanceId: string;
   readonly expectedWorkflowSchemaVersion: CodexRotatingT0WorkflowSchemaVersion;
   readonly expectedSecretNamespace: VersionedProviderSecretNamespace;
+  readonly isolated: boolean;
 }): boolean {
   try {
-    if (!scanCodexRotatingAdvisoryWorkflow(input.workflow).valid) {
+    if (
+      !input.isolated &&
+      !scanCodexRotatingAdvisoryWorkflow(input.workflow).valid
+    ) {
       return false;
     }
-    const metadata = readCanonicalCodexRotatingT0WorkflowSourceMetadata(
-      input.workflow,
-    );
+    const metadata = input.isolated
+      ? readCanonicalIsolatedQualityWorkflowSourceMetadata(input.workflow)
+      : readCanonicalCodexRotatingT0WorkflowSourceMetadata(input.workflow);
     if (
       metadata.actionRef !== input.expectedActionRef ||
       metadata.providerInstanceId !== input.expectedProviderInstanceId ||

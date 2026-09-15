@@ -1,5 +1,8 @@
-import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
-import type { PrismaClient } from "@prisma/client";
+import {
+  acquireCurrentScopeGuards,
+  rotateRemovedScmRepositoryIdentityEpoch,
+} from "@reviewrouter/platform-db";
+import type { PrismaClient, Prisma } from "@prisma/client";
 import type { GitHubInstallationRepositoryPort } from "../../application/ports/github-installation-repository-port";
 import type { GitHubInstallationSnapshot } from "../../domain/github-installation";
 
@@ -24,7 +27,7 @@ export class PrismaGitHubInstallationRepository implements GitHubInstallationRep
       ]);
       const existingInstallation = await tx.gitHubInstallation.findUnique({
         where: { githubInstallationId: BigInt(snapshot.githubInstallationId) },
-        select: { workspaceId: true },
+        select: { id: true, workspaceId: true, status: true },
       });
       const workspaceId = existingInstallation
         ? existingInstallation.workspaceId
@@ -67,6 +70,17 @@ export class PrismaGitHubInstallationRepository implements GitHubInstallationRep
         },
       });
 
+      if (
+        existingInstallation &&
+        existingInstallation.status !== snapshot.status &&
+        (snapshot.status === "active" || snapshot.status === "suspended")
+      ) {
+        await rotateInstallationRepositoryIdentities(
+          tx,
+          existingInstallation.id,
+        );
+      }
+
       await tx.repositoryPermissionCache.deleteMany({
         where: {
           githubInstallationId: BigInt(snapshot.githubInstallationId),
@@ -91,6 +105,8 @@ export class PrismaGitHubInstallationRepository implements GitHubInstallationRep
         return;
       }
 
+      await rotateInstallationRepositoryIdentities(tx, installation.id);
+
       await tx.gitHubInstallation.update({
         where: { id: installation.id },
         data: { status: "removed" },
@@ -102,6 +118,34 @@ export class PrismaGitHubInstallationRepository implements GitHubInstallationRep
       await tx.repositoryPermissionCache.deleteMany({
         where: { githubInstallationId: BigInt(githubInstallationId) },
       });
+    });
+  }
+}
+
+async function rotateInstallationRepositoryIdentities(
+  tx: Prisma.TransactionClient,
+  installationId: string,
+): Promise<void> {
+  const fencedAtRows = await tx.$queryRaw<readonly { fencedAt: Date }[]>`
+    SELECT transaction_timestamp() AS "fencedAt"
+  `;
+  const fencedAt = fencedAtRows[0]?.fencedAt;
+  if (!fencedAt) throw new Error("repository_identity_epoch_time_missing");
+  const repositories = await tx.repositoryConnection.findMany({
+    where: { installationId },
+    select: {
+      id: true,
+      workspaceId: true,
+      scmRepositoryIdentityId: true,
+    },
+  });
+  for (const repository of repositories) {
+    if (!repository.scmRepositoryIdentityId) continue;
+    await rotateRemovedScmRepositoryIdentityEpoch(tx, {
+      scmRepositoryIdentityId: repository.scmRepositoryIdentityId,
+      repositoryConnectionId: repository.id,
+      currentWorkspaceId: repository.workspaceId,
+      removedAt: fencedAt,
     });
   }
 }

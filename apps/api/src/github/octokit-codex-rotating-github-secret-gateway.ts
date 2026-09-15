@@ -6,8 +6,15 @@ import {
   canonicalCodexRotatingProviderId,
   areWorkflowDocumentsSemanticallyEqual,
   readCanonicalCodexRotatingT0WorkflowSourceMetadata,
+  readCanonicalIsolatedQualityWorkflowSourceMetadata,
+  codexWorkflowPathForRepository,
+  isolatedQualityWorkflowPath,
+  isolatedQualityWorkflowRepository,
+  isolatedQualityWorkflowRepositoryId,
+  isCodexWorkflowRepositoryIdentityAdmitted,
   scanCodexRotatingAdvisoryWorkflow,
   createVersionedSecretWorkflowSourceAttestation,
+  serializeVersionedProviderSecretNamespaceMetadata,
   workflowDocumentSemanticSha256,
   WorkflowSourceTrust,
   renderCanonicalCodexRotatingT0WorkflowV4,
@@ -292,9 +299,21 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly providerInstanceId: string;
     readonly namespace: VersionedProviderSecretNamespace;
   }) {
+    if (
+      !isCodexWorkflowRepositoryIdentityAdmitted({
+        repositoryId: input.repository.githubRepositoryId,
+        repositoryFullName: input.repository.fullName,
+      })
+    ) {
+      throw new Error("codex_rotating_workflow_repository_identity_mismatch");
+    }
     assertCanonicalCodexRotatingProviderId({
       providerInstanceId: input.providerInstanceId,
       githubRepositoryId: input.repository.githubRepositoryId,
+    });
+    const workflowPath = codexWorkflowPathForRepository({
+      repositoryId: input.repository.githubRepositoryId,
+      repositoryFullName: input.repository.fullName,
     });
     const repo = repoNameFromFullName(input.repository.fullName);
     const token = await this.mintRepositoryToken({
@@ -327,15 +346,17 @@ export class OctokitCodexRotatingGitHubSecretGateway
       {
         owner: input.repository.owner,
         repo,
-        path: managedCodexWorkflowPath,
+        path: workflowPath,
         ref: defaultBranchHead,
         headers,
       },
     )) as ContentsResponse;
     const currentSource = decodeWorkflowContent(currentResponse.data);
     const currentBlobSha = decodeWorkflowBlobSha(currentResponse.data);
-    const metadata =
-      readCanonicalCodexRotatingT0WorkflowSourceMetadata(currentSource);
+    const isolatedQualitySource = workflowPath === isolatedQualityWorkflowPath;
+    const metadata = isolatedQualitySource
+      ? readCanonicalIsolatedQualityWorkflowSourceMetadata(currentSource)
+      : readCanonicalCodexRotatingT0WorkflowSourceMetadata(currentSource);
     if (
       metadata.providerInstanceId !== input.providerInstanceId ||
       metadata.apiUrl !== this.expectedApiUrl ||
@@ -343,7 +364,9 @@ export class OctokitCodexRotatingGitHubSecretGateway
     ) {
       throw new Error("codex_rotating_workflow_publish_source_untrusted");
     }
-    const refreshScheduleCron = extractCanonicalRefreshCron(currentSource);
+    const refreshScheduleCron = isolatedQualitySource
+      ? null
+      : extractCanonicalRefreshCron(currentSource);
     const renderVersionedWorkflow =
       metadata.workflowSchemaVersion ===
       CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV4
@@ -356,21 +379,31 @@ export class OctokitCodexRotatingGitHubSecretGateway
       throw new Error("codex_rotating_workflow_publish_source_untrusted");
     }
     const workflowSchemaVersion = metadata.workflowSchemaVersion;
-    const nextSource = renderVersionedWorkflow({
-      actionRef: metadata.actionRef,
-      apiUrl: metadata.apiUrl,
-      providerInstanceId: input.providerInstanceId,
-      refreshScheduleCron,
-      claudeCodeOAuthTokenSecret: currentSource.includes(
-        "CLAUDE_CODE_OAUTH_TOKEN:",
-      ),
-      openRouterApiKeySecret: currentSource.includes("OPENROUTER_API_KEY:"),
-      activeSecretNamespace: input.namespace,
-    });
+    const nextSource = isolatedQualitySource
+      ? currentSource
+          .replace(
+            serializeVersionedProviderSecretNamespaceMetadata(
+              metadata.secretNamespace!,
+            ),
+            serializeVersionedProviderSecretNamespaceMetadata(input.namespace),
+          )
+          .replaceAll(metadata.secretNamespace!.name, input.namespace.name)
+      : renderVersionedWorkflow({
+          actionRef: metadata.actionRef,
+          apiUrl: metadata.apiUrl,
+          providerInstanceId: input.providerInstanceId,
+          refreshScheduleCron,
+          claudeCodeOAuthTokenSecret: currentSource.includes(
+            "CLAUDE_CODE_OAUTH_TOKEN:",
+          ),
+          openRouterApiKeySecret: currentSource.includes("OPENROUTER_API_KEY:"),
+          activeSecretNamespace: input.namespace,
+        });
     // Reparse before publication so malformed rendering can never reach the
     // trusted branch even if a future template change regresses.
-    const nextMetadata =
-      readCanonicalCodexRotatingT0WorkflowSourceMetadata(nextSource);
+    const nextMetadata = isolatedQualitySource
+      ? readCanonicalIsolatedQualityWorkflowSourceMetadata(nextSource)
+      : readCanonicalCodexRotatingT0WorkflowSourceMetadata(nextSource);
     if (
       nextMetadata.workflowSchemaVersion !== workflowSchemaVersion ||
       !nextMetadata.secretNamespace
@@ -388,7 +421,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
             (await githubRequest("PUT /repos/{owner}/{repo}/contents/{path}", {
               owner: input.repository.owner,
               repo,
-              path: managedCodexWorkflowPath,
+              path: workflowPath,
               branch: defaultBranch,
               sha: currentBlobSha,
               message: "chore: rotate ReviewRouter Codex auth namespace",
@@ -400,8 +433,8 @@ export class OctokitCodexRotatingGitHubSecretGateway
     const verified = await this.verifyWorkflowSource({
       repository: input.repository,
       workflowSha: commitSha,
-      workflowRef: `${input.repository.fullName}/${managedCodexWorkflowPath}@refs/heads/${defaultBranch}`,
-      workflowPath: managedCodexWorkflowPath,
+      workflowRef: `${input.repository.fullName}/${workflowPath}@refs/heads/${defaultBranch}`,
+      workflowPath,
       expectedActionOwnerRepo: metadata.actionRef.split("@")[0]!,
       expectedProviderInstanceId: input.providerInstanceId,
       expectedWorkflowSchemaVersion: workflowSchemaVersion,
@@ -426,6 +459,14 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly expectedProviderInstanceId: string;
     readonly expectedWorkflowSchemaVersion: number;
   }) {
+    if (
+      !isCodexWorkflowRepositoryIdentityAdmitted({
+        repositoryId: input.repository.githubRepositoryId,
+        repositoryFullName: input.repository.fullName,
+      })
+    ) {
+      throw new Error("codex_rotating_workflow_repository_identity_mismatch");
+    }
     assertCanonicalCodexRotatingProviderId({
       providerInstanceId: input.expectedProviderInstanceId,
       githubRepositoryId: input.repository.githubRepositoryId,
@@ -448,8 +489,14 @@ export class OctokitCodexRotatingGitHubSecretGateway
       },
     )) as ContentsResponse;
     const workflow = decodeWorkflowContent(response.data);
-    const metadata =
-      readCanonicalCodexRotatingT0WorkflowSourceMetadata(workflow);
+    const isolatedQualitySource =
+      input.repository.githubRepositoryId ===
+        isolatedQualityWorkflowRepositoryId &&
+      input.repository.fullName === isolatedQualityWorkflowRepository &&
+      input.workflowPath === isolatedQualityWorkflowPath;
+    const metadata = isolatedQualitySource
+      ? readCanonicalIsolatedQualityWorkflowSourceMetadata(workflow)
+      : readCanonicalCodexRotatingT0WorkflowSourceMetadata(workflow);
     if (
       metadata.actionRef.split("@")[0]!.toLowerCase() !==
       input.expectedActionOwnerRepo.toLowerCase()
@@ -554,9 +601,14 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly workflowPath: string;
     readonly workflowSha: string;
   }): Promise<{ readonly compatible: boolean }> {
+    const isolatedQualitySource =
+      input.githubRepositoryId === isolatedQualityWorkflowRepositoryId &&
+      input.repositoryFullName === isolatedQualityWorkflowRepository &&
+      input.workflowPath === isolatedQualityWorkflowPath;
     if (
       input.workflowPath !== managedCodexWorkflowPath &&
-      input.workflowPath !== managedInteractionWorkflowPath
+      input.workflowPath !== managedInteractionWorkflowPath &&
+      !isolatedQualitySource
     ) {
       return { compatible: false };
     }
@@ -570,14 +622,16 @@ export class OctokitCodexRotatingGitHubSecretGateway
       });
       const repo = repoNameFromFullName(input.repositoryFullName);
       [codexWorkflow, claimedWorkflow] = await Promise.all([
-        this.readWorkflowAtRef({
-          token: token.token,
-          owner: input.owner,
-          repo,
-          path: managedCodexWorkflowPath,
-          ref: input.workflowSha,
-          missingAllowed: true,
-        }),
+        isolatedQualitySource
+          ? Promise.resolve(null)
+          : this.readWorkflowAtRef({
+              token: token.token,
+              owner: input.owner,
+              repo,
+              path: managedCodexWorkflowPath,
+              ref: input.workflowSha,
+              missingAllowed: true,
+            }),
         input.workflowPath === managedCodexWorkflowPath
           ? Promise.resolve(null)
           : this.readWorkflowAtRef({
@@ -591,6 +645,22 @@ export class OctokitCodexRotatingGitHubSecretGateway
       ]);
     } catch {
       throw new Error("managed_workflow_source_temporarily_unavailable");
+    }
+    if (isolatedQualitySource) {
+      if (!claimedWorkflow) return { compatible: false };
+      try {
+        const quality =
+          readCanonicalIsolatedQualityWorkflowSourceMetadata(claimedWorkflow);
+        return {
+          compatible:
+            quality.apiUrl === this.expectedApiUrl &&
+            quality.providerInstanceId ===
+              `codex-rotating:${input.githubRepositoryId}` &&
+            this.trustedActionRefs.has(quality.actionRef.toLowerCase()),
+        };
+      } catch {
+        return { compatible: false };
+      }
     }
     if (!codexWorkflow) {
       return { compatible: false };
@@ -655,14 +725,27 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly workflowSchemaVersion: number | null;
     readonly defaultBranchHeadSha: string;
   }> {
+    const repositoryIdentityAdmitted =
+      isCodexWorkflowRepositoryIdentityAdmitted({
+        repositoryId: input.githubRepositoryId,
+        repositoryFullName: input.repositoryFullName,
+      });
     const token = await this.mintRepositoryToken({
       githubInstallationId: input.githubInstallationId,
       githubRepositoryId: input.githubRepositoryId,
       permissions: { contents: "read", pull_requests: "read" },
     });
     const repo = repoNameFromFullName(input.repositoryFullName);
-    const reviewPath = managedCodexWorkflowPath;
-    const legacyPaths = [".github/workflows/reviewrouter.yml"];
+    const reviewPath = codexWorkflowPathForRepository({
+      repositoryId: input.githubRepositoryId,
+      repositoryFullName: input.repositoryFullName,
+    });
+    const competingReviewPaths = [
+      ".github/workflows/reviewrouter.yml",
+      ...(reviewPath === isolatedQualityWorkflowPath
+        ? [managedCodexWorkflowPath]
+        : []),
+    ];
     const coverage = await this.resolveReviewInventoryCoverage({
       token: token.token,
       owner: input.owner,
@@ -683,7 +766,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
             missingAllowed: !reference.isDefault,
           }),
           Promise.all(
-            legacyPaths.map(async (path) => ({
+            competingReviewPaths.map(async (path) => ({
               path,
               present:
                 (await this.readWorkflowAtRef({
@@ -697,23 +780,29 @@ export class OctokitCodexRotatingGitHubSecretGateway
             })),
           ),
         ]);
+        let metadata = null;
+        if (reviewWorkflow) {
+          try {
+            metadata =
+              reviewPath === isolatedQualityWorkflowPath
+                ? readCanonicalIsolatedQualityWorkflowSourceMetadata(
+                    reviewWorkflow,
+                  )
+                : readCanonicalCodexRotatingT0WorkflowSourceMetadata(
+                    reviewWorkflow,
+                  );
+          } catch {
+            // Managed T0 inventory only trusts the exact admitted source.
+          }
+        }
         const scan = reviewWorkflow
-          ? scanCodexRotatingAdvisoryWorkflow(reviewWorkflow)
+          ? reviewPath === isolatedQualityWorkflowPath && metadata
+            ? { valid: true, errors: [] }
+            : scanCodexRotatingAdvisoryWorkflow(reviewWorkflow)
           : {
               valid: !reference.isDefault,
               errors: reference.isDefault ? ["review_workflow_missing"] : [],
             };
-        let metadata = null;
-        if (scan.valid && reviewWorkflow) {
-          try {
-            metadata =
-              readCanonicalCodexRotatingT0WorkflowSourceMetadata(
-                reviewWorkflow,
-              );
-          } catch {
-            // Managed T0 inventory only trusts the exact generator output.
-          }
-        }
         const scanErrors =
           reviewWorkflow && !metadata
             ? [...scan.errors, "t0_workflow_source_not_canonical"]
@@ -821,9 +910,11 @@ export class OctokitCodexRotatingGitHubSecretGateway
     };
     return {
       compatible:
+        repositoryIdentityAdmitted &&
         referencesWithCompatibility.every(
           (reference) => reference.compatible,
-        ) && interaction.compatible,
+        ) &&
+        interaction.compatible,
       inventoryHash: createHash("sha256")
         .update(JSON.stringify(inventory), "utf8")
         .digest("hex"),

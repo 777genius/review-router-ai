@@ -275,6 +275,17 @@ class IntegratedLedger implements CodexRotatingVersionedWritebackLedgerPort {
     this.state = FixtureState.ProviderConfirmed;
   }
 
+  async withVersionedWritebackDispatchAuthorization<T>(
+    input: Parameters<
+      CodexRotatingVersionedWritebackLedgerPort["withVersionedWritebackDispatchAuthorization"]
+    >[0],
+    dispatch: () => Promise<T>,
+  ): Promise<T> {
+    void input;
+    if (this.state !== FixtureState.Authorized) throw new Error("bad_state");
+    return dispatch();
+  }
+
   async retirePreDispatchVersionedWriteback(
     input: Parameters<
       CodexRotatingVersionedWritebackLedgerPort["retirePreDispatchVersionedWriteback"]

@@ -122,6 +122,7 @@ function v5ValidationFixture(finalRows: readonly Record<string, unknown>[]) {
         attemptId: "attempt:writer-proof",
         expectedGenerationHash: "9".repeat(64),
         repositoryId: activeClaim.githubRepositoryId,
+        repositoryFullName: manifest.repositoryFullName,
         workflowPath: expectedCurrent.workflowPath,
         namespace,
       },
@@ -349,6 +350,7 @@ describe("Prisma rotating setup writer proof", () => {
                   secretName:
                     "REVIEWROUTER_CODEX_AUTH_JSON_R123456_P0000000000000000_E1_00000000000000000000000000000000",
                   repositoryId: claim.githubRepositoryId,
+                  repositoryFullName: manifest.repositoryFullName,
                   workflowPath: ".github/workflows/reviewrouter-codex.yml",
                   workflowSourceCommitSha: "a".repeat(40),
                   workflowSourceBlobSha: "b".repeat(40),
@@ -571,6 +573,7 @@ describe("Prisma rotating setup writer proof", () => {
             manifestJson: manifest,
           },
         ])
+        .mockResolvedValueOnce([{ version: 1 }])
         .mockResolvedValueOnce([attempt])
         .mockResolvedValueOnce([retirementRow(attempt)]),
     };
@@ -596,7 +599,7 @@ describe("Prisma rotating setup writer proof", () => {
     ).rejects.toThrow("codex_rotating_setup_dispatch_expired");
     expect(transactionCommitted).toBe(true);
     expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(8);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(9);
     const sql = tx.$queryRaw.mock.calls.map(([strings]) =>
       Array.from(strings as readonly string[]).join("?"),
     );
@@ -610,6 +613,51 @@ describe("Prisma rotating setup writer proof", () => {
         ),
       ]),
     );
+  });
+
+  it("does not allocate setup dispatch authority after identity revocation", async () => {
+    const tx = {
+      $executeRawUnsafe: vi.fn().mockResolvedValue(0),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          { writer: true, databaseIncarnation: claim.databaseIncarnation },
+        ])
+        .mockResolvedValueOnce([{ id: claim.providerInstanceRowId }])
+        .mockResolvedValueOnce([claim])
+        .mockResolvedValueOnce([
+          {
+            mutationOwner: "setup",
+            mutationOwnerId: claim.manifestId,
+            mutationEpoch: claim.recoveryEpoch,
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: claim.manifestId,
+            status: "fetched",
+            mutationEpoch: claim.recoveryEpoch,
+            recoveryExpiresAt: claim.recoveryExpiresAt,
+            manifestJson: manifest,
+          },
+        ])
+        .mockResolvedValueOnce([]),
+    };
+    const ledger = new PrismaCodexRotatingSetupPayloadClaim(
+      { $transaction: vi.fn((callback) => callback(tx)) } as never,
+      recoveryWitness,
+      { now: async () => new Date("2026-08-10T00:00:00.000Z") },
+    );
+
+    await expect(
+      ledger.authorizeDispatch({
+        claimId: claim.id,
+        idempotencyKey: "dispatch:revoked-identity",
+      }),
+    ).rejects.toThrow("codex_rotating_setup_confirmation_stale_epoch");
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
   });
 
   it("re-locks and commits an expired outcome tombstone before rejecting confirmation", async () => {
@@ -651,6 +699,7 @@ describe("Prisma rotating setup writer proof", () => {
             manifestJson: manifest,
           },
         ])
+        .mockResolvedValueOnce([{ version: 1 }])
         .mockResolvedValueOnce([attempt])
         .mockResolvedValueOnce([retirementRow(attempt)]),
     };
@@ -736,6 +785,7 @@ describe("Prisma rotating setup writer proof", () => {
             manifestJson: manifest,
           },
         ])
+        .mockResolvedValueOnce([{ version: 1 }])
         .mockResolvedValueOnce([attempt])
         .mockResolvedValueOnce([
           { challenge: '["reviewrouter_web",1,2,"setup",204]' },
@@ -962,6 +1012,8 @@ describe("Prisma rotating setup writer proof", () => {
             manifestJson: manifest,
           },
         ])
+        .mockResolvedValueOnce([{ version: 7 }])
+        .mockResolvedValueOnce([{ version: 7 }])
         .mockResolvedValueOnce([]),
     };
     const prisma = {
@@ -981,6 +1033,7 @@ describe("Prisma rotating setup writer proof", () => {
         namespaceEpoch: attempt.namespaceEpoch.toString(),
         secretName: attempt.secretName,
         repositoryId: claim.githubRepositoryId,
+        repositoryFullName: manifest.repositoryFullName,
         workflowPath: ".github/workflows/reviewrouter-codex.yml",
         workflowSourceCommitSha: "a".repeat(40),
         workflowSourceBlobSha: "b".repeat(40),
@@ -1000,6 +1053,12 @@ describe("Prisma rotating setup writer proof", () => {
     expect(activationSql[0]).toContain("'retired_confirmed'");
     expect(activationSql[1]).toContain('UPDATE "CodexOAuthSetupPayloadClaim"');
     expect(activationSql[1]).toContain("'retired_active'");
+    const identityLockSql = Array.from(
+      tx.$queryRaw.mock.calls[8]![0] as readonly string[],
+    ).join("?");
+    expect(identityLockSql).toContain('SELECT identity."version"');
+    expect(identityLockSql).toContain("FOR UPDATE OF identity");
+    expect(activationSql[3]).toContain('identity."version" = ?');
   });
 
   it("re-attests a runtime-promoted namespace through its active setup claim", async () => {
@@ -1062,6 +1121,7 @@ describe("Prisma rotating setup writer proof", () => {
         attemptId: attempt.attemptId,
         expectedGenerationHash: runtimeGenerationHash,
         repositoryId: activeClaim.githubRepositoryId,
+        repositoryFullName: manifest.repositoryFullName,
         workflowPath: ".github/workflows/reviewrouter-codex.yml",
         namespace,
       },
@@ -1157,6 +1217,7 @@ describe("Prisma rotating setup writer proof", () => {
             attemptId: "attempt:writer-proof",
             expectedGenerationHash: "9".repeat(64),
             repositoryId: activeClaim.githubRepositoryId,
+            repositoryFullName: manifest.repositoryFullName,
             workflowPath: ".github/workflows/reviewrouter-codex.yml",
             namespace,
           },
@@ -1184,6 +1245,8 @@ describe("Prisma rotating setup writer proof", () => {
     expect(sql).toContain('provider."activeLeaseId" IS NULL');
     expect(sql).toContain("namespace.\"status\" = 'active'");
     expect(sql).toContain('NOT namespace."permanentlyRetired"');
+    expect(sql).toContain("manifest.\"manifestJson\"->>'repositoryFullName'");
+    expect(sql).toContain("manifest.\"manifestJson\"->>'repositoryId'");
     expect(sql).toContain("FOR UPDATE OF provider, namespace, claim, attempt");
   });
 

@@ -1230,6 +1230,48 @@ describe("Codex rotating OAuth action control plane", () => {
     expect(replayNonces.tryConsumeNonce).not.toHaveBeenCalled();
   });
 
+  it("allows an ordinary scheduled refresh without review intent", async () => {
+    const replayNonces = {
+      tryConsumeNonce: vi.fn().mockResolvedValue(true),
+    };
+    const hostedReviewPreleaseGate = {
+      evaluate: vi
+        .fn()
+        .mockResolvedValue({ status: "not_applicable" as const }),
+    };
+    const dependencies = buildRotatingDependencies({
+      oidcVerifier: {
+        verify: vi.fn().mockResolvedValue({
+          ...claims,
+          event_name: "schedule" as const,
+          ref: "refs/heads/main",
+        }),
+      },
+      replayNonces,
+      hostedReviewPreleaseGate,
+    });
+
+    await expect(
+      preleaseCodexRotatingOAuth(
+        {
+          oidcToken: "jwt",
+          audience: "reviewrouter",
+          providerInstanceId: "codex-rotating:123456",
+          workflowSchemaVersion: 4,
+        },
+        dependencies,
+      ),
+    ).resolves.toMatchObject({ protocolVersion: 1 });
+    expect(hostedReviewPreleaseGate.evaluate).toHaveBeenCalledWith({
+      repository,
+      sourceRunId: "9001",
+      sourceRunAttempt: "1",
+      intentRequired: false,
+      now,
+    });
+    expect(replayNonces.tryConsumeNonce).toHaveBeenCalledOnce();
+  });
+
   it("allows a canonical client-triggered T0 run when durable intent admission is disabled", async () => {
     const replayNonces = {
       tryConsumeNonce: vi.fn().mockResolvedValue(true),
@@ -1323,6 +1365,114 @@ describe("Codex rotating OAuth action control plane", () => {
       now,
     });
     expect(replayNonces.tryConsumeNonce).not.toHaveBeenCalled();
+  });
+
+  it("applies managed intent and reusable-job attestation to the isolated workflow", async () => {
+    const isolatedRepository = {
+      ...repository,
+      githubRepositoryId: "1228051727",
+      fullName: "777genius/review-router-saas-e2e",
+    };
+    const isolatedPath =
+      ".github/workflows/reviewrouter-quality-stand.yml" as const;
+    const isolatedBinding = {
+      providerInstanceId: "codex-rotating:1228051727",
+      repositoryFullName: isolatedRepository.fullName,
+      githubRepositoryId: isolatedRepository.githubRepositoryId,
+      actionRef: `777genius/review-router@${workflowSha}`,
+      workflowPath: isolatedPath,
+      workflowSchemaVersion: 5,
+    } as const;
+    const isolatedAttestation = createVersionedSecretWorkflowSourceAttestation({
+      ...memoryWorkflowAttestation(5),
+      repositoryId: isolatedRepository.githubRepositoryId,
+      workflowPath: isolatedPath,
+      secretNamespace: allocateVersionedProviderSecretNamespace({
+        scope: {
+          repositoryId: isolatedRepository.githubRepositoryId,
+          providerInstanceId: isolatedBinding.providerInstanceId,
+        },
+        epoch: 1n,
+        randomBytes: () => new Uint8Array(16),
+      }),
+    });
+    const validClaims = {
+      ...claims,
+      repository: isolatedRepository.fullName,
+      repository_id: isolatedRepository.githubRepositoryId,
+      event_name: "workflow_dispatch" as const,
+      ref: "refs/heads/main",
+      workflow_ref: `${isolatedRepository.fullName}/${isolatedPath}@refs/heads/main`,
+      job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${workflowSha}`,
+      job_workflow_sha: workflowSha,
+    };
+    const verify = vi.fn().mockResolvedValue(validClaims);
+    const hostedReviewPreleaseGate = {
+      evaluate: vi
+        .fn()
+        .mockResolvedValue({ status: "not_applicable" as const }),
+    };
+    const dependencies = buildRotatingDependencies({
+      oidcVerifier: { verify },
+      repositories: {
+        findSelectedRepositoryByGithubId: vi
+          .fn()
+          .mockResolvedValue(isolatedRepository),
+        findRuntimeReviewConfiguration: vi.fn(),
+        recordHealthReport: vi.fn(),
+      },
+      codexRotatingOAuth: new InMemoryCodexRotatingOAuthRepository([
+        isolatedBinding,
+      ]),
+      codexRotatingWorkflowSourceVerifier: {
+        verifyWorkflowSource: vi.fn().mockResolvedValue({
+          binding: isolatedBinding,
+          attestation: isolatedAttestation,
+        }),
+      },
+      hostedReviewPreleaseGate,
+    });
+    const request = {
+      oidcToken: "jwt",
+      audience: "reviewrouter",
+      providerInstanceId: isolatedBinding.providerInstanceId,
+      workflowSchemaVersion: 5,
+    } as const;
+
+    await expect(
+      preleaseCodexRotatingOAuth(request, dependencies),
+    ).rejects.toThrow("review_request_intent_required");
+    expect(hostedReviewPreleaseGate.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({ intentRequired: true }),
+    );
+
+    verify.mockResolvedValueOnce({
+      ...validClaims,
+      job_workflow_ref: `attacker/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${workflowSha}`,
+    });
+    await expect(
+      preleaseCodexRotatingOAuth(request, dependencies),
+    ).rejects.toThrow("codex_rotating_review_job_attestation_invalid");
+    expect(hostedReviewPreleaseGate.evaluate).toHaveBeenCalledTimes(1);
+
+    verify.mockResolvedValueOnce({
+      ...validClaims,
+      event_name: "pull_request_target" as const,
+      ref: "refs/heads/main",
+    });
+    await expect(
+      preleaseCodexRotatingOAuth(request, dependencies),
+    ).rejects.toThrow("codex_rotating_workflow_trigger_not_allowed");
+    expect(hostedReviewPreleaseGate.evaluate).toHaveBeenCalledTimes(1);
+
+    verify.mockResolvedValueOnce({
+      ...validClaims,
+      event_name: "schedule" as const,
+    });
+    await expect(
+      preleaseCodexRotatingOAuth(request, dependencies),
+    ).rejects.toThrow("codex_rotating_workflow_trigger_not_allowed");
+    expect(hostedReviewPreleaseGate.evaluate).toHaveBeenCalledTimes(1);
   });
 
   it("allows direct managed workflow dispatch to refresh OAuth without an intent", async () => {

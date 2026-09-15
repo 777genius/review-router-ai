@@ -470,6 +470,60 @@ describe("provisionReviewRouterWorkflow", () => {
     });
   });
 
+  it("renders and persists the isolated workflow at its selected path", async () => {
+    const gateway = new CapturingSetupGateway();
+    const provisioning = new CapturingProvisioningRepository();
+    const workflowPath = ".github/workflows/reviewrouter-quality-stand.yml";
+    const namespace = allocateVersionedProviderSecretNamespace({
+      scope: {
+        repositoryId: "1228051727",
+        providerInstanceId: "codex-rotating:1228051727",
+      },
+      epoch: 3n,
+      randomBytes: () => Buffer.alloc(16, 9),
+    });
+
+    await provisionReviewRouterWorkflow(
+      {
+        workspaceId: "workspace-1",
+        installationId: "installation-1",
+        repositoryId: "repo-1",
+        githubRepositoryId: "1228051727",
+        repositoryFullName: "777genius/review-router-saas-e2e",
+        owner: "777genius",
+        name: "review-router-saas-e2e",
+        defaultBranch: "main",
+        actionRef:
+          "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+        apiUrl: "https://app.reviewrouter.dev",
+        runtimeConfigMode: "oidc",
+        codexRotatingProviderInstanceId: "codex-rotating:1228051727",
+        codexRotatingWorkflowSecretNamespace: namespace,
+        codexRotatingWorkflowSchemaVersion:
+          CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+        workflowPath,
+      },
+      { setupGateway: gateway, provisioning },
+    );
+
+    expect(gateway.input?.workflowFiles[0]).toMatchObject({
+      path: workflowPath,
+    });
+    expect(gateway.input?.workflowFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: ".github/workflows/reviewrouter.yml",
+          operation: "delete",
+        }),
+        expect.objectContaining({
+          path: ".github/workflows/reviewrouter-codex.yml",
+          operation: "delete",
+        }),
+      ]),
+    );
+    expect(provisioning.opened).toMatchObject({ workflowPath });
+  });
+
   it("rejects rotating Codex workflow provisioning on a mutable main action ref", async () => {
     const gateway = new CapturingSetupGateway();
     const provisioning = new CapturingProvisioningRepository();

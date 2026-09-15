@@ -132,6 +132,9 @@ export async function exchangeGitHubOidcToken(
     repositoryId: repository.repositoryId,
     githubRepositoryId: repository.githubRepositoryId,
     repository: repository.fullName,
+    ...(repository.identityBindingEpoch
+      ? { identityBindingEpoch: repository.identityBindingEpoch }
+      : {}),
     githubActorLogin: claims.actor,
     githubRunId: claims.run_id,
     githubRunAttempt: claims.run_attempt,

@@ -18,6 +18,8 @@ import {
   isTrustedDefaultBranchTriggeredCodexWorkflowSchemaVersion,
   type VersionedProviderSecretNamespace,
   renderCodexRotatingAdvisoryWorkflow,
+  renderCanonicalIsolatedQualityWorkflow,
+  isolatedQualityWorkflowPath,
   scanCodexRotatingAdvisoryWorkflow,
 } from "@reviewrouter/features-codex-oauth-rotating";
 
@@ -36,6 +38,7 @@ export type ReviewRouterWorkflowOptions = {
   readonly conflictReviewFallbackEnabled?: boolean;
   readonly forkAgenticSandboxEnabled?: boolean;
   readonly codexRotatingProviderInstanceId?: string;
+  readonly codexRotatingWorkflowPath?: string;
   readonly codexRotatingReviewActionV2Mode?: CodexRotatingReviewActionV2Mode;
   readonly codexRotatingWorkflowSchemaVersion?: CodexRotatingT0WorkflowSchemaVersion;
   readonly codexRotatingActiveSecretNamespace?: VersionedProviderSecretNamespace;
@@ -1286,35 +1289,48 @@ export function renderReviewRouterWorkflowFiles(
     if (options.conflictReviewFallbackEnabled === true) {
       throw new Error("codex_rotating_conflict_review_unsupported");
     }
-    return [
+    const files: ReviewRouterWorkflowFile[] = [
       {
-        path: defaultCodexRotatingWorkflowPath,
-        content: renderCodexRotatingAdvisoryWorkflow({
-          actionRef: options.actionRef,
-          apiUrl: options.apiUrl,
-          providerInstanceId: options.codexRotatingProviderInstanceId,
-          ...(options.codexRotatingActiveSecretNamespace
-            ? {
-                activeSecretNamespace:
+        path:
+          options.codexRotatingWorkflowPath ?? defaultCodexRotatingWorkflowPath,
+        content:
+          options.codexRotatingWorkflowPath === isolatedQualityWorkflowPath
+            ? renderCanonicalIsolatedQualityWorkflow({
+                actionRef: options.actionRef,
+                apiUrl: options.apiUrl,
+                providerInstanceId: options.codexRotatingProviderInstanceId,
+                activeSecretNamespace: requireIsolatedQualityNamespace(
                   options.codexRotatingActiveSecretNamespace,
-              }
-            : {}),
-          ...(options.codexRotatingWorkflowSchemaVersion !== undefined
-            ? {
-                workflowSchemaVersion:
-                  options.codexRotatingWorkflowSchemaVersion,
-              }
-            : {}),
-          ...(options.codexRotatingReviewActionV2Mode
-            ? {
-                reviewActionV2Mode: options.codexRotatingReviewActionV2Mode,
-              }
-            : {}),
-          ...codexRotatingProviderSecretInputsForRuntimeEnv(
-            options.staticRuntimeEnv,
-          ),
-          forkAgenticSandboxEnabled: options.forkAgenticSandboxEnabled === true,
-        }),
+                ),
+              })
+            : renderCodexRotatingAdvisoryWorkflow({
+                actionRef: options.actionRef,
+                apiUrl: options.apiUrl,
+                providerInstanceId: options.codexRotatingProviderInstanceId,
+                ...(options.codexRotatingActiveSecretNamespace
+                  ? {
+                      activeSecretNamespace:
+                        options.codexRotatingActiveSecretNamespace,
+                    }
+                  : {}),
+                ...(options.codexRotatingWorkflowSchemaVersion !== undefined
+                  ? {
+                      workflowSchemaVersion:
+                        options.codexRotatingWorkflowSchemaVersion,
+                    }
+                  : {}),
+                ...(options.codexRotatingReviewActionV2Mode
+                  ? {
+                      reviewActionV2Mode:
+                        options.codexRotatingReviewActionV2Mode,
+                    }
+                  : {}),
+                ...codexRotatingProviderSecretInputsForRuntimeEnv(
+                  options.staticRuntimeEnv,
+                ),
+                forkAgenticSandboxEnabled:
+                  options.forkAgenticSandboxEnabled === true,
+              }),
       },
       {
         path: defaultWorkflowPath,
@@ -1330,6 +1346,22 @@ export function renderReviewRouterWorkflowFiles(
         }),
       },
     ];
+    if (options.codexRotatingWorkflowPath === isolatedQualityWorkflowPath) {
+      files.splice(2, 0, {
+        path: defaultCodexRotatingWorkflowPath,
+        operation: "delete",
+        markerGroups: getCodexRotatingWorkflowSetupContentMarkerGroups({
+          providerInstanceId: options.codexRotatingProviderInstanceId,
+          ...(options.codexRotatingActiveSecretNamespace
+            ? {
+                activeSecretNamespace:
+                  options.codexRotatingActiveSecretNamespace,
+              }
+            : {}),
+        }),
+      });
+    }
+    return files;
   }
 
   if (options.forkAgenticSandboxEnabled === true) {
@@ -1366,6 +1398,14 @@ export function renderReviewRouterWorkflowFiles(
       content: renderReviewRouterInteractionWorkflow(options),
     },
   ];
+}
+
+function requireIsolatedQualityNamespace(
+  namespace: VersionedProviderSecretNamespace | undefined,
+): VersionedProviderSecretNamespace {
+  if (!namespace)
+    throw new Error("isolated_quality_workflow_namespace_required");
+  return namespace;
 }
 
 function codexRotatingProviderSecretInputsForRuntimeEnv(

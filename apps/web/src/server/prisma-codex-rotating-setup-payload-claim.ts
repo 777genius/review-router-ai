@@ -3,7 +3,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   assertCodexRotatingAccountIdentityTransition,
   assertCodexRotatingWorkflowAlreadyActiveTransition,
-  assertCodexRotatingWorkflowV4ToV5Transition,
+  assertCodexRotatingWorkflowReplacementTransition,
   assertProviderSecretTransitionAuthorized,
   fingerprintDatabaseRecoveryWitness,
   codexRotatingSetupIdentityBearingClaimStatuses,
@@ -671,7 +671,39 @@ export class PrismaCodexRotatingSetupPayloadClaim
           input.attemptId,
         );
         const now = await this.clock.now(tx);
-        await assertClaimOwnsSetupFence(tx, claim, now);
+        const activationManifest = await assertClaimOwnsSetupFence(
+          tx,
+          claim,
+          now,
+        );
+        if (
+          activationManifest.repositoryFullName !== input.repositoryFullName ||
+          activationManifest.repositoryId !== input.repositoryId
+        ) {
+          throw new Error("codex_rotating_setup_activation_mismatch");
+        }
+        const identityBinding = await tx.$queryRaw<
+          readonly { version: number }[]
+        >`
+          SELECT identity."version"
+          FROM "CodexOAuthProviderInstance" activation_provider
+          JOIN "RepositoryConnection" repository
+            ON repository."id" = activation_provider."repositoryId"
+          JOIN "ScmRepositoryIdentity" identity
+            ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
+          WHERE activation_provider."id" = ${claim.providerInstanceRowId}
+            AND repository."fullName" = ${input.repositoryFullName}
+            AND repository."externalRepositoryId" = ${input.repositoryId}
+            AND identity."externalRepositoryId" = ${input.repositoryId}
+            AND identity."currentWorkspaceId" = repository."workspaceId"
+            AND identity."currentRepositoryConnectionId" = repository."id"
+            AND identity."unboundAt" IS NULL
+            AND identity."boundAt" <= ${new Date(activationManifest.generatedAt)}
+          FOR UPDATE OF identity
+        `;
+        if (identityBinding.length !== 1) {
+          throw new Error("codex_rotating_setup_activation_mismatch");
+        }
         if (
           claim.status !== "confirmed_candidate" ||
           attempt.status !== "confirmed" ||
@@ -716,6 +748,29 @@ export class PrismaCodexRotatingSetupPayloadClaim
           "workflowSchemaVersion" = ${input.workflowSchemaVersion},
           "attestedRepositoryId" = ${input.repositoryId},
           "activatedAt" = ${now} WHERE "id" = ${input.namespaceId} AND "status" = 'confirmed_candidate'
+          AND EXISTS (
+            SELECT 1
+            FROM "CodexOAuthSetupPayloadClaim" activation_claim
+            JOIN "CodexOAuthSetupManifest" activation_manifest
+              ON activation_manifest."id" = activation_claim."manifestId"
+            JOIN "CodexOAuthProviderInstance" activation_provider
+              ON activation_provider."id" = activation_claim."providerInstanceRowId"
+            JOIN "RepositoryConnection" repository
+              ON repository."id" = activation_provider."repositoryId"
+            JOIN "ScmRepositoryIdentity" identity
+              ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
+            WHERE activation_claim."id" = ${claim.id}
+              AND activation_manifest."manifestJson"->>'repositoryFullName' = ${input.repositoryFullName}
+              AND activation_manifest."manifestJson"->>'repositoryId' = ${input.repositoryId}
+              AND repository."fullName" = ${input.repositoryFullName}
+              AND repository."externalRepositoryId" = ${input.repositoryId}
+              AND identity."externalRepositoryId" = ${input.repositoryId}
+              AND identity."currentWorkspaceId" = repository."workspaceId"
+              AND identity."currentRepositoryConnectionId" = repository."id"
+              AND identity."version" = ${identityBinding[0]!.version}
+              AND identity."unboundAt" IS NULL
+              AND identity."boundAt" <= (activation_manifest."manifestJson"->>'generatedAt')::timestamptz
+          )
       `;
         if (activatedNamespace !== 1) {
           throw new Error("codex_rotating_setup_activation_mismatch");
@@ -877,6 +932,12 @@ export class PrismaCodexRotatingSetupPayloadClaim
               ON claim."id" = ${target.claimId}
             JOIN "CodexOAuthSetupDispatchAttempt" attempt
               ON attempt."id" = ${target.attemptId}
+            JOIN "CodexOAuthSetupManifest" manifest
+              ON manifest."id" = claim."manifestId"
+            JOIN "RepositoryConnection" repository
+              ON repository."id" = provider."repositoryId"
+            JOIN "ScmRepositoryIdentity" identity
+              ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
             WHERE provider."id" = ${initial.providerInstanceRowId}
               AND provider."state" = 'active'
               AND provider."latestGenerationHash" = ${target.expectedGenerationHash}
@@ -898,6 +959,15 @@ export class PrismaCodexRotatingSetupPayloadClaim
               AND claim."generationHash" = ${target.expectedGenerationHash}
               AND claim."status" = 'active'
               AND claim."confirmedAttemptId" = attempt."id"
+              AND manifest."status" = 'consumed'
+              AND manifest."manifestJson"->>'repositoryFullName' = ${target.repositoryFullName}
+              AND manifest."manifestJson"->>'repositoryId' = ${target.repositoryId}
+              AND repository."fullName" = ${target.repositoryFullName}
+              AND repository."externalRepositoryId" = ${target.repositoryId}
+              AND identity."externalRepositoryId" = ${target.repositoryId}
+              AND identity."currentWorkspaceId" = repository."workspaceId"
+              AND identity."currentRepositoryConnectionId" = repository."id"
+              AND identity."boundAt" <= (manifest."manifestJson"->>'generatedAt')::timestamptz
               AND attempt."claimId" = claim."id"
               AND attempt."namespaceId" = namespace."id"
               AND attempt."status" = 'confirmed'
@@ -944,10 +1014,11 @@ export class PrismaCodexRotatingSetupPayloadClaim
     transition: CodexRotatingWorkflowReattestationTransition,
   ) {
     const { target, expectedCurrent, replacement } = transition;
-    assertCodexRotatingWorkflowV4ToV5Transition({
+    assertCodexRotatingWorkflowReplacementTransition({
       current: expectedCurrent,
       replacement,
       compatibilityWindowSeconds: transition.compatibilityWindowSeconds,
+      repositoryFullName: target.repositoryFullName,
     });
     try {
       return await this.prisma.$transaction(
@@ -993,6 +1064,74 @@ export class PrismaCodexRotatingSetupPayloadClaim
             claim.githubRepositoryId !== target.repositoryId
           ) {
             throw new Error("codex_rotating_setup_activation_mismatch");
+          }
+          if (expectedCurrent.workflowSchemaVersion === 5) {
+            if (
+              claim.generationHash !== target.expectedGenerationHash ||
+              claim.confirmedAttemptId !== attempt.attemptId ||
+              attempt.namespaceEpoch !== target.namespace.epoch ||
+              attempt.secretName !== target.namespace.name
+            ) {
+              throw new Error("codex_rotating_setup_activation_mismatch");
+            }
+            const updated = await tx.$executeRaw`
+              UPDATE "CodexOAuthSecretNamespace" namespace
+              SET "workflowPath" = ${replacement.workflowPath},
+                "workflowSourceCommitSha" = ${replacement.workflowSourceCommitSha},
+                "workflowSourceBlobSha" = ${replacement.workflowSourceBlobSha},
+                "workflowSourceSha256" = ${replacement.workflowSourceSha256},
+                "workflowSemanticSha256" = ${replacement.workflowSemanticSha256}
+              WHERE namespace."id" = ${target.namespace.namespaceId}
+                AND namespace."providerInstanceRowId" = ${initial.providerInstanceRowId}
+                AND namespace."githubRepositoryId" = ${target.repositoryId}
+                AND namespace."workflowPath" = ${expectedCurrent.workflowPath}
+                AND namespace."workflowSchemaVersion" = 5
+                AND namespace."workflowSourceTrust" = ${expectedCurrent.sourceTrust}
+                AND namespace."workflowSourceCommitSha" = ${expectedCurrent.workflowSourceCommitSha}
+                AND namespace."workflowSourceBlobSha" = ${expectedCurrent.workflowSourceBlobSha}
+                AND namespace."workflowSourceSha256" = ${expectedCurrent.workflowSourceSha256}
+                AND namespace."workflowSemanticSha256" = ${expectedCurrent.workflowSemanticSha256}
+                AND namespace."status" = 'active'
+                AND NOT namespace."permanentlyRetired"
+                AND EXISTS (
+                  SELECT 1 FROM "CodexOAuthProviderInstance" provider
+                  WHERE provider."id" = ${initial.providerInstanceRowId}
+                    AND provider."state" = 'active'
+                    AND provider."latestGenerationHash" = ${target.expectedGenerationHash}
+                    AND provider."activeSecretNamespaceId" = namespace."id"
+                    AND provider."mutationOwner" IS NULL
+                    AND provider."mutationOwnerId" IS NULL
+                    AND provider."activeLeaseId" IS NULL
+                )
+                AND EXISTS (
+                  SELECT 1
+                  FROM "CodexOAuthSetupPayloadClaim" active_claim
+                  JOIN "CodexOAuthSetupManifest" manifest
+                    ON manifest."id" = active_claim."manifestId"
+                  JOIN "CodexOAuthProviderInstance" active_provider
+                    ON active_provider."id" = active_claim."providerInstanceRowId"
+                  JOIN "RepositoryConnection" repository
+                    ON repository."id" = active_provider."repositoryId"
+                  JOIN "ScmRepositoryIdentity" identity
+                    ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
+                  WHERE active_claim."id" = ${target.claimId}
+                    AND active_claim."providerInstanceRowId" = ${initial.providerInstanceRowId}
+                    AND active_claim."status" = 'active'
+                    AND manifest."status" = 'consumed'
+                    AND manifest."manifestJson"->>'repositoryFullName' = ${target.repositoryFullName}
+                    AND manifest."manifestJson"->>'repositoryId' = ${target.repositoryId}
+                    AND repository."fullName" = ${target.repositoryFullName}
+                    AND repository."externalRepositoryId" = ${target.repositoryId}
+                    AND identity."externalRepositoryId" = ${target.repositoryId}
+                    AND identity."currentWorkspaceId" = repository."workspaceId"
+                    AND identity."currentRepositoryConnectionId" = repository."id"
+                    AND identity."boundAt" <= (manifest."manifestJson"->>'generatedAt')::timestamptz
+                )
+            `;
+            if (updated !== 1) {
+              throw new Error("codex_rotating_workflow_reattestation_stale");
+            }
+            return { status: "active" as const };
           }
           await tx.$executeRaw`
             SELECT "codex_oauth_reattest_active_namespace_v4_to_v5"(
@@ -1426,7 +1565,7 @@ async function assertClaimOwnsSetupFence(
   tx: Prisma.TransactionClient,
   claim: ClaimRow,
   now: Date,
-): Promise<void> {
+): Promise<ReturnType<typeof codexRotatingSetupManifestSchema.parse>> {
   const providers = await tx.$queryRaw<
     Array<{
       mutationOwner: string | null;
@@ -1468,6 +1607,31 @@ async function assertClaimOwnsSetupFence(
   const canonicalManifest = codexRotatingSetupManifestSchema.parse(
     manifest.manifestJson,
   );
+  const identityEpoch = await tx.$queryRaw<readonly { version: number }[]>`
+    SELECT identity."version"
+    FROM "CodexOAuthProviderInstance" provider
+    JOIN "RepositoryConnection" repository
+      ON repository."id" = provider."repositoryId"
+    JOIN "GitHubInstallation" installation
+      ON installation."id" = repository."installationId"
+    JOIN "ScmRepositoryIdentity" identity
+      ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
+    WHERE provider."id" = ${claim.providerInstanceRowId}
+      AND repository."id" = provider."repositoryId"
+      AND repository."workspaceId" = provider."workspaceId"
+      AND repository."selected" = TRUE
+      AND installation."status" = 'active'
+      AND repository."externalRepositoryId" = ${claim.githubRepositoryId}
+      AND identity."externalRepositoryId" = ${claim.githubRepositoryId}
+      AND identity."currentWorkspaceId" = repository."workspaceId"
+      AND identity."currentRepositoryConnectionId" = repository."id"
+      AND identity."unboundAt" IS NULL
+      AND identity."boundAt" <= ${new Date(canonicalManifest.generatedAt)}
+    FOR UPDATE OF identity
+  `;
+  if (identityEpoch.length !== 1) {
+    throw new Error("codex_rotating_setup_confirmation_stale_epoch");
+  }
   const actualManifestDigest = createHash("sha256")
     .update(JSON.stringify(canonicalManifest), "utf8")
     .digest("hex");
@@ -1495,6 +1659,7 @@ async function assertClaimOwnsSetupFence(
   } catch {
     throw new Error("codex_rotating_setup_confirmation_stale_epoch");
   }
+  return canonicalManifest;
 }
 
 async function requireProvenWriter(

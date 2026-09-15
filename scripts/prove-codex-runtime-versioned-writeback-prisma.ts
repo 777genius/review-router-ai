@@ -847,6 +847,7 @@ try {
   const manifest = codexRotatingSetupManifestSchema.parse(
     JSON.parse(Buffer.from(fetched.manifestBase64, "base64").toString("utf8")),
   );
+  const repositoryFullName = manifest.repositoryFullName;
   if (!manifest.repositoryId) {
     throw new Error("runtime proof recovery manifest repository missing");
   }
@@ -901,6 +902,7 @@ try {
     claimId: prepared.claimId,
     attemptId: replacement.attemptId,
     repositoryId: "900007",
+    repositoryFullName,
     namespaceId: replacement.namespaceId,
     namespaceEpoch: replacement.namespaceEpoch,
     secretName: replacement.secretName,
@@ -928,6 +930,7 @@ try {
       attemptId: replacement.attemptId,
       expectedGenerationHash: "h".repeat(43),
       repositoryId: "900007",
+      repositoryFullName,
       workflowPath: ".github/workflows/reviewrouter-codex.yml",
       namespace: recoveredNamespace,
     },
@@ -936,7 +939,7 @@ try {
       defaultWorkflowSource: {
         readDefaultSourceIdentity: async () => ({
           repositoryId: "900007",
-          repositoryFullName: "reviewrouter/runtime-proof",
+          repositoryFullName,
           defaultBranch: "main",
           headCommitSha: reattestedWorkflow.workflowSourceCommitSha,
         }),

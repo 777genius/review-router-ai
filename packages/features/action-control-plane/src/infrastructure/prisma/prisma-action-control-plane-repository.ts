@@ -77,6 +77,19 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
       return null;
     }
     const repositoryGithubId = repository.githubRepositoryId.toString();
+    const identityBindings = await this.prisma.$queryRaw<
+      Array<{ version: number; boundAt: Date }>
+    >`
+            SELECT identity."version", identity."boundAt"
+            FROM "ScmRepositoryIdentity" identity
+            WHERE identity."currentRepositoryConnectionId" = ${repository.id}
+              AND identity."currentWorkspaceId" = ${repository.workspaceId}
+              AND identity."externalRepositoryId" = ${repositoryGithubId}
+              AND identity."boundAt" IS NOT NULL
+              AND identity."unboundAt" IS NULL
+          `;
+    const identityBinding =
+      identityBindings.length === 1 ? identityBindings[0] : undefined;
 
     return {
       workspaceId: repository.workspaceId,
@@ -86,6 +99,11 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
         repository.installation.githubInstallationId.toString(),
       fullName: repository.fullName,
       owner: repository.owner,
+      ...(identityBinding
+        ? {
+            identityBindingEpoch: `${identityBinding.version}:${identityBinding.boundAt.toISOString()}`,
+          }
+        : {}),
       selected: repository.selected,
       trustedWorkflowRefs: [
         ...repository.workspace.orgRulesets

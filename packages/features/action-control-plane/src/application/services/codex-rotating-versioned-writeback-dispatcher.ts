@@ -40,11 +40,19 @@ export class CodexRotatingVersionedWritebackDispatcher implements CodexRotatingV
 
     let response: { readonly statusCode: 201 | 204 };
     try {
-      response = await this.provider.putEncryptedRepositorySecret({
-        ...claim.writeTarget,
-        encryptedValue: input.request.encryptedValue,
-        keyId: input.request.keyId,
-      });
+      response = await this.ledger.withVersionedWritebackDispatchAuthorization(
+        {
+          intentId: claim.intentId,
+          attemptId: claim.attemptId,
+          executorOwner: claim.executorOwner,
+        },
+        () =>
+          this.provider.putEncryptedRepositorySecret({
+            ...claim.writeTarget,
+            encryptedValue: input.request.encryptedValue,
+            keyId: input.request.keyId,
+          }),
+      );
     } catch (error) {
       if (isCodexRotatingSecretPutPreDispatchError(error)) {
         await this.ledger.retirePreDispatchVersionedWriteback({

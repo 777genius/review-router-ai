@@ -14,9 +14,13 @@ import {
   assertExternalRecoveryWitnessAdmission,
   classifyExternalRecoveryWitnessRelation,
   fingerprintDatabaseRecoveryWitness,
+  isolatedQualityWorkflowRepositoryId,
+  isCodexWorkflowRepositoryIdentityAdmitted,
   codexRotatingAuthMode,
   codexRotatingCanonicalT0WorkflowSchemaVersions,
+  codexRotatingSetupManifestSchema,
   codexRotatingSecretName,
+  codexWorkflowPathForRepository,
   mapActiveVersionedProviderSecretNamespace,
   parseVersionedProviderSecretName,
   RuntimeVersionedDurableMarker,
@@ -159,6 +163,19 @@ export class PrismaCodexRotatingOAuthRepository
             workflowSourceTrust: true,
             workflowSchemaVersion: true,
             attestedRepositoryId: true,
+            dispatchAttempt: {
+              select: {
+                status: true,
+                claim: {
+                  select: {
+                    status: true,
+                    manifest: {
+                      select: { status: true, manifestJson: true },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -184,6 +201,52 @@ export class PrismaCodexRotatingOAuthRepository
       return null;
     }
     const currentSource = provider.activeSecretNamespace;
+    if (
+      input.repository.identityBindingEpoch ||
+      input.repository.githubRepositoryId ===
+        isolatedQualityWorkflowRepositoryId
+    ) {
+      const durableManifest = codexRotatingSetupManifestSchema.safeParse(
+        currentSource?.dispatchAttempt?.claim.manifest.manifestJson,
+      );
+      if (
+        currentSource?.dispatchAttempt?.status !== "confirmed" ||
+        currentSource.dispatchAttempt.claim.status !== "active" ||
+        currentSource.dispatchAttempt.claim.manifest.status !== "consumed" ||
+        !durableManifest.success ||
+        durableManifest.data.repositoryId !==
+          input.repository.githubRepositoryId ||
+        durableManifest.data.repositoryFullName !== input.repository.fullName
+      ) {
+        return null;
+      }
+      const identityBinding = await this.prisma.$queryRaw<
+        Array<{ version: number; boundAt: Date }>
+      >`
+        SELECT identity."version", identity."boundAt"
+        FROM "ScmRepositoryIdentity" identity
+        WHERE identity.provider = 'github'
+          AND identity."normalizedSourceBaseUrl" = 'https://github.com'
+          AND identity."externalRepositoryId" = ${input.repository.githubRepositoryId}
+          AND EXISTS (
+            SELECT 1 FROM "RepositoryConnection" repository
+            WHERE repository."id" = ${input.repository.repositoryId}
+              AND repository."fullName" = ${input.repository.fullName}
+              AND repository."externalRepositoryId" = ${input.repository.githubRepositoryId}
+          )
+          AND identity."currentWorkspaceId" = ${input.repository.workspaceId}
+          AND identity."currentRepositoryConnectionId" = ${input.repository.repositoryId}
+          AND identity."boundAt" IS NOT NULL
+          AND identity."boundAt" <= ${new Date(durableManifest.data.generatedAt)}
+      `;
+      if (
+        identityBinding.length !== 1 ||
+        (input.repository.identityBindingEpoch &&
+          input.repository.identityBindingEpoch !==
+            `${identityBinding[0]!.version}:${identityBinding[0]!.boundAt.toISOString()}`)
+      )
+        return null;
+    }
     let source = currentSource;
     if (
       currentSource?.workflowSchemaVersion !== input.workflowSchemaVersion &&
@@ -226,7 +289,13 @@ export class PrismaCodexRotatingOAuthRepository
           AND provider."activeSecretNamespaceId" = namespace."id"
           AND provider."activeSecretNamespaceEpoch" = namespace."namespaceEpoch"
       `;
-      source = retiringSources.length === 1 ? retiringSources[0]! : null;
+      source =
+        retiringSources.length === 1
+          ? {
+              ...retiringSources[0]!,
+              dispatchAttempt: currentSource?.dispatchAttempt ?? null,
+            }
+          : null;
     }
     if (
       !source?.workflowPath ||
@@ -252,7 +321,11 @@ export class PrismaCodexRotatingOAuthRepository
         ? { allowedActionRefs: this.options.allowedActionRefs }
         : {}),
       workflowPath:
-        this.options.workflowPath ?? ".github/workflows/reviewrouter-codex.yml",
+        this.options.workflowPath ??
+        codexWorkflowPathForRepository({
+          repositoryId: input.repository.githubRepositoryId,
+          repositoryFullName: input.repository.fullName,
+        }),
       workflowSchemaVersion: input.workflowSchemaVersion,
       activeSecretNamespace,
       activeWorkflowSource: {
@@ -281,8 +354,7 @@ export class PrismaCodexRotatingOAuthRepository
     if (
       input.binding.githubRepositoryId !==
         input.repository.githubRepositoryId ||
-      input.binding.repositoryFullName.toLowerCase() !==
-        input.repository.fullName.toLowerCase()
+      input.binding.repositoryFullName !== input.repository.fullName
     ) {
       throw new Error("codex_rotating_provider_identity_mismatch");
     }
@@ -330,7 +402,7 @@ export class PrismaCodexRotatingOAuthRepository
       providerInstanceId: input.providerInstanceId,
       githubRepositoryId: input.repository.githubRepositoryId,
     });
-    const leaseKey = `${input.providerInstanceId}:${input.githubRunId}:${input.githubRunAttempt}`;
+    let leaseKey = `${input.providerInstanceId}:${input.githubRunId}:${input.githubRunAttempt}`;
 
     return this.prisma.$transaction(async (tx) => {
       await setBoundedProviderRowWaits(tx);
@@ -443,6 +515,53 @@ export class PrismaCodexRotatingOAuthRepository
             : null,
         now,
       });
+      if (
+        input.repository.identityBindingEpoch ||
+        input.repository.githubRepositoryId ===
+          isolatedQualityWorkflowRepositoryId
+      ) {
+        const exactIdentityBindings = await tx.$queryRaw<
+          Array<{ id: string; identityVersion: number }>
+        >(
+          Prisma.sql`
+            SELECT namespace."id", identity."version" AS "identityVersion"
+            FROM "CodexOAuthSecretNamespace" namespace
+            JOIN "CodexOAuthSetupDispatchAttempt" attempt
+              ON attempt."namespaceId" = namespace."id"
+            JOIN "CodexOAuthSetupPayloadClaim" claim
+              ON claim."id" = attempt."claimId"
+            JOIN "CodexOAuthSetupManifest" manifest
+              ON manifest."id" = claim."manifestId"
+            JOIN "CodexOAuthProviderInstance" identity_provider
+              ON identity_provider."id" = namespace."providerInstanceRowId"
+            JOIN "RepositoryConnection" repository
+              ON repository."id" = identity_provider."repositoryId"
+            JOIN "ScmRepositoryIdentity" identity
+              ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
+            JOIN "GitHubInstallation" installation
+              ON installation."id" = repository."installationId"
+            WHERE namespace."id" = ${provider.activeSecretNamespaceId}
+              AND attempt."status" = 'confirmed'
+              AND claim."status" = 'active'
+              AND manifest."status" = 'consumed'
+              AND manifest."manifestJson"->>'repositoryFullName' = ${input.repository.fullName}
+              AND manifest."manifestJson"->>'repositoryId' = ${input.repository.githubRepositoryId}
+              AND identity."externalRepositoryId" = ${input.repository.githubRepositoryId}
+              AND repository."fullName" = ${input.repository.fullName}
+              AND repository."externalRepositoryId" = ${input.repository.githubRepositoryId}
+              AND repository."selected" = TRUE
+              AND installation."status" = 'active'
+              AND identity."currentWorkspaceId" = ${input.repository.workspaceId}
+              AND identity."currentRepositoryConnectionId" = ${input.repository.repositoryId}
+              AND identity."boundAt" <= (manifest."manifestJson"->>'generatedAt')::timestamptz
+            FOR UPDATE OF identity
+          `,
+        );
+        if (exactIdentityBindings.length !== 1) {
+          throw new Error("codex_rotating_provider_identity_mismatch");
+        }
+        leaseKey = `${leaseKey}:identity-v${exactIdentityBindings[0]!.identityVersion}`;
+      }
       assertAutomaticRuntimeDatabaseRecoveryWitness(
         provider.activeSecretNamespace?.databaseRecoveryWitness,
         this.options.databaseRecoveryWitness,
@@ -503,6 +622,7 @@ export class PrismaCodexRotatingOAuthRepository
             pullRequestNumber: true,
             status: true,
             expiresAt: true,
+            leaseKey: true,
             mutationEpoch: true,
             secretNamespaceId: true,
             secretNamespaceEpoch: true,
@@ -521,6 +641,11 @@ export class PrismaCodexRotatingOAuthRepository
               (activeLease.secretNamespaceId === activeNamespace.id &&
                 activeLease.secretNamespaceEpoch === activeNamespace.epoch))
           ) {
+            await assertLeaseRepositoryIdentityBinding({
+              tx,
+              repository: input.repository,
+              leaseKey: activeLease.leaseKey,
+            });
             return {
               leaseId: activeLease.id,
               providerInstanceId: input.providerInstanceId,
@@ -687,7 +812,7 @@ export class PrismaCodexRotatingOAuthRepository
           leases: {
             where: { id: input.leaseId },
             take: 1,
-            select: { mutationEpoch: true },
+            select: { mutationEpoch: true, leaseKey: true },
           },
         },
       });
@@ -706,6 +831,13 @@ export class PrismaCodexRotatingOAuthRepository
         provider.activeSecretNamespace?.databaseRecoveryWitness,
         this.options.databaseRecoveryWitness,
       );
+      await assertLeaseRepositoryIdentityBinding({
+        tx,
+        repository: toActionRepositoryContext(
+          requireGitHubRepositoryContext(provider.repository),
+        ),
+        leaseKey: provider.leases[0]!.leaseKey,
+      });
 
       const nextGeneration = provider.latestGeneration + 1;
       if (
@@ -903,6 +1035,7 @@ export class PrismaCodexRotatingOAuthRepository
               id: true,
               status: true,
               expiresAt: true,
+              leaseKey: true,
               nextGeneration: true,
               mutationEpoch: true,
               secretNamespaceId: true,
@@ -960,6 +1093,13 @@ export class PrismaCodexRotatingOAuthRepository
       ) {
         return { status: "lease_not_active" as const };
       }
+      await assertLeaseRepositoryIdentityBinding({
+        tx,
+        repository: toActionRepositoryContext(
+          requireGitHubRepositoryContext(provider.repository),
+        ),
+        leaseKey: lease.leaseKey,
+      });
 
       await tx.codexOAuthLease.update({
         where: { id: input.leaseId },
@@ -1217,6 +1357,7 @@ export class PrismaCodexRotatingOAuthRepository
               nextGeneration: true,
               restoredGenerationHash: true,
               writebackPreflightKeyId: true,
+              leaseKey: true,
               mutationEpoch: true,
               secretNamespaceId: true,
               secretNamespaceEpoch: true,
@@ -1242,6 +1383,12 @@ export class PrismaCodexRotatingOAuthRepository
         throw new Error("codex_rotating_lease_not_active");
       }
       const activeNamespace = requireActiveNamespaceBinding(provider);
+      const repository = requireGitHubRepositoryContext(provider.repository);
+      await assertLeaseRepositoryIdentityBinding({
+        tx,
+        repository: toActionRepositoryContext(repository),
+        leaseKey: lease.leaseKey,
+      });
       assertAutomaticRuntimeDatabaseRecoveryWitness(
         provider.activeSecretNamespace?.databaseRecoveryWitness,
         this.options.databaseRecoveryWitness,
@@ -1342,7 +1489,6 @@ export class PrismaCodexRotatingOAuthRepository
         };
       }
 
-      const repository = requireGitHubRepositoryContext(provider.repository);
       const namespace = mapActiveVersionedProviderSecretNamespace({
         scope: {
           repositoryId: repository.githubRepositoryId.toString(),
@@ -1405,6 +1551,107 @@ export class PrismaCodexRotatingOAuthRepository
         writeTarget: toSecretWriteTarget(repository, namespace.name),
       };
     });
+  }
+
+  async withVersionedWritebackDispatchAuthorization<T>(
+    input: {
+      readonly intentId: string;
+      readonly attemptId: string;
+      readonly executorOwner: string;
+    },
+    dispatch: () => Promise<T>,
+  ): Promise<T> {
+    await this.prisma.$transaction(async (tx) => {
+      const locator = await tx.codexOAuthWritebackIntent.findUnique({
+        where: { id: input.intentId },
+        select: { providerInstanceRowId: true },
+      });
+      if (!locator) throw new Error("codex_rotating_writeback_not_found");
+      await lockProviderByInstanceId(
+        tx,
+        (
+          await tx.codexOAuthProviderInstance.findUniqueOrThrow({
+            where: { id: locator.providerInstanceRowId },
+            select: { providerInstanceId: true },
+          })
+        ).providerInstanceId,
+      );
+      const now = await this.transactionClock.now(tx);
+      const intent = await tx.codexOAuthWritebackIntent.findUnique({
+        where: { id: input.intentId },
+        select: {
+          id: true,
+          status: true,
+          dispatchAttemptId: true,
+          executorOwner: true,
+          executorLeaseExpiresAt: true,
+          mutationEpoch: true,
+          lease: {
+            select: {
+              id: true,
+              status: true,
+              expiresAt: true,
+              leaseKey: true,
+              mutationEpoch: true,
+            },
+          },
+          providerInstance: {
+            select: {
+              mutationEpoch: true,
+              mutationOwner: true,
+              mutationOwnerId: true,
+              activeLeaseId: true,
+              activeLeaseExpiresAt: true,
+              repository: { select: codexRotatingRepositoryContextSelect },
+            },
+          },
+        },
+      });
+      if (
+        !intent ||
+        intent.status !== "pending" ||
+        intent.dispatchAttemptId !== input.attemptId ||
+        intent.executorOwner !== input.executorOwner ||
+        !intent.executorLeaseExpiresAt ||
+        intent.executorLeaseExpiresAt <= now ||
+        intent.providerInstance.mutationOwner !== "runtime" ||
+        intent.providerInstance.mutationOwnerId !== intent.lease.id ||
+        intent.providerInstance.activeLeaseId !== intent.lease.id ||
+        !intent.providerInstance.activeLeaseExpiresAt ||
+        intent.providerInstance.activeLeaseExpiresAt <= now ||
+        intent.lease.status !== "finalized" ||
+        intent.lease.expiresAt <= now ||
+        intent.mutationEpoch !== intent.providerInstance.mutationEpoch ||
+        intent.lease.mutationEpoch !== intent.providerInstance.mutationEpoch
+      ) {
+        throw new Error("codex_rotating_writeback_dispatch_revoked");
+      }
+      await assertLeaseRepositoryIdentityBinding({
+        tx,
+        repository: toActionRepositoryContext(
+          requireGitHubRepositoryContext(intent.providerInstance.repository),
+        ),
+        leaseKey: intent.lease.leaseKey,
+      });
+      const authorized = await tx.codexOAuthWritebackIntent.updateMany({
+        where: {
+          id: intent.id,
+          status: "pending",
+          dispatchAttemptId: input.attemptId,
+          executorOwner: input.executorOwner,
+          mutationEpoch: intent.mutationEpoch,
+        },
+        data: { dispatchAuthorizedAt: now },
+      });
+      if (authorized.count !== 1) {
+        throw new Error("codex_rotating_writeback_dispatch_revoked");
+      }
+      // Commit the durable dispatch fence before making the external request.
+      // Confirmation rechecks the provider mutation epoch and repository
+      // identity, so a transfer, rotation, or revocation that wins while the
+      // request is in flight makes even a late 201/204 non-authoritative.
+    });
+    return dispatch();
   }
 
   async confirmVersionedProviderWrite(input: {
@@ -1910,12 +2157,29 @@ export class PrismaCodexRotatingOAuthRepository
               mutationEpoch: true,
               mutationOwner: true,
               mutationOwnerId: true,
+              repository: { select: codexRotatingRepositoryContextSelect },
             },
           },
-          lease: { select: { status: true, expiresAt: true } },
+          lease: { select: { status: true, expiresAt: true, leaseKey: true } },
         },
       });
       const namespace = intent.secretNamespace;
+      const repository = toActionRepositoryContext(
+        requireGitHubRepositoryContext(intent.providerInstance.repository),
+      );
+      if (
+        !isCodexWorkflowRepositoryIdentityAdmitted({
+          repositoryId: repository.githubRepositoryId,
+          repositoryFullName: repository.fullName,
+        })
+      ) {
+        throw new Error("codex_rotating_versioned_attestation_invalid");
+      }
+      await assertLeaseRepositoryIdentityBinding({
+        tx,
+        repository,
+        leaseKey: intent.lease.leaseKey,
+      });
       await assertDatabaseIncarnation(
         tx,
         intent.databaseIncarnation,
@@ -1994,6 +2258,11 @@ export class PrismaCodexRotatingOAuthRepository
       });
       if (
         input.attestation.repositoryId !== namespace.githubRepositoryId ||
+        input.attestation.workflowPath !==
+          codexWorkflowPathForRepository({
+            repositoryId: repository.githubRepositoryId,
+            repositoryFullName: repository.fullName,
+          }) ||
         input.attestation.sourceTrust !== "trusted_default_branch_revision"
       ) {
         throw new Error("codex_rotating_versioned_attestation_invalid");
@@ -2192,6 +2461,7 @@ export class PrismaCodexRotatingOAuthRepository
         githubRunId: true,
         githubRunAttempt: true,
         pullRequestNumber: true,
+        leaseKey: true,
         secretNamespaceId: true,
         secretNamespaceEpoch: true,
         providerInstance: {
@@ -2234,6 +2504,11 @@ export class PrismaCodexRotatingOAuthRepository
     if (repository.workspaceId !== lease.workspaceId) {
       return { status: "lease_not_active" as const };
     }
+    await assertLeaseRepositoryIdentityBinding({
+      tx: this.prisma,
+      repository: toActionRepositoryContext(repository),
+      leaseKey: lease.leaseKey,
+    });
     const completedNamespace = requireActiveNamespaceBinding(
       lease.providerInstance,
     );
@@ -2441,6 +2716,55 @@ async function lockProviderByInstanceId(
     WHERE "providerInstanceId" = ${providerInstanceId}
     FOR UPDATE
   `);
+}
+
+async function assertLeaseRepositoryIdentityBinding(input: {
+  readonly tx: Pick<Prisma.TransactionClient, "$queryRaw">;
+  readonly repository: ActionRepositoryContext;
+  readonly leaseKey: string;
+}): Promise<void> {
+  if (
+    input.repository.selected !== true ||
+    input.repository.installationStatus !== "active"
+  ) {
+    throw new Error("codex_rotating_lease_repository_identity_stale");
+  }
+  const githubRepositoryId = input.repository.githubRepositoryId.toString();
+  if (
+    githubRepositoryId !== isolatedQualityWorkflowRepositoryId &&
+    !input.repository.identityBindingEpoch &&
+    !/:identity-v[1-9][0-9]*$/u.test(input.leaseKey)
+  ) {
+    return;
+  }
+  const bindings = await input.tx.$queryRaw<Array<{ version: number }>>(
+    Prisma.sql`
+      SELECT identity."version"
+      FROM "ScmRepositoryIdentity" identity
+      JOIN "RepositoryConnection" repository
+        ON repository."scmRepositoryIdentityId" = identity."scmRepositoryIdentityId"
+      JOIN "GitHubInstallation" installation
+        ON installation."id" = repository."installationId"
+      WHERE repository."id" = ${input.repository.repositoryId}
+        AND repository."workspaceId" = ${input.repository.workspaceId}
+        AND repository."fullName" = ${input.repository.fullName}
+        AND repository."externalRepositoryId" = ${githubRepositoryId}
+        AND repository."selected" = TRUE
+        AND installation."status" = 'active'
+        AND identity."externalRepositoryId" = ${githubRepositoryId}
+        AND identity."currentWorkspaceId" = ${input.repository.workspaceId}
+        AND identity."currentRepositoryConnectionId" = ${input.repository.repositoryId}
+        AND identity."boundAt" IS NOT NULL
+        AND identity."unboundAt" IS NULL
+      FOR UPDATE OF identity
+    `,
+  );
+  if (
+    bindings.length !== 1 ||
+    !input.leaseKey.endsWith(`:identity-v${bindings[0]!.version}`)
+  ) {
+    throw new Error("codex_rotating_lease_repository_identity_stale");
+  }
 }
 
 async function setBoundedProviderRowWaits(

@@ -103,6 +103,7 @@ export async function provisionReviewRouterWorkflow(
         ? {
             codexRotatingProviderInstanceId:
               plan.codexRotatingProviderInstanceId,
+            codexRotatingWorkflowPath: plan.workflowPath,
             ...(plan.codexRotatingWorkflowSecretNamespace
               ? {
                   codexRotatingActiveSecretNamespace:

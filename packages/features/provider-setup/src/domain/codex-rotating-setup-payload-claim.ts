@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { versionedProviderSecretNamePattern } from "@reviewrouter/features-codex-oauth-rotating";
+import {
+  codexWorkflowPathForRepository,
+  isCodexWorkflowRepositoryIdentityAdmitted,
+  versionedProviderSecretNamePattern,
+} from "@reviewrouter/features-codex-oauth-rotating";
 
 const opaqueId = z.string().regex(/^[A-Za-z0-9_.:-]{8,180}$/);
 const digest = z.string().regex(/^[A-Za-z0-9_-]{32,128}$/);
@@ -250,10 +254,14 @@ export const codexRotatingActivationSchema = z
     claimId: opaqueId,
     attemptId: opaqueId,
     repositoryId: z.string().regex(/^[0-9]+$/),
+    repositoryFullName: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
     namespaceId: opaqueId,
     namespaceEpoch: z.string().regex(/^[0-9]+$/),
     secretName: z.string().regex(versionedProviderSecretNamePattern),
-    workflowPath: z.literal(".github/workflows/reviewrouter-codex.yml"),
+    workflowPath: z.union([
+      z.literal(".github/workflows/reviewrouter-codex.yml"),
+      z.literal(".github/workflows/reviewrouter-quality-stand.yml"),
+    ]),
     workflowSourceCommitSha: z.string().regex(/^[a-f0-9]{40}$/),
     workflowSourceBlobSha: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
     workflowSourceSha256: sha256,
@@ -261,7 +269,29 @@ export const codexRotatingActivationSchema = z
     sourceTrust: z.literal("trusted_default_branch_revision"),
     workflowSchemaVersion: z.union([z.literal(4), z.literal(5)]),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (!isCodexWorkflowRepositoryIdentityAdmitted(value)) {
+      context.addIssue({
+        code: "custom",
+        path: ["repositoryFullName"],
+        message: "repository identity is not admitted",
+      });
+    }
+    if (
+      value.workflowPath !==
+      codexWorkflowPathForRepository({
+        repositoryId: value.repositoryId,
+        repositoryFullName: value.repositoryFullName,
+      })
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["workflowPath"],
+        message: "repository workflow path mismatch",
+      });
+    }
+  });
 
 export type CodexRotatingActivation = z.infer<
   typeof codexRotatingActivationSchema

@@ -209,8 +209,7 @@ export class InMemoryCodexRotatingOAuthRepository
     if (
       input.binding.githubRepositoryId !==
         input.repository.githubRepositoryId ||
-      input.binding.repositoryFullName.toLowerCase() !==
-        input.repository.fullName.toLowerCase()
+      input.binding.repositoryFullName !== input.repository.fullName
     ) {
       throw new Error("codex_rotating_provider_identity_mismatch");
     }
@@ -725,6 +724,34 @@ export class InMemoryCodexRotatingOAuthRepository
     this.writebacks.set(key, { ...record, providerConfirmed: true });
   }
 
+  async withVersionedWritebackDispatchAuthorization<T>(
+    input: {
+      readonly intentId: string;
+      readonly attemptId: string;
+      readonly executorOwner: string;
+      readonly now?: Date;
+    },
+    dispatch: () => Promise<T>,
+  ): Promise<T> {
+    const now = this.durableNow(input.now);
+    const entry = this.findVersionedWriteback(input);
+    if (!entry) throw new Error("codex_rotating_writeback_attempt_not_found");
+    const record = entry[1];
+    this.assertExecutorOwner(record, input.executorOwner, now);
+    this.assertVersionedTransitionAuthorized(record, now);
+    const repository = this.providers.get(
+      record.request.providerInstanceId,
+    )?.repository;
+    if (
+      !repository ||
+      !repository.selected ||
+      repository.installationStatus !== "active"
+    ) {
+      throw new Error("codex_rotating_writeback_dispatch_revoked");
+    }
+    return dispatch();
+  }
+
   async retireAmbiguousVersionedWriteback(input: {
     readonly intentId: string;
     readonly attemptId: string;
@@ -900,6 +927,7 @@ export class InMemoryCodexRotatingOAuthRepository
       provider.mutationOwner !== "runtime" ||
       provider.mutationOwnerId !== record.request.leaseId ||
       input.attestation.repositoryId !== provider.binding.githubRepositoryId ||
+      input.attestation.workflowPath !== provider.binding.workflowPath ||
       input.attestation.sourceTrust !==
         WorkflowSourceTrust.TrustedDefaultBranchRevision
     ) {

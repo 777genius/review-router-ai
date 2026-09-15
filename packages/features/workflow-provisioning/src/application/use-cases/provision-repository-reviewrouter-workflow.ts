@@ -18,6 +18,9 @@ export type ProvisionRepositoryReviewRouterWorkflowInput = {
   readonly workspaceId: string;
   readonly installationId: string;
   readonly repositoryId: string;
+  readonly githubRepositoryId?: string;
+  readonly repositoryFullName?: string;
+  readonly workflowPath?: string;
   readonly actionRef: string;
   readonly apiUrl: string;
   readonly runtimeConfigMode: "oidc" | "static";
@@ -78,12 +81,17 @@ export async function provisionRepositoryReviewRouterWorkflow(
       workspaceId: input.workspaceId,
       installationId: input.installationId,
       repositoryId: input.repositoryId,
+      ...(input.githubRepositoryId
+        ? { githubRepositoryId: input.githubRepositoryId }
+        : {}),
+      repositoryFullName: input.repositoryFullName ?? target.fullName,
       owner: target.owner,
       name: target.name,
       defaultBranch: target.defaultBranch,
       actionRef: input.actionRef,
       apiUrl: input.apiUrl,
       runtimeConfigMode: input.runtimeConfigMode,
+      ...(input.workflowPath ? { workflowPath: input.workflowPath } : {}),
       ...(input.workflowStyle ? { workflowStyle: input.workflowStyle } : {}),
       ...(input.discussionMode ? { discussionMode: input.discussionMode } : {}),
       ...(input.conflictReviewFallbackEnabled === undefined

@@ -78,3 +78,7 @@ export {
   CURRENT_SCOPE_GUARD_NAMESPACE,
   type CurrentScopeGuard,
 } from "./current-scope-guards.js";
+export {
+  rotateRemovedScmRepositoryIdentityEpoch,
+  rotateScmRepositoryIdentityEpoch,
+} from "./scm-repository-identity-epoch.js";

@@ -196,6 +196,15 @@ export interface CodexRotatingVersionedWritebackLedgerPort {
     | { readonly status: "writeback_idempotency_conflict" }
   >;
 
+  withVersionedWritebackDispatchAuthorization<T>(
+    input: {
+      readonly intentId: string;
+      readonly attemptId: string;
+      readonly executorOwner: string;
+    },
+    dispatch: () => Promise<T>,
+  ): Promise<T>;
+
   confirmVersionedProviderWrite(input: {
     readonly intentId: string;
     readonly attemptId: string;

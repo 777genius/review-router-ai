@@ -2,6 +2,7 @@ import {
   codexRotatingOidcClaimsSchema,
   assertCanonicalCodexRotatingProviderId,
   canonicalCodexRotatingProviderId,
+  codexWorkflowPathForRepository,
   validateCodexRotatingPrelease,
   assertActiveVersionedSecretWorkflowAttestation,
   assertSameVersionedProviderSecretNamespace,
@@ -17,7 +18,6 @@ import type {
 import type { GitHubActionsOidcTokenVerifierPort } from "../ports/github-actions-oidc-token-verifier-port.js";
 import {
   isManagedV2SessionBootstrapSource,
-  managedCodexWorkflowPath,
   type ActionRepositoryContext,
 } from "../../domain/action-control-plane.js";
 import type { HostedReviewPreleaseGatePort } from "../ports/hosted-review-prelease-gate-port.js";
@@ -110,6 +110,16 @@ export async function preleaseCodexRotatingOAuth(
   if (!binding) {
     throw new Error("codex_rotating_provider_binding_not_found");
   }
+  if (
+    !isManagedV2SessionBootstrapSource({
+      eventName: claims.event_name,
+      workflowPath: binding.workflowPath,
+      githubRepositoryId: repository.githubRepositoryId,
+      repositoryFullName: repository.fullName,
+    })
+  ) {
+    throw new Error("codex_rotating_workflow_trigger_not_allowed");
+  }
   const trustedActionRefs = new Set(
     [binding.actionRef, ...(binding.allowedActionRefs ?? [])].map((ref) => {
       if (!isImmutableActionRef(ref)) {
@@ -187,6 +197,8 @@ export async function preleaseCodexRotatingOAuth(
       claims,
       actionRef: verifiedWorkflow.binding.actionRef,
       workflowPath: verifiedWorkflow.binding.workflowPath,
+      githubRepositoryId: repository.githubRepositoryId,
+      repositoryFullName: repository.fullName,
       pullRequestNumber,
     }) && dependencies.reviewIntentAdmissionRequired !== false;
   if (dependencies.hostedReviewPreleaseGate) {
@@ -251,16 +263,32 @@ function reviewIntentRequired(input: {
   readonly claims: CodexRotatingOidcClaims;
   readonly actionRef: string;
   readonly workflowPath: string;
+  readonly githubRepositoryId: string;
+  readonly repositoryFullName: string;
   readonly pullRequestNumber: number | undefined;
 }): boolean {
   if (input.pullRequestNumber !== undefined) return true;
+  const managedWorkflowPath = codexWorkflowPathForRepository({
+    repositoryId: input.githubRepositoryId,
+    repositoryFullName: input.repositoryFullName,
+  });
+  // The ordinary managed workflow uses schedule solely for credential refresh.
+  // Review executions resolve a pull request above and remain intent-gated.
+  if (
+    input.claims.event_name === "schedule" &&
+    input.workflowPath === managedWorkflowPath
+  ) {
+    return false;
+  }
   if (
     input.claims.event_name !== "workflow_dispatch" ||
-    input.workflowPath !== managedCodexWorkflowPath
+    input.workflowPath !== managedWorkflowPath
   ) {
     return isManagedV2SessionBootstrapSource({
       eventName: input.claims.event_name,
       workflowPath: input.workflowPath,
+      githubRepositoryId: input.githubRepositoryId,
+      repositoryFullName: input.repositoryFullName,
     });
   }
 

@@ -25,8 +25,12 @@ vi.mock("@reviewrouter/features-workflow-provisioning", () => ({
   },
   assertTrustedCanonicalVersionedWorkflow: mocks.assertTrusted,
   createVersionedSecretWorkflowSourceAttestation: mocks.createAttestation,
+  codexWorkflowPathForRepository: () =>
+    ".github/workflows/reviewrouter-codex.yml",
+  isCodexWorkflowRepositoryIdentityAdmitted: () => true,
   defaultCodexRotatingWorkflowPath: ".github/workflows/reviewrouter-codex.yml",
   readCanonicalCodexRotatingT0WorkflowSourceMetadata: mocks.readMetadata,
+  readCanonicalIsolatedQualityWorkflowSourceMetadata: mocks.readMetadata,
   workflowDocumentSemanticSha256: mocks.semanticSha,
   WorkflowSourceTrust: {
     TrustedDefaultBranchRevision: "trusted_default_branch_revision",
@@ -118,6 +122,7 @@ describe("activateConfirmedCodexNamespaceAfterWorkflowMerge", () => {
       expect.objectContaining({
         claimId: "claim_1",
         attemptId: "attempt_1",
+        repositoryFullName: "777genius/review-router-saas-e2e",
         namespaceEpoch: "2",
         workflowSourceCommitSha: firstHead,
       }),
@@ -398,6 +403,7 @@ describe("activateConfirmedCodexNamespaceAfterWorkflowMerge", () => {
         claimId: "claim_1",
         attemptId: "attempt_1",
         expectedGenerationHash: "9".repeat(64),
+        repositoryFullName: "777genius/review-router-saas-e2e",
         namespace: expect.objectContaining({ namespaceId: "namespace_2" }),
       }),
       expect.objectContaining({
