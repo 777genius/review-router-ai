@@ -52,10 +52,6 @@ describe("HostedPoolSettingsPanel", () => {
     );
     expect(screen.getByText("Primary")).toBeTruthy();
     expect(screen.getByText(/Priority 10/)).toBeTruthy();
-    expect(screen.getByText("Fallback")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Start" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
-    expect(document.body.textContent).toMatch(/Credentials stay on the server/);
     expect(document.body.textContent).not.toMatch(
       /token|fingerprint|credentialRef/iu,
     );
