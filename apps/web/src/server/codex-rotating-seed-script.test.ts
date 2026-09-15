@@ -1696,6 +1696,7 @@ function createRotatingInstallerFixture(
       protocolVersion: 2,
       repositoryFullName: "777genius/agent-teams-ai",
       repositoryId: "123456",
+      repositoryIdentityVersion: 1,
       providerInstanceId: "codex-rotating:123456",
       setupNonce: "setup-nonce-1234567890",
       authMode: "codex_subscription_oauth_rotating",

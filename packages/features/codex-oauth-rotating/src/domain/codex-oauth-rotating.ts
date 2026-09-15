@@ -319,6 +319,7 @@ export const codexRotatingSetupManifestSchema = z
     protocolVersion: z.literal(codexRotatingProtocolVersion),
     repositoryFullName: z.string().regex(repoFullNamePattern),
     repositoryId: z.string().regex(/^[0-9]+$/),
+    repositoryIdentityVersion: z.number().int().positive(),
     providerInstanceId: z.string().regex(safeOpaqueIdPattern),
     setupNonce: z.string().regex(safeOpaqueIdPattern),
     authMode: z.literal(codexRotatingAuthMode),
@@ -357,6 +358,7 @@ export type CodexRotatingSetupManifest = z.infer<
 export function buildCodexRotatingSetupManifest(input: {
   readonly repositoryFullName: string;
   readonly repositoryId: string;
+  readonly repositoryIdentityVersion: number;
   readonly providerInstanceId?: string;
   readonly setupNonce?: string;
   readonly installerUrl: string;
@@ -373,6 +375,7 @@ export function buildCodexRotatingSetupManifest(input: {
     protocolVersion: codexRotatingProtocolVersion,
     repositoryFullName: input.repositoryFullName,
     repositoryId: input.repositoryId,
+    repositoryIdentityVersion: input.repositoryIdentityVersion,
     providerInstanceId:
       input.providerInstanceId ??
       canonicalCodexRotatingProviderId(input.repositoryId),

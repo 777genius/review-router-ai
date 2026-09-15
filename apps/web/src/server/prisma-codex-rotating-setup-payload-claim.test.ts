@@ -23,6 +23,7 @@ const manifest = {
   protocolVersion: 2 as const,
   repositoryFullName: "owner/repository",
   repositoryId: "123456",
+  repositoryIdentityVersion: 1,
   providerInstanceId: "codex-rotating:123456",
   setupNonce: "setup:writer-proof",
   authMode: "codex_subscription_oauth_rotating" as const,
@@ -400,6 +401,9 @@ describe("Prisma rotating setup writer proof", () => {
         .mockResolvedValueOnce([{ acquired: true }])
         .mockResolvedValueOnce([{ id: claim.providerInstanceRowId }])
         .mockResolvedValueOnce([manifestRow])
+        .mockResolvedValueOnce([
+          { version: manifest.repositoryIdentityVersion },
+        ])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([terminalClaim]),
       codexOAuthProviderInstance: {
@@ -441,7 +445,7 @@ describe("Prisma rotating setup writer proof", () => {
     } finally {
       vi.unstubAllEnvs();
     }
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(7);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(8);
   });
 
   it.each([
@@ -1459,8 +1463,8 @@ describe("Prisma rotating setup writer proof", () => {
             manifestJson: manifest,
           },
         ])
-        .mockResolvedValueOnce([{ version: 7 }])
-        .mockResolvedValueOnce([{ version: 7 }])
+        .mockResolvedValueOnce([{ version: 1 }])
+        .mockResolvedValueOnce([{ version: 1 }])
         .mockResolvedValueOnce([]),
     };
     const prisma = {

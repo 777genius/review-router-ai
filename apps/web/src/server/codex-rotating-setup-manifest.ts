@@ -374,7 +374,7 @@ export async function issueCodexRotatingSetupCommand(input: {
             provider,
             repositoryFullName: input.repositoryFullName,
             githubRepositoryId: input.githubRepositoryId,
-            identityBoundAt: repositoryIdentity.boundAt,
+            identityVersion: repositoryIdentity.version,
             installer: input.installer,
           }))
       ) {
@@ -389,6 +389,7 @@ export async function issueCodexRotatingSetupCommand(input: {
         manifest = buildCodexRotatingSetupManifest({
           repositoryFullName: input.repositoryFullName,
           repositoryId: input.githubRepositoryId,
+          repositoryIdentityVersion: repositoryIdentity.version,
           providerInstanceId,
           setupNonce,
           installerUrl: input.installer.url,
@@ -758,6 +759,10 @@ export async function resolveCodexRotatingSetupManifestForNonce(input: {
         input.databaseRecoveryWitness,
       );
       const manifest = codexRotatingSetupManifestSchema.parse(row.manifestJson);
+      await assertCurrentSetupManifestRepositoryIdentity(tx, {
+        providerInstanceRowId: row.providerInstanceRowId,
+        manifest,
+      });
       if (
         !isCodexRotatingOAuthAllowedForRepository(
           manifest.repositoryFullName,
@@ -848,6 +853,47 @@ export function assertSetupManifestRecoveryWitness(
   }
   if (persistedFingerprint !== currentFingerprint) {
     throw new Error("codex_rotating_setup_recovery_required");
+  }
+}
+
+export async function assertCurrentSetupManifestRepositoryIdentity(
+  tx: SetupManifestQueryClient,
+  input: {
+    readonly providerInstanceRowId: string;
+    readonly manifest: ReturnType<
+      typeof codexRotatingSetupManifestSchema.parse
+    >;
+  },
+): Promise<void> {
+  const rows = await tx.$queryRaw<readonly { version: number }[]>`
+    SELECT identity."version"
+    FROM "CodexOAuthProviderInstance" provider
+    JOIN "RepositoryConnection" repository
+      ON repository."id" = provider."repositoryId"
+    JOIN "GitHubInstallation" installation
+      ON installation."id" = repository."installationId"
+    JOIN "ScmRepositoryIdentity" identity
+      ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
+    WHERE provider."id" = ${input.providerInstanceRowId}
+      AND repository."workspaceId" = provider."workspaceId"
+      AND repository."provider" = 'github'
+      AND repository."fullName" = ${input.manifest.repositoryFullName}
+      AND repository."externalRepositoryId" = ${input.manifest.repositoryId}
+      AND repository."selected" = true
+      AND repository."archived" = false
+      AND installation."workspaceId" = repository."workspaceId"
+      AND installation."status" = 'active'
+      AND identity."provider" = 'github'
+      AND identity."externalRepositoryId" = ${input.manifest.repositoryId}
+      AND identity."currentWorkspaceId" = repository."workspaceId"
+      AND identity."currentRepositoryConnectionId" = repository."id"
+      AND identity."version" = ${input.manifest.repositoryIdentityVersion}
+      AND identity."boundAt" IS NOT NULL
+      AND identity."unboundAt" IS NULL
+    FOR UPDATE OF identity
+  `;
+  if (rows.length !== 1) {
+    throw new Error("codex_rotating_setup_repository_identity_changed");
   }
 }
 
@@ -1070,7 +1116,7 @@ async function supersedeSetupManifest(
   `;
 }
 
-function isReusableIssuedManifest(input: {
+export function isReusableIssuedManifest(input: {
   readonly manifest: ReturnType<typeof codexRotatingSetupManifestSchema.parse>;
   readonly provider: {
     readonly generationHashSalt: string;
@@ -1078,13 +1124,13 @@ function isReusableIssuedManifest(input: {
   };
   readonly repositoryFullName: string;
   readonly githubRepositoryId: string;
-  readonly identityBoundAt: Date;
+  readonly identityVersion: number;
   readonly installer: CodexRotatingSeedScriptDescriptor;
 }): boolean {
   return (
     input.manifest.repositoryFullName === input.repositoryFullName &&
     input.manifest.repositoryId === input.githubRepositoryId &&
-    new Date(input.manifest.generatedAt) >= input.identityBoundAt &&
+    input.manifest.repositoryIdentityVersion === input.identityVersion &&
     input.manifest.generationHashSalt === input.provider.generationHashSalt &&
     input.manifest.accountFingerprintSalt ===
       input.provider.accountFingerprintSalt &&

@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { fingerprintDatabaseRecoveryWitness } from "@reviewrouter/features-provider-setup";
+import {
+  buildCodexRotatingSetupManifest,
+  fingerprintDatabaseRecoveryWitness,
+} from "@reviewrouter/features-provider-setup";
 import {
   assertCodexRotatingSetupRecoveryWitness,
   assertSetupManifestRecoveryWitness,
   issueCodexRotatingSetupCommand,
+  isReusableIssuedManifest,
   lockAndAssertCurrentSetupRepositoryIdentity,
   transitionRecoveryRequestToManifestIssued,
 } from "./codex-rotating-setup-manifest";
@@ -22,6 +26,34 @@ const repositoryIdentityInput = {
 } as const;
 
 describe("setup manifest repository identity locking", () => {
+  it("rejects an old identity version even when generatedAt is in the future", () => {
+    const manifest = buildCodexRotatingSetupManifest({
+      repositoryFullName: "owner/repository",
+      repositoryId: "123456",
+      repositoryIdentityVersion: 6,
+      installerUrl: "https://reviewrouter.site/installer.sh",
+      installerVersion: "v1",
+      installerSha256: "a".repeat(64),
+      now: new Date("2999-01-01T00:00:00.000Z"),
+      generationHashSalt: "g".repeat(43),
+      accountFingerprintSalt: "f".repeat(43),
+    });
+
+    expect(
+      isReusableIssuedManifest({
+        manifest,
+        provider: {
+          generationHashSalt: manifest.generationHashSalt,
+          accountFingerprintSalt: manifest.accountFingerprintSalt,
+        },
+        repositoryFullName: manifest.repositoryFullName,
+        githubRepositoryId: manifest.repositoryId,
+        identityVersion: 7,
+        installer: manifest.installer,
+      }),
+    ).toBe(false);
+  });
+
   it("locks the located identity and re-reads every repository admission field", async () => {
     const boundAt = new Date("2026-08-10T00:00:00.000Z");
     const tx = {

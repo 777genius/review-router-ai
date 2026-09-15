@@ -41,6 +41,7 @@ import {
   lockCodexRotatingProviderRow,
   lockCodexRotatingSetupProvider,
 } from "./codex-rotating-provider-mutation-fence";
+import { assertCurrentSetupManifestRepositoryIdentity } from "./codex-rotating-setup-manifest";
 import { retirePriorNamespaceGeneration } from "./prisma-codex-rotating-setup-recovery";
 
 type VersionedSecretWorkflowSourceAttestation = ReturnType<
@@ -251,6 +252,10 @@ export class PrismaCodexRotatingSetupPayloadClaim
         const manifest = codexRotatingSetupManifestSchema.parse(
           manifestRow.manifestJson,
         );
+        await assertCurrentSetupManifestRepositoryIdentity(tx, {
+          providerInstanceRowId: manifestRow.providerInstanceRowId,
+          manifest,
+        });
         if (
           manifestRow.databaseRecoveryWitness !== writer.databaseRecoveryWitness
         ) {
@@ -903,8 +908,8 @@ export class PrismaCodexRotatingSetupPayloadClaim
             AND identity."externalRepositoryId" = ${input.repositoryId}
             AND identity."currentWorkspaceId" = repository."workspaceId"
             AND identity."currentRepositoryConnectionId" = repository."id"
+            AND identity."version" = ${activationManifest.repositoryIdentityVersion}
             AND identity."unboundAt" IS NULL
-            AND identity."boundAt" <= ${new Date(activationManifest.generatedAt)}
           FOR UPDATE OF identity
         `;
         if (identityBinding.length !== 1) {
@@ -975,7 +980,7 @@ export class PrismaCodexRotatingSetupPayloadClaim
               AND identity."currentRepositoryConnectionId" = repository."id"
               AND identity."version" = ${identityBinding[0]!.version}
               AND identity."unboundAt" IS NULL
-              AND identity."boundAt" <= (activation_manifest."manifestJson"->>'generatedAt')::timestamptz
+              AND identity."version" = (activation_manifest."manifestJson"->>'repositoryIdentityVersion')::integer
           )
       `;
         if (activatedNamespace !== 1) {
@@ -1173,7 +1178,7 @@ export class PrismaCodexRotatingSetupPayloadClaim
               AND identity."externalRepositoryId" = ${target.repositoryId}
               AND identity."currentWorkspaceId" = repository."workspaceId"
               AND identity."currentRepositoryConnectionId" = repository."id"
-              AND identity."boundAt" <= (manifest."manifestJson"->>'generatedAt')::timestamptz
+              AND identity."version" = (manifest."manifestJson"->>'repositoryIdentityVersion')::integer
               AND attempt."claimId" = claim."id"
               AND attempt."namespaceId" = namespace."id"
               AND attempt."status" = 'confirmed'
@@ -1331,7 +1336,7 @@ export class PrismaCodexRotatingSetupPayloadClaim
                     AND identity."externalRepositoryId" = ${target.repositoryId}
                     AND identity."currentWorkspaceId" = repository."workspaceId"
                     AND identity."currentRepositoryConnectionId" = repository."id"
-                    AND identity."boundAt" <= (manifest."manifestJson"->>'generatedAt')::timestamptz
+                    AND identity."version" = (manifest."manifestJson"->>'repositoryIdentityVersion')::integer
                 )
             `;
             if (updated !== 1) {
@@ -2099,8 +2104,8 @@ async function assertClaimOwnsSetupFence(
       AND identity."externalRepositoryId" = ${claim.githubRepositoryId}
       AND identity."currentWorkspaceId" = repository."workspaceId"
       AND identity."currentRepositoryConnectionId" = repository."id"
+      AND identity."version" = ${canonicalManifest.repositoryIdentityVersion}
       AND identity."unboundAt" IS NULL
-      AND identity."boundAt" <= ${new Date(canonicalManifest.generatedAt)}
     FOR UPDATE OF identity
   `;
   if (identityEpoch.length !== 1) {

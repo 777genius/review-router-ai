@@ -243,9 +243,8 @@ export class PrismaCodexRotatingOAuthRepository
             input.repository.repositoryId
           }
           AND identity."boundAt" IS NOT NULL
-          AND identity."boundAt" <= ${new Date(
-            durableManifest.data.generatedAt,
-          )}
+          AND identity."unboundAt" IS NULL
+          AND identity."version" = ${durableManifest.data.repositoryIdentityVersion}
       `;
       if (
         identityBinding.length !== 1 ||
@@ -563,7 +562,7 @@ export class PrismaCodexRotatingOAuthRepository
               AND installation."status" = 'active'
               AND identity."currentWorkspaceId" = ${input.repository.workspaceId}
               AND identity."currentRepositoryConnectionId" = ${input.repository.repositoryId}
-              AND identity."boundAt" <= (manifest."manifestJson"->>'generatedAt')::timestamptz
+              AND identity."version" = (manifest."manifestJson"->>'repositoryIdentityVersion')::integer
             FOR UPDATE OF identity
           `,
         );

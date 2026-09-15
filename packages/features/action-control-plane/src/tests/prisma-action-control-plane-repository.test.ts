@@ -35,6 +35,7 @@ describe("persisted workflow schema admission", () => {
       protocolVersion: 2,
       repositoryFullName: fullName,
       repositoryId,
+      repositoryIdentityVersion: 1,
       providerInstanceId: `codex-rotating:${repositoryId}`,
       setupNonce: "setup:durable-name-binding",
       authMode: "codex_subscription_oauth_rotating",
