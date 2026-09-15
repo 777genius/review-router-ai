@@ -36,9 +36,7 @@ describe("HostedPoolDeviceLogin", () => {
     fireEvent.change(screen.getByPlaceholderText("Primary"), {
       target: { value: "Primary" },
     });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
     expect(await screen.findByText("ABCD-EFGH")).toBeTruthy();
     await waitFor(() => expect(pollAction).toHaveBeenCalled());
     expect(document.body.textContent).not.toMatch(

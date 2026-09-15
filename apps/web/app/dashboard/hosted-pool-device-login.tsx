@@ -125,7 +125,7 @@ export function HostedPoolDeviceLogin({
   }
 
   return (
-    <div className="mt-5 grid gap-3 border-t border-cyan-200/10 pt-5">
+    <div className="grid gap-3">
       {imported ? (
         <ActionToast
           tone="success"
@@ -142,7 +142,7 @@ export function HostedPoolDeviceLogin({
       ) : null}
       <form
         action={start}
-        className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto] sm:items-end"
+        className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_7.5rem_auto] sm:items-end"
       >
         <input type="hidden" name="workspaceId" value={workspaceId} />
         <label className="grid gap-2 text-sm text-slate-300">
@@ -155,7 +155,7 @@ export function HostedPoolDeviceLogin({
             maxLength={80}
             autoComplete="off"
             placeholder="Primary"
-            className="min-h-11 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
+            className="min-h-11 w-full rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
           />
         </label>
         <label className="grid gap-2 text-sm text-slate-300">
@@ -168,14 +168,15 @@ export function HostedPoolDeviceLogin({
             min={0}
             defaultValue={100}
             required
-            className="min-h-11 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
+            className="min-h-11 w-full rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
           />
         </label>
         <FormSubmitButton
           variant="outline"
           size="sm"
+          className="min-h-11 w-full justify-center sm:w-auto"
           disabled={!mutationsEnabled}
-          idleLabel="Start ChatGPT sign-in"
+          idleLabel="Start"
           pendingLabel="Starting..."
         />
       </form>

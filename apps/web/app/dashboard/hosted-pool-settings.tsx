@@ -40,7 +40,7 @@ export function HostedPoolSettingsPanel({
   if (view.gate === "feature_disabled") return null;
   if (view.gate === "entitlement_denied") {
     return (
-      <section className="border-t border-cyan-200/10 pt-5">
+      <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
         <Badge tone="neutral">Hosted Codex pool</Badge>
         <p className="mt-3 text-sm leading-6 text-slate-400">
           Hosted session custody is not enabled for this workspace plan.
@@ -53,26 +53,23 @@ export function HostedPoolSettingsPanel({
   const healthy = view.pool?.healthyAccountCount ?? 0;
   const total = view.pool?.accountCount ?? view.accounts.length;
   return (
-    <section className="border-t border-cyan-200/10 pt-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={healthy > 0 ? "success" : "warning"}>
-              Hosted Codex pool
-            </Badge>
-            <Badge tone="neutral">
-              {healthy} healthy / {total} total
-            </Badge>
-          </div>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-            Add workspace-owned Codex sessions for explicitly opted-in GitHub
-            repositories. Sign in with ChatGPT here, or upload a local
-            <span className="font-mono"> auth.json</span> as a fallback.
-            ReviewRouter stores the session and transiently relays model
-            prompts, tool results, and responses. ChatGPT credentials never go
-            to the browser.
-          </p>
+    <section className="grid gap-5 rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={healthy > 0 ? "success" : "warning"}>
+            Hosted Codex pool
+          </Badge>
+          <Badge tone="neutral">
+            {healthy} healthy / {total} total
+          </Badge>
         </div>
+        <p className="mt-3 text-sm leading-6 text-slate-300">
+          Add workspace-owned Codex sessions for explicitly opted-in GitHub
+          repositories. Sign in with ChatGPT below. ReviewRouter stores the
+          session and transiently relays model prompts, tool results, and
+          responses. ChatGPT credentials stay on the server and never go to the
+          browser.
+        </p>
       </div>
 
       <HostedPoolDeviceLogin
@@ -82,63 +79,81 @@ export function HostedPoolSettingsPanel({
         pollAction={actions.pollDeviceLogin}
       />
 
-      <DashboardActionForm
-        action={actions.importAccount}
-        fallbackParams={{
-          error: "hosted_pool_action_failed",
-          workspace: workspaceId,
-          section: "setup",
-        }}
-        className="mt-5 grid gap-3 border-t border-cyan-200/10 pt-5 sm:grid-cols-[minmax(0,1fr)_8rem_auto] sm:items-end"
-      >
-        <input type="hidden" name="workspaceId" value={workspaceId} />
-        <label className="grid gap-2 text-sm text-slate-300">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-            Or upload auth.json
-          </span>
-          <input
-            name="label"
-            required
-            maxLength={80}
-            autoComplete="off"
-            placeholder="Primary"
-            className="min-h-11 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
-          />
-          <input
-            name="authJson"
-            type="file"
-            required
-            accept="application/json,.json"
-            className="text-xs text-slate-400 file:mr-3 file:rounded-lg file:border file:border-cyan-200/20 file:bg-cyan-300/10 file:px-3 file:py-2 file:text-cyan-50"
-          />
-          <span className="text-xs leading-5 text-slate-400">
-            Run <span className="font-mono">codex login</span> locally, then
-            upload <span className="font-mono">~/.codex/auth.json</span>.
-          </span>
-        </label>
-        <label className="grid gap-2 text-sm text-slate-300">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-            Priority
-          </span>
-          <input
-            name="priority"
-            type="number"
-            min={0}
-            defaultValue={100}
-            required
-            className="min-h-11 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
-          />
-        </label>
-        <FormSubmitButton
-          variant="outline"
-          size="sm"
-          disabled={!mutationsEnabled}
-          idleLabel="Add account"
-          pendingLabel="Importing..."
-        />
-      </DashboardActionForm>
+      <div className="rounded-xl border border-cyan-200/10 bg-slate-950/40 p-4">
+        <p className="font-mono text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          Fallback
+        </p>
+        <p className="mt-2 text-xs leading-5 text-slate-400">
+          If ChatGPT sign-in is unavailable, upload a local
+          <span className="font-mono"> auth.json</span>. Credentials stay on the
+          server.
+        </p>
+        <DashboardActionForm
+          action={actions.importAccount}
+          fallbackParams={{
+            error: "hosted_pool_action_failed",
+            workspace: workspaceId,
+            section: "setup",
+          }}
+          className="mt-4 grid gap-3"
+        >
+          <input type="hidden" name="workspaceId" value={workspaceId} />
+          <label className="grid gap-2 text-sm text-slate-300">
+            <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Account label
+            </span>
+            <input
+              name="label"
+              required
+              maxLength={80}
+              autoComplete="off"
+              placeholder="Primary"
+              className="min-h-11 w-full rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
+            />
+          </label>
+          <label className="grid gap-2 text-sm text-slate-300">
+            <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              auth.json
+            </span>
+            <input
+              name="authJson"
+              type="file"
+              required
+              accept="application/json,.json"
+              className="w-full min-w-0 text-xs text-slate-400 file:mr-3 file:rounded-lg file:border file:border-cyan-200/20 file:bg-cyan-300/10 file:px-3 file:py-2 file:text-cyan-50"
+            />
+            <span className="text-xs leading-5 text-slate-500">
+              Run <span className="font-mono">codex login</span> locally, then
+              upload <span className="font-mono">~/.codex/auth.json</span>.
+            </span>
+          </label>
+          <div className="grid gap-3 sm:grid-cols-[7.5rem_auto] sm:items-end">
+            <label className="grid gap-2 text-sm text-slate-300">
+              <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Priority
+              </span>
+              <input
+                name="priority"
+                type="number"
+                min={0}
+                defaultValue={100}
+                required
+                className="min-h-11 w-full rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
+              />
+            </label>
+            <FormSubmitButton
+              variant="ghost"
+              size="sm"
+              className="w-full justify-center sm:w-auto"
+              disabled={!mutationsEnabled}
+              idleLabel="Upload"
+              pendingLabel="Importing..."
+            />
+          </div>
+        </DashboardActionForm>
+      </div>
 
-      <div className="mt-5 divide-y divide-cyan-200/10 border-y border-cyan-200/10">
+      <div className="divide-y divide-cyan-200/10 border-t border-cyan-200/10">
         {view.accounts.length === 0 ? (
           <p className="py-4 text-sm text-slate-400">
             No hosted accounts yet. No repository can activate hosted mode until
