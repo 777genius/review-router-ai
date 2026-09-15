@@ -8,8 +8,8 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
-import { Button } from "@reviewrouter/ui";
+import { Copy, ExternalLink, Plus } from "lucide-react";
+import { Button, LinkButton } from "@reviewrouter/ui";
 import { FormSubmitButton } from "../form-submit-button";
 import { ActionToast } from "../action-toast";
 
@@ -40,6 +40,14 @@ export type HostedPoolDeviceLoginPollResult =
     }
   | { readonly ok: false; readonly params: Record<string, string> };
 
+export type HostedPoolDeviceLoginFlight = {
+  readonly loginId: string;
+  readonly userCode: string;
+  readonly verificationUrl: string;
+  readonly expiresAt: string;
+  readonly intervalMs: number;
+};
+
 type DeviceLoginAction<Result> = (formData: FormData) => Promise<Result>;
 
 const fieldClassName =
@@ -53,6 +61,7 @@ export function HostedPoolDeviceLogin({
   children,
   startAction,
   pollAction,
+  previewFlight,
 }: {
   readonly workspaceId: string;
   readonly mutationsEnabled: boolean;
@@ -61,19 +70,16 @@ export function HostedPoolDeviceLogin({
   readonly children?: ReactNode;
   readonly startAction: DeviceLoginAction<HostedPoolDeviceLoginStartResult>;
   readonly pollAction: DeviceLoginAction<HostedPoolDeviceLoginPollResult>;
+  readonly previewFlight?: HostedPoolDeviceLoginFlight;
 }): React.ReactElement {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [imported, setImported] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [flight, setFlight] = useState<{
-    readonly loginId: string;
-    readonly userCode: string;
-    readonly verificationUrl: string;
-    readonly expiresAt: string;
-    readonly intervalMs: number;
-  } | null>(null);
+  const [flight, setFlight] = useState<HostedPoolDeviceLoginFlight | null>(
+    previewFlight ?? null,
+  );
   const pollActionRef = useRef(pollAction);
   pollActionRef.current = pollAction;
 
@@ -146,12 +152,13 @@ export function HostedPoolDeviceLogin({
   const startForm = (
     <form
       action={start}
-      className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto] sm:items-end"
+      className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
     >
       <input type="hidden" name="workspaceId" value={workspaceId} />
+      <input type="hidden" name="priority" value="100" />
       <label className="grid gap-2 text-sm text-slate-300">
         <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-          Account label
+          Account name
         </span>
         <input
           name="label"
@@ -159,19 +166,6 @@ export function HostedPoolDeviceLogin({
           maxLength={80}
           autoComplete="off"
           placeholder="Primary"
-          className={fieldClassName}
-        />
-      </label>
-      <label className="grid gap-2 text-sm text-slate-300">
-        <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-          Priority
-        </span>
-        <input
-          name="priority"
-          type="number"
-          min={0}
-          defaultValue={100}
-          required
           className={fieldClassName}
         />
       </label>
@@ -206,37 +200,19 @@ export function HostedPoolDeviceLogin({
   );
 
   const codePanel = flight ? (
-    <div className="rounded-2xl border border-cyan-300/25 bg-cyan-300/[0.05] p-5 text-sm text-slate-300 shadow-[inset_0_1px_0_rgba(103,232,249,0.08)]">
-      <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-cyan-200">
-        ChatGPT device login
-      </p>
-      <p className="mt-3">
-        Open{" "}
-        <a
-          href={flight.verificationUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="text-cyan-200 underline"
-        >
-          {flight.verificationUrl}
-        </a>{" "}
-        and enter this code:
-      </p>
-      <p className="mt-3 font-mono text-2xl tracking-[0.2em] text-cyan-50">
-        {flight.userCode}
-      </p>
-      <p className="mt-3 text-xs text-slate-400">
-        Waiting for ChatGPT. {deviceLoginExpiryCopy(flight.expiresAt)} Session
-        secrets stay on the server.
-      </p>
-    </div>
+    <DeviceLoginWaitingPanel
+      userCode={flight.userCode}
+      verificationUrl={flight.verificationUrl}
+      expiresAt={flight.expiresAt}
+    />
   ) : null;
 
   const addFormPanel = (
     <div className="rounded-2xl border border-cyan-200/15 bg-slate-950/60 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <p className="text-sm font-semibold text-cyan-50">Sign in with ChatGPT</p>
-      <p className="mt-1 text-xs leading-5 text-slate-400">
-        Enroll another attached session. Credentials never go to the browser.
+      <p className="mt-1 text-sm leading-6 text-slate-400">
+        You will enter a short code in ChatGPT. We detect the login
+        automatically. Credentials never go to the browser.
       </p>
       <div className="mt-4">{startForm}</div>
     </div>
@@ -283,11 +259,125 @@ export function HostedPoolDeviceLogin({
           <p className="text-sm font-semibold text-cyan-50">
             Sign in with ChatGPT
           </p>
+          <p className="text-sm leading-6 text-slate-400">
+            You will enter a short code in ChatGPT. We detect the login
+            automatically. Credentials never go to the browser.
+          </p>
           {startForm}
         </div>
       )}
     </div>
   );
+}
+
+function DeviceLoginWaitingPanel({
+  userCode,
+  verificationUrl,
+  expiresAt,
+}: {
+  readonly userCode: string;
+  readonly verificationUrl: string;
+  readonly expiresAt: string;
+}): React.ReactElement {
+  const remainingLabel = useLiveExpiryLabel(expiresAt);
+  const [copied, setCopied] = useState(false);
+
+  async function copyCode(): Promise<void> {
+    if (!navigator.clipboard?.writeText) return;
+    await navigator.clipboard.writeText(userCode);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1_400);
+  }
+
+  return (
+    <div className="rounded-2xl border border-cyan-300/25 bg-cyan-300/[0.05] p-5 shadow-[inset_0_1px_0_rgba(103,232,249,0.08)]">
+      <p className="text-sm font-semibold text-cyan-50">
+        Enter this code in ChatGPT
+      </p>
+      <p className="mt-1 text-sm leading-6 text-slate-300">
+        Open ChatGPT, type the code there, then come back. Credentials stay on
+        the server.
+      </p>
+      <ol className="mt-5 grid gap-5">
+        <li className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
+          <StepNumber n={1} />
+          <div>
+            <p className="text-sm font-medium text-cyan-50">Open ChatGPT</p>
+            <p className="mt-1 text-xs leading-5 text-slate-400">
+              Continue on ChatGPT&apos;s device login page. Do not paste
+              passwords or session files here.
+            </p>
+            <LinkButton
+              href={verificationUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3"
+            >
+              Open ChatGPT
+              <ExternalLink aria-hidden="true" className="h-4 w-4" />
+            </LinkButton>
+          </div>
+        </li>
+        <li className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
+          <StepNumber n={2} />
+          <div>
+            <p className="text-sm font-medium text-cyan-50">Enter this code</p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <p className="break-all font-mono text-4xl font-semibold tracking-[0.18em] text-cyan-50 sm:text-5xl">
+                {userCode}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void copyCode();
+                }}
+              >
+                <Copy aria-hidden="true" className="h-4 w-4" />
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            </div>
+          </div>
+        </li>
+        <li className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
+          <StepNumber n={3} />
+          <div>
+            <p className="text-sm font-medium text-cyan-50">
+              Stay on this page
+            </p>
+            <p className="mt-1 text-sm leading-6 text-slate-400">
+              We detect the login automatically and import the session. You
+              never paste credentials here.
+            </p>
+          </div>
+        </li>
+      </ol>
+      <p className="mt-5 text-xs text-slate-400" aria-live="polite">
+        {remainingLabel}
+      </p>
+    </div>
+  );
+}
+
+function StepNumber({ n }: { readonly n: number }): React.ReactElement {
+  return (
+    <span
+      aria-hidden="true"
+      className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full border border-cyan-200/25 bg-slate-950/80 font-mono text-xs font-semibold text-cyan-100"
+    >
+      {n}
+    </span>
+  );
+}
+
+function useLiveExpiryLabel(expiresAt: string): string {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(id);
+  }, [expiresAt]);
+  return deviceLoginExpiryCopy(expiresAt, nowMs);
 }
 
 function deviceLoginErrorText(error: string): string {
@@ -312,16 +402,17 @@ function deviceLoginErrorText(error: string): string {
   }
 }
 
-function deviceLoginExpiryCopy(expiresAt: string): string {
+function deviceLoginExpiryCopy(expiresAt: string, nowMs = Date.now()): string {
   const expiresMs = Date.parse(expiresAt);
   if (!Number.isFinite(expiresMs)) {
     return "This code will expire soon.";
   }
-  const remainingMs = expiresMs - Date.now();
-  const expiryLabel = new Date(expiresMs).toISOString().slice(11, 16);
+  const remainingMs = expiresMs - nowMs;
   if (remainingMs <= 0) {
-    return `This code expired at ${expiryLabel} UTC.`;
+    return "This code expired. Start a new sign-in.";
   }
-  const minutes = Math.max(1, Math.ceil(remainingMs / 60_000));
-  return `This code expires in ${minutes} minute${minutes === 1 ? "" : "s"} (${expiryLabel} UTC).`;
+  const totalSeconds = Math.max(1, Math.ceil(remainingMs / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `This code expires in ${minutes}:${String(seconds).padStart(2, "0")}.`;
 }

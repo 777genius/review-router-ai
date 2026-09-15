@@ -30,6 +30,14 @@ function expectNoCredentialLeak(): void {
   );
 }
 
+function expectNoRawPriority(): void {
+  expect(document.body.textContent).not.toMatch(/Priority \d+/u);
+}
+
+function fallbackPriorityInput(): HTMLInputElement | null {
+  return document.querySelector('input[name="priority"][type="hidden"]');
+}
+
 function account(
   overrides: Partial<HostedPoolDashboardView["accounts"][number]> &
     Pick<HostedPoolDashboardView["accounts"][number], "id" | "label">,
@@ -72,21 +80,27 @@ describe("HostedPoolSettingsPanel", () => {
       repositories: [],
     });
 
+    expect(
+      screen.getByRole("heading", { name: "ChatGPT accounts for reviews" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Connect ChatGPT")).toBeTruthy();
     expect(screen.getByText("Sign in with ChatGPT")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
     ).toBeTruthy();
     expect(screen.queryByText("Add another ChatGPT account")).toBeNull();
     expect(
-      screen.queryByRole("heading", { name: "Enrolled accounts" }),
+      screen.queryByRole("heading", { name: "Connected accounts" }),
     ).toBeNull();
-    expect(screen.getByText(/No hosted accounts yet/)).toBeTruthy();
+    expect(screen.getByText(/Connect ChatGPT to get started/)).toBeTruthy();
     expect(screen.getByText("Upload auth.json fallback")).toBeTruthy();
     expect(screen.getByPlaceholderText("Fallback session")).toBeTruthy();
     expect(screen.queryByPlaceholderText("Primary")).toBeTruthy();
+    expect(fallbackPriorityInput()?.value).toBe("100");
     expect(
       screen.getAllByText(/never go to the browser/i).length,
     ).toBeGreaterThan(0);
+    expectNoRawPriority();
     expectNoCredentialLeak();
   });
 
@@ -109,27 +123,33 @@ describe("HostedPoolSettingsPanel", () => {
     });
 
     expect(
-      screen.getByRole("heading", { name: "Enrolled accounts" }),
+      screen.getByRole("heading", { name: "ChatGPT accounts for reviews" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Connected accounts" }),
     ).toBeTruthy();
     expect(screen.getByText("ChatGPT session")).toBeTruthy();
     expect(screen.getByText("Primary")).toBeTruthy();
-    expect(screen.getByText("Highest priority")).toBeTruthy();
-    expect(screen.getByText(/Priority 10/)).toBeTruthy();
-    expect(screen.getByText("Healthy")).toBeTruthy();
+    expect(screen.getByText("Used first")).toBeTruthy();
+    expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
     expect(screen.getByText(/Last validated/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Stop using for reviews" }),
+    ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Add another ChatGPT account" }),
     ).toBeTruthy();
     expect(screen.queryByPlaceholderText("Primary")).toBeNull();
-    expect(screen.queryByText(/No hosted accounts yet/)).toBeNull();
+    expect(screen.queryByText(/Connect ChatGPT to get started/)).toBeNull();
     expect(screen.getByPlaceholderText("Fallback session")).toBeTruthy();
+    expect(fallbackPriorityInput()?.value).toBe("100");
     expect(
       screen.getAllByText(/Credentials stay on the server/i).length,
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByText(/never go to the browser/i).length,
     ).toBeGreaterThan(0);
+    expectNoRawPriority();
     expectNoCredentialLeak();
   });
 
@@ -152,7 +172,7 @@ describe("HostedPoolSettingsPanel", () => {
     expectNoCredentialLeak();
   });
 
-  it("marks the highest-priority account and keeps backup cards secondary", () => {
+  it("marks the first-used account and keeps backup cards secondary", () => {
     renderPanel({
       gate: "enabled",
       pool: null,
@@ -171,9 +191,35 @@ describe("HostedPoolSettingsPanel", () => {
       repositories: [],
     });
 
-    expect(screen.getByText("Highest priority")).toBeTruthy();
+    expect(screen.getByText("Used first")).toBeTruthy();
     expect(screen.getByText("Backup")).toBeTruthy();
-    expect(screen.getByText(/Priority 20/)).toBeTruthy();
+    expectNoRawPriority();
+    expectNoCredentialLeak();
+  });
+
+  it("lets a paused account be used for reviews again", () => {
+    renderPanel({
+      gate: "enabled",
+      pool: null,
+      accounts: [
+        account({
+          id: "account-1" as never,
+          label: "Primary",
+          availability: { status: "paused", reason: "operator" },
+        }),
+      ],
+      repositories: [],
+    });
+
+    expect(screen.getByText("Paused")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Use for reviews again" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Stop using for reviews" }),
+    ).toBeNull();
+    expect(screen.getByText(/Paused by an operator/)).toBeTruthy();
+    expectNoRawPriority();
     expectNoCredentialLeak();
   });
 
@@ -217,7 +263,12 @@ describe("HostedPoolSettingsPanel", () => {
 
     expect(screen.getByText("Needs reconnect")).toBeTruthy();
     expect(screen.getByText(/ChatGPT rejected this session/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Stop using for reviews" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Use for reviews again" }),
+    ).toBeNull();
     expectNoCredentialLeak();
   });
 
@@ -233,8 +284,11 @@ describe("HostedPoolSettingsPanel", () => {
     );
 
     expect(
-      (screen.getByRole("button", { name: "Pause" }) as HTMLButtonElement)
-        .disabled,
+      (
+        screen.getByRole("button", {
+          name: "Stop using for reviews",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     expect(
       (
@@ -254,7 +308,7 @@ describe("HostedPoolSettingsPanel", () => {
       repositories: [],
     });
     expect(screen.getByText("Primary")).toBeTruthy();
-    expect(screen.getByText(/Priority 10/)).toBeTruthy();
+    expectNoRawPriority();
     expectNoCredentialLeak();
   });
 
