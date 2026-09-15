@@ -1,3 +1,8 @@
+import {
+  assertAutomaticRuntimeDatabaseRecoveryWitness,
+  assertLockedWorkflowAdmissionMatches,
+  type LockedWorkflowAdmissionRow,
+} from "./codex-rotating-current-provider.js";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import {
@@ -24,7 +29,6 @@ import {
   mapActiveVersionedProviderSecretNamespace,
   parseVersionedProviderSecretName,
   RuntimeVersionedDurableMarker,
-  WorkflowSourceTrust,
   reserveRuntimeVersionedEffectConfirmationWindow,
   type CodexRotatingEncryptedWritebackRequest,
   type CodexRotatingProviderBinding,
@@ -427,8 +431,6 @@ export class PrismaCodexRotatingOAuthRepository
         WHERE "providerInstanceId" = ${input.providerInstanceId}
         FOR UPDATE
       `);
-      const now = await this.transactionClock.now(tx);
-      const expiresAt = new Date(now.getTime() + 15 * 60 * 1000);
       const provider = await tx.codexOAuthProviderInstance.findUnique({
         where: { providerInstanceId: input.providerInstanceId },
         select: {
@@ -511,19 +513,24 @@ export class PrismaCodexRotatingOAuthRepository
           WHERE compatibility."namespaceId" = ${provider.activeSecretNamespaceId}
             AND namespace."providerInstanceRowId" = ${provider.id}
         `);
-      assertLockedWorkflowAdmissionMatches({
-        persisted:
-          lockedWorkflowAdmissions.length === 1
-            ? lockedWorkflowAdmissions[0]!
-            : null,
-        activeNamespace,
-        verified: input.verifiedWorkflowAttestation,
-        compatibility:
-          lockedCompatibilityAdmissions.length === 1
-            ? lockedCompatibilityAdmissions[0]!
-            : null,
-        now,
-      });
+      // Sample only after the namespace lock (and compatibility reread).
+      // A namespace wait must not extend compatibility or replay deadlines.
+      let now = await this.transactionClock.now(tx);
+      const assertWorkflowAdmission = () =>
+        assertLockedWorkflowAdmissionMatches({
+          persisted:
+            lockedWorkflowAdmissions.length === 1
+              ? lockedWorkflowAdmissions[0]!
+              : null,
+          activeNamespace,
+          verified: input.verifiedWorkflowAttestation,
+          compatibility:
+            lockedCompatibilityAdmissions.length === 1
+              ? lockedCompatibilityAdmissions[0]!
+              : null,
+          now,
+        });
+      assertWorkflowAdmission();
       if (
         input.repository.identityBindingEpoch ||
         input.repository.githubRepositoryId ===
@@ -573,6 +580,11 @@ export class PrismaCodexRotatingOAuthRepository
           exactIdentityBindings[0]!.identityVersion
         }`;
       }
+      // Identity acquisition can block after namespace admission. Recheck
+      // compatibility and use fresh time for setup and active-lease deadlines.
+      now = await this.transactionClock.now(tx);
+      assertWorkflowAdmission();
+      const expiresAt = new Date(now.getTime() + 15 * 60 * 1000);
       assertAutomaticRuntimeDatabaseRecoveryWitness(
         provider.activeSecretNamespace?.databaseRecoveryWitness,
         this.options.databaseRecoveryWitness,
@@ -657,6 +669,15 @@ export class PrismaCodexRotatingOAuthRepository
               repository: input.repository,
               leaseKey: activeLease.leaseKey,
             });
+            // Replay also locks repository and installation rows downstream.
+            now = await this.transactionClock.now(tx);
+            assertWorkflowAdmission();
+            if (
+              provider.activeLeaseExpiresAt <= now ||
+              activeLease.expiresAt <= now
+            ) {
+              throw new Error("codex_rotating_lease_not_active");
+            }
             return {
               leaseId: activeLease.id,
               providerInstanceId: input.providerInstanceId,
@@ -2697,69 +2718,6 @@ function requireActiveNamespaceBinding(provider: {
   };
 }
 
-type LockedWorkflowAdmissionRow = Readonly<{
-  id: string;
-  githubRepositoryId: string;
-  namespaceEpoch: bigint;
-  secretName: string;
-  status: string;
-  permanentlyRetired: boolean;
-  workflowPath: string | null;
-  workflowSourceCommitSha: string | null;
-  workflowSourceBlobSha: string | null;
-  workflowSourceSha256: string | null;
-  workflowSemanticSha256: string | null;
-  workflowSourceTrust: string | null;
-  workflowSchemaVersion: number | null;
-  attestedRepositoryId: string | null;
-  retireAt?: Date | undefined;
-}>;
-
-function assertLockedWorkflowAdmissionMatches(input: {
-  readonly persisted: LockedWorkflowAdmissionRow | null;
-  readonly activeNamespace: {
-    readonly id: string | null;
-    readonly epoch: bigint | null;
-  };
-  readonly verified: VersionedSecretWorkflowSourceAttestation;
-  readonly compatibility: LockedWorkflowAdmissionRow | null;
-  readonly now: Date;
-}): void {
-  const { activeNamespace, verified } = input;
-  const persisted =
-    input.persisted?.workflowSchemaVersion === verified.workflowSchemaVersion
-      ? input.persisted
-      : input.compatibility?.workflowSchemaVersion ===
-            verified.workflowSchemaVersion &&
-          input.compatibility.retireAt !== undefined &&
-          input.compatibility.retireAt > input.now
-        ? input.compatibility
-        : null;
-  if (
-    !persisted ||
-    persisted.status !== "active" ||
-    persisted.permanentlyRetired ||
-    activeNamespace.id !== persisted.id ||
-    activeNamespace.epoch !== persisted.namespaceEpoch ||
-    verified.secretNamespace.namespaceId !== persisted.id ||
-    verified.secretNamespace.epoch !== persisted.namespaceEpoch ||
-    verified.secretNamespace.name !== persisted.secretName ||
-    verified.repositoryId !== persisted.githubRepositoryId ||
-    verified.repositoryId !== persisted.attestedRepositoryId ||
-    verified.workflowPath !== persisted.workflowPath ||
-    !persisted.workflowSourceCommitSha ||
-    verified.sourceTrust !== WorkflowSourceTrust.TrustedDefaultBranchRevision ||
-    verified.workflowSourceBlobSha !== persisted.workflowSourceBlobSha ||
-    verified.workflowSourceSha256 !== persisted.workflowSourceSha256 ||
-    verified.workflowSemanticSha256 !== persisted.workflowSemanticSha256 ||
-    persisted.workflowSourceTrust !==
-      WorkflowSourceTrust.TrustedDefaultBranchRevision ||
-    verified.workflowSchemaVersion !== persisted.workflowSchemaVersion
-  ) {
-    throw new Error("codex_rotating_workflow_attestation_stale");
-  }
-}
-
 async function lockProviderByInstanceId(
   tx: Prisma.TransactionClient,
   providerInstanceId: string,
@@ -2867,30 +2825,6 @@ async function assertDatabaseIncarnation(
     relation: classifyExternalRecoveryWitnessRelation({
       persistedFingerprint: expectedRecoveryWitness,
       currentFingerprint: currentWitnessFingerprint,
-    }),
-  });
-}
-
-function assertAutomaticRuntimeDatabaseRecoveryWitness(
-  persistedFingerprint: string | null | undefined,
-  currentRecoveryWitness: string | undefined,
-): void {
-  if (!persistedFingerprint) {
-    throw new Error("codex_rotating_database_recovery_witness_unproven");
-  }
-  let currentFingerprint: string;
-  try {
-    currentFingerprint = fingerprintDatabaseRecoveryWitness(
-      currentRecoveryWitness ?? "",
-    );
-  } catch {
-    throw new Error("codex_rotating_database_recovery_witness_unproven");
-  }
-  assertExternalRecoveryWitnessAdmission({
-    transition: "automatic_runtime",
-    relation: classifyExternalRecoveryWitnessRelation({
-      persistedFingerprint,
-      currentFingerprint,
     }),
   });
 }
