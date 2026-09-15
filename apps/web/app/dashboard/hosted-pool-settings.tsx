@@ -11,6 +11,7 @@ import {
 } from "./dashboard-action-form";
 import {
   HostedPoolDeviceLogin,
+  type HostedPoolDeviceLoginFlight,
   type HostedPoolDeviceLoginPollResult,
   type HostedPoolDeviceLoginStartResult,
 } from "./hosted-pool-device-login";
@@ -35,17 +36,21 @@ export function HostedPoolSettingsPanel({
   view,
   actions,
   mutationsEnabled,
+  previewDeviceLoginFlight,
 }: {
   readonly workspaceId: string;
   readonly view: HostedPoolDashboardView;
   readonly actions: HostedPoolSettingsActions;
   readonly mutationsEnabled: boolean;
+  readonly previewDeviceLoginFlight?: HostedPoolDeviceLoginFlight | undefined;
 }): React.ReactElement | null {
   if (view.gate === "feature_disabled") return null;
   if (view.gate === "entitlement_denied") {
     return (
       <section className="border-t border-cyan-200/10 pt-5">
-        <Badge tone="neutral">Hosted Codex pool</Badge>
+        <h3 className="text-sm font-semibold text-cyan-50">
+          ChatGPT accounts for reviews
+        </h3>
         <p className="mt-3 text-sm leading-6 text-slate-400">
           Hosted session custody is not enabled for this workspace plan.
           Repository-owned GitHub secrets remain unchanged.
@@ -65,30 +70,45 @@ export function HostedPoolSettingsPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-cyan-50">
+              ChatGPT accounts for reviews
+            </h3>
             <Badge tone={hasHealthyAccount ? "success" : "warning"}>
-              Hosted Codex pool
+              {hasHealthyAccount
+                ? "Ready"
+                : enrolled
+                  ? "Not ready"
+                  : "Connect ChatGPT"}
             </Badge>
-            <Badge tone="neutral">
-              {healthy} healthy / {total} total
-            </Badge>
+            {enrolled ? (
+              <Badge tone="neutral">{readyCountLabel(healthy, total)}</Badge>
+            ) : null}
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
             {enrolled ? (
-              <>
-                This workspace pool is enrolled for explicitly opted-in GitHub
-                repositories. Add another ChatGPT session if you need more
-                capacity. ReviewRouter stores the session and transiently relays
-                model prompts, tool results, and responses. Credentials stay on
-                the server and never go to the browser.
-              </>
+              hasHealthyAccount ? (
+                <>
+                  These ChatGPT accounts run reviews for opted-in GitHub
+                  repositories. ReviewRouter stores the session and transiently
+                  relays model prompts, tool results, and responses. Credentials
+                  stay on the server and never go to the browser.
+                </>
+              ) : (
+                <>
+                  These ChatGPT accounts are connected, but none are ready for
+                  reviews right now. Resume or reconnect a session before hosted
+                  reviews can run. Credentials stay on the server and never go
+                  to the browser.
+                </>
+              )
             ) : (
               <>
-                Add workspace-owned Codex sessions for explicitly opted-in
-                GitHub repositories. Sign in with ChatGPT here. Upload a local
-                <span className="font-mono"> auth.json</span> only as a
-                fallback. ReviewRouter stores the session and transiently relays
-                model prompts, tool results, and responses. ChatGPT credentials
-                never go to the browser.
+                Connect ChatGPT so ReviewRouter can run reviews for opted-in
+                GitHub repositories. Sign in below. Upload a local{" "}
+                <span className="whitespace-nowrap font-mono">auth.json</span>{" "}
+                only if ChatGPT sign-in is unavailable. ReviewRouter stores the
+                session and transiently relays model prompts, tool results, and
+                responses. ChatGPT credentials never go to the browser.
               </>
             )}
           </p>
@@ -102,13 +122,16 @@ export function HostedPoolSettingsPanel({
           enrolled
           startAction={actions.startDeviceLogin}
           pollAction={actions.pollDeviceLogin}
+          previewFlight={previewDeviceLoginFlight}
           header={
             <div>
               <h3 className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                Enrolled accounts
+                Connected accounts
               </h3>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                Attached ChatGPT sessions for this workspace pool.
+                {hasHealthyAccount
+                  ? "ReviewRouter uses these ChatGPT accounts for reviews."
+                  : "Resume or reconnect a session before ReviewRouter can run reviews."}
               </p>
             </div>
           }
@@ -126,15 +149,9 @@ export function HostedPoolSettingsPanel({
           mutationsEnabled={mutationsEnabled}
           startAction={actions.startDeviceLogin}
           pollAction={actions.pollDeviceLogin}
+          previewFlight={previewDeviceLoginFlight}
         />
       )}
-
-      {!enrolled ? (
-        <p className="mt-4 text-sm text-slate-400">
-          No hosted accounts yet. No repository can activate hosted mode until a
-          healthy account is available.
-        </p>
-      ) : null}
 
       <HostedPoolAuthJsonFallback
         workspaceId={workspaceId}
@@ -143,6 +160,14 @@ export function HostedPoolSettingsPanel({
       />
     </section>
   );
+}
+
+function readyCountLabel(healthy: number, total: number): string {
+  if (total <= 0) return "No accounts yet";
+  if (healthy === total) {
+    return total === 1 ? "1 account ready" : `${total} accounts ready`;
+  }
+  return `${healthy} of ${total} ready`;
 }
 
 function HostedPoolAuthJsonFallback({
@@ -156,15 +181,15 @@ function HostedPoolAuthJsonFallback({
 }): React.ReactElement {
   return (
     <details className="mt-4 rounded-xl border border-cyan-200/8 bg-transparent p-3">
-      <summary className="cursor-pointer list-none text-sm text-slate-400">
-        <span className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+      <summary className="cursor-pointer list-none text-sm text-slate-500">
+        <span className="text-xs font-medium tracking-wide text-slate-500">
           Upload auth.json fallback
         </span>
         <p className="mt-1 text-xs leading-5 text-slate-600">
           Optional. Use only if ChatGPT sign-in is unavailable.
         </p>
       </summary>
-      <p className="mt-3 text-xs leading-5 text-slate-400">
+      <p className="mt-3 text-xs leading-5 text-slate-500">
         Run <span className="font-mono">codex login</span> locally, then upload{" "}
         <span className="font-mono">~/.codex/auth.json</span>. Credentials never
         go to the browser.
@@ -176,11 +201,12 @@ function HostedPoolAuthJsonFallback({
           workspace: workspaceId,
           section: "setup",
         }}
-        className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,1.1fr)_8rem_auto] sm:items-end"
+        className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,1.1fr)_auto] sm:items-end"
       >
         <input type="hidden" name="workspaceId" value={workspaceId} />
+        <input type="hidden" name="priority" value="100" />
         <label className="grid min-w-0 gap-2 text-sm text-slate-300">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+          <span className="text-xs font-medium text-slate-400">
             Fallback label
           </span>
           <input
@@ -193,28 +219,13 @@ function HostedPoolAuthJsonFallback({
           />
         </label>
         <label className="grid min-w-0 gap-2 text-sm text-slate-300">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-            auth.json
-          </span>
+          <span className="text-xs font-medium text-slate-400">auth.json</span>
           <input
             name="authJson"
             type="file"
             required
             accept="application/json,.json"
             className="block min-h-11 min-w-0 overflow-hidden rounded-xl border border-cyan-200/15 bg-slate-950/80 px-2 py-1.5 text-xs text-slate-400 file:mr-2 file:inline-flex file:h-8 file:shrink-0 file:items-center file:rounded-lg file:border file:border-cyan-200/20 file:bg-cyan-300/10 file:px-3 file:text-cyan-50"
-          />
-        </label>
-        <label className="grid gap-2 text-sm text-slate-300">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-            Priority
-          </span>
-          <input
-            name="priority"
-            type="number"
-            min={0}
-            defaultValue={100}
-            required
-            className={fieldClassName}
           />
         </label>
         <FormSubmitButton

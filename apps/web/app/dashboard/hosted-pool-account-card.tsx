@@ -63,35 +63,38 @@ function HostedPoolAccountCard({
         cardSurfaceClass(account, primary),
       ].join(" ")}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <span
-            aria-hidden="true"
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-cyan-200/15 bg-cyan-300/[0.08] text-cyan-100"
-          >
-            <MonitorSmartphone className="h-4 w-4" />
-          </span>
-          <div className="min-w-0">
-            <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
-              ChatGPT session
-            </p>
-            <h4 className="mt-1 truncate text-sm font-semibold text-cyan-50">
-              {account.label}
-            </h4>
-            <p className="mt-1 text-xs text-slate-400">
-              Priority {account.priority}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {primary ? (
-            <Badge size="xs" tone="accent">
-              Highest priority
+      <div className="flex min-w-0 items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-cyan-200/15 bg-cyan-300/[0.08] text-cyan-100"
+        >
+          <MonitorSmartphone className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            ChatGPT session
+          </p>
+          <h4 className="mt-1 truncate text-base font-semibold text-cyan-50">
+            {account.label}
+          </h4>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {primary && state === "healthy" ? (
+              <Badge
+                size="xs"
+                tone="accent"
+                className="border-cyan-200/45 bg-cyan-300/15 px-2.5 py-1 text-[0.62rem] tracking-[0.14em] text-cyan-50"
+              >
+                Used first
+              </Badge>
+            ) : null}
+            <Badge
+              size="xs"
+              tone={accountStatusTone(state)}
+              className={accountStatusBadgeClass(state)}
+            >
+              {safeAccountStateLabel(state)}
             </Badge>
-          ) : null}
-          <Badge size="xs" tone={accountStatusTone(state)}>
-            {safeAccountStateLabel(state)}
-          </Badge>
+          </div>
         </div>
       </div>
 
@@ -100,7 +103,7 @@ function HostedPoolAccountCard({
           {attentionCopy(account, reason)}
         </p>
       ) : reason ? (
-        <p className="mt-3 text-xs leading-5 text-slate-400">{reason}</p>
+        <p className="mt-3 text-sm leading-5 text-slate-200">{reason}</p>
       ) : null}
 
       <dl className="mt-3 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
@@ -160,7 +163,9 @@ function HostedPoolAccountCard({
               variant="outline"
               size="sm"
               disabled={!mutationsEnabled}
-              idleLabel={paused ? "Resume" : "Pause"}
+              idleLabel={
+                paused ? "Use for reviews again" : "Stop using for reviews"
+              }
               pendingLabel="Saving..."
             />
           </DashboardActionForm>
@@ -193,7 +198,7 @@ function accountNeedsAttention(account: HostedAccountCardModel): boolean {
 function safeAccountStateLabel(status: string): string {
   switch (status) {
     case "healthy":
-      return "Healthy";
+      return "Ready";
     case "paused":
       return "Paused";
     case "cooldown":
@@ -205,6 +210,19 @@ function safeAccountStateLabel(status: string): string {
   }
 }
 
+function accountStatusBadgeClass(status: string): string {
+  switch (status) {
+    case "healthy":
+      return "border-lime-300/45 bg-lime-300/15 px-2.5 py-1 text-[0.62rem] tracking-[0.14em] text-lime-50";
+    case "paused":
+      return "border-amber-300/45 bg-amber-300/15 px-2.5 py-1 text-[0.62rem] tracking-[0.14em] text-amber-50";
+    case "quarantined":
+      return "border-red-300/45 bg-red-300/15 px-2.5 py-1 text-[0.62rem] tracking-[0.14em] text-red-50";
+    default:
+      return "border-amber-300/40 bg-amber-300/12 px-2.5 py-1 text-[0.62rem] tracking-[0.14em] text-amber-50";
+  }
+}
+
 function accountStatusTone(
   status: string,
 ): "success" | "neutral" | "warning" | "danger" {
@@ -212,7 +230,7 @@ function accountStatusTone(
     case "healthy":
       return "success";
     case "paused":
-      return "neutral";
+      return "warning";
     case "quarantined":
       return "danger";
     default:
@@ -231,7 +249,7 @@ function cardSurfaceClass(
     return "border-amber-300/25 bg-slate-950/70";
   }
   if (account.availability.status === "paused") {
-    return "border-cyan-200/10 bg-slate-950/40";
+    return "border-amber-300/25 bg-slate-950/55";
   }
   if (primary) {
     return "border-cyan-300/35 bg-cyan-300/[0.045]";
