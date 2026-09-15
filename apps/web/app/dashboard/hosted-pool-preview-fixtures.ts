@@ -38,7 +38,9 @@ export function buildHostedPoolPreviewView(
     return {
       gate: "enabled",
       pool: previewPool({ accountCount: 1, healthyAccountCount: 1 }),
-      accounts: [previewAccount({ id: "account-primary", label: "Primary" })],
+      accounts: [
+        previewAccount({ id: "account-primary" as never, label: "Primary" }),
+      ],
       repositories: [],
     };
   }
@@ -49,7 +51,7 @@ export function buildHostedPoolPreviewView(
       pool: previewPool({ accountCount: 1, healthyAccountCount: 0 }),
       accounts: [
         previewAccount({
-          id: "account-primary",
+          id: "account-primary" as never,
           label: "Primary",
           availability: { status: "paused", reason: "operator" },
         }),
@@ -63,7 +65,7 @@ export function buildHostedPoolPreviewView(
     pool: previewPool({ accountCount: 1, healthyAccountCount: 0 }),
     accounts: [
       previewAccount({
-        id: "account-expired",
+        id: "account-expired" as never,
         label: "Expired session",
         availability: { status: "quarantined", reason: "real_401" },
       }),
