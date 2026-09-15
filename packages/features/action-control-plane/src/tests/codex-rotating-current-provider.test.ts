@@ -284,8 +284,10 @@ describe("locked provider new-work eligibility", () => {
       };
       const compatibility = {
         ...input.view.namespace,
-        retireAt: deadlineSource === "compatibility"
-          ? deadline : new Date(start + 60000),
+        retireAt:
+          deadlineSource === "compatibility"
+            ? deadline
+            : new Date(start + 60000),
       };
       const lease = {
         id: "lease",
@@ -296,15 +298,15 @@ describe("locked provider new-work eligibility", () => {
         mutationEpoch: 1n,
         secretNamespaceId: namespace.id,
         secretNamespaceEpoch: 1n,
-        expiresAt: deadlineSource === "lease"
-          ? deadline : new Date(start + 60000),
+        expiresAt:
+          deadlineSource === "lease" ? deadline : new Date(start + 60000),
       };
       const provider = {
         ...input.view.provider,
         activeSecretNamespace: namespace,
         activeLeaseId: mode === "replay" ? lease.id : null,
-        activeLeaseExpiresAt: deadlineSource === "provider"
-          ? deadline : new Date(start + 60000),
+        activeLeaseExpiresAt:
+          deadlineSource === "provider" ? deadline : new Date(start + 60000),
         latestGeneration: 1,
         latestGenerationHash: "hash",
         generationHashSalt: "salt",
@@ -320,7 +322,9 @@ describe("locked provider new-work eligibility", () => {
             // Deterministically model elapsed database time during this lock.
             if ((mode === "replay") === replay)
               databaseNow = deadline.getTime() + offset;
-            return replay ? [{ version: 1 }] : [{ id: namespace.id, identityVersion: 1 }];
+            return replay
+              ? [{ version: 1 }]
+              : [{ id: namespace.id, identityVersion: 1 }];
           }
           if (sql.includes('FROM "CodexOAuthSecretNamespace"')) {
             order.push("namespace lock");
@@ -342,14 +346,19 @@ describe("locked provider new-work eligibility", () => {
         },
       };
       const repository = new PrismaCodexRotatingOAuthRepository(
-        { $transaction: async (callback: (tx: unknown) => unknown) => callback(tx) } as never,
+        {
+          $transaction: async (callback: (tx: unknown) => unknown) =>
+            callback(tx),
+        } as never,
         {
           actionOwnerRepo: "reviewrouter/action",
           databaseRecoveryWitness: input.currentRecoveryWitness,
-          transactionClock: { now: async () => {
-            order.push("clock");
-            return new Date(databaseNow);
-          } },
+          transactionClock: {
+            now: async () => {
+              order.push("clock");
+              return new Date(databaseNow);
+            },
+          },
         },
       );
       const result = repository.acquirePrelease({
@@ -381,15 +390,18 @@ describe("locked provider new-work eligibility", () => {
       } else {
         await expect(result).resolves.toMatchObject({
           status: "preleased",
-          expiresAt: mode === "replay"
-            ? lease.expiresAt : new Date(deadline.getTime() + offset + 15 * 60 * 1000),
+          expiresAt:
+            mode === "replay"
+              ? lease.expiresAt
+              : new Date(deadline.getTime() + offset + 15 * 60 * 1000),
         });
         if (mode === "replay")
           expect(tx.codexOAuthLease.upsert).not.toHaveBeenCalled();
-        else
-          expect(tx.codexOAuthLease.upsert).toHaveBeenCalledOnce();
+        else expect(tx.codexOAuthLease.upsert).toHaveBeenCalledOnce();
       }
-      expect(order.indexOf("namespace lock")).toBeLessThan(order.indexOf("identity lock"));
+      expect(order.indexOf("namespace lock")).toBeLessThan(
+        order.indexOf("identity lock"),
+      );
       const waitedLock = mode === "replay" ? "replay lock" : "identity lock";
       expect(order.slice(order.indexOf(waitedLock) + 1)).toContain("clock");
     },
