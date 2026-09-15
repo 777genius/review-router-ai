@@ -236,8 +236,7 @@ export function HostedPoolDeviceLogin({
           )}
         </div>
         <p className="text-xs leading-5 text-slate-500">
-          Sign in with ChatGPT to enroll another session. Credentials never go
-          to the browser.
+          Credentials never go to the browser.
         </p>
         {toasts}
         {children}
@@ -262,6 +261,12 @@ export function HostedPoolDeviceLogin({
           </p>
           {startForm}
         </div>
+      )}
+      {flight ? null : (
+        <p className="text-sm text-slate-400">
+          Connect ChatGPT to get started. No repository can use hosted reviews
+          until an account is ready.
+        </p>
       )}
     </div>
   );

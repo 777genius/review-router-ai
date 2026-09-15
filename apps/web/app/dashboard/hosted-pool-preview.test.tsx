@@ -47,6 +47,7 @@ describe("HostedPoolPreviewClient", () => {
     expect(screen.getByText("ABCD-EFGH")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open ChatGPT" })).toBeTruthy();
     expect(screen.getByText(/detect the login automatically/i)).toBeTruthy();
+    expect(screen.queryByText(/Connect ChatGPT to get started/)).toBeNull();
     expectNoCredentialLeak();
   });
 

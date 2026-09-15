@@ -212,6 +212,9 @@ describe("HostedPoolSettingsPanel", () => {
     });
 
     expect(screen.getByText("Paused")).toBeTruthy();
+    expect(screen.queryByText("Used first")).toBeNull();
+    expect(screen.getByText(/none are ready for reviews/)).toBeTruthy();
+    expect(screen.queryByText(/These ChatGPT accounts run reviews/)).toBeNull();
     expect(
       screen.getByRole("button", { name: "Use for reviews again" }),
     ).toBeTruthy();

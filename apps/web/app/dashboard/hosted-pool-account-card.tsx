@@ -78,7 +78,7 @@ function HostedPoolAccountCard({
             {account.label}
           </h4>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {primary ? (
+            {primary && state === "healthy" ? (
               <Badge
                 size="xs"
                 tone="accent"
