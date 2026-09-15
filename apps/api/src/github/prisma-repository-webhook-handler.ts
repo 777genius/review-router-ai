@@ -22,6 +22,7 @@ export class PrismaRepositoryWebhookHandler {
     const handled = await workflowProvisioningTransaction(
       this.prisma,
       async (tx) => {
+        // Fence discovery and every mutation against concurrent scope changes.
         await acquireCurrentScopeGuards(tx, [
           { scope: "global", mode: "exclusive" },
         ]);
