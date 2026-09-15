@@ -26,6 +26,9 @@ type HostedPoolSettingsActions = Readonly<{
   setRepositorySource: DashboardActionFormAction;
 }>;
 
+const fieldClassName =
+  "min-h-11 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40";
+
 export function HostedPoolSettingsPanel({
   workspaceId,
   view,
@@ -52,12 +55,16 @@ export function HostedPoolSettingsPanel({
 
   const healthy = view.pool?.healthyAccountCount ?? 0;
   const total = view.pool?.accountCount ?? view.accounts.length;
+  const enrolled = view.accounts.length > 0;
+  const hasHealthyAccount =
+    healthy > 0 ||
+    view.accounts.some((account) => account.availability.status === "healthy");
   return (
     <section className="border-t border-cyan-200/10 pt-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={healthy > 0 ? "success" : "warning"}>
+            <Badge tone={hasHealthyAccount ? "success" : "warning"}>
               Hosted Codex pool
             </Badge>
             <Badge tone="neutral">
@@ -65,105 +72,109 @@ export function HostedPoolSettingsPanel({
             </Badge>
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-            Add workspace-owned Codex sessions for explicitly opted-in GitHub
-            repositories. Sign in with ChatGPT here, or upload a local
-            <span className="font-mono"> auth.json</span> as a fallback.
-            ReviewRouter stores the session and transiently relays model
-            prompts, tool results, and responses. ChatGPT credentials never go
-            to the browser.
+            {enrolled ? (
+              <>
+                This workspace pool is enrolled for explicitly opted-in GitHub
+                repositories. Add another ChatGPT session if you need more
+                capacity. ReviewRouter stores the session and transiently relays
+                model prompts, tool results, and responses. Credentials stay on
+                the server and never go to the browser.
+              </>
+            ) : (
+              <>
+                Add workspace-owned Codex sessions for explicitly opted-in
+                GitHub repositories. Sign in with ChatGPT here. Upload a local
+                <span className="font-mono"> auth.json</span> only as a
+                fallback. ReviewRouter stores the session and transiently relays
+                model prompts, tool results, and responses. ChatGPT credentials
+                never go to the browser.
+              </>
+            )}
           </p>
         </div>
       </div>
 
+      {enrolled ? (
+        <HostedPoolEnrolledAccounts
+          workspaceId={workspaceId}
+          accounts={view.accounts}
+          setAccountState={actions.setAccountState}
+          mutationsEnabled={mutationsEnabled}
+        />
+      ) : null}
+
       <HostedPoolDeviceLogin
         workspaceId={workspaceId}
         mutationsEnabled={mutationsEnabled}
+        hasHealthyAccount={hasHealthyAccount}
         startAction={actions.startDeviceLogin}
         pollAction={actions.pollDeviceLogin}
       />
 
-      <DashboardActionForm
-        action={actions.importAccount}
-        fallbackParams={{
-          error: "hosted_pool_action_failed",
-          workspace: workspaceId,
-          section: "setup",
-        }}
-        className="mt-5 grid gap-3 border-t border-cyan-200/10 pt-5 sm:grid-cols-[minmax(0,1fr)_8rem_auto] sm:items-end"
-      >
-        <input type="hidden" name="workspaceId" value={workspaceId} />
-        <label className="grid gap-2 text-sm text-slate-300">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-            Or upload auth.json
-          </span>
-          <input
-            name="label"
-            required
-            maxLength={80}
-            autoComplete="off"
-            placeholder="Primary"
-            className="min-h-11 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
-          />
-          <input
-            name="authJson"
-            type="file"
-            required
-            accept="application/json,.json"
-            className="text-xs text-slate-400 file:mr-3 file:rounded-lg file:border file:border-cyan-200/20 file:bg-cyan-300/10 file:px-3 file:py-2 file:text-cyan-50"
-          />
-          <span className="text-xs leading-5 text-slate-400">
-            Run <span className="font-mono">codex login</span> locally, then
-            upload <span className="font-mono">~/.codex/auth.json</span>.
-          </span>
-        </label>
-        <label className="grid gap-2 text-sm text-slate-300">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-            Priority
-          </span>
-          <input
-            name="priority"
-            type="number"
-            min={0}
-            defaultValue={100}
-            required
-            className="min-h-11 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
-          />
-        </label>
-        <FormSubmitButton
-          variant="outline"
-          size="sm"
-          disabled={!mutationsEnabled}
-          idleLabel="Add account"
-          pendingLabel="Importing..."
-        />
-      </DashboardActionForm>
+      {!enrolled ? (
+        <p className="mt-4 text-sm text-slate-400">
+          No hosted accounts yet. No repository can activate hosted mode until a
+          healthy account is available.
+        </p>
+      ) : null}
 
-      <div className="mt-5 divide-y divide-cyan-200/10 border-y border-cyan-200/10">
-        {view.accounts.length === 0 ? (
-          <p className="py-4 text-sm text-slate-400">
-            No hosted accounts yet. No repository can activate hosted mode until
-            a healthy account is available.
-          </p>
-        ) : (
-          view.accounts.map((account) => {
-            const state = account.availability.status;
-            const paused = state === "paused";
-            return (
-              <div
-                key={String(account.id)}
-                className="flex flex-wrap items-center justify-between gap-3 py-4"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-cyan-50">
-                    {account.label}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    Priority {account.priority} · {safeAccountStateLabel(state)}
-                  </p>
-                </div>
+      <HostedPoolAuthJsonFallback
+        workspaceId={workspaceId}
+        importAccount={actions.importAccount}
+        mutationsEnabled={mutationsEnabled}
+      />
+    </section>
+  );
+}
+
+function HostedPoolEnrolledAccounts({
+  workspaceId,
+  accounts,
+  setAccountState,
+  mutationsEnabled,
+}: {
+  readonly workspaceId: string;
+  readonly accounts: HostedPoolDashboardView["accounts"];
+  readonly setAccountState: DashboardActionFormAction;
+  readonly mutationsEnabled: boolean;
+}): React.ReactElement {
+  return (
+    <div className="mt-5">
+      <h3 className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+        Enrolled accounts
+      </h3>
+      <ul className="mt-3 divide-y divide-cyan-200/10 overflow-hidden rounded-2xl border border-cyan-200/15 bg-slate-950/50">
+        {accounts.map((account) => {
+          const state = account.availability.status;
+          const paused = state === "paused";
+          return (
+            <li
+              key={String(account.id)}
+              className="flex flex-wrap items-center justify-between gap-3 px-4 py-4"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-cyan-50">
+                  {account.label}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Priority {account.priority}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge
+                  tone={
+                    state === "healthy"
+                      ? "success"
+                      : state === "paused"
+                        ? "neutral"
+                        : "warning"
+                  }
+                >
+                  {safeAccountStateLabel(state)}
+                </Badge>
                 {(state === "healthy" || state === "paused") && (
                   <DashboardActionForm
-                    action={actions.setAccountState}
+                    action={setAccountState}
                     fallbackParams={{
                       error: "hosted_pool_action_failed",
                       workspace: workspaceId,
@@ -200,11 +211,96 @@ export function HostedPoolSettingsPanel({
                   </DashboardActionForm>
                 )}
               </div>
-            );
-          })
-        )}
-      </div>
-    </section>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function HostedPoolAuthJsonFallback({
+  workspaceId,
+  importAccount,
+  mutationsEnabled,
+}: {
+  readonly workspaceId: string;
+  readonly importAccount: DashboardActionFormAction;
+  readonly mutationsEnabled: boolean;
+}): React.ReactElement {
+  return (
+    <details className="mt-4 rounded-xl border border-cyan-200/10 bg-slate-950/30 p-4">
+      <summary className="cursor-pointer list-none text-sm text-slate-300">
+        <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+          Upload auth.json fallback
+        </span>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          Optional. Use only if ChatGPT sign-in is unavailable.
+        </p>
+      </summary>
+      <p className="mt-3 text-xs leading-5 text-slate-400">
+        Run <span className="font-mono">codex login</span> locally, then upload{" "}
+        <span className="font-mono">~/.codex/auth.json</span>. Credentials never
+        go to the browser.
+      </p>
+      <DashboardActionForm
+        action={importAccount}
+        fallbackParams={{
+          error: "hosted_pool_action_failed",
+          workspace: workspaceId,
+          section: "setup",
+        }}
+        className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,1.1fr)_8rem_auto] sm:items-end"
+      >
+        <input type="hidden" name="workspaceId" value={workspaceId} />
+        <label className="grid min-w-0 gap-2 text-sm text-slate-300">
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Fallback label
+          </span>
+          <input
+            name="label"
+            required
+            maxLength={80}
+            autoComplete="off"
+            placeholder="Fallback session"
+            className={fieldClassName}
+          />
+        </label>
+        <label className="grid min-w-0 gap-2 text-sm text-slate-300">
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+            auth.json
+          </span>
+          <input
+            name="authJson"
+            type="file"
+            required
+            accept="application/json,.json"
+            className="block min-h-11 min-w-0 overflow-hidden rounded-xl border border-cyan-200/15 bg-slate-950/80 px-2 py-1.5 text-xs text-slate-400 file:mr-2 file:inline-flex file:h-8 file:shrink-0 file:items-center file:rounded-lg file:border file:border-cyan-200/20 file:bg-cyan-300/10 file:px-3 file:text-cyan-50"
+          />
+        </label>
+        <label className="grid gap-2 text-sm text-slate-300">
+          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Priority
+          </span>
+          <input
+            name="priority"
+            type="number"
+            min={0}
+            defaultValue={100}
+            required
+            className={fieldClassName}
+          />
+        </label>
+        <FormSubmitButton
+          variant="outline"
+          size="sm"
+          className="min-h-11 whitespace-nowrap"
+          disabled={!mutationsEnabled}
+          idleLabel="Add account"
+          pendingLabel="Importing..."
+        />
+      </DashboardActionForm>
+    </details>
   );
 }
 

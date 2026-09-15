@@ -34,14 +34,19 @@ export type HostedPoolDeviceLoginPollResult =
 
 type DeviceLoginAction<Result> = (formData: FormData) => Promise<Result>;
 
+const fieldClassName =
+  "min-h-11 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40";
+
 export function HostedPoolDeviceLogin({
   workspaceId,
   mutationsEnabled,
+  hasHealthyAccount = false,
   startAction,
   pollAction,
 }: {
   readonly workspaceId: string;
   readonly mutationsEnabled: boolean;
+  readonly hasHealthyAccount?: boolean;
   readonly startAction: DeviceLoginAction<HostedPoolDeviceLoginStartResult>;
   readonly pollAction: DeviceLoginAction<HostedPoolDeviceLoginPollResult>;
 }): React.ReactElement {
@@ -124,8 +129,57 @@ export function HostedPoolDeviceLogin({
     });
   }
 
+  const startForm = (
+    <form
+      action={start}
+      className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto] sm:items-end"
+    >
+      <input type="hidden" name="workspaceId" value={workspaceId} />
+      <label className="grid gap-2 text-sm text-slate-300">
+        <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+          Account label
+        </span>
+        <input
+          name="label"
+          required
+          maxLength={80}
+          autoComplete="off"
+          placeholder="Primary"
+          className={fieldClassName}
+        />
+      </label>
+      <label className="grid gap-2 text-sm text-slate-300">
+        <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+          Priority
+        </span>
+        <input
+          name="priority"
+          type="number"
+          min={0}
+          defaultValue={100}
+          required
+          className={fieldClassName}
+        />
+      </label>
+      <FormSubmitButton
+        variant="outline"
+        size="sm"
+        className="min-h-11 whitespace-nowrap"
+        disabled={!mutationsEnabled}
+        idleLabel="Start ChatGPT sign-in"
+        pendingLabel="Starting..."
+      />
+    </form>
+  );
+
   return (
-    <div className="mt-5 grid gap-3 border-t border-cyan-200/10 pt-5">
+    <div
+      className={
+        hasHealthyAccount
+          ? "grid gap-3"
+          : "mt-5 grid gap-3 border-t border-cyan-200/10 pt-5"
+      }
+    >
       {imported ? (
         <ActionToast
           tone="success"
@@ -140,45 +194,6 @@ export function HostedPoolDeviceLogin({
           body={deviceLoginErrorText(error)}
         />
       ) : null}
-      <form
-        action={start}
-        className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto] sm:items-end"
-      >
-        <input type="hidden" name="workspaceId" value={workspaceId} />
-        <label className="grid gap-2 text-sm text-slate-300">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-            Sign in with ChatGPT
-          </span>
-          <input
-            name="label"
-            required
-            maxLength={80}
-            autoComplete="off"
-            placeholder="Primary"
-            className="min-h-11 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
-          />
-        </label>
-        <label className="grid gap-2 text-sm text-slate-300">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-            Priority
-          </span>
-          <input
-            name="priority"
-            type="number"
-            min={0}
-            defaultValue={100}
-            required
-            className="min-h-11 rounded-xl border border-cyan-200/15 bg-slate-950/80 px-3 text-cyan-50 outline-none focus:border-cyan-200/40"
-          />
-        </label>
-        <FormSubmitButton
-          variant="outline"
-          size="sm"
-          disabled={!mutationsEnabled}
-          idleLabel="Start ChatGPT sign-in"
-          pendingLabel="Starting..."
-        />
-      </form>
       {flight ? (
         <div className="rounded-xl border border-cyan-200/15 bg-slate-950/60 p-4 text-sm text-slate-300">
           <p>
@@ -201,7 +216,32 @@ export function HostedPoolDeviceLogin({
             secrets stay on the server.
           </p>
         </div>
-      ) : null}
+      ) : hasHealthyAccount ? (
+        <details className="rounded-xl border border-cyan-200/10 bg-slate-950/30 p-4">
+          <summary className="cursor-pointer list-none text-sm text-slate-300">
+            <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+              Add another ChatGPT account
+            </span>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Sign in with ChatGPT to enroll another session. Credentials never
+              go to the browser.
+            </p>
+          </summary>
+          <div className="mt-4 grid gap-3">
+            <p className="text-sm font-semibold text-cyan-50">
+              Sign in with ChatGPT
+            </p>
+            {startForm}
+          </div>
+        </details>
+      ) : (
+        <div className="grid gap-3">
+          <p className="text-sm font-semibold text-cyan-50">
+            Sign in with ChatGPT
+          </p>
+          {startForm}
+        </div>
+      )}
     </div>
   );
 }

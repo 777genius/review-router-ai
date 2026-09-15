@@ -147,6 +147,7 @@ import {
   readWorkflowStyle,
 } from "./dashboard-action-form-readers";
 import { safeDashboardErrorCode } from "./dashboard-error-codes";
+import { dashboardPath } from "./dashboard-section";
 import {
   changeHostedPoolAccountState,
   changeHostedRepositorySessionSource,
@@ -164,7 +165,7 @@ export async function requestInstallationSyncAction(
 ): Promise<never> {
   const params = await requestInstallationSyncMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   revalidatePath("/setup");
   redirectAfterMutation(formData, params);
 }
@@ -190,7 +191,7 @@ export async function importHostedPoolAccountClientAction(
       },
       createHostedPoolDashboardMutationDependencies(),
     );
-    revalidatePath("/dashboard");
+    revalidateDashboard();
     return {
       params: {
         notice: "hosted_pool_account_added",
@@ -275,7 +276,7 @@ export async function pollHostedPoolDeviceLoginClientAction(
       createHostedPoolDeviceLoginDependencies(),
     );
     if (polled.status === "imported") {
-      revalidatePath("/dashboard");
+      revalidateDashboard();
       return {
         ok: true,
         status: "imported",
@@ -316,7 +317,7 @@ export async function setHostedPoolAccountStateClientAction(
       },
       createHostedPoolDashboardMutationDependencies(),
     );
-    revalidatePath("/dashboard");
+    revalidateDashboard();
     return {
       params: {
         notice: "hosted_pool_account_updated",
@@ -377,7 +378,7 @@ export async function setHostedRepositorySessionSourceClientAction(
               bindingRevision: result.bindingRevision,
             })
           : null;
-    revalidatePath("/dashboard");
+    revalidateDashboard();
     return {
       params: {
         notice:
@@ -820,7 +821,7 @@ export async function refreshRepositoryAccessAction(
 ): Promise<never> {
   const params = await refreshRepositoryAccessMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectWithParams(params);
 }
 
@@ -881,7 +882,7 @@ export async function createSetupPullRequestAction(
 ): Promise<never> {
   const params = await createSetupPullRequestMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   revalidatePath("/setup");
   redirectAfterMutation(formData, params);
 }
@@ -915,7 +916,7 @@ export async function createMemoryItemAction(
 ): Promise<never> {
   const params = await createMemoryItemMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
@@ -932,7 +933,7 @@ export async function confirmMemorySuggestionAction(
 ): Promise<never> {
   const params = await confirmMemorySuggestionMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
@@ -949,7 +950,7 @@ export async function rejectMemorySuggestionAction(
 ): Promise<never> {
   const params = await rejectMemorySuggestionMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
@@ -964,7 +965,7 @@ export async function rejectMemorySuggestionClientAction(
 export async function editMemoryItemAction(formData: FormData): Promise<never> {
   const params = await editMemoryItemMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
@@ -981,7 +982,7 @@ export async function disableMemoryItemAction(
 ): Promise<never> {
   const params = await disableMemoryItemMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
@@ -998,7 +999,7 @@ export async function deleteMemoryItemAction(
 ): Promise<never> {
   const params = await deleteMemoryItemMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectAfterMutation(formData, params);
 }
 
@@ -2510,7 +2511,7 @@ export async function enableOrgRulesetWorkflowAction(
 ): Promise<never> {
   const params = await enableOrgRulesetWorkflowMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectWithParams(params);
 }
 
@@ -2617,7 +2618,7 @@ export async function saveWorkspaceReviewConfigAction(
 ): Promise<never> {
   const params = await saveWorkspaceReviewConfigMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectWithParams(params);
 }
 
@@ -2705,7 +2706,7 @@ export async function saveRepositoryReviewConfigAction(
 ): Promise<never> {
   const params = await saveRepositoryReviewConfigMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectWithParams(params);
 }
 
@@ -2801,7 +2802,7 @@ export async function clearRepositoryReviewConfigAction(
 ): Promise<never> {
   const params = await clearRepositoryReviewConfigMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectWithParams(params);
 }
 
@@ -2883,7 +2884,7 @@ export async function retryOutboxEventAction(
 ): Promise<never> {
   const params = await retryOutboxEventMutation(formData);
 
-  revalidatePath("/dashboard");
+  revalidateDashboard();
   redirectWithParams(params);
 }
 
@@ -3884,8 +3885,13 @@ function pullRequestNumberFromUrl(url: string): number | null {
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
+function revalidateDashboard(): void {
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/setup");
+}
+
 function redirectWithParams(params: Record<string, string>): never {
-  redirect(`/dashboard?${new URLSearchParams(params).toString()}`);
+  redirect(dashboardPath(params));
 }
 
 function redirectAfterMutation(

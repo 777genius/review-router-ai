@@ -66,7 +66,7 @@ function DashboardNavSkeleton(): React.ReactElement {
           </div>
         </div>
         <div className="grid gap-3">
-          {Array.from({ length: 4 }, (_, index) => (
+          {Array.from({ length: 5 }, (_, index) => (
             <div key={index} className="grid gap-2 px-4 py-3">
               <SkeletonText className="h-3 w-28" />
               <SkeletonText className="h-3 w-40" />
