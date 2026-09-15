@@ -179,11 +179,29 @@ describe("renderReviewRouterWorkflow", () => {
   });
 
   it.each([
-    CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV4,
-    CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+    [
+      CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV4,
+      CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV4,
+      true,
+    ],
+    [
+      CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+      CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV4,
+      true,
+    ],
+    [
+      CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+      CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+      true,
+    ],
+    [
+      CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV4,
+      CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+      false,
+    ],
   ])(
-    "trusts the T0 schema v%s workflow deletion during isolated migration",
-    (workflowSchemaVersion) => {
+    "selected T0 schema v%s trusts existing schema v%s deletion: %s",
+    (selectedSchemaVersion, existingSchemaVersion, trusted) => {
       const namespace = createVersionedProviderSecretNamespace({
         scope: {
           repositoryId: "1228051727",
@@ -202,7 +220,7 @@ describe("renderReviewRouterWorkflow", () => {
         codexRotatingWorkflowPath: isolatedQualityWorkflowPath,
         codexRotatingActiveSecretNamespace: namespace,
         codexRotatingReviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
-        codexRotatingWorkflowSchemaVersion: workflowSchemaVersion,
+        codexRotatingWorkflowSchemaVersion: selectedSchemaVersion,
       };
 
       const files = renderReviewRouterWorkflowFiles(options);
@@ -230,13 +248,18 @@ describe("renderReviewRouterWorkflow", () => {
         providerInstanceId: options.codexRotatingProviderInstanceId,
         activeSecretNamespace: namespace,
         reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
-        workflowSchemaVersion,
+        workflowSchemaVersion: existingSchemaVersion,
       });
       expect(
         deletion.markerGroups.some((group) =>
           group.every((marker) => previousWorkflow.includes(marker)),
         ),
-      ).toBe(true);
+      ).toBe(trusted);
+      expect(
+        deletion.markerGroups.some((group) =>
+          group.every((marker) => "name: unrelated workflow".includes(marker)),
+        ),
+      ).toBe(false);
     },
   );
 

@@ -1006,6 +1006,24 @@ export function getCodexRotatingWorkflowSetupContentMarkerGroups(input: {
   return [markers];
 }
 
+function getCodexRotatingWorkflowDeletionMarkerGroups(
+  input: Parameters<typeof getCodexRotatingWorkflowSetupContentMarkerGroups>[0],
+): readonly (readonly string[])[] {
+  const selected = getCodexRotatingWorkflowSetupContentMarkerGroups(input);
+  return input.reviewActionV2Mode === CodexRotatingReviewActionV2Mode.T0 &&
+    input.workflowSchemaVersion ===
+      CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5
+    ? [
+        ...selected,
+        ...getCodexRotatingWorkflowSetupContentMarkerGroups({
+          ...input,
+          workflowSchemaVersion:
+            CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV4,
+        }),
+      ]
+    : selected;
+}
+
 export function getLegacyReviewRouterWorkflowDeletionMarkerGroups(): readonly (readonly string[])[] {
   return [
     ["name: ReviewRouter", reusableReviewWorkflowPath],
@@ -1350,7 +1368,7 @@ export function renderReviewRouterWorkflowFiles(
       files.splice(2, 0, {
         path: defaultCodexRotatingWorkflowPath,
         operation: "delete",
-        markerGroups: getCodexRotatingWorkflowSetupContentMarkerGroups({
+        markerGroups: getCodexRotatingWorkflowDeletionMarkerGroups({
           providerInstanceId: options.codexRotatingProviderInstanceId,
           ...(options.codexRotatingActiveSecretNamespace
             ? {
