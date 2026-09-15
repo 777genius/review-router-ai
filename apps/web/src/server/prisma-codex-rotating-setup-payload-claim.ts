@@ -1344,6 +1344,13 @@ export class PrismaCodexRotatingSetupPayloadClaim
             }
             return { status: "active" as const };
           }
+          await assertV4ReattestationRepositoryIdentity(tx, {
+            providerInstanceRowId: claim.providerInstanceRowId,
+            claimId: claim.id,
+            manifestId: claim.manifestId,
+            repositoryId: target.repositoryId,
+            repositoryFullName: target.repositoryFullName,
+          });
           await tx.$executeRaw`
             SELECT "codex_oauth_reattest_active_namespace_v4_to_v5"(
               ${claim.providerInstanceRowId}, ${claim.id}, ${attempt.attemptId},
@@ -1467,6 +1474,59 @@ async function findManifest(
   `;
   if (!rows[0]) throw new Error("codex_rotating_setup_manifest_not_found");
   return rows[0];
+}
+
+async function assertV4ReattestationRepositoryIdentity(
+  tx: Prisma.TransactionClient,
+  input: {
+    readonly providerInstanceRowId: string;
+    readonly claimId: string;
+    readonly manifestId: string;
+    readonly repositoryId: string;
+    readonly repositoryFullName: string;
+  },
+): Promise<void> {
+  const rows = await tx.$queryRaw<readonly { version: number }[]>`
+    SELECT identity."version"
+    FROM "CodexOAuthSetupPayloadClaim" claim
+    JOIN "CodexOAuthSetupManifest" manifest
+      ON manifest."id" = claim."manifestId"
+    JOIN "CodexOAuthProviderInstance" provider
+      ON provider."id" = claim."providerInstanceRowId"
+    JOIN "RepositoryConnection" repository
+      ON repository."id" = provider."repositoryId"
+    JOIN "GitHubInstallation" installation
+      ON installation."id" = repository."installationId"
+    JOIN "ScmRepositoryIdentity" identity
+      ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
+    WHERE claim."id" = ${input.claimId}
+      AND claim."manifestId" = ${input.manifestId}
+      AND claim."providerInstanceRowId" = ${input.providerInstanceRowId}
+      AND claim."status" = 'active'
+      AND manifest."status" = 'consumed'
+      AND manifest."manifestJson"->>'repositoryFullName' = ${input.repositoryFullName}
+      AND manifest."manifestJson"->>'repositoryId' = ${input.repositoryId}
+      AND provider."id" = ${input.providerInstanceRowId}
+      AND repository."workspaceId" = provider."workspaceId"
+      AND repository."provider" = 'github'
+      AND repository."fullName" = ${input.repositoryFullName}
+      AND repository."externalRepositoryId" = ${input.repositoryId}
+      AND repository."selected" = true
+      AND repository."archived" = false
+      AND installation."workspaceId" = repository."workspaceId"
+      AND installation."status" = 'active'
+      AND identity."provider" = 'github'
+      AND identity."externalRepositoryId" = ${input.repositoryId}
+      AND identity."currentWorkspaceId" = repository."workspaceId"
+      AND identity."currentRepositoryConnectionId" = repository."id"
+      AND identity."version" = (manifest."manifestJson"->>'repositoryIdentityVersion')::integer
+      AND identity."boundAt" IS NOT NULL
+      AND identity."unboundAt" IS NULL
+    FOR UPDATE OF identity
+  `;
+  if (rows.length !== 1) {
+    throw new Error("codex_rotating_workflow_reattestation_stale");
+  }
 }
 
 type ManifestRecoveryAssociationRow = {

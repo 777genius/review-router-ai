@@ -1527,8 +1527,10 @@ describe("Prisma rotating setup writer proof", () => {
     const tx = {
       $executeRawUnsafe: vi.fn().mockResolvedValue(0),
       $executeRaw: vi.fn().mockResolvedValue(1),
-      $queryRaw: vi
-        .fn()
+      $queryRaw: vi.fn(),
+    };
+    const enqueueTransition = (identityRows?: readonly unknown[]) => {
+      const queue = tx.$queryRaw
         .mockResolvedValueOnce([activeClaim])
         .mockResolvedValueOnce([
           { writer: true, databaseIncarnation: claim.databaseIncarnation },
@@ -1538,8 +1540,10 @@ describe("Prisma rotating setup writer proof", () => {
           { mutationOwner: null, mutationOwnerId: null, activeLeaseId: null },
         ])
         .mockResolvedValueOnce([activeClaim])
-        .mockResolvedValueOnce([attempt]),
+        .mockResolvedValueOnce([attempt]);
+      if (identityRows) queue.mockResolvedValueOnce(identityRows);
     };
+    enqueueTransition();
     const prisma = { $transaction: vi.fn((callback) => callback(tx)) };
     const ledger = new PrismaCodexRotatingSetupPayloadClaim(
       prisma as never,
@@ -1588,17 +1592,22 @@ describe("Prisma rotating setup writer proof", () => {
 
     attempt.namespaceId = namespace.namespaceId;
     attempt.namespaceEpoch = namespace.epoch;
-    tx.$queryRaw
-      .mockResolvedValueOnce([activeClaim])
-      .mockResolvedValueOnce([
-        { writer: true, databaseIncarnation: claim.databaseIncarnation },
-      ])
-      .mockResolvedValueOnce([{ id: claim.providerInstanceRowId }])
-      .mockResolvedValueOnce([
-        { mutationOwner: null, mutationOwnerId: null, activeLeaseId: null },
-      ])
-      .mockResolvedValueOnce([activeClaim])
-      .mockResolvedValueOnce([attempt]);
+    enqueueTransition([]);
+    await expect(
+      ledger.replaceActiveWorkflowSource(transition()),
+    ).rejects.toThrow("codex_rotating_workflow_reattestation_stale");
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    const identitySql = Array.from(
+      tx.$queryRaw.mock.calls.at(-1)![0] as readonly string[],
+    ).join("?");
+    expect(manifest.generatedAt).toBe("2999-01-01T00:00:00.000Z");
+    expect(manifest.repositoryIdentityVersion).toBe(1);
+    expect(identitySql).toContain(
+      'identity."version" = (manifest."manifestJson"->>\'repositoryIdentityVersion\')::integer',
+    );
+    expect(identitySql).not.toContain("generatedAt");
+
+    enqueueTransition([{ version: manifest.repositoryIdentityVersion }]);
 
     await expect(
       ledger.replaceActiveWorkflowSource(transition()),
