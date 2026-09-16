@@ -9,10 +9,10 @@ export type DashboardSection =
 
 export const DASHBOARD_SECTIONS = [
   "repositories",
-  "memory",
   "setup",
   "policy",
   "diagnostics",
+  "memory",
 ] as const satisfies readonly DashboardSection[];
 
 export const dashboardSectionMeta: Record<

@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  DASHBOARD_SECTIONS,
   dashboardSectionHref,
   dashboardSectionMeta,
 } from "./dashboard-section";
@@ -13,9 +14,7 @@ afterEach(() => {
 
 describe("DashboardSectionTabs", () => {
   it("links Setup to its own page and renders icons for every nav item", () => {
-    const items = (
-      ["repositories", "memory", "setup", "policy", "diagnostics"] as const
-    ).map((section) => ({
+    const items = DASHBOARD_SECTIONS.map((section) => ({
       section,
       label: dashboardSectionMeta[section].title,
       description: dashboardSectionMeta[section].navDescription,
@@ -24,6 +23,7 @@ describe("DashboardSectionTabs", () => {
 
     render(<DashboardSectionTabs items={items} selectedSection="setup" />);
 
+    expect(DASHBOARD_SECTIONS.at(-1)).toBe("memory");
     const setupLink = screen.getByRole("tab", { name: /AccountsEncrypted/i });
     expect(setupLink.getAttribute("href")).toBe(
       "/dashboard/setup?workspace=acme#dashboard-section-content",
