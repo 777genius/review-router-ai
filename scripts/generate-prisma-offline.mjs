@@ -28,6 +28,33 @@ function isolationProbeArgs() {
   return ["--net", "--", process.execPath, "-e", "process.exit(0)"];
 }
 
+export function resolveExecutable(name, env = process.env) {
+  const result = spawnSync("sh", ["-c", 'command -v "$1"', "command-v", name], {
+    encoding: "utf8",
+    env,
+  });
+  const resolved = result.stdout.trim().split(/\r?\n/u).filter(Boolean).at(-1);
+  if (result.status !== 0 || result.error || !resolved)
+    throw new Error(`cannot resolve ${name}`);
+  return resolved;
+}
+
+export function forwardedGenerateEnvironment(env = process.env) {
+  const forwarded = {};
+  const keep =
+    /^(?:PATH|HOME|USER|LOGNAME|SHELL|NODE_ENV|CI|NODE_PATH|PNPM_HOME|TMPDIR|TMP|TEMP|LANG|LC_ALL|COREPACK_.*|npm_config_.*|NPM_CONFIG_.*|PRISMA_.*|DATABASE_URL|TEST_DATABASE_URL|REVIEW_ROUTER_.*)$/u;
+  for (const [key, value] of Object.entries(env)) {
+    if (value == null || !keep.test(key) || /[\n\r\0]/u.test(String(value)))
+      continue;
+    forwarded[key] = String(value);
+  }
+  return forwarded;
+}
+
+function envAssignments(env) {
+  return Object.entries(env).map(([key, value]) => `${key}=${value}`);
+}
+
 export function selectNetworkIsolator(env = process.env) {
   const platform =
     env.REVIEW_ROUTER_PRISMA_GENERATE_PLATFORM || process.platform;
@@ -52,13 +79,14 @@ export function selectNetworkIsolator(env = process.env) {
 export function offlinePrismaGenerateInvocation(
   env = process.env,
   isolator = "unshare",
+  pnpmPath = "pnpm",
 ) {
   const pnpmArgs = prismaGenerateArgs();
-  if (isolator === "none") return { command: "pnpm", args: pnpmArgs };
+  if (isolator === "none") return { command: pnpmPath, args: pnpmArgs };
   if (isolator === "unshare")
     return {
       command: "unshare",
-      args: ["--net", "--", "pnpm", ...pnpmArgs],
+      args: ["--net", "--", pnpmPath, ...pnpmArgs],
     };
   if (isolator === "sudo-unshare") {
     const username =
@@ -74,9 +102,10 @@ export function offlinePrismaGenerateInvocation(
         "-n",
         "-u",
         username,
-        "-E",
         "--",
-        "pnpm",
+        "env",
+        ...envAssignments(forwardedGenerateEnvironment(env)),
+        pnpmPath,
         ...pnpmArgs,
       ],
     };
@@ -95,10 +124,15 @@ export function assertOfflinePrismaGenerateEnvironment(env = process.env) {
 function run() {
   try {
     assertOfflinePrismaGenerateEnvironment();
-    const isolator = selectNetworkIsolator();
-    const invocation = offlinePrismaGenerateInvocation(process.env, isolator);
     const childEnv = { ...process.env };
     for (const name of forbiddenCredentialNames) delete childEnv[name];
+    const pnpmPath = resolveExecutable("pnpm", childEnv);
+    const isolator = selectNetworkIsolator(childEnv);
+    const invocation = offlinePrismaGenerateInvocation(
+      childEnv,
+      isolator,
+      pnpmPath,
+    );
     const result = spawnSync(invocation.command, invocation.args, {
       env: childEnv,
       stdio: "inherit",

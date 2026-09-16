@@ -136,33 +136,40 @@ describe("offline Prisma generate", () => {
   });
 
   it("drops back to the caller after privileged network isolation", () => {
-    expect(
-      offlinePrismaGenerateInvocation(
-        {
-          REVIEW_ROUTER_PRISMA_GENERATE_PLATFORM: "linux",
-          REVIEW_ROUTER_PRISMA_GENERATE_USER: "runner",
-        },
-        "sudo-unshare",
-      ),
-    ).toEqual({
-      command: "sudo",
-      args: [
-        "-n",
-        "unshare",
-        "--net",
-        "--",
-        "sudo",
-        "-n",
-        "-u",
-        "runner",
-        "-E",
-        "--",
-        "pnpm",
-        "--filter",
-        "@reviewrouter/platform-db",
-        "db:generate",
-      ],
-    });
+    const invocation = offlinePrismaGenerateInvocation(
+      {
+        REVIEW_ROUTER_PRISMA_GENERATE_PLATFORM: "linux",
+        REVIEW_ROUTER_PRISMA_GENERATE_USER: "runner",
+        PATH: "/opt/pnpm:/usr/bin",
+        HOME: "/home/runner",
+        SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: "must-not-forward",
+      },
+      "sudo-unshare",
+      "/opt/pnpm/pnpm",
+    );
+    expect(invocation.command).toBe("sudo");
+    expect(invocation.args.slice(0, 10)).toEqual([
+      "-n",
+      "unshare",
+      "--net",
+      "--",
+      "sudo",
+      "-n",
+      "-u",
+      "runner",
+      "--",
+      "env",
+    ]);
+    expect(invocation.args).toContain("PATH=/opt/pnpm:/usr/bin");
+    expect(invocation.args.join("\n")).not.toContain(
+      "SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64",
+    );
+    expect(invocation.args.slice(-4)).toEqual([
+      "/opt/pnpm/pnpm",
+      "--filter",
+      "@reviewrouter/platform-db",
+      "db:generate",
+    ]);
   });
 
   it("skips unshare when the caller already isolated the network", () => {
@@ -202,7 +209,7 @@ describe("offline Prisma generate", () => {
       unshareArgs: [
         "--net",
         "--",
-        "pnpm",
+        join(directory, "pnpm"),
         "--filter",
         "@reviewrouter/platform-db",
         "db:generate",
@@ -254,6 +261,9 @@ describe("offline Prisma generate", () => {
     expect(ci.match(new RegExp(helper, "gu"))).toHaveLength(3);
     expect(ci).not.toMatch(/run: pnpm db:generate/u);
     expect(ci).toContain('REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"');
+    expect(readFileSync("package.json", "utf8")).toContain(
+      '"db:generate:offline": "REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs"',
+    );
     expect(migration.match(new RegExp(helper, "gu"))).toHaveLength(2);
     expect(blueprint.match(new RegExp(helper, "gu"))).toHaveLength(2);
     expect(blueprint).toContain(
