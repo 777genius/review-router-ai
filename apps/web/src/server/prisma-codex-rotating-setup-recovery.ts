@@ -250,6 +250,7 @@ export class PrismaCodexRotatingSetupRecovery implements CodexRotatingSetupRecov
             providerInstanceRowId: provider.id,
             recoveryRequestRowId: activeOtherRequest.id,
             currentWitness,
+            now: input.now,
           }));
         if (activeOtherRequest && !maySupersedeActiveOtherRequest) {
           throw new Error("codex_rotating_setup_recovery_request_conflict");
@@ -521,14 +522,77 @@ async function findOtherActiveRecoveryRequest(
   return rows[0] ?? null;
 }
 
+function expiredConfirmedCandidatePredicate(input: {
+  readonly providerInstanceRowId: string;
+  readonly recoveryRequestRowId: string;
+  readonly currentWitness: string;
+  readonly now: Date;
+}): Prisma.Sql {
+  return Prisma.sql`
+    recovery."id" = ${input.recoveryRequestRowId}
+    AND recovery."providerInstanceRowId" = ${input.providerInstanceRowId}
+    AND recovery."state" = 'manifest_issued'
+    AND recovery."mode" IN ('forced_reseed', 'forced_reseed_account_switch')
+    AND recovery."databaseRecoveryWitness" IS NOT DISTINCT FROM ${input.currentWitness}
+    AND manifest."status" = 'fetched'
+    AND manifest."databaseRecoveryWitness" IS NOT DISTINCT FROM ${input.currentWitness}
+    AND manifest."recoveryExpiresAt" <= ${input.now}
+    AND manifest."mutationEpoch" = recovery."mutationEpoch" + 1
+    AND claim."recoveryEpoch" = manifest."mutationEpoch"
+    AND claim."status" = 'confirmed_candidate'
+    AND claim."databaseRecoveryWitness" = ${input.currentWitness}
+    AND claim."recoveryExpiresAt" <= ${input.now}
+    AND claim."confirmedAt" IS NOT NULL
+    AND claim."activatedAt" IS NULL
+    AND attempt."status" = 'confirmed'
+    AND attempt."definiteResponseCode" IN (201, 204)
+    AND attempt."confirmedAt" IS NOT NULL
+    AND namespace."status" = 'confirmed_candidate'
+    AND namespace."databaseRecoveryWitness" = ${input.currentWitness}
+    AND namespace."permanentlyRetired" = false
+    AND namespace."activatedAt" IS NULL
+    AND namespace."workflowPath" IS NULL
+    AND namespace."workflowSourceCommitSha" IS NULL
+    AND namespace."workflowSourceBlobSha" IS NULL
+    AND namespace."workflowSourceSha256" IS NULL
+    AND namespace."workflowSemanticSha256" IS NULL
+    AND namespace."workflowSourceTrust" IS NULL
+    AND namespace."workflowSchemaVersion" IS NULL
+    AND namespace."attestedRepositoryId" IS NULL
+    AND provider."mutationOwner" = 'setup'
+    AND provider."mutationOwnerId" = manifest."id"
+    AND provider."mutationEpoch" = manifest."mutationEpoch"
+    AND provider."activeLeaseId" IS NULL
+    AND provider."activeSecretNamespaceId" IS DISTINCT FROM namespace."id"
+    AND NOT EXISTS (
+      SELECT 1 FROM "CodexOAuthLease" lease
+      WHERE lease."providerInstanceRowId" = provider."id"
+        AND lease."status" IN ('preleased', 'finalized')
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM "CodexOAuthWritebackIntent" writeback
+      WHERE writeback."providerInstanceRowId" = provider."id"
+        AND writeback."status" IN ('pending', 'remote_outcome_unknown')
+        AND (writeback."status" <> 'remote_outcome_unknown'
+          OR writeback."recoveryResolvedAt" IS NULL)
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM "CodexOAuthWorkflowCompatibility" compatibility
+      WHERE compatibility."namespaceId" = namespace."id"
+    )
+  `;
+}
+
 export async function canSupersedeUnclaimedRecoveryRequest(
   tx: Prisma.TransactionClient,
   input: {
     readonly providerInstanceRowId: string;
     readonly recoveryRequestRowId: string;
     readonly currentWitness: string;
+    readonly now: Date;
   },
 ): Promise<boolean> {
+  const expiredCandidate = expiredConfirmedCandidatePredicate(input);
   const rows = await tx.$queryRaw<Array<{ readonly allowed: boolean }>>`
     SELECT EXISTS (
       SELECT 1
@@ -554,6 +618,25 @@ export async function canSupersedeUnclaimedRecoveryRequest(
           FROM "CodexOAuthSetupPayloadClaim" claim
           WHERE claim."manifestId" = manifest."id"
         )
+    ) OR EXISTS (
+      SELECT 1
+      FROM "CodexOAuthSetupRecoveryRequest" recovery
+      JOIN "CodexOAuthSetupManifest" manifest
+        ON manifest."id" = recovery."latestManifestId"
+       AND manifest."providerInstanceRowId" = recovery."providerInstanceRowId"
+      JOIN "CodexOAuthSetupPayloadClaim" claim
+        ON claim."providerInstanceRowId" = recovery."providerInstanceRowId"
+       AND claim."manifestId" = manifest."id"
+       AND claim."recoveryRequestId" = recovery."recoveryRequestId"
+      JOIN "CodexOAuthSetupDispatchAttempt" attempt
+        ON attempt."id" = claim."confirmedAttemptId"
+       AND attempt."claimId" = claim."id"
+      JOIN "CodexOAuthSecretNamespace" namespace
+        ON namespace."id" = attempt."namespaceId"
+       AND namespace."providerInstanceRowId" = recovery."providerInstanceRowId"
+      JOIN "CodexOAuthProviderInstance" provider
+        ON provider."id" = recovery."providerInstanceRowId"
+      WHERE ${expiredCandidate}
     ) AS "allowed"
   `;
   return rows[0]?.allowed === true;
@@ -597,7 +680,91 @@ export async function supersedeUnclaimedRecoveryRequest(
           )
       )
   `;
-  if (updated !== 1) {
+  if (updated === 1) return;
+  await supersedeExpiredConfirmedRecoveryRequest(tx, input);
+}
+
+export async function supersedeExpiredConfirmedRecoveryRequest(
+  tx: Prisma.TransactionClient,
+  input: {
+    readonly providerInstanceRowId: string;
+    readonly recoveryRequestRowId: string;
+    readonly currentWitness: string;
+    readonly now: Date;
+  },
+): Promise<void> {
+  const expiredCandidate = expiredConfirmedCandidatePredicate(input);
+  const rows = await tx.$queryRaw<
+    Array<{
+      readonly recoveryCount: bigint;
+      readonly attemptCount: bigint;
+      readonly claimCount: bigint;
+      readonly namespaceCount: bigint;
+    }>
+  >`
+    WITH candidate AS MATERIALIZED (
+      SELECT recovery."id" AS "recoveryId", claim."id" AS "claimId",
+             attempt."id" AS "attemptId", namespace."id" AS "namespaceId"
+      FROM "CodexOAuthSetupRecoveryRequest" recovery
+      JOIN "CodexOAuthSetupManifest" manifest
+        ON manifest."id" = recovery."latestManifestId"
+       AND manifest."providerInstanceRowId" = recovery."providerInstanceRowId"
+      JOIN "CodexOAuthSetupPayloadClaim" claim
+        ON claim."providerInstanceRowId" = recovery."providerInstanceRowId"
+       AND claim."manifestId" = manifest."id"
+       AND claim."recoveryRequestId" = recovery."recoveryRequestId"
+      JOIN "CodexOAuthSetupDispatchAttempt" attempt
+        ON attempt."id" = claim."confirmedAttemptId"
+       AND attempt."claimId" = claim."id"
+      JOIN "CodexOAuthSecretNamespace" namespace
+        ON namespace."id" = attempt."namespaceId"
+       AND namespace."providerInstanceRowId" = recovery."providerInstanceRowId"
+      JOIN "CodexOAuthProviderInstance" provider
+        ON provider."id" = recovery."providerInstanceRowId"
+      WHERE ${expiredCandidate}
+      FOR UPDATE OF recovery, manifest, claim, attempt, namespace
+    ), retired_attempt AS (
+      UPDATE "CodexOAuthSetupDispatchAttempt" attempt
+      SET "status" = 'retired_confirmed', "retiredAt" = ${input.now},
+          "updatedAt" = ${input.now}
+      FROM candidate
+      WHERE attempt."id" = candidate."attemptId" AND attempt."status" = 'confirmed'
+      RETURNING attempt."id"
+    ), retired_claim AS (
+      UPDATE "CodexOAuthSetupPayloadClaim" claim
+      SET "status" = 'retired_confirmed', "updatedAt" = ${input.now}
+      FROM candidate
+      WHERE claim."id" = candidate."claimId" AND claim."status" = 'confirmed_candidate'
+      RETURNING claim."id"
+    ), retired_namespace AS (
+      UPDATE "CodexOAuthSecretNamespace" namespace
+      SET "status" = 'retired_ambiguous', "permanentlyRetired" = true,
+          "retiredAt" = ${input.now}
+      FROM candidate
+      WHERE namespace."id" = candidate."namespaceId"
+        AND namespace."status" = 'confirmed_candidate'
+      RETURNING namespace."id"
+    ), superseded_recovery AS (
+      UPDATE "CodexOAuthSetupRecoveryRequest" recovery
+      SET "state" = 'superseded', "completedAt" = ${input.now},
+          "updatedAt" = ${input.now}
+      FROM candidate
+      WHERE recovery."id" = candidate."recoveryId"
+        AND recovery."state" = 'manifest_issued'
+      RETURNING recovery."id"
+    )
+    SELECT (SELECT count(*) FROM superseded_recovery)::bigint AS "recoveryCount",
+           (SELECT count(*) FROM retired_attempt)::bigint AS "attemptCount",
+           (SELECT count(*) FROM retired_claim)::bigint AS "claimCount",
+           (SELECT count(*) FROM retired_namespace)::bigint AS "namespaceCount"
+  `;
+  const counts = rows[0];
+  if (
+    counts?.recoveryCount !== 1n ||
+    counts.attemptCount !== 1n ||
+    counts.claimCount !== 1n ||
+    counts.namespaceCount !== 1n
+  ) {
     throw new Error("codex_rotating_setup_recovery_request_conflict");
   }
 }
