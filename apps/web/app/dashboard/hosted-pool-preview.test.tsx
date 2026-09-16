@@ -9,6 +9,7 @@ import {
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
+  usePathname: () => "/dashboard/hosted-pool-preview",
 }));
 
 function expectNoCredentialLeak(): void {
@@ -35,6 +36,10 @@ describe("hosted pool preview fixtures", () => {
 describe("HostedPoolPreviewClient", () => {
   it("renders the empty ChatGPT connect path", () => {
     render(<HostedPoolPreviewClient scenario="empty" />);
+    expect(
+      screen.getByRole("navigation", { name: "Dashboard sections" }),
+    ).toBeTruthy();
+    expect(screen.getAllByText("Repositories").length).toBeGreaterThan(0);
     expect(screen.getByText("Sign in with ChatGPT")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Start ChatGPT sign-in" }),

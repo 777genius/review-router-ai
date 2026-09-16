@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { LinkButton } from "@reviewrouter/ui";
 import { GitHubAccountAvatar } from "./github-account-avatar";
 import { GitHubSignOutButton } from "./github-sign-in-button";
+import { isDashboardOperatorPreviewPath } from "./dashboard-preview-path";
 
 type PrimaryNavItem = {
   readonly href: string;
@@ -64,7 +65,10 @@ function PrimaryNavLinks({
   readonly className: string;
 }): React.ReactElement {
   const pathname = usePathname();
-  const items = signedIn ? signedInPrimaryNav : signedOutPrimaryNav;
+  const items =
+    signedIn || isDashboardOperatorPreviewPath(pathname)
+      ? signedInPrimaryNav
+      : signedOutPrimaryNav;
 
   return (
     <nav aria-label={ariaLabel} className={className}>
@@ -97,7 +101,10 @@ export function MobilePrimaryNav({
   readonly provider: "github" | "gitlab" | null;
 }): React.ReactElement {
   const pathname = usePathname();
-  const items = signedIn ? signedInPrimaryNav : signedOutPrimaryNav;
+  const items =
+    signedIn || isDashboardOperatorPreviewPath(pathname)
+      ? signedInPrimaryNav
+      : signedOutPrimaryNav;
 
   return (
     <DropdownMenu.Root>
@@ -121,6 +128,7 @@ export function MobilePrimaryNav({
             login={login}
             avatarUrl={avatarUrl}
             provider={provider}
+            hideSignIn={isDashboardOperatorPreviewPath(pathname)}
           />
           <nav
             aria-label="Mobile primary navigation"
@@ -202,12 +210,15 @@ function MobileProfileBlock({
   login,
   avatarUrl,
   provider,
+  hideSignIn = false,
 }: {
   readonly login: string | null;
   readonly avatarUrl: string | null;
   readonly provider: "github" | "gitlab" | null;
-}): React.ReactElement {
+  readonly hideSignIn?: boolean;
+}): React.ReactElement | null {
   if (!login) {
+    if (hideSignIn) return null;
     return (
       <div className="rounded-xl border border-cyan-200/10 bg-cyan-300/[0.055] p-3">
         <p className="font-mono text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-slate-500">

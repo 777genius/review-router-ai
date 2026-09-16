@@ -1,9 +1,11 @@
 "use client";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { usePathname } from "next/navigation";
 import { LinkButton } from "@reviewrouter/ui";
 import { GitHubAccountAvatar } from "./github-account-avatar";
 import { GitHubSignOutButton } from "./github-sign-in-button";
+import { isDashboardOperatorPreviewPath } from "./dashboard-preview-path";
 
 type HeaderProfileMenuProps = {
   readonly login: string | null;
@@ -15,8 +17,10 @@ export function HeaderProfileMenu({
   login,
   avatarUrl,
   provider,
-}: HeaderProfileMenuProps): React.ReactElement {
+}: HeaderProfileMenuProps): React.ReactElement | null {
+  const pathname = usePathname();
   if (!login) {
+    if (isDashboardOperatorPreviewPath(pathname)) return null;
     return (
       <LinkButton
         href="/auth/signin?callbackUrl=%2Fdashboard"
