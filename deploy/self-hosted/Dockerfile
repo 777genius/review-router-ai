@@ -30,7 +30,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN node scripts/install-private-dependencies.mjs --frozen-lockfile \
-  && pnpm --filter @reviewrouter/platform-db db:generate \
+  && node scripts/generate-prisma-offline.mjs \
   && pnpm --filter @reviewrouter/api... --filter @reviewrouter/worker... --filter @reviewrouter/web... build \
   && node scripts/rewrite-dist-esm-imports.mjs \
   && pnpm store prune

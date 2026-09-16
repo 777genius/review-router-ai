@@ -184,7 +184,7 @@ jobs:
           [[ "$WORKER_SERVICE_ID" != "$WEB_SERVICE_ID" ]]
           corepack enable
           node scripts/install-private-dependencies.mjs --frozen-lockfile
-          pnpm db:generate
+          node scripts/generate-prisma-offline.mjs
           docker pull postgres:17-alpine >/dev/null
 
       - name: Provision roles, migrate, switch services, and resume
@@ -699,7 +699,7 @@ jobs:
           esac
           corepack enable
           node scripts/install-private-dependencies.mjs --frozen-lockfile
-          pnpm db:generate
+          node scripts/generate-prisma-offline.mjs
           pnpm --filter @reviewrouter/api... build
           node scripts/rewrite-dist-esm-imports.mjs
           docker pull postgres:17-alpine >/dev/null

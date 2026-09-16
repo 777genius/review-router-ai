@@ -113,7 +113,7 @@ jobs:
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate Prisma client
-        run: pnpm db:generate
+        run: node scripts/generate-prisma-offline.mjs
       - name: Pin PostgreSQL 17 contract image
         run: docker pull "$REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE"
       - name: Run dedicated authority contract
@@ -156,7 +156,7 @@ jobs:
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate Prisma client
-        run: pnpm db:generate
+        run: node scripts/generate-prisma-offline.mjs
       - name: Run full disposable cutover rehearsal with pinned images
         if: ${{ !inputs.activation_catalog_policy_capture }}
         env:
@@ -352,7 +352,7 @@ jobs:
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
       - name: Generate Prisma client
-        run: pnpm db:generate
+        run: node scripts/generate-prisma-offline.mjs
 
       - name: Review Action v2 protocol drift check
         run: pnpm protocol:check
