@@ -12,13 +12,36 @@ import {
   canSupersedeUnclaimedRecoveryRequest,
   PrismaCodexRotatingSetupRecovery,
   retirePriorNamespaceGeneration,
+  supersedeExpiredConfirmedRecoveryRequest,
   supersedeMismatchedActiveRecoveryRequests,
   supersedeUnclaimedRecoveryRequest,
   validateCodexRotatingSetupRecoveryAcknowledgement,
 } from "./prisma-codex-rotating-setup-recovery";
 
 const sqlText = (call: readonly unknown[]) =>
-  Array.from(call[0] as readonly string[]).join("?");
+  renderSql(call[0] as readonly string[], call.slice(1));
+
+function renderSql(
+  strings: readonly string[],
+  values: readonly unknown[],
+): string {
+  return strings
+    .map((part, index) => {
+      const value = values[index];
+      if (
+        value &&
+        typeof value === "object" &&
+        "strings" in value &&
+        Array.isArray(value.strings) &&
+        "values" in value &&
+        Array.isArray(value.values)
+      ) {
+        return part + renderSql(value.strings, value.values);
+      }
+      return part + (index < values.length ? "?" : "");
+    })
+    .join("");
+}
 const sqlValues = (call: readonly unknown[]): readonly unknown[] =>
   call.slice(1).flatMap(flattenSqlValue);
 
@@ -156,6 +179,7 @@ describe("forced setup recovery authority retirement", () => {
       providerInstanceRowId: "provider:account-switch",
       recoveryRequestRowId: "recovery-row:unclaimed",
       currentWitness: "a".repeat(64),
+      now: new Date("2026-08-14T00:00:00.000Z"),
     };
 
     await expect(
@@ -173,10 +197,87 @@ describe("forced setup recovery authority retirement", () => {
     expect(query).toContain("provider.\"mutationOwner\" = 'setup'");
     expect(query).toContain("NOT EXISTS (");
     expect(query).toContain('FROM "CodexOAuthSetupPayloadClaim" claim');
+    expect(query).toContain("claim.\"status\" = 'confirmed_candidate'");
+    expect(query).toContain('claim."recoveryExpiresAt" <= ?');
+    expect(query).toContain('manifest."recoveryExpiresAt" <= ?');
+    expect(query).toContain('attempt."definiteResponseCode" IN (201, 204)');
+    expect(query).toContain('provider."activeLeaseId" IS NULL');
+    expect(query).toContain('namespace."workflowPath" IS NULL');
+    expect(query).toContain('FROM "CodexOAuthWorkflowCompatibility"');
+  });
+
+  it("atomically retires every row of an expired confirmed candidate", async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([
+        {
+          recoveryCount: 1n,
+          attemptCount: 1n,
+          claimCount: 1n,
+          namespaceCount: 1n,
+        },
+      ]),
+    };
+    await expect(
+      supersedeExpiredConfirmedRecoveryRequest(tx as never, {
+        providerInstanceRowId: "provider:expired-candidate",
+        recoveryRequestRowId: "recovery-row:expired-candidate",
+        currentWitness: "a".repeat(64),
+        now: new Date("2026-08-14T00:00:00.000Z"),
+      }),
+    ).resolves.toBeUndefined();
+
+    const query = sqlText(tx.$queryRaw.mock.calls[0]!);
+    expect(query).toContain("WITH candidate AS MATERIALIZED");
+    expect(query).toContain("SET \"status\" = 'retired_confirmed'");
+    expect(query).toContain("SET \"status\" = 'retired_ambiguous'");
+    expect(query).toContain("SET \"state\" = 'superseded'");
+    expect(query).toContain('claim."recoveryExpiresAt" <= ?');
+    expect(query).toContain('manifest."recoveryExpiresAt" <= ?');
+    expect(query).toContain(
+      'provider."activeSecretNamespaceId" IS DISTINCT FROM namespace."id"',
+    );
+    expect(query).toContain(
+      "writeback.\"status\" IN ('pending', 'remote_outcome_unknown')",
+    );
+    expect(query).toContain('namespace."workflowSourceCommitSha" IS NULL');
+    expect(query).toContain(
+      'FROM "CodexOAuthWorkflowCompatibility" compatibility',
+    );
+  });
+
+  it("fails closed when exact expired-candidate row counts drift", async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([
+        {
+          recoveryCount: 1n,
+          attemptCount: 1n,
+          claimCount: 0n,
+          namespaceCount: 1n,
+        },
+      ]),
+    };
+    await expect(
+      supersedeExpiredConfirmedRecoveryRequest(tx as never, {
+        providerInstanceRowId: "provider:drifted-candidate",
+        recoveryRequestRowId: "recovery-row:drifted-candidate",
+        currentWitness: "b".repeat(64),
+        now: new Date("2026-08-14T00:00:00.000Z"),
+      }),
+    ).rejects.toThrow("codex_rotating_setup_recovery_request_conflict");
   });
 
   it("atomically supersedes the exact unclaimed recovery row or fails closed", async () => {
-    const tx = { $executeRaw: vi.fn().mockResolvedValueOnce(1) };
+    const tx = {
+      $executeRaw: vi.fn().mockResolvedValueOnce(1),
+      $queryRaw: vi.fn().mockResolvedValue([
+        {
+          recoveryCount: 0n,
+          attemptCount: 0n,
+          claimCount: 0n,
+          namespaceCount: 0n,
+        },
+      ]),
+    };
     const input = {
       providerInstanceRowId: "provider:account-switch",
       recoveryRequestRowId: "recovery-row:unclaimed",
