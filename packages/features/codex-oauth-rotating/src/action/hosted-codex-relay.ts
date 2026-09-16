@@ -245,7 +245,6 @@ export async function startHostedCodexRelayProxy(input: {
   let closing = false;
   let failoverReason: HostedRelayFailoverReason;
   let replayFenced = false;
-  let successfulRelayRequests = 0;
   const activeUpstreamRequests = new Set<AbortController>();
   const relaySlotWaiters: Array<() => void> = [];
   const notifyRelaySlot = () => {
@@ -412,33 +411,22 @@ export async function startHostedCodexRelayProxy(input: {
                 upstream.status >= 200 &&
                 upstream.status < 300
               ) {
-                successfulRelayRequests += 1;
                 failoverReason = undefined;
                 return;
               }
               throw writeError;
             }
             if (upstream.status === 401 || upstream.status === 429) {
-              if (
-                successfulRelayRequests === 0 &&
-                ordinal === 1 &&
-                requestCount === 1
-              ) {
-                failoverReason =
-                  upstream.status === 401
-                    ? "authentication_failed"
-                    : "quota_exhausted";
-              } else {
-                failoverReason = "ambiguous";
-              }
+              failoverReason =
+                upstream.status === 401
+                  ? "authentication_failed"
+                  : "quota_exhausted";
             } else if (responseCompletion === "successful") {
-              successfulRelayRequests += 1;
               failoverReason = undefined;
             }
           } else {
             await upstream.body?.cancel().catch(() => undefined);
             if (upstream.status >= 200 && upstream.status < 300) {
-              successfulRelayRequests += 1;
               failoverReason = undefined;
             }
           }

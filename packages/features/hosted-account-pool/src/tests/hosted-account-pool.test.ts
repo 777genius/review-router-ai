@@ -807,6 +807,42 @@ describe("invocation-bounded relay grant", () => {
     if (result.status === "denied") {
       expect(result.reason).toBe("successful_response_fence");
     }
+    expect(result.failedAccount.availability.status).toBe("quarantined");
+  });
+
+  it("cools a rate-limited account even when current-request failover is fenced", () => {
+    const primary = accountFixture("quota-primary", 0);
+    const backup = accountFixture("quota-backup", 1);
+    let grant = grantFixture([primary, backup]);
+    const requestId = relayRequestId("quota-request");
+    grant = admitRelayRequest({
+      grant,
+      requestId,
+      authority: grant.authority,
+      requestBytes: 128,
+      now,
+    }).grant;
+    grant = recordProviderResponseStarted({ grant, requestId });
+    const result = failoverCurrentRelayRequest({
+      grant,
+      requestId,
+      failedAccount: primary,
+      backupAccount: backup,
+      failure: "rate_limited",
+      effectFence: "classified_response_before_success",
+      cooldownUntil: new Date("2026-08-15T10:20:00.000Z"),
+      now,
+    });
+    expect(result.status).toBe("denied");
+    if (result.status === "denied") {
+      expect(result.reason).toBe("successful_response_fence");
+    }
+    expect(result.grant.activeAccountId).toBe(primary.id);
+    expect(result.failedAccount.availability).toEqual({
+      status: "cooldown",
+      reason: "rate_limited",
+      until: new Date("2026-08-15T10:20:00.000Z"),
+    });
   });
 
   it("allows unrelated grants to fail over concurrently without an account lease", () => {

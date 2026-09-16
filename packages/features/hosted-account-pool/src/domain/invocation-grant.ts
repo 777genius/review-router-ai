@@ -546,12 +546,18 @@ export function failoverCurrentRelayRequest(input: {
     failure: input.failure,
     effectFence: input.effectFence,
   });
+  const failedAccount = disposeFailedHostedAccount({
+    account: input.failedAccount,
+    failure: input.failure,
+    cooldownUntil: input.cooldownUntil,
+    now: input.now,
+  });
   if (!eligibility.eligible) {
     return {
       status: "denied",
       reason: eligibility.reason,
       grant: input.grant,
-      failedAccount: input.failedAccount,
+      failedAccount,
     };
   }
   if (
@@ -564,24 +570,12 @@ export function failoverCurrentRelayRequest(input: {
       status: "denied",
       reason: "backup_unhealthy",
       grant: input.grant,
-      failedAccount: input.failedAccount,
+      failedAccount,
     };
   }
   if (eligibility.accountDisposition === "none") {
     throw new Error("current_request_failover_disposition_missing");
   }
-  const failedAccount =
-    eligibility.accountDisposition === "quarantine"
-      ? quarantineHostedAccount(input.failedAccount, input.failure, input.now)
-      : coolDownHostedAccount(input.failedAccount, {
-          reason: input.failure,
-          now: input.now,
-          until:
-            input.cooldownUntil ??
-            (() => {
-              throw new Error("current_request_cooldown_until_required");
-            })(),
-        });
   return {
     status: "switched",
     grant: activateInvocationBackup({ grant: input.grant, eligibility }),
@@ -599,6 +593,28 @@ function compareAccounts(
     left.createdAt.getTime() - right.createdAt.getTime() ||
     left.id.localeCompare(right.id)
   );
+}
+
+const defaultQuotaCooldownMs = 15 * 60_000;
+
+function disposeFailedHostedAccount(input: {
+  readonly account: HostedPoolAccount;
+  readonly failure: ArProviderFailureClassification;
+  readonly cooldownUntil: Date | null;
+  readonly now: Date;
+}): HostedPoolAccount {
+  const disposition = failureDisposition(input.failure);
+  if (disposition === "quarantine") {
+    return quarantineHostedAccount(input.account, input.failure, input.now);
+  }
+  if (disposition !== "cooldown") return input.account;
+  return coolDownHostedAccount(input.account, {
+    reason: input.failure,
+    now: input.now,
+    until:
+      input.cooldownUntil ??
+      new Date(input.now.getTime() + defaultQuotaCooldownMs),
+  });
 }
 
 function failureDisposition(
