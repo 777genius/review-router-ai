@@ -1291,6 +1291,7 @@ describe("disposable dual-version rehearsal", () => {
       "000099_certified_fork_proof_facts",
       "000100_hosted_codex_device_login",
       "000101_sdk_growth_authority",
+      "000102_sdk_growth_current_authority",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1331,7 +1332,9 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000098_certified_fork_effect_archive" &&
             name !== "000099_certified_fork_proof_facts" &&
             name !== "000100_hosted_codex_device_login" &&
-            name !== "000101_sdk_growth_authority",
+            name !== "000101_sdk_growth_authority" &&
+            name !== "000102_sdk_growth_current_authority",
+          "000102_sdk_growth_current_authority",
         ),
       ),
     ).toBe(canonicalReleaseMigrationArtifact.postManifestIdentity);
@@ -1344,7 +1347,9 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000098_certified_fork_effect_archive" &&
             name !== "000099_certified_fork_proof_facts" &&
             name !== "000100_hosted_codex_device_login" &&
-            name !== "000101_sdk_growth_authority",
+            name !== "000101_sdk_growth_authority" &&
+            name !== "000102_sdk_growth_current_authority",
+          "000102_sdk_growth_current_authority",
         ),
       ),
     ).toBe(
@@ -1383,6 +1388,7 @@ describe("disposable dual-version rehearsal", () => {
     "000099_certified_fork_proof_facts",
     "000100_hosted_codex_device_login",
     "000101_sdk_growth_authority",
+    "000102_sdk_growth_current_authority",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1412,7 +1418,9 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000098_certified_fork_effect_archive" &&
                 name !== "000099_certified_fork_proof_facts" &&
                 name !== "000100_hosted_codex_device_login" &&
-                name !== "000101_sdk_growth_authority",
+                name !== "000101_sdk_growth_authority" &&
+                name !== "000102_sdk_growth_current_authority",
+              "000102_sdk_growth_current_authority",
             ),
           ),
         ).toBe(

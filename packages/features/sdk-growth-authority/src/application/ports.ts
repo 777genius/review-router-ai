@@ -35,6 +35,37 @@ export interface CurrentAuthoritySnapshotPort {
     budget: AuthorityIoBudget,
   ): Promise<CurrentAuthoritySnapshot | null>;
 }
+export type AuthorityChange =
+  | "provision"
+  | "binding-replacement"
+  | "owner-replacement"
+  | "owner-revocation"
+  | "installation-invalidation"
+  | "verifier-withdrawal";
+export interface AuthenticatedOwnerProvenance {
+  readonly issuer: string;
+  readonly subject: string;
+  readonly authenticationId: string;
+  readonly installationId: string;
+  readonly sourceDigest: string;
+  readonly authorizedSubjects: readonly string[];
+}
+export interface CanonicalAuthorityMaterial {
+  readonly binding: Binding;
+  readonly ownerEvidence: OwnerEvidence;
+  readonly provenance: AuthenticatedOwnerProvenance;
+  readonly installationActive: boolean;
+  readonly verifierActive: boolean;
+}
+/** Authenticate the operator and owner, then load independently trusted custody.
+ * Candidate request JSON must never be returned as canonical material. */
+export interface TrustedAuthorityIngestion {
+  authenticateAndLoad(
+    credential: unknown,
+    scope: AuthorityScope,
+    change: AuthorityChange,
+  ): Promise<CanonicalAuthorityMaterial>;
+}
 export interface ClockPort {
   now(): number;
 }

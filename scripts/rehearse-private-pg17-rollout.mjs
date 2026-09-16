@@ -307,6 +307,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000099_certified_fork_proof_facts",
     "000100_hosted_codex_device_login",
     "000101_sdk_growth_authority",
+    "000102_sdk_growth_current_authority",
   ]),
   retained: Object.freeze([
     "000067_review_live_progress",
