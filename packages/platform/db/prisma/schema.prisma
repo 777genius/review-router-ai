@@ -3789,3 +3789,27 @@ model CertifiedForkProofFact {
   payloadHash            String
   createdAtMs            BigInt @default(dbgenerated("(floor((EXTRACT(epoch FROM clock_timestamp()) * (1000)::numeric)))::bigint"))
 }
+
+// Durable RR-1 custody. No cascade/TTL: request and completion tombstones survive expiry.
+model SdkGrowthAuthorityScope {
+  tenantId     String                     @db.VarChar(256)
+  repositoryId String                     @db.VarChar(256)
+  pullRequest  BigInt
+  fence        BigInt                     @default(0)
+  records      SdkGrowthAuthorityRecord[]
+
+  @@id([tenantId, repositoryId, pullRequest])
+}
+
+model SdkGrowthAuthorityRecord {
+  tenantId     String                  @db.VarChar(256)
+  repositoryId String                  @db.VarChar(256)
+  pullRequest  BigInt
+  fence        BigInt
+  requestId    String                  @db.VarChar(256)
+  metadata     Json
+  scope        SdkGrowthAuthorityScope @relation(fields: [tenantId, repositoryId, pullRequest], references: [tenantId, repositoryId, pullRequest], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([tenantId, repositoryId, pullRequest, fence])
+  @@unique([tenantId, repositoryId, pullRequest, requestId], map: "SdkGrowthAuthorityRecord_request_key")
+}

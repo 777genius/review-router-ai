@@ -5,6 +5,7 @@ import type {
   AuthorityLedger,
   AuthorityScope,
   ReceiptRepositoryPort,
+  ReceiptSelection,
 } from "../application/ports.js";
 
 /** Conformance adapter only. Production composition must supply durable serializable storage. */
@@ -14,8 +15,10 @@ export class InMemoryReceiptRepository implements ReceiptRepositoryPort {
 
   async transact<T>(
     scope: AuthorityScope,
+    selection: ReceiptSelection,
     operation: (ledger: AuthorityLedger) => Promise<T>,
   ): Promise<T> {
+    const selected = structuredClone(selection);
     const key = JSON.stringify([
       scope.tenantId,
       scope.repositoryId,
@@ -29,12 +32,29 @@ export class InMemoryReceiptRepository implements ReceiptRepositoryPort {
     this.tails.set(key, tail);
     await previous;
     try {
-      const draft = structuredClone(
+      const stored = structuredClone(
         this.ledgers.get(key) ?? { fence: 0, records: [] },
       );
+      const matches = (record: AuthorityLedger["records"][number]) =>
+        "requestId" in selected
+          ? record.grant.request.requestId === selected.requestId
+          : record.grant.grantId === selected.grantId;
+      const draft = {
+        fence: stored.fence,
+        records: stored.records.filter(matches),
+      };
       const result = await operation(draft);
       const output = structuredClone(result);
-      this.ledgers.set(key, structuredClone(draft));
+      this.ledgers.set(
+        key,
+        structuredClone({
+          fence: draft.fence,
+          records: [
+            ...stored.records.filter((record) => !matches(record)),
+            ...draft.records,
+          ],
+        }),
+      );
       return output;
     } finally {
       release();

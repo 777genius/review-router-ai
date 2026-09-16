@@ -66,14 +66,17 @@ export interface AuthorityScope {
   readonly repositoryId: string;
   readonly pullRequest: number;
 }
+export type ReceiptSelection = { requestId: string } | { grantId: string };
 export interface ReceiptRepositoryPort {
   /** Serializable per scope across ALL subjects and processes; rollback on throw.
    * Reads/writes and the retained pending intent commit atomically. The callback receives
-   * a detached mutable draft; the adapter must not retain caller-owned object aliases.
+   * a detached mutable draft containing only the selected record (or none);
+   * the adapter must not retain caller-owned object aliases.
    * Fence increments must be persisted, never reset or reused. No process-local lock in production.
    * Preserve request/completion tombstones for idempotency; never reuse expired request IDs. */
   transact<T>(
     scope: AuthorityScope,
+    selection: ReceiptSelection,
     operation: (ledger: AuthorityLedger) => Promise<T>,
   ): Promise<T>;
 }

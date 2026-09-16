@@ -13,11 +13,19 @@
       "types": "./src/testing/index.ts",
       "production": "./dist/testing/index.js",
       "default": "./src/testing/index.ts"
+    },
+    "./infrastructure/prisma": {
+      "types": "./src/infrastructure/prisma/prisma-receipt-repository.ts",
+      "production": "./dist/infrastructure/prisma/prisma-receipt-repository.js",
+      "default": "./src/infrastructure/prisma/prisma-receipt-repository.ts"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --root ../../.. packages/features/sdk-growth-authority/src/tests"
+  },
+  "dependencies": {
+    "@prisma/client": "7.8.0"
   }
 }

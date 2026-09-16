@@ -635,7 +635,7 @@ describe("RR-1 authority conformance", () => {
     ).toEqual(["one", "two"]);
     const scope = { tenantId: "tenant", repositoryId: "repo", pullRequest: 42 };
     await expect(
-      f.ports.receipts.transact(scope, async (ledger) => {
+      f.ports.receipts.transact(scope, { requestId: "request" }, async (ledger) => {
         ledger.fence = 99;
         throw new Error("rollback");
       }),
