@@ -28,7 +28,7 @@ export const dashboardSectionMeta: Record<
     eyebrow: "Repository setup",
     title: "Repositories",
     description:
-      "This page lists repositories from the GitHub App or GitLab group attached to this workspace. Create setup PRs and confirm runtime health here. ChatGPT logins for reviews are on Accounts.",
+      "This page lists repositories from the GitHub App or GitLab group or project attached to this workspace. Create setup PRs and confirm runtime health here. ChatGPT logins for reviews are on Accounts.",
     navDescription: "Setup PRs and health",
   },
   memory: {

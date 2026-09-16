@@ -41,6 +41,9 @@ describe("WorkspaceSourceConnectionPanel", () => {
     expect(screen.getByText("Source of repositories")).toBeTruthy();
     expect(screen.getByText("GitHub and GitLab connection")).toBeTruthy();
     expect(
+      screen.getAllByText(/GitLab group or project/).length,
+    ).toBeGreaterThan(0);
+    expect(
       screen.getByText(/Repositories on this page come from that connection/),
     ).toBeTruthy();
     expect(
