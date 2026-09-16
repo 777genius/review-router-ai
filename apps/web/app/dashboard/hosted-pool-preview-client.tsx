@@ -1,6 +1,5 @@
 "use client";
 
-import { Badge } from "@reviewrouter/ui";
 import { DashboardCollapsibleShell } from "./dashboard-collapsible-shell";
 import {
   DASHBOARD_SECTIONS,
@@ -9,6 +8,7 @@ import {
 } from "./dashboard-section";
 import { DashboardSectionTabs } from "./dashboard-section-tabs";
 import { HostedPoolSettingsPanel } from "./hosted-pool-settings";
+import { HostedSessionEncryptionBadge } from "./hosted-session-encryption-mark";
 import {
   buildHostedPoolPreviewFlight,
   buildHostedPoolPreviewView,
@@ -46,7 +46,7 @@ export function HostedPoolPreviewClient({
             {setup.description}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Badge tone="success">Encrypted at rest</Badge>
+            <HostedSessionEncryptionBadge label="Encrypted at rest" />
           </div>
         </section>
         <HostedPoolSettingsPanel

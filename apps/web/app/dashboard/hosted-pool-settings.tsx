@@ -15,6 +15,7 @@ import {
   type HostedPoolDeviceLoginPollResult,
   type HostedPoolDeviceLoginStartResult,
 } from "./hosted-pool-device-login";
+import { HostedSessionEncryptionBadge } from "./hosted-session-encryption-mark";
 
 type HostedPoolSettingsActions = Readonly<{
   importAccount: DashboardActionFormAction;
@@ -74,6 +75,7 @@ export function HostedPoolSettingsPanel({
             <h3 className="text-sm font-semibold text-cyan-50">
               ChatGPT accounts for reviews
             </h3>
+            <HostedSessionEncryptionBadge size="xs" label="Encrypted at rest" />
             <Badge tone={hasHealthyAccount ? "success" : "warning"}>
               {poolStatusLabel({
                 enrolled,
@@ -87,22 +89,22 @@ export function HostedPoolSettingsPanel({
             {enrolled ? (
               hasHealthyAccount ? (
                 <>
-                  ReviewRouter encrypts each ChatGPT session before it is
-                  stored. Sessions never go to the browser, and a session is
-                  decrypted only to run a review. Add more accounts for
-                  capacity. Pause or remove one without affecting the others.
+                  We encrypt each ChatGPT session before it is stored. Sessions
+                  never go to the browser, and a session is decrypted only to
+                  run a review. Add more accounts for capacity. Pause or remove
+                  one without affecting the others.
                 </>
               ) : (
                 <>
                   None of these accounts are ready for reviews right now. Use
-                  one again or sign in with ChatGPT again. Sessions stay
-                  encrypted on the server and are never sent to the browser.
+                  one again or sign in with ChatGPT again. We keep sessions
+                  encrypted on the server; they never go to the browser.
                 </>
               )
             ) : (
               <>
-                Connect ChatGPT so ReviewRouter can run hosted reviews. Each
-                session is encrypted before it is stored. Sessions never go to
+                Connect ChatGPT so ReviewRouter can run hosted reviews. We
+                encrypt each session before it is stored. Sessions never go to
                 the browser, and we only decrypt a session to run a review.
                 Upload a local{" "}
                 <span className="whitespace-nowrap font-mono">auth.json</span>{" "}
@@ -199,8 +201,8 @@ function HostedPoolAuthJsonFallback({
       </summary>
       <p className="mt-3 text-xs leading-5 text-slate-500">
         Run <span className="font-mono">codex login</span> locally, then upload{" "}
-        <span className="font-mono">~/.codex/auth.json</span>. The file is
-        encrypted before it is stored. Sessions never go to the browser.
+        <span className="font-mono">~/.codex/auth.json</span>. We encrypt the
+        file before it is stored. Sessions never go to the browser.
       </p>
       <DashboardActionForm
         action={importAccount}

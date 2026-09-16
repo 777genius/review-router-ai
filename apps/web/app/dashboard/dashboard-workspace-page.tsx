@@ -165,6 +165,7 @@ import {
   HostedPoolSettingsPanel,
   RepositorySessionSourceSelector,
 } from "./hosted-pool-settings";
+import { HostedSessionEncryptionBadge } from "./hosted-session-encryption-mark";
 import {
   isHostedWorkspacePoolSessionReady,
   loadHostedPoolDashboardView,
@@ -2480,9 +2481,7 @@ function DashboardSectionHeader({
         ? `${activeConfig.provider.model} / ${activeConfig.provider.reasoningEffort}`
         : selectedSection === "memory"
           ? "Confirm before use"
-          : selectedSection === "setup"
-            ? "Encrypted at rest"
-            : "Metadata only";
+          : "Metadata only";
 
   return (
     <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
@@ -2521,10 +2520,15 @@ function DashboardSectionHeader({
         </div>
         {selectedSection === "repositories" ? null : (
           <div className="flex flex-wrap gap-2 xl:justify-end">
+            {selectedSection === "setup" ? (
+              <HostedSessionEncryptionBadge label="Encrypted at rest" />
+            ) : null}
             <Badge tone={workspaceHealth.tone}>{workspaceHealth.label}</Badge>
-            <Badge tone="neutral" className="max-w-full break-words">
-              {status}
-            </Badge>
+            {selectedSection === "setup" ? null : (
+              <Badge tone="neutral" className="max-w-full break-words">
+                {status}
+              </Badge>
+            )}
           </div>
         )}
       </div>

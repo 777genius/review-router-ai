@@ -9,6 +9,7 @@ import {
   DashboardActionForm,
   type DashboardActionFormAction,
 } from "./dashboard-action-form";
+import { HostedSessionEncryptionBadge } from "./hosted-session-encryption-mark";
 
 type HostedAccountCardModel = HostedPoolDashboardView["accounts"][number];
 
@@ -103,6 +104,7 @@ function HostedPoolAccountCard({
             >
               {safeAccountStateLabel(state)}
             </Badge>
+            <HostedSessionEncryptionBadge size="xs" />
           </div>
         </div>
       </div>

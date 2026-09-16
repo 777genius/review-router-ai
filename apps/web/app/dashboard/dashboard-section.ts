@@ -42,7 +42,7 @@ export const dashboardSectionMeta: Record<
     eyebrow: "ChatGPT",
     title: "Accounts",
     description:
-      "Connect ChatGPT for hosted reviews. Each session is encrypted before it is stored, never sent to the browser, and decrypted only to run a review.",
+      "We encrypt every ChatGPT session before it is stored. Sessions never go to the browser, and we decrypt only to run a review.",
     navDescription: "Encrypted ChatGPT sessions",
   },
   policy: {

@@ -41,6 +41,7 @@ describe("HostedPoolPreviewClient", () => {
     ).toBeTruthy();
     expect(screen.getAllByText("Repositories").length).toBeGreaterThan(0);
     expect(screen.getByText("Sign in with ChatGPT")).toBeTruthy();
+    expect(screen.getAllByText(/encrypted at rest/i).length).toBeGreaterThan(0);
     expect(
       screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
     ).toBeTruthy();

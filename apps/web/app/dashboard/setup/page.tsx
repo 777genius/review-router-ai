@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = createNoIndexPageMetadata({
   title: "Accounts",
   description:
-    "Encrypted ChatGPT accounts for hosted reviews. Sessions stay on ReviewRouter servers and never go to the browser.",
+    "We encrypt ChatGPT accounts for hosted reviews. Sessions stay on ReviewRouter servers and never go to the browser.",
 });
 
 export default async function DashboardSetupPage({
