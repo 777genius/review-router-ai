@@ -20,18 +20,12 @@ export function DashboardCollapsibleShell({
       className={[
         "grid min-w-0 gap-5 transition-[grid-template-columns] duration-200 ease-out",
         collapsed
-          ? "lg:grid-cols-[minmax(0,1fr)]"
+          ? "lg:grid-cols-[auto_minmax(0,1fr)]"
           : "lg:grid-cols-[18rem_minmax(0,1fr)]",
       ].join(" ")}
     >
-      <div
-        id="dashboard-section-sidebar"
-        className={collapsed ? "block lg:hidden" : "block"}
-      >
-        {nav}
-      </div>
-      <div className="min-w-0">
-        <div className="mb-3 hidden justify-end lg:flex">
+      <div className="min-w-0 lg:self-start">
+        <div className="mb-2 hidden lg:flex lg:px-5">
           <Button
             type="button"
             variant="outline"
@@ -49,8 +43,14 @@ export function DashboardCollapsibleShell({
             {collapsed ? "Show sidebar" : "Hide sidebar"}
           </Button>
         </div>
-        {children}
+        <div
+          id="dashboard-section-sidebar"
+          className={collapsed ? "block lg:hidden" : "block"}
+        >
+          {nav}
+        </div>
       </div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }

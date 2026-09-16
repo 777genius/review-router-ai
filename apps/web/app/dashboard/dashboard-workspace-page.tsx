@@ -3019,7 +3019,7 @@ function RepositoryTable({
                 data-disclosure-id={setupDisclosureId}
                 hidden={!initiallyVisibleRepositoryIds.has(repository.id)}
                 className={[
-                  "grid cursor-pointer gap-4 border-t border-cyan-200/10 px-4 py-5 transition-colors first:border-t-0 lg:px-6 lg:py-6",
+                  "grid cursor-pointer gap-3 border-t border-cyan-200/10 px-4 py-3 transition-colors first:border-t-0 lg:px-6 lg:py-3.5",
                   rowStripeClass,
                 ].join(" ")}
               >
@@ -3037,25 +3037,25 @@ function RepositoryTable({
                     disclosureId={setupDisclosureId}
                   />
                 ) : null}
-                <div className="repository-setup-row-header grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                <div className="repository-setup-row-header grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <span
                       title={`${
                         repository.provider === "gitlab" ? "GitLab" : "GitHub"
                       } repository`}
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-cyan-200/15 bg-cyan-300/[0.07]"
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-cyan-200/15 bg-cyan-300/[0.07]"
                     >
                       <SourceProviderLogo
                         provider={
                           repository.provider === "gitlab" ? "gitlab" : "github"
                         }
-                        className="h-[1.125rem] w-[1.125rem]"
+                        className="h-3.5 w-3.5"
                       />
                     </span>
                     <RepositoryNameLink
                       fullName={repository.fullName}
                       repositoryUrl={repositoryUrl}
-                      className="min-w-0 break-words text-xl font-semibold leading-tight text-cyan-50 sm:text-2xl xl:text-[1.65rem]"
+                      className="min-w-0 break-words text-sm font-semibold leading-snug text-cyan-50 sm:text-[0.95rem]"
                     />
                     <Badge tone="neutral">
                       {repository.provider === "gitlab" ? "GitLab" : "GitHub"}
