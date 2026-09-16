@@ -1663,3 +1663,14 @@ exit 17
     });
   });
 });
+
+it("keeps certified-fork schema 6 rendering disabled", () => {
+  expect(() =>
+    renderCodexRotatingAdvisoryWorkflow({
+      actionRef: `777genius/review-router@${"a".repeat(40)}`,
+      apiUrl: "https://api.reviewrouter.site",
+      providerInstanceId: "codex-rotating:123456",
+      workflowSchemaVersion: 6,
+    }),
+  ).toThrow("codex_rotating_t0_workflow_schema_unsupported");
+});
