@@ -29,6 +29,8 @@ import {
   encodeCodexRotatingSetupManifest,
   encryptCodexRotatingAuthForGitHubSecret,
   InMemoryCodexRotatingLeaseStore,
+  isCertifiedForkCodexWorkflowSchemaVersion,
+  isVersionedSecretNamespaceCodexWorkflowSchemaVersion,
   isClientTriggeredT0WorkflowSchemaVersion,
   parseCodexRotatingEncryptedWritebackRequest,
   pruneCodexRotatingChildEnv,
@@ -243,6 +245,30 @@ function writeExecutable(path: string, content: string): void {
 }
 
 describe("Codex rotating auth domain", () => {
+  it("recognizes only the reserved certified-fork v6 schema", () => {
+    expect(
+      isCertifiedForkCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.CertifiedForkReviewV6,
+      ),
+    ).toBe(true);
+    expect(isCertifiedForkCodexWorkflowSchemaVersion(99)).toBe(false);
+    expect(
+      isCertifiedForkCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+      ),
+    ).toBe(false);
+    expect(
+      isVersionedSecretNamespaceCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+      ),
+    ).toBe(true);
+    expect(
+      isVersionedSecretNamespaceCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.CertifiedForkReviewV6,
+      ),
+    ).toBe(false);
+    expect(CodexRotatingT0WorkflowSchemaVersion.DurableDispatchV1).toBe(1);
+  });
   it("classifies only client-triggered T0 schema versions", () => {
     expect(
       isClientTriggeredT0WorkflowSchemaVersion(
