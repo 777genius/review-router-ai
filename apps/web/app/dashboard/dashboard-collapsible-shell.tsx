@@ -26,12 +26,12 @@ export function DashboardCollapsibleShell({
     >
       <div
         id="dashboard-section-sidebar"
-        className={["min-w-0", collapsed ? "hidden" : "block"].join(" ")}
+        className={collapsed ? "block lg:hidden" : "block"}
       >
         {nav}
       </div>
       <div className="min-w-0">
-        <div className="mb-3 flex justify-end">
+        <div className="mb-3 hidden justify-end lg:flex">
           <Button
             type="button"
             variant="outline"

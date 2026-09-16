@@ -25,7 +25,10 @@ describe("DashboardCollapsibleShell", () => {
         ?.className.includes("hidden"),
     ).toBe(true);
 
-    const toggle = screen.getByRole("button", { name: "Show sidebar" });
+    const toggle = screen.getByRole("button", {
+      name: "Show sidebar",
+      hidden: true,
+    });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
 
     fireEvent.click(toggle);
@@ -38,7 +41,7 @@ describe("DashboardCollapsibleShell", () => {
     ).toBe(true);
     expect(
       screen
-        .getByRole("button", { name: "Hide sidebar" })
+        .getByRole("button", { name: "Hide sidebar", hidden: true })
         .getAttribute("aria-expanded"),
     ).toBe("true");
   });

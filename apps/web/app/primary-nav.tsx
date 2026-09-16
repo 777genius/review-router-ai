@@ -29,14 +29,45 @@ export function PrimaryNav({
 }: {
   readonly signedIn: boolean;
 }): React.ReactElement {
+  return (
+    <PrimaryNavLinks
+      signedIn={signedIn}
+      ariaLabel="Primary navigation"
+      className="hidden w-full min-w-0 gap-2 font-mono text-xs uppercase tracking-[0.16em] lg:flex lg:w-auto lg:justify-center"
+    />
+  );
+}
+
+export function CompactPrimaryNav({
+  signedIn,
+}: {
+  readonly signedIn: boolean;
+}): React.ReactElement {
+  return (
+    <div className="border-t border-cyan-200/10 lg:hidden">
+      <PrimaryNavLinks
+        signedIn={signedIn}
+        ariaLabel="Primary navigation"
+        className="mx-auto flex w-full min-w-0 max-w-7xl flex-wrap items-center gap-1 px-4 py-2 font-mono text-xs uppercase tracking-[0.16em] sm:px-6"
+      />
+    </div>
+  );
+}
+
+function PrimaryNavLinks({
+  signedIn,
+  ariaLabel,
+  className,
+}: {
+  readonly signedIn: boolean;
+  readonly ariaLabel: string;
+  readonly className: string;
+}): React.ReactElement {
   const pathname = usePathname();
   const items = signedIn ? signedInPrimaryNav : signedOutPrimaryNav;
 
   return (
-    <nav
-      aria-label="Primary navigation"
-      className="hidden w-full min-w-0 gap-2 font-mono text-xs uppercase tracking-[0.16em] lg:flex lg:w-auto lg:justify-center"
-    >
+    <nav aria-label={ariaLabel} className={className}>
       {items.map((item) => {
         const active = isActivePath(pathname, item.activePath ?? item.href);
         return (

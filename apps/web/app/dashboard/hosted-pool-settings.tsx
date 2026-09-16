@@ -69,7 +69,7 @@ export function HostedPoolSettingsPanel({
   return (
     <section className="border-t border-cyan-200/10 pt-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-sm font-semibold text-cyan-50">
               ChatGPT accounts for reviews
@@ -83,7 +83,7 @@ export function HostedPoolSettingsPanel({
               })}
             </Badge>
           </div>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300 break-words">
             {enrolled ? (
               hasHealthyAccount ? (
                 <>
