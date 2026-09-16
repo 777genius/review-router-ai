@@ -65,6 +65,12 @@ export interface HostedPoolDashboardMutationPort {
     readonly expectedVersion: number;
     readonly requestedAt: Date;
   }): Promise<void>;
+  removeAccount(input: {
+    readonly workspaceId: string;
+    readonly accountId: string;
+    readonly expectedVersion: number;
+    readonly requestedAt: Date;
+  }): Promise<void>;
   setRepositorySource(input: {
     readonly workspaceId: string;
     readonly repositoryId: string;
@@ -277,6 +283,21 @@ export async function changeHostedPoolAccountState(
 ): Promise<void> {
   await authorizeAndEntitle(input.workspaceId, dependencies);
   await dependencies.mutations.setAccountState({
+    ...input,
+    requestedAt: dependencies.now(),
+  });
+}
+
+export async function removeHostedPoolAccount(
+  input: {
+    readonly workspaceId: string;
+    readonly accountId: string;
+    readonly expectedVersion: number;
+  },
+  dependencies: HostedPoolDashboardMutationDependencies,
+): Promise<void> {
+  await authorizeAndEntitle(input.workspaceId, dependencies);
+  await dependencies.mutations.removeAccount({
     ...input,
     requestedAt: dependencies.now(),
   });

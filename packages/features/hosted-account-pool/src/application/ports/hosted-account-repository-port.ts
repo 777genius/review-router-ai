@@ -17,4 +17,9 @@ export interface HostedAccountRepositoryPort {
     readonly account: HostedPoolAccount;
     readonly expectedHealthVersion: number;
   }): Promise<boolean>;
+  tombstone(input: {
+    readonly account: HostedPoolAccount;
+    readonly expectedHealthVersion: number;
+    readonly now: Date;
+  }): Promise<boolean>;
 }

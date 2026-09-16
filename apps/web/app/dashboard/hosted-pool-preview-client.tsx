@@ -25,6 +25,7 @@ export function HostedPoolPreviewClient({
       actions={{
         importAccount: noopAction,
         setAccountState: noopAction,
+        removeAccount: noopAction,
         setRepositorySource: noopAction,
         startDeviceLogin: async () => ({
           ok: true,

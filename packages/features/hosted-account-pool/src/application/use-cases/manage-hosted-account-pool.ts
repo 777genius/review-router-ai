@@ -145,6 +145,30 @@ export async function setHostedAccountAvailability(
   return updated;
 }
 
+export async function tombstoneHostedAccount(
+  input: {
+    readonly accountId: HostedAccountId;
+    readonly expectedHealthVersion: number;
+    readonly now: Date;
+  },
+  accounts: HostedAccountRepositoryPort,
+): Promise<void> {
+  const current = await accounts.findById(input.accountId);
+  if (!current) throw new Error("hosted_account_not_found");
+  if (current.healthVersion !== input.expectedHealthVersion) {
+    throw new Error("hosted_account_health_version_conflict");
+  }
+  if (
+    !(await accounts.tombstone({
+      account: current,
+      expectedHealthVersion: input.expectedHealthVersion,
+      now: input.now,
+    }))
+  ) {
+    throw new Error("hosted_account_health_version_conflict");
+  }
+}
+
 function transitionAvailability(
   account: HostedPoolAccount,
   availability: HostedAccountAvailability,

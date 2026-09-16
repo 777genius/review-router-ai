@@ -61,7 +61,7 @@ describe("HostedPoolDeviceLogin", () => {
     );
 
     expect(screen.getByText("Sign in with ChatGPT")).toBeTruthy();
-    expect(screen.getByPlaceholderText("Primary")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Work laptop")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
     ).toBeTruthy();
@@ -88,7 +88,7 @@ describe("HostedPoolDeviceLogin", () => {
         pollAction={pollAction}
       />,
     );
-    fireEvent.change(screen.getByPlaceholderText("Primary"), {
+    fireEvent.change(screen.getByPlaceholderText("Work laptop"), {
       target: { value: "Primary" },
     });
     fireEvent.click(
@@ -132,11 +132,11 @@ describe("HostedPoolDeviceLogin", () => {
       screen.getByRole("button", { name: "Add another ChatGPT account" }),
     ).toBeTruthy();
     expect(screen.getByText(/never go to the browser/i)).toBeTruthy();
-    expect(screen.queryByPlaceholderText("Primary")).toBeNull();
+    expect(screen.queryByPlaceholderText("Work laptop")).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "Add another ChatGPT account" }),
     );
-    fireEvent.change(screen.getByPlaceholderText("Primary"), {
+    fireEvent.change(screen.getByPlaceholderText("Work laptop"), {
       target: { value: "Primary" },
     });
     fireEvent.click(

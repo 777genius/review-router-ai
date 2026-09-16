@@ -47,6 +47,9 @@ function fixture() {
     saveAvailability: async () => {
       throw new Error("replacement must preserve pause");
     },
+    tombstone: async () => {
+      throw new Error("replacement must preserve pause");
+    },
   };
   return {
     account,

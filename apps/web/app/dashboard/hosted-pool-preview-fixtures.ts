@@ -37,9 +37,24 @@ export function buildHostedPoolPreviewView(
   if (scenario === "enrolled") {
     return {
       gate: "enabled",
-      pool: previewPool({ accountCount: 1, healthyAccountCount: 1 }),
+      pool: previewPool({ accountCount: 3, healthyAccountCount: 2 }),
       accounts: [
-        previewAccount({ id: "account-primary" as never, label: "Primary" }),
+        previewAccount({
+          id: "account-primary" as never,
+          label: "Iliya",
+          priority: 10,
+        }),
+        previewAccount({
+          id: "account-backup" as never,
+          label: "Reviews spare",
+          priority: 20,
+        }),
+        previewAccount({
+          id: "account-weekend" as never,
+          label: "Weekend",
+          priority: 30,
+          availability: { status: "paused", reason: "operator" },
+        }),
       ],
       repositories: [],
     };
@@ -48,11 +63,18 @@ export function buildHostedPoolPreviewView(
   if (scenario === "paused") {
     return {
       gate: "enabled",
-      pool: previewPool({ accountCount: 1, healthyAccountCount: 0 }),
+      pool: previewPool({ accountCount: 2, healthyAccountCount: 0 }),
       accounts: [
         previewAccount({
           id: "account-primary" as never,
-          label: "Primary",
+          label: "Iliya",
+          priority: 10,
+          availability: { status: "paused", reason: "operator" },
+        }),
+        previewAccount({
+          id: "account-backup" as never,
+          label: "Reviews spare",
+          priority: 20,
           availability: { status: "paused", reason: "operator" },
         }),
       ],
@@ -62,11 +84,17 @@ export function buildHostedPoolPreviewView(
 
   return {
     gate: "enabled",
-    pool: previewPool({ accountCount: 1, healthyAccountCount: 0 }),
+    pool: previewPool({ accountCount: 2, healthyAccountCount: 1 }),
     accounts: [
       previewAccount({
+        id: "account-primary" as never,
+        label: "Iliya",
+        priority: 10,
+      }),
+      previewAccount({
         id: "account-expired" as never,
-        label: "Expired session",
+        label: "Old laptop",
+        priority: 20,
         availability: { status: "quarantined", reason: "real_401" },
       }),
     ],

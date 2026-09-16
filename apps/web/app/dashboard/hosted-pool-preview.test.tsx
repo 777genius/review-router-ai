@@ -53,16 +53,19 @@ describe("HostedPoolPreviewClient", () => {
 
   it("renders enrolled and paused account cards", () => {
     const enrolled = render(<HostedPoolPreviewClient scenario="enrolled" />);
-    expect(screen.getByText("Used first")).toBeTruthy();
+    expect(screen.getByText("1st in line")).toBeTruthy();
+    expect(screen.getByText("2nd in line")).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Stop using for reviews" }),
-    ).toBeTruthy();
+      screen.getAllByRole("button", { name: "Remove account" }).length,
+    ).toBe(3);
+    expect(screen.getByText("2 of 3 ready")).toBeTruthy();
     enrolled.unmount();
 
     render(<HostedPoolPreviewClient scenario="paused" />);
+    expect(screen.getByText("None ready")).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Use for reviews again" }),
-    ).toBeTruthy();
+      screen.getAllByRole("button", { name: "Use for reviews again" }).length,
+    ).toBe(2);
     expectNoCredentialLeak();
   });
 });

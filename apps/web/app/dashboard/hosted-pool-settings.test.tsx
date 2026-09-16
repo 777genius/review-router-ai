@@ -21,6 +21,7 @@ const actions = {
     params: { error: "hosted_pool_action_failed" },
   }),
   setAccountState: action,
+  removeAccount: action,
   setRepositorySource: action,
 };
 
@@ -89,13 +90,11 @@ describe("HostedPoolSettingsPanel", () => {
       screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
     ).toBeTruthy();
     expect(screen.queryByText("Add another ChatGPT account")).toBeNull();
-    expect(
-      screen.queryByRole("heading", { name: "Connected accounts" }),
-    ).toBeNull();
+    expect(screen.queryByRole("heading", { name: "1 account" })).toBeNull();
     expect(screen.getByText(/Connect ChatGPT to get started/)).toBeTruthy();
     expect(screen.getByText("Upload auth.json fallback")).toBeTruthy();
     expect(screen.getByPlaceholderText("Fallback session")).toBeTruthy();
-    expect(screen.queryByPlaceholderText("Primary")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Work laptop")).toBeTruthy();
     expect(fallbackPriorityInput()?.value).toBe("100");
     expect(
       screen.getAllByText(/never go to the browser/i).length,
@@ -125,21 +124,20 @@ describe("HostedPoolSettingsPanel", () => {
     expect(
       screen.getByRole("heading", { name: "ChatGPT accounts for reviews" }),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", { name: "Connected accounts" }),
-    ).toBeTruthy();
-    expect(screen.getByText("ChatGPT session")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "1 account" })).toBeTruthy();
+    expect(screen.getByText("ChatGPT")).toBeTruthy();
     expect(screen.getByText("Primary")).toBeTruthy();
-    expect(screen.getByText("Used first")).toBeTruthy();
+    expect(screen.getByText("1st in line")).toBeTruthy();
     expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
     expect(screen.getByText(/Last validated/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Stop using for reviews" }),
-    ).toBeTruthy();
+      screen.getAllByRole("button", { name: "Remove account" }).length,
+    ).toBe(1);
     expect(
       screen.getByRole("button", { name: "Add another ChatGPT account" }),
     ).toBeTruthy();
-    expect(screen.queryByPlaceholderText("Primary")).toBeNull();
+    expect(screen.queryByPlaceholderText("Work laptop")).toBeNull();
     expect(screen.queryByText(/Connect ChatGPT to get started/)).toBeNull();
     expect(screen.getByPlaceholderText("Fallback session")).toBeTruthy();
     expect(fallbackPriorityInput()?.value).toBe("100");
@@ -165,7 +163,7 @@ describe("HostedPoolSettingsPanel", () => {
       screen.getByRole("button", { name: "Add another ChatGPT account" }),
     );
     expect(screen.getByText("Sign in with ChatGPT")).toBeTruthy();
-    expect(screen.getByPlaceholderText("Primary")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Work laptop")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
     ).toBeTruthy();
@@ -191,7 +189,8 @@ describe("HostedPoolSettingsPanel", () => {
       repositories: [],
     });
 
-    expect(screen.getByText("Used first")).toBeTruthy();
+    expect(screen.getByText("1st in line")).toBeTruthy();
+    expect(screen.getByText("2nd in line")).toBeTruthy();
     expect(screen.getByText("Backup")).toBeTruthy();
     expectNoRawPriority();
     expectNoCredentialLeak();
@@ -211,17 +210,17 @@ describe("HostedPoolSettingsPanel", () => {
       repositories: [],
     });
 
-    expect(screen.getByText("Paused")).toBeTruthy();
-    expect(screen.queryByText("Used first")).toBeNull();
-    expect(screen.getByText(/none are ready for reviews/)).toBeTruthy();
+    expect(screen.getByText("Not ready")).toBeTruthy();
+    expect(screen.queryByText("1st in line")).toBeNull();
+    expect(
+      screen.getByText(/none of these accounts are ready for reviews/i),
+    ).toBeTruthy();
     expect(screen.queryByText(/These ChatGPT accounts run reviews/)).toBeNull();
     expect(
       screen.getByRole("button", { name: "Use for reviews again" }),
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Stop using for reviews" }),
-    ).toBeNull();
-    expect(screen.getByText(/Paused by an operator/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    expect(screen.getByText(/You paused this account/)).toBeTruthy();
     expectNoRawPriority();
     expectNoCredentialLeak();
   });
@@ -241,9 +240,10 @@ describe("HostedPoolSettingsPanel", () => {
       repositories: [],
     });
 
-    expect(screen.getByText(/Session needs attention/)).toBeTruthy();
     expect(
-      screen.getByText(/Refresh is due for this ChatGPT session/),
+      screen.getByText(
+        /This ChatGPT needs a refresh before ReviewRouter can keep using it/,
+      ),
     ).toBeTruthy();
     expect(screen.getByText(/Session expires/)).toBeTruthy();
     expect(screen.getByText(/Dec 1, 2026/)).toBeTruthy();
@@ -265,14 +265,32 @@ describe("HostedPoolSettingsPanel", () => {
     });
 
     expect(screen.getByText("Needs reconnect")).toBeTruthy();
-    expect(screen.getByText(/ChatGPT rejected this session/)).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Stop using for reviews" }),
-    ).toBeNull();
+    expect(screen.getByText(/ChatGPT rejected this login/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Use for reviews again" }),
     ).toBeNull();
     expectNoCredentialLeak();
+  });
+
+  it("asks before removing an account", () => {
+    renderPanel({
+      gate: "enabled",
+      pool: null,
+      accounts: [account({ id: "account-1" as never, label: "Primary" })],
+      repositories: [],
+    });
+
+    expect(screen.queryByRole("button", { name: "Yes, remove" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Remove account" }));
+    expect(screen.getByText(/Remove Primary/)).toBeTruthy();
+    expect(
+      screen.getByText(/cannot add this same ChatGPT later/i),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Yes, remove" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep account" }));
+    expect(screen.queryByRole("button", { name: "Yes, remove" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Remove account" })).toBeTruthy();
   });
 
   it("disables pause and add when mutations are off", () => {
@@ -289,7 +307,14 @@ describe("HostedPoolSettingsPanel", () => {
     expect(
       (
         screen.getByRole("button", {
-          name: "Stop using for reviews",
+          name: "Pause",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Remove account",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);

@@ -87,6 +87,7 @@ import {
   pollHostedPoolDeviceLoginClientAction,
   startHostedPoolDeviceLoginClientAction,
   setHostedPoolAccountStateClientAction,
+  removeHostedPoolAccountClientAction,
   setHostedRepositorySessionSourceClientAction,
 } from "./actions";
 import { getGitHubAppInstallUrl } from "../../src/server/github-app-install-url";
@@ -2076,6 +2077,7 @@ function WorkspaceCard({
                   startDeviceLogin: startHostedPoolDeviceLoginClientAction,
                   pollDeviceLogin: pollHostedPoolDeviceLoginClientAction,
                   setAccountState: setHostedPoolAccountStateClientAction,
+                  removeAccount: removeHostedPoolAccountClientAction,
                   setRepositorySource:
                     setHostedRepositorySessionSourceClientAction,
                 }}

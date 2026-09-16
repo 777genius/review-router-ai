@@ -381,6 +381,9 @@ describe("invocation-bounded relay grant", () => {
           async saveAvailability() {
             return true;
           },
+          async tombstone() {
+            return true;
+          },
         },
         grants: {
           async findByInvocationId() {

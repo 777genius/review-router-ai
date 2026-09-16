@@ -1,4 +1,7 @@
-import { Badge } from "@reviewrouter/ui";
+"use client";
+
+import { useState } from "react";
+import { Badge, Button } from "@reviewrouter/ui";
 import { MonitorSmartphone } from "lucide-react";
 import type { HostedPoolDashboardView } from "../../src/server/hosted-pool-dashboard";
 import { FormSubmitButton } from "../form-submit-button";
@@ -13,14 +16,16 @@ export function HostedPoolAccountCards({
   workspaceId,
   accounts,
   setAccountState,
+  removeAccount,
   mutationsEnabled,
 }: {
   readonly workspaceId: string;
   readonly accounts: HostedPoolDashboardView["accounts"];
   readonly setAccountState: DashboardActionFormAction;
+  readonly removeAccount: DashboardActionFormAction;
   readonly mutationsEnabled: boolean;
 }): React.ReactElement {
-  const primaryAccountId = primaryAccount(accounts)?.id;
+  const lineup = lineupRanks(accounts);
   return (
     <ul className="grid gap-3">
       {accounts.map((account) => (
@@ -28,8 +33,9 @@ export function HostedPoolAccountCards({
           <HostedPoolAccountCard
             workspaceId={workspaceId}
             account={account}
-            primary={account.id === primaryAccountId}
+            lineupRank={lineup.get(String(account.id)) ?? null}
             setAccountState={setAccountState}
+            removeAccount={removeAccount}
             mutationsEnabled={mutationsEnabled}
           />
         </li>
@@ -41,14 +47,16 @@ export function HostedPoolAccountCards({
 function HostedPoolAccountCard({
   workspaceId,
   account,
-  primary,
+  lineupRank,
   setAccountState,
+  removeAccount,
   mutationsEnabled,
 }: {
   readonly workspaceId: string;
   readonly account: HostedAccountCardModel;
-  readonly primary: boolean;
+  readonly lineupRank: number | null;
   readonly setAccountState: DashboardActionFormAction;
+  readonly removeAccount: DashboardActionFormAction;
   readonly mutationsEnabled: boolean;
 }): React.ReactElement {
   const state = account.availability.status;
@@ -56,11 +64,12 @@ function HostedPoolAccountCard({
   const canTogglePause = state === "healthy" || state === "paused";
   const reason = availabilityReasonText(account.availability);
   const needsAttention = accountNeedsAttention(account);
+  const [removing, setRemoving] = useState(false);
   return (
     <article
       className={[
         "rounded-2xl border p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
-        cardSurfaceClass(account, primary),
+        cardSurfaceClass(account, lineupRank === 1),
       ].join(" ")}
     >
       <div className="flex min-w-0 items-start gap-3">
@@ -72,19 +81,19 @@ function HostedPoolAccountCard({
         </span>
         <div className="min-w-0">
           <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
-            ChatGPT session
+            ChatGPT
           </p>
           <h4 className="mt-1 truncate text-base font-semibold text-cyan-50">
             {account.label}
           </h4>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {primary && state === "healthy" ? (
+            {lineupRank ? (
               <Badge
                 size="xs"
                 tone="accent"
                 className="border-cyan-200/45 bg-cyan-300/15 px-2.5 py-1 text-[0.62rem] tracking-[0.14em] text-cyan-50"
               >
-                Used first
+                {lineupRankLabel(lineupRank)}
               </Badge>
             ) : null}
             <Badge
@@ -137,8 +146,8 @@ function HostedPoolAccountCard({
         ) : null}
       </dl>
 
-      {canTogglePause ? (
-        <div className="mt-4">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {canTogglePause && !removing ? (
           <DashboardActionForm
             action={setAccountState}
             fallbackParams={{
@@ -163,28 +172,89 @@ function HostedPoolAccountCard({
               variant="outline"
               size="sm"
               disabled={!mutationsEnabled}
-              idleLabel={
-                paused ? "Use for reviews again" : "Stop using for reviews"
-              }
+              idleLabel={paused ? "Use for reviews again" : "Pause"}
               pendingLabel="Saving..."
             />
           </DashboardActionForm>
-        </div>
-      ) : null}
+        ) : null}
+        {removing ? (
+          <div className="w-full rounded-xl border border-red-300/20 bg-red-300/[0.05] px-3 py-3">
+            <p className="text-sm leading-5 text-red-50">
+              Remove {account.label}? Reviews will skip it. You cannot add this
+              same ChatGPT later.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <DashboardActionForm
+                action={removeAccount}
+                fallbackParams={{
+                  error: "hosted_pool_action_failed",
+                  workspace: workspaceId,
+                  section: "setup",
+                }}
+              >
+                <input type="hidden" name="workspaceId" value={workspaceId} />
+                <input
+                  type="hidden"
+                  name="accountId"
+                  value={String(account.id)}
+                />
+                <input
+                  type="hidden"
+                  name="expectedVersion"
+                  value={account.healthVersion}
+                />
+                <FormSubmitButton
+                  variant="outline"
+                  size="sm"
+                  className="text-red-200"
+                  disabled={!mutationsEnabled}
+                  idleLabel="Yes, remove"
+                  pendingLabel="Removing..."
+                />
+              </DashboardActionForm>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setRemoving(false)}
+              >
+                Keep account
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="text-red-200"
+            disabled={!mutationsEnabled}
+            onClick={() => setRemoving(true)}
+          >
+            Remove account
+          </Button>
+        )}
+      </div>
     </article>
   );
 }
 
-function primaryAccount(
+function lineupRanks(
   accounts: HostedPoolDashboardView["accounts"],
-): HostedAccountCardModel | undefined {
-  return accounts.reduce<HostedAccountCardModel | undefined>(
-    (current, account) => {
-      if (!current || account.priority < current.priority) return account;
-      return current;
-    },
-    undefined,
+): ReadonlyMap<string, number> {
+  const ready = [...accounts]
+    .filter((account) => account.availability.status === "healthy")
+    .sort((left, right) => left.priority - right.priority);
+  return new Map(
+    ready.map((account, index) => [String(account.id), index + 1]),
   );
+}
+
+function lineupRankLabel(rank: number): string {
+  if (rank === 1) return "1st in line";
+  if (rank === 2) return "2nd in line";
+  if (rank === 3) return "3rd in line";
+  return `${rank}th in line`;
 }
 
 function accountNeedsAttention(account: HostedAccountCardModel): boolean {
@@ -262,21 +332,19 @@ function attentionCopy(
   reason: string | null,
 ): string {
   if (account.refreshDue && account.availability.status === "healthy") {
-    return "Session needs attention. Refresh is due for this ChatGPT session.";
+    return "This ChatGPT needs a refresh before ReviewRouter can keep using it.";
   }
   if (account.availability.status === "quarantined") {
     return reason
-      ? `Session needs attention. ${reason} Sign in with ChatGPT again if you need a replacement session.`
-      : "Session needs attention. Sign in with ChatGPT again if you need a replacement session.";
+      ? `${reason} Sign in with ChatGPT again to replace it.`
+      : "Sign in with ChatGPT again to replace this account.";
   }
   if (account.availability.status === "cooldown") {
     return reason
-      ? `Session needs attention. ${reason}`
-      : "Session needs attention. This session is cooling down.";
+      ? reason
+      : "This ChatGPT is cooling down. Reviews will skip it until it is available again.";
   }
-  return reason
-    ? `Session needs attention. ${reason}`
-    : "Session needs attention.";
+  return reason ?? "This ChatGPT needs attention before reviews can use it.";
 }
 
 function availabilityReasonText(
@@ -289,11 +357,11 @@ function availabilityReasonText(
     case "Operator":
     case "operator_paused":
     case "paused":
-      return "Paused by an operator.";
+      return "You paused this account. Reviews skip it until you use it again.";
     case "real_401":
-      return "ChatGPT rejected this session.";
+      return "ChatGPT rejected this login.";
     case "expiry":
-      return "The ChatGPT session expired.";
+      return "This ChatGPT login expired.";
     case "rate_limited":
       return "Temporarily rate limited.";
     case "provider_cooldown":

@@ -162,7 +162,7 @@ export function HostedPoolDeviceLogin({
           required
           maxLength={80}
           autoComplete="off"
-          placeholder="Primary"
+          placeholder="Work laptop"
           className={fieldClassName}
         />
       </label>
@@ -182,8 +182,8 @@ export function HostedPoolDeviceLogin({
       {imported ? (
         <ActionToast
           tone="success"
-          title="Hosted Codex account added"
-          body="The ChatGPT session is enrolled in this workspace pool. Credentials stay on the server."
+          title="ChatGPT connected"
+          body="ReviewRouter detected the login. This account is ready for reviews. Credentials stay on the server."
         />
       ) : null}
       {error ? (
@@ -396,6 +396,8 @@ function deviceLoginErrorText(error: string): string {
       return "The ChatGPT session could not be imported. Start a new sign-in or upload a fresh auth.json.";
     case "hosted_pool_device_login_provider_unavailable":
       return "ChatGPT sign-in is temporarily unavailable. Try again shortly, or upload auth.json.";
+    case "hosted_account_subject_already_enrolled":
+      return "This ChatGPT is already on the list, or it was removed and cannot be added again.";
     case "not_workspace_admin":
     case "workspace_mutation_forbidden":
       return "Your GitHub user is not an owner/admin for this workspace.";

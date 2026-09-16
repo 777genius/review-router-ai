@@ -25,6 +25,7 @@ type HostedPoolSettingsActions = Readonly<{
     formData: FormData,
   ) => Promise<HostedPoolDeviceLoginPollResult>;
   setAccountState: DashboardActionFormAction;
+  removeAccount: DashboardActionFormAction;
   setRepositorySource: DashboardActionFormAction;
 }>;
 
@@ -74,31 +75,29 @@ export function HostedPoolSettingsPanel({
               ChatGPT accounts for reviews
             </h3>
             <Badge tone={hasHealthyAccount ? "success" : "warning"}>
-              {hasHealthyAccount
-                ? "Ready"
-                : enrolled
-                  ? "Not ready"
-                  : "Connect ChatGPT"}
+              {poolStatusLabel({
+                enrolled,
+                hasHealthyAccount,
+                healthy,
+                total,
+              })}
             </Badge>
-            {enrolled ? (
-              <Badge tone="neutral">{readyCountLabel(healthy, total)}</Badge>
-            ) : null}
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
             {enrolled ? (
               hasHealthyAccount ? (
                 <>
-                  These ChatGPT accounts run reviews for opted-in GitHub
-                  repositories. ReviewRouter stores the session and transiently
-                  relays model prompts, tool results, and responses. Credentials
-                  stay on the server and never go to the browser.
+                  ReviewRouter can use any ready ChatGPT account in this
+                  workspace for opted-in GitHub repositories. Add more accounts
+                  if you need extra capacity. Pause or remove one without
+                  affecting the others. Credentials stay on the server and never
+                  go to the browser.
                 </>
               ) : (
                 <>
-                  These ChatGPT accounts are connected, but none are ready for
-                  reviews right now. Resume or reconnect a session before hosted
-                  reviews can run. Credentials stay on the server and never go
-                  to the browser.
+                  None of these accounts are ready for reviews right now. Use
+                  one again or sign in with ChatGPT again. Credentials stay on
+                  the server and never go to the browser.
                 </>
               )
             ) : (
@@ -126,12 +125,12 @@ export function HostedPoolSettingsPanel({
           header={
             <div>
               <h3 className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                Connected accounts
+                {total === 1 ? "1 account" : `${total} accounts`}
               </h3>
               <p className="mt-1 text-xs leading-5 text-slate-500">
                 {hasHealthyAccount
-                  ? "ReviewRouter uses these ChatGPT accounts for reviews."
-                  : "Resume or reconnect a session before ReviewRouter can run reviews."}
+                  ? "Reviews use ready accounts first, then the next one in line."
+                  : "Use one for reviews again, or sign in with ChatGPT again."}
               </p>
             </div>
           }
@@ -140,6 +139,7 @@ export function HostedPoolSettingsPanel({
             workspaceId={workspaceId}
             accounts={view.accounts}
             setAccountState={actions.setAccountState}
+            removeAccount={actions.removeAccount}
             mutationsEnabled={mutationsEnabled}
           />
         </HostedPoolDeviceLogin>
@@ -162,12 +162,21 @@ export function HostedPoolSettingsPanel({
   );
 }
 
-function readyCountLabel(healthy: number, total: number): string {
-  if (total <= 0) return "No accounts yet";
-  if (healthy === total) {
-    return total === 1 ? "1 account ready" : `${total} accounts ready`;
+function poolStatusLabel(input: {
+  readonly enrolled: boolean;
+  readonly hasHealthyAccount: boolean;
+  readonly healthy: number;
+  readonly total: number;
+}): string {
+  if (!input.enrolled) return "Connect ChatGPT";
+  if (input.total <= 0) return "No accounts yet";
+  if (input.healthy === 0) {
+    return input.total === 1 ? "Not ready" : "None ready";
   }
-  return `${healthy} of ${total} ready`;
+  if (input.healthy === input.total) {
+    return input.total === 1 ? "1 ready" : `${input.total} ready`;
+  }
+  return `${input.healthy} of ${input.total} ready`;
 }
 
 function HostedPoolAuthJsonFallback({
