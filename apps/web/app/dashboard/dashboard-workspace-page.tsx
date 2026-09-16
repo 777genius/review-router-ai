@@ -80,7 +80,6 @@ import {
 import { getPrisma } from "../../src/server/prisma";
 import {
   refreshRepositoryAccessClientAction,
-  requestInstallationSyncClientAction,
   retryOutboxEventClientAction,
   enableOrgRulesetWorkflowClientAction,
   importHostedPoolAccountClientAction,
@@ -161,6 +160,7 @@ import {
 import { DashboardCollapsibleShell } from "./dashboard-collapsible-shell";
 import { DashboardActionForm } from "./dashboard-action-form";
 import { repositorySourceUrl } from "./repository-source-url";
+import { WorkspaceSourceConnectionPanel } from "./workspace-source-connection";
 import {
   HostedPoolSettingsPanel,
   RepositorySessionSourceSelector,
@@ -176,7 +176,6 @@ import {
   dashboardNoticeText,
   dashboardNoticeTitle,
   dashboardNoticeTone,
-  formatAccountTypeLabel,
   isProviderSecretCheckError,
   isSetupRecoveryIssue,
   orgRulesetErrorText,
@@ -1607,7 +1606,7 @@ function DashboardSectionNav({
       <div className="hidden gap-4 lg:sticky lg:top-24 lg:grid">
         <div className="px-1 py-1">
           <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Current account
+            Current workspace
           </p>
           <div className="mt-2 flex min-w-0 items-center gap-3">
             <GitHubAccountAvatar
@@ -1782,6 +1781,15 @@ function WorkspaceCard({
 
         {selectedSection === "repositories" ? (
           <>
+            <WorkspaceSourceConnectionPanel
+              workspaceId={workspace.id}
+              workspaceKey={workspaceKey}
+              installations={activeInstallations}
+              gitLabInstallations={workspace.gitLabInstallations}
+              repositories={repositories}
+              hasWorkspaceWideAccess={hasWorkspaceWideAccess}
+              mutationsEnabled={mutationsEnabled}
+            />
             <RepositoryTable
               workspace={workspace}
               repositories={repositories}
@@ -1810,6 +1818,19 @@ function WorkspaceCard({
                 mutationsEnabled && hasWorkspaceWideAccess
               }
             />
+            {hasWorkspaceWideAccess ? (
+              <OrgRulesetAdvancedCard
+                workspace={workspace}
+                orgRuleset={orgRuleset}
+                mutationsEnabled={mutationsEnabled}
+                appInstallUrl={appInstallUrl}
+                permissionUpgradeNeeded={
+                  readParam(params.error) === "org_admin_permission_required" ||
+                  readParam(params.error) ===
+                    "org_ruleset_permission_update_pending"
+                }
+              />
+            ) : null}
           </>
         ) : null}
 
@@ -1828,301 +1849,32 @@ function WorkspaceCard({
         ) : null}
 
         {selectedSection === "setup" ? (
-          <>
-            <details
-              open
-              className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
-            >
-              <summary className="cursor-pointer list-none">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <Badge tone="accent">
-                      <SourceProviderLabel
-                        provider="github"
-                        label="GitHub App connection"
-                      />
-                    </Badge>
-                    <p className="mt-2 text-sm text-slate-400">
-                      Installation sync and repository selection.
-                    </p>
-                  </div>
-                  <span className="font-mono text-xs uppercase tracking-[0.16em] text-cyan-100">
-                    {activeInstallations.length} connected
-                  </span>
-                </div>
-              </summary>
-              <div className="mt-5 grid gap-3 lg:grid-cols-2">
-                <div className="rounded-2xl border border-cyan-200/10 bg-cyan-300/[0.04] p-4 text-sm leading-6 text-slate-300">
-                  <p className="inline-flex items-center gap-2 font-semibold text-cyan-50">
-                    <SourceProviderLogo provider="github" className="h-4 w-4" />
-                    GitHub personal account vs organization
-                  </p>
-                  <p className="mt-1">
-                    To connect a personal repository, install the GitHub App on
-                    your username in GitHub. To connect organization
-                    repositories, install it on the organization. Each install
-                    appears as a separate workspace in the left switcher.
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-orange-300/20 bg-orange-300/[0.045] p-4 text-sm leading-6 text-slate-300">
-                  <p className="inline-flex items-center gap-2 font-semibold text-cyan-50">
-                    <SourceProviderLogo provider="gitlab" className="h-4 w-4" />
-                    GitLab group or project
-                  </p>
-                  <p className="mt-1">
-                    Connect GitLab from a group or project URL. ReviewRouter
-                    keeps GitLab tokens in GitLab CI/CD variables, not in the
-                    dashboard.
-                  </p>
-                  <LinkButton
-                    href={`/setup/gitlab?workspaceId=${encodeURIComponent(workspace.id)}`}
-                    variant="outline"
-                    size="sm"
-                    className="mt-3 border-orange-300/35"
-                  >
-                    <SourceProviderLabel
-                      provider="gitlab"
-                      label="Connect GitLab"
-                    />
-                  </LinkButton>
-                </div>
-              </div>
-              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {activeInstallations.map((installation) => {
-                  const selectedRepositories = repositories
-                    .filter(
-                      (repository) =>
-                        repository.selected &&
-                        repository.fullName.startsWith(
-                          `${installation.accountLogin}/`,
-                        ),
-                    )
-                    .map((repository) => repository.fullName);
-                  const visibleSelectedRepositories =
-                    selectedRepositories.slice(0, 6);
-                  const hiddenSelectedRepositoryCount =
-                    selectedRepositories.length -
-                    visibleSelectedRepositories.length;
-
-                  return (
-                    <div
-                      key={`${workspace.id}-${installation.githubInstallationId}`}
-                      className="grid gap-4 rounded-2xl border border-cyan-200/10 bg-cyan-300/[0.04] p-4"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <GitHubAccountAvatar
-                          avatarUrl={installation.accountAvatarUrl}
-                          login={installation.accountLogin}
-                          size="sm"
-                        />
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-cyan-50">
-                            {installation.accountLogin}
-                          </p>
-                          <p className="inline-flex flex-wrap items-center gap-1.5 text-xs uppercase tracking-[0.16em] text-slate-400">
-                            <SourceProviderLabel
-                              provider="github"
-                              label="GitHub"
-                              className="inline-flex items-center gap-1.5"
-                              logoClassName="h-3.5 w-3.5"
-                            />
-                            <span>/</span>
-                            {formatAccountTypeLabel(
-                              installation.accountType,
-                            )}{" "}
-                            <span>/</span>
-                            {installation.status} /{" "}
-                            {installation.repositorySelection}
-                          </p>
-                        </div>
-                      </div>
-                      {installation.accountType === "Organization" ? (
-                        <div className="rounded-xl border border-cyan-200/10 bg-slate-950/55 p-3">
-                          <p className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-cyan-100/70">
-                            Selected repositories
-                          </p>
-                          {installation.repositorySelection === "all" ? (
-                            <p className="mt-2 text-xs leading-5 text-slate-300">
-                              All organization repositories are available. Setup
-                              and secrets still apply only to the repository you
-                              choose.
-                            </p>
-                          ) : visibleSelectedRepositories.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {visibleSelectedRepositories.map(
-                                (repositoryFullName) => (
-                                  <span
-                                    key={repositoryFullName}
-                                    className="rounded-full border border-cyan-300/15 bg-cyan-300/[0.08] px-2.5 py-1 text-[0.7rem] font-semibold text-cyan-50"
-                                  >
-                                    {repositoryFullName}
-                                  </span>
-                                ),
-                              )}
-                              {hiddenSelectedRepositoryCount > 0 ? (
-                                <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[0.7rem] font-semibold text-slate-300">
-                                  +{hiddenSelectedRepositoryCount} more
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <p className="mt-2 text-xs leading-5 text-slate-300">
-                              Refresh repositories to show the exact selected
-                              repository list if the GitHub webhook has not
-                              synced it yet.
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="rounded-xl border border-cyan-200/10 bg-slate-950/55 p-3">
-                          <p className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-cyan-100/70">
-                            Personal repositories
-                          </p>
-                          <p className="mt-2 text-xs leading-5 text-slate-300">
-                            This install belongs to your personal GitHub
-                            account. Use repository Actions secrets for provider
-                            credentials.
-                          </p>
-                        </div>
-                      )}
-                      {hasWorkspaceWideAccess ? (
-                        <DashboardActionForm
-                          action={requestInstallationSyncClientAction}
-                          fallbackParams={{
-                            error: "dashboard_action_failed",
-                            workspace: workspace.id,
-                            section: "setup",
-                          }}
-                          refresh={false}
-                        >
-                          <input
-                            type="hidden"
-                            name="workspaceId"
-                            value={workspace.id}
-                          />
-                          <input
-                            type="hidden"
-                            name="githubInstallationId"
-                            value={installation.githubInstallationId}
-                          />
-                          <FormSubmitButton
-                            variant="outline"
-                            size="sm"
-                            className="w-full sm:w-auto"
-                            disabled={
-                              !mutationsEnabled ||
-                              installation.status !== "active"
-                            }
-                            idleLabel="Refresh repos"
-                            pendingLabel="Refreshing..."
-                          />
-                        </DashboardActionForm>
-                      ) : (
-                        <p className="rounded-xl border border-cyan-200/10 bg-slate-950/55 p-3 text-xs leading-5 text-slate-400">
-                          You can manage repositories where your GitHub role has
-                          write, maintain, or admin access. Workspace sync and
-                          organization-wide controls are available to workspace
-                          owners and admins.
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </details>
-
-            {workspace.gitLabInstallations.length > 0 ? (
-              <details
-                open
-                className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
-              >
-                <summary className="cursor-pointer list-none">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <Badge tone="accent">GitLab connection</Badge>
-                      <p className="mt-2 text-sm text-slate-400">
-                        Group and project rollout metadata.
-                      </p>
-                    </div>
-                    <span className="font-mono text-xs uppercase tracking-[0.16em] text-cyan-100">
-                      {workspace.gitLabInstallations.length} connected
-                    </span>
-                  </div>
-                </summary>
-                <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {workspace.gitLabInstallations.map((installation) => (
-                    <div
-                      key={installation.id}
-                      className="grid gap-4 rounded-2xl border border-cyan-200/10 bg-cyan-300/[0.04] p-4"
-                    >
-                      <div>
-                        <p className="truncate text-sm font-semibold text-cyan-50">
-                          {installation.namespacePath}
-                        </p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-400">
-                          GitLab {installation.sourceKind} /{" "}
-                          {installation.status}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-cyan-200/10 bg-slate-950/55 p-3">
-                        <p className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-cyan-100/70">
-                          Selected projects
-                        </p>
-                        <p className="mt-2 text-xs leading-5 text-slate-300">
-                          {installation.selectedProjects} project
-                          {installation.selectedProjects === 1 ? "" : "s"}{" "}
-                          selected. GitLab token and Codex auth are not stored
-                          in ReviewRouter.
-                        </p>
-                      </div>
-                      <LinkButton
-                        href={gitLabSetupHref({
-                          workspaceId: workspace.id,
-                          installationId: installation.id,
-                        })}
-                        variant="outline"
-                        size="sm"
-                        className="w-fit rounded-xl"
-                      >
-                        Add GitLab repos
-                      </LinkButton>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            ) : null}
-
-            {hasWorkspaceWideAccess ? (
-              <HostedPoolSettingsPanel
-                workspaceId={workspace.id}
-                view={hostedPool}
-                mutationsEnabled={mutationsEnabled}
-                actions={{
-                  importAccount: importHostedPoolAccountClientAction,
-                  startDeviceLogin: startHostedPoolDeviceLoginClientAction,
-                  pollDeviceLogin: pollHostedPoolDeviceLoginClientAction,
-                  setAccountState: setHostedPoolAccountStateClientAction,
-                  removeAccount: removeHostedPoolAccountClientAction,
-                  setRepositorySource:
-                    setHostedRepositorySessionSourceClientAction,
-                }}
-              />
-            ) : null}
-
-            {hasWorkspaceWideAccess ? (
-              <OrgRulesetAdvancedCard
-                workspace={workspace}
-                orgRuleset={orgRuleset}
-                mutationsEnabled={mutationsEnabled}
-                appInstallUrl={appInstallUrl}
-                permissionUpgradeNeeded={
-                  readParam(params.error) === "org_admin_permission_required" ||
-                  readParam(params.error) ===
-                    "org_ruleset_permission_update_pending"
-                }
-              />
-            ) : null}
-          </>
+          hasWorkspaceWideAccess ? (
+            <HostedPoolSettingsPanel
+              workspaceId={workspace.id}
+              view={hostedPool}
+              mutationsEnabled={mutationsEnabled}
+              actions={{
+                importAccount: importHostedPoolAccountClientAction,
+                startDeviceLogin: startHostedPoolDeviceLoginClientAction,
+                pollDeviceLogin: pollHostedPoolDeviceLoginClientAction,
+                setAccountState: setHostedPoolAccountStateClientAction,
+                removeAccount: removeHostedPoolAccountClientAction,
+                setRepositorySource:
+                  setHostedRepositorySessionSourceClientAction,
+              }}
+            />
+          ) : (
+            <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+              <h3 className="text-sm font-semibold text-cyan-50">
+                ChatGPT accounts for reviews
+              </h3>
+              <p className="mt-3 text-sm leading-6 text-slate-400">
+                Only workspace owners and admins can connect ChatGPT sessions.
+                GitHub and GitLab repository connections are on Repositories.
+              </p>
+            </section>
+          )
         ) : null}
 
         {selectedSection === "policy" ? (
@@ -3700,7 +3452,7 @@ function OrgRulesetAdvancedCard({
               fallbackParams={{
                 error: "dashboard_action_failed",
                 workspace: workspace.id,
-                section: "setup",
+                section: "repositories",
               }}
               className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-[minmax(0,18rem)_minmax(0,18rem)_auto] 2xl:items-end"
             >
@@ -3969,17 +3721,6 @@ function DashboardActionToast({
       setUrlSearchParams={{ section: selectedSection }}
     />
   );
-}
-
-function gitLabSetupHref(input: {
-  readonly workspaceId: string;
-  readonly installationId: string;
-}): string {
-  const query = new URLSearchParams({
-    workspaceId: input.workspaceId,
-    installationId: input.installationId,
-  });
-  return `/setup/gitlab?${query.toString()}`;
 }
 
 function resolveMemoryManagementMode(

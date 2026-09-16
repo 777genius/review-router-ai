@@ -28,7 +28,7 @@ export const dashboardSectionMeta: Record<
     eyebrow: "Repository setup",
     title: "Repositories",
     description:
-      "Create setup PRs, confirm runtime health, and see what needs attention before reviews run.",
+      "This page lists repositories from the GitHub App or GitLab group attached to this workspace. Create setup PRs and confirm runtime health here. ChatGPT logins for reviews are on Accounts.",
     navDescription: "Setup PRs and health",
   },
   memory: {
@@ -136,7 +136,7 @@ export function resolveDashboardSection(
     return "repositories";
   }
   if (notice === "org_ruleset_queued") {
-    return "setup";
+    return "repositories";
   }
   if (
     [
