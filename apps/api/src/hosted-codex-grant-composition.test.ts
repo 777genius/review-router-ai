@@ -543,6 +543,7 @@ function createFixture(
       findBySubjectFingerprint: vi.fn(),
       replaceCredential: vi.fn(),
       saveAvailability: vi.fn(),
+      tombstone: vi.fn(),
     },
     grants: {
       findByInvocationId: vi
