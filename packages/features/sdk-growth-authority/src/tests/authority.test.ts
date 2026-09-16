@@ -924,7 +924,11 @@ describe("bounded transaction I/O", () => {
         pullRequest: 42,
       };
       const ledger = () =>
-        f.ports.receipts.transact(scope, async (draft) => draft);
+        f.ports.receipts.transact(
+          scope,
+          { requestId: f.request.requestId },
+          async (draft) => draft,
+        );
       const before = await ledger();
       let release!: () => void;
       const paused = new Promise<void>((resolve) => {
