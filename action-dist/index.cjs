@@ -316,9 +316,168 @@ __export(github_action_exports, {
   startHostedCodexRelayProxy: () => startHostedCodexRelayProxy
 });
 module.exports = __toCommonJS(github_action_exports);
+
+// packages/features/codex-oauth-rotating/src/action/certified-fork-lifecycle.ts
+var import_node_fs = require("node:fs");
+var import_types = require("node:util/types");
+var bindingFieldNames = [
+  "sourceRepository",
+  "sourceRepositoryId",
+  "baseRepository",
+  "baseRepositoryId",
+  "pullRequestNumber",
+  "reviewHeadSha",
+  "baseSha",
+  "trustDomain"
+];
+var repositoryFullNamePattern = /^[^\s/\p{Cc}]+\/[^\s/\p{Cc}]+$/u;
+var repositoryIdPattern = /^[1-9][0-9]*$/;
+var shaPattern = /^[a-f0-9]{40}$/;
+function parseCertifiedForkReviewBinding(input) {
+  if (typeof input !== "object" || input === null || (0, import_types.isProxy)(input) || Array.isArray(input)) {
+    unavailable();
+  }
+  const prototype = Object.getPrototypeOf(input);
+  if (prototype !== Object.prototype && prototype !== null) {
+    unavailable();
+  }
+  const ownKeys = Reflect.ownKeys(input);
+  if (ownKeys.length !== bindingFieldNames.length || ownKeys.some((key) => typeof key !== "string") || bindingFieldNames.some((fieldName) => !ownKeys.includes(fieldName))) {
+    unavailable();
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(input);
+  const values = {};
+  for (const fieldName of bindingFieldNames) {
+    const descriptor = descriptors[fieldName];
+    if (descriptor === void 0 || descriptor.enumerable !== true || !("value" in descriptor)) {
+      unavailable();
+    }
+    values[fieldName] = descriptor.value;
+  }
+  if (typeof values.sourceRepository !== "string" || !repositoryFullNamePattern.test(values.sourceRepository) || typeof values.sourceRepositoryId !== "string" || !repositoryIdPattern.test(values.sourceRepositoryId) || typeof values.baseRepository !== "string" || !repositoryFullNamePattern.test(values.baseRepository) || typeof values.baseRepositoryId !== "string" || !repositoryIdPattern.test(values.baseRepositoryId) || typeof values.pullRequestNumber !== "number" || !Number.isSafeInteger(values.pullRequestNumber) || values.pullRequestNumber <= 0 || typeof values.reviewHeadSha !== "string" || !shaPattern.test(values.reviewHeadSha) || typeof values.baseSha !== "string" || !shaPattern.test(values.baseSha) || values.trustDomain !== "fork" || values.sourceRepositoryId === values.baseRepositoryId || values.sourceRepository === values.baseRepository) {
+    unavailable();
+  }
+  return Object.freeze({
+    sourceRepository: values.sourceRepository,
+    sourceRepositoryId: values.sourceRepositoryId,
+    baseRepository: values.baseRepository,
+    baseRepositoryId: values.baseRepositoryId,
+    pullRequestNumber: values.pullRequestNumber,
+    reviewHeadSha: values.reviewHeadSha,
+    baseSha: values.baseSha,
+    trustDomain: values.trustDomain
+  });
+}
+var certifiedForkActionMode = "fork_prompt_only_v2";
+var certifiedForkAdmissionUnavailable = "certified-fork-admission-unavailable: certified fork admission unavailable; no review performed";
+var certifiedForkEventMaxBytes = 1024 * 1024;
+function unavailable() {
+  throw new Error(certifiedForkAdmissionUnavailable);
+}
+function assertCertifiedForkModeSchema(env) {
+  if (env.INPUT_MODE !== certifiedForkActionMode || (env["INPUT_WORKFLOW-SCHEMA-VERSION"] ?? env.INPUT_WORKFLOW_SCHEMA_VERSION) !== "6" || env["INPUT_WORKFLOW-SCHEMA-VERSION"] !== void 0 && env.INPUT_WORKFLOW_SCHEMA_VERSION !== void 0 && env["INPUT_WORKFLOW-SCHEMA-VERSION"] !== env.INPUT_WORKFLOW_SCHEMA_VERSION)
+    unavailable();
+}
+function record(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    unavailable();
+  }
+  return value;
+}
+function positiveId(value) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    unavailable();
+  }
+  return value;
+}
+function repository(value) {
+  const repo = record(value);
+  if (typeof repo.full_name !== "string" || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9_.-]{1,100}$/.test(
+    repo.full_name
+  ) || [".", ".."].includes(repo.full_name.split("/")[1]) || repo.private !== false) {
+    unavailable();
+  }
+  return { name: repo.full_name, id: positiveId(repo.id), fork: repo.fork };
+}
+function readCertifiedForkInvocation(eventJson, env) {
+  try {
+    assertCertifiedForkModeSchema(env);
+    if (env.GITHUB_EVENT_NAME !== "pull_request_target" || Buffer.byteLength(eventJson, "utf8") > certifiedForkEventMaxBytes)
+      unavailable();
+    const event = record(JSON.parse(eventJson));
+    if (typeof event.action !== "string" || !["opened", "reopened", "synchronize", "ready_for_review"].includes(
+      event.action
+    )) {
+      unavailable();
+    }
+    const pr2 = record(event.pull_request);
+    if (pr2.draft !== false || pr2.state !== "open") unavailable();
+    const base = record(pr2.base);
+    const head = record(pr2.head);
+    const baseRepo = repository(base.repo);
+    const headRepo = repository(head.repo);
+    const eventRepo = repository(event.repository);
+    if (headRepo.fork !== true || headRepo.id === baseRepo.id || headRepo.name.toLowerCase() === baseRepo.name.toLowerCase() || baseRepo.name !== eventRepo.name || baseRepo.id !== eventRepo.id || baseRepo.name !== env.GITHUB_REPOSITORY || String(baseRepo.id) !== env.GITHUB_REPOSITORY_ID || positiveId(event.number) !== positiveId(pr2.number) || head.sha === pr2.merge_commit_sha || base.sha === pr2.merge_commit_sha) {
+      unavailable();
+    }
+    return parseCertifiedForkReviewBinding({
+      sourceRepository: headRepo.name,
+      sourceRepositoryId: String(headRepo.id),
+      baseRepository: baseRepo.name,
+      baseRepositoryId: String(baseRepo.id),
+      pullRequestNumber: positiveId(pr2.number),
+      reviewHeadSha: head.sha,
+      baseSha: base.sha,
+      trustDomain: "fork"
+    });
+  } catch {
+    unavailable();
+  }
+}
+function runCertifiedForkAdmissionBoundary(env) {
+  let fd;
+  try {
+    assertCertifiedForkModeSchema(env);
+    if (env.GITHUB_EVENT_NAME !== "pull_request_target" || !env.GITHUB_EVENT_PATH)
+      unavailable();
+    fd = (0, import_node_fs.openSync)(
+      env.GITHUB_EVENT_PATH,
+      import_node_fs.constants.O_RDONLY | import_node_fs.constants.O_NOFOLLOW | import_node_fs.constants.O_NONBLOCK
+    );
+    const stat2 = (0, import_node_fs.fstatSync)(fd);
+    if (!stat2.isFile() || stat2.size > certifiedForkEventMaxBytes) unavailable();
+    const bytes = Buffer.alloc(certifiedForkEventMaxBytes + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const count = (0, import_node_fs.readSync)(fd, bytes, length, bytes.length - length, null);
+      if (count === 0) break;
+      length += count;
+    }
+    if (length > certifiedForkEventMaxBytes) unavailable();
+    readCertifiedForkInvocation(
+      new TextDecoder("utf-8", { fatal: true }).decode(
+        bytes.subarray(0, length)
+      ),
+      env
+    );
+  } catch {
+    unavailable();
+  } finally {
+    if (fd !== void 0) {
+      try {
+        (0, import_node_fs.closeSync)(fd);
+      } catch {
+        unavailable();
+      }
+    }
+  }
+  unavailable();
+}
+
+// packages/features/codex-oauth-rotating/src/action/github-action.ts
 var import_node_child_process2 = require("node:child_process");
 var import_node_crypto7 = require("node:crypto");
-var import_node_fs2 = require("node:fs");
+var import_node_fs3 = require("node:fs");
 var import_node_http2 = __toESM(require("node:http"), 1);
 
 var RuntimeConfigurationError = class extends Error {
@@ -1710,7 +1869,7 @@ var codexJsonAgentCapabilities = {
   agentId: codexJsonAgentId
 };
 
-var import_node_fs = require("node:fs");
+var import_node_fs2 = require("node:fs");
 var import_node_crypto2 = require("node:crypto");
 var import_node_path2 = require("node:path");
 
@@ -2058,7 +2217,7 @@ function availableExecutableDirs(env) {
 }
 function isExecutable(path) {
   try {
-    (0, import_node_fs.accessSync)(path, import_node_fs.constants.X_OK);
+    (0, import_node_fs2.accessSync)(path, import_node_fs2.constants.X_OK);
     return true;
   } catch {
     return false;
@@ -2481,10 +2640,10 @@ function safeMessage(error51) {
     return error51.message.slice(-1e3);
   if (typeof error51 === "string")
     return error51.slice(-1e3);
-  const record2 = readRecord(error51);
-  if (typeof record2?.message === "string")
-    return record2.message.slice(-1e3);
-  const nested = record2 ? readRecord(record2.error) : null;
+  const record3 = readRecord(error51);
+  if (typeof record3?.message === "string")
+    return record3.message.slice(-1e3);
+  const nested = record3 ? readRecord(record3.error) : null;
   if (typeof nested?.message === "string")
     return nested.message.slice(-1e3);
   return "unknown";
@@ -2768,10 +2927,10 @@ function lastOutputTextFromError(error51) {
 function processFailureLike(error51) {
   if (typeof error51 !== "object" || error51 === null)
     return null;
-  const record2 = error51;
-  const exitCode = typeof record2.exitCode === "number" && Number.isInteger(record2.exitCode) ? record2.exitCode : void 0;
-  const stdout = typeof record2.stdout === "string" ? record2.stdout : void 0;
-  const stderr = typeof record2.stderr === "string" ? record2.stderr : void 0;
+  const record3 = error51;
+  const exitCode = typeof record3.exitCode === "number" && Number.isInteger(record3.exitCode) ? record3.exitCode : void 0;
+  const stdout = typeof record3.stdout === "string" ? record3.stdout : void 0;
+  const stderr = typeof record3.stderr === "string" ? record3.stderr : void 0;
   if (exitCode === void 0 && stdout === void 0 && stderr === void 0) {
     return null;
   }
@@ -3038,13 +3197,13 @@ function extractTurnCompletedUsage(stdout) {
     }
     if (!event || typeof event !== "object")
       continue;
-    const record2 = event;
-    if (record2.type !== "turn.completed")
+    const record3 = event;
+    if (record3.type !== "turn.completed")
       continue;
     if (completedUsage !== void 0) {
       throw new Error("codex_json_turn_usage_invalid:multiple_turns");
     }
-    completedUsage = parseTurnUsage(record2.usage);
+    completedUsage = parseTurnUsage(record3.usage);
   }
   return completedUsage;
 }
@@ -3052,12 +3211,12 @@ function parseTurnUsage(value) {
   if (!value || typeof value !== "object") {
     throw new Error("codex_json_turn_usage_invalid:missing");
   }
-  const record2 = value;
-  const inputTokens = parseUsageCount(record2.input_tokens, "input_tokens");
-  const outputTokens = parseUsageCount(record2.output_tokens, "output_tokens");
-  const cachedInputTokens = parseUsageCount(record2.cached_input_tokens, "cached_input_tokens");
-  const cacheWriteInputTokens = parseUsageCount(record2.cache_write_input_tokens ?? 0, "cache_write_input_tokens");
-  const reasoningOutputTokens = parseUsageCount(record2.reasoning_output_tokens, "reasoning_output_tokens");
+  const record3 = value;
+  const inputTokens = parseUsageCount(record3.input_tokens, "input_tokens");
+  const outputTokens = parseUsageCount(record3.output_tokens, "output_tokens");
+  const cachedInputTokens = parseUsageCount(record3.cached_input_tokens, "cached_input_tokens");
+  const cacheWriteInputTokens = parseUsageCount(record3.cache_write_input_tokens ?? 0, "cache_write_input_tokens");
+  const reasoningOutputTokens = parseUsageCount(record3.reasoning_output_tokens, "reasoning_output_tokens");
   if (cachedInputTokens > inputTokens) {
     throw new Error("codex_json_turn_usage_invalid:cached_exceeds_input");
   }
@@ -3089,26 +3248,26 @@ function looksLikeJsonLine(value) {
 function extractTextFromEvent(event) {
   if (!event || typeof event !== "object")
     return null;
-  const record2 = event;
-  const type = typeof record2.type === "string" ? record2.type : null;
-  if (!hasAssistantRole(record2))
+  const record3 = event;
+  const type = typeof record3.type === "string" ? record3.type : null;
+  if (!hasAssistantRole(record3))
     return null;
   if (type === "item.completed") {
-    const item = record2.item;
+    const item = record3.item;
     return item && typeof item === "object" ? extractTextFromRecord(item) : null;
   }
   if (type === "response.completed") {
-    const response = record2.response;
+    const response = record3.response;
     return response && typeof response === "object" ? extractTextFromRecord(response) : null;
   }
   if (type && !isAssistantTextEventType(type))
     return null;
-  return extractTextFromRecord(record2);
+  return extractTextFromRecord(record3);
 }
 function isAssistantTextEventType(type) {
   return type === "agent_message" || type === "assistant_message" || type === "message" || type === "result";
 }
-function extractTextFromRecord(record2) {
+function extractTextFromRecord(record3) {
   for (const key of [
     "message",
     "text",
@@ -3117,13 +3276,13 @@ function extractTextFromRecord(record2) {
     "content",
     "output"
   ]) {
-    const value = record2[key];
+    const value = record3[key];
     const text = stringifyContent(value);
     if (text)
       return text;
   }
   for (const key of ["data", "item", "delta", "response"]) {
-    const nested = extractTextFromEvent(record2[key]);
+    const nested = extractTextFromEvent(record3[key]);
     if (nested)
       return nested;
   }
@@ -3137,10 +3296,10 @@ function stringifyContent(value) {
     return parts.length > 0 ? parts.join("") : null;
   }
   if (value && typeof value === "object") {
-    const record2 = value;
-    if (!isAssistantContentRecord(record2))
+    const record3 = value;
+    if (!isAssistantContentRecord(record3))
       return null;
-    return stringifyContent(record2.text ?? record2.output_text ?? record2.content ?? record2.output);
+    return stringifyContent(record3.text ?? record3.output_text ?? record3.content ?? record3.output);
   }
   return null;
 }
@@ -3149,19 +3308,19 @@ function stringifyContentEntry(entry) {
     return entry;
   if (!entry || typeof entry !== "object")
     return null;
-  const record2 = entry;
-  if (!isAssistantContentRecord(record2))
+  const record3 = entry;
+  if (!isAssistantContentRecord(record3))
     return null;
-  return stringifyContent(record2.text ?? record2.output_text ?? record2.content ?? record2.output);
+  return stringifyContent(record3.text ?? record3.output_text ?? record3.content ?? record3.output);
 }
-function isAssistantContentRecord(record2) {
-  const type = typeof record2.type === "string" ? record2.type : null;
-  if (!hasAssistantRole(record2))
+function isAssistantContentRecord(record3) {
+  const type = typeof record3.type === "string" ? record3.type : null;
+  if (!hasAssistantRole(record3))
     return false;
   return !type || type === "agentMessage" || type === "agent_message" || type === "assistant_message" || type === "message" || type === "output_text" || type === "text";
 }
-function hasAssistantRole(record2) {
-  const role = record2.role;
+function hasAssistantRole(record3) {
+  const role = record3.role;
   return typeof role !== "string" || role === "assistant";
 }
 function parseStructuredOutput(outputText) {
@@ -4342,7 +4501,7 @@ __export(external_exports, {
   promise: () => promise,
   property: () => _property,
   readonly: () => readonly,
-  record: () => record,
+  record: () => record2,
   refine: () => refine,
   regex: () => _regex,
   regexes: () => regexes_exports,
@@ -16606,7 +16765,7 @@ __export(schemas_exports2, {
   preprocess: () => preprocess,
   promise: () => promise,
   readonly: () => readonly,
-  record: () => record,
+  record: () => record2,
   refine: () => refine,
   set: () => set,
   strictObject: () => strictObject,
@@ -17570,7 +17729,7 @@ var ZodRecord = /* @__PURE__ */ $constructor("ZodRecord", (inst, def) => {
   inst.keyType = def.keyType;
   inst.valueType = def.valueType;
 });
-function record(keyType, valueType, params) {
+function record2(keyType, valueType, params) {
   if (!valueType || !valueType._zod) {
     return new ZodRecord({
       type: "record",
@@ -18035,7 +18194,7 @@ var stringbool = (...args) => _stringbool({
 }, ...args);
 function json(params) {
   const jsonSchema = lazy(() => {
-    return union([string2(params), number2(), boolean2(), _null3(), array(jsonSchema), record(string2(), jsonSchema)]);
+    return union([string2(params), number2(), boolean2(), _null3(), array(jsonSchema), record2(string2(), jsonSchema)]);
   });
   return jsonSchema;
 }
@@ -23266,6 +23425,15 @@ var reviewCheckpointClearResponseSchema = external_exports.discriminatedUnion("s
   }).strict()
 ]);
 async function runCodexRotatingGitHubAction(runtime = {}) {
+  const ingressEnv = runtime.env ?? process.env;
+  if (readInput(ingressEnv, "mode") === certifiedForkActionMode || Number(ingressEnv["INPUT_WORKFLOW-SCHEMA-VERSION"]) === 6 || Number(ingressEnv.INPUT_WORKFLOW_SCHEMA_VERSION) === 6) {
+    try {
+      runCertifiedForkAdmissionBoundary(ingressEnv);
+    } finally {
+      clearActionAuthEnv(ingressEnv);
+      clearOidcRequestEnv2(ingressEnv);
+    }
+  }
   const now = runtime.now ?? Date.now;
   const executionStartedAtEpochMs = now();
   const env = runtime.env ?? process.env;
@@ -23894,12 +24062,12 @@ async function runHostedForkAgenticSandboxGitHubAction(input) {
             invocationLeaseId,
             runtimeConfigVersion,
             runtimeEnv: grantedRuntimeEnv,
-            repository,
+            repository: repository2,
             commentToken,
             commentTokenExpiresAt,
             commentTokenRefreshUrl
           }) => {
-            if (repository !== event.repository) {
+            if (repository2 !== event.repository) {
               throw new Error("comment_token_repository_mismatch");
             }
             mask(input.io, commentToken);
@@ -24040,6 +24208,9 @@ function isHostedPoolQuotaFailureText(text) {
 }
 function readActionInputs(env) {
   const mode = readInput(env, "mode") || codexRotatingRuntimeAuthMode;
+  if (mode === certifiedForkActionMode || Number(env["INPUT_WORKFLOW-SCHEMA-VERSION"]) === 6 || Number(env.INPUT_WORKFLOW_SCHEMA_VERSION) === 6) {
+    assertCertifiedForkModeSchema(env);
+  }
   const claudeCodeOAuthToken = optionalSecretInput(
     env,
     "claude-code-oauth-token"
@@ -24219,7 +24390,7 @@ async function readPullRequestEvent(env, reviewDrafts) {
     throw new Error("missing_github_event_path");
   }
   const event = JSON.parse(await (0, import_promises6.readFile)(eventPath, "utf8"));
-  const repository = requireString(event.repository?.full_name, "event_repo");
+  const repository2 = requireString(event.repository?.full_name, "event_repo");
   const headRepo = requireString(
     event.pull_request?.head?.repo?.full_name,
     "head_repo"
@@ -24234,10 +24405,10 @@ async function readPullRequestEvent(env, reviewDrafts) {
   if (!draft && eventName !== "pull_request") {
     throw new Error("ready_pull_request_event_required");
   }
-  if (repository !== headRepo) {
+  if (repository2 !== headRepo) {
     throw new Error("fork_pull_request_unsupported");
   }
-  const [owner, repo] = repository.split("/");
+  const [owner, repo] = repository2.split("/");
   if (!owner || !repo) {
     throw new Error("invalid_github_repository");
   }
@@ -24248,7 +24419,7 @@ async function readPullRequestEvent(env, reviewDrafts) {
   return {
     number: requireNumber(event.number, "pr_number"),
     ...isSafeGitHubNumericId(event.repository?.id) ? { repositoryId: String(event.repository.id) } : {},
-    repository,
+    repository: repository2,
     owner,
     repo,
     headSha: requireSha(event.pull_request?.head?.sha, "head_sha"),
@@ -24284,7 +24455,7 @@ async function readForkPullRequestTargetEvent(env) {
     throw new Error("missing_github_event_path");
   }
   const event = JSON.parse(await (0, import_promises6.readFile)(eventPath, "utf8"));
-  const repository = requireString(event.repository?.full_name, "event_repo");
+  const repository2 = requireString(event.repository?.full_name, "event_repo");
   const headRepo = requireString(
     event.pull_request?.head?.repo?.full_name,
     "head_repo"
@@ -24292,17 +24463,17 @@ async function readForkPullRequestTargetEvent(env) {
   if (event.pull_request?.draft === true) {
     throw new Error("draft_pull_request_unsupported");
   }
-  if (repository === headRepo) {
+  if (repository2 === headRepo) {
     throw new Error("fork_pull_request_required");
   }
-  const [owner, repo] = repository.split("/");
+  const [owner, repo] = repository2.split("/");
   if (!owner || !repo) {
     throw new Error("invalid_github_repository");
   }
   return {
     number: requireNumber(event.number, "pr_number"),
     ...isSafeGitHubNumericId(event.repository?.id) ? { repositoryId: String(event.repository.id) } : {},
-    repository,
+    repository: repository2,
     owner,
     repo,
     headSha: requireSha(event.pull_request?.head?.sha, "head_sha"),
@@ -24319,22 +24490,22 @@ async function readTrustedSameRepositoryPullRequestTargetEvent(env) {
     throw new Error("missing_github_event_path");
   }
   const event = JSON.parse(await (0, import_promises6.readFile)(eventPath, "utf8"));
-  const repository = requireString(event.repository?.full_name, "event_repo");
+  const repository2 = requireString(event.repository?.full_name, "event_repo");
   const headRepo = requireString(
     event.pull_request?.head?.repo?.full_name,
     "head_repo"
   );
-  if (repository !== headRepo) {
+  if (repository2 !== headRepo) {
     throw new Error("hosted_fork_pull_request_unsupported");
   }
-  const [owner, repo] = repository.split("/");
+  const [owner, repo] = repository2.split("/");
   if (!owner || !repo) {
     throw new Error("invalid_github_repository");
   }
   return {
     number: requireNumber(event.number, "pr_number"),
     ...isSafeGitHubNumericId(event.repository?.id) ? { repositoryId: String(event.repository.id) } : {},
-    repository,
+    repository: repository2,
     owner,
     repo,
     headSha: requireSha(event.pull_request?.head?.sha, "head_sha"),
@@ -25074,7 +25245,7 @@ async function resolveCodexBinary(env) {
     throw new Error("codex_bundled_binary_hash_mismatch");
   }
   await (0, import_promises6.chmod)(resolvedBinaryPath, 493);
-  await (0, import_promises6.access)(resolvedBinaryPath, import_node_fs2.constants.X_OK);
+  await (0, import_promises6.access)(resolvedBinaryPath, import_node_fs3.constants.X_OK);
   return resolvedBinaryPath;
 }
 function resolveGitHubActionPath(env) {
@@ -25108,7 +25279,7 @@ function validateCodexBinaryManifest(manifest, archiveSize) {
 function sha256File(path) {
   return new Promise((resolve3, reject) => {
     const hash2 = (0, import_node_crypto7.createHash)("sha256");
-    const stream = (0, import_node_fs2.createReadStream)(path);
+    const stream = (0, import_node_fs3.createReadStream)(path);
     stream.on("data", (chunk) => hash2.update(chunk));
     stream.on("error", reject);
     stream.on("end", () => resolve3(hash2.digest("hex")));
@@ -25754,7 +25925,7 @@ async function runReviewRuntimeWithinExecutionBudget(input) {
 async function runFullReviewRouterRuntime(input) {
   const actionPath = resolveGitHubActionPath(input.env);
   const runtimePath = (0, import_node_path8.join)(actionPath, "dist", "index.js");
-  await (0, import_promises6.access)(runtimePath, import_node_fs2.constants.R_OK);
+  await (0, import_promises6.access)(runtimePath, import_node_fs3.constants.R_OK);
   const reviewThreadLifecycleResolveToken = input.env[reviewThreadLifecycleResolveTokenEnvKey]?.trim() || void 0;
   if (reviewThreadLifecycleResolveToken) {
     mask(input.io, reviewThreadLifecycleResolveToken);

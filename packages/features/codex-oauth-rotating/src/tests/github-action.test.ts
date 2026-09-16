@@ -13,6 +13,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("node:fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:fs")>()),
+}));
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+}));
+
 vi.mock("node:fs/promises", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:fs/promises")>()),
   statfs: vi.fn(async () => ({
@@ -3767,3 +3774,200 @@ async function expectProcessToExit(pid: number): Promise<void> {
   }
   throw new Error(`process_still_alive:${pid}`);
 }
+
+describe("default-off certified fork Action ingress", () => {
+  it("reads the explicit mode/schema contract without changing ordinary defaults", () => {
+    const config = {
+      "INPUT_API-URL": "https://api.reviewrouter.site",
+      "INPUT_PROVIDER-INSTANCE-ID": "provider",
+    };
+    expect(readActionInputs(config).mode).toBe("codex-oauth-rotating");
+    expect(
+      readActionInputs({
+        ...config,
+        INPUT_MODE: "fork_prompt_only_v2",
+        "INPUT_WORKFLOW-SCHEMA-VERSION": "6",
+      }),
+    ).toMatchObject({ mode: "fork_prompt_only_v2", workflowSchemaVersion: 6 });
+    for (const schema of ["5", "06", "6.0", " 6", ""]) {
+      expect(() =>
+        readActionInputs({
+          ...config,
+          INPUT_MODE: "fork_prompt_only_v2",
+          "INPUT_WORKFLOW-SCHEMA-VERSION": schema,
+        }),
+      ).toThrow("certified-fork-admission-unavailable");
+    }
+    expect(() =>
+      readActionInputs({ ...config, "INPUT_WORKFLOW-SCHEMA-VERSION": "6" }),
+    ).toThrow("certified-fork-admission-unavailable");
+  });
+
+  it.each([
+    ["fork_prompt_only_v2", "6", "valid"],
+    ["fork_prompt_only_v2", "6", "draft"],
+    ["fork_prompt_only_v2", "6", "oversized"],
+    ["fork_prompt_only_v2", "6", "utf8"],
+    ["fork_prompt_only_v2", "6", "directory"],
+    ["fork_prompt_only_v2", "6", "symlink"],
+    ["fork_prompt_only_v2", "6", "wrong-event"],
+    ["fork_prompt_only_v2", "6", "identity"],
+    ["fork_prompt_only_v2", "6", "schema-alias"],
+    ["fork_prompt_only_v2", "6", "malformed"],
+    ["fork_prompt_only_v2", "6", "missing"],
+    ["fork_prompt_only_v2", "5", "valid"],
+    ["fork_prompt_only_v2", "06", "valid"],
+    ["fork_prompt_only_v2", "6.0", "valid"],
+    ["fork_prompt_only_v2", "", "valid"],
+    ["fork_prompt_only_v2 ", "6", "valid"],
+    ["fork-agentic-sandbox", "6", "valid"],
+    ["fork-agentic-sandbox-hosted-pool", "6", "valid"],
+    ["codex-oauth-rotating", "6", "valid"],
+    ["", "6", "valid"],
+  ])(
+    "terminates %s/%s/%s without effects and cleans every secret",
+    async (mode, schema, kind) => {
+      const fs = await import("node:fs");
+      const fsAsync = await import("node:fs/promises");
+      const processes = await import("node:child_process");
+      const directory = await mkdtemp(
+        join(tmpdir(), "certified-fork-ingress-"),
+      );
+      const path = join(directory, "event.json");
+      const repo = { id: 123, full_name: "base/project", private: false };
+      const event = {
+        action: "synchronize",
+        number: 7,
+        repository: repo,
+        pull_request: {
+          number: 7,
+          state: "open",
+          draft: kind === "draft",
+          title: "$(touch /pwned)\n::error::untrusted secret",
+          body: "../../AGENTS.md",
+          merge_commit_sha: "c".repeat(40),
+          base: { repo, sha: "a".repeat(40) },
+          head: {
+            repo: {
+              id: 456,
+              full_name: "source/project",
+              private: false,
+              fork: true,
+            },
+            sha: "b".repeat(40),
+          },
+        },
+      };
+      await writeFile(
+        path,
+        kind === "malformed" ? "secret{invalid" : JSON.stringify(event),
+      );
+      await writeFile(join(directory, "AGENTS.md"), "$(touch /pwned)");
+      await writeFile(
+        join(directory, "package.json"),
+        '{"scripts":{"preinstall":"touch /pwned"}}',
+      );
+      const env: NodeJS.ProcessEnv = {
+        INPUT_MODE: mode,
+        "INPUT_WORKFLOW-SCHEMA-VERSION": schema,
+        GITHUB_EVENT_NAME: "pull_request_target",
+        GITHUB_EVENT_PATH:
+          kind === "missing" ? join(directory, "missing") : path,
+        GITHUB_REPOSITORY: "base/project",
+        GITHUB_REPOSITORY_ID: "123",
+        GITHUB_WORKSPACE: directory,
+      };
+      if (kind === "oversized")
+        await writeFile(path, " ".repeat(1024 * 1024 + 1));
+      if (kind === "utf8") await writeFile(path, Buffer.from([0xff]));
+      if (kind === "directory") env.GITHUB_EVENT_PATH = directory;
+      if (kind === "symlink") {
+        await fsAsync.symlink(path, join(directory, "link"));
+        env.GITHUB_EVENT_PATH = join(directory, "link");
+      }
+      if (kind === "wrong-event") env.GITHUB_EVENT_NAME = "pull_request";
+      if (kind === "identity") env.GITHUB_REPOSITORY_ID = "999";
+      if (kind === "schema-alias") env.INPUT_WORKFLOW_SCHEMA_VERSION = "5";
+      const secrets = [
+        "INPUT_AUTH-JSON",
+        "INPUT_AUTH_JSON",
+        "CODEX_AUTH_JSON",
+        "REVIEWROUTER_CODEX_AUTH_JSON",
+        "INPUT_CLAUDE-CODE-OAUTH-TOKEN",
+        "INPUT_CLAUDE_CODE_OAUTH_TOKEN",
+        "INPUT_OPENROUTER-API-KEY",
+        "INPUT_OPENROUTER_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "OPENROUTER_API_KEY",
+        "ACTIONS_ID_TOKEN_REQUEST_URL",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+      ];
+      const credentialRead = vi.fn(() => {
+        throw new Error("credential access forbidden");
+      });
+      for (const key of secrets)
+        Object.defineProperty(env, key, {
+          configurable: true,
+          get: credentialRead,
+        });
+      const spies = [
+        vi.spyOn(fs, "readFileSync"),
+        vi.spyOn(fs, "readdirSync"),
+        vi.spyOn(fsAsync, "readFile"),
+        vi.spyOn(fsAsync, "readdir"),
+        vi.spyOn(fsAsync, "realpath"),
+        vi.spyOn(fsAsync, "mkdtemp"),
+        vi.spyOn(fsAsync, "writeFile"),
+        vi.spyOn(processes, "spawn"),
+        vi.spyOn(processes, "spawnSync"),
+        vi.spyOn(processes, "execFile"),
+        vi.spyOn(processes, "execFileSync"),
+        vi.spyOn(globalThis, "fetch"),
+      ];
+      const open = vi.spyOn(fs, "openSync");
+      const fetchImpl = vi.fn();
+      const fullReviewRuntimeRunner = vi.fn();
+      const now = vi.fn();
+      const stdout = { write: vi.fn() };
+      const stderr = { write: vi.fn() };
+      try {
+        await expect(
+          runCodexRotatingGitHubAction({
+            env,
+            fetchImpl,
+            fullReviewRuntimeRunner,
+            now,
+            io: { stdout, stderr },
+          }),
+        ).rejects.toEqual(
+          new Error(
+            "certified-fork-admission-unavailable: certified fork admission unavailable; no review performed",
+          ),
+        );
+        for (const spy of [
+          ...spies,
+          fetchImpl,
+          fullReviewRuntimeRunner,
+          now,
+          credentialRead,
+          stdout.write,
+          stderr.write,
+        ])
+          expect(spy).not.toHaveBeenCalled();
+        expect(
+          open.mock.calls.every(([file]) => file === env.GITHUB_EVENT_PATH),
+        ).toBe(true);
+        if (
+          kind === "valid" &&
+          mode === "fork_prompt_only_v2" &&
+          schema === "6"
+        )
+          expect(open).toHaveBeenCalledTimes(1);
+        for (const key of secrets) expect(Object.hasOwn(env, key)).toBe(false);
+      } finally {
+        vi.restoreAllMocks();
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+});

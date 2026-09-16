@@ -29,6 +29,8 @@ import {
   encodeCodexRotatingSetupManifest,
   encryptCodexRotatingAuthForGitHubSecret,
   InMemoryCodexRotatingLeaseStore,
+  isCertifiedForkCodexWorkflowSchemaVersion,
+  isVersionedSecretNamespaceCodexWorkflowSchemaVersion,
   isClientTriggeredT0WorkflowSchemaVersion,
   parseCodexRotatingEncryptedWritebackRequest,
   pruneCodexRotatingChildEnv,
@@ -243,6 +245,30 @@ function writeExecutable(path: string, content: string): void {
 }
 
 describe("Codex rotating auth domain", () => {
+  it("recognizes only the reserved certified-fork v6 schema", () => {
+    expect(
+      isCertifiedForkCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.CertifiedForkReviewV6,
+      ),
+    ).toBe(true);
+    expect(isCertifiedForkCodexWorkflowSchemaVersion(99)).toBe(false);
+    expect(
+      isCertifiedForkCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+      ),
+    ).toBe(false);
+    expect(
+      isVersionedSecretNamespaceCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+      ),
+    ).toBe(true);
+    expect(
+      isVersionedSecretNamespaceCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.CertifiedForkReviewV6,
+      ),
+    ).toBe(false);
+    expect(CodexRotatingT0WorkflowSchemaVersion.DurableDispatchV1).toBe(1);
+  });
   it("classifies only client-triggered T0 schema versions", () => {
     expect(
       isClientTriggeredT0WorkflowSchemaVersion(
@@ -1636,4 +1662,15 @@ exit 17
       chatgptAccountId: "account:456",
     });
   });
+});
+
+it("keeps certified-fork schema 6 rendering disabled", () => {
+  expect(() =>
+    renderCodexRotatingAdvisoryWorkflow({
+      actionRef: `777genius/review-router@${"a".repeat(40)}`,
+      apiUrl: "https://api.reviewrouter.site",
+      providerInstanceId: "codex-rotating:123456",
+      workflowSchemaVersion: 6,
+    }),
+  ).toThrow("codex_rotating_t0_workflow_schema_unsupported");
 });

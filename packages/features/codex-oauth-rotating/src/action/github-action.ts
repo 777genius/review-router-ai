@@ -1,3 +1,8 @@
+import {
+  assertCertifiedForkModeSchema,
+  certifiedForkActionMode,
+  runCertifiedForkAdmissionBoundary,
+} from "./certified-fork-lifecycle.js";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { constants as fsConstants, createReadStream } from "node:fs";
@@ -446,6 +451,19 @@ type RunnerEnvironmentCheckOptions = {
 export async function runCodexRotatingGitHubAction(
   runtime: Partial<ActionRuntime> = {},
 ): Promise<void> {
+  const ingressEnv = runtime.env ?? process.env;
+  if (
+    readInput(ingressEnv, "mode") === certifiedForkActionMode ||
+    Number(ingressEnv["INPUT_WORKFLOW-SCHEMA-VERSION"]) === 6 ||
+    Number(ingressEnv.INPUT_WORKFLOW_SCHEMA_VERSION) === 6
+  ) {
+    try {
+      runCertifiedForkAdmissionBoundary(ingressEnv);
+    } finally {
+      clearActionAuthEnv(ingressEnv);
+      clearOidcRequestEnv(ingressEnv);
+    }
+  }
   const now = runtime.now ?? Date.now;
   const executionStartedAtEpochMs = now();
   const env = runtime.env ?? process.env;
@@ -1350,6 +1368,13 @@ export function isHostedPoolQuotaFailureText(text: string): boolean {
 
 export function readActionInputs(env: NodeJS.ProcessEnv): ActionInputs {
   const mode = readInput(env, "mode") || codexRotatingRuntimeAuthMode;
+  if (
+    mode === certifiedForkActionMode ||
+    Number(env["INPUT_WORKFLOW-SCHEMA-VERSION"]) === 6 ||
+    Number(env.INPUT_WORKFLOW_SCHEMA_VERSION) === 6
+  ) {
+    assertCertifiedForkModeSchema(env);
+  }
   const claudeCodeOAuthToken = optionalSecretInput(
     env,
     "claude-code-oauth-token",
