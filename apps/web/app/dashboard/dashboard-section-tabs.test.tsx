@@ -24,7 +24,7 @@ describe("DashboardSectionTabs", () => {
 
     render(<DashboardSectionTabs items={items} selectedSection="setup" />);
 
-    const setupLink = screen.getByRole("tab", { name: /SetupApp sync/i });
+    const setupLink = screen.getByRole("tab", { name: /AccountsEncrypted/i });
     expect(setupLink.getAttribute("href")).toBe(
       "/dashboard/setup?workspace=acme#dashboard-section-content",
     );

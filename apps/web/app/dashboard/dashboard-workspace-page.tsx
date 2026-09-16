@@ -2481,7 +2481,7 @@ function DashboardSectionHeader({
         : selectedSection === "memory"
           ? "Confirm before use"
           : selectedSection === "setup"
-            ? "App connection"
+            ? "Encrypted at rest"
             : "Metadata only";
 
   return (

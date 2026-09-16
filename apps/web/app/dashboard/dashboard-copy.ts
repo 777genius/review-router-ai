@@ -72,13 +72,13 @@ export function dashboardNoticeText(
     case "outbox_retry_not_dead_letter":
       return "Background event is no longer in dead-letter state and was not manually retried.";
     case "hosted_pool_account_added":
-      return "ReviewRouter detected the login. This account is ready for reviews. Credentials stay on the server.";
+      return "ReviewRouter detected the login. This account is ready for reviews. The session is encrypted on the server and never sent to the browser.";
     case "hosted_pool_account_paused":
       return "Reviews will skip this ChatGPT until you use it again.";
     case "hosted_pool_account_resumed":
       return "This ChatGPT is back in line for reviews.";
     case "hosted_pool_account_updated":
-      return "ReviewRouter saved the change. Credentials stay on the server.";
+      return "ReviewRouter saved the change. Sessions stay encrypted on the server and are never sent to the browser.";
     case "hosted_pool_account_removed":
       return "This ChatGPT is no longer in the pool. You cannot add this same ChatGPT later.";
     default:

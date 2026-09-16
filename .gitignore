@@ -15,3 +15,4 @@ deploy/self-hosted/secrets/
 *.private-key.pem
 hosted-pool-screenshots/
 apps/web/public/hosted-pool-screenshots/
+packages/features/hosted-account-pool/src/**/*.js

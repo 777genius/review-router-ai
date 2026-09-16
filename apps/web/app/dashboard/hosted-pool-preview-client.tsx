@@ -46,7 +46,7 @@ export function HostedPoolPreviewClient({
             {setup.description}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Badge tone="success">App connection</Badge>
+            <Badge tone="success">Encrypted at rest</Badge>
           </div>
         </section>
         <HostedPoolSettingsPanel

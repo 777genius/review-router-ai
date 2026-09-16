@@ -197,7 +197,7 @@ function dashboardActionToast(
       return {
         tone: "success",
         title: "ChatGPT connected",
-        body: "ReviewRouter detected the login. This account is ready for reviews. Credentials stay on the server.",
+        body: "ReviewRouter detected the login. This account is ready for reviews. The session is encrypted on the server and never sent to the browser.",
       };
     case "hosted_pool_account_paused":
       return {
@@ -215,7 +215,7 @@ function dashboardActionToast(
       return {
         tone: "success",
         title: "Account updated",
-        body: "ReviewRouter saved the change. Credentials stay on the server.",
+        body: "ReviewRouter saved the change. Sessions stay encrypted on the server and are never sent to the browser.",
       };
     case "hosted_pool_account_removed":
       return {

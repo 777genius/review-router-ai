@@ -131,7 +131,7 @@ describe("HostedPoolDeviceLogin", () => {
     expect(
       screen.getByRole("button", { name: "Add another ChatGPT account" }),
     ).toBeTruthy();
-    expect(screen.getByText(/never go to the browser/i)).toBeTruthy();
+    expect(screen.getByText(/never sent to the browser/i)).toBeTruthy();
     expect(screen.queryByPlaceholderText("Work laptop")).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "Add another ChatGPT account" }),

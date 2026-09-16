@@ -39,11 +39,11 @@ export const dashboardSectionMeta: Record<
     navDescription: "Suggestions and knowledge",
   },
   setup: {
-    eyebrow: "Connection",
-    title: "Setup",
+    eyebrow: "ChatGPT",
+    title: "Accounts",
     description:
-      "Refresh GitHub App repository metadata and manage installation access. Provider commands appear after choosing a repository.",
-    navDescription: "App sync and access",
+      "Connect ChatGPT for hosted reviews. Each session is encrypted before it is stored, never sent to the browser, and decrypted only to run a review.",
+    navDescription: "Encrypted ChatGPT sessions",
   },
   policy: {
     eyebrow: "Review behavior",

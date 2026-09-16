@@ -87,27 +87,26 @@ export function HostedPoolSettingsPanel({
             {enrolled ? (
               hasHealthyAccount ? (
                 <>
-                  ReviewRouter can use any ready ChatGPT account in this
-                  workspace for opted-in GitHub repositories. Add more accounts
-                  if you need extra capacity. Pause or remove one without
-                  affecting the others. Credentials stay on the server and never
-                  go to the browser.
+                  ReviewRouter encrypts each ChatGPT session before it is
+                  stored. Sessions never go to the browser, and a session is
+                  decrypted only to run a review. Add more accounts for
+                  capacity. Pause or remove one without affecting the others.
                 </>
               ) : (
                 <>
                   None of these accounts are ready for reviews right now. Use
-                  one again or sign in with ChatGPT again. Credentials stay on
-                  the server and never go to the browser.
+                  one again or sign in with ChatGPT again. Sessions stay
+                  encrypted on the server and are never sent to the browser.
                 </>
               )
             ) : (
               <>
-                Connect ChatGPT so ReviewRouter can run reviews for opted-in
-                GitHub repositories. Sign in below. Upload a local{" "}
+                Connect ChatGPT so ReviewRouter can run hosted reviews. Each
+                session is encrypted before it is stored. Sessions never go to
+                the browser, and we only decrypt a session to run a review.
+                Upload a local{" "}
                 <span className="whitespace-nowrap font-mono">auth.json</span>{" "}
-                only if ChatGPT sign-in is unavailable. ReviewRouter stores the
-                session and transiently relays model prompts, tool results, and
-                responses. ChatGPT credentials never go to the browser.
+                only if ChatGPT sign-in is unavailable.
               </>
             )}
           </p>
@@ -200,8 +199,8 @@ function HostedPoolAuthJsonFallback({
       </summary>
       <p className="mt-3 text-xs leading-5 text-slate-500">
         Run <span className="font-mono">codex login</span> locally, then upload{" "}
-        <span className="font-mono">~/.codex/auth.json</span>. Credentials never
-        go to the browser.
+        <span className="font-mono">~/.codex/auth.json</span>. The file is
+        encrypted before it is stored. Sessions never go to the browser.
       </p>
       <DashboardActionForm
         action={importAccount}

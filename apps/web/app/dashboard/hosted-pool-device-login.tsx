@@ -183,7 +183,7 @@ export function HostedPoolDeviceLogin({
         <ActionToast
           tone="success"
           title="ChatGPT connected"
-          body="ReviewRouter detected the login. This account is ready for reviews. Credentials stay on the server."
+          body="ReviewRouter detected the login. This account is ready for reviews. The session is encrypted on the server and never sent to the browser."
         />
       ) : null}
       {error ? (
@@ -209,7 +209,8 @@ export function HostedPoolDeviceLogin({
       <p className="text-sm font-semibold text-cyan-50">Sign in with ChatGPT</p>
       <p className="mt-1 text-sm leading-6 text-slate-400">
         You will enter a short code in ChatGPT. We detect the login
-        automatically. Credentials never go to the browser.
+        automatically. The session is encrypted on the server and never sent to
+        the browser.
       </p>
       <div className="mt-4">{startForm}</div>
     </div>
@@ -236,7 +237,7 @@ export function HostedPoolDeviceLogin({
           )}
         </div>
         <p className="text-xs leading-5 text-slate-500">
-          Credentials never go to the browser.
+          Each session is encrypted at rest and never sent to the browser.
         </p>
         {toasts}
         {children}
@@ -257,7 +258,8 @@ export function HostedPoolDeviceLogin({
           </p>
           <p className="text-sm leading-6 text-slate-400">
             You will enter a short code in ChatGPT. We detect the login
-            automatically. Credentials never go to the browser.
+            automatically. The session is encrypted on the server and never sent
+            to the browser.
           </p>
           {startForm}
         </div>
@@ -297,8 +299,8 @@ function DeviceLoginWaitingPanel({
         Enter this code in ChatGPT
       </p>
       <p className="mt-1 text-sm leading-6 text-slate-300">
-        Open ChatGPT, type the code there, then come back. Credentials stay on
-        the server.
+        Open ChatGPT, type the code there, then come back. The session is
+        encrypted on the server.
       </p>
       <ol className="mt-5 grid gap-5">
         <li className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3">

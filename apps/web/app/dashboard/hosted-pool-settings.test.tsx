@@ -97,6 +97,9 @@ describe("HostedPoolSettingsPanel", () => {
     expect(screen.queryByPlaceholderText("Work laptop")).toBeTruthy();
     expect(fallbackPriorityInput()?.value).toBe("100");
     expect(
+      screen.getAllByText(/encrypted before it is stored/i).length,
+    ).toBeGreaterThan(0);
+    expect(
       screen.getAllByText(/never go to the browser/i).length,
     ).toBeGreaterThan(0);
     expectNoRawPriority();
@@ -141,9 +144,7 @@ describe("HostedPoolSettingsPanel", () => {
     expect(screen.queryByText(/Connect ChatGPT to get started/)).toBeNull();
     expect(screen.getByPlaceholderText("Fallback session")).toBeTruthy();
     expect(fallbackPriorityInput()?.value).toBe("100");
-    expect(
-      screen.getAllByText(/Credentials stay on the server/i).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/encrypted/i).length).toBeGreaterThan(0);
     expect(
       screen.getAllByText(/never go to the browser/i).length,
     ).toBeGreaterThan(0);
