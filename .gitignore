@@ -13,3 +13,5 @@ tmp/
 deploy/self-hosted/secrets/
 *.pem
 *.private-key.pem
+hosted-pool-screenshots/
+apps/web/public/hosted-pool-screenshots/
