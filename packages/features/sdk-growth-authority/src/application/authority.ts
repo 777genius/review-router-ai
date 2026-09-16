@@ -18,6 +18,7 @@ import {
   parseRequest,
 } from "../domain/validation.js";
 import type {
+  AuthorityIoBudget,
   AuthorityLedger,
   AuthorityPorts,
   AuthorityRecord,
@@ -29,7 +30,14 @@ export class SdkGrowthAuthority {
   constructor(
     private readonly ports: AuthorityPorts,
     private readonly ttlMs: number,
+    private readonly ioTimeoutMs = 5_000,
   ) {
+    if (
+      !Number.isSafeInteger(ioTimeoutMs) ||
+      ioTimeoutMs <= 0 ||
+      ioTimeoutMs > 60_000
+    )
+      throw new AuthorityError("invalid-contract");
     if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 3_600_000)
       throw new AuthorityError("invalid-contract");
   }
@@ -148,7 +156,11 @@ export class SdkGrowthAuthority {
         if (!record.intent) throw new AuthorityError("not-found");
         if (record.dispatched) return;
         await this.live(record, ledger);
-        await this.ports.publication.enqueue(structuredClone(record.intent));
+        const intent = structuredClone(record.intent);
+        await this.bounded(
+          (budget) => this.ports.publication.enqueue(intent, budget),
+          "unknown",
+        );
         record.dispatched = true;
       },
     );
@@ -197,15 +209,48 @@ export class SdkGrowthAuthority {
     return now;
   }
   private async snapshot(identity: Identity, request: Request) {
-    const snapshot = await this.ports.currentAuthority.resolve(
-      identity,
-      request,
+    const snapshot = await this.bounded((budget) =>
+      this.ports.currentAuthority.resolve(identity, request, budget),
     );
     if (!snapshot) throw new AuthorityError("binding-changed");
     return {
       binding: parseBinding(snapshot.binding),
       ownerEvidence: parseOwnerEvidence(snapshot.ownerEvidence),
     };
+  }
+  private async bounded<T>(
+    operation: (budget: AuthorityIoBudget) => Promise<T>,
+    effect: "none" | "unknown" = "none",
+  ): Promise<T> {
+    const controller = new AbortController();
+    const deadline = performance.now() + this.ioTimeoutMs;
+    const error = new AuthorityError("io-timeout", effect);
+    const budget: AuthorityIoBudget = {
+      signal: controller.signal,
+      assertActive: () => {
+        if (controller.signal.aborted || performance.now() >= deadline) {
+          controller.abort(error);
+          throw error;
+        }
+      },
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        // Reject before notifying adapters: abort listeners may settle their promise.
+        reject(error);
+        controller.abort(error);
+      }, this.ioTimeoutMs);
+    });
+    try {
+      const result = await Promise.race([operation(budget), timeout]);
+      budget.assertActive();
+      return result;
+    } finally {
+      clearTimeout(timer);
+      // Also invalidate retained budgets after successful or failed calls.
+      controller.abort(error);
+    }
   }
   private record(
     ledger: AuthorityLedger,

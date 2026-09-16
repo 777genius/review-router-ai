@@ -49,3 +49,32 @@ Validation from the repository root:
 - `node node_modules/vitest/vitest.mjs run --configLoader runner packages/features/sdk-growth-authority/src/tests`
 - `node node_modules/typescript/bin/tsc --noEmit -p packages/features/sdk-growth-authority/tsconfig.json`
 - `node scripts/check-architecture-boundaries.mjs`
+
+All public contract parsers inspect the complete source graph through descriptors
+before cloning: accessors (without invocation), symbols, non-enumerable surprise
+properties, custom prototypes, sparse arrays and array surprise keys are rejected.
+Cycle-safe inspection precedes exactly one structured clone; field validation and
+the returned object use only that detached graph. Clone failures and invalid cyclic
+contract values become `invalid-contract`.
+
+Authority resolution and publication enqueue each have a 5,000 ms default I/O
+budget (constructor argument three accepts an integer from 1 to 60,000 ms).
+Resolution stays inside the serializable scope transaction. Expiry rejects with
+`io-timeout`, invalidates the port budget, and rolls back the ledger draft, allowing
+other scope operations to proceed. Late resolution cannot resume ledger changes.
+The monotonic deadline is checked even if timer delivery is delayed. This bounds
+asynchronous port waits, not blocked JavaScript execution or repository acquisition,
+commit, or rollback; production repository adapters must bound those themselves.
+
+Publication enqueue has bounded-wait semantics, not durable remote commit fencing.
+An `AuthorityError` with code `io-timeout` exposes `effect: "none"` for
+read resolution and `effect: "unknown"` for enqueue. A timed-out enqueue may
+already have committed or may commit later, even after AbortSignal fires.
+Adapters **must** deduplicate by `intentId`, including overlapping retries.
+The pending intent remains retryable with the same ID; a late completion cannot
+mutate the ledger or mark it dispatched. Cooperative `budget.assertActive()`
+checks do not cancel remote commits. Tests cover scope release, late external
+effects, ledger isolation and idempotent retries.
+
+Package exports remain unchanged: source `types`/`default` with production `dist`
+follow the existing feature-package convention (for example `api-demo` and `outbox`).

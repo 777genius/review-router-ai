@@ -9,6 +9,13 @@ import type {
   Request,
 } from "../domain/contracts.js";
 
+/** Cooperative per-call monotonic wait budget. assertActive checks local expiry.
+ * Neither this check nor AbortSignal cancels or fences a remote commit. */
+export interface AuthorityIoBudget {
+  readonly signal: AbortSignal;
+  assertActive(): void;
+}
+
 export interface CurrentAuthoritySnapshot {
   readonly binding: Binding;
   readonly ownerEvidence: OwnerEvidence;
@@ -25,6 +32,7 @@ export interface CurrentAuthoritySnapshotPort {
   resolve(
     identity: Identity,
     request: Request,
+    budget: AuthorityIoBudget,
   ): Promise<CurrentAuthoritySnapshot | null>;
 }
 export interface ClockPort {
@@ -33,8 +41,13 @@ export interface ClockPort {
 export interface PublicationIntentPort {
   /** Idempotently enqueue metadata by intentId in the existing publication/outbox infrastructure.
    * This is NOT permission to publish: the eventual adapter must recheck current authority.
+   * MUST deduplicate by intentId, including overlapping retries and late commits.
+   * Timeout releases the caller with effect="unknown": enqueue may have committed
+   * or may commit later despite abort. Retry the same intentId; the core retains
+   * the pending intent and does not mark it dispatched after a late completion.
+   * The budget enables cooperative cancellation only, not durable commit fencing.
    * Never execute candidate code or publish provider checks from this port. */
-  enqueue(intent: PublicationIntent): Promise<void>;
+  enqueue(intent: PublicationIntent, budget: AuthorityIoBudget): Promise<void>;
 }
 export interface AuthorityRecord {
   grant: Grant;

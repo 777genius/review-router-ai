@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SdkGrowthAuthority } from "../index.js";
 import type { AuthorityPorts, CurrentAuthoritySnapshotPort } from "../index.js";
 import type {
@@ -10,6 +10,8 @@ import type {
   PublicationIntent,
 } from "../domain/contracts.js";
 import {
+  parseIdentity,
+  parseBinding,
   parseCompletion,
   parseGrant,
   parseOwnerEvidence,
@@ -85,7 +87,8 @@ function fixture() {
     receipts,
     clock: { now: () => state.now },
     publication: {
-      enqueue: async (intent) => {
+      enqueue: async (intent, budget) => {
+        budget.assertActive();
         intents.set(intent.intentId, intent);
       },
     },
@@ -608,8 +611,8 @@ describe("RR-1 authority conformance", () => {
     const grant = await f.authority.request(f.identity, f.request);
     const receipt = await f.authority.complete(f.identity, f.completion(grant));
     const enqueue = f.ports.publication.enqueue;
-    f.ports.publication.enqueue = async (intent) => {
-      await enqueue(intent);
+    f.ports.publication.enqueue = async (intent, budget) => {
+      await enqueue(intent, budget);
       throw new Error("lost acknowledgement");
     };
     await expect(f.authority.dispatch(f.identity, f.request)).rejects.toThrow(
@@ -699,5 +702,354 @@ describe("closed contracts", () => {
       f.authority.request(f.identity, { ...f.request, binding: f.binding }),
       "invalid-contract",
     );
+  });
+});
+
+describe("detached validation snapshot", () => {
+  it("clones the entire nested graph exactly once", async () => {
+    const f = fixture();
+    const grant = await f.authority.request(f.identity, f.request);
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      const parsed = parseGrant(grant);
+      expect(clone).toHaveBeenCalledTimes(1);
+      expect(parsed).toBe(clone.mock.results[0]?.value);
+      expect(parsed).not.toBe(grant);
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it("rejects getters without invoking them across every public parser", async () => {
+    const f = fixture();
+    const grant = await f.authority.request(f.identity, f.request);
+    const receipt = await f.authority.complete(f.identity, f.completion(grant));
+    const cases: [(value: unknown) => unknown, object, string, unknown][] = [
+      [parseIdentity, f.identity, "subject", "runner"],
+      [parseRequest, f.request, "pullRequest", 42],
+      [parseBinding, f.binding, "head", f.binding.head],
+      [parseOwnerEvidence, f.owner, "revoked", false],
+      [parseCompletion, f.completion(grant), "fence", 1],
+      [parseGrant, grant, "fence", 1],
+      [parseReceipt, receipt, "admitted", true],
+    ];
+    for (const [parse, original, key, valid] of cases) {
+      let reads = 0;
+      const input = {
+        ...original,
+        get [key]() {
+          return ++reads === 1 ? valid : null;
+        },
+      };
+      expect(() => parse(input)).toThrow("invalid-contract");
+      expect(reads).toBe(0);
+      const invalid = {
+        ...original,
+        get [key]() {
+          return null;
+        },
+      };
+      expect(() => parse(invalid)).toThrow(
+        new AuthorityError("invalid-contract"),
+      );
+      const throwing = {
+        ...original,
+        get [key]() {
+          throw new Error("getter");
+        },
+      };
+      expect(() => parse(throwing)).toThrow(
+        new AuthorityError("invalid-contract"),
+      );
+      expect(() => parse({ ...original, [key]: () => {} })).toThrow(
+        new AuthorityError("invalid-contract"),
+      );
+    }
+  });
+
+  it.each([
+    "symbol",
+    "hidden",
+    "prototype",
+    "accessor",
+    "array-accessor",
+    "array-extra",
+    "sparse",
+    "cycle",
+  ] as const)("rejects nested source shape: %s", (shape) => {
+    const f = fixture();
+    const input = structuredClone(f.owner);
+    const getter = vi.fn(() => "one");
+    switch (shape) {
+      case "symbol":
+        Object.defineProperty(input.binding, Symbol("extra"), { value: true });
+        break;
+      case "hidden":
+        Object.defineProperty(input.binding, "extra", { value: true });
+        break;
+      case "prototype":
+        Object.setPrototypeOf(input.binding, { custom: true });
+        break;
+      case "accessor":
+        Object.defineProperty(input.binding, "head", { get: getter });
+        break;
+      case "array-accessor":
+        Object.defineProperty(input.scopes, "0", { get: getter });
+        break;
+      case "array-extra":
+        Object.assign(input.scopes, { extra: true });
+        break;
+      case "sparse":
+        Object.assign(input, { scopes: new Array(2) });
+        break;
+      case "cycle":
+        Object.assign(input.binding, { scopes: [input] });
+        break;
+    }
+    expect(() => parseOwnerEvidence(input)).toThrow("invalid-contract");
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it("rejects nested mutations during cloning and never returns caller aliases", () => {
+    const f = fixture();
+    const input = {
+      ...f.owner,
+      get binding() {
+        return {
+          ...f.binding,
+          get scopes() {
+            return ["two", "one"];
+          },
+        };
+      },
+    };
+    expect(() => parseOwnerEvidence(input)).toThrow(
+      new AuthorityError("invalid-contract"),
+    );
+    const mutable = structuredClone(f.owner);
+    const output = parseOwnerEvidence(mutable);
+    Object.assign(mutable.binding, { head: "bad" });
+    expect(output.binding.head).toBe(f.binding.head);
+    expect(output.binding).not.toBe(mutable.binding);
+    expect(output.scopes).not.toBe(mutable.scopes);
+    expect(() => parseRequest(new Proxy(f.request, {}))).toThrow(
+      new AuthorityError("invalid-contract"),
+    );
+  });
+
+  it("validates nested fields after later getters mutate already captured source objects", () => {
+    const f = fixture();
+    const binding = structuredClone(f.binding);
+    const input = {
+      ...f.owner,
+      binding,
+      get revoked() {
+        Object.assign(binding, { head: "invalid" });
+        return false;
+      },
+    };
+    expect(() => parseOwnerEvidence(input)).toThrow("invalid-contract");
+    expect(binding.head).toBe(f.binding.head);
+  });
+});
+
+describe("bounded transaction I/O", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it.each(["request", "complete", "currentReceipt", "dispatch"] as const)(
+    "times out %s resolution, releases the scope, and ignores late resolution",
+    async (method) => {
+      vi.useFakeTimers();
+      const f = fixture();
+      const grant = await f.authority.request(f.identity, f.request);
+      if (method === "currentReceipt" || method === "dispatch")
+        await f.authority.complete(f.identity, f.completion(grant));
+      const original = f.ports.currentAuthority.resolve;
+      let finish!: (value: Awaited<ReturnType<typeof original>>) => void;
+      let signal!: AbortSignal;
+      f.ports.currentAuthority.resolve = (_identity, _request, budget) => {
+        signal = budget.signal;
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      };
+      const body =
+        method === "complete"
+          ? f.completion(grant)
+          : {
+              ...f.request,
+              requestId: method === "request" ? "run-2" : "run-1",
+            };
+      const pending = f.authority[method](f.identity, body);
+      const rejected = expect(pending).rejects.toMatchObject({
+        code: "io-timeout",
+        effect: "none",
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejected;
+      expect(signal.aborted).toBe(true);
+      f.ports.currentAuthority.resolve = original;
+      const next = await f.authority.request(f.identity, {
+        ...f.request,
+        requestId: "run-3",
+      });
+      expect(next.fence).toBe(2);
+      finish({ binding: f.binding, ownerEvidence: f.owner });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(f.intents.size).toBe(0);
+      if (method === "request" || method === "complete")
+        await rejects(
+          f.authority.complete(f.identity, f.completion(grant)),
+          "fenced",
+        );
+      else
+        await rejects(
+          f.authority.currentReceipt(f.identity, f.request),
+          "fenced",
+        );
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it.each(["before", "after"] as const)(
+    "allows late enqueue %s retry without duplicate effects or ledger mutation",
+    async (order) => {
+      vi.useFakeTimers();
+      const f = fixture();
+      const grant = await f.authority.request(f.identity, f.request);
+      await f.authority.complete(f.identity, f.completion(grant));
+      const scope = {
+        tenantId: "tenant",
+        repositoryId: "repo",
+        pullRequest: 42,
+      };
+      const ledger = () =>
+        f.ports.receipts.transact(scope, async (draft) => draft);
+      const before = await ledger();
+      let release!: () => void;
+      const paused = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const ids: string[] = [];
+      let late!: Promise<void>;
+      let signal!: AbortSignal;
+      const commit = (intent: PublicationIntent) => {
+        if (!f.intents.has(intent.intentId))
+          f.intents.set(intent.intentId, structuredClone(intent));
+      };
+      f.ports.publication.enqueue = (intent, budget) => {
+        ids.push(intent.intentId);
+        signal = budget.signal;
+        late = paused.then(() => {
+          commit(intent);
+          // Even a retained adapter argument cannot change the ledger.
+          Object.assign(intent.receipt, { admitted: false });
+        });
+        return late;
+      };
+      const rejected = expect(
+        f.authority.dispatch(f.identity, f.request),
+      ).rejects.toMatchObject({ code: "io-timeout", effect: "unknown" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejected;
+      expect(signal.aborted).toBe(true);
+      expect(await ledger()).toEqual(before); // Scope is released while enqueue waits.
+      f.ports.publication.enqueue = async (intent) => {
+        ids.push(intent.intentId);
+        commit(intent);
+      };
+      if (order === "before") {
+        release();
+        await late;
+        expect(await ledger()).toEqual(before); // No late dispatched/receipt changes.
+      }
+      await f.authority.dispatch(f.identity, f.request);
+      const dispatched = await ledger();
+      expect(dispatched.records[0]?.dispatched).toBe(true);
+      release();
+      await late;
+      expect(await ledger()).toEqual(dispatched);
+      await f.authority.dispatch(f.identity, f.request);
+      expect(ids).toEqual([
+        before.records[0]!.intent!.intentId,
+        before.records[0]!.intent!.intentId,
+      ]);
+      expect(f.intents.size).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("retries an effect committed before timeout with a lost acknowledgement", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const grant = await f.authority.request(f.identity, f.request);
+    await f.authority.complete(f.identity, f.completion(grant));
+    const enqueue = f.ports.publication.enqueue;
+    let finish!: () => void;
+    f.ports.publication.enqueue = async (intent, budget) => {
+      await enqueue(intent, budget);
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    };
+    const rejected = rejects(
+      f.authority.dispatch(f.identity, f.request),
+      "io-timeout",
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    await rejected;
+    expect(f.intents.size).toBe(1);
+    f.ports.publication.enqueue = enqueue;
+    await f.authority.dispatch(f.identity, f.request);
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.intents.size).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity, 60_001])(
+    "rejects invalid I/O timeout %s",
+    (timeout) => {
+      expect(
+        () => new SdkGrowthAuthority(fixture().ports, 1000, timeout),
+      ).toThrow(new AuthorityError("invalid-contract"));
+    },
+  );
+
+  it("cleans up synchronous port failures and honors a configured timeout", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const authority = new SdkGrowthAuthority(f.ports, 1000, 10);
+    f.ports.currentAuthority.resolve = () => {
+      throw new Error("unavailable");
+    };
+    await expect(authority.request(f.identity, f.request)).rejects.toThrow(
+      "unavailable",
+    );
+    expect(vi.getTimerCount()).toBe(0);
+    f.ports.currentAuthority.resolve = () => new Promise(() => {});
+    const rejected = rejects(
+      authority.request(f.identity, f.request),
+      "io-timeout",
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("rejects expired budgets even before the timer callback runs", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const f = fixture();
+    const grant = await f.authority.request(f.identity, f.request);
+    await f.authority.complete(f.identity, f.completion(grant));
+    f.ports.publication.enqueue = async (intent, budget) => {
+      vi.spyOn(performance, "now").mockReturnValue(6_000);
+      budget.assertActive();
+      f.intents.set(intent.intentId, intent);
+    };
+    await rejects(f.authority.dispatch(f.identity, f.request), "io-timeout");
+    expect(f.intents.size).toBe(0);
+    vi.restoreAllMocks();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

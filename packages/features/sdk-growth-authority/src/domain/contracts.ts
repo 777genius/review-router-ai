@@ -79,6 +79,7 @@ export interface PublicationIntent {
   readonly receipt: Receipt;
 }
 export type AuthorityErrorCode =
+  | "io-timeout"
   | "invalid-contract"
   | "wrong-identity"
   | "conflict"
@@ -89,7 +90,11 @@ export type AuthorityErrorCode =
   | "binding-changed"
   | "owner-evidence";
 export class AuthorityError extends Error {
-  constructor(readonly code: AuthorityErrorCode) {
+  constructor(
+    readonly code: AuthorityErrorCode,
+    /** Timeout describes the external effect, not remote cancellation. */
+    readonly effect?: "none" | "unknown",
+  ) {
     super(code);
     this.name = "AuthorityError";
   }
