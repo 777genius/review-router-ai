@@ -46,82 +46,90 @@ export class SdkGrowthAuthority {
     const identity = parseIdentity(authenticated);
     const request = parseRequest(body);
     const scope = this.scope(identity, request);
-    return this.ports.receipts.transact(scope, { requestId: request.requestId }, async (ledger) => {
-      const previous = ledger.records.find(
-        (record) => record.grant.request.requestId === request.requestId,
-      );
-      if (previous) {
-        assertIdentity(previous.grant.identity, identity);
-        if (!equal(previous.grant.request, request))
-          throw new AuthorityError("conflict");
-        // Replay is historical: it does not extend expiry, restore revocation or advance fences.
-        return parseGrant(previous.grant);
-      }
-      const { binding, ownerEvidence: evidence } = await this.snapshot(
-        identity,
-        request,
-      );
-      if (
-        binding.repositoryId !== request.repositoryId ||
-        binding.pullRequest !== request.pullRequest
-      )
-        throw new AuthorityError("binding-changed");
-      const now = this.now();
-      assertOwner(identity, binding, evidence, now);
-      if (
-        !Number.isSafeInteger(ledger.fence + 1) ||
-        !Number.isSafeInteger(now + this.ttlMs)
-      )
-        throw new AuthorityError("invalid-contract");
-      const grant = parseGrant({
-        version: 1,
-        grantId: JSON.stringify([
-          scope.tenantId,
-          scope.repositoryId,
-          scope.pullRequest,
-          request.requestId,
-        ]),
-        identity,
-        request,
-        binding,
-        ownerEvidence: evidence,
-        fence: ++ledger.fence,
-        issuedAt: now,
-        expiresAt: Math.min(now + this.ttlMs, evidence.expiresAt),
-      });
-      ledger.records.push({
-        grant,
-        revoked: false,
-        completion: null,
-        receipt: null,
-        intent: null,
-        dispatched: false,
-      });
-      return structuredClone(grant);
-    });
+    return this.ports.receipts.transact(
+      scope,
+      { requestId: request.requestId },
+      async (ledger) => {
+        const previous = ledger.records.find(
+          (record) => record.grant.request.requestId === request.requestId,
+        );
+        if (previous) {
+          assertIdentity(previous.grant.identity, identity);
+          if (!equal(previous.grant.request, request))
+            throw new AuthorityError("conflict");
+          // Replay is historical: it does not extend expiry, restore revocation or advance fences.
+          return parseGrant(previous.grant);
+        }
+        const { binding, ownerEvidence: evidence } = await this.snapshot(
+          identity,
+          request,
+        );
+        if (
+          binding.repositoryId !== request.repositoryId ||
+          binding.pullRequest !== request.pullRequest
+        )
+          throw new AuthorityError("binding-changed");
+        const now = this.now();
+        assertOwner(identity, binding, evidence, now);
+        if (
+          !Number.isSafeInteger(ledger.fence + 1) ||
+          !Number.isSafeInteger(now + this.ttlMs)
+        )
+          throw new AuthorityError("invalid-contract");
+        const grant = parseGrant({
+          version: 1,
+          grantId: JSON.stringify([
+            scope.tenantId,
+            scope.repositoryId,
+            scope.pullRequest,
+            request.requestId,
+          ]),
+          identity,
+          request,
+          binding,
+          ownerEvidence: evidence,
+          fence: ++ledger.fence,
+          issuedAt: now,
+          expiresAt: Math.min(now + this.ttlMs, evidence.expiresAt),
+        });
+        ledger.records.push({
+          grant,
+          revoked: false,
+          completion: null,
+          receipt: null,
+          intent: null,
+          dispatched: false,
+        });
+        return structuredClone(grant);
+      },
+    );
   }
 
   async complete(authenticated: Identity, body: unknown): Promise<Receipt> {
     const identity = parseIdentity(authenticated);
     const completion = parseCompletion(body);
     const scope = this.scope(identity, completion.binding);
-    return this.ports.receipts.transact(scope, { grantId: completion.grantId }, async (ledger) => {
-      const record = this.record(ledger, completion.grantId, identity);
-      if (record.completion) {
-        if (!equal(record.completion, completion))
-          throw new AuthorityError("conflict");
-        return parseReceipt(record.receipt);
-      }
-      if (completion.fence !== record.grant.fence)
-        throw new AuthorityError("fenced");
-      assertBinding(record.grant.binding, completion.binding);
-      const now = await this.live(record, ledger);
-      const receipt = makeReceipt(record.grant, completion, now);
-      record.completion = completion;
-      record.receipt = receipt;
-      record.intent = { version: 1, intentId: receipt.receiptId, receipt };
-      return structuredClone(receipt);
-    });
+    return this.ports.receipts.transact(
+      scope,
+      { grantId: completion.grantId },
+      async (ledger) => {
+        const record = this.record(ledger, completion.grantId, identity);
+        if (record.completion) {
+          if (!equal(record.completion, completion))
+            throw new AuthorityError("conflict");
+          return parseReceipt(record.receipt);
+        }
+        if (completion.fence !== record.grant.fence)
+          throw new AuthorityError("fenced");
+        assertBinding(record.grant.binding, completion.binding);
+        const now = await this.live(record, ledger);
+        const receipt = makeReceipt(record.grant, completion, now);
+        record.completion = completion;
+        record.receipt = receipt;
+        record.intent = { version: 1, intentId: receipt.receiptId, receipt };
+        return structuredClone(receipt);
+      },
+    );
   }
 
   async revoke(authenticated: Identity, requestBody: unknown): Promise<void> {
