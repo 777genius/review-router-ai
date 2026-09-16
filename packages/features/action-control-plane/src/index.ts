@@ -98,3 +98,37 @@ export {
   type ForkInventory,
   type ForkOutcome,
 } from "./domain/certified-fork-effect-outcome.js";
+// Internal infrastructure bindings for the API composition root.
+export { captureForkInput } from "./application/services/certified-fork-effect-ledger.js";
+export type { CertifiedForkEffectProofPort } from "./application/ports/certified-fork-effect-proof-port.js";
+export type {
+  ForkTransaction,
+  ForkLedgerInput,
+} from "./application/ports/certified-fork-effect-repository-port.js";
+export { requireFact } from "./domain/certified-fork-effect-canonical.js";
+export { sameArchive } from "./infrastructure/prisma/certified-fork-archive-codec.js";
+export {
+  CertifiedForkHistoryLoader,
+  type ForkHistoryReadGuard,
+  type ForkHistoryProducers,
+} from "./infrastructure/prisma/certified-fork-history-loader.js";
+export {
+  CertifiedForkProofFactWriter,
+  type RetainedFactSql,
+} from "./infrastructure/prisma/certified-fork-proof-fact-store.js";
+export {
+  parseRetainedFact,
+  type AnyRetainedFactInput,
+} from "./infrastructure/prisma/certified-fork-proof-fact-types.js";
+export {
+  PrismaCertifiedForkEffectRepository,
+  type ForkArchiveOperation,
+  type ForkArchiveTransactions,
+  type ForkArchiveTrustedHooks,
+  type ForkArchiveVersion,
+} from "./infrastructure/prisma/prisma-certified-fork-effect-repository.js";
+export {
+  restoreCertifiedForkCheckpoint,
+  historicalForkCommandReference,
+  type RestoredForkHistory,
+} from "./infrastructure/proofs/restore-certified-fork-checkpoint.js";
