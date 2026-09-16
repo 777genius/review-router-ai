@@ -104,6 +104,7 @@ export type { CertifiedForkEffectProofPort } from "./application/ports/certified
 export type {
   ForkTransaction,
   ForkLedgerInput,
+  ForkCommandReceipt,
 } from "./application/ports/certified-fork-effect-repository-port.js";
 export { sameArchive } from "./infrastructure/prisma/certified-fork-archive-codec.js";
 export {
