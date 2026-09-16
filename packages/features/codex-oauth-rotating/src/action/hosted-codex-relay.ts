@@ -419,18 +419,10 @@ export async function startHostedCodexRelayProxy(input: {
               throw writeError;
             }
             if (upstream.status === 401 || upstream.status === 429) {
-              if (
-                successfulRelayRequests === 0 &&
-                ordinal === 1 &&
-                requestCount === 1
-              ) {
-                failoverReason =
-                  upstream.status === 401
-                    ? "authentication_failed"
-                    : "quota_exhausted";
-              } else {
-                failoverReason = "ambiguous";
-              }
+              failoverReason =
+                upstream.status === 401
+                  ? "authentication_failed"
+                  : "quota_exhausted";
             } else if (responseCompletion === "successful") {
               successfulRelayRequests += 1;
               failoverReason = undefined;

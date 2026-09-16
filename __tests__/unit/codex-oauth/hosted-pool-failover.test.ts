@@ -77,7 +77,19 @@ describe("hosted pool replay-fenced failover artifact", () => {
   );
 
   it.each([
-    "quota_limited",
+    ["quota_limited", "quota_exhausted"],
+    ["provider_capacity_limited", "quota_exhausted"],
+    [
+      "Review failed [provider_capacity_limited]: Codex account hit its usage limit",
+      "quota_exhausted",
+    ],
+  ] as const)("classifies quota output %s as %s", (message, expected) => {
+    expect(
+      actionBundle.hostedPoolAccountFailureReason(new Error(message)),
+    ).toBe(expected);
+  });
+
+  it.each([
     "authentication_failed",
     "hosted_pool_account_failed",
     "review_runtime_timeout",
@@ -454,9 +466,12 @@ describe("hosted pool replay-fenced failover artifact", () => {
     }
   });
 
-  it.each([401, 429] as const)(
-    "fails closed for ordinal-one %s after another relay was admitted",
-    async (status) => {
+  it.each([
+    [401, "authentication_failed"],
+    [429, "quota_exhausted"],
+  ] as const)(
+    "classifies ordinal-one %s as %s even if another relay was already admitted",
+    async (status, reason) => {
       let releaseFirst!: () => void;
       let releaseSecond!: () => void;
       let firstStarted!: () => void;
@@ -512,7 +527,7 @@ describe("hosted pool replay-fenced failover artifact", () => {
         releaseFirst();
         const firstResponse = await first;
         await firstResponse.text();
-        expect(proxy.failoverReason()).toBe("ambiguous");
+        expect(proxy.failoverReason()).toBe(reason);
         releaseSecond();
         const secondResponse = await second;
         await secondResponse.text();

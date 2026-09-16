@@ -1130,8 +1130,13 @@ async function runHostedForkAgenticSandboxGitHubAction(input: {
           } hosted account lease and will resume from the durable checkpoint with the next eligible account (${attempt + 1}/${maxAttempts}).`,
         );
       },
-      runAttempt: async () =>
-        runHostedCodexRelayTransport({
+      runAttempt: async ({ attempt, maxAttempts }) => {
+        if (attempt < maxAttempts) {
+          input.env.REVIEW_ROUTER_SUPPRESS_FAILURE_COMMENT = "1";
+        } else {
+          delete input.env.REVIEW_ROUTER_SUPPRESS_FAILURE_COMMENT;
+        }
+        return runHostedCodexRelayTransport({
           env: input.env,
           fetchImpl: input.fetchImpl,
           apiUrl: input.inputs.apiUrl,
@@ -1243,7 +1248,8 @@ async function runHostedForkAgenticSandboxGitHubAction(input: {
               await removeTree(reviewHome);
             }
           },
-        }),
+        });
+      },
     });
   } finally {
     clearActionAuthEnv(input.env);
@@ -1318,10 +1324,7 @@ export function hostedPoolAccountFailureReason(
   const normalized = String(
     error instanceof Error ? error.message : error,
   ).toLowerCase();
-  if (
-    normalized === "hosted_pool_quota_exhausted" ||
-    normalized === "hosted_relay_grant_failed:429"
-  ) {
+  if (isHostedPoolQuotaFailureText(normalized)) {
     return "quota_exhausted";
   }
   if (
@@ -1331,6 +1334,18 @@ export function hostedPoolAccountFailureReason(
     return "authentication_failed";
   }
   return undefined;
+}
+
+export function isHostedPoolQuotaFailureText(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return (
+    normalized === "hosted_pool_quota_exhausted" ||
+    normalized === "hosted_relay_grant_failed:429" ||
+    normalized === "quota_limited" ||
+    normalized.includes("provider_capacity_limited") ||
+    /exceeded retry limit, last status: 429/.test(normalized) ||
+    /you(?:'|’)ve hit your usage limit/.test(normalized)
+  );
 }
 
 export function readActionInputs(env: NodeJS.ProcessEnv): ActionInputs {
@@ -4755,9 +4770,12 @@ function classifyPostWritebackCodexFailure(error: unknown): Error {
   if (isReviewRouterTargetRevisionMismatchFailure(output)) {
     return new Error(stalePullRequestHeadErrorCode);
   }
+  if (isHostedPoolQuotaFailureText(output)) {
+    return new Error("hosted_pool_quota_exhausted");
+  }
   const hostedPoolFailure = hostedPoolAccountFailureReason(output);
   if (hostedPoolFailure === "quota_exhausted") {
-    return new Error("quota_limited");
+    return new Error("hosted_pool_quota_exhausted");
   }
   if (hostedPoolFailure === "authentication_failed") {
     return new Error("hosted_pool_account_failed");
@@ -4768,7 +4786,7 @@ function classifyPostWritebackCodexFailure(error: unknown): Error {
   }
   const state = classifyCodexRuntimeFailure(output);
   if (state === "quota_limited") {
-    return new Error("quota_limited");
+    return new Error("hosted_pool_quota_exhausted");
   }
   return new Error(
     `unknown_auth_state:${sanitizeProcessFailureOutput(output)}`,
