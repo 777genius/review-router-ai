@@ -18,6 +18,11 @@
       "types": "./src/infrastructure/prisma/prisma-receipt-repository.ts",
       "production": "./dist/infrastructure/prisma/prisma-receipt-repository.js",
       "default": "./src/infrastructure/prisma/prisma-receipt-repository.ts"
+    },
+    "./infrastructure/current-authority": {
+      "types": "./src/infrastructure/prisma/prisma-current-authority.ts",
+      "production": "./dist/infrastructure/prisma/prisma-current-authority.js",
+      "default": "./src/infrastructure/prisma/prisma-current-authority.ts"
     }
   },
   "scripts": {

@@ -29,8 +29,11 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full100 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(100);
+  it("validates the full101 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(101);
+    expect(full[100]?.migrationName).toBe(
+      "000102_sdk_growth_current_authority",
+    );
     expect(full[99]?.migrationName).toBe("000101_sdk_growth_authority");
     expect(full[98]?.migrationName).toBe("000100_hosted_codex_device_login");
     expect(full[97]?.migrationName).toBe("000099_certified_fork_proof_facts");
@@ -105,7 +108,7 @@ describe("trusted historical96 checkout reader", () => {
     },
   );
 
-  it.each([96, 97, 98, 99])(
+  it.each([96, 97, 98, 99, 100])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {
       reader.mockImplementationOnce(() => {

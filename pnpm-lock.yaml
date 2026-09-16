@@ -243,6 +243,9 @@ importers:
       '@reviewrouter/features-review-snapshots':
         specifier: workspace:*
         version: link:../../packages/features/review-snapshots
+      '@reviewrouter/features-sdk-growth-authority':
+        specifier: workspace:*
+        version: link:../../packages/features/sdk-growth-authority
       '@reviewrouter/features-system-health':
         specifier: workspace:*
         version: link:../../packages/features/system-health
