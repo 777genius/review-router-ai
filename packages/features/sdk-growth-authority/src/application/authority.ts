@@ -46,7 +46,7 @@ export class SdkGrowthAuthority {
     const identity = parseIdentity(authenticated);
     const request = parseRequest(body);
     const scope = this.scope(identity, request);
-    return this.ports.receipts.transact(scope, async (ledger) => {
+    return this.ports.receipts.transact(scope, { requestId: request.requestId }, async (ledger) => {
       const previous = ledger.records.find(
         (record) => record.grant.request.requestId === request.requestId,
       );
@@ -105,7 +105,7 @@ export class SdkGrowthAuthority {
     const identity = parseIdentity(authenticated);
     const completion = parseCompletion(body);
     const scope = this.scope(identity, completion.binding);
-    return this.ports.receipts.transact(scope, async (ledger) => {
+    return this.ports.receipts.transact(scope, { grantId: completion.grantId }, async (ledger) => {
       const record = this.record(ledger, completion.grantId, identity);
       if (record.completion) {
         if (!equal(record.completion, completion))
@@ -129,6 +129,7 @@ export class SdkGrowthAuthority {
     const request = parseRequest(requestBody);
     await this.ports.receipts.transact(
       this.scope(identity, request),
+      { requestId: request.requestId },
       async (ledger) => {
         const record = ledger.records.find(
           (item) => item.grant.request.requestId === request.requestId,
@@ -147,6 +148,7 @@ export class SdkGrowthAuthority {
     const request = parseRequest(requestBody);
     await this.ports.receipts.transact(
       this.scope(identity, request),
+      { requestId: request.requestId },
       async (ledger) => {
         const record = ledger.records.find(
           (item) => item.grant.request.requestId === request.requestId,
@@ -176,6 +178,7 @@ export class SdkGrowthAuthority {
     const request = parseRequest(requestBody);
     return this.ports.receipts.transact(
       this.scope(identity, request),
+      { requestId: request.requestId },
       async (ledger) => {
         const record = ledger.records.find(
           (item) => item.grant.request.requestId === request.requestId,
