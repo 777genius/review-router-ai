@@ -9,6 +9,7 @@ import type {
   RelayRequestCompletionPort,
   RelayResponseStartedPort,
 } from "../../application/ports/relay-request-ledger-port";
+import type { HostedPoolAccount } from "../../domain/account-pool";
 import type {
   CommentTokenRefreshConsumption,
   CurrentRelayRequestFailover,
@@ -727,7 +728,14 @@ export class PrismaInvocationGrantRepository
           failedAccount,
           backupStored ? restorePoolAccount(backupStored) : null,
         );
-        if (result.status === "denied") return result;
+        if (result.status === "denied") {
+          await persistFailedAccountDisposition(
+            transaction,
+            failedStored,
+            result.failedAccount,
+          );
+          return result;
+        }
         if (input.effect) {
           const classified =
             await transaction.hostedCodexUpstreamEffectAttempt.updateMany({
@@ -766,22 +774,11 @@ export class PrismaInvocationGrantRepository
           });
         if (grantUpdated.count !== 1)
           throw new Error("invocation_grant_revision_conflict");
-        const availability = result.failedAccount.availability;
-        const accountUpdated = await transaction.hostedCodexAccount.updateMany({
-          where: {
-            id: failedStored.id,
-            healthVersion: failedStored.healthVersion,
-          },
-          data: {
-            state:
-              availability.status === "cooldown" ? "cooldown" : "quarantined",
-            cooldownUntil:
-              availability.status === "cooldown" ? availability.until : null,
-            healthVersion: { increment: 1 },
-          },
-        });
-        if (accountUpdated.count !== 1)
-          throw new Error("hosted_account_health_conflict");
+        await persistFailedAccountDisposition(
+          transaction,
+          failedStored,
+          result.failedAccount,
+        );
         return result;
       },
       { isolationLevel: "Serializable" },
@@ -1071,6 +1068,41 @@ function assertRuntimeGateAuthority(
 
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+async function persistFailedAccountDisposition(
+  transaction: Prisma.TransactionClient,
+  stored: { readonly id: string; readonly healthVersion: bigint },
+  failedAccount: HostedPoolAccount,
+): Promise<void> {
+  const availability = failedAccount.availability;
+  if (
+    availability.status !== "cooldown" &&
+    availability.status !== "quarantined"
+  ) {
+    return;
+  }
+  const targetState =
+    availability.status === "cooldown" ? "cooldown" : "quarantined";
+  const accountUpdated = await transaction.hostedCodexAccount.updateMany({
+    where: {
+      id: stored.id,
+      healthVersion: stored.healthVersion,
+    },
+    data: {
+      state: targetState,
+      cooldownUntil:
+        availability.status === "cooldown" ? availability.until : null,
+      healthVersion: { increment: 1 },
+    },
+  });
+  if (accountUpdated.count === 1) return;
+  const current = await transaction.hostedCodexAccount.findUnique({
+    where: { id: stored.id },
+    select: { state: true },
+  });
+  if (current?.state === targetState) return;
+  throw new Error("hosted_account_health_conflict");
 }
 
 function restorePoolAccount(account: {

@@ -43,9 +43,9 @@ const input = () => ({
 });
 
 describe("bounded managed89-to92 transaction construction", () => {
-  it("keeps the reader-to-builder boundary at92 for the exact99 checkout", () => {
+  it("keeps the reader-to-builder boundary at92 for the exact101 checkout", () => {
     expect(readdirSync("packages/platform/db/prisma/migrations")).toHaveLength(
-      99,
+      101,
     );
     expect(catalog).toHaveLength(92);
     const sql = renderSchemaHandoffTransaction(input());
@@ -106,6 +106,26 @@ describe("bounded managed89-to92 transaction construction", () => {
           )
           .digest("hex"),
       },
+      {
+        migrationName: "000101_sdk_growth_authority",
+        checksum: createHash("sha256")
+          .update(
+            readFileSync(
+              "packages/platform/db/prisma/migrations/000101_sdk_growth_authority/migration.sql",
+            ),
+          )
+          .digest("hex"),
+      },
+      {
+        migrationName: "000102_sdk_growth_current_authority",
+        checksum: createHash("sha256")
+          .update(
+            readFileSync(
+              "packages/platform/db/prisma/migrations/000102_sdk_growth_current_authority/migration.sql",
+            ),
+          )
+          .digest("hex"),
+      },
     ];
     for (const row of extensions) {
       expect(sql).not.toContain(row.migrationName);
@@ -118,7 +138,7 @@ describe("bounded managed89-to92 transaction construction", () => {
         id: `00000000-0000-0000-0000-${String(93 + index).padStart(12, "0")}`,
       }),
     );
-    for (const count of [1, 2, 3, 4, 5, 6, 7])
+    for (let count = 1; count <= extensions.length; count++)
       expect(() =>
         renderSchemaHandoffTransaction({
           ...input(),

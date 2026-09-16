@@ -27,7 +27,21 @@ describe("hosted pool account failover", () => {
   );
 
   it.each([
-    "quota_limited",
+    ["quota_limited", "quota_exhausted"],
+    ["provider_capacity_limited", "quota_exhausted"],
+    [
+      "Review failed [provider_capacity_limited]: Codex account hit its usage limit",
+      "quota_exhausted",
+    ],
+    [
+      "Codex CLI failed with exit code 1: exceeded retry limit, last status: 429 Too Many Requests",
+      "quota_exhausted",
+    ],
+  ] as const)("classifies quota output %s as %s", (message, expected) => {
+    expect(hostedPoolAccountFailureReason(new Error(message))).toBe(expected);
+  });
+
+  it.each([
     "authentication_failed",
     "hosted_pool_account_failed",
     "relay_error: account_status_failed",
@@ -371,9 +385,12 @@ describe("hosted pool account failover", () => {
     }
   });
 
-  it.each([401, 429] as const)(
-    "fails closed for ordinal-one %s after another relay was admitted",
-    async (status) => {
+  it.each([
+    [401, "authentication_failed"],
+    [429, "quota_exhausted"],
+  ] as const)(
+    "classifies ordinal-one %s as %s even if another relay was already admitted",
+    async (status, reason) => {
       const firstGate = deferred<void>();
       const secondGate = deferred<void>();
       const firstStarted = deferred<void>();
@@ -407,7 +424,7 @@ describe("hosted pool account failover", () => {
         firstGate.resolve();
         const firstResponse = await first;
         await firstResponse.text();
-        expect(proxy.failoverReason()).toBe("ambiguous");
+        expect(proxy.failoverReason()).toBe(reason);
         secondGate.resolve();
         const secondResponse = await second;
         await secondResponse.text();

@@ -1,0 +1,36 @@
+{
+  "name": "@reviewrouter/features-sdk-growth-authority",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "production": "./dist/index.js",
+      "default": "./src/index.ts"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "production": "./dist/testing/index.js",
+      "default": "./src/testing/index.ts"
+    },
+    "./infrastructure/prisma": {
+      "types": "./src/infrastructure/prisma/prisma-receipt-repository.ts",
+      "production": "./dist/infrastructure/prisma/prisma-receipt-repository.js",
+      "default": "./src/infrastructure/prisma/prisma-receipt-repository.ts"
+    },
+    "./infrastructure/current-authority": {
+      "types": "./src/infrastructure/prisma/prisma-current-authority.ts",
+      "production": "./dist/infrastructure/prisma/prisma-current-authority.js",
+      "default": "./src/infrastructure/prisma/prisma-current-authority.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --root ../../.. packages/features/sdk-growth-authority/src/tests"
+  },
+  "dependencies": {
+    "@prisma/client": "7.8.0"
+  }
+}
