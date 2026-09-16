@@ -77,6 +77,7 @@ export function safeDashboardErrorCode(error: unknown): string {
       "hosted_account_health_version_conflict",
       "hosted_codex_auth_json_invalid",
       "hosted_account_enrollment_conflict",
+      "hosted_account_subject_already_enrolled",
       "hosted_pool_device_login_in_flight",
       "hosted_pool_device_login_forbidden",
       "hosted_pool_device_login_not_found",

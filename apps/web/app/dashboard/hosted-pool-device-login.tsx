@@ -285,12 +285,23 @@ function DeviceLoginWaitingPanel({
 }): React.ReactElement {
   const remainingLabel = useLiveExpiryLabel(expiresAt);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const expired = remainingLabel.startsWith("This code expired");
 
   async function copyCode(): Promise<void> {
-    if (!navigator.clipboard?.writeText) return;
-    await navigator.clipboard.writeText(userCode);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1_400);
+    try {
+      if (!navigator.clipboard?.writeText) {
+        setCopyFailed(true);
+        return;
+      }
+      await navigator.clipboard.writeText(userCode);
+      setCopyFailed(false);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_400);
+    } catch {
+      setCopied(false);
+      setCopyFailed(true);
+    }
   }
 
   return (
@@ -342,6 +353,11 @@ function DeviceLoginWaitingPanel({
                 {copied ? "Copied" : "Copy"}
               </Button>
             </div>
+            {copyFailed ? (
+              <p className="mt-2 text-xs text-amber-100">
+                Could not copy. Select the code and copy it again.
+              </p>
+            ) : null}
           </div>
         </li>
         <li className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
@@ -357,9 +373,12 @@ function DeviceLoginWaitingPanel({
           </div>
         </li>
       </ol>
-      <p className="mt-5 text-xs text-slate-400" aria-live="polite">
-        {remainingLabel}
-      </p>
+      <p className="mt-5 text-xs text-slate-400">{remainingLabel}</p>
+      {expired ? (
+        <p className="sr-only" aria-live="polite">
+          {remainingLabel}
+        </p>
+      ) : null}
     </div>
   );
 }

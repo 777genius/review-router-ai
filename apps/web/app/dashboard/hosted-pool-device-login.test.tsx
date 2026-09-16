@@ -114,6 +114,30 @@ describe("HostedPoolDeviceLogin", () => {
     await Promise.resolve();
   });
 
+  it("tells the operator when the code cannot be copied", async () => {
+    const expiresAt = futureExpiry();
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(
+      <HostedPoolDeviceLogin
+        workspaceId="workspace-1"
+        mutationsEnabled
+        startAction={pendingStart(expiresAt)}
+        pollAction={pendingPoll(expiresAt)}
+      />,
+    );
+    fireEvent.change(screen.getByPlaceholderText("Work laptop"), {
+      target: { value: "Primary" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
+    );
+    expect(await screen.findByText("ABCD-EFGH")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    expect(await screen.findByText(/Could not copy/i)).toBeTruthy();
+    expectNoCredentialLeak();
+  });
+
   it("collapses the start form after accounts exist until waiting", async () => {
     const expiresAt = futureExpiry();
     const startAction = pendingStart(expiresAt);
