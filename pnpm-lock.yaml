@@ -933,6 +933,8 @@ importers:
         specifier: workspace:*
         version: link:../../platform/db
 
+  packages/features/sdk-growth-authority: {}
+
   packages/features/support-diagnostics:
     dependencies:
       '@prisma/client':
