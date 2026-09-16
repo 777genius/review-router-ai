@@ -132,7 +132,10 @@ import {
   resolveDashboardSection,
   type DashboardSection,
 } from "./dashboard-section";
-import { DashboardSectionTabs } from "./dashboard-section-tabs";
+import {
+  DashboardSectionCompactNav,
+  DashboardSectionTabs,
+} from "./dashboard-section-tabs";
 import { DashboardWorkspaceTabs } from "./dashboard-workspace-tabs";
 import { ProviderSecretSetupDialog } from "./provider-secret-setup-dialog";
 import {
@@ -1579,30 +1582,10 @@ function DashboardSectionNav({
 
   return (
     <aside className="min-w-0 px-1 py-1 lg:p-5">
-      <nav
-        aria-label="Dashboard sections"
-        className="flex gap-1 overflow-x-auto lg:hidden"
-      >
-        {items.map((item) => {
-          const active = selectedSection === item.section;
-          return (
-            <a
-              key={item.section}
-              href={item.href}
-              title={item.description}
-              aria-current={active ? "page" : undefined}
-              className={[
-                "inline-flex shrink-0 items-center whitespace-nowrap rounded-lg border px-3 py-1.5 font-mono text-[0.68rem] font-semibold uppercase tracking-[0.16em] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300",
-                active
-                  ? "border-cyan-300/45 bg-cyan-300/[0.11] text-cyan-50"
-                  : "border-transparent text-slate-300 hover:border-cyan-200/20 hover:bg-cyan-300/[0.055] hover:text-cyan-100",
-              ].join(" ")}
-            >
-              {item.label}
-            </a>
-          );
-        })}
-      </nav>
+      <DashboardSectionCompactNav
+        items={items}
+        selectedSection={selectedSection}
+      />
       <div className="hidden gap-4 lg:sticky lg:top-24 lg:grid">
         <div className="px-1 py-1">
           <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -1740,7 +1723,6 @@ function WorkspaceCard({
 
   return (
     <DashboardCollapsibleShell
-      defaultCollapsed={selectedSection === "memory"}
       nav={
         <DashboardSectionNav
           workspace={workspace}
