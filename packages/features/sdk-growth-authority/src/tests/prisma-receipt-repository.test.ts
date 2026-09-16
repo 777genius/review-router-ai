@@ -73,20 +73,22 @@ function fixture() {
     new SdkGrowthAuthority(
       {
         receipts: repository(connection),
-        revisions: { resolve: async () => binding },
-        owners: {
+        currentAuthority: {
           resolve: async () => ({
-            version: 1,
-            evidenceId: "owner",
-            tenantId: identity.tenantId,
-            ownerSubject: "owner",
             binding,
-            scopes: binding.scopes,
-            decision: "approved",
-            sourceDigest: digest,
-            issuedAt: 0,
-            expiresAt: 2000,
-            revoked: false,
+            ownerEvidence: {
+              version: 1,
+              evidenceId: "owner",
+              tenantId: identity.tenantId,
+              ownerSubject: "owner",
+              binding,
+              scopes: binding.scopes,
+              decision: "approved",
+              sourceDigest: digest,
+              issuedAt: 0,
+              expiresAt: 2000,
+              revoked: false,
+            },
           }),
         },
         clock: { now: () => 100 },

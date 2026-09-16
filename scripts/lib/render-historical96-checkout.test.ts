@@ -21,6 +21,7 @@ const full = readRenderManagedCheckoutInventory();
 const historical = full.slice(0, 96);
 const checkout97 = full.slice(0, 97);
 const checkout98 = full.slice(0, 98);
+const checkout99 = full.slice(0, 99);
 const manifest = (rows: typeof full) =>
   `sha256:${createHash("sha256")
     .update(rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","))
@@ -28,8 +29,9 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full99 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(99);
+  it("validates the full100 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(100);
+    expect(full[99]?.migrationName).toBe("000101_sdk_growth_authority");
     expect(full[98]?.migrationName).toBe("000100_hosted_codex_device_login");
     expect(full[97]?.migrationName).toBe("000099_certified_fork_proof_facts");
     expect(full[96]?.migrationName).toBe(
@@ -51,6 +53,7 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: historical },
     { checkout: checkout97 },
     { checkout: checkout98 },
+    { checkout: checkout99 },
   ])(
     "also accepts a complete validated older checkout (%#)",
     ({ checkout }) => {
@@ -84,7 +87,7 @@ describe("trusted historical96 checkout reader", () => {
     ["duplicate extension", [...full, full[96]!]],
     [
       "future replacement",
-      [...full.slice(0, 98), { ...full[98]!, migrationName: "000101_unknown" }],
+      [...full.slice(0, 99), { ...full[99]!, migrationName: "000102_unknown" }],
     ],
     [
       "digest drift",
@@ -102,7 +105,7 @@ describe("trusted historical96 checkout reader", () => {
     },
   );
 
-  it.each([96, 97, 98])(
+  it.each([96, 97, 98, 99])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {
       reader.mockImplementationOnce(() => {
