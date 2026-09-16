@@ -40,9 +40,9 @@ describe("dashboard section routing", () => {
     ).toBe("/dashboard/setup?workspace=acme&notice=org_ruleset_queued");
   });
 
-  it("resolves org-ruleset notices to Setup", () => {
+  it("resolves org-ruleset notices to Repositories", () => {
     expect(resolveDashboardSection({ notice: "org_ruleset_queued" })).toBe(
-      "setup",
+      "repositories",
     );
   });
 });

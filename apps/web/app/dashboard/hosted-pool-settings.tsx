@@ -49,7 +49,7 @@ export function HostedPoolSettingsPanel({
   if (view.gate === "feature_disabled") return null;
   if (view.gate === "entitlement_denied") {
     return (
-      <section className="border-t border-cyan-200/10 pt-5">
+      <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
         <h3 className="text-sm font-semibold text-cyan-50">
           ChatGPT accounts for reviews
         </h3>
@@ -68,7 +68,7 @@ export function HostedPoolSettingsPanel({
     healthy > 0 ||
     view.accounts.some((account) => account.availability.status === "healthy");
   return (
-    <section className="border-t border-cyan-200/10 pt-5">
+    <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

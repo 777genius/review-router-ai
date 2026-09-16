@@ -25,6 +25,62 @@ export type DashboardSectionTabItem = {
   readonly href: string;
 };
 
+export function DashboardSectionIcon({
+  section,
+  className = "h-4 w-4 shrink-0 text-current opacity-80",
+}: {
+  readonly section: string;
+  readonly className?: string;
+}): React.ReactElement {
+  const Icon = dashboardSectionIcons[section] ?? Settings2;
+  return (
+    <Icon
+      aria-hidden="true"
+      data-section-icon={section}
+      className={className}
+    />
+  );
+}
+
+export function DashboardSectionCompactNav({
+  items,
+  selectedSection,
+}: {
+  readonly items: readonly DashboardSectionTabItem[];
+  readonly selectedSection: string;
+}): React.ReactElement {
+  return (
+    <nav
+      aria-label="Dashboard sections"
+      className="flex gap-1 overflow-x-auto lg:hidden"
+    >
+      {items.map((item) => {
+        const active = selectedSection === item.section;
+        return (
+          <a
+            key={item.section}
+            href={item.href}
+            title={item.description}
+            aria-current={active ? "page" : undefined}
+            className={[
+              "inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border px-3 py-1.5 font-mono text-[0.68rem] font-semibold uppercase tracking-[0.16em] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300",
+              active
+                ? "border-cyan-300/45 bg-cyan-300/[0.11] text-cyan-50"
+                : "border-transparent text-slate-300 hover:border-cyan-200/20 hover:bg-cyan-300/[0.055] hover:text-cyan-100",
+            ].join(" ")}
+          >
+            <DashboardSectionIcon
+              section={item.section}
+              className="h-3.5 w-3.5 shrink-0 text-current opacity-80"
+            />
+            {item.label}
+          </a>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function DashboardSectionTabs({
   items,
   selectedSection,
@@ -40,7 +96,6 @@ export function DashboardSectionTabs({
         className="grid gap-1 border-l border-cyan-200/15 pl-3"
       >
         {items.map((item) => {
-          const Icon = dashboardSectionIcons[item.section] ?? Settings2;
           return (
             <Tabs.Tab
               key={item.section}
@@ -65,9 +120,8 @@ export function DashboardSectionTabs({
               }
             >
               <span className="flex items-start gap-3">
-                <Icon
-                  aria-hidden="true"
-                  data-section-icon={item.section}
+                <DashboardSectionIcon
+                  section={item.section}
                   className="mt-0.5 h-4 w-4 shrink-0 text-current opacity-80"
                 />
                 <span className="grid min-w-0">
