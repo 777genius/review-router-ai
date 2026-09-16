@@ -116,9 +116,12 @@ describe("offline Prisma generate", () => {
 
   it("isolates Linux Prisma generate from the network", () => {
     expect(
-      offlinePrismaGenerateInvocation({
-        REVIEW_ROUTER_PRISMA_GENERATE_PLATFORM: "linux",
-      }),
+      offlinePrismaGenerateInvocation(
+        {
+          REVIEW_ROUTER_PRISMA_GENERATE_PLATFORM: "linux",
+        },
+        "unshare",
+      ),
     ).toEqual({
       command: "unshare",
       args: [
@@ -132,13 +135,58 @@ describe("offline Prisma generate", () => {
     });
   });
 
+  it("drops back to the caller after privileged network isolation", () => {
+    expect(
+      offlinePrismaGenerateInvocation(
+        {
+          REVIEW_ROUTER_PRISMA_GENERATE_PLATFORM: "linux",
+          REVIEW_ROUTER_PRISMA_GENERATE_USER: "runner",
+        },
+        "sudo-unshare",
+      ),
+    ).toEqual({
+      command: "sudo",
+      args: [
+        "-n",
+        "unshare",
+        "--net",
+        "--",
+        "sudo",
+        "-n",
+        "-u",
+        "runner",
+        "-E",
+        "--",
+        "pnpm",
+        "--filter",
+        "@reviewrouter/platform-db",
+        "db:generate",
+      ],
+    });
+  });
+
+  it("skips unshare when the caller already isolated the network", () => {
+    expect(
+      offlinePrismaGenerateInvocation(
+        {
+          REVIEW_ROUTER_PRISMA_NETWORK_ALREADY_ISOLATED: "1",
+        },
+        "none",
+      ),
+    ).toEqual({
+      command: "pnpm",
+      args: ["--filter", "@reviewrouter/platform-db", "db:generate"],
+    });
+  });
+
   it("fails closed on non-Linux when offline isolation is required", () => {
-    expect(() =>
-      offlinePrismaGenerateInvocation({
-        REVIEW_ROUTER_PRISMA_GENERATE_PLATFORM: "darwin",
-        REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1",
-      }),
-    ).toThrow(/Linux network isolation/u);
+    const { directory } = createFakeTools();
+    const result = runGenerate(directory, {
+      REVIEW_ROUTER_PRISMA_GENERATE_PLATFORM: "darwin",
+      REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1",
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Linux network isolation");
   });
 
   it("runs unprivileged Prisma generate without deploy-key material", () => {
@@ -161,6 +209,20 @@ describe("offline Prisma generate", () => {
       ],
       deployKeyPresent: false,
       gitSshCommand: null,
+      pnpmArgs: ["--filter", "@reviewrouter/platform-db", "db:generate"],
+      pnpmDeployKeyPresent: false,
+      pnpmGitSshCommand: null,
+    });
+  });
+
+  it("uses an already-isolated network without calling unshare", () => {
+    const { capturePath, directory } = createFakeTools();
+    const result = runGenerate(directory, {
+      REVIEW_ROUTER_PRISMA_NETWORK_ALREADY_ISOLATED: "1",
+    });
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(readFileSync(capturePath, "utf8"))).toEqual({
       pnpmArgs: ["--filter", "@reviewrouter/platform-db", "db:generate"],
       pnpmDeployKeyPresent: false,
       pnpmGitSshCommand: null,
@@ -191,10 +253,15 @@ describe("offline Prisma generate", () => {
     const helper = "node scripts/generate-prisma-offline.mjs";
     expect(ci.match(new RegExp(helper, "gu"))).toHaveLength(3);
     expect(ci).not.toMatch(/run: pnpm db:generate/u);
+    expect(ci).toContain('REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"');
     expect(migration.match(new RegExp(helper, "gu"))).toHaveLength(2);
     expect(blueprint.match(new RegExp(helper, "gu"))).toHaveLength(2);
     expect(blueprint).toContain(
       "env -u SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 -u GIT_SSH_COMMAND -u GIT_SSH_VARIANT node scripts/generate-prisma-offline.mjs",
+    );
+    expect(dockerfile).toContain("RUN --network=none");
+    expect(dockerfile).toContain(
+      "REVIEW_ROUTER_PRISMA_NETWORK_ALREADY_ISOLATED=1",
     );
     expect(dockerfile).toContain(helper);
     expect(dockerfile).not.toContain(

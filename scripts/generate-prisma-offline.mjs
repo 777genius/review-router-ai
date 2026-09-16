@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import { userInfo } from "node:os";
 import { fileURLToPath } from "node:url";
 
 export const forbiddenCredentialNames = [
@@ -18,21 +19,69 @@ export function prismaGenerateArgs() {
   return ["--filter", "@reviewrouter/platform-db", "db:generate"];
 }
 
-export function offlinePrismaGenerateInvocation(env = process.env) {
+function probe(command, args) {
+  const result = spawnSync(command, args, { stdio: "ignore" });
+  return !result.error && result.status === 0;
+}
+
+function isolationProbeArgs() {
+  return ["--net", "--", process.execPath, "-e", "process.exit(0)"];
+}
+
+export function selectNetworkIsolator(env = process.env) {
   const platform =
     env.REVIEW_ROUTER_PRISMA_GENERATE_PLATFORM || process.platform;
-  const pnpmArgs = prismaGenerateArgs();
+  if (env.REVIEW_ROUTER_PRISMA_NETWORK_ALREADY_ISOLATED === "1") return "none";
   if (platform !== "linux") {
     if (env.REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA === "1")
       throw new Error(
         "offline Prisma generate requires Linux network isolation",
       );
-    return { command: "pnpm", args: pnpmArgs };
+    return "none";
   }
-  return {
-    command: "unshare",
-    args: ["--net", "--", "pnpm", ...pnpmArgs],
-  };
+
+  const probeArgs = isolationProbeArgs();
+  if (probe("unshare", probeArgs)) return "unshare";
+  if (probe("sudo", ["-n", "unshare", ...probeArgs])) return "sudo-unshare";
+  if (env.REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA === "1")
+    throw new Error("offline Prisma generate could not isolate the network");
+  console.error("warning: generating Prisma client without network isolation");
+  return "none";
+}
+
+export function offlinePrismaGenerateInvocation(
+  env = process.env,
+  isolator = "unshare",
+) {
+  const pnpmArgs = prismaGenerateArgs();
+  if (isolator === "none") return { command: "pnpm", args: pnpmArgs };
+  if (isolator === "unshare")
+    return {
+      command: "unshare",
+      args: ["--net", "--", "pnpm", ...pnpmArgs],
+    };
+  if (isolator === "sudo-unshare") {
+    const username =
+      env.REVIEW_ROUTER_PRISMA_GENERATE_USER || userInfo().username;
+    return {
+      command: "sudo",
+      args: [
+        "-n",
+        "unshare",
+        "--net",
+        "--",
+        "sudo",
+        "-n",
+        "-u",
+        username,
+        "-E",
+        "--",
+        "pnpm",
+        ...pnpmArgs,
+      ],
+    };
+  }
+  throw new Error(`unknown Prisma generate isolator: ${isolator}`);
 }
 
 export function assertOfflinePrismaGenerateEnvironment(env = process.env) {
@@ -46,7 +95,8 @@ export function assertOfflinePrismaGenerateEnvironment(env = process.env) {
 function run() {
   try {
     assertOfflinePrismaGenerateEnvironment();
-    const invocation = offlinePrismaGenerateInvocation();
+    const isolator = selectNetworkIsolator();
+    const invocation = offlinePrismaGenerateInvocation(process.env, isolator);
     const childEnv = { ...process.env };
     for (const name of forbiddenCredentialNames) delete childEnv[name];
     const result = spawnSync(invocation.command, invocation.args, {
