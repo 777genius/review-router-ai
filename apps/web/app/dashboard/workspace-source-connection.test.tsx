@@ -54,7 +54,9 @@ describe("WorkspaceSourceConnectionPanel", () => {
     expect(screen.getByText("Padelapp-Club")).toBeTruthy();
     expect(screen.getByText("Refresh repos")).toBeTruthy();
     expect(screen.queryByText("GitHub App connection")).toBeNull();
-    expect(screen.queryByText("Installation sync and repository selection.")).toBeNull();
+    expect(
+      screen.queryByText("Installation sync and repository selection."),
+    ).toBeNull();
   });
 
   it("keeps GitLab and extra GitHub install help collapsed when a source is already connected", () => {

@@ -74,9 +74,9 @@ export function WorkspaceSourceConnectionPanel({
             GitHub and GitLab connection
           </h3>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            This workspace is attached to a GitHub App install or a GitLab
-            group or project. Repositories on this page come from that
-            connection. ChatGPT logins used to run reviews are on{" "}
+            This workspace is attached to a GitHub App install or a GitLab group
+            or project. Repositories on this page come from that connection.
+            ChatGPT logins used to run reviews are on{" "}
             <a
               href={dashboardSectionHref("setup", workspaceKey)}
               className="text-cyan-100 underline decoration-cyan-300/40 underline-offset-4"
