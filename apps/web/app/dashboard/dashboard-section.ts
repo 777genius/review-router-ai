@@ -43,7 +43,7 @@ export const dashboardSectionMeta: Record<
     title: "Accounts",
     description:
       "We encrypt every ChatGPT session before it is stored. Sessions never go to the browser, and we decrypt only to run a review.",
-    navDescription: "Encrypted ChatGPT sessions",
+    navDescription: "Encrypted subscription accounts",
   },
   policy: {
     eyebrow: "Review behavior",
