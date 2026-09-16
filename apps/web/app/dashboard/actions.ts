@@ -152,6 +152,7 @@ import {
   changeHostedPoolAccountState,
   changeHostedRepositorySessionSource,
   importHostedPoolAccount,
+  removeHostedPoolAccount,
   pollHostedPoolDeviceLogin,
   startHostedPoolDeviceLogin,
   type HostedPoolDashboardMutationDependencies,
@@ -320,7 +321,42 @@ export async function setHostedPoolAccountStateClientAction(
     revalidateDashboard();
     return {
       params: {
-        notice: "hosted_pool_account_updated",
+        notice:
+          state === "paused"
+            ? "hosted_pool_account_paused"
+            : "hosted_pool_account_resumed",
+        workspace: workspaceId,
+        section: "setup",
+      },
+    };
+  } catch (error) {
+    return {
+      params: {
+        error: safeDashboardErrorCode(error),
+        workspace: workspaceId,
+        section: "setup",
+      },
+    };
+  }
+}
+
+export async function removeHostedPoolAccountClientAction(
+  formData: FormData,
+): Promise<{ readonly params: Record<string, string> }> {
+  const workspaceId = readFormString(formData, "workspaceId");
+  try {
+    await removeHostedPoolAccount(
+      {
+        workspaceId,
+        accountId: readFormString(formData, "accountId"),
+        expectedVersion: readNonNegativeInteger(formData, "expectedVersion"),
+      },
+      createHostedPoolDashboardMutationDependencies(),
+    );
+    revalidateDashboard();
+    return {
+      params: {
+        notice: "hosted_pool_account_removed",
         workspace: workspaceId,
         section: "setup",
       },

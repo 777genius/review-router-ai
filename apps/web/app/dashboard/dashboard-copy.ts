@@ -71,6 +71,16 @@ export function dashboardNoticeText(
       return "Failed background event was not found for this workspace.";
     case "outbox_retry_not_dead_letter":
       return "Background event is no longer in dead-letter state and was not manually retried.";
+    case "hosted_pool_account_added":
+      return "ReviewRouter detected the login. This account is ready for reviews. The session is encrypted on the server and never sent to the browser.";
+    case "hosted_pool_account_paused":
+      return "Reviews will skip this ChatGPT until you use it again.";
+    case "hosted_pool_account_resumed":
+      return "This ChatGPT is back in line for reviews.";
+    case "hosted_pool_account_updated":
+      return "ReviewRouter saved the change. Sessions stay encrypted on the server and are never sent to the browser.";
+    case "hosted_pool_account_removed":
+      return "This ChatGPT is no longer in the pool. You cannot add this same ChatGPT later.";
     default:
       return "Dashboard action completed.";
   }
@@ -121,6 +131,16 @@ export function dashboardNoticeTitle(notice: string): string {
     case "outbox_retry_not_found":
     case "outbox_retry_not_dead_letter":
       return "Retry updated";
+    case "hosted_pool_account_added":
+      return "ChatGPT connected";
+    case "hosted_pool_account_paused":
+      return "Account paused";
+    case "hosted_pool_account_resumed":
+      return "Account ready again";
+    case "hosted_pool_account_updated":
+      return "Account updated";
+    case "hosted_pool_account_removed":
+      return "Account removed";
     default:
       return "Action complete";
   }
@@ -144,6 +164,11 @@ export function dashboardNoticeTone(
     case "memory_disabled":
     case "memory_deleted":
     case "repository_access_refreshed":
+    case "hosted_pool_account_added":
+    case "hosted_pool_account_paused":
+    case "hosted_pool_account_resumed":
+    case "hosted_pool_account_updated":
+    case "hosted_pool_account_removed":
       return "success";
     case "sync_already_requested":
     case "memory_duplicate":
@@ -400,6 +425,8 @@ export function dashboardErrorText(error: string): string {
       return "GitHub rejected the request. Check whether the pull request can be reopened or whether branch protection blocks the update.";
     case "github_service_unavailable":
       return "GitHub is temporarily unavailable for this action. Retry after GitHub recovers.";
+    case "hosted_account_subject_already_enrolled":
+      return "This ChatGPT is already on the list, or it was removed and cannot be added again.";
     case "github_operation_failed":
       return "GitHub operation failed. Check audit events or server logs for the safe error code.";
     case "repository_not_selected":

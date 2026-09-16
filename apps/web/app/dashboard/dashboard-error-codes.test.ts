@@ -71,6 +71,11 @@ describe("safeDashboardErrorCode", () => {
     expect(
       safeDashboardErrorCode(new Error("hosted_codex_auth_json_invalid")),
     ).toBe("hosted_codex_auth_json_invalid");
+    expect(
+      safeDashboardErrorCode(
+        new Error("hosted_account_subject_already_enrolled"),
+      ),
+    ).toBe("hosted_account_subject_already_enrolled");
     expect(safeDashboardErrorCode(new Error("rate_limit_exceeded:setup"))).toBe(
       "rate_limited",
     );

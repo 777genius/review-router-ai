@@ -27,6 +27,7 @@ function mutationDependencies(
     mutations: {
       importAccount: vi.fn(async () => undefined),
       setAccountState: vi.fn(async () => undefined),
+      removeAccount: vi.fn(async () => undefined),
       setRepositorySource: vi.fn(async () => ({
         activation: "pending" as const,
       })),
@@ -142,6 +143,7 @@ describe("hosted pool dashboard boundary", () => {
           order.push("import");
         }),
         setAccountState: vi.fn(async () => undefined),
+        removeAccount: vi.fn(async () => undefined),
         setRepositorySource: vi.fn(async () => ({
           activation: "pending" as const,
         })),
@@ -171,6 +173,7 @@ describe("hosted pool dashboard boundary", () => {
           throw new Error("credential_enrollment_failed");
         }),
         setAccountState: vi.fn(async () => undefined),
+        removeAccount: vi.fn(async () => undefined),
         setRepositorySource: vi.fn(async () => ({
           activation: "pending" as const,
         })),

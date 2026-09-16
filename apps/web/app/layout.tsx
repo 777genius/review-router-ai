@@ -6,7 +6,7 @@ import { getServerSession } from "next-auth";
 import { GitBranch, LifeBuoy, Mail, ShieldCheck } from "lucide-react";
 import { AppToaster } from "./app-toaster";
 import { LogoMark } from "./logo-mark";
-import { MobilePrimaryNav, PrimaryNav } from "./primary-nav";
+import { CompactPrimaryNav, MobilePrimaryNav, PrimaryNav } from "./primary-nav";
 import { HeaderProfileMenu } from "./header-profile-menu";
 import { ThemeToggle } from "./theme-toggle";
 import "./globals.css";
@@ -207,6 +207,7 @@ export default async function RootLayout({
               />
             </div>
           </div>
+          <CompactPrimaryNav signedIn={profile.signedIn} />
         </header>
         <div id="content">{children}</div>
         <AppToaster />

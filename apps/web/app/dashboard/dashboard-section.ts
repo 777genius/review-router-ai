@@ -9,10 +9,10 @@ export type DashboardSection =
 
 export const DASHBOARD_SECTIONS = [
   "repositories",
-  "memory",
   "setup",
   "policy",
   "diagnostics",
+  "memory",
 ] as const satisfies readonly DashboardSection[];
 
 export const dashboardSectionMeta: Record<
@@ -39,11 +39,11 @@ export const dashboardSectionMeta: Record<
     navDescription: "Suggestions and knowledge",
   },
   setup: {
-    eyebrow: "Connection",
-    title: "Setup",
+    eyebrow: "ChatGPT",
+    title: "Accounts",
     description:
-      "Refresh GitHub App repository metadata and manage installation access. Provider commands appear after choosing a repository.",
-    navDescription: "App sync and access",
+      "We encrypt every ChatGPT session before it is stored. Sessions never go to the browser, and we decrypt only to run a review.",
+    navDescription: "Encrypted ChatGPT sessions",
   },
   policy: {
     eyebrow: "Review behavior",

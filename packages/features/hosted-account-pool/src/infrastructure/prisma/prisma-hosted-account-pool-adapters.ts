@@ -130,7 +130,6 @@ export class PrismaHostedCredentialEnrollment implements HostedCredentialEnrollm
           where: {
             workspaceId: input.workspaceId,
             accountFingerprint: subjectFingerprint,
-            tombstonedAt: null,
           },
           select: { id: true },
         });
@@ -396,6 +395,36 @@ export class PrismaHostedAccountRepository implements HostedAccountRepositoryPor
     });
     return result.count === 1;
   }
+
+  async tombstone(
+    input: Parameters<HostedAccountRepositoryPort["tombstone"]>[0],
+  ) {
+    const nextHealthVersion = input.expectedHealthVersion + 1;
+    const result = await this.prisma.hostedCodexAccount.updateMany({
+      where: {
+        id: input.account.id,
+        healthVersion: BigInt(input.expectedHealthVersion),
+        tombstonedAt: null,
+      },
+      data: {
+        state: "tombstoned",
+        tombstonedAt: input.now,
+        drainingAt: input.now,
+        cooldownUntil: null,
+        label: removedAccountLabel(input.account.id, input.account.label),
+        healthVersion: BigInt(nextHealthVersion),
+        updatedAt: input.now,
+      },
+    });
+    return result.count === 1;
+  }
+}
+
+function removedAccountLabel(accountId: string, label: string): string {
+  const suffix = ` (removed ${accountId.slice(0, 8)})`;
+  const maxLabel = 120;
+  const kept = label.slice(0, Math.max(1, maxLabel - suffix.length));
+  return `${kept}${suffix}`;
 }
 
 export class PrismaHostedPoolRepository implements HostedPoolRepositoryPort {

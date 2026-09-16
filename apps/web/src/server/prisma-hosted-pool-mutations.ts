@@ -11,6 +11,7 @@ import {
   repositoryId,
   resolveHostedCodexKeyring,
   setHostedAccountAvailability,
+  tombstoneHostedAccount,
   switchRepositoryToRepositoryOwnedRotating,
   workspaceId,
   type RepositoryReviewConfigurationAuthModeAuthority,
@@ -118,6 +119,30 @@ export function createPrismaHostedPoolDashboardMutationPort(input: {
                   status: "paused",
                   reason: "Paused by a workspace administrator",
                 },
+          now: command.requestedAt,
+        },
+        adapters.accounts,
+      );
+    },
+
+    async removeAccount(command) {
+      const adapters = createAdapters();
+      const account = await adapters.accounts.findById(
+        hostedAccountId(command.accountId),
+      );
+      const pool = account
+        ? await adapters.pools.findById(account.poolId)
+        : null;
+      if (
+        !account ||
+        !pool ||
+        pool.workspaceId !== workspaceId(command.workspaceId)
+      )
+        throw new Error("hosted_account_not_found");
+      await tombstoneHostedAccount(
+        {
+          accountId: hostedAccountId(command.accountId),
+          expectedHealthVersion: command.expectedVersion,
           now: command.requestedAt,
         },
         adapters.accounts,

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { LinkButton } from "@reviewrouter/ui";
 import { GitHubAccountAvatar } from "./github-account-avatar";
 import { GitHubSignOutButton } from "./github-sign-in-button";
+import { isDashboardOperatorPreviewPath } from "./dashboard-preview-path";
 
 type PrimaryNavItem = {
   readonly href: string;
@@ -29,14 +30,48 @@ export function PrimaryNav({
 }: {
   readonly signedIn: boolean;
 }): React.ReactElement {
+  return (
+    <PrimaryNavLinks
+      signedIn={signedIn}
+      ariaLabel="Primary navigation"
+      className="hidden w-full min-w-0 gap-2 font-mono text-xs uppercase tracking-[0.16em] lg:flex lg:w-auto lg:justify-center"
+    />
+  );
+}
+
+export function CompactPrimaryNav({
+  signedIn,
+}: {
+  readonly signedIn: boolean;
+}): React.ReactElement {
+  return (
+    <div className="border-t border-cyan-200/10 lg:hidden">
+      <PrimaryNavLinks
+        signedIn={signedIn}
+        ariaLabel="Primary navigation"
+        className="mx-auto flex w-full min-w-0 max-w-7xl flex-wrap items-center gap-1 px-4 py-2 font-mono text-xs uppercase tracking-[0.16em] sm:px-6"
+      />
+    </div>
+  );
+}
+
+function PrimaryNavLinks({
+  signedIn,
+  ariaLabel,
+  className,
+}: {
+  readonly signedIn: boolean;
+  readonly ariaLabel: string;
+  readonly className: string;
+}): React.ReactElement {
   const pathname = usePathname();
-  const items = signedIn ? signedInPrimaryNav : signedOutPrimaryNav;
+  const items =
+    signedIn || isDashboardOperatorPreviewPath(pathname)
+      ? signedInPrimaryNav
+      : signedOutPrimaryNav;
 
   return (
-    <nav
-      aria-label="Primary navigation"
-      className="hidden w-full min-w-0 gap-2 font-mono text-xs uppercase tracking-[0.16em] lg:flex lg:w-auto lg:justify-center"
-    >
+    <nav aria-label={ariaLabel} className={className}>
       {items.map((item) => {
         const active = isActivePath(pathname, item.activePath ?? item.href);
         return (
@@ -66,7 +101,10 @@ export function MobilePrimaryNav({
   readonly provider: "github" | "gitlab" | null;
 }): React.ReactElement {
   const pathname = usePathname();
-  const items = signedIn ? signedInPrimaryNav : signedOutPrimaryNav;
+  const items =
+    signedIn || isDashboardOperatorPreviewPath(pathname)
+      ? signedInPrimaryNav
+      : signedOutPrimaryNav;
 
   return (
     <DropdownMenu.Root>
@@ -90,6 +128,7 @@ export function MobilePrimaryNav({
             login={login}
             avatarUrl={avatarUrl}
             provider={provider}
+            hideSignIn={isDashboardOperatorPreviewPath(pathname)}
           />
           <nav
             aria-label="Mobile primary navigation"
@@ -171,12 +210,15 @@ function MobileProfileBlock({
   login,
   avatarUrl,
   provider,
+  hideSignIn = false,
 }: {
   readonly login: string | null;
   readonly avatarUrl: string | null;
   readonly provider: "github" | "gitlab" | null;
-}): React.ReactElement {
+  readonly hideSignIn?: boolean;
+}): React.ReactElement | null {
   if (!login) {
+    if (hideSignIn) return null;
     return (
       <div className="rounded-xl border border-cyan-200/10 bg-cyan-300/[0.055] p-3">
         <p className="font-mono text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-slate-500">

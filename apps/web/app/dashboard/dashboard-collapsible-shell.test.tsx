@@ -25,7 +25,10 @@ describe("DashboardCollapsibleShell", () => {
         ?.className.includes("hidden"),
     ).toBe(true);
 
-    const toggle = screen.getByRole("button", { name: "Show sidebar" });
+    const toggle = screen.getByRole("button", {
+      name: "Show sidebar",
+      hidden: true,
+    });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
 
     fireEvent.click(toggle);
@@ -36,10 +39,15 @@ describe("DashboardCollapsibleShell", () => {
         .getElementById("dashboard-section-sidebar")
         ?.className.includes("block"),
     ).toBe(true);
+    const hide = screen.getByRole("button", {
+      name: "Hide sidebar",
+      hidden: true,
+    });
+    expect(hide.getAttribute("aria-expanded")).toBe("true");
     expect(
-      screen
-        .getByRole("button", { name: "Hide sidebar" })
-        .getAttribute("aria-expanded"),
-    ).toBe("true");
+      hide.compareDocumentPosition(
+        document.getElementById("dashboard-section-sidebar")!,
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });

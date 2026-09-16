@@ -196,8 +196,32 @@ function dashboardActionToast(
     case "hosted_pool_account_added":
       return {
         tone: "success",
-        title: "Hosted Codex account added",
-        body: "The ChatGPT session is enrolled in this workspace pool. Credentials stay on the server.",
+        title: "ChatGPT connected",
+        body: "ReviewRouter detected the login. This account is ready for reviews. The session is encrypted on the server and never sent to the browser.",
+      };
+    case "hosted_pool_account_paused":
+      return {
+        tone: "success",
+        title: "Account paused",
+        body: "Reviews will skip this ChatGPT until you use it again.",
+      };
+    case "hosted_pool_account_resumed":
+      return {
+        tone: "success",
+        title: "Account ready again",
+        body: "This ChatGPT is back in line for reviews.",
+      };
+    case "hosted_pool_account_updated":
+      return {
+        tone: "success",
+        title: "Account updated",
+        body: "ReviewRouter saved the change. Sessions stay encrypted on the server and are never sent to the browser.",
+      };
+    case "hosted_pool_account_removed":
+      return {
+        tone: "success",
+        title: "Account removed",
+        body: "This ChatGPT is no longer in the pool. You cannot add this same ChatGPT later.",
       };
     default:
       return {
@@ -254,6 +278,8 @@ function dashboardActionErrorText(error: string): string {
       return "The ChatGPT session could not be imported. Start a new sign-in or upload a fresh auth.json.";
     case "hosted_pool_device_login_provider_unavailable":
       return "ChatGPT sign-in is temporarily unavailable. Try again shortly, or upload auth.json.";
+    case "hosted_account_subject_already_enrolled":
+      return "This ChatGPT is already on the list, or it was removed and cannot be added again.";
     default:
       return "The dashboard action could not be completed.";
   }
