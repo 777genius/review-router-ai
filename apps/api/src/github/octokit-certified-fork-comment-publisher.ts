@@ -1,4 +1,7 @@
 import { App } from "@octokit/app";
+import { createHash } from "node:crypto";
+import type { DistributedLock } from "@reviewrouter/platform-locks";
+import { certifiedForkGithubRequestTimeoutMs } from "./octokit-certified-fork-review-gateway.js";
 
 type OctokitRequester = {
   request(
@@ -21,12 +24,14 @@ export type CertifiedForkCommentPublication = Readonly<{
 export class OctokitCertifiedForkCommentPublisher {
   private readonly app: InstallationApp;
   private readonly botLogin: string;
+  private readonly lock: DistributedLock;
 
   constructor(options: {
     readonly appId?: string;
     readonly privateKey?: string;
     readonly appSlug: string;
     readonly app?: InstallationApp;
+    readonly lock: DistributedLock;
   }) {
     if (!/^[A-Za-z0-9-]+$/u.test(options.appSlug)) {
       throw new Error("certified_fork_comment_app_slug_invalid");
@@ -38,6 +43,7 @@ export class OctokitCertifiedForkCommentPublisher {
       options.app ??
       new App({ appId: options.appId!, privateKey: options.privateKey! });
     this.botLogin = `${options.appSlug.toLowerCase()}[bot]`;
+    this.lock = options.lock;
   }
 
   async upsert(input: {
@@ -73,45 +79,62 @@ export class OctokitCertifiedForkCommentPublisher {
     if (!owner || !repo || extra) {
       throw new Error("certified_fork_comment_repository_invalid");
     }
-    const octokit = await this.app.getInstallationOctokit(installationId);
-    await assertPullRequestCurrent({
-      octokit,
-      owner,
-      repo,
-      baseRepositoryId: input.baseRepositoryId,
-      sourceRepositoryId: input.sourceRepositoryId,
-      pullRequestNumber: input.pullRequestNumber,
-      baseSha: input.baseSha,
-      reviewHeadSha: input.reviewHeadSha,
-    });
-    const commentId = await this.findOwnedComment({
-      octokit,
-      owner,
-      repo,
-      pullRequestNumber: input.pullRequestNumber,
-      marker: input.marker,
-    });
-    const response =
-      commentId === null
-        ? await octokit.request(
-            "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
-            {
-              owner,
-              repo,
-              issue_number: input.pullRequestNumber,
-              body: input.body,
-            },
-          )
-        : await octokit.request(
-            "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
-            {
-              owner,
-              repo,
-              comment_id: commentId,
-              body: input.body,
-            },
-          );
-    return parseComment(response.data);
+    const markerHash = createHash("sha256")
+      .update(input.marker, "utf8")
+      .digest("hex");
+    return this.lock.withLock(
+      `certified-fork-comment:${input.baseRepositoryId}:${input.pullRequestNumber}:${markerHash}`,
+      3 * 60_000,
+      async () => {
+        const rawOctokit =
+          await this.app.getInstallationOctokit(installationId);
+        const octokit: OctokitRequester = {
+          request: (route, parameters = {}) =>
+            rawOctokit.request(route, {
+              ...parameters,
+              request: { timeout: certifiedForkGithubRequestTimeoutMs },
+            }),
+        };
+        await assertPullRequestCurrent({
+          octokit,
+          owner,
+          repo,
+          baseRepositoryId: input.baseRepositoryId,
+          sourceRepositoryId: input.sourceRepositoryId,
+          pullRequestNumber: input.pullRequestNumber,
+          baseSha: input.baseSha,
+          reviewHeadSha: input.reviewHeadSha,
+        });
+        const commentId = await this.findOwnedComment({
+          octokit,
+          owner,
+          repo,
+          pullRequestNumber: input.pullRequestNumber,
+          marker: input.marker,
+        });
+        const response =
+          commentId === null
+            ? await octokit.request(
+                "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+                {
+                  owner,
+                  repo,
+                  issue_number: input.pullRequestNumber,
+                  body: input.body,
+                },
+              )
+            : await octokit.request(
+                "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+                {
+                  owner,
+                  repo,
+                  comment_id: commentId,
+                  body: input.body,
+                },
+              );
+        return parseComment(response.data);
+      },
+    );
   }
 
   private async findOwnedComment(input: {

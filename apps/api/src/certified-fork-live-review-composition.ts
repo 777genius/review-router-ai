@@ -19,6 +19,7 @@ import {
 } from "@reviewrouter/features-hosted-account-pool";
 import { requestDirectForkReview } from "@reviewrouter/features-codex-oauth-rotating";
 import type { PrismaClient } from "@reviewrouter/platform-db";
+import { PostgresLeaseLock } from "@reviewrouter/platform-locks";
 import { SystemClock } from "@reviewrouter/shared";
 import {
   createProductionHostedCodexSessionRuntime,
@@ -127,6 +128,7 @@ export function composeProductionCertifiedForkLiveReview(input: {
       appId: input.githubAppId,
       privateKey: input.githubAppPrivateKey,
       appSlug: input.githubAppSlug,
+      lock: new PostgresLeaseLock(input.prisma),
     }),
     clock,
   };

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { InMemoryLock } from "@reviewrouter/platform-locks";
 import { OctokitCertifiedForkCommentPublisher } from "./octokit-certified-fork-comment-publisher.js";
 
 const marker =
@@ -35,6 +36,7 @@ function fixture(comments: unknown[] = []) {
   const publisher = new OctokitCertifiedForkCommentPublisher({
     appSlug: "reviewrouter",
     app: { getInstallationOctokit: () => ({ request }) },
+    lock: new InMemoryLock(),
   });
   const input = {
     githubInstallationId: "7",
@@ -68,6 +70,9 @@ describe("certified fork App comment publisher", () => {
       "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
       "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
     ]);
+    for (const [, parameters] of f.request.mock.calls) {
+      expect(parameters).toMatchObject({ request: { timeout: 15_000 } });
+    }
   });
 
   it("patches the single App-owned marker", async () => {
@@ -116,5 +121,48 @@ describe("certified fork App comment publisher", () => {
       "certified_fork_comment_pull_request_stale",
     );
     expect(f.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes concurrent upserts for the same certified marker", async () => {
+    let releaseInventory!: () => void;
+    let markInventoryStarted!: () => void;
+    const inventoryStarted = new Promise<void>(
+      (resolve) => (markInventoryStarted = resolve),
+    );
+    const request = vi.fn(async (route: string): Promise<{ data: unknown }> => {
+      if (route.endsWith("/pulls/{pull_number}")) {
+        return {
+          data: {
+            number: 42,
+            state: "open",
+            draft: false,
+            merged: false,
+            base: { sha: "a".repeat(40), repo: { id: 99 } },
+            head: { sha: "b".repeat(40), repo: { id: 101 } },
+          },
+        };
+      }
+      if (route.startsWith("GET ")) {
+        markInventoryStarted();
+        await new Promise<void>((resolve) => (releaseInventory = resolve));
+        return { data: [] };
+      }
+      return { data: { id: 123 } };
+    });
+    const publisher = new OctokitCertifiedForkCommentPublisher({
+      appSlug: "reviewrouter",
+      app: { getInstallationOctokit: () => ({ request }) },
+      lock: new InMemoryLock(),
+    });
+    const first = publisher.upsert(fixture().input);
+    await inventoryStarted;
+    await expect(publisher.upsert(fixture().input)).rejects.toThrow(
+      "Lock already held",
+    );
+    releaseInventory();
+    await expect(first).resolves.toMatchObject({ commentId: "123" });
+    expect(
+      request.mock.calls.filter(([route]) => route.startsWith("POST ")),
+    ).toHaveLength(1);
   });
 });

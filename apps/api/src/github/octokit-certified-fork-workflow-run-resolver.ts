@@ -1,4 +1,5 @@
 import { App } from "@octokit/app";
+import { certifiedForkGithubRequestTimeoutMs } from "./octokit-certified-fork-review-gateway.js";
 
 type OctokitRequester = {
   request(
@@ -56,7 +57,14 @@ export class OctokitCertifiedForkWorkflowRunResolver {
     if (!repo || extra || input.repository.owner.length === 0) {
       throw new Error("certified_fork_workflow_run_repository_invalid");
     }
-    const octokit = await this.app.getInstallationOctokit(installationId);
+    const rawOctokit = await this.app.getInstallationOctokit(installationId);
+    const octokit: OctokitRequester = {
+      request: (route, parameters = {}) =>
+        rawOctokit.request(route, {
+          ...parameters,
+          request: { timeout: certifiedForkGithubRequestTimeoutMs },
+        }),
+    };
     const response = await octokit.request(
       "GET /repos/{owner}/{repo}/actions/runs/{run_id}",
       {
