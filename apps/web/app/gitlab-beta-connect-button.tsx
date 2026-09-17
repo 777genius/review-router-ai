@@ -1,4 +1,4 @@
-import { Badge, Button, type ButtonProps } from "@reviewrouter/ui";
+import { Button, type ButtonProps } from "@reviewrouter/ui";
 import { SourceProviderLabel } from "./source-provider-logo";
 
 export const gitLabBetaUnavailableLabel =
@@ -18,23 +18,29 @@ export function GitLabBetaConnectButton({
   readonly labelClassName?: string;
 }): React.ReactElement {
   return (
-    <Button
-      type="button"
-      disabled
-      size={size}
-      variant={variant}
-      className={`disabled:opacity-100 ${className}`.trim()}
-      title={gitLabBetaUnavailableLabel}
-      aria-label={`${label} (In development, unavailable)`}
+    <span
+      className={`gitlab-beta-cta${className.includes("w-full") ? " gitlab-beta-cta--stretch" : ""}`}
     >
-      <SourceProviderLabel
-        provider="gitlab"
-        label={label}
-        {...(labelClassName === undefined ? {} : { className: labelClassName })}
-      />
-      <Badge size="xs" tone="warning">
+      <Button
+        type="button"
+        disabled
+        size={size}
+        variant={variant}
+        className={`disabled:opacity-100 ${className}`.trim()}
+        title={gitLabBetaUnavailableLabel}
+        aria-label={`${label} (In development, unavailable)`}
+      >
+        <SourceProviderLabel
+          provider="gitlab"
+          label={label}
+          {...(labelClassName === undefined
+            ? {}
+            : { className: labelClassName })}
+        />
+      </Button>
+      <span className="gitlab-beta-cta__ribbon" aria-hidden="true">
         In development
-      </Badge>
-    </Button>
+      </span>
+    </span>
   );
 }

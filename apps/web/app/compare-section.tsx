@@ -217,7 +217,7 @@ export function CompareSection({
               </p>
             </div>
             <p className="font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-500">
-              Updated May 15, 2026
+              Updated September 17, 2026
             </p>
           </div>
           <CompetitorTable />
@@ -227,7 +227,8 @@ export function CompareSection({
               className="mt-0.5 size-4 shrink-0 text-cyan-300"
             />
             Information reflects public vendor docs and product positioning as
-            of May 2026. Verify current compliance details before procurement.
+            of September 2026. Verify current compliance details before
+            procurement.
           </p>
         </div>
 
