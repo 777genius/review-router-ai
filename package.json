@@ -48,6 +48,7 @@
     "beta:check": "bash scripts/check-beta-readiness.sh",
     "web:smoke": "node scripts/run-with-env.mjs node scripts/check-web-pages.mjs",
     "db:generate": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/platform-db db:generate",
+    "db:generate:offline": "REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs",
     "db:push": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/platform-db db:push",
     "db:migrate": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/platform-db db:migrate",
     "spike:github:list-installations": "tsx spikes/github-oidc/src/list-installations.ts",
