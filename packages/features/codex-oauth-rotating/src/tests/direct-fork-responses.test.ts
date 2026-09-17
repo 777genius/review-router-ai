@@ -8,10 +8,18 @@ import {
   certifiedForkReviewPromptContextHash,
   parseCertifiedForkReviewModelOutput,
   parseCertifiedForkReviewPromptPacket,
+  serializeCertifiedForkReviewPromptPacket,
 } from "../../../action-control-plane/src/application/use-cases/certified-fork-review-packet.js";
+import { assertCertifiedForkReviewBindingMatches } from "../../../action-control-plane/src/application/use-cases/certified-fork-review-binding.js";
 
 const endpoint = "https://chatgpt.com/backend-api/codex/responses";
 const secret = "SECRET_TOKEN_CANARY";
+const codec = {
+  parsePromptPacket: parseCertifiedForkReviewPromptPacket,
+  serializePromptPacket: serializeCertifiedForkReviewPromptPacket,
+  assertBindingMatches: assertCertifiedForkReviewBindingMatches,
+  parseModelOutput: parseCertifiedForkReviewModelOutput,
+};
 function packet() {
   const binding = {
     sourceRepository: "fork-owner/source",
@@ -130,6 +138,7 @@ function setup(
     accessToken: secret,
     chatgptAccountId: "account_1",
     promptPacket: packet(),
+    codec,
     ...changes,
   };
   return { fetchImpl, input, run: () => requestDirectForkReview(input) };
@@ -842,7 +851,11 @@ describe("unused direct fork model transport", () => {
 
 describe("authoritative packet and output adaptation", () => {
   const validate = (modelOutput: unknown, promptPacket: unknown = packet()) =>
-    validateCertifiedForkModelOutputForPrompt({ modelOutput, promptPacket });
+    validateCertifiedForkModelOutputForPrompt({
+      modelOutput,
+      promptPacket,
+      codec,
+    });
 
   it("permits reordered exact reviewed paths and findings on a subset", () => {
     const value = envelope();

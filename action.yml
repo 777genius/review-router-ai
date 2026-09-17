@@ -2,7 +2,7 @@ name: ReviewRouter
 description: ReviewRouter pull request review runtime.
 inputs:
   mode:
-    description: Runtime mode, including hosted pool and repository-owned review strategies. Experimental fork_prompt_only_v2 requires exact schema 6 and always fails with certified-fork-admission-unavailable before review or credential access; default-off.
+    description: Runtime mode, including hosted pool and repository-owned review strategies. Experimental fork_prompt_only_v2 requires exact schema 6 and is available only to allowlisted public hosted repositories.
     required: false
   api-url:
     description: ReviewRouter API URL.
@@ -14,7 +14,7 @@ inputs:
     description: ReviewRouter provider instance id.
     required: false
   workflow-schema-version:
-    description: ReviewRouter workflow schema version. Schema 6 is reserved for the unavailable certified-fork admission boundary; no renderer or provisioning support.
+    description: ReviewRouter workflow schema version. Schema 6 is reserved for the handwritten certified-fork workflow; no renderer or provisioning support.
     required: false
     default: "1"
   session-binding-id:

@@ -1,14 +1,32 @@
 import { isDeepStrictEqual } from "node:util";
 import { isProxy } from "node:util/types";
 
-import {
-  parseCertifiedForkReviewModelOutput,
-  parseCertifiedForkReviewPromptPacket,
-  readExactRecord,
-  serializeCertifiedForkReviewPromptPacket,
-  type CertifiedForkReviewModelOutput,
-} from "../../../action-control-plane/src/application/use-cases/certified-fork-review-packet.js";
-import { assertCertifiedForkReviewBindingMatches } from "../../../action-control-plane/src/application/use-cases/certified-fork-review-binding.js";
+export type DirectForkReviewModelOutput = Readonly<{
+  protocolVersion: 1;
+  summaryMarkdown: string;
+  findings: readonly Readonly<{
+    severity: "critical" | "major" | "minor" | "info";
+    title: string;
+    body: string;
+    path?: string;
+    startLine?: number;
+    endLine?: number;
+  }>[];
+}>;
+
+export type DirectForkResponsesCodec = Readonly<{
+  parsePromptPacket(input: unknown): Readonly<{
+    contextHash: string;
+    binding: unknown;
+    files: readonly Readonly<{ path: string }>[];
+  }>;
+  serializePromptPacket(input: unknown): string;
+  assertBindingMatches(expected: unknown, actual: unknown): void;
+  parseModelOutput(
+    input: unknown,
+    filePaths: ReadonlySet<string>,
+  ): DirectForkReviewModelOutput;
+}>;
 
 // Internal and intentionally unwired. These are transport budgets, not authority.
 const endpoint = "https://chatgpt.com/backend-api/codex/responses";
@@ -37,6 +55,7 @@ export type DirectForkResponsesInput = Readonly<{
   accessToken: string;
   chatgptAccountId: string;
   promptPacket: unknown;
+  codec: DirectForkResponsesCodec;
   signal?: AbortSignal;
   /** May only shorten the hard deadline; includes fetching and body consumption. */
   timeoutMs?: number;
@@ -54,6 +73,44 @@ function fail(code: string): never {
   throw new TransportError(code);
 }
 
+function readExactRecord(
+  input: unknown,
+  requiredKeys: readonly string[],
+  code: string,
+): Record<string, unknown> {
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    isProxy(input) ||
+    Array.isArray(input)
+  ) {
+    fail(code);
+  }
+  const prototype = Object.getPrototypeOf(input);
+  if (prototype !== Object.prototype && prototype !== null) fail(code);
+  const keys = Reflect.ownKeys(input);
+  if (
+    keys.length !== requiredKeys.length ||
+    keys.some((key) => typeof key !== "string" || !requiredKeys.includes(key))
+  ) {
+    fail(code);
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(input);
+  const values: Record<string, unknown> = Object.create(null);
+  for (const key of requiredKeys) {
+    const descriptor = descriptors[key];
+    if (
+      descriptor === undefined ||
+      descriptor.enumerable !== true ||
+      !("value" in descriptor)
+    ) {
+      fail(code);
+    }
+    values[key] = descriptor.value;
+  }
+  return values;
+}
+
 /** Adapts a transport echo envelope to the current authoritative pure parsers.
  * The echo detects stale/misbound output; it is not a witness or durable proof.
  * No new output schema or path policy is defined here.
@@ -61,16 +118,17 @@ function fail(code: string): never {
 export function validateCertifiedForkModelOutputForPrompt(input: {
   readonly modelOutput: unknown;
   readonly promptPacket: unknown;
-}): CertifiedForkReviewModelOutput {
+  readonly codec: DirectForkResponsesCodec;
+}): DirectForkReviewModelOutput {
   try {
-    const packet = parseCertifiedForkReviewPromptPacket(input.promptPacket);
+    const packet = input.codec.parsePromptPacket(input.promptPacket);
     const envelope = readExactRecord(
       input.modelOutput,
       ["contextHash", "binding", "reviewedPaths", "modelOutput"],
       "invalid_envelope",
     );
     if (envelope.contextHash !== packet.contextHash) fail("binding_invalid");
-    assertCertifiedForkReviewBindingMatches(packet.binding, envelope.binding);
+    input.codec.assertBindingMatches(packet.binding, envelope.binding);
     // Only inspect data descriptors; caller-owned accessors are never invoked.
     const paths = envelope.reviewedPaths;
     if (
@@ -96,7 +154,7 @@ export function validateCertifiedForkModelOutputForPrompt(input: {
         fail("paths_invalid");
       seen.add(path);
     }
-    return parseCertifiedForkReviewModelOutput(envelope.modelOutput, requested);
+    return input.codec.parseModelOutput(envelope.modelOutput, requested);
   } catch {
     // Parser failures and attacker-controlled values must not escape as causes.
     fail("output_invalid");
@@ -106,7 +164,7 @@ export function validateCertifiedForkModelOutputForPrompt(input: {
 /** One POST, no retries, no publication or provider lifecycle effects. */
 export async function requestDirectForkReview(
   input: DirectForkResponsesInput,
-): Promise<CertifiedForkReviewModelOutput> {
+): Promise<DirectForkReviewModelOutput> {
   try {
     return await requestWithinBoundary(input);
   } catch (error) {
@@ -122,7 +180,7 @@ export async function requestDirectForkReview(
 
 async function requestWithinBoundary(
   input: DirectForkResponsesInput,
-): Promise<CertifiedForkReviewModelOutput> {
+): Promise<DirectForkReviewModelOutput> {
   const controller = new AbortController();
   let timedOut = false;
   const abort = () => controller.abort();
@@ -152,7 +210,7 @@ async function requestWithinBoundary(
       fail("credentials_invalid");
     if (!/^[A-Za-z0-9:_-]{1,200}$/u.test(input.chatgptAccountId))
       fail("credentials_invalid");
-    const packet = parseCertifiedForkReviewPromptPacket(input.promptPacket);
+    const packet = input.codec.parsePromptPacket(input.promptPacket);
     const body = JSON.stringify({
       model,
       instructions,
@@ -162,7 +220,7 @@ async function requestWithinBoundary(
           content: [
             {
               type: "input_text",
-              text: serializeCertifiedForkReviewPromptPacket(packet),
+              text: input.codec.serializePromptPacket(packet),
             },
           ],
         },
@@ -227,6 +285,7 @@ async function requestWithinBoundary(
     return validateCertifiedForkModelOutputForPrompt({
       modelOutput: JSON.parse(output) as unknown,
       promptPacket: packet,
+      codec: input.codec,
     });
   } catch (error) {
     if (controller.signal.aborted) fail(timedOut ? "timeout" : "aborted");

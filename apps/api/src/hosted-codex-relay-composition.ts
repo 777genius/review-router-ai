@@ -61,6 +61,49 @@ export function readHostedCodexFeatureFlags(
   };
 }
 
+export function createProductionHostedCodexSessionRuntime(input: {
+  readonly prisma: PrismaClient;
+  readonly env: Readonly<Record<string, string | undefined>>;
+}): HostedCodexSessionRuntime {
+  const databaseIncarnation =
+    input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_INCARNATION?.trim();
+  if (!databaseIncarnation) {
+    throw new Error("hosted_codex_database_incarnation_missing");
+  }
+  const databaseResourceIdentity =
+    input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY?.trim();
+  if (!databaseResourceIdentity || databaseResourceIdentity.length < 16) {
+    throw new Error("hosted_codex_database_resource_identity_invalid");
+  }
+  const fingerprintPepper = Buffer.from(
+    input.env.REVIEW_ROUTER_HOSTED_CODEX_FINGERPRINT_PEPPER ?? "",
+    "base64",
+  );
+  if (fingerprintPepper.byteLength < 32) {
+    throw new Error("hosted_codex_fingerprint_pepper_invalid");
+  }
+  const keyring = resolveHostedCodexKeyring({
+    env: input.env,
+    purpose: "relay",
+  });
+  const vault = new CredentialEnvelopeVault(keyring, "relay");
+  return new HostedCodexSessionRuntime({
+    sessionStore: new HostedCodexSessionStore(
+      new PrismaHostedCodexSessionPersistence(
+        input.prisma,
+        vault,
+        databaseIncarnation,
+        databaseResourceIdentity,
+        fingerprintPepper,
+        hostedCodexProductionKmsBindingArn(keyring),
+      ),
+    ),
+    leaseStore: new HostedCodexMutationFenceLeaseStore(
+      new PrismaHostedCodexMutationFence(input.prisma),
+    ),
+  });
+}
+
 export function composeHostedCodexRelayRoutes(input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly dependencies: Omit<
