@@ -47,6 +47,7 @@ export interface CertifiedForkLiveReviewDependencies {
       readonly githubRunId: string;
       readonly githubRunAttempt: string;
       readonly eventName: "pull_request_target";
+      readonly expectedPullRequestNumber: number;
     }): Promise<number>;
   };
   readonly gateway: CertifiedForkReviewGatewayPort;
@@ -177,6 +178,7 @@ export async function executeCertifiedForkLiveReview(
       githubRunId: claims.run_id,
       githubRunAttempt: claims.run_attempt,
       eventName: "pull_request_target",
+      expectedPullRequestNumber: binding.pullRequestNumber,
     });
   if (pullRequestNumber !== binding.pullRequestNumber) {
     throw new Error("certified_fork_run_pull_request_mismatch");

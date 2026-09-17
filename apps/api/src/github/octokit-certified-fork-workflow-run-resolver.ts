@@ -40,6 +40,7 @@ export class OctokitCertifiedForkWorkflowRunResolver {
     readonly githubRunId: string;
     readonly githubRunAttempt: string;
     readonly eventName: "pull_request_target";
+    readonly expectedPullRequestNumber: number;
   }): Promise<number> {
     const installationId = positiveInteger(
       input.repository.githubInstallationId,
@@ -77,6 +78,7 @@ export class OctokitCertifiedForkWorkflowRunResolver {
       eventName: input.eventName,
       repositoryId: input.repository.githubRepositoryId,
       attempt,
+      expectedPullRequestNumber: input.expectedPullRequestNumber,
     });
   }
 }
@@ -87,6 +89,7 @@ function parseWorkflowRun(
     readonly eventName: "pull_request_target";
     readonly repositoryId: string;
     readonly attempt: number;
+    readonly expectedPullRequestNumber: number;
   },
 ): number {
   if (!isRecord(value) || !isRecord(value.repository)) {
@@ -96,10 +99,23 @@ function parseWorkflowRun(
     value.event !== expected.eventName ||
     value.run_attempt !== expected.attempt ||
     String(value.repository.id ?? "") !== expected.repositoryId ||
-    !Array.isArray(value.pull_requests) ||
-    value.pull_requests.length !== 1 ||
-    !isRecord(value.pull_requests[0])
+    !Array.isArray(value.pull_requests)
   ) {
+    throw new Error("certified_fork_workflow_run_identity_mismatch");
+  }
+  // GitHub omits pull request associations from workflow runs for public-fork
+  // pull_request_target events. The caller-supplied number is subsequently
+  // verified against the current base/source repository tuple and both SHAs.
+  if (value.pull_requests.length === 0) {
+    if (
+      !Number.isSafeInteger(expected.expectedPullRequestNumber) ||
+      expected.expectedPullRequestNumber < 1
+    ) {
+      throw new Error("certified_fork_workflow_run_pull_request_invalid");
+    }
+    return expected.expectedPullRequestNumber;
+  }
+  if (value.pull_requests.length !== 1 || !isRecord(value.pull_requests[0])) {
     throw new Error("certified_fork_workflow_run_identity_mismatch");
   }
   const pullRequestNumber = value.pull_requests[0].number;
@@ -108,6 +124,9 @@ function parseWorkflowRun(
     (pullRequestNumber as number) < 1
   ) {
     throw new Error("certified_fork_workflow_run_pull_request_invalid");
+  }
+  if (pullRequestNumber !== expected.expectedPullRequestNumber) {
+    throw new Error("certified_fork_workflow_run_identity_mismatch");
   }
   return pullRequestNumber as number;
 }
