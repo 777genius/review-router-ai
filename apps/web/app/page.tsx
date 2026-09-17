@@ -67,7 +67,7 @@ const setupSignals = [
   },
   {
     title: "Secrets synced",
-    body: "Stored in GitHub Actions secrets",
+    body: "Stored in GitHub Actions secrets. Or use the encrypted account pool.",
     className: "setup-blueprint__signal--secrets",
     icon: KeyRound,
   },

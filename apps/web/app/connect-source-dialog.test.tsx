@@ -94,10 +94,10 @@ describe("ConnectSourceDialog", () => {
     ).toBe("https://github.com/apps/reviewrouter/installations/new");
 
     const gitLabButton = within(dialog).getByRole("button", {
-      name: "Continue with GitLab (Beta, unavailable)",
+      name: "Continue with GitLab (In development, unavailable)",
     });
     expect(gitLabButton).toHaveProperty("disabled", true);
-    expect(within(dialog).getByText("Beta")).toBeTruthy();
+    expect(within(dialog).getByText("In development")).toBeTruthy();
     expect(within(dialog).queryByRole("link", { name: /GitLab/i })).toBeNull();
     expect(document.body.innerHTML).not.toContain("/setup/gitlab");
   });
@@ -115,7 +115,7 @@ describe("ConnectSourceDialog", () => {
     ).toBeTruthy();
     expect(
       within(dialog).getByRole("button", {
-        name: "Continue with GitLab (Beta, unavailable)",
+        name: "Continue with GitLab (In development, unavailable)",
       }),
     ).toHaveProperty("disabled", true);
     expect(document.body.innerHTML).not.toContain("/setup/gitlab");

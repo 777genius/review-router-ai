@@ -2,7 +2,7 @@ import { Badge, Button, type ButtonProps } from "@reviewrouter/ui";
 import { SourceProviderLabel } from "./source-provider-logo";
 
 export const gitLabBetaUnavailableLabel =
-  "GitLab setup is in beta and not available yet.";
+  "GitLab setup is in development and not available yet.";
 
 export function GitLabBetaConnectButton({
   label = "Connect GitLab",
@@ -23,9 +23,9 @@ export function GitLabBetaConnectButton({
       disabled
       size={size}
       variant={variant}
-      className={className}
+      className={`disabled:opacity-100 ${className}`.trim()}
       title={gitLabBetaUnavailableLabel}
-      aria-label={`${label} (Beta, unavailable)`}
+      aria-label={`${label} (In development, unavailable)`}
     >
       <SourceProviderLabel
         provider="gitlab"
@@ -33,7 +33,7 @@ export function GitLabBetaConnectButton({
         {...(labelClassName === undefined ? {} : { className: labelClassName })}
       />
       <Badge size="xs" tone="warning">
-        Beta
+        In development
       </Badge>
     </Button>
   );

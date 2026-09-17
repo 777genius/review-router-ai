@@ -129,8 +129,8 @@ export function WorkspaceSourceConnectionPanel({
               GitLab group or project
             </p>
             <p className="mt-1">
-              GitLab setup is in beta and not available yet. ReviewRouter will
-              keep GitLab tokens in GitLab CI/CD variables, not in the
+              GitLab setup is in development and not available yet. ReviewRouter
+              will keep GitLab tokens in GitLab CI/CD variables, not in the
               dashboard.
             </p>
             <GitLabBetaConnectButton

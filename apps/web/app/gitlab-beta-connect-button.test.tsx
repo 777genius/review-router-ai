@@ -18,18 +18,18 @@ afterEach(() => {
 });
 
 describe("GitLabBetaConnectButton", () => {
-  it("renders a disabled GitLab CTA with a Beta badge and no setup link", () => {
+  it("renders a disabled GitLab CTA with an In development badge and no setup link", () => {
     render(<GitLabBetaConnectButton />);
 
     const button = screen.getByRole("button", {
-      name: "Connect GitLab (Beta, unavailable)",
+      name: "Connect GitLab (In development, unavailable)",
     });
 
     expect(button).toHaveProperty("disabled", true);
     expect(button.getAttribute("title")).toBe(
-      "GitLab setup is in beta and not available yet.",
+      "GitLab setup is in development and not available yet.",
     );
-    expect(screen.getByText("Beta")).toBeTruthy();
+    expect(screen.getByText("In development")).toBeTruthy();
     expect(screen.queryByRole("link")).toBeNull();
     expect(document.body.innerHTML).not.toContain("/setup/gitlab");
   });
