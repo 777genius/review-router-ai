@@ -166,10 +166,6 @@ canvas {
 }
 
 .home-install-cta--gitlab {
-  flex-direction: column;
-  gap: 0.45rem;
-  overflow: visible;
-  white-space: normal;
   border-color: rgba(252, 109, 38, 0.45) !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.48),
@@ -184,8 +180,7 @@ canvas {
 }
 
 .home-install-cta--gitlab:disabled {
-  filter: grayscale(0.35);
-  color: rgba(226, 232, 240, 0.78) !important;
+  color: rgba(226, 232, 240, 0.82) !important;
   border-color: rgba(148, 163, 184, 0.38) !important;
   background: rgba(15, 23, 42, 0.72) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
@@ -193,6 +188,52 @@ canvas {
 
 .home-install-cta--gitlab:disabled::after {
   display: none;
+}
+
+.gitlab-beta-cta {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.gitlab-beta-cta--stretch {
+  display: flex;
+  width: 100%;
+}
+
+.gitlab-beta-cta__ribbon {
+  position: absolute;
+  top: -0.42rem;
+  right: 0.55rem;
+  z-index: 3;
+  padding: 0.12rem 0.42rem;
+  border: 1px solid rgba(251, 146, 60, 0.42);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fdba74;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  pointer-events: none;
+  box-shadow: 0 6px 16px -12px rgba(15, 23, 42, 0.7);
+}
+
+[data-theme="light"] .home-install-cta--gitlab:disabled {
+  color: #475569 !important;
+  border-color: rgba(100, 116, 139, 0.38) !important;
+  background: rgba(248, 250, 252, 0.92) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+[data-theme="light"] .gitlab-beta-cta__ribbon {
+  border-color: rgba(234, 88, 12, 0.38);
+  background: rgba(255, 255, 255, 0.96);
+  color: #c2410c;
+  box-shadow: 0 6px 16px -12px rgba(15, 23, 42, 0.28);
 }
 
 .home-shell {
