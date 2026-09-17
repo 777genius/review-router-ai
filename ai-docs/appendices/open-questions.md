@@ -7,6 +7,7 @@
 3. Should AI discussion be included in public beta or delayed?
 4. Which free beta limits should be tuned after first tester feedback?
 5. Which action health metrics should become dashboard charts after beta feedback?
+6. Run the Martian Code Review Bench smoke (5 PRs, Codex OAuth subscription) — see [operations/14-martian-code-review-bench.md](../operations/14-martian-code-review-bench.md).
 
 ## Technical
 
