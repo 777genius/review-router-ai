@@ -49,6 +49,7 @@ import {
   isReviewRouterTargetRevisionMismatchFailure,
   postPullRequestComment,
   readActionAuthJson,
+  readCertifiedForkApiResponse,
   readActionInputs,
   resolveCodexBinary,
   resolveCodexProxyUpstreamResponsesUrl,
@@ -3776,6 +3777,27 @@ async function expectProcessToExit(pid: number): Promise<void> {
 }
 
 describe("default-off certified fork Action ingress", () => {
+  it("cancels a certified API stream as soon as its byte budget is exceeded", async () => {
+    const encoder = new TextEncoder();
+    let cancelled = false;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode("abc"));
+          controller.enqueue(encoder.encode("def"));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      }),
+    );
+
+    await expect(readCertifiedForkApiResponse(response, 4)).rejects.toThrow(
+      "certified_fork_api_response_too_large",
+    );
+    expect(cancelled).toBe(true);
+  });
+
   it("reads the explicit mode/schema contract without changing ordinary defaults", () => {
     const config = {
       "INPUT_API-URL": "https://api.reviewrouter.site",
@@ -3803,8 +3825,103 @@ describe("default-off certified fork Action ingress", () => {
     ).toThrow("certified-fork-admission-unavailable");
   });
 
+  it("requests OIDC, waits for the certified API result, and never enters ordinary runtime", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "certified-fork-live-"));
+    const path = join(directory, "event.json");
+    const repo = { id: 123, full_name: "base/project", private: false };
+    await writeFile(
+      path,
+      JSON.stringify({
+        action: "synchronize",
+        number: 7,
+        repository: repo,
+        pull_request: {
+          number: 7,
+          state: "open",
+          draft: false,
+          merge_commit_sha: "c".repeat(40),
+          base: { repo, sha: "a".repeat(40) },
+          head: {
+            repo: {
+              id: 456,
+              full_name: "source/project",
+              private: false,
+              fork: true,
+            },
+            sha: "b".repeat(40),
+          },
+        },
+      }),
+    );
+    const env: NodeJS.ProcessEnv = {
+      INPUT_MODE: "fork_prompt_only_v2",
+      "INPUT_WORKFLOW-SCHEMA-VERSION": "6",
+      "INPUT_API-URL": "https://api.reviewrouter.site",
+      GITHUB_EVENT_NAME: "pull_request_target",
+      GITHUB_EVENT_PATH: path,
+      GITHUB_REPOSITORY: "base/project",
+      GITHUB_REPOSITORY_ID: "123",
+      ACTIONS_ID_TOKEN_REQUEST_URL:
+        "https://vstoken.actions.githubusercontent.com/oidc/token",
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-request-token",
+    };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ value: "fresh-oidc-token" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          `: accepted\n\nevent: result\ndata: ${JSON.stringify({
+            status: "published",
+            commentId: "1234",
+          })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream; charset=utf-8" },
+          },
+        ),
+      );
+    const fullReviewRuntimeRunner = vi.fn();
+    const stdout = { write: vi.fn() };
+    const stderr = { write: vi.fn() };
+    try {
+      await runCodexRotatingGitHubAction({
+        env,
+        fetchImpl,
+        fullReviewRuntimeRunner,
+        io: { stdout, stderr },
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(fetchImpl.mock.calls[1]?.[0]).toBe(
+        "https://api.reviewrouter.site/api/action/v1/certified-fork/review",
+      );
+      const body = JSON.parse(
+        String((fetchImpl.mock.calls[1]?.[1] as RequestInit).body),
+      ) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        oidcToken: "fresh-oidc-token",
+        binding: {
+          sourceRepository: "source/project",
+          baseRepository: "base/project",
+          pullRequestNumber: 7,
+        },
+      });
+      expect(fullReviewRuntimeRunner).not.toHaveBeenCalled();
+      expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+      expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+      expect(stdout.write).toHaveBeenCalledWith(
+        expect.stringContaining("certified fork review published"),
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
-    ["fork_prompt_only_v2", "6", "valid"],
     ["fork_prompt_only_v2", "6", "draft"],
     ["fork_prompt_only_v2", "6", "oversized"],
     ["fork_prompt_only_v2", "6", "utf8"],

@@ -215,10 +215,11 @@ export function readCertifiedForkInvocation(
 }
 
 /** Synchronous bounded input capture: no async gap, workspace read, or authority adapter. */
-export function runCertifiedForkAdmissionBoundary(
+export function captureCertifiedForkInvocation(
   env: NodeJS.ProcessEnv,
-): never {
+): CertifiedForkReviewBinding {
   let fd: number | undefined;
+  let binding: CertifiedForkReviewBinding | undefined;
   try {
     // Check dispatch before opening even the designated event file.
     assertCertifiedForkModeSchema(env);
@@ -241,7 +242,7 @@ export function runCertifiedForkAdmissionBoundary(
       length += count;
     }
     if (length > certifiedForkEventMaxBytes) unavailable();
-    readCertifiedForkInvocation(
+    binding = readCertifiedForkInvocation(
       new TextDecoder("utf-8", { fatal: true }).decode(
         bytes.subarray(0, length),
       ),
@@ -258,6 +259,15 @@ export function runCertifiedForkAdmissionBoundary(
       }
     }
   }
+  if (!binding) unavailable();
+  return binding;
+}
+
+/** Retained default-off boundary for callers that have no live executor. */
+export function runCertifiedForkAdmissionBoundary(
+  env: NodeJS.ProcessEnv,
+): never {
+  captureCertifiedForkInvocation(env);
   // No server-owned admission/lease bridge exists. Never enter the ordinary runtime.
   unavailable();
 }

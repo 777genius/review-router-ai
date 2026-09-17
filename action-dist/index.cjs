@@ -296,6 +296,7 @@ __export(github_action_exports, {
   postPullRequestComment: () => postPullRequestComment,
   readActionAuthJson: () => readActionAuthJson,
   readActionInputs: () => readActionInputs,
+  readCertifiedForkApiResponse: () => readCertifiedForkApiResponse,
   requestHostedRelayGrantWithFreshGitHubOidc: () => requestHostedRelayGrantWithFreshGitHubOidc,
   requireRemainingReviewExecutionBudgetMs: () => requireRemainingReviewExecutionBudgetMs,
   resolveCodexBinary: () => resolveCodexBinary,
@@ -434,8 +435,9 @@ function readCertifiedForkInvocation(eventJson, env) {
     unavailable();
   }
 }
-function runCertifiedForkAdmissionBoundary(env) {
+function captureCertifiedForkInvocation(env) {
   let fd;
+  let binding;
   try {
     assertCertifiedForkModeSchema(env);
     if (env.GITHUB_EVENT_NAME !== "pull_request_target" || !env.GITHUB_EVENT_PATH)
@@ -454,7 +456,7 @@ function runCertifiedForkAdmissionBoundary(env) {
       length += count;
     }
     if (length > certifiedForkEventMaxBytes) unavailable();
-    readCertifiedForkInvocation(
+    binding = readCertifiedForkInvocation(
       new TextDecoder("utf-8", { fatal: true }).decode(
         bytes.subarray(0, length)
       ),
@@ -471,7 +473,8 @@ function runCertifiedForkAdmissionBoundary(env) {
       }
     }
   }
-  unavailable();
+  if (!binding) unavailable();
+  return binding;
 }
 
 // packages/features/codex-oauth-rotating/src/action/github-action.ts
@@ -23426,19 +23429,34 @@ var reviewCheckpointClearResponseSchema = external_exports.discriminatedUnion("s
 ]);
 async function runCodexRotatingGitHubAction(runtime = {}) {
   const ingressEnv = runtime.env ?? process.env;
+  const env = ingressEnv;
+  const io = runtime.io ?? { stdout: process.stdout, stderr: process.stderr };
+  const fetchImpl = runtime.fetchImpl ?? fetch;
   if (readInput(ingressEnv, "mode") === certifiedForkActionMode || Number(ingressEnv["INPUT_WORKFLOW-SCHEMA-VERSION"]) === 6 || Number(ingressEnv.INPUT_WORKFLOW_SCHEMA_VERSION) === 6) {
     try {
-      runCertifiedForkAdmissionBoundary(ingressEnv);
+      const binding = captureCertifiedForkInvocation(ingressEnv);
+      const oidcToken = await requestGitHubActionsOidcToken2({
+        env: ingressEnv,
+        fetchImpl,
+        audience: defaultOidcAudience2
+      });
+      mask(io, oidcToken);
+      const apiUrl = (readInput(ingressEnv, "control-plane-url") || requireInput(ingressEnv, "api-url")).replace(/\/+$/u, "");
+      await requestCertifiedForkLiveReview({
+        fetchImpl,
+        apiUrl,
+        oidcToken,
+        binding
+      });
+      notice(io, "ReviewRouter certified fork review published.");
     } finally {
       clearActionAuthEnv(ingressEnv);
       clearOidcRequestEnv2(ingressEnv);
     }
+    return;
   }
   const now = runtime.now ?? Date.now;
   const executionStartedAtEpochMs = now();
-  const env = runtime.env ?? process.env;
-  const io = runtime.io ?? { stdout: process.stdout, stderr: process.stderr };
-  const fetchImpl = runtime.fetchImpl ?? fetch;
   const fullReviewRuntimeRunner = runtime.fullReviewRuntimeRunner ?? runFullReviewRouterRuntime;
   const inputs = readActionInputs(env);
   maskProviderSecretInputs(io, inputs.providerSecrets);
@@ -24543,6 +24561,106 @@ async function requestGitHubActionsOidcToken2(input) {
     throw new Error("github_oidc_request_failed");
   }
   return body.value;
+}
+async function requestCertifiedForkLiveReview(input) {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error("certified_fork_request_timeout")),
+    12 * 6e4
+  );
+  try {
+    const response = await input.fetchImpl(
+      `${input.apiUrl}/api/action/v1/certified-fork/review`,
+      {
+        method: "POST",
+        redirect: "error",
+        credentials: "omit",
+        signal: controller.signal,
+        headers: {
+          accept: "text/event-stream",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          oidcToken: input.oidcToken,
+          binding: input.binding
+        })
+      }
+    );
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!response.ok || response.redirected || !/^text\/event-stream(?:\s*;\s*charset=utf-8)?$/iu.test(contentType)) {
+      void response.body?.cancel().catch(() => void 0);
+      throw new Error("certified_fork_api_rejected");
+    }
+    const declaredLength = response.headers.get("content-length");
+    if (declaredLength !== null && (!/^[0-9]+$/u.test(declaredLength) || Number(declaredLength) > 1024 * 1024)) {
+      void response.body?.cancel().catch(() => void 0);
+      throw new Error("certified_fork_api_response_too_large");
+    }
+    const text = await readCertifiedForkApiResponse(response, 1024 * 1024);
+    parseCertifiedForkLiveReviewEvents(text);
+  } catch (error51) {
+    if (controller.signal.aborted) {
+      throw new Error("certified_fork_api_timeout_or_disconnected", {
+        cause: error51
+      });
+    }
+    throw error51;
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+}
+async function readCertifiedForkApiResponse(response, maxBytes) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  try {
+    for (; ; ) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel().catch(() => void 0);
+        throw new Error("certified_fork_api_response_too_large");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, bytes).toString("utf8");
+}
+function parseCertifiedForkLiveReviewEvents(text) {
+  const normalized = text.replace(/\r\n?/gu, "\n");
+  if (!normalized.endsWith("\n\n")) {
+    throw new Error("certified_fork_api_stream_truncated");
+  }
+  let resultCount = 0;
+  for (const frame of normalized.split("\n\n")) {
+    if (frame === "" || frame.startsWith(":")) continue;
+    let event = "";
+    const data = [];
+    for (const line of frame.split("\n")) {
+      if (line.startsWith("event: ")) event = line.slice(7);
+      else if (line.startsWith("data: ")) data.push(line.slice(6));
+      else throw new Error("certified_fork_api_stream_invalid");
+    }
+    if (event === "error") {
+      throw new Error("certified_fork_live_review_rejected");
+    }
+    if (event !== "result" || data.length !== 1) {
+      throw new Error("certified_fork_api_stream_invalid");
+    }
+    const value = JSON.parse(data[0]);
+    if (typeof value !== "object" || value === null || Array.isArray(value) || value.status !== "published") {
+      throw new Error("certified_fork_api_result_invalid");
+    }
+    resultCount += 1;
+  }
+  if (resultCount !== 1) {
+    throw new Error("certified_fork_api_result_invalid");
+  }
 }
 async function requestCodexRotatingPreleaseWithFreshOidc(input) {
   let lastError;
@@ -26956,6 +27074,7 @@ if (shouldAutoRunCodexRotatingAction({ env: process.env, argv: process.argv })) 
   postPullRequestComment,
   readActionAuthJson,
   readActionInputs,
+  readCertifiedForkApiResponse,
   requestHostedRelayGrantWithFreshGitHubOidc,
   requireRemainingReviewExecutionBudgetMs,
   resolveCodexBinary,

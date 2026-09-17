@@ -171,6 +171,11 @@ import {
   composeProductionHostedCodexRelayRoutes,
   readHostedCodexFeatureFlags,
 } from "./hosted-codex-relay-composition.js";
+import {
+  type CertifiedForkLiveReviewDependencies,
+  registerCertifiedForkLiveReviewRoutes,
+} from "./certified-fork-live-review-routes.js";
+import { composeProductionCertifiedForkLiveReview } from "./certified-fork-live-review-composition.js";
 
 export type CreateApiAppOptions = {
   readonly githubWebhookSecret?: string;
@@ -199,6 +204,7 @@ export type CreateApiAppOptions = {
   readonly hostedPoolOperatorDependencies?: HostedPoolOperatorDependencies;
   readonly hostedPoolOperatorConnect?: HostedPoolOperatorConnect;
   readonly hostedCodexRelayDependencies?: RegisterHostedCodexRelayRoutesDependencies;
+  readonly certifiedForkLiveReviewDependencies?: CertifiedForkLiveReviewDependencies;
   readonly prisma?: PrismaClient;
   readonly commentTokenCustodyPrisma?: PrismaClient;
 };
@@ -325,6 +331,34 @@ export async function createApiApp(
       : undefined);
   if (hostedCodexRelayDependencies) {
     await registerHostedCodexRelayRoutes(app, hostedCodexRelayDependencies);
+  }
+  const certifiedForkLiveReviewDependencies =
+    options.certifiedForkLiveReviewDependencies ??
+    (hostedCodexFeatureFlags.custody &&
+    reviewActionV2Env.REVIEW_ROUTER_CODEX_ROTATING_NEW_WORK_ADMISSION_ENABLED ===
+      "1"
+      ? (() => {
+          if (!prisma) throw new Error("certified_fork_prisma_unavailable");
+          const githubAppId = reviewActionV2Env.GITHUB_APP_ID?.trim();
+          const githubAppSlug = reviewActionV2Env.GITHUB_APP_SLUG?.trim();
+          const githubAppPrivateKey = readGitHubAppPrivateKey();
+          if (!githubAppId || !githubAppSlug || !githubAppPrivateKey) {
+            throw new Error("certified_fork_github_app_configuration_missing");
+          }
+          return composeProductionCertifiedForkLiveReview({
+            prisma,
+            env: reviewActionV2Env,
+            githubAppId,
+            githubAppSlug,
+            githubAppPrivateKey,
+          });
+        })()
+      : undefined);
+  if (certifiedForkLiveReviewDependencies) {
+    await registerCertifiedForkLiveReviewRoutes(
+      app,
+      certifiedForkLiveReviewDependencies,
+    );
   }
 
   registerSystemHealthRoutes(
