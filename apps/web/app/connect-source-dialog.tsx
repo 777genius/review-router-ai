@@ -14,6 +14,7 @@ import {
   DialogTrigger,
   LinkButton,
 } from "@reviewrouter/ui";
+import { GitLabBetaConnectButton } from "./gitlab-beta-connect-button";
 
 type ConnectSourceDialogProps = {
   readonly appInstallUrl: string | null;
@@ -26,16 +27,11 @@ type ConnectSourceDialogProps = {
 
 export function ConnectSourceDialog({
   appInstallUrl,
-  workspaceId,
   triggerLabel = "Connect source",
   triggerSize = "md",
   triggerVariant = "solid",
   triggerClassName = "",
 }: ConnectSourceDialogProps): React.ReactElement {
-  const gitLabHref = workspaceId
-    ? `/setup/gitlab?workspaceId=${encodeURIComponent(workspaceId)}`
-    : "/setup/gitlab";
-
   return (
     <DialogRoot>
       <DialogTrigger
@@ -104,19 +100,13 @@ export function ConnectSourceDialog({
               <SourceOption
                 icon={<GitPullRequest aria-hidden="true" className="size-5" />}
                 title="GitLab"
-                body="Paste a GitLab group or project URL, select repositories, and install CI variables without storing your token."
+                body="GitLab setup is in beta and not available yet."
                 action={
-                  <LinkButton
-                    href={gitLabHref}
-                    variant="outline"
+                  <GitLabBetaConnectButton
+                    label="Continue with GitLab"
                     size="sm"
                     className="w-full justify-center rounded-xl"
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <span>Continue with GitLab</span>
-                      <ArrowRight aria-hidden="true" className="size-4" />
-                    </span>
-                  </LinkButton>
+                  />
                 }
               />
             </div>

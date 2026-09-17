@@ -1,5 +1,6 @@
-import { Badge, LinkButton } from "@reviewrouter/ui";
+import { Badge } from "@reviewrouter/ui";
 import { GitHubAccountAvatar } from "../github-account-avatar";
+import { GitLabBetaConnectButton } from "../gitlab-beta-connect-button";
 import {
   SourceProviderLabel,
   SourceProviderLogo,
@@ -31,19 +32,6 @@ export type WorkspaceSourceRepository = {
   readonly selected: boolean;
   readonly fullName: string;
 };
-
-export function gitLabSetupHref(input: {
-  readonly workspaceId: string;
-  readonly installationId?: string;
-}): string {
-  const query = new URLSearchParams({
-    workspaceId: input.workspaceId,
-  });
-  if (input.installationId) {
-    query.set("installationId", input.installationId);
-  }
-  return `/setup/gitlab?${query.toString()}`;
-}
 
 export function WorkspaceSourceConnectionPanel({
   workspaceId,
@@ -111,7 +99,6 @@ export function WorkspaceSourceConnectionPanel({
           {gitLabInstallations.map((installation) => (
             <GitLabInstallCard
               key={installation.id}
-              workspaceId={workspaceId}
               installation={installation}
             />
           ))}
@@ -142,17 +129,14 @@ export function WorkspaceSourceConnectionPanel({
               GitLab group or project
             </p>
             <p className="mt-1">
-              Connect from a group or project URL. ReviewRouter keeps GitLab
-              tokens in GitLab CI/CD variables, not in the dashboard.
+              GitLab setup is in beta and not available yet. ReviewRouter will
+              keep GitLab tokens in GitLab CI/CD variables, not in the
+              dashboard.
             </p>
-            <LinkButton
-              href={gitLabSetupHref({ workspaceId })}
-              variant="outline"
+            <GitLabBetaConnectButton
               size="sm"
               className="mt-3 border-orange-300/35"
-            >
-              <SourceProviderLabel provider="gitlab" label="Connect GitLab" />
-            </LinkButton>
+            />
           </div>
         </div>
       </details>
@@ -290,10 +274,8 @@ function GitHubInstallCard({
 }
 
 function GitLabInstallCard({
-  workspaceId,
   installation,
 }: {
-  readonly workspaceId: string;
   readonly installation: WorkspaceGitLabInstallation;
 }): React.ReactElement {
   return (
@@ -316,17 +298,11 @@ function GitLabInstallCard({
           token and Codex auth are not stored in ReviewRouter.
         </p>
       </div>
-      <LinkButton
-        href={gitLabSetupHref({
-          workspaceId,
-          installationId: installation.id,
-        })}
-        variant="outline"
+      <GitLabBetaConnectButton
+        label="Add GitLab repos"
         size="sm"
         className="w-fit rounded-xl"
-      >
-        Add GitLab repos
-      </LinkButton>
+      />
     </div>
   );
 }

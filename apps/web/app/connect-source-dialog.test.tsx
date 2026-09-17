@@ -49,6 +49,9 @@ vi.mock("@reviewrouter/ui", () => ({
       {children}
     </a>
   ),
+  Badge: ({ children }: { readonly children?: React.ReactNode }) => (
+    <span>{children}</span>
+  ),
 }));
 
 import { ConnectSourceDialog } from "./connect-source-dialog";
@@ -69,7 +72,7 @@ afterEach(() => {
 });
 
 describe("ConnectSourceDialog", () => {
-  it("offers GitHub App and GitLab URL onboarding from one entrypoint", () => {
+  it("offers GitHub App onboarding and a disabled GitLab beta CTA", () => {
     render(
       <ConnectSourceDialog
         appInstallUrl="https://github.com/apps/reviewrouter/installations/new"
@@ -89,14 +92,17 @@ describe("ConnectSourceDialog", () => {
         .getByRole("link", { name: "Continue with GitHub App" })
         .getAttribute("href"),
     ).toBe("https://github.com/apps/reviewrouter/installations/new");
-    expect(
-      within(dialog)
-        .getByRole("link", { name: "Continue with GitLab" })
-        .getAttribute("href"),
-    ).toBe("/setup/gitlab?workspaceId=workspace_1");
+
+    const gitLabButton = within(dialog).getByRole("button", {
+      name: "Continue with GitLab (Beta, unavailable)",
+    });
+    expect(gitLabButton).toHaveProperty("disabled", true);
+    expect(within(dialog).getByText("Beta")).toBeTruthy();
+    expect(within(dialog).queryByRole("link", { name: /GitLab/i })).toBeNull();
+    expect(document.body.innerHTML).not.toContain("/setup/gitlab");
   });
 
-  it("keeps GitLab available when the GitHub App URL is not configured", () => {
+  it("keeps the GitLab beta CTA visible when the GitHub App URL is not configured", () => {
     render(<ConnectSourceDialog appInstallUrl={null} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Connect source" }));
@@ -108,9 +114,10 @@ describe("ConnectSourceDialog", () => {
       within(dialog).getByText("GitHub App URL is not configured"),
     ).toBeTruthy();
     expect(
-      within(dialog)
-        .getByRole("link", { name: "Continue with GitLab" })
-        .getAttribute("href"),
-    ).toBe("/setup/gitlab");
+      within(dialog).getByRole("button", {
+        name: "Continue with GitLab (Beta, unavailable)",
+      }),
+    ).toHaveProperty("disabled", true);
+    expect(document.body.innerHTML).not.toContain("/setup/gitlab");
   });
 });

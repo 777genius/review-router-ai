@@ -85,6 +85,11 @@ describe("WorkspaceSourceConnectionPanel", () => {
       .getByText("Connect another GitHub or GitLab source")
       .closest("details");
     expect(addSource?.open).toBe(false);
-    expect(screen.getByText("Connect GitLab")).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Connect GitLab (Beta, unavailable)",
+      }),
+    ).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("link", { name: /Connect GitLab/i })).toBeNull();
   });
 });
