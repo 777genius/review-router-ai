@@ -30,7 +30,7 @@ export function GitLabBetaConnectButton({
       <SourceProviderLabel
         provider="gitlab"
         label={label}
-        className={labelClassName}
+        {...(labelClassName === undefined ? {} : { className: labelClassName })}
       />
       <Badge size="xs" tone="warning">
         Beta
