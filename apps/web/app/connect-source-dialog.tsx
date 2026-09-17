@@ -100,7 +100,7 @@ export function ConnectSourceDialog({
               <SourceOption
                 icon={<GitPullRequest aria-hidden="true" className="size-5" />}
                 title="GitLab"
-                body="GitLab setup is in beta and not available yet."
+                body="GitLab setup is in development and not available yet."
                 action={
                   <GitLabBetaConnectButton
                     label="Continue with GitLab"
