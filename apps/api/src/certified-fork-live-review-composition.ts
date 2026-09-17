@@ -38,8 +38,8 @@ export function composeProductionCertifiedForkLiveReview(input: {
 }): CertifiedForkLiveReviewDependencies {
   const flags = readHostedCodexFeatureFlags(input.env);
   const enabled =
-    input.env.REVIEW_ROUTER_CERTIFIED_FORK_LIVE_REVIEW_ENABLED === "1" &&
-    flags.custody;
+    flags.custody &&
+    input.env.REVIEW_ROUTER_CODEX_ROTATING_NEW_WORK_ADMISSION_ENABLED === "1";
   if (!enabled) {
     return { enabled: false } as CertifiedForkLiveReviewDependencies;
   }

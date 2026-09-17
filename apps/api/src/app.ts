@@ -334,7 +334,9 @@ export async function createApiApp(
   }
   const certifiedForkLiveReviewDependencies =
     options.certifiedForkLiveReviewDependencies ??
-    (reviewActionV2Env.REVIEW_ROUTER_CERTIFIED_FORK_LIVE_REVIEW_ENABLED === "1"
+    (hostedCodexFeatureFlags.custody &&
+    reviewActionV2Env.REVIEW_ROUTER_CODEX_ROTATING_NEW_WORK_ADMISSION_ENABLED ===
+      "1"
       ? (() => {
           if (!prisma) throw new Error("certified_fork_prisma_unavailable");
           const githubAppId = reviewActionV2Env.GITHUB_APP_ID?.trim();
