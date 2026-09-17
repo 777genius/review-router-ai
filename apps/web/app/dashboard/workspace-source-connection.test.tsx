@@ -87,7 +87,7 @@ describe("WorkspaceSourceConnectionPanel", () => {
     expect(addSource?.open).toBe(false);
     expect(
       screen.getByRole("button", {
-        name: "Connect GitLab (Beta, unavailable)",
+        name: "Connect GitLab (In development, unavailable)",
       }),
     ).toHaveProperty("disabled", true);
     expect(screen.queryByRole("link", { name: /Connect GitLab/i })).toBeNull();

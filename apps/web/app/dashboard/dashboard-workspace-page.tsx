@@ -1455,7 +1455,7 @@ function dashboardRepositoryAccessEmptyCopy(
   return {
     badge: "No repositories found",
     title: "No connected repositories found.",
-    body: "Connect GitHub repositories, then return to the dashboard to finish setup. GitLab is in beta and not available yet.",
+    body: "Connect GitHub repositories, then return to the dashboard to finish setup. GitLab is in development and not available yet.",
     reconnect: false,
     tone: "accent",
   };
@@ -2503,8 +2503,8 @@ function RepositoryTable({
         <Badge tone="warning">No repositories yet</Badge>
         <p className="mt-3 text-sm leading-6 text-slate-300">
           No source repositories are connected to this workspace yet. Use
-          Connect source to add GitHub App repositories. GitLab is in beta and
-          not available yet.
+          Connect source to add GitHub App repositories. GitLab is in
+          development and not available yet.
         </p>
       </div>
     );
