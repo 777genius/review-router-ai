@@ -390,11 +390,19 @@ describe("unused direct fork model transport", () => {
       type: "output_text",
       text,
     }));
-    const reasoning = { type: "reasoning", id: "reason_1", summary: [] };
+    const reasoning = {
+      type: "reasoning",
+      id: "reason_1",
+      summary: [{ type: "summary_text", text: "snapshot-only summary" }],
+    };
     const message = { ...completed().output[0]!, content: parts };
     const events: Record<string, unknown>[] = [
       ...lifecycle().slice(0, 2),
-      { type: "response.output_item.added", output_index: 0, item: reasoning },
+      {
+        type: "response.output_item.added",
+        output_index: 0,
+        item: { ...reasoning, summary: [] },
+      },
       { type: "response.output_item.done", output_index: 0, item: reasoning },
       {
         type: "response.output_item.added",
@@ -435,6 +443,66 @@ describe("unused direct fork model transport", () => {
         "certified_fork_transport_",
       );
     }
+  });
+
+  it("accepts the documented reasoning summary streaming lifecycle", async () => {
+    const summaryText = "Checked the bounded packet.";
+    const reasoning = {
+      type: "reasoning",
+      id: "reason_1",
+      summary: [{ type: "summary_text", text: summaryText }],
+    };
+    const identity = {
+      item_id: "reason_1",
+      output_index: 0,
+      summary_index: 0,
+    };
+    const messageEvents = lifecycle()
+      .slice(2, -1)
+      .map((event) => ({ ...event, output_index: 1 }));
+    const events = [
+      ...lifecycle().slice(0, 2),
+      {
+        type: "response.output_item.added",
+        output_index: 0,
+        item: { type: "reasoning", id: "reason_1", summary: [] },
+      },
+      {
+        type: "response.reasoning_summary_part.added",
+        ...identity,
+        part: { type: "summary_text", text: "" },
+      },
+      {
+        type: "response.reasoning_summary_text.delta",
+        ...identity,
+        delta: summaryText,
+      },
+      {
+        type: "response.reasoning_summary_text.done",
+        ...identity,
+        text: summaryText,
+      },
+      {
+        type: "response.reasoning_summary_part.done",
+        ...identity,
+        part: reasoning.summary[0],
+      },
+      {
+        type: "response.output_item.done",
+        output_index: 0,
+        item: reasoning,
+      },
+      ...messageEvents,
+      {
+        type: "response.completed",
+        response: {
+          ...completed(),
+          output: [reasoning, completed().output[0]],
+        },
+      },
+    ];
+
+    expect(await setup(response(wire(events))).run()).toEqual(output());
   });
 
   it("redacts hostile adapter and reader accessors and releases on throwing cancel", async () => {

@@ -470,6 +470,19 @@ function parseSse(text: string): string {
     if (!content) fail("identity_invalid");
     return content;
   }
+  function activeSummary(event: Record<string, unknown>): Content {
+    const item = activeItem(event);
+    const index = event.summary_index;
+    if (
+      item.type !== "reasoning" ||
+      !Number.isSafeInteger(index) ||
+      (index as number) < 0
+    )
+      fail("identity_invalid");
+    const content = item.contents[index as number];
+    if (!content) fail("identity_invalid");
+    return content;
+  }
   let responseId: string | undefined;
   let previousSequence = -1;
   // SSE accepts LF, CRLF and CR. Chunk boundaries have already been decoded.
@@ -586,7 +599,13 @@ function parseSse(text: string): string {
               !isDeepStrictEqual(
                 value.content,
                 item.contents.map((part) => part.value),
-              )))
+              ))) ||
+          (item.type === "reasoning" &&
+            item.contents.length > 0 &&
+            !isDeepStrictEqual(
+              value.summary,
+              item.contents.map((part) => part.value),
+            ))
         )
           fail("lifecycle_invalid");
         item.phase = "done";
@@ -627,6 +646,47 @@ function parseSse(text: string): string {
         if (
           content.phase !== "text_done" ||
           part.type !== "output_text" ||
+          part.text !== content.text
+        )
+          fail("lifecycle_invalid");
+        content.phase = "done";
+        content.value = part;
+        break;
+      }
+      case "response.reasoning_summary_part.added": {
+        const item = activeItem(event);
+        const part = record(event.part);
+        if (
+          item.type !== "reasoning" ||
+          event.summary_index !== item.contents.length ||
+          item.contents.some((content) => content.phase !== "done") ||
+          part.type !== "summary_text" ||
+          part.text !== ""
+        )
+          fail("lifecycle_invalid");
+        item.contents.push({ phase: "added", delta: "" });
+        break;
+      }
+      case "response.reasoning_summary_text.delta": {
+        const content = activeSummary(event);
+        if (content.phase !== "added") fail("lifecycle_invalid");
+        content.delta = boundedText(content.delta + boundedText(event.delta));
+        break;
+      }
+      case "response.reasoning_summary_text.done": {
+        const content = activeSummary(event);
+        if (content.phase !== "added") fail("lifecycle_invalid");
+        content.text = boundedText(event.text);
+        if (content.delta !== content.text) fail("output_mismatch");
+        content.phase = "text_done";
+        break;
+      }
+      case "response.reasoning_summary_part.done": {
+        const content = activeSummary(event);
+        const part = record(event.part);
+        if (
+          content.phase !== "text_done" ||
+          part.type !== "summary_text" ||
           part.text !== content.text
         )
           fail("lifecycle_invalid");

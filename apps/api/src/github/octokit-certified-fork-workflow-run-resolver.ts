@@ -41,6 +41,13 @@ export class OctokitCertifiedForkWorkflowRunResolver {
     readonly githubRunAttempt: string;
     readonly eventName: "pull_request_target";
     readonly expectedPullRequestNumber: number;
+    readonly expectedReviewHeadSha: string;
+    readonly workflow: {
+      readonly path: string;
+      readonly ref: string;
+      readonly workflowRef: string;
+      readonly workflowSha: string;
+    };
   }): Promise<number> {
     const installationId = positiveInteger(
       input.repository.githubInstallationId,
@@ -66,19 +73,33 @@ export class OctokitCertifiedForkWorkflowRunResolver {
           request: { timeout: certifiedForkGithubRequestTimeoutMs },
         }),
     };
-    const response = await octokit.request(
-      "GET /repos/{owner}/{repo}/actions/runs/{run_id}",
-      {
+    const [runResponse, repositoryResponse] = await Promise.all([
+      octokit.request(
+        "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}",
+        {
+          owner: input.repository.owner,
+          repo,
+          run_id: runId,
+          attempt_number: attempt,
+        },
+      ),
+      octokit.request("GET /repos/{owner}/{repo}", {
         owner: input.repository.owner,
         repo,
-        run_id: runId,
-      },
+      }),
+    ]);
+    const defaultBranch = parseDefaultBranch(
+      repositoryResponse.data,
+      input.repository.githubRepositoryId,
     );
-    return parseWorkflowRun(response.data, {
+    return parseWorkflowRun(runResponse.data, {
       eventName: input.eventName,
       repositoryId: input.repository.githubRepositoryId,
       attempt,
       expectedPullRequestNumber: input.expectedPullRequestNumber,
+      expectedReviewHeadSha: input.expectedReviewHeadSha,
+      workflow: input.workflow,
+      defaultBranch,
     });
   }
 }
@@ -90,23 +111,38 @@ function parseWorkflowRun(
     readonly repositoryId: string;
     readonly attempt: number;
     readonly expectedPullRequestNumber: number;
+    readonly expectedReviewHeadSha: string;
+    readonly workflow: {
+      readonly path: string;
+      readonly ref: string;
+      readonly workflowRef: string;
+      readonly workflowSha: string;
+    };
+    readonly defaultBranch: string;
   },
 ): number {
   if (!isRecord(value) || !isRecord(value.repository)) {
     throw new Error("certified_fork_workflow_run_response_invalid");
   }
+  const pullRequests = value.pull_requests === null ? [] : value.pull_requests;
   if (
     value.event !== expected.eventName ||
     value.run_attempt !== expected.attempt ||
     String(value.repository.id ?? "") !== expected.repositoryId ||
-    !Array.isArray(value.pull_requests)
+    typeof value.repository.full_name !== "string" ||
+    value.path !== expected.workflow.path ||
+    value.head_sha !== expected.expectedReviewHeadSha ||
+    expected.workflow.ref !== `refs/heads/${expected.defaultBranch}` ||
+    expected.workflow.workflowRef !==
+      `${value.repository.full_name}/${expected.workflow.path}@${expected.workflow.ref}` ||
+    !Array.isArray(pullRequests)
   ) {
     throw new Error("certified_fork_workflow_run_identity_mismatch");
   }
   // GitHub omits pull request associations from workflow runs for public-fork
   // pull_request_target events. The caller-supplied number is subsequently
   // verified against the current base/source repository tuple and both SHAs.
-  if (value.pull_requests.length === 0) {
+  if (pullRequests.length === 0) {
     if (
       !Number.isSafeInteger(expected.expectedPullRequestNumber) ||
       expected.expectedPullRequestNumber < 1
@@ -115,10 +151,10 @@ function parseWorkflowRun(
     }
     return expected.expectedPullRequestNumber;
   }
-  if (value.pull_requests.length !== 1 || !isRecord(value.pull_requests[0])) {
+  if (pullRequests.length !== 1 || !isRecord(pullRequests[0])) {
     throw new Error("certified_fork_workflow_run_identity_mismatch");
   }
-  const pullRequestNumber = value.pull_requests[0].number;
+  const pullRequestNumber = pullRequests[0].number;
   if (
     !Number.isSafeInteger(pullRequestNumber) ||
     (pullRequestNumber as number) < 1
@@ -129,6 +165,21 @@ function parseWorkflowRun(
     throw new Error("certified_fork_workflow_run_identity_mismatch");
   }
   return pullRequestNumber as number;
+}
+
+function parseDefaultBranch(value: unknown, repositoryId: string): string {
+  if (
+    !isRecord(value) ||
+    String(value.id ?? "") !== repositoryId ||
+    typeof value.default_branch !== "string" ||
+    !/^[A-Za-z0-9._/-]{1,255}$/u.test(value.default_branch) ||
+    value.default_branch.startsWith("/") ||
+    value.default_branch.endsWith("/") ||
+    value.default_branch.includes("..")
+  ) {
+    throw new Error("certified_fork_workflow_run_repository_invalid");
+  }
+  return value.default_branch;
 }
 
 function positiveInteger(value: string, errorCode: string): number {

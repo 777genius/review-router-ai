@@ -48,6 +48,7 @@ export function composeProductionCertifiedForkLiveReview(input: {
   const pools = new PrismaHostedPoolRepository(input.prisma);
   const accounts = new PrismaHostedAccountRepository(input.prisma);
   const clock = new SystemClock();
+  const lock = new PostgresLeaseLock(input.prisma);
   return {
     enabled: true,
     oidcVerifier: new JoseGitHubActionsOidcTokenVerifier(),
@@ -75,6 +76,7 @@ export function composeProductionCertifiedForkLiveReview(input: {
       appId: input.githubAppId,
       privateKey: input.githubAppPrivateKey,
     }),
+    reviewLock: lock,
     hostedAccounts: {
       async resolve({
         repositoryId: rawRepositoryId,
@@ -128,7 +130,7 @@ export function composeProductionCertifiedForkLiveReview(input: {
       appId: input.githubAppId,
       privateKey: input.githubAppPrivateKey,
       appSlug: input.githubAppSlug,
-      lock: new PostgresLeaseLock(input.prisma),
+      lock,
     }),
     clock,
   };

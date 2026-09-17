@@ -1880,7 +1880,7 @@ async function requestCertifiedForkLiveReview(input: {
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(new Error("certified_fork_request_timeout")),
-    12 * 60_000,
+    18 * 60_000,
   );
   try {
     const response = await input.fetchImpl(
