@@ -568,6 +568,7 @@ function expiredConfirmedCandidatePredicate(input: {
       SELECT 1 FROM "CodexOAuthLease" lease
       WHERE lease."providerInstanceRowId" = provider."id"
         AND lease."status" IN ('preleased', 'finalized')
+        AND lease."expiresAt" > ${input.now}
     )
     AND NOT EXISTS (
       SELECT 1 FROM "CodexOAuthWritebackIntent" writeback

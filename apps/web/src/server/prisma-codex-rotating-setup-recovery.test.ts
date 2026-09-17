@@ -200,6 +200,7 @@ describe("forced setup recovery authority retirement", () => {
     expect(query).toContain("claim.\"status\" = 'confirmed_candidate'");
     expect(query).toContain('claim."recoveryExpiresAt" <= ?');
     expect(query).toContain('manifest."recoveryExpiresAt" <= ?');
+    expect(query).toContain('lease."expiresAt" > ?');
     expect(query).toContain('attempt."definiteResponseCode" IN (201, 204)');
     expect(query).toContain('provider."activeLeaseId" IS NULL');
     expect(query).toContain('namespace."workflowPath" IS NULL');
@@ -233,6 +234,7 @@ describe("forced setup recovery authority retirement", () => {
     expect(query).toContain("SET \"state\" = 'superseded'");
     expect(query).toContain('claim."recoveryExpiresAt" <= ?');
     expect(query).toContain('manifest."recoveryExpiresAt" <= ?');
+    expect(query).toContain('lease."expiresAt" > ?');
     expect(query).toContain(
       'provider."activeSecretNamespaceId" IS DISTINCT FROM namespace."id"',
     );
