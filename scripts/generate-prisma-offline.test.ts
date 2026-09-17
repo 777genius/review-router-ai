@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertOfflinePrismaGenerateEnvironment,
+  forwardedGenerateEnvironment,
   offlinePrismaGenerateInvocation,
 } from "./generate-prisma-offline.mjs";
 
@@ -142,13 +143,15 @@ describe("offline Prisma generate", () => {
         REVIEW_ROUTER_PRISMA_GENERATE_USER: "runner",
         PATH: "/opt/pnpm:/usr/bin",
         HOME: "/home/runner",
+        DATABASE_URL: "postgresql://secret@db/prod",
+        REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: "witness",
         SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64: "must-not-forward",
       },
       "sudo-unshare",
       "/opt/pnpm/pnpm",
     );
     expect(invocation.command).toBe("sudo");
-    expect(invocation.args.slice(0, 10)).toEqual([
+    expect(invocation.args.slice(0, 12)).toEqual([
       "-n",
       "unshare",
       "--net",
@@ -159,17 +162,42 @@ describe("offline Prisma generate", () => {
       "runner",
       "--",
       "env",
+      "-i",
+      "--",
     ]);
     expect(invocation.args).toContain("PATH=/opt/pnpm:/usr/bin");
+    expect(invocation.args).toContain("HOME=/home/runner");
     expect(invocation.args.join("\n")).not.toContain(
       "SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64",
     );
+    expect(invocation.args.join("\n")).not.toContain("DATABASE_URL");
+    expect(invocation.args.join("\n")).not.toContain("REVIEW_ROUTER_");
     expect(invocation.args.slice(-4)).toEqual([
       "/opt/pnpm/pnpm",
       "--filter",
       "@reviewrouter/platform-db",
       "db:generate",
     ]);
+  });
+
+  it("does not forward database or Review Router secrets into sudo env", () => {
+    expect(
+      forwardedGenerateEnvironment({
+        PATH: "/opt/pnpm:/usr/bin",
+        HOME: "/home/runner",
+        DATABASE_URL: "postgresql://secret@db/prod",
+        TEST_DATABASE_URL: "postgresql://secret@db/test",
+        REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: "witness",
+        REVIEW_ROUTER_PRISMA_GENERATE_USER: "runner",
+        AUTH_SECRET: "auth",
+        PRISMA_QUERY_ENGINE_LIBRARY: "/opt/prisma/libquery.so",
+        PRISMA_SECRET: "must-not-forward",
+      }),
+    ).toEqual({
+      PATH: "/opt/pnpm:/usr/bin",
+      HOME: "/home/runner",
+      PRISMA_QUERY_ENGINE_LIBRARY: "/opt/prisma/libquery.so",
+    });
   });
 
   it("skips unshare when the caller already isolated the network", () => {

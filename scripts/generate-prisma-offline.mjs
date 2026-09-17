@@ -41,10 +41,19 @@ export function resolveExecutable(name, env = process.env) {
 
 export function forwardedGenerateEnvironment(env = process.env) {
   const forwarded = {};
+  // Prisma generate does not need a live database. Keep only the toolchain
+  // variables required to find pnpm/node and local Prisma engines. Secrets
+  // must not appear on the privileged `sudo env` argv or in the isolated
+  // child after `env -i`.
   const keep =
-    /^(?:PATH|HOME|USER|LOGNAME|SHELL|NODE_ENV|CI|NODE_PATH|PNPM_HOME|TMPDIR|TMP|TEMP|LANG|LC_ALL|COREPACK_.*|npm_config_.*|NPM_CONFIG_.*|PRISMA_.*|DATABASE_URL|TEST_DATABASE_URL|REVIEW_ROUTER_.*)$/u;
+    /^(?:PATH|HOME|USER|LOGNAME|SHELL|NODE_ENV|CI|NODE_PATH|PNPM_HOME|TMPDIR|TMP|TEMP|LANG|LC_ALL|COREPACK_.*|npm_config_.*|NPM_CONFIG_.*|PRISMA_(?:ENGINES_CHECKSUM|SCHEMA_ENGINE_BINARY|QUERY_ENGINE_LIBRARY|QUERY_ENGINE_BINARY|FMT_BINARY|CLI_QUERY_ENGINE_TYPE))$/u;
   for (const [key, value] of Object.entries(env)) {
-    if (value == null || !keep.test(key) || /[\n\r\0]/u.test(String(value)))
+    if (
+      value == null ||
+      value === "" ||
+      !keep.test(key) ||
+      /[\n\r\0]/u.test(String(value))
+    )
       continue;
     forwarded[key] = String(value);
   }
@@ -104,6 +113,8 @@ export function offlinePrismaGenerateInvocation(
         username,
         "--",
         "env",
+        "-i",
+        "--",
         ...envAssignments(forwardedGenerateEnvironment(env)),
         pnpmPath,
         ...pnpmArgs,
