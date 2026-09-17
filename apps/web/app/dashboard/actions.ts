@@ -2635,14 +2635,14 @@ async function enableOrgRulesetWorkflowMutation(
     params = {
       notice: "org_ruleset_queued",
       workspace: workspaceId,
-      section: "setup",
+      section: "repositories",
       provisioning: result.provisioningId,
     };
   } catch (error) {
     params = {
       error: safeDashboardErrorCode(error),
       workspace: workspaceId,
-      section: "setup",
+      section: "repositories",
     };
   }
 

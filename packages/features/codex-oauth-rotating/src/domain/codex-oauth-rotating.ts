@@ -38,10 +38,13 @@ export enum CodexRotatingT0WorkflowSchemaVersion {
   ClientTriggeredLifecycleV3 = 3,
   VersionedSecretNamespaceV4 = 4,
   VersionedSecretNamespaceV5 = 5,
+  /** Reserved contract; no certified external-fork renderer is available yet. */
+  CertifiedForkReviewV6 = 6,
 }
 
 export const codexRotatingWorkflowSchemaVersion =
   CodexRotatingT0WorkflowSchemaVersion.DurableDispatchV1;
+// Only implemented canonical workflows may enter provisioning/attestation.
 export const codexRotatingCanonicalT0WorkflowSchemaVersions = [
   CodexRotatingT0WorkflowSchemaVersion.DurableDispatchV1,
   CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2,
@@ -49,6 +52,13 @@ export const codexRotatingCanonicalT0WorkflowSchemaVersions = [
   CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV4,
   CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
 ] as const;
+
+/** Contract recognition does not authorize rendering or provisioning. */
+export function isCertifiedForkCodexWorkflowSchemaVersion(
+  value: number | null | undefined,
+): value is CodexRotatingT0WorkflowSchemaVersion.CertifiedForkReviewV6 {
+  return value === CodexRotatingT0WorkflowSchemaVersion.CertifiedForkReviewV6;
+}
 
 export function isClientTriggeredT0WorkflowSchemaVersion(
   value: number | null | undefined,
@@ -585,6 +595,9 @@ export function renderCodexRotatingAdvisoryWorkflow(
       : JSON.stringify(String(timeoutMinutes));
   const schemaVersion =
     options.workflowSchemaVersion ?? codexRotatingWorkflowSchemaVersion;
+  if (isCertifiedForkCodexWorkflowSchemaVersion(schemaVersion)) {
+    throw new Error("codex_rotating_t0_workflow_schema_unsupported");
+  }
   if (
     options.activeSecretNamespace &&
     options.activeSecretNamespace.mode !==
