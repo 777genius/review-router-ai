@@ -1918,10 +1918,7 @@ async function requestCertifiedForkLiveReview(input: {
       void response.body?.cancel().catch(() => undefined);
       throw new Error("certified_fork_api_response_too_large");
     }
-    const text = await response.text();
-    if (Buffer.byteLength(text, "utf8") > 1024 * 1024) {
-      throw new Error("certified_fork_api_response_too_large");
-    }
+    const text = await readCertifiedForkApiResponse(response, 1024 * 1024);
     parseCertifiedForkLiveReviewEvents(text);
   } catch (error) {
     if (controller.signal.aborted) {
@@ -1934,6 +1931,31 @@ async function requestCertifiedForkLiveReview(input: {
     clearTimeout(timer);
     controller.abort();
   }
+}
+
+export async function readCertifiedForkApiResponse(
+  response: Response,
+  maxBytes: number,
+): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("certified_fork_api_response_too_large");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, bytes).toString("utf8");
 }
 
 function parseCertifiedForkLiveReviewEvents(text: string): void {

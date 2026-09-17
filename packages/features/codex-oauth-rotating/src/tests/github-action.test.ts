@@ -49,6 +49,7 @@ import {
   isReviewRouterTargetRevisionMismatchFailure,
   postPullRequestComment,
   readActionAuthJson,
+  readCertifiedForkApiResponse,
   readActionInputs,
   resolveCodexBinary,
   resolveCodexProxyUpstreamResponsesUrl,
@@ -3776,6 +3777,27 @@ async function expectProcessToExit(pid: number): Promise<void> {
 }
 
 describe("default-off certified fork Action ingress", () => {
+  it("cancels a certified API stream as soon as its byte budget is exceeded", async () => {
+    const encoder = new TextEncoder();
+    let cancelled = false;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode("abc"));
+          controller.enqueue(encoder.encode("def"));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      }),
+    );
+
+    await expect(readCertifiedForkApiResponse(response, 4)).rejects.toThrow(
+      "certified_fork_api_response_too_large",
+    );
+    expect(cancelled).toBe(true);
+  });
+
   it("reads the explicit mode/schema contract without changing ordinary defaults", () => {
     const config = {
       "INPUT_API-URL": "https://api.reviewrouter.site",

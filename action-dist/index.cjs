@@ -296,6 +296,7 @@ __export(github_action_exports, {
   postPullRequestComment: () => postPullRequestComment,
   readActionAuthJson: () => readActionAuthJson,
   readActionInputs: () => readActionInputs,
+  readCertifiedForkApiResponse: () => readCertifiedForkApiResponse,
   requestHostedRelayGrantWithFreshGitHubOidc: () => requestHostedRelayGrantWithFreshGitHubOidc,
   requireRemainingReviewExecutionBudgetMs: () => requireRemainingReviewExecutionBudgetMs,
   resolveCodexBinary: () => resolveCodexBinary,
@@ -24595,10 +24596,7 @@ async function requestCertifiedForkLiveReview(input) {
       void response.body?.cancel().catch(() => void 0);
       throw new Error("certified_fork_api_response_too_large");
     }
-    const text = await response.text();
-    if (Buffer.byteLength(text, "utf8") > 1024 * 1024) {
-      throw new Error("certified_fork_api_response_too_large");
-    }
+    const text = await readCertifiedForkApiResponse(response, 1024 * 1024);
     parseCertifiedForkLiveReviewEvents(text);
   } catch (error51) {
     if (controller.signal.aborted) {
@@ -24611,6 +24609,27 @@ async function requestCertifiedForkLiveReview(input) {
     clearTimeout(timer);
     controller.abort();
   }
+}
+async function readCertifiedForkApiResponse(response, maxBytes) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  try {
+    for (; ; ) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel().catch(() => void 0);
+        throw new Error("certified_fork_api_response_too_large");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, bytes).toString("utf8");
 }
 function parseCertifiedForkLiveReviewEvents(text) {
   const normalized = text.replace(/\r\n?/gu, "\n");
@@ -27055,6 +27074,7 @@ if (shouldAutoRunCodexRotatingAction({ env: process.env, argv: process.argv })) 
   postPullRequestComment,
   readActionAuthJson,
   readActionInputs,
+  readCertifiedForkApiResponse,
   requestHostedRelayGrantWithFreshGitHubOidc,
   requireRemainingReviewExecutionBudgetMs,
   resolveCodexBinary,
