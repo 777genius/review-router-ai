@@ -1,4 +1,7 @@
-import type { ReviewFinding, ReviewFindingSeverity } from "./review-publication";
+import type {
+  ReviewFinding,
+  ReviewFindingSeverity,
+} from "./review-publication";
 
 const maxPublicationBodyBytes = 60_000;
 const maxFindingBodyChars = 2_500;
@@ -35,28 +38,61 @@ export function resolveReviewSummaryLocale(
   language: string | undefined,
 ): ReviewSummaryLocale {
   const normalized = language?.trim().toLowerCase() ?? "";
-  if (!normalized || normalized === "en" || normalized.startsWith("en-") || normalized === "english") {
+  if (
+    !normalized ||
+    normalized === "en" ||
+    normalized.startsWith("en-") ||
+    normalized === "english"
+  ) {
     return "en";
   }
-  if (normalized.startsWith("ru") || normalized.includes("рус") || normalized === "russian") {
+  if (
+    normalized.startsWith("ru") ||
+    normalized.includes("рус") ||
+    normalized === "russian"
+  ) {
     return "ru";
   }
-  if (normalized.startsWith("uk") || normalized.includes("укр") || normalized === "ukrainian") {
+  if (
+    normalized.startsWith("uk") ||
+    normalized.includes("укр") ||
+    normalized === "ukrainian"
+  ) {
     return "uk";
   }
-  if (normalized.startsWith("es") || normalized === "spanish" || normalized.includes("español")) {
+  if (
+    normalized.startsWith("es") ||
+    normalized === "spanish" ||
+    normalized.includes("español")
+  ) {
     return "es";
   }
-  if (normalized.startsWith("pt") || normalized === "portuguese" || normalized.includes("portugu")) {
+  if (
+    normalized.startsWith("pt") ||
+    normalized === "portuguese" ||
+    normalized.includes("portugu")
+  ) {
     return "pt";
   }
-  if (normalized.startsWith("fr") || normalized === "french" || normalized.includes("français")) {
+  if (
+    normalized.startsWith("fr") ||
+    normalized === "french" ||
+    normalized.includes("français")
+  ) {
     return "fr";
   }
-  if (normalized.startsWith("de") || normalized === "german" || normalized.includes("deutsch")) {
+  if (
+    normalized.startsWith("de") ||
+    normalized === "german" ||
+    normalized.includes("deutsch")
+  ) {
     return "de";
   }
-  if (normalized.startsWith("it") || normalized === "italian" || normalized.includes("italiano")) {
+  if (
+    normalized.startsWith("it") ||
+    normalized === "italian" ||
+    normalized.includes("italiano")
+  ) {
     return "it";
   }
   if (
@@ -68,7 +104,11 @@ export function resolveReviewSummaryLocale(
   ) {
     return "zh";
   }
-  if (normalized.startsWith("ja") || normalized === "japanese" || normalized.includes("日本")) {
+  if (
+    normalized.startsWith("ja") ||
+    normalized === "japanese" ||
+    normalized.includes("日本")
+  ) {
     return "ja";
   }
   if (
@@ -106,7 +146,9 @@ export function renderFindingsSummaryMarkdown(input: {
 
   if (remaining.length > 0) {
     const overflow = ["", copy.moreFindings(remaining.length), ...remaining];
-    if (utf8Bytes([...lines, ...overflow].join("\n")) <= maxPublicationBodyBytes) {
+    if (
+      utf8Bytes([...lines, ...overflow].join("\n")) <= maxPublicationBodyBytes
+    ) {
       lines.push(...overflow);
     }
   }
@@ -120,16 +162,24 @@ function renderFindingDetails(
 ): string {
   const location = formatFindingLocation(finding);
   const summary = escapeHtml(
-    [finding.severity, location, finding.title.trim()].filter(Boolean).join(" · "),
+    [finding.severity, location, finding.title.trim()]
+      .filter(Boolean)
+      .join(" · "),
   );
   const parts = [
     "<details>",
     `<summary>${summary}</summary>`,
     "",
-    truncateChars(sanitizeDetailsBody(finding.body.trim()), maxFindingBodyChars),
+    truncateChars(
+      sanitizeDetailsBody(finding.body.trim()),
+      maxFindingBodyChars,
+    ),
   ];
   if (location) {
-    parts.push("", `**${copy.location}:** \`${escapeMarkdownInline(location)}\``);
+    parts.push(
+      "",
+      `**${copy.location}:** \`${escapeMarkdownInline(location)}\``,
+    );
   }
   parts.push("", "</details>");
   return parts.join("\n");
@@ -147,7 +197,10 @@ function compareFindings(left: ReviewFinding, right: ReviewFinding): number {
     minor: 2,
     info: 1,
   };
-  return rank[right.severity] - rank[left.severity] || left.title.localeCompare(right.title);
+  return (
+    rank[right.severity] - rank[left.severity] ||
+    left.title.localeCompare(right.title)
+  );
 }
 
 function countFindingsBySeverity(
@@ -189,7 +242,10 @@ function formatSeverityCounts(counts: SeverityCounts): string {
   );
 }
 
-function slavicFindingWord(count: number, forms: [string, string, string]): string {
+function slavicFindingWord(
+  count: number,
+  forms: [string, string, string],
+): string {
   const mod100 = count % 100;
   const mod10 = count % 10;
   if (mod100 >= 11 && mod100 <= 14) {
@@ -271,20 +327,23 @@ const copies: Record<ReviewSummaryLocale, ReviewSummaryCopy> = {
   },
   zh: {
     noFindingsHeading: "## 无问题",
-    findingsHeading: (counts) => `## ${counts.total} 个问题（${formatSeverityCounts(counts)}）`,
+    findingsHeading: (counts) =>
+      `## ${counts.total} 个问题（${formatSeverityCounts(counts)}）`,
     location: "位置",
     moreFindings: (count) => `**受篇幅限制，本摘要还省略了 ${count} 条问题。**`,
   },
   ja: {
     noFindingsHeading: "## 指摘なし",
-    findingsHeading: (counts) => `## 指摘 ${counts.total} 件（${formatSeverityCounts(counts)}）`,
+    findingsHeading: (counts) =>
+      `## 指摘 ${counts.total} 件（${formatSeverityCounts(counts)}）`,
     location: "場所",
     moreFindings: (count) =>
       `**サイズ制限のため、この要約から指摘がさらに ${count} 件省略されています。**`,
   },
   ko: {
     noFindingsHeading: "## 이슈 없음",
-    findingsHeading: (counts) => `## 이슈 ${counts.total}개 (${formatSeverityCounts(counts)})`,
+    findingsHeading: (counts) =>
+      `## 이슈 ${counts.total}개 (${formatSeverityCounts(counts)})`,
     location: "위치",
     moreFindings: (count) =>
       `**크기 제한 때문에 이 요약에서 이슈 ${count}개가 더 생략되었습니다.**`,
@@ -322,5 +381,7 @@ function limitUtf8(value: string, maxBytes: number): string {
   if (utf8Bytes(value) <= maxBytes) {
     return value;
   }
-  return `${Buffer.from(value, "utf8").subarray(0, maxBytes - 20).toString("utf8")}\n\n[truncated]`;
+  return `${Buffer.from(value, "utf8")
+    .subarray(0, maxBytes - 20)
+    .toString("utf8")}\n\n[truncated]`;
 }

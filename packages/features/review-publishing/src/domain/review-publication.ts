@@ -275,7 +275,9 @@ function isSafeRepositoryRelativePath(filePath: string): boolean {
     );
 }
 
-function normalizeOutputLanguage(value: string | undefined): string | undefined {
+function normalizeOutputLanguage(
+  value: string | undefined,
+): string | undefined {
   if (!value) {
     return undefined;
   }
