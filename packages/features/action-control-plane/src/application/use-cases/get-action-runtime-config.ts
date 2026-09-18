@@ -1,4 +1,5 @@
 import {
+  effectiveInlineMaxComments,
   mapConfigToRuntimeEnv,
   parseReviewConfigurationStrict,
   safeDefaultReviewConfiguration,
@@ -157,7 +158,9 @@ export async function getActionRuntimeConfig(
     execution: config.execution,
     blockingPolicy: { failOnSeverity: config.blockingPolicy.failOnSeverity },
     limits: {
-      inlineMaxComments: config.limits.inlineMaxComments,
+      inlineMaxComments: effectiveInlineMaxComments(
+        config.limits.inlineMaxComments,
+      ),
       targetTokensPerBatch: config.limits.targetTokensPerBatch,
     },
     runtimeEnv,
