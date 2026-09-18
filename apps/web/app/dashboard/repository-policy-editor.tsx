@@ -11,10 +11,9 @@ import {
 } from "react";
 import * as RadixSelect from "@radix-ui/react-select";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import {
-  effectiveInlineMaxComments,
-  type ReviewConfiguration,
-  type ReviewProviderConfiguration,
+import type {
+  ReviewConfiguration,
+  ReviewProviderConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
   codexModelSupportsReasoningEffort,
@@ -211,6 +210,16 @@ const fieldHelp = {
   reviewLanguage:
     "Natural language for inline comments and the main reviewer summary (free text, e.g. Russian). Leave empty to inherit the workspace default, which is English.",
 } as const;
+
+function dashboardInlineMaxComments(value: number): number {
+  if (value === 0) {
+    return 0;
+  }
+  if (value === 5) {
+    return 50;
+  }
+  return value;
+}
 
 const defaultCodexProvider = {
   ...getDefaultProviderConfigForAuthMode("codex_subscription_oauth_rotating"),
@@ -1208,7 +1217,7 @@ export function ReviewConfigForm({
         <input
           type="hidden"
           name="inlineMaxComments"
-          value={effectiveInlineMaxComments(config.limits.inlineMaxComments)}
+          value={dashboardInlineMaxComments(config.limits.inlineMaxComments)}
         />
         <input
           type="hidden"
