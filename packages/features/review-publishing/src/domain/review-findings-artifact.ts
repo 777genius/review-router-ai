@@ -58,6 +58,7 @@ export function createReviewPublicationPlanFromArtifact(input: {
   readonly marker: string;
   readonly mode?: ReviewPublicationMode | undefined;
   readonly maxInlineComments?: number | undefined;
+  readonly outputLanguage?: string | undefined;
 }): ReviewPublicationPlan {
   return createReviewPublicationPlan({
     target: input.target,
@@ -65,6 +66,7 @@ export function createReviewPublicationPlanFromArtifact(input: {
     marker: input.marker,
     mode: input.mode,
     maxInlineComments: input.maxInlineComments,
+    outputLanguage: input.outputLanguage,
   });
 }
 

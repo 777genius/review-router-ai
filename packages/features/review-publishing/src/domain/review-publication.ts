@@ -2,7 +2,7 @@ import { isScmProvider, type ScmProvider } from "@reviewrouter/shared";
 
 export type ReviewFindingSeverity = "critical" | "major" | "minor" | "info";
 
-const defaultMaxInlineComments = 20;
+const defaultMaxInlineComments = 50;
 const hardMaxInlineComments = 50;
 const maxMarkerLength = 200;
 const maxFingerprintLength = 160;
@@ -48,6 +48,7 @@ export type ReviewPublicationPlan = {
   readonly marker: string;
   readonly maxInlineComments: number;
   readonly findings: readonly ReviewFinding[];
+  readonly outputLanguage?: string;
 };
 
 export function createReviewPublicationPlan(input: {
@@ -56,6 +57,7 @@ export function createReviewPublicationPlan(input: {
   readonly mode?: ReviewPublicationMode | undefined;
   readonly marker: string;
   readonly maxInlineComments?: number | undefined;
+  readonly outputLanguage?: string | undefined;
 }): ReviewPublicationPlan {
   const marker = input.marker.trim();
   if (!marker) {
@@ -67,12 +69,14 @@ export function createReviewPublicationPlan(input: {
   if (!isSafeHtmlCommentToken(marker, { allowWhitespace: true })) {
     throw new Error("review_publication_marker_invalid");
   }
+  const outputLanguage = normalizeOutputLanguage(input.outputLanguage);
   return {
     target: normalizeTarget(input.target),
     mode: input.mode ?? "inline-and-summary",
     marker,
     maxInlineComments: normalizeMaxInlineComments(input.maxInlineComments),
     findings: input.findings.map(normalizeFinding),
+    ...(outputLanguage ? { outputLanguage } : {}),
   };
 }
 
@@ -106,9 +110,6 @@ export function reviewFindingInlineSkipReason(input: {
   }
   if (!hasSingleLineLocation(input.finding.location)) {
     return "missing_location";
-  }
-  if (input.finding.severity === "info") {
-    return "low_severity";
   }
   return null;
 }
@@ -178,6 +179,9 @@ function normalizeMaxInlineComments(value: number | undefined): number {
   const normalized = Math.floor(value);
   if (normalized < 0) {
     throw new Error("review_publication_max_inline_comments_invalid");
+  }
+  if (normalized === 5) {
+    return hardMaxInlineComments;
   }
   return Math.min(normalized, hardMaxInlineComments);
 }
@@ -269,6 +273,19 @@ function isSafeRepositoryRelativePath(filePath: string): boolean {
     .every(
       (segment) => segment.length > 0 && segment !== "." && segment !== "..",
     );
+}
+
+function normalizeOutputLanguage(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const firstLine = value.split(/[\r\n]/)[0] ?? "";
+  const cleaned = firstLine
+    .replace(/[^\p{L}\p{M}\s()\-/]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 40);
+  return cleaned.length > 0 ? cleaned : undefined;
 }
 
 function isSafeHtmlCommentToken(
