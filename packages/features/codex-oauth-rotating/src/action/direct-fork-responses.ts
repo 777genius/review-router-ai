@@ -31,7 +31,6 @@ export type DirectForkResponsesCodec = Readonly<{
 // Internal and intentionally unwired. These are transport budgets, not authority.
 const endpoint = "https://chatgpt.com/backend-api/codex/responses";
 const model = "gpt-5.6-sol";
-const maxOutputTokens = 12_000;
 const maxRequestBytes = 640_000;
 const maxResponseBytes = 2 * 1024 * 1024;
 const maxOutputBytes = 256 * 1024;
@@ -211,6 +210,7 @@ async function requestWithinBoundary(
     if (!/^[A-Za-z0-9:_-]{1,200}$/u.test(input.chatgptAccountId))
       fail("credentials_invalid");
     const packet = input.codec.parsePromptPacket(input.promptPacket);
+    // ChatGPT Codex accounts reject max_output_tokens; hosted relay strips it too.
     const body = JSON.stringify({
       model,
       instructions,
@@ -225,7 +225,6 @@ async function requestWithinBoundary(
           ],
         },
       ],
-      max_output_tokens: maxOutputTokens,
       tools: [],
       tool_choice: "none",
       parallel_tool_calls: false,

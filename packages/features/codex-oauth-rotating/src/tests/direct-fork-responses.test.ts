@@ -496,7 +496,6 @@ describe("unused direct fork model transport", () => {
     const body = JSON.parse(init!.body as string);
     expect(body).toMatchObject({
       model: "gpt-5.6-sol",
-      max_output_tokens: 12000,
       tools: [],
       tool_choice: "none",
       parallel_tool_calls: false,
