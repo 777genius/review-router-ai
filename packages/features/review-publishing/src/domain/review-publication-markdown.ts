@@ -20,16 +20,16 @@ export function reviewFindingMarker(input: {
 export function renderReviewSummaryMarkdown(input: {
   readonly plan: ReviewPublicationPlan;
 }): string {
-  return limitUtf8(
-    [
-      reviewSummaryMarker(input.plan.marker),
-      renderFindingsSummaryMarkdown({
-        language: input.plan.outputLanguage,
-        findings: input.plan.findings,
-      }),
-    ].join("\n"),
-    maxPublicationBodyBytes,
-  );
+  const marker = reviewSummaryMarker(input.plan.marker);
+  const reservedBytes = Buffer.byteLength(`${marker}\n`, "utf8");
+  return [
+    marker,
+    renderFindingsSummaryMarkdown({
+      language: input.plan.outputLanguage,
+      findings: input.plan.findings,
+      maxBytes: maxPublicationBodyBytes - reservedBytes,
+    }),
+  ].join("\n");
 }
 
 export function renderReviewFindingMarkdown(input: {
