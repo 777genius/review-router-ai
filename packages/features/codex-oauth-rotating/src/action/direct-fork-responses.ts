@@ -72,6 +72,21 @@ function fail(code: string): never {
   throw new TransportError(code);
 }
 
+function certifiedForkResponseMediaType(
+  contentType: string | null,
+): "application/json" | "text/event-stream" | undefined {
+  const normalized = contentType?.trim() ?? "";
+  if (normalized.length === 0) return "text/event-stream";
+  const match =
+    /^(application\/json|text\/event-stream)(?:\s*;\s*charset=utf-8)?$/iu.exec(
+      normalized,
+    );
+  const mediaType = match?.[1]?.toLowerCase();
+  return mediaType === "application/json" || mediaType === "text/event-stream"
+    ? mediaType
+    : undefined;
+}
+
 function readExactRecord(
   input: unknown,
   requiredKeys: readonly string[],
@@ -265,18 +280,16 @@ async function requestWithinBoundary(
       discard(response);
       fail("http_rejected");
     }
-    const contentType = response.headers.get("content-type") ?? "";
-    const match =
-      /^(application\/json|text\/event-stream)(?:\s*;\s*charset=utf-8)?$/iu.exec(
-        contentType,
-      );
-    if (!match) {
+    const mediaType = certifiedForkResponseMediaType(
+      response.headers.get("content-type"),
+    );
+    if (!mediaType) {
       discard(response);
       fail("content_type_rejected");
     }
     const text = await readBody(response, controller.signal);
     const output =
-      match[1]?.toLowerCase() === "text/event-stream"
+      mediaType === "text/event-stream"
         ? parseSse(text)
         : completedOutput(JSON.parse(text.replace(/^\uFEFF/u, "")) as unknown);
     if (Buffer.byteLength(output, "utf8") > maxOutputBytes)

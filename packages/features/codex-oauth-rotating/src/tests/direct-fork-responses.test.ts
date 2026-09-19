@@ -639,13 +639,19 @@ describe("unused direct fork model transport", () => {
     "text/plain",
     "application/jsonish",
     "text/event-stream-evil",
-    "",
     "application/json; charset=latin1",
     "text/event-stream; boundary=x",
   ])("rejects content type %j", async (type) => {
     await expect(setup(response(terminal(), type)).run()).rejects.toThrow(
       "content_type_rejected",
     );
+  });
+
+  it("accepts ChatGPT Codex SSE when Content-Type is omitted", async () => {
+    const reply = new Response(terminal());
+    reply.headers.delete("content-type");
+    expect(reply.headers.get("content-type")).toBeNull();
+    expect(await setup(reply).run()).toEqual(output());
   });
 
   it.each([201, 204, 301, 400, 401, 429, 500])(
