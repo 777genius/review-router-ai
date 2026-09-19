@@ -195,7 +195,7 @@ const fieldHelp = {
   failOnSeverity:
     "Controls which finding severity makes the GitHub check fail.",
   inlineMaxComments:
-    "Maximum number of inline PR comments ReviewRouter should post in one review run.",
+    "Maximum number of inline PR comments ReviewRouter should post in one review run. The current default posts every finding up to 50.",
   targetTokensPerBatch:
     "Approximate context budget per review batch. Higher values let the runtime inspect more context per pass.",
   agenticContext:
@@ -208,8 +208,18 @@ const fieldHelp = {
   requiredHealthy:
     "Required providers must pass health checks and return valid review output. They do not need to produce findings.",
   reviewLanguage:
-    "Natural language for the review comments and summaries (free text, e.g. Russian). Leave empty to inherit the workspace default, which is English.",
+    "Natural language for inline comments and the main reviewer summary (free text, e.g. Russian). Leave empty to inherit the workspace default, which is English.",
 } as const;
+
+function dashboardInlineMaxComments(value: number): number {
+  if (value === 0) {
+    return 0;
+  }
+  if (value === 5) {
+    return 50;
+  }
+  return value;
+}
 
 const defaultCodexProvider = {
   ...getDefaultProviderConfigForAuthMode("codex_subscription_oauth_rotating"),
@@ -1207,7 +1217,7 @@ export function ReviewConfigForm({
         <input
           type="hidden"
           name="inlineMaxComments"
-          value={config.limits.inlineMaxComments}
+          value={dashboardInlineMaxComments(config.limits.inlineMaxComments)}
         />
         <input
           type="hidden"

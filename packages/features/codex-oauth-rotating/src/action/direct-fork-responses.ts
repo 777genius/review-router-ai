@@ -31,7 +31,6 @@ export type DirectForkResponsesCodec = Readonly<{
 // Internal and intentionally unwired. These are transport budgets, not authority.
 const endpoint = "https://chatgpt.com/backend-api/codex/responses";
 const model = "gpt-5.6-sol";
-const maxOutputTokens = 12_000;
 const maxRequestBytes = 640_000;
 const maxResponseBytes = 2 * 1024 * 1024;
 const maxOutputBytes = 256 * 1024;
@@ -71,6 +70,21 @@ class TransportError extends Error {
 }
 function fail(code: string): never {
   throw new TransportError(code);
+}
+
+function certifiedForkResponseMediaType(
+  contentType: string | null,
+): "application/json" | "text/event-stream" | undefined {
+  const normalized = contentType?.trim() ?? "";
+  if (normalized.length === 0) return "text/event-stream";
+  const match =
+    /^(application\/json|text\/event-stream)(?:\s*;\s*charset=utf-8)?$/iu.exec(
+      normalized,
+    );
+  const mediaType = match?.[1]?.toLowerCase();
+  return mediaType === "application/json" || mediaType === "text/event-stream"
+    ? mediaType
+    : undefined;
 }
 
 function readExactRecord(
@@ -211,6 +225,7 @@ async function requestWithinBoundary(
     if (!/^[A-Za-z0-9:_-]{1,200}$/u.test(input.chatgptAccountId))
       fail("credentials_invalid");
     const packet = input.codec.parsePromptPacket(input.promptPacket);
+    // ChatGPT Codex accounts reject max_output_tokens; hosted relay strips it too.
     const body = JSON.stringify({
       model,
       instructions,
@@ -225,7 +240,6 @@ async function requestWithinBoundary(
           ],
         },
       ],
-      max_output_tokens: maxOutputTokens,
       tools: [],
       tool_choice: "none",
       parallel_tool_calls: false,
@@ -266,18 +280,16 @@ async function requestWithinBoundary(
       discard(response);
       fail("http_rejected");
     }
-    const contentType = response.headers.get("content-type") ?? "";
-    const match =
-      /^(application\/json|text\/event-stream)(?:\s*;\s*charset=utf-8)?$/iu.exec(
-        contentType,
-      );
-    if (!match) {
+    const mediaType = certifiedForkResponseMediaType(
+      response.headers.get("content-type"),
+    );
+    if (!mediaType) {
       discard(response);
       fail("content_type_rejected");
     }
     const text = await readBody(response, controller.signal);
     const output =
-      match[1]?.toLowerCase() === "text/event-stream"
+      mediaType === "text/event-stream"
         ? parseSse(text)
         : completedOutput(JSON.parse(text.replace(/^\uFEFF/u, "")) as unknown);
     if (Buffer.byteLength(output, "utf8") > maxOutputBytes)
@@ -698,19 +710,48 @@ function parseSse(text: string): string {
         const response = record(event.response);
         if (responseId !== undefined && response.id !== responseId)
           fail("response_mismatch");
-        terminal = completedOutput(response);
-        // A terminal-only snapshot is supported. Once streaming starts, every
-        // declared item must finish and match the authoritative final snapshot.
         if (
-          phase !== "initial" &&
-          (!items.length ||
-            items.some((item) => item.phase !== "done") ||
-            !isDeepStrictEqual(
-              response.output,
-              items.map((item) => item.value),
-            ))
+          response.status !== "completed" ||
+          typeof response.id !== "string" ||
+          !response.id ||
+          response.id.length > 500
         )
+          fail("incomplete");
+        // Terminal-only snapshots still require the full output array. ChatGPT
+        // Codex store:false streams the items, then completes with output: [].
+        if (phase === "initial") {
+          terminal = completedOutput(response);
+          break;
+        }
+        if (!items.length || items.some((item) => item.phase !== "done"))
           fail("lifecycle_invalid");
+        if (response.output !== undefined && !Array.isArray(response.output))
+          fail("output_missing");
+        const snapshot = Array.isArray(response.output) ? response.output : [];
+        if (snapshot.length > 0) {
+          terminal = completedOutput(response);
+          if (
+            !isDeepStrictEqual(
+              snapshot,
+              items.map((item) => item.value),
+            )
+          )
+            fail("lifecycle_invalid");
+          break;
+        }
+        let result = "";
+        let messages = 0;
+        for (const item of items) {
+          if (item.type === "message") messages += 1;
+          result = boundedText(result + itemOutput(item.value, true));
+        }
+        if (messages !== 1 || !result) fail("output_missing");
+        if (
+          response.output_text !== undefined &&
+          response.output_text !== result
+        )
+          fail("output_mismatch");
+        terminal = result;
         break;
       }
       default:

@@ -5,7 +5,7 @@ import { createPublicPageMetadata } from "../seo";
 export const metadata: Metadata = createPublicPageMetadata({
   title: "ReviewRouter vs AI code review apps",
   description:
-    "Compare ReviewRouter with CodeRabbit, Qodo Merge, Greptile, GitHub Copilot Code Review, Cursor BugBot, Claude Code Review, Graphite Agent, and hosted AI code review models.",
+    "Compare ReviewRouter with CodeRabbit, Qodo, Greptile, GitHub Copilot Code Review, Cursor Bugbot, Claude Code Review, Graphite Agent, and hosted AI code review models.",
   path: "/compare",
 });
 

@@ -3,9 +3,6 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@reviewrouter/ui", () => ({
-  Badge: ({ children }: { readonly children?: React.ReactNode }) => (
-    <span>{children}</span>
-  ),
   Button: ({ children, ...props }: React.ComponentProps<"button">) => (
     <button {...props}>{children}</button>
   ),
@@ -18,7 +15,7 @@ afterEach(() => {
 });
 
 describe("GitLabBetaConnectButton", () => {
-  it("renders a disabled GitLab CTA with an In development badge and no setup link", () => {
+  it("renders a disabled GitLab CTA with an In development ribbon and no setup link", () => {
     render(<GitLabBetaConnectButton />);
 
     const button = screen.getByRole("button", {
