@@ -125,7 +125,9 @@ export function resolveReviewSummaryLocale(
 export function renderFindingsSummaryMarkdown(input: {
   readonly language?: string | undefined;
   readonly findings: readonly ReviewFinding[];
+  readonly maxBytes?: number | undefined;
 }): string {
+  const maxBytes = input.maxBytes ?? maxPublicationBodyBytes;
   const copy = copies[resolveReviewSummaryLocale(input.language)];
   const counts = countFindingsBySeverity(input.findings);
   const heading =
@@ -137,7 +139,7 @@ export function renderFindingsSummaryMarkdown(input: {
   for (const finding of sorted) {
     const block = renderFindingDetails(copy, finding);
     const candidate = [...lines, "", block];
-    if (utf8Bytes(candidate.join("\n")) > maxPublicationBodyBytes) {
+    if (utf8Bytes(candidate.join("\n")) > maxBytes) {
       remaining.push(compactFindingLine(finding));
       continue;
     }
@@ -145,15 +147,20 @@ export function renderFindingsSummaryMarkdown(input: {
   }
 
   if (remaining.length > 0) {
-    const overflow = ["", copy.moreFindings(remaining.length), ...remaining];
-    if (
-      utf8Bytes([...lines, ...overflow].join("\n")) <= maxPublicationBodyBytes
-    ) {
-      lines.push(...overflow);
+    const header = ["", copy.moreFindings(remaining.length)];
+    if (utf8Bytes([...lines, ...header].join("\n")) <= maxBytes) {
+      lines.push(...header);
+      for (const compact of remaining) {
+        const candidate = [...lines, compact];
+        if (utf8Bytes(candidate.join("\n")) > maxBytes) {
+          break;
+        }
+        lines.push(compact);
+      }
     }
   }
 
-  return limitUtf8(lines.join("\n"), maxPublicationBodyBytes);
+  return limitUtf8(lines.join("\n"), maxBytes);
 }
 
 function renderFindingDetails(
@@ -171,7 +178,7 @@ function renderFindingDetails(
     `<summary>${summary}</summary>`,
     "",
     truncateChars(
-      sanitizeDetailsBody(finding.body.trim()),
+      neutralizeDetailsMarkup(finding.body.trim()),
       maxFindingBodyChars,
     ),
   ];
@@ -362,8 +369,23 @@ function escapeMarkdownInline(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("`", "\\`");
 }
 
-function sanitizeDetailsBody(value: string): string {
-  return value.replace(/<\/details>/gi, "[/details]");
+function neutralizeDetailsMarkup(value: string): string {
+  return value.replace(/<\/?(?:details|summary)\b[^>]*>/gi, (tag) =>
+    tag.replaceAll("<", "&lt;").replaceAll(">", "&gt;"),
+  );
+}
+
+function dropIncompleteDetails(value: string): string {
+  const openTags = Array.from(value.matchAll(/<details\b[^>]*>/gi));
+  const closeTags = Array.from(value.matchAll(/<\/details>/gi));
+  if (openTags.length <= closeTags.length) {
+    return value;
+  }
+  const lastOpen = openTags[openTags.length - 1];
+  if (lastOpen?.index === undefined) {
+    return value;
+  }
+  return value.slice(0, lastOpen.index).trimEnd();
 }
 
 function truncateChars(value: string, maxChars: number): string {
@@ -381,7 +403,11 @@ function limitUtf8(value: string, maxBytes: number): string {
   if (utf8Bytes(value) <= maxBytes) {
     return value;
   }
-  return `${Buffer.from(value, "utf8")
-    .subarray(0, maxBytes - 20)
-    .toString("utf8")}\n\n[truncated]`;
+  const suffix = "\n\n[truncated]";
+  const budget = Math.max(0, maxBytes - utf8Bytes(suffix));
+  let cut = Buffer.from(value, "utf8").subarray(0, budget).toString("utf8");
+  if (cut.endsWith("\uFFFD")) {
+    cut = cut.slice(0, -1);
+  }
+  return `${dropIncompleteDetails(cut).trimEnd()}${suffix}`;
 }
