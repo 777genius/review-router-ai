@@ -650,19 +650,48 @@ function parseSse(text: string): string {
         const response = record(event.response);
         if (responseId !== undefined && response.id !== responseId)
           fail("response_mismatch");
-        terminal = completedOutput(response);
-        // A terminal-only snapshot is supported. Once streaming starts, every
-        // declared item must finish and match the authoritative final snapshot.
         if (
-          phase !== "initial" &&
-          (!items.length ||
-            items.some((item) => item.phase !== "done") ||
-            !isDeepStrictEqual(
-              response.output,
-              items.map((item) => item.value),
-            ))
+          response.status !== "completed" ||
+          typeof response.id !== "string" ||
+          !response.id ||
+          response.id.length > 500
         )
+          fail("incomplete");
+        // Terminal-only snapshots still require the full output array. ChatGPT
+        // Codex store:false streams the items, then completes with output: [].
+        if (phase === "initial") {
+          terminal = completedOutput(response);
+          break;
+        }
+        if (!items.length || items.some((item) => item.phase !== "done"))
           fail("lifecycle_invalid");
+        if (response.output !== undefined && !Array.isArray(response.output))
+          fail("output_missing");
+        const snapshot = Array.isArray(response.output) ? response.output : [];
+        if (snapshot.length > 0) {
+          terminal = completedOutput(response);
+          if (
+            !isDeepStrictEqual(
+              snapshot,
+              items.map((item) => item.value),
+            )
+          )
+            fail("lifecycle_invalid");
+          break;
+        }
+        let result = "";
+        let messages = 0;
+        for (const item of items) {
+          if (item.type === "message") messages += 1;
+          result = boundedText(result + itemOutput(item.value, true));
+        }
+        if (messages !== 1 || !result) fail("output_missing");
+        if (
+          response.output_text !== undefined &&
+          response.output_text !== result
+        )
+          fail("output_mismatch");
+        terminal = result;
         break;
       }
       default:

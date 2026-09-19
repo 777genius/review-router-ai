@@ -654,6 +654,17 @@ describe("unused direct fork model transport", () => {
     expect(await setup(reply).run()).toEqual(output());
   });
 
+  it("accepts ChatGPT Codex store:false completed snapshots with empty output", async () => {
+    const events = lifecycle();
+    events[events.length - 1] = {
+      type: "response.completed",
+      response: { id: "resp_1", status: "completed", output: [] },
+    };
+    const reply = new Response(wire(events));
+    reply.headers.delete("content-type");
+    expect(await setup(reply).run()).toEqual(output());
+  });
+
   it.each([201, 204, 301, 400, 401, 429, 500])(
     "rejects status %i without exposing its body",
     async (status) => {
