@@ -496,7 +496,6 @@ describe("unused direct fork model transport", () => {
     const body = JSON.parse(init!.body as string);
     expect(body).toMatchObject({
       model: "gpt-5.6-sol",
-      max_output_tokens: 12000,
       tools: [],
       tool_choice: "none",
       parallel_tool_calls: false,
@@ -640,13 +639,30 @@ describe("unused direct fork model transport", () => {
     "text/plain",
     "application/jsonish",
     "text/event-stream-evil",
-    "",
     "application/json; charset=latin1",
     "text/event-stream; boundary=x",
   ])("rejects content type %j", async (type) => {
     await expect(setup(response(terminal(), type)).run()).rejects.toThrow(
       "content_type_rejected",
     );
+  });
+
+  it("accepts ChatGPT Codex SSE when Content-Type is omitted", async () => {
+    const reply = new Response(terminal());
+    reply.headers.delete("content-type");
+    expect(reply.headers.get("content-type")).toBeNull();
+    expect(await setup(reply).run()).toEqual(output());
+  });
+
+  it("accepts ChatGPT Codex store:false completed snapshots with empty output", async () => {
+    const events = lifecycle();
+    events[events.length - 1] = {
+      type: "response.completed",
+      response: { id: "resp_1", status: "completed", output: [] },
+    };
+    const reply = new Response(wire(events));
+    reply.headers.delete("content-type");
+    expect(await setup(reply).run()).toEqual(output());
   });
 
   it.each([201, 204, 301, 400, 401, 429, 500])(
