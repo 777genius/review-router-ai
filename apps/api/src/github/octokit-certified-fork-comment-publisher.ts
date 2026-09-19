@@ -1,5 +1,4 @@
 import { App } from "@octokit/app";
-import { createHash } from "node:crypto";
 import type { DistributedLock } from "@reviewrouter/platform-locks";
 import { certifiedForkGithubRequestTimeoutMs } from "./octokit-certified-fork-review-gateway.js";
 
@@ -79,11 +78,9 @@ export class OctokitCertifiedForkCommentPublisher {
     if (!owner || !repo || extra) {
       throw new Error("certified_fork_comment_repository_invalid");
     }
-    const markerHash = createHash("sha256")
-      .update(input.marker, "utf8")
-      .digest("hex");
-    return this.lock.withLock(
-      `certified-fork-comment:${input.baseRepositoryId}:${input.pullRequestNumber}:${markerHash}`,
+    return withLockRetry(
+      this.lock,
+      `certified-fork-comment:${input.baseRepositoryId}:${input.pullRequestNumber}`,
       3 * 60_000,
       async () => {
         const rawOctokit =
@@ -111,6 +108,16 @@ export class OctokitCertifiedForkCommentPublisher {
           repo,
           pullRequestNumber: input.pullRequestNumber,
           marker: input.marker,
+        });
+        await assertPullRequestCurrent({
+          octokit,
+          owner,
+          repo,
+          baseRepositoryId: input.baseRepositoryId,
+          sourceRepositoryId: input.sourceRepositoryId,
+          pullRequestNumber: input.pullRequestNumber,
+          baseSha: input.baseSha,
+          reviewHeadSha: input.reviewHeadSha,
         });
         const response =
           commentId === null
@@ -144,8 +151,10 @@ export class OctokitCertifiedForkCommentPublisher {
     readonly pullRequestNumber: number;
     readonly marker: string;
   }): Promise<number | null> {
-    const matches: number[] = [];
-    for (let page = 1; page <= 3; page += 1) {
+    const exactMatches: number[] = [];
+    const legacyMatches: number[] = [];
+    const legacyPrefix = input.marker.slice(0, -" -->".length);
+    for (let page = 1; page <= 10; page += 1) {
       const response = await input.octokit.request(
         "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
         {
@@ -161,22 +170,48 @@ export class OctokitCertifiedForkCommentPublisher {
       }
       for (const value of response.data) {
         const comment = parseInventoryComment(value);
-        if (
-          comment.body.startsWith(`${input.marker}\n`) &&
-          comment.authorLogin.toLowerCase() === this.botLogin
-        ) {
-          matches.push(comment.id);
+        if (comment.authorLogin.toLowerCase() === this.botLogin) {
+          if (comment.body.startsWith(`${input.marker}\n`)) {
+            exactMatches.push(comment.id);
+          } else if (comment.body.startsWith(`${legacyPrefix} `)) {
+            legacyMatches.push(comment.id);
+          }
+          if (exactMatches.length > 1) {
+            throw new Error("certified_fork_comment_marker_ambiguous");
+          }
         }
       }
       if (response.data.length < 100) break;
-      if (page === 3) {
+      if (
+        page === 10 &&
+        exactMatches.length === 0 &&
+        legacyMatches.length === 0
+      ) {
         throw new Error("certified_fork_comment_inventory_budget_exceeded");
       }
     }
-    if (matches.length > 1) {
-      throw new Error("certified_fork_comment_marker_ambiguous");
+    return exactMatches[0] ?? legacyMatches.at(-1) ?? null;
+  }
+}
+
+async function withLockRetry<T>(
+  lock: DistributedLock,
+  key: string,
+  ttlMs: number,
+  run: () => Promise<T>,
+): Promise<T> {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    try {
+      return await lock.withLock(key, ttlMs, run);
+    } catch (error) {
+      const contention =
+        error instanceof Error &&
+        (error.message === `Lock already held: ${key}` ||
+          error.message === `distributed_lock_not_acquired:${key}`);
+      if (!contention || Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    return matches[0] ?? null;
   }
 }
 

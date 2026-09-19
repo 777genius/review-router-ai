@@ -14,6 +14,7 @@ import {
   type GitHubActionsOidcTokenVerifierPort,
 } from "@reviewrouter/features-action-control-plane";
 import { codexRotatingOidcClaimsSchema } from "@reviewrouter/features-codex-oauth-rotating";
+import type { DistributedLock } from "@reviewrouter/platform-locks";
 import type { Clock } from "@reviewrouter/shared";
 import type { OctokitCertifiedForkCommentPublisher } from "./github/octokit-certified-fork-comment-publisher.js";
 
@@ -24,6 +25,8 @@ export const certifiedForkWorkflowPath =
 
 const heartbeatIntervalMs = 2_000;
 const maxCommentBytes = 60_000;
+const certifiedForkReviewLockTtlMs = 20 * 60_000;
+const certifiedForkModelTimeoutMs = 9 * 60_000;
 
 export interface CertifiedForkLiveReviewDependencies {
   readonly enabled: boolean;
@@ -48,9 +51,17 @@ export interface CertifiedForkLiveReviewDependencies {
       readonly githubRunAttempt: string;
       readonly eventName: "pull_request_target";
       readonly expectedPullRequestNumber: number;
+      readonly expectedReviewHeadSha: string;
+      readonly workflow: {
+        readonly path: string;
+        readonly ref: string;
+        readonly workflowRef: string;
+        readonly workflowSha: string;
+      };
     }): Promise<number>;
   };
   readonly gateway: CertifiedForkReviewGatewayPort;
+  readonly reviewLock: DistributedLock;
   readonly hostedAccounts: {
     resolve(input: {
       readonly repositoryId: string;
@@ -76,6 +87,7 @@ export interface CertifiedForkLiveReviewDependencies {
       readonly chatgptAccountId: string;
       readonly promptPacket: unknown;
       readonly signal: AbortSignal;
+      readonly timeoutMs: number;
     }): Promise<CertifiedForkReviewModelOutput>;
   };
   readonly publisher: Pick<OctokitCertifiedForkCommentPublisher, "upsert">;
@@ -179,97 +191,123 @@ export async function executeCertifiedForkLiveReview(
       githubRunAttempt: claims.run_attempt,
       eventName: "pull_request_target",
       expectedPullRequestNumber: binding.pullRequestNumber,
+      expectedReviewHeadSha: binding.reviewHeadSha,
+      workflow: {
+        path: certifiedForkWorkflowPath,
+        ref: claims.ref,
+        workflowRef: claims.workflow_ref,
+        workflowSha: claims.workflow_sha,
+      },
     });
   if (pullRequestNumber !== binding.pullRequestNumber) {
     throw new Error("certified_fork_run_pull_request_mismatch");
   }
+  assertNotAborted(abortSignal);
 
-  const currentInput = Object.freeze({
-    githubInstallationId: repository.githubInstallationId,
-    binding,
-  });
-  await dependencies.gateway.assertBindingCurrent(currentInput);
-  const prepared = await prepareCurrentCertifiedForkReview(currentInput, {
-    gateway: dependencies.gateway,
-  });
-  const currentContext = readExactRecord(
-    await dependencies.gateway.assertContextCurrent({
-      ...currentInput,
-      expectedContextHash: prepared.contextHash,
-    }),
-    ["promptPacket"],
-    "certified_fork_review_context_invalid",
+  return dependencies.reviewLock.withLock(
+    `certified-fork-review:${binding.baseRepositoryId}:${binding.pullRequestNumber}`,
+    certifiedForkReviewLockTtlMs,
+    async () => {
+      assertNotAborted(abortSignal);
+      const currentInput = Object.freeze({
+        githubInstallationId: repository.githubInstallationId,
+        binding,
+      });
+      await dependencies.gateway.assertBindingCurrent(currentInput);
+      const prepared = await prepareCurrentCertifiedForkReview(currentInput, {
+        gateway: dependencies.gateway,
+      });
+      const currentContext = readExactRecord(
+        await dependencies.gateway.assertContextCurrent({
+          ...currentInput,
+          expectedContextHash: prepared.contextHash,
+        }),
+        ["promptPacket"],
+        "certified_fork_review_context_invalid",
+      );
+      const packet = parseCertifiedForkReviewPromptPacket(
+        currentContext.promptPacket,
+      );
+      assertCertifiedForkReviewBindingMatches(prepared.binding, packet.binding);
+      if (prepared.contextHash !== packet.contextHash) {
+        throw new Error("certified_fork_review_context_hash_mismatch");
+      }
+      assertNotAborted(abortSignal);
+
+      const now = dependencies.clock.now();
+      if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+        throw new Error("certified_fork_clock_invalid");
+      }
+      if (
+        claims.iat > now.getTime() / 1000 ||
+        claims.nbf > now.getTime() / 1000 ||
+        claims.exp <= now.getTime() / 1000
+      ) {
+        throw new Error("certified_fork_oidc_time_invalid");
+      }
+      const accountId = await dependencies.hostedAccounts.resolve({
+        repositoryId: repository.repositoryId,
+        workspaceId: repository.workspaceId,
+        now,
+      });
+      if (
+        !(await dependencies.replayNonces.tryConsumeNonce({
+          key: `${claims.iss}:${claims.jti}`,
+          expiresAt: new Date(claims.exp * 1000),
+          now,
+        }))
+      ) {
+        throw new Error("oidc_replay_detected");
+      }
+
+      const session = await dependencies.sessions.ensureFreshSession({
+        accountId,
+        runId: claims.run_id,
+        attempt: Number(claims.run_attempt),
+        abortSignal,
+      });
+      const output = await dependencies.model.request({
+        accessToken: session.accessToken,
+        chatgptAccountId: session.chatgptAccountId,
+        promptPacket: packet,
+        signal: abortSignal,
+        timeoutMs: certifiedForkModelTimeoutMs,
+      });
+
+      // A model call can outlive the head that produced its packet.
+      await dependencies.gateway.assertContextCurrent({
+        ...currentInput,
+        expectedContextHash: packet.contextHash,
+      });
+      const marker = certifiedForkCommentMarker(binding);
+      const publication = await dependencies.publisher.upsert({
+        githubInstallationId: repository.githubInstallationId,
+        repositoryFullName: repository.fullName,
+        baseRepositoryId: binding.baseRepositoryId,
+        sourceRepositoryId: binding.sourceRepositoryId,
+        pullRequestNumber: binding.pullRequestNumber,
+        baseSha: binding.baseSha,
+        reviewHeadSha: binding.reviewHeadSha,
+        marker,
+        body: certifiedForkCommentBody(marker, output, {
+          reviewHeadSha: binding.reviewHeadSha,
+          contextHash: packet.contextHash,
+        }),
+      });
+      return Object.freeze({
+        status: "published" as const,
+        commentId: publication.commentId,
+        contextHash: packet.contextHash,
+        binding,
+      });
+    },
   );
-  const packet = parseCertifiedForkReviewPromptPacket(
-    currentContext.promptPacket,
-  );
-  assertCertifiedForkReviewBindingMatches(prepared.binding, packet.binding);
-  if (prepared.contextHash !== packet.contextHash) {
-    throw new Error("certified_fork_review_context_hash_mismatch");
-  }
+}
 
-  const now = dependencies.clock.now();
-  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
-    throw new Error("certified_fork_clock_invalid");
+function assertNotAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new Error("certified_fork_client_disconnected");
   }
-  if (
-    claims.iat > now.getTime() / 1000 ||
-    claims.nbf > now.getTime() / 1000 ||
-    claims.exp <= now.getTime() / 1000
-  ) {
-    throw new Error("certified_fork_oidc_time_invalid");
-  }
-  const accountId = await dependencies.hostedAccounts.resolve({
-    repositoryId: repository.repositoryId,
-    workspaceId: repository.workspaceId,
-    now,
-  });
-  if (
-    !(await dependencies.replayNonces.tryConsumeNonce({
-      key: `${claims.iss}:${claims.jti}`,
-      expiresAt: new Date(claims.exp * 1000),
-      now,
-    }))
-  ) {
-    throw new Error("oidc_replay_detected");
-  }
-
-  const session = await dependencies.sessions.ensureFreshSession({
-    accountId,
-    runId: claims.run_id,
-    attempt: Number(claims.run_attempt),
-    abortSignal,
-  });
-  const output = await dependencies.model.request({
-    accessToken: session.accessToken,
-    chatgptAccountId: session.chatgptAccountId,
-    promptPacket: packet,
-    signal: abortSignal,
-  });
-
-  // A model call can outlive the head that produced its packet.
-  await dependencies.gateway.assertContextCurrent({
-    ...currentInput,
-    expectedContextHash: packet.contextHash,
-  });
-  const marker = certifiedForkCommentMarker(binding, packet.contextHash);
-  const publication = await dependencies.publisher.upsert({
-    githubInstallationId: repository.githubInstallationId,
-    repositoryFullName: repository.fullName,
-    baseRepositoryId: binding.baseRepositoryId,
-    sourceRepositoryId: binding.sourceRepositoryId,
-    pullRequestNumber: binding.pullRequestNumber,
-    baseSha: binding.baseSha,
-    reviewHeadSha: binding.reviewHeadSha,
-    marker,
-    body: certifiedForkCommentBody(marker, output),
-  });
-  return Object.freeze({
-    status: "published",
-    commentId: publication.commentId,
-    contextHash: packet.contextHash,
-    binding,
-  });
 }
 
 export async function registerCertifiedForkLiveReviewRoutes(
@@ -279,14 +317,21 @@ export async function registerCertifiedForkLiveReviewRoutes(
   if (!dependencies.enabled) return;
   app.post(certifiedForkLiveReviewPath, async (request, reply) => {
     const controller = new AbortController();
-    const abort = () =>
+    const streamState: {
+      heartbeat?: ReturnType<typeof setInterval>;
+    } = {};
+    const abort = () => {
+      if (streamState.heartbeat) clearInterval(streamState.heartbeat);
       controller.abort(new Error("certified_fork_client_disconnected"));
+    };
     request.raw.once("aborted", abort);
     reply.raw.once("close", abort);
+    reply.raw.once("error", abort);
     startEventStream(reply);
     const heartbeat = setInterval(() => {
-      if (!reply.raw.writableEnded) reply.raw.write(": heartbeat\n\n");
+      writeRaw(reply, ": heartbeat\n\n");
     }, heartbeatIntervalMs);
+    streamState.heartbeat = heartbeat;
     heartbeat.unref();
     try {
       const result = await executeCertifiedForkLiveReview(
@@ -308,7 +353,14 @@ export async function registerCertifiedForkLiveReviewRoutes(
       clearInterval(heartbeat);
       request.raw.off("aborted", abort);
       reply.raw.off("close", abort);
-      if (!reply.raw.writableEnded) reply.raw.end();
+      reply.raw.off("error", abort);
+      if (!reply.raw.writableEnded && !reply.raw.destroyed) {
+        try {
+          reply.raw.end();
+        } catch {
+          // The client has already disconnected.
+        }
+      }
     }
     return reply;
   });
@@ -316,17 +368,30 @@ export async function registerCertifiedForkLiveReviewRoutes(
 
 export function certifiedForkCommentMarker(
   binding: CertifiedForkReviewBinding,
-  contextHash: string,
 ): string {
-  if (!/^[a-f0-9]{64}$/u.test(contextHash)) {
+  return `<!-- reviewrouter:certified-fork:v1 repository_id=${binding.baseRepositoryId} pr=${binding.pullRequestNumber} -->`;
+}
+
+function certifiedForkContextMarker(input: {
+  readonly reviewHeadSha: string;
+  readonly contextHash: string;
+}): string {
+  if (!/^[a-f0-9]{64}$/u.test(input.contextHash)) {
     throw new Error("certified_fork_comment_context_hash_invalid");
   }
-  return `<!-- reviewrouter:certified-fork:v1 repository_id=${binding.baseRepositoryId} pr=${binding.pullRequestNumber} head_sha=${binding.reviewHeadSha} context_hash=${contextHash} -->`;
+  if (!/^[a-f0-9]{40}$/u.test(input.reviewHeadSha)) {
+    throw new Error("certified_fork_comment_head_sha_invalid");
+  }
+  return `<!-- reviewrouter:certified-fork-context:v1 head_sha=${input.reviewHeadSha} context_hash=${input.contextHash} -->`;
 }
 
 export function certifiedForkCommentBody(
   marker: string,
   output: CertifiedForkReviewModelOutput,
+  context: {
+    readonly reviewHeadSha: string;
+    readonly contextHash: string;
+  },
 ): string {
   const findings =
     output.findings.length === 0
@@ -336,13 +401,19 @@ export function certifiedForkCommentBody(
             const location = finding.path
               ? ` — \`${finding.path}${finding.startLine ? `:${finding.startLine}` : ""}\``
               : "";
-            return `\n### ${finding.severity.toUpperCase()}: ${finding.title}${location}\n${finding.body}`;
+            return `\n### ${finding.severity.toUpperCase()}: ${neutralizeModelMarkdown(finding.title)}${location}\n${neutralizeModelMarkdown(finding.body)}`;
           })
           .join("\n")}`;
   return truncateUtf8(
-    `${marker}\n${output.summaryMarkdown}${findings}`,
+    `${marker}\n${certifiedForkContextMarker(context)}\n${neutralizeModelMarkdown(output.summaryMarkdown)}${findings}`,
     maxCommentBytes,
   );
+}
+
+function neutralizeModelMarkdown(value: string): string {
+  return value
+    .replaceAll("<!--", "&lt;!--")
+    .replace(/@(?=[A-Za-z0-9][A-Za-z0-9-]{0,38}\b)/gu, "@\u200b");
 }
 
 function startEventStream(reply: FastifyReply): void {
@@ -351,7 +422,9 @@ function startEventStream(reply: FastifyReply): void {
   reply.raw.setHeader("content-type", "text/event-stream; charset=utf-8");
   reply.raw.setHeader("cache-control", "no-store");
   reply.raw.setHeader("x-content-type-options", "nosniff");
-  reply.raw.write(": accepted\n\n");
+  reply.raw.setHeader("x-accel-buffering", "no");
+  reply.raw.flushHeaders();
+  writeRaw(reply, ": accepted\n\n");
 }
 
 function writeEvent(
@@ -359,8 +432,18 @@ function writeEvent(
   event: "result" | "error",
   value: unknown,
 ): void {
-  if (reply.raw.writableEnded) return;
-  reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
+  writeRaw(reply, `event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
+}
+
+function writeRaw(reply: FastifyReply, value: string): void {
+  if (reply.raw.writableEnded || reply.raw.destroyed || !reply.raw.writable) {
+    return;
+  }
+  try {
+    reply.raw.write(value);
+  } catch {
+    // The close/error handlers own cancellation for disconnected clients.
+  }
 }
 
 function truncateUtf8(value: string, maxBytes: number): string {

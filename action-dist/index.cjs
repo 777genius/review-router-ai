@@ -24566,7 +24566,7 @@ async function requestCertifiedForkLiveReview(input) {
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(new Error("certified_fork_request_timeout")),
-    12 * 6e4
+    18 * 6e4
   );
   try {
     const response = await input.fetchImpl(

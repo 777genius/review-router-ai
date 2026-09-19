@@ -5,6 +5,7 @@ import {
   type ActionRepositoryContext,
   type CertifiedForkReviewGatewayPort,
 } from "@reviewrouter/features-action-control-plane";
+import { InMemoryLock } from "@reviewrouter/platform-locks";
 import {
   certifiedForkCommentBody,
   certifiedForkCommentMarker,
@@ -86,23 +87,26 @@ function fixture() {
     }),
   };
   const model = {
-    request: vi.fn(async (input: { accessToken: string }) => {
-      trace.push("model");
-      expect(input.accessToken).toBe("top-secret-access-token");
-      return {
-        protocolVersion: 1 as const,
-        summaryMarkdown: "Found one concrete issue.",
-        findings: [
-          {
-            severity: "major" as const,
-            title: "Broken branch",
-            body: "The new branch cannot execute.",
-            path: "src/a.ts",
-            startLine: 1,
-          },
-        ],
-      };
-    }),
+    request: vi.fn(
+      async (input: { accessToken: string; timeoutMs: number }) => {
+        trace.push("model");
+        expect(input.accessToken).toBe("top-secret-access-token");
+        expect(input.timeoutMs).toBe(9 * 60_000);
+        return {
+          protocolVersion: 1 as const,
+          summaryMarkdown: "Found one concrete issue.",
+          findings: [
+            {
+              severity: "major" as const,
+              title: "Broken branch",
+              body: "The new branch cannot execute.",
+              path: "src/a.ts",
+              startLine: 1,
+            },
+          ],
+        };
+      },
+    ),
   };
   const publisher = {
     upsert: vi.fn(async () => {
@@ -144,6 +148,7 @@ function fixture() {
       }),
     },
     gateway,
+    reviewLock: new InMemoryLock(),
     hostedAccounts: {
       resolve: vi.fn(async () => {
         trace.push("account");
@@ -201,7 +206,7 @@ describe("certified fork live review executor", () => {
       expect.objectContaining({
         githubInstallationId: "7",
         pullRequestNumber: 42,
-        marker: certifiedForkCommentMarker(binding(), f.packet.contextHash),
+        marker: certifiedForkCommentMarker(binding()),
       }),
     );
   });
@@ -225,6 +230,38 @@ describe("certified fork live review executor", () => {
     expect(f.trace.slice(-2)).toEqual(["account", "nonce"]);
     expect(f.model.request).toHaveBeenCalledTimes(1);
     expect(f.publisher.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("admits only one in-flight model review per repository PR", async () => {
+    const f = fixture();
+    const original = f.model.request.getMockImplementation()!;
+    let release!: () => void;
+    let started!: () => void;
+    const modelStarted = new Promise<void>((resolve) => (started = resolve));
+    const modelRelease = new Promise<void>((resolve) => (release = resolve));
+    f.model.request.mockImplementationOnce(async (input) => {
+      started();
+      await modelRelease;
+      return original(input);
+    });
+    const request = { oidcToken: "signed-token", binding: binding() };
+    const first = executeCertifiedForkLiveReview(
+      request,
+      f.dependencies,
+      new AbortController().signal,
+    );
+    await modelStarted;
+
+    await expect(
+      executeCertifiedForkLiveReview(
+        request,
+        f.dependencies,
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("Lock already held: certified-fork-review:99:42");
+    release();
+    await expect(first).resolves.toMatchObject({ status: "published" });
+    expect(f.model.request).toHaveBeenCalledTimes(1);
   });
 
   it("rejects exact-input, event and repository mismatches before custody", async () => {
@@ -308,14 +345,48 @@ describe("certified fork live review executor", () => {
 
 describe("certified fork live comment formatting", () => {
   it("keeps the ownership marker first and stays inside GitHub limits", () => {
-    const marker = certifiedForkCommentMarker(binding(), "d".repeat(64));
-    const body = certifiedForkCommentBody(marker, {
-      protocolVersion: 1,
-      summaryMarkdown: "x".repeat(70_000),
-      findings: [],
-    });
+    const marker = certifiedForkCommentMarker(binding());
+    const body = certifiedForkCommentBody(
+      marker,
+      {
+        protocolVersion: 1,
+        summaryMarkdown: "x".repeat(70_000),
+        findings: [],
+      },
+      {
+        reviewHeadSha: binding().reviewHeadSha,
+        contextHash: "d".repeat(64),
+      },
+    );
     expect(body.startsWith(`${marker}\n`)).toBe(true);
     expect(Buffer.byteLength(body, "utf8")).toBeLessThanOrEqual(60_000);
     expect(body).toContain("Review truncated");
+  });
+
+  it("neutralizes model-authored mentions and HTML comments", () => {
+    const marker = certifiedForkCommentMarker(binding());
+    const body = certifiedForkCommentBody(
+      marker,
+      {
+        protocolVersion: 1,
+        summaryMarkdown: "Notify @reviewers <!-- hidden",
+        findings: [
+          {
+            severity: "major",
+            title: "@team finding",
+            body: "Ask @owner",
+          },
+        ],
+      },
+      {
+        reviewHeadSha: binding().reviewHeadSha,
+        contextHash: "d".repeat(64),
+      },
+    );
+
+    expect(body).not.toContain("@reviewers");
+    expect(body).not.toContain("<!-- hidden");
+    expect(body).toContain("@\u200breviewers");
+    expect(body.startsWith(`${marker}\n`)).toBe(true);
   });
 });
