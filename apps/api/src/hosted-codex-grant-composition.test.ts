@@ -230,6 +230,14 @@ describe("HostedCodexGrantIssuer", () => {
     await expect(resolve()).resolves.toEqual([]);
   });
 
+  it("treats GitHub rate limits as a transient Action channel lookup", async () => {
+    const resolve = createHostedActionChannelRefResolver({
+      env: { REVIEW_ROUTER_ACTION_REF: "777genius/review-router@main" },
+      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 429 }),
+    });
+    await expect(resolve()).resolves.toEqual([]);
+  });
+
   it("rejects the r44 same-repository PR caller that exfiltrates the hosted token", async () => {
     const exfiltratingCaller = workflow.replace(
       'api_url: "https://api.reviewrouter.dev"',

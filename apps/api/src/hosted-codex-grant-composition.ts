@@ -611,6 +611,8 @@ async function resolveAllowlistedHostedJobIdentities(
 }
 
 const hostedActionChannelResolverTtlMs = 60_000;
+const hostedActionChannelLookupTimeoutMs = 3_000;
+const hostedActionChannelTransientTtlMs = 5_000;
 
 export function createHostedActionChannelRefResolver(input: {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -642,7 +644,10 @@ export function createHostedActionChannelRefResolver(input: {
       cached = { expiresAt: at + ttlMs, refs };
       return refs;
     } catch {
-      cached = { expiresAt: at + Math.min(ttlMs, 5_000), refs: [] };
+      cached = {
+        expiresAt: at + Math.min(ttlMs, hostedActionChannelTransientTtlMs),
+        refs: [],
+      };
       return [];
     }
   };
@@ -674,8 +679,12 @@ async function resolveMutableActionChannelToSha(
         "X-GitHub-Api-Version": "2022-11-28",
       },
       redirect: "error",
+      signal: AbortSignal.timeout(hostedActionChannelLookupTimeoutMs),
     },
   );
+  if (response.status === 429 || response.status >= 500) {
+    throw new Error("hosted_action_channel_lookup_transient");
+  }
   if (!response.ok) {
     return undefined;
   }

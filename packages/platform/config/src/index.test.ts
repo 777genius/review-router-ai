@@ -158,6 +158,12 @@ describe("platform config", () => {
         REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: rotating,
       }),
     ).toEqual([general, rotating]);
+    expect(() =>
+      resolveReviewRouterHostedTrustedActionRefs({
+        REVIEW_ROUTER_ACTION_REF: "777genius/review-router@main",
+        REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: "777genius/review-router@main",
+      }),
+    ).toThrow("invalid_env:REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF");
   });
 
   it("requires a separate exact-SHA release for rotating Codex workflows", () => {

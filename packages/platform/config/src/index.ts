@@ -436,8 +436,14 @@ export function resolveReviewRouterHostedTrustedActionRefs(
   const refs = [...resolveReviewRouterTrustedActionRefs(input)];
   try {
     refs.push(...resolveReviewRouterCodexRotatingTrustedActionRefs(input));
-  } catch {
-    // Rotating installer pins are optional for hosted pool grants.
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "missing_env:REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF"
+    ) {
+      return [...new Set(refs)];
+    }
+    throw error;
   }
   return [...new Set(refs)];
 }
