@@ -173,15 +173,33 @@ describe("SdkGrowthPublicationRuntime", () => {
   it("preserves reconciliation when linking throws after the delivery budget is exhausted", async () => {
     const outbox = new InMemoryOutboxEventRepository();
     const runtime = new SdkGrowthPublicationRuntime(
-      { async run() { return "applied"; } },
       {
-        async linkClaimedEvent() { throw new Error("database temporarily unavailable"); },
-        async recover() { return { linked: 0, failed: 0 }; },
+        async run() {
+          return "applied";
+        },
+      },
+      {
+        async linkClaimedEvent() {
+          throw new Error("database temporarily unavailable");
+        },
+        async recover() {
+          return { linked: 0, failed: 0 };
+        },
       },
     );
     await outbox.enqueue({ ...event, maxAttempts: 1, occurredAt: new Date() });
     const result = await processOutboxBatch(
-      { limit: 1, handlers: [{ ...runtime.handlerDefinition, handle: (claimed) => runtime.handle(claimed, new AbortController().signal) }], claimOwnerHash: "worker" },
+      {
+        limit: 1,
+        handlers: [
+          {
+            ...runtime.handlerDefinition,
+            handle: (claimed) =>
+              runtime.handle(claimed, new AbortController().signal),
+          },
+        ],
+        claimOwnerHash: "worker",
+      },
       { outbox, clock: { now: () => new Date() } },
     );
     expect(result).toMatchObject({ retried: 1, deadLettered: 0 });

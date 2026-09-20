@@ -789,18 +789,27 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
     };
     await expect(
       githubPublicationClient(octokit, ordinary, customPolicy).applyOperation({
-        operation: { ...operation(), publicationKind: ReviewPublicationKind.ManagedCheck },
+        operation: {
+          ...operation(),
+          publicationKind: ReviewPublicationKind.ManagedCheck,
+        },
         capability: capability(),
       }),
     ).rejects.toThrow("custom_reservation");
     expect(routes).toHaveLength(1);
     await expect(
-      githubPublicationClient(octokit, { ...ordinary, name: "ReviewRouter / SDK growth authority" }, customPolicy).applyOperation({
-        operation: { ...operation(), publicationKind: ReviewPublicationKind.ManagedCheck },
+      githubPublicationClient(
+        octokit,
+        { ...ordinary, name: "ReviewRouter / SDK growth authority" },
+        customPolicy,
+      ).applyOperation({
+        operation: {
+          ...operation(),
+          publicationKind: ReviewPublicationKind.ManagedCheck,
+        },
         capability: capability(),
       }),
     ).resolves.toMatchObject({ externalObjectId: "check-run:17" });
-
   });
 
   it("fetches compensation targets and refuses a disguised reserved check id", async () => {
@@ -1100,7 +1109,9 @@ function githubRevisionClient(
 function githubPublicationClient(
   octokit: GitHubInstallationClient,
   payload: ReviewV2PublicationPayload,
-  assertCheckIdentityAllowed: (name: string) => void = assertUnreservedCheckIdentity,
+  assertCheckIdentityAllowed: (
+    name: string,
+  ) => void = assertUnreservedCheckIdentity,
 ) {
   return new GitHubReviewV2PublicationClient({
     octokit,

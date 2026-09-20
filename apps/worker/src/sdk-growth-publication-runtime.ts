@@ -77,7 +77,11 @@ export class SdkGrowthPublicationRuntime {
       });
     } catch (error) {
       if (error instanceof SdkGrowthPublicationRuntimeError) throw error;
-      throw new SdkGrowthPublicationRuntimeError("dependency-error", true, error);
+      throw new SdkGrowthPublicationRuntimeError(
+        "dependency-error",
+        true,
+        error,
+      );
     }
     if (
       result === "retry" ||

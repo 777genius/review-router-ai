@@ -538,7 +538,9 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       readonly capability: ReviewPublicationOperationCapabilityFacts;
       readonly payloads: ReviewV2PublicationPayloadPort;
       readonly botLogin: string;
-      readonly assertCheckIdentityAllowed?: ((name: string) => void) | undefined;
+      readonly assertCheckIdentityAllowed?:
+        | ((name: string) => void)
+        | undefined;
     },
   ) {}
 
