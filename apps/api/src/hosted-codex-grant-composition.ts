@@ -39,7 +39,11 @@ import {
   type HostedPoolWorkflowSourceAttestation,
   hostedPoolWorkflowSchemaVersion,
 } from "@reviewrouter/features-workflow-provisioning";
-import { resolveReviewRouterCodexRotatingTrustedActionRefs } from "@reviewrouter/platform-config";
+import {
+  isFullShaActionRef,
+  resolveReviewRouterHostedTrustedActionRefs,
+  resolveReviewRouterMutableActionChannel,
+} from "@reviewrouter/platform-config";
 import { SystemClock, type Clock } from "@reviewrouter/shared";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
@@ -125,6 +129,7 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       readonly relayUrl: string;
       readonly oidcAudience?: string;
       readonly trustedActionRefs?: readonly string[];
+      readonly resolveChannelActionRefs?: () => Promise<readonly string[]>;
       readonly policy: HostedCodexGrantPolicy;
     },
   ) {}
@@ -147,9 +152,10 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       bindingVersion: input.bindingVersion,
       now,
     });
-    const jobIdentities = resolveAllowlistedHostedJobIdentities(
+    const jobIdentities = await resolveAllowlistedHostedJobIdentities(
       admission,
       this.dependencies.trustedActionRefs ?? [],
+      this.dependencies.resolveChannelActionRefs,
     );
     validateOidcClaimsAgainstRepository({
       claims,
@@ -394,7 +400,10 @@ export function createProductionHostedCodexGrantIssuer(input: {
   return new HostedCodexGrantIssuer({
     oidcVerifier: new JoseGitHubActionsOidcTokenVerifier(),
     replayNonces: new PrismaActionOidcReplayNonceStore(input.prisma),
-    trustedActionRefs: resolveTrustedHostedActionRefs(input.env),
+    trustedActionRefs: resolveReviewRouterHostedTrustedActionRefs(input.env),
+    resolveChannelActionRefs: createHostedActionChannelRefResolver({
+      env: input.env,
+    }),
     admissions: new PrismaHostedCodexGrantAdmission(
       input.prisma,
       input.workflowSources,
@@ -560,10 +569,11 @@ function hostedJobIdentityFromActionRef(actionRef: string): HostedJobIdentity {
   };
 }
 
-function resolveAllowlistedHostedJobIdentities(
+async function resolveAllowlistedHostedJobIdentities(
   admission: HostedCodexGrantAdmission,
   trustedActionRefs: readonly string[],
-): readonly HostedJobIdentity[] {
+  resolveChannelActionRefs?: () => Promise<readonly string[]>,
+): Promise<readonly HostedJobIdentity[]> {
   const binding: HostedJobIdentity = {
     workflowJobSource: admission.workflowJobSource,
     workflowExecutionSource: admission.workflowExecutionSource,
@@ -577,8 +587,13 @@ function resolveAllowlistedHostedJobIdentities(
   ) {
     return [binding];
   }
+  const channelRefs = resolveChannelActionRefs
+    ? await resolveChannelActionRefs()
+    : [];
   const allowed = new Set(
-    trustedActionRefs.map((ref) => ref.trim().toLowerCase()),
+    [...trustedActionRefs, ...channelRefs]
+      .map((ref) => ref.trim().toLowerCase())
+      .filter((ref) => isFullShaActionRef(ref)),
   );
   if (!allowed.has(live.actionRef.toLowerCase())) {
     throw new Error("hosted_workflow_action_ref_not_allowed");
@@ -593,6 +608,98 @@ function resolveAllowlistedHostedJobIdentities(
     add(hostedJobIdentityFromActionRef(ref));
   }
   return [...identities.values()];
+}
+
+const hostedActionChannelResolverTtlMs = 60_000;
+const hostedActionChannelLookupTimeoutMs = 3_000;
+const hostedActionChannelTransientTtlMs = 5_000;
+
+export function createHostedActionChannelRefResolver(input: {
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly fetchImpl?: typeof fetch;
+  readonly now?: () => number;
+  readonly ttlMs?: number;
+}): () => Promise<readonly string[]> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const now = input.now ?? Date.now;
+  const ttlMs = input.ttlMs ?? hostedActionChannelResolverTtlMs;
+  let cached:
+    | { readonly expiresAt: number; readonly refs: readonly string[] }
+    | undefined;
+  return async () => {
+    const channel = resolveReviewRouterMutableActionChannel(input.env);
+    if (!channel) {
+      return [];
+    }
+    const at = now();
+    if (cached && cached.expiresAt > at) {
+      return cached.refs;
+    }
+    try {
+      const resolved = await resolveMutableActionChannelToSha(
+        channel,
+        fetchImpl,
+      );
+      const refs = resolved ? [resolved] : [];
+      cached = { expiresAt: at + ttlMs, refs };
+      return refs;
+    } catch {
+      cached = {
+        expiresAt: at + Math.min(ttlMs, hostedActionChannelTransientTtlMs),
+        refs: [],
+      };
+      return [];
+    }
+  };
+}
+
+async function resolveMutableActionChannelToSha(
+  actionRef: string,
+  fetchImpl: typeof fetch,
+): Promise<string | undefined> {
+  const separator = actionRef.lastIndexOf("@");
+  if (separator <= 0) {
+    return undefined;
+  }
+  const repository = actionRef.slice(0, separator).trim();
+  const ref = actionRef.slice(separator + 1).trim();
+  if (
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository) ||
+    !ref ||
+    /[^\w./-]/u.test(ref)
+  ) {
+    return undefined;
+  }
+  const response = await fetchImpl(
+    `https://api.github.com/repos/${repository}/commits/${encodeURIComponent(ref)}`,
+    {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "review-router-hosted-grant",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      redirect: "error",
+      signal: AbortSignal.timeout(hostedActionChannelLookupTimeoutMs),
+    },
+  );
+  if (response.status === 429 || response.status >= 500) {
+    throw new Error("hosted_action_channel_lookup_transient");
+  }
+  if (!response.ok) {
+    return undefined;
+  }
+  const payload: unknown = await response.json();
+  const sha =
+    payload &&
+    typeof payload === "object" &&
+    "sha" in payload &&
+    typeof payload.sha === "string"
+      ? payload.sha.trim().toLowerCase()
+      : "";
+  if (!/^[a-f0-9]{40}$/u.test(sha)) {
+    return undefined;
+  }
+  return `${repository.toLowerCase()}@${sha}`;
 }
 
 function assertExactWorkflowClaims(
@@ -694,16 +801,6 @@ function readCapabilityKey(
     throw new Error("hosted_capability_hmac_key_invalid");
   }
   return key;
-}
-
-function resolveTrustedHostedActionRefs(
-  env: Readonly<Record<string, string | undefined>>,
-): readonly string[] {
-  try {
-    return resolveReviewRouterCodexRotatingTrustedActionRefs(env);
-  } catch {
-    return [];
-  }
 }
 
 function definedString<K extends string>(key: K, value: string | undefined) {

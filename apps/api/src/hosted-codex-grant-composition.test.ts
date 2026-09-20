@@ -17,6 +17,7 @@ import {
 import {
   HostedCodexGrantIssuer,
   assertHostedPoolPullRequestAuthority,
+  createHostedActionChannelRefResolver,
   hostedWorkflowSourcesArePinEquivalent,
   type HostedPoolPullRequestAuthority,
   type HostedCodexGrantAdmission,
@@ -151,6 +152,90 @@ describe("HostedCodexGrantIssuer", () => {
     await expect(fixture.issuer.issue(request())).rejects.toThrow(
       "hosted_workflow_action_ref_not_allowed",
     );
+  });
+
+  it("admits a live Action pin from the @main channel without a rotating SHA env", async () => {
+    const canarySha = "b".repeat(40);
+    const canaryWorkflow = renderCanonicalHostedPoolWorkflowV2({
+      actionRef: `777genius/review-router@${canarySha}`,
+      apiUrl: "https://api.reviewrouter.dev",
+      providerInstanceId: "hosted-pool:repository:123",
+      bindingId: "binding-1",
+      bindingRevision: 7,
+    });
+    const fixture = createFixture(
+      { workflowContents: canaryWorkflow },
+      {
+        job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${canarySha}`,
+        job_workflow_sha: canarySha,
+      },
+      [],
+      async () => [`777genius/review-router@${canarySha}`],
+    );
+    await expect(fixture.issuer.issue(request())).resolves.toMatchObject({
+      repository: "acme/private-repo",
+    });
+  });
+
+  it("still rejects a live pin when the Action channel cannot be resolved", async () => {
+    const canarySha = "b".repeat(40);
+    const canaryWorkflow = renderCanonicalHostedPoolWorkflowV2({
+      actionRef: `777genius/review-router@${canarySha}`,
+      apiUrl: "https://api.reviewrouter.dev",
+      providerInstanceId: "hosted-pool:repository:123",
+      bindingId: "binding-1",
+      bindingRevision: 7,
+    });
+    const fixture = createFixture(
+      { workflowContents: canaryWorkflow },
+      {
+        job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${canarySha}`,
+        job_workflow_sha: canarySha,
+      },
+      [],
+      async () => [],
+    );
+    await expect(fixture.issuer.issue(request())).rejects.toThrow(
+      "hosted_workflow_action_ref_not_allowed",
+    );
+  });
+
+  it("resolves the hosted @main channel to the current Action SHA", async () => {
+    const sha = "d".repeat(40);
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ sha }),
+    });
+    const resolve = createHostedActionChannelRefResolver({
+      env: { REVIEW_ROUTER_ACTION_REF: "777genius/review-router@main" },
+      fetchImpl,
+    });
+    await expect(resolve()).resolves.toEqual([
+      `777genius/review-router@${sha}`,
+    ]);
+    await expect(resolve()).resolves.toEqual([
+      `777genius/review-router@${sha}`,
+    ]);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+      "https://api.github.com/repos/777genius/review-router/commits/main",
+    );
+  });
+
+  it("does not fail closed on a transient Action channel lookup error", async () => {
+    const resolve = createHostedActionChannelRefResolver({
+      env: { REVIEW_ROUTER_ACTION_REF: "777genius/review-router@main" },
+      fetchImpl: vi.fn().mockRejectedValue(new Error("network")),
+    });
+    await expect(resolve()).resolves.toEqual([]);
+  });
+
+  it("treats GitHub rate limits as a transient Action channel lookup", async () => {
+    const resolve = createHostedActionChannelRefResolver({
+      env: { REVIEW_ROUTER_ACTION_REF: "777genius/review-router@main" },
+      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 429 }),
+    });
+    await expect(resolve()).resolves.toEqual([]);
   });
 
   it("rejects the r44 same-repository PR caller that exfiltrates the hosted token", async () => {
@@ -411,6 +496,7 @@ function createFixture(
     readonly event_name?: "pull_request" | "pull_request_target";
   } = {},
   trustedActionRefs: readonly string[] = [],
+  resolveChannelActionRefs?: () => Promise<readonly string[]>,
 ) {
   const admission: HostedCodexGrantAdmission = {
     workspaceId: "workspace-1",
@@ -557,6 +643,7 @@ function createFixture(
     commentTokens,
     clock: { now: () => now },
     trustedActionRefs,
+    ...(resolveChannelActionRefs ? { resolveChannelActionRefs } : {}),
     relayUrl:
       "https://api.reviewrouter.dev/api/action/v1/hosted-codex/responses",
     policy: {

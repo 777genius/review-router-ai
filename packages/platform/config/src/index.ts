@@ -425,6 +425,37 @@ export function resolveReviewRouterTrustedActionRefs(
   return [...new Set(normalizedRefs)];
 }
 
+/**
+ * Hosted pool grants follow the general Action channel and SHA allowlist.
+ * The rotating exact-SHA env is a separate durable-secret attestation and is
+ * optional here: hosted beta tracks `@main` plus `REVIEW_ROUTER_ALLOWED_ACTION_REFS`.
+ */
+export function resolveReviewRouterHostedTrustedActionRefs(
+  input: ReviewRouterActionRefEnv = process.env,
+): readonly string[] {
+  const refs = [...resolveReviewRouterTrustedActionRefs(input)];
+  try {
+    refs.push(...resolveReviewRouterCodexRotatingTrustedActionRefs(input));
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "missing_env:REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF"
+    ) {
+      return [...new Set(refs)];
+    }
+    throw error;
+  }
+  return [...new Set(refs)];
+}
+
+/** Mutable Action channel such as `@main` or `@v1`; SHA pins return undefined. */
+export function resolveReviewRouterMutableActionChannel(
+  input: ReviewRouterActionRefEnv = process.env,
+): string | undefined {
+  const primaryRef = resolveReviewRouterActionRef(input);
+  return isFullShaActionRef(primaryRef) ? undefined : primaryRef;
+}
+
 export function parseReviewRouterActionRefList(
   value: string | undefined,
 ): readonly string[] {
@@ -652,6 +683,6 @@ function actionRefRepository(actionRef: string): string {
   return actionRef.slice(0, actionRef.lastIndexOf("@"));
 }
 
-function isFullShaActionRef(actionRef: string): boolean {
+export function isFullShaActionRef(actionRef: string): boolean {
   return /^[a-z0-9_.-]+\/[a-z0-9_.-]+@[a-f0-9]{40}$/i.test(actionRef.trim());
 }
