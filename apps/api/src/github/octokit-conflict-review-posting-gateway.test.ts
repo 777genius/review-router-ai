@@ -340,6 +340,20 @@ describe("OctokitConflictReviewPostingGateway", () => {
     });
   });
 
+  it("rejects the reserved SDK growth status context before GitHub reads or writes", async () => {
+    const requester = new FakeRequester();
+
+    await expect(
+      gatewayFor(requester).postConflictReviewAdvisoryStatus({
+        ...postingInput,
+        context: " ReviewRouter / SDK growth authority ",
+        state: "success",
+        description: "must not be written by the generic status writer",
+      }),
+    ).rejects.toThrow("conflict_posting_status_context_reserved");
+    expect(requester.calls).toEqual([]);
+  });
+
   it("requires a strict App bot identity for idempotent writes", () => {
     expect(
       () =>

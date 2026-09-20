@@ -389,6 +389,52 @@ jobs:
       - name: Apply ordinary test database migrations
         run: DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
 
+      - name: SDK authority and outbox PostgreSQL contracts (zero skips)
+        run: |
+          export SDK_GROWTH_TEST_DATABASE_URL="$REVIEW_ROUTER_TEST_DATABASE_URL"
+          test -n "$SDK_GROWTH_TEST_DATABASE_URL"
+          test -n "$REVIEW_ROUTER_TEST_DATABASE_URL"
+          results="$RUNNER_TEMP/sdk-growth-authority-outbox-results.json"
+          pnpm exec vitest run \
+            packages/features/sdk-growth-authority/src/tests/prisma-receipt-repository.test.ts \
+            packages/features/sdk-growth-authority/src/tests/prisma-current-authority.test.ts \
+            packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts \
+            --reporter=json --outputFile="$results"
+          RESULTS_PATH="$results" EXPECTED_HEAD="$GITHUB_SHA" node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const report = JSON.parse(readFileSync(process.env.RESULTS_PATH, "utf8"));
+          const expected = [
+            "packages/features/sdk-growth-authority/src/tests/prisma-receipt-repository.test.ts",
+            "packages/features/sdk-growth-authority/src/tests/prisma-current-authority.test.ts",
+            "packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts",
+          ];
+          const suites = report.testResults.map((suite) =>
+            suite.name.replaceAll("\\", "/"),
+          );
+          for (const file of expected) {
+            if (!suites.some((suite) => suite.endsWith(file))) {
+              throw new Error(`required PostgreSQL suite missing: ${file}`);
+            }
+          }
+          if (
+            report.numTotalTests <= 0 ||
+            report.numFailedTests !== 0 ||
+            report.numPendingTests !== 0 ||
+            report.numTodoTests !== 0 ||
+            report.numPassedTests !== report.numTotalTests
+          ) {
+            throw new Error("PostgreSQL contract result counts are not zero-skip");
+          }
+          console.log(JSON.stringify({
+            head: process.env.EXPECTED_HEAD,
+            command: "pnpm exec vitest run <three required PostgreSQL suites> --reporter=json",
+            executed: report.numTotalTests,
+            passed: report.numPassedTests,
+            skipped: report.numPendingTests + report.numTodoTests,
+          }));
+          NODE
+
       - name: Build provider-scope migration catalogs
         run: |
           PROVIDER_SCOPE_FIXTURE_ROOT="$RUNNER_TEMP/provider-scope-migrations"
