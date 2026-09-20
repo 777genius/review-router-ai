@@ -635,7 +635,7 @@ function createFixture(
     commentTokens,
     clock: { now: () => now },
     trustedActionRefs,
-    resolveChannelActionRefs,
+    ...(resolveChannelActionRefs ? { resolveChannelActionRefs } : {}),
     relayUrl:
       "https://api.reviewrouter.dev/api/action/v1/hosted-codex/responses",
     policy: {
