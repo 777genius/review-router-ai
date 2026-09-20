@@ -39,8 +39,10 @@ import {
   type HostedPoolWorkflowSourceAttestation,
   hostedPoolWorkflowSchemaVersion,
 } from "@reviewrouter/features-workflow-provisioning";
+import { App } from "@octokit/app";
 import {
   isFullShaActionRef,
+  readGitHubAppPrivateKey,
   resolveReviewRouterHostedTrustedActionRefs,
   resolveReviewRouterMutableActionChannel,
 } from "@reviewrouter/platform-config";
@@ -403,6 +405,7 @@ export function createProductionHostedCodexGrantIssuer(input: {
     trustedActionRefs: resolveReviewRouterHostedTrustedActionRefs(input.env),
     resolveChannelActionRefs: createHostedActionChannelRefResolver({
       env: input.env,
+      getAccessToken: createHostedActionChannelTokenReader({ env: input.env }),
     }),
     admissions: new PrismaHostedCodexGrantAdmission(
       input.prisma,
@@ -611,14 +614,98 @@ async function resolveAllowlistedHostedJobIdentities(
 }
 
 const hostedActionChannelResolverTtlMs = 60_000;
-const hostedActionChannelLookupTimeoutMs = 3_000;
+const hostedActionChannelLookupTimeoutMs = 8_000;
 const hostedActionChannelTransientTtlMs = 5_000;
+const hostedActionChannelTokenRefreshSkewMs = 60_000;
+
+export function createHostedActionChannelTokenReader(input: {
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly now?: () => number;
+  readonly requestInstallationToken?: (
+    repository: string,
+  ) => Promise<{ readonly token: string; readonly expiresAtMs: number }>;
+}): (repository: string) => Promise<string | undefined> {
+  const now = input.now ?? Date.now;
+  const requestInstallationToken =
+    input.requestInstallationToken ??
+    requestGithubAppInstallationToken(input.env);
+  let cached:
+    | {
+        readonly repository: string;
+        readonly token: string;
+        readonly expiresAtMs: number;
+      }
+    | undefined;
+  return async (repository) => {
+    const explicit =
+      input.env.GITHUB_TOKEN?.trim() || input.env.GH_TOKEN?.trim();
+    if (explicit) {
+      return explicit;
+    }
+    if (
+      cached &&
+      cached.repository === repository &&
+      cached.expiresAtMs - hostedActionChannelTokenRefreshSkewMs > now()
+    ) {
+      return cached.token;
+    }
+    try {
+      const issued = await requestInstallationToken(repository);
+      cached = { repository, ...issued };
+      return issued.token;
+    } catch {
+      return undefined;
+    }
+  };
+}
+
+function requestGithubAppInstallationToken(
+  env: Readonly<Record<string, string | undefined>>,
+): (
+  repository: string,
+) => Promise<{ readonly token: string; readonly expiresAtMs: number }> {
+  return async (repository) => {
+    const appId = env.GITHUB_APP_ID?.trim();
+    const privateKey = readGitHubAppPrivateKey(env);
+    if (!appId || !privateKey) {
+      throw new Error("hosted_action_channel_github_app_not_configured");
+    }
+    const separator = repository.indexOf("/");
+    const owner = repository.slice(0, separator);
+    const repo = repository.slice(separator + 1);
+    const app = new App({ appId, privateKey });
+    const installation = await app.octokit.request(
+      "GET /repos/{owner}/{repo}/installation",
+      { owner, repo },
+    );
+    const octokit = await app.getInstallationOctokit(installation.data.id);
+    const auth = (await octokit.auth({ type: "installation" })) as {
+      readonly token?: unknown;
+      readonly expiresAt?: unknown;
+    };
+    const token = typeof auth.token === "string" ? auth.token.trim() : "";
+    if (!token) {
+      throw new Error("hosted_action_channel_github_app_token_missing");
+    }
+    const expiresAtMs =
+      typeof auth.expiresAt === "string"
+        ? Date.parse(auth.expiresAt)
+        : Number.NaN;
+    return {
+      token,
+      expiresAtMs: Number.isFinite(expiresAtMs)
+        ? expiresAtMs
+        : Date.now() + 50 * 60_000,
+    };
+  };
+}
 
 export function createHostedActionChannelRefResolver(input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly fetchImpl?: typeof fetch;
   readonly now?: () => number;
   readonly ttlMs?: number;
+  readonly getAccessToken?: (repository: string) => Promise<string | undefined>;
 }): () => Promise<readonly string[]> {
   const fetchImpl = input.fetchImpl ?? fetch;
   const now = input.now ?? Date.now;
@@ -626,6 +713,7 @@ export function createHostedActionChannelRefResolver(input: {
   let cached:
     | { readonly expiresAt: number; readonly refs: readonly string[] }
     | undefined;
+  let inflight: Promise<readonly string[]> | undefined;
   return async () => {
     const channel = resolveReviewRouterMutableActionChannel(input.env);
     if (!channel) {
@@ -635,10 +723,28 @@ export function createHostedActionChannelRefResolver(input: {
     if (cached && cached.expiresAt > at) {
       return cached.refs;
     }
+    if (inflight) {
+      return inflight;
+    }
+    inflight = resolveChannelRefs();
+    try {
+      return await inflight;
+    } finally {
+      inflight = undefined;
+    }
+  };
+
+  async function resolveChannelRefs(): Promise<readonly string[]> {
+    const channel = resolveReviewRouterMutableActionChannel(input.env);
+    if (!channel) {
+      return [];
+    }
+    const at = now();
     try {
       const resolved = await resolveMutableActionChannelToSha(
         channel,
         fetchImpl,
+        input.getAccessToken,
       );
       const refs = resolved ? [resolved] : [];
       cached = { expiresAt: at + ttlMs, refs };
@@ -650,12 +756,15 @@ export function createHostedActionChannelRefResolver(input: {
       };
       return [];
     }
-  };
+  }
 }
 
 async function resolveMutableActionChannelToSha(
   actionRef: string,
   fetchImpl: typeof fetch,
+  getAccessToken:
+    | ((repository: string) => Promise<string | undefined>)
+    | undefined,
 ): Promise<string | undefined> {
   const separator = actionRef.lastIndexOf("@");
   if (separator <= 0) {
@@ -670,11 +779,16 @@ async function resolveMutableActionChannelToSha(
   ) {
     return undefined;
   }
+  const token = (await getAccessToken?.(repository))?.trim();
+  if (!token) {
+    throw new Error("hosted_action_channel_lookup_unauthenticated");
+  }
   const response = await fetchImpl(
     `https://api.github.com/repos/${repository}/commits/${encodeURIComponent(ref)}`,
     {
       headers: {
         Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
         "User-Agent": "review-router-hosted-grant",
         "X-GitHub-Api-Version": "2022-11-28",
       },
@@ -682,7 +796,12 @@ async function resolveMutableActionChannelToSha(
       signal: AbortSignal.timeout(hostedActionChannelLookupTimeoutMs),
     },
   );
-  if (response.status === 429 || response.status >= 500) {
+  if (
+    response.status === 401 ||
+    response.status === 403 ||
+    response.status === 429 ||
+    response.status >= 500
+  ) {
     throw new Error("hosted_action_channel_lookup_transient");
   }
   if (!response.ok) {
