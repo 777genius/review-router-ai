@@ -29,6 +29,8 @@ import {
   parseHostedPoolActionChannel,
   assertHostedCodexProductionReadiness,
   resolveReviewRouterCodexRotatingTrustedActionRefs,
+  resolveReviewRouterHostedTrustedActionRefs,
+  resolveReviewRouterMutableActionChannel,
   resolveReviewRouterPublicApiUrl,
   resolveReviewRouterTrustedActionRefs,
 } from "./index";
@@ -120,6 +122,42 @@ describe("platform config", () => {
     expect(() =>
       parseReviewRouterActionRefList("777genius/review-router@main"),
     ).toThrow("invalid_env:REVIEW_ROUTER_ALLOWED_ACTION_REFS");
+  });
+
+  it("lets hosted grants follow the general SHA allowlist without a rotating pin", () => {
+    const allowed =
+      "777genius/review-router@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    expect(
+      resolveReviewRouterHostedTrustedActionRefs({
+        REVIEW_ROUTER_ACTION_REF: "777genius/review-router@main",
+        REVIEW_ROUTER_ALLOWED_ACTION_REFS: allowed,
+      }),
+    ).toEqual([allowed]);
+    expect(
+      resolveReviewRouterMutableActionChannel({
+        REVIEW_ROUTER_ACTION_REF: "777genius/review-router@main",
+      }),
+    ).toBe("777genius/review-router@main");
+    expect(
+      resolveReviewRouterMutableActionChannel({
+        REVIEW_ROUTER_ACTION_REF:
+          "777genius/review-router@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("unions a configured rotating pin into the hosted grant allowlist", () => {
+    const general =
+      "777genius/review-router@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const rotating =
+      "777genius/review-router@cccccccccccccccccccccccccccccccccccccccc";
+    expect(
+      resolveReviewRouterHostedTrustedActionRefs({
+        REVIEW_ROUTER_ACTION_REF: "777genius/review-router@main",
+        REVIEW_ROUTER_ALLOWED_ACTION_REFS: general,
+        REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: rotating,
+      }),
+    ).toEqual([general, rotating]);
   });
 
   it("requires a separate exact-SHA release for rotating Codex workflows", () => {
