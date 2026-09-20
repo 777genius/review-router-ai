@@ -3,7 +3,6 @@ import type {
   ActionConflictReviewPostingGatewayPort,
   ActionConflictReviewPrePostValidatorPort,
 } from "@reviewrouter/features-action-control-plane";
-import { assertUnreservedCheckIdentity } from "@reviewrouter/shared/scm";
 
 type OctokitRequester = {
   request: (
@@ -19,6 +18,7 @@ type OctokitInstallationApp = {
 };
 
 export type OctokitConflictReviewPostingGatewayOptions = {
+  readonly assertCheckIdentityAllowed?: ((name: string) => void) | undefined;
   readonly appId?: string | undefined;
   readonly privateKey?: string | undefined;
   readonly appSlug?: string | undefined;
@@ -34,7 +34,9 @@ export class OctokitConflictReviewPostingGateway
   private readonly app: OctokitInstallationApp;
   private readonly botLogin: string;
 
-  constructor(options: OctokitConflictReviewPostingGatewayOptions) {
+  constructor(
+    private readonly options: OctokitConflictReviewPostingGatewayOptions,
+  ) {
     this.app =
       options.app ??
       createGitHubApp({
@@ -110,10 +112,7 @@ export class OctokitConflictReviewPostingGateway
     readonly githubExternalId: string;
     readonly githubUrl?: string | undefined;
   }> {
-    assertUnreservedCheckIdentity(
-      input.context,
-      "conflict_posting_status_context_reserved",
-    );
+    this.options.assertCheckIdentityAllowed?.(input.context);
     const { octokit, owner, repo } = await this.validatedInstallation(input);
     const existing = await findOwnedAdvisoryStatus({
       octokit,

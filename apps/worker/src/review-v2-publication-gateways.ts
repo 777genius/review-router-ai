@@ -8,7 +8,6 @@ import {
   type CapabilityKeyRingPort,
   type SignedCapabilityCodecPort,
 } from "@reviewrouter/platform-signed-capabilities";
-import { assertUnreservedCheckIdentity } from "@reviewrouter/shared/scm";
 import {
   ReviewPublicationExternalEffectKind,
   ReviewPublicationReceiptStatus,
@@ -405,6 +404,7 @@ export class GitHubAppReviewV2CredentialProvider
     options: { readonly appId: string; readonly privateKey: string },
     private readonly repositories: ReviewV2GitHubRepositoryQueryPort,
     private readonly payloads: ReviewV2PublicationPayloadPort,
+    private readonly assertCheckIdentityAllowed?: (name: string) => void,
   ) {
     this.app = new App(options);
   }
@@ -432,6 +432,7 @@ export class GitHubAppReviewV2CredentialProvider
         permit: input.permit,
         capability: input.capability,
         payloads: this.payloads,
+        assertCheckIdentityAllowed: this.assertCheckIdentityAllowed,
         botLogin,
       }),
       close: async () => undefined,
@@ -537,6 +538,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       readonly capability: ReviewPublicationOperationCapabilityFacts;
       readonly payloads: ReviewV2PublicationPayloadPort;
       readonly botLogin: string;
+      readonly assertCheckIdentityAllowed?: ((name: string) => void) | undefined;
     },
   ) {}
 
@@ -566,7 +568,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
   }): Promise<ReviewPublicationGatewayObject> {
     const payload = await this.requirePayload(input.operation);
     if (payload.kind === ReviewV2PublicationPayloadKind.ManagedCheck) {
-      assertUnreservedCheckIdentity(payload.name);
+      this.options.assertCheckIdentityAllowed?.(payload.name);
     }
     try {
       switch (payload.kind) {
@@ -629,7 +631,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
               { check_run_id: checkRunId },
             );
             const row = requireRecord(target.data, "github_check_run_invalid");
-            assertUnreservedCheckIdentity(
+            this.options.assertCheckIdentityAllowed?.(
               requiredString(row.name, "github_check_run_name_invalid"),
             );
             return checkRunId;

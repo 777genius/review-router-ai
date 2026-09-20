@@ -17,8 +17,8 @@ import type {
   Terminal,
 } from "./publication-ports.js";
 
-export const SDK_GROWTH_CHECK_NAME =
-  "ReviewRouter / SDK growth authority" as const;
+import { SDK_GROWTH_CHECK_NAME } from "./check-identity-policy.js";
+export { SDK_GROWTH_CHECK_NAME } from "./check-identity-policy.js";
 export const SDK_GROWTH_RECONCILIATION_LIMIT = 20 as const;
 
 export class PublicationContractError extends Error {

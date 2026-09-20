@@ -1,4 +1,4 @@
-export const SDK_GROWTH_RESERVED_CHECK_NAME =
+export const SDK_GROWTH_CHECK_NAME =
   "ReviewRouter / SDK growth authority" as const;
 
 /**
@@ -7,9 +7,7 @@ export const SDK_GROWTH_RESERVED_CHECK_NAME =
  * bypass ownership using provider normalization.
  */
 export function isSdkGrowthReservedCheckIdentity(value: string): boolean {
-  return (
-    value.trim().toLowerCase() === SDK_GROWTH_RESERVED_CHECK_NAME.toLowerCase()
-  );
+  return value.trim().toLowerCase() === SDK_GROWTH_CHECK_NAME.toLowerCase();
 }
 
 export function assertUnreservedCheckIdentity(

@@ -1,3 +1,4 @@
+import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { createDefaultHostedPoolOperatorConnect } from "./hosted-pool-workflow-operator-composition.js";
 import {
   createHostedPoolOperatorComposition,
@@ -545,6 +546,11 @@ export async function createApiApp(
           );
           const conflictPostingGateway = conflictPostingGatewayEnabled
             ? new OctokitConflictReviewPostingGateway({
+                assertCheckIdentityAllowed: (name) =>
+                  assertUnreservedCheckIdentity(
+                    name,
+                    "conflict_posting_status_context_reserved",
+                  ),
                 appId: process.env.GITHUB_APP_ID,
                 privateKey: githubAppPrivateKey ?? undefined,
                 appSlug: process.env.GITHUB_APP_SLUG,

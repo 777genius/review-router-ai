@@ -1,3 +1,4 @@
+import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { createHash, randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { App } from "@octokit/app";
@@ -356,6 +357,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     },
     githubRepositories,
     projections,
+    assertUnreservedCheckIdentity,
   );
   const operationCapabilityIssuer =
     new RotatingReviewV2OperationCapabilityIssuer(

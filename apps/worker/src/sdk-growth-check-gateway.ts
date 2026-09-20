@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { SDK_GROWTH_RESERVED_CHECK_NAME } from "@reviewrouter/shared/scm";
+import { SDK_GROWTH_CHECK_NAME } from "@reviewrouter/features-sdk-growth-authority";
 
 export type SdkGrowthCheckSpec = Readonly<{
   repositoryId: string;
@@ -7,7 +7,7 @@ export type SdkGrowthCheckSpec = Readonly<{
   appId: string;
   repositoryFullName: string;
   headSha: string;
-  name: typeof SDK_GROWTH_RESERVED_CHECK_NAME;
+  name: typeof SDK_GROWTH_CHECK_NAME;
   externalId: string;
   conclusion: "success" | "failure";
   output: Readonly<{ title: string; summary: string }>;
@@ -230,7 +230,7 @@ export class SdkGrowthCheckGateway {
       safeNumericId(spec.repositoryId, "sdk_growth_repository_id_invalid") !==
         this.repositoryId ||
       spec.repositoryFullName !== `${this.owner}/${this.repo}` ||
-      spec.name !== SDK_GROWTH_RESERVED_CHECK_NAME ||
+      spec.name !== SDK_GROWTH_CHECK_NAME ||
       !/^[a-f0-9]{40}$/u.test(spec.headSha) ||
       !/^rr-sdk-growth-v1:[a-f0-9]{64}$/u.test(spec.externalId) ||
       (spec.conclusion !== "success" && spec.conclusion !== "failure") ||

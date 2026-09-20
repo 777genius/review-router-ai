@@ -1,3 +1,4 @@
+import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
@@ -783,6 +784,23 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
       }),
     ).resolves.toMatchObject({ externalObjectId: "check-run:17" });
     expect(routes).toEqual(["POST /repos/{owner}/{repo}/check-runs"]);
+    const customPolicy = (name: string) => {
+      if (name === "ReviewRouter") throw new Error("custom_reservation");
+    };
+    await expect(
+      githubPublicationClient(octokit, ordinary, customPolicy).applyOperation({
+        operation: { ...operation(), publicationKind: ReviewPublicationKind.ManagedCheck },
+        capability: capability(),
+      }),
+    ).rejects.toThrow("custom_reservation");
+    expect(routes).toHaveLength(1);
+    await expect(
+      githubPublicationClient(octokit, { ...ordinary, name: "ReviewRouter / SDK growth authority" }, customPolicy).applyOperation({
+        operation: { ...operation(), publicationKind: ReviewPublicationKind.ManagedCheck },
+        capability: capability(),
+      }),
+    ).resolves.toMatchObject({ externalObjectId: "check-run:17" });
+
   });
 
   it("fetches compensation targets and refuses a disguised reserved check id", async () => {
@@ -1082,9 +1100,11 @@ function githubRevisionClient(
 function githubPublicationClient(
   octokit: GitHubInstallationClient,
   payload: ReviewV2PublicationPayload,
+  assertCheckIdentityAllowed: (name: string) => void = assertUnreservedCheckIdentity,
 ) {
   return new GitHubReviewV2PublicationClient({
     octokit,
+    assertCheckIdentityAllowed,
     repository: githubRepository,
     permit: permit(),
     capability: capability(),

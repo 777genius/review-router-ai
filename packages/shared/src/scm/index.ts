@@ -1,5 +1,3 @@
-export * from "./reserved-check-identity.js";
-
 export const scmProviders = ["github", "gitlab"] as const;
 
 export type ScmProvider = (typeof scmProviders)[number];
