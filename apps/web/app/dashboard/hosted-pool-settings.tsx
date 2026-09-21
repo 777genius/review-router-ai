@@ -46,7 +46,20 @@ export function HostedPoolSettingsPanel({
   readonly mutationsEnabled: boolean;
   readonly previewDeviceLoginFlight?: HostedPoolDeviceLoginFlight | undefined;
 }): React.ReactElement | null {
-  if (view.gate === "feature_disabled") return null;
+  if (view.gate === "feature_disabled") {
+    return (
+      <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+        <h3 className="text-sm font-semibold text-cyan-50">
+          ChatGPT accounts are not enabled
+        </h3>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
+          This deployment is not accepting hosted ChatGPT accounts yet.
+          Repository reviews continue to use credentials configured in each
+          repository, so there is nothing to manage on this page right now.
+        </p>
+      </section>
+    );
+  }
   if (view.gate === "entitlement_denied") {
     return (
       <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">

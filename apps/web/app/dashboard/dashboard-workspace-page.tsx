@@ -1751,6 +1751,7 @@ function WorkspaceCard({
           repositoryCount={repositoryCount}
           workspaceHealth={workspaceHealth}
           activeConfig={activeConfig}
+          hostedPool={hostedPool}
         />
         {!hasWorkspaceWideAccess || repositoryAccess.status !== "ready" ? (
           <RepositoryAccessRefreshNotice
@@ -2201,11 +2202,13 @@ function DashboardSectionHeader({
   repositoryCount,
   workspaceHealth,
   activeConfig,
+  hostedPool,
 }: {
   readonly selectedSection: DashboardSection;
   readonly repositoryCount: number;
   readonly workspaceHealth: WorkspaceHealthSummary;
   readonly activeConfig: ReviewConfiguration;
+  readonly hostedPool: DashboardWorkspaceData["hostedPool"];
 }): React.ReactElement {
   const meta = dashboardSectionMeta[selectedSection];
   const status =
@@ -2254,10 +2257,20 @@ function DashboardSectionHeader({
         </div>
         {selectedSection === "repositories" ? null : (
           <div className="flex flex-wrap gap-2 xl:justify-end">
-            {selectedSection === "setup" ? (
+            {selectedSection === "setup" && hostedPool.gate === "enabled" ? (
               <HostedSessionEncryptionBadge label="Encrypted at rest" />
             ) : null}
-            <Badge tone={workspaceHealth.tone}>{workspaceHealth.label}</Badge>
+            {selectedSection === "setup" ? (
+              hostedPool.gate === "enabled" ? null : (
+                <Badge tone="neutral">
+                  {hostedPool.gate === "feature_disabled"
+                    ? "Not enabled"
+                    : "Not included"}
+                </Badge>
+              )
+            ) : (
+              <Badge tone={workspaceHealth.tone}>{workspaceHealth.label}</Badge>
+            )}
             {selectedSection === "setup" ? null : (
               <Badge tone="neutral" className="max-w-full break-words">
                 {status}
