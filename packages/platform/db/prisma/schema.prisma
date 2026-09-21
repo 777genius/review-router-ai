@@ -426,10 +426,10 @@ model CodexOAuthSecretNamespace {
   activatedAt             DateTime? @db.Timestamptz(3)
   retiredAt               DateTime? @db.Timestamptz(3)
 
-  providerInstance  CodexOAuthProviderInstance      @relation(fields: [providerInstanceRowId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "CodexOAuthSecretNamespace_provider_fkey")
-  activeForProvider CodexOAuthProviderInstance?     @relation("CodexOAuthActiveSecretNamespace")
-  dispatchAttempt   CodexOAuthSetupDispatchAttempt?
-  runtimeWritebacks CodexOAuthWritebackIntent[]
+  providerInstance      CodexOAuthProviderInstance       @relation(fields: [providerInstanceRowId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "CodexOAuthSecretNamespace_provider_fkey")
+  activeForProvider     CodexOAuthProviderInstance?      @relation("CodexOAuthActiveSecretNamespace")
+  dispatchAttempt       CodexOAuthSetupDispatchAttempt?
+  runtimeWritebacks     CodexOAuthWritebackIntent[]
   workflowCompatibility CodexOAuthWorkflowCompatibility?
 
   @@unique([providerInstanceRowId, namespaceEpoch], map: "CodexOAuthSecretNamespace_provider_epoch_key")
@@ -440,17 +440,17 @@ model CodexOAuthSecretNamespace {
 /// advances to V5. Runtime admission still requires the exact active namespace
 /// and provider pointer, and stops at retireAt.
 model CodexOAuthWorkflowCompatibility {
-  namespaceId                String   @id
-  workflowPath               String
-  workflowSourceCommitSha    String
-  workflowSourceBlobSha      String
-  workflowSourceSha256       String
-  workflowSemanticSha256     String
-  workflowSourceTrust        String
-  workflowSchemaVersion      Int
-  attestedRepositoryId       String
-  retireAt                   DateTime @db.Timestamptz(3)
-  createdAt                  DateTime @default(now()) @db.Timestamptz(3)
+  namespaceId             String   @id
+  workflowPath            String
+  workflowSourceCommitSha String
+  workflowSourceBlobSha   String
+  workflowSourceSha256    String
+  workflowSemanticSha256  String
+  workflowSourceTrust     String
+  workflowSchemaVersion   Int
+  attestedRepositoryId    String
+  retireAt                DateTime @db.Timestamptz(3)
+  createdAt               DateTime @default(now()) @db.Timestamptz(3)
 
   namespace CodexOAuthSecretNamespace @relation(fields: [namespaceId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "CodexOAuthWorkflowCompatibility_namespace_fkey")
 
@@ -1525,7 +1525,7 @@ model HostedCodexCommentTokenMint {
   terminalEvidenceHash    String?
   revocationEvidenceHash  String?
   revocationFailureCount  Int                                @default(0)
-  nextRevocationAt        DateTime                            @default(dbgenerated("'1970-01-01 00:00:00+00'::timestamp with time zone")) @db.Timestamptz(3)
+  nextRevocationAt        DateTime                           @default(dbgenerated("'1970-01-01 00:00:00+00'::timestamp with time zone")) @db.Timestamptz(3)
   errorCode               String?
   createdAt               DateTime                           @default(now())
   updatedAt               DateTime                           @updatedAt
@@ -2726,22 +2726,22 @@ model ConflictReviewPostingIntent {
 }
 
 model WorkflowProvisioning {
-  id             String                     @id @default(cuid())
-  attemptId      String                     @default(cuid())
-  revision       Int                        @default(0)
-  installationId String?
-  workspaceId    String
-  repositoryId   String
-  status         WorkflowProvisioningStatus @default(not_started)
-  branch         String
-  workflowPath   String
-  workflowStyle  String                     @default("explicit")
-  actionVersion  String
+  id                 String                     @id @default(cuid())
+  attemptId          String                     @default(cuid())
+  revision           Int                        @default(0)
+  installationId     String?
+  workspaceId        String
+  repositoryId       String
+  status             WorkflowProvisioningStatus @default(not_started)
+  branch             String
+  workflowPath       String
+  workflowStyle      String                     @default("explicit")
+  actionVersion      String
   pullRequestHeadSha String?
-  pullRequestUrl String?
-  errorMessage   String?
-  createdAt      DateTime                   @default(now())
-  updatedAt      DateTime                   @updatedAt
+  pullRequestUrl     String?
+  errorMessage       String?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
 
   workspace  Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   repository RepositoryConnection @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
@@ -3768,8 +3768,8 @@ model CertifiedForkCheckpoint {
 // Immutable retained producer material; protected writer custody authenticates it.
 // Digest indexes avoid Btree key limits. Readers also compare full identities.
 model CertifiedForkProofFact {
-  proofSha256            Bytes  @id
-  sourceSha256           Bytes  @unique
+  proofSha256            Bytes   @id
+  sourceSha256           Bytes   @unique
   proofId                String
   formatVersion          Int
   kind                   String
@@ -3787,7 +3787,7 @@ model CertifiedForkProofFact {
   payload                Json
   canonicalBytes         String
   payloadHash            String
-  createdAtMs            BigInt @default(dbgenerated("(floor((EXTRACT(epoch FROM clock_timestamp()) * (1000)::numeric)))::bigint"))
+  createdAtMs            BigInt  @default(dbgenerated("(floor((EXTRACT(epoch FROM clock_timestamp()) * (1000)::numeric)))::bigint"))
 }
 
 // Durable RR-1 custody. No cascade/TTL: request and completion tombstones survive expiry.
@@ -3842,4 +3842,118 @@ model SdkGrowthOwnerVersion {
   binding            SdkGrowthBindingVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
 
   @@id([scopeKey, epoch])
+}
+
+// Bounded immutable EF wire/archive/report custody, separate from the compact ledger.
+model SdkGrowthAuthorityCustody {
+  custodyId                   String                      @id
+  tenantId                    String                      @db.VarChar(256)
+  repositoryId                String                      @db.VarChar(256)
+  pullRequest                 BigInt
+  githubRepositoryId          String                      @db.VarChar(256)
+  installationId              String                      @db.VarChar(256)
+  subject                     String                      @db.VarChar(256)
+  runId                       String                      @db.VarChar(256)
+  runAttempt                  String                      @db.VarChar(256)
+  verifierRevision            String                      @db.VarChar(256)
+  sourceCommit                String                      @db.VarChar(40)
+  sourceTree                  String                      @db.VarChar(40)
+  requestDigest               String                      @db.VarChar(71)
+  requestWire                 Bytes
+  grantDigest                 String                      @db.VarChar(71)
+  grantWire                   Bytes
+  candidateArchive            Bytes
+  candidateArchiveSha256      String                      @db.VarChar(71)
+  candidateArchiveSha512Sri   String                      @db.VarChar(95)
+  releasedArchive             Bytes
+  releasedArchiveSha256       String                      @db.VarChar(71)
+  releasedArchiveSha512Sri    String                      @db.VarChar(95)
+  toolArchive                 Bytes
+  toolArchiveSha256           String                      @db.VarChar(71)
+  toolArchiveSha512Sri        String                      @db.VarChar(95)
+  installedDistributionWire   Bytes
+  installedDistributionDigest String                      @db.VarChar(71)
+  completionDigest            String?                     @db.VarChar(71)
+  completionWire              Bytes?
+  reportDigest                String?                     @db.VarChar(71)
+  finalizedReport             Bytes?
+  receiptDigest               String?                     @db.VarChar(71)
+  receiptWire                 Bytes?
+  createdAt                   DateTime                    @default(now())
+  completedAt                 DateTime?
+  publication                 SdkGrowthPublicationEffect?
+
+  @@unique([tenantId, repositoryId, pullRequest, runId, runAttempt, verifierRevision, requestDigest], map: "SdkGrowthAuthorityCustody_request_key")
+  @@index([tenantId, repositoryId, pullRequest, runId, runAttempt], map: "SdkGrowthAuthorityCustody_execution_idx")
+}
+
+// Lane A owns only this durable shape. Lane B owns claims, dispatch and provider effects.
+model SdkGrowthPublicationEffect {
+  custodyId           String                    @id
+  intentId            String                    @unique
+  state               String
+  claimId             String?
+  claimVersion        BigInt                    @default(0)
+  attemptId           String?
+  providerCorrelation String?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  custody             SdkGrowthAuthorityCustody @relation(fields: [custodyId], references: [custodyId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([state, createdAt], map: "SdkGrowthPublicationEffect_pending_idx")
+}
+
+// Verifier-owned immutable producer custody. The authority API has read access only.
+model SdkGrowthVerifierEvidence {
+  evidenceId                   String   @id
+  tenantId                    String   @db.VarChar(256)
+  repositoryId                String   @db.VarChar(256)
+  githubRepositoryId          String   @db.VarChar(256)
+  installationId              String   @db.VarChar(256)
+  subject                     String   @db.VarChar(256)
+  runId                       String   @db.VarChar(256)
+  runAttempt                  String   @db.VarChar(256)
+  verifierRevision            String   @db.VarChar(40)
+  sourceCommit                String   @db.VarChar(40)
+  sourceTree                  String   @db.VarChar(40)
+  producer                    String
+  candidateWritable           Boolean  @default(false)
+  authorityBinding            Json
+  candidateArchive            Bytes
+  candidateArchiveSha256      String   @db.VarChar(71)
+  candidateArchiveSha512Sri   String   @db.VarChar(95)
+  releasedArchive             Bytes
+  releasedArchiveSha256       String   @db.VarChar(71)
+  releasedArchiveSha512Sri    String   @db.VarChar(95)
+  toolArchive                 Bytes
+  toolArchiveSha256           String   @db.VarChar(71)
+  toolArchiveSha512Sri        String   @db.VarChar(95)
+  installedDistributionWire   Bytes
+  installedDistributionDigest String   @db.VarChar(71)
+  createdAt                    DateTime @default(now())
+  reports                      SdkGrowthFinalizedReportEvidence[]
+
+  @@index([tenantId, repositoryId, runId, runAttempt], map: "SdkGrowthVerifierEvidence_execution_idx")
+}
+
+model SdkGrowthFinalizedReportEvidence {
+  reportEvidenceId  String                    @id
+  evidenceId        String
+  repositoryId      String                    @db.VarChar(256)
+  runId             String                    @db.VarChar(256)
+  runAttempt        String                    @db.VarChar(256)
+  verifierRevision  String                    @db.VarChar(40)
+  producer          String
+  candidateWritable Boolean                   @default(false)
+  reportDigest      String                    @db.VarChar(71)
+  finalizedReport   Bytes
+  grantId           String                    @db.VarChar(2048)
+  outcome           String
+  coverage          String
+  coveredScopes     Json
+  phases            Json
+  createdAt         DateTime                  @default(now())
+  evidence          SdkGrowthVerifierEvidence @relation(fields: [evidenceId], references: [evidenceId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([evidenceId, reportDigest], map: "SdkGrowthFinalizedReportEvidence_digest_key")
 }

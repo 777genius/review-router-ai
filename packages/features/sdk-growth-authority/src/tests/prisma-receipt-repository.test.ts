@@ -75,6 +75,7 @@ function fixture() {
         receipts: repository(connection),
         currentAuthority: {
           resolve: async () => ({
+            epoch: 1,
             binding,
             ownerEvidence: {
               version: 1,
@@ -159,6 +160,58 @@ describe.skipIf(!url)(
         await db.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
       await Promise.all(clients.map((connection) => connection.$disconnect()));
     });
+
+    it.each([false, true])(
+      "revokes pre-epoch rows without rewriting immutable JSON (completed=%s)",
+      async (completed) => {
+        const f = fixture();
+        const grant = await f.authority().request(f.identity, f.request);
+        if (completed)
+          await f.authority().complete(f.identity, f.completion(grant));
+        const [source] = await db.$queryRaw<
+          { metadata: AuthorityLedger["records"][number] }[]
+        >`
+        SELECT "metadata" FROM "SdkGrowthAuthorityRecord" WHERE "tenantId" = ${f.identity.tenantId}`;
+        // Seed a historical row directly, with all immutable epoch fields absent.
+        const tenantId = randomUUID();
+        const legacy = JSON.parse(
+          JSON.stringify(source!.metadata).replaceAll(
+            f.identity.tenantId,
+            tenantId,
+          ),
+          (key, value: unknown) =>
+            key === "authorityEpoch" ? undefined : value,
+        );
+        f.identity.tenantId = tenantId;
+        f.scope.tenantId = tenantId;
+        await db.$executeRaw`INSERT INTO "SdkGrowthAuthorityScope" ("tenantId", "repositoryId", "pullRequest", "fence") VALUES (${tenantId}, 'repo', 42, 1)`;
+        await db.$executeRaw`INSERT INTO "SdkGrowthAuthorityRecord" ("tenantId", "repositoryId", "pullRequest", "fence", "requestId", "metadata") VALUES (${tenantId}, 'repo', 42, 1, 'request', ${JSON.stringify(legacy)}::jsonb)`;
+        const read = () =>
+          db.$queryRaw<
+            { metadata: unknown }[]
+          >`SELECT "metadata" FROM "SdkGrowthAuthorityRecord" WHERE "tenantId" = ${tenantId}`;
+        await f
+          .repository()
+          .transact(f.scope, { requestId: "request" }, async (ledger) => {
+            expect(ledger.records[0]!.grant.authorityEpoch).toBe(0);
+            if (completed) {
+              expect(ledger.records[0]!.receipt?.authorityEpoch).toBe(0);
+              expect(ledger.records[0]!.intent?.receipt.authorityEpoch).toBe(0);
+            }
+          });
+        expect((await read())[0]!.metadata).toEqual(legacy);
+        await f.authority(peer).revoke(f.identity, f.request);
+        expect((await read())[0]!.metadata).toEqual({
+          ...legacy,
+          revoked: true,
+        });
+        await f.authority().revoke(f.identity, f.request);
+        expect((await read())[0]!.metadata).toEqual({
+          ...legacy,
+          revoked: true,
+        });
+      },
+    );
 
     it("persists maximum scope metadata through completion, replay and dispatch", async () => {
       const f = fixture();

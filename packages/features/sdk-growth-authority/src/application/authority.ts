@@ -21,12 +21,15 @@ import type {
   AuthorityIoBudget,
   AuthorityLedger,
   AuthorityPorts,
+  CurrentAuthoritySnapshot,
   AuthorityRecord,
   AuthorityScope,
 } from "./ports.js";
 
 /** Pure DI composition. Authentication belongs to the trusted caller, never the request body. */
 export class SdkGrowthAuthority {
+  private readonly pendingCommitChecks: Array<() => Promise<void>> = [];
+
   constructor(
     private readonly ports: AuthorityPorts,
     private readonly ttlMs: number,
@@ -60,10 +63,11 @@ export class SdkGrowthAuthority {
           // Replay is historical: it does not extend expiry, restore revocation or advance fences.
           return parseGrant(previous.grant);
         }
-        const { binding, ownerEvidence: evidence } = await this.snapshot(
-          identity,
-          request,
-        );
+        const {
+          binding,
+          ownerEvidence: evidence,
+          epoch,
+        } = await this.snapshot(identity, request);
         if (
           binding.repositoryId !== request.repositoryId ||
           binding.pullRequest !== request.pullRequest
@@ -90,6 +94,7 @@ export class SdkGrowthAuthority {
           ownerEvidence: evidence,
           fence: ++ledger.fence,
           issuedAt: now,
+          authorityEpoch: epoch,
           expiresAt: Math.min(now + this.ttlMs, evidence.expiresAt),
         });
         ledger.records.push({
@@ -99,6 +104,9 @@ export class SdkGrowthAuthority {
           receipt: null,
           intent: null,
           dispatched: false,
+        });
+        this.pendingCommitChecks.push(async () => {
+          await this.currentGrant(identity, request);
         });
         return structuredClone(grant);
       },
@@ -127,6 +135,10 @@ export class SdkGrowthAuthority {
         record.completion = completion;
         record.receipt = receipt;
         record.intent = { version: 1, intentId: receipt.receiptId, receipt };
+        const request = structuredClone(record.grant.request);
+        this.pendingCommitChecks.push(async () => {
+          await this.currentReceipt(identity, request);
+        });
         return structuredClone(receipt);
       },
     );
@@ -176,6 +188,29 @@ export class SdkGrowthAuthority {
     );
   }
 
+  /** Current-status check only. Historical request/readback APIs must not use
+   * this result as a way to recreate or extend authority. */
+  async currentGrant(
+    authenticated: Identity,
+    requestBody: unknown,
+  ): Promise<Grant> {
+    const identity = parseIdentity(authenticated);
+    const request = parseRequest(requestBody);
+    return this.ports.receipts.transact(
+      this.scope(identity, request),
+      { requestId: request.requestId },
+      async (ledger) => {
+        const record = ledger.records.find(
+          (item) => item.grant.request.requestId === request.requestId,
+        );
+        if (!record) throw new AuthorityError("not-found");
+        assertIdentity(record.grant.identity, identity);
+        await this.live(record, ledger);
+        return parseGrant(record.grant);
+      },
+    );
+  }
+
   /** Historical receipts are not bearer tokens. Consumers must call this before publication.
    * The future publication adapter must also fence the provider write against newer intents and authority changes. */
   async currentReceipt(
@@ -200,21 +235,31 @@ export class SdkGrowthAuthority {
     );
   }
 
+  /** Revalidate only decisions created by this unit of work after every outer
+   * adapter write has finished. Historical retries intentionally register no
+   * check: their immutable result remains readable without reviving authority. */
+  async assertPendingDecisionsCurrentAtCommit(): Promise<void> {
+    const checks = this.pendingCommitChecks.splice(0);
+    for (const check of checks) await check();
+  }
+
   private async live(
     record: AuthorityRecord,
     ledger: AuthorityLedger,
   ): Promise<number> {
     const grant = record.grant;
     assertLive(grant, record.revoked, ledger.fence, this.now());
-    const { binding, ownerEvidence: evidence } = await this.snapshot(
-      grant.identity,
-      grant.request,
-    );
+    const {
+      binding,
+      ownerEvidence: evidence,
+      epoch,
+    } = await this.snapshot(grant.identity, grant.request);
     assertBinding(grant.binding, binding);
     const now = this.now();
     assertOwner(grant.identity, grant.binding, evidence, now);
     if (!equal(grant.ownerEvidence, evidence))
       throw new AuthorityError("owner-evidence");
+    if (grant.authorityEpoch !== epoch) throw new AuthorityError("fenced");
     // Slow authority reads must not allow an expired completion to commit.
     assertLive(grant, record.revoked, ledger.fence, now);
     return now;
@@ -224,7 +269,14 @@ export class SdkGrowthAuthority {
       this.ports.currentAuthority.resolve(identity, request, budget),
     );
     if (!snapshot) throw new AuthorityError("binding-changed");
+    return this.current(snapshot);
+  }
+  private current(snapshot: CurrentAuthoritySnapshot | null) {
+    if (!snapshot) throw new AuthorityError("binding-changed");
+    if (!Number.isSafeInteger(snapshot.epoch) || snapshot.epoch < 1)
+      throw new AuthorityError("invalid-contract");
     return {
+      epoch: snapshot.epoch,
       binding: parseBinding(snapshot.binding),
       ownerEvidence: parseOwnerEvidence(snapshot.ownerEvidence),
     };

@@ -213,6 +213,7 @@ describe.skipIf(!url)("canonical authority epochs / real PostgreSQL", () => {
       .reader(peer)
       .resolve(f.identity, f.request, budget);
     expect(snapshot).toEqual({
+      epoch: 1,
       binding: f.state.binding,
       ownerEvidence: f.state.ownerEvidence,
     });
@@ -244,6 +245,7 @@ describe.skipIf(!url)("canonical authority epochs / real PostgreSQL", () => {
     await f.writer().advance("trusted-operator", f.scope, 0n, "provision");
     expect(await f.reader(peer).resolve(f.identity, f.request, budget)).toEqual(
       {
+        epoch: 1,
         binding: f.state.binding,
         ownerEvidence: f.state.ownerEvidence,
       },
@@ -356,6 +358,7 @@ describe.skipIf(!url)("canonical authority epochs / real PostgreSQL", () => {
       else
         expect(await f.reader().resolve(f.identity, f.request, budget)).toEqual(
           {
+            epoch: 2,
             binding: f.state.binding,
             ownerEvidence: f.state.ownerEvidence,
           },

@@ -88,12 +88,14 @@ export function storageRecord(
     grant.issuedAt,
   );
   requireStorage(grant.expiresAt <= grant.ownerEvidence.expiresAt);
+  let normalized: AuthorityRecord;
   if (value.completion === null) {
     requireStorage(
       value.receipt === null &&
         value.intent === null &&
         value.dispatched === false,
     );
+    normalized = { grant, revoked: value.revoked, completion: null, receipt: null, intent: null, dispatched: value.dispatched };
   } else {
     const completion = parseCompletion(value.completion);
     const receipt = parseReceipt(value.receipt);
@@ -110,9 +112,15 @@ export function storageRecord(
       equal(receipt, makeReceipt(grant, completion, receipt.completedAt)),
     );
     exact(value.intent, ["version", "intentId", "receipt"]);
+    const intentReceipt = parseReceipt(value.intent.receipt);
     requireStorage(
-      equal(value.intent, { version: 1, intentId: receipt.receiptId, receipt }),
+      equal({ ...value.intent, receipt: intentReceipt }, {
+        version: 1,
+        intentId: receipt.receiptId,
+        receipt,
+      }),
     );
+    normalized = { grant, revoked: value.revoked, completion, receipt, intent: { version: 1, intentId: receipt.receiptId, receipt: intentReceipt }, dispatched: value.dispatched };
   }
   // Seven scope arrays at most: 7 * 1024 * (256 ASCII bytes + 3 JSON bytes)
   // = 1,856,512 bytes. All remaining bounded metadata fits in 100KB, including
@@ -120,7 +128,7 @@ export function storageRecord(
   // jsonb text cap additionally covers its whitespace. Keep both bounds aligned.
   // Parsers reject unknown keys and bound every metadata field; never serialize arbitrary payloads.
   requireStorage(Buffer.byteLength(JSON.stringify(value), "utf8") <= 2_000_000);
-  return structuredClone(value) as unknown as AuthorityRecord;
+  return structuredClone(normalized);
 }
 export function storageLedger(
   value: AuthorityLedger,
