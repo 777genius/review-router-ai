@@ -480,6 +480,9 @@ importers:
       '@reviewrouter/platform-signed-capabilities':
         specifier: workspace:*
         version: link:../../packages/platform/signed-capabilities
+      '@reviewrouter/features-sdk-growth-authority':
+        specifier: workspace:*
+        version: link:../../packages/features/sdk-growth-authority
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../packages/shared

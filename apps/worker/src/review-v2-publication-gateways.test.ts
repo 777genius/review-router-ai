@@ -1,3 +1,4 @@
+import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
@@ -736,6 +737,227 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
     });
   });
 
+  it("rejects reserved check creation while ordinary managed checks still work", async () => {
+    const routes: string[] = [];
+    const ordinary = {
+      kind: ReviewV2PublicationPayloadKind.ManagedCheck,
+      marker: "ordinary-marker",
+      markerHash: hash("1"),
+      bodyHash: hash("2"),
+      bodyByteCount: 15,
+      name: "ReviewRouter",
+      title: "Review complete",
+      summary: "ordinary-marker",
+      conclusion: "success",
+    } as const;
+    const octokit: GitHubInstallationClient = {
+      async request(route) {
+        routes.push(route);
+        return { data: { id: 17 } };
+      },
+      async graphql<T = unknown>(): Promise<T> {
+        throw new Error("unexpected_graphql_call");
+      },
+    };
+
+    await expect(
+      githubPublicationClient(octokit, {
+        ...ordinary,
+        name: "ReviewRouter / SDK growth authority",
+      }).applyOperation({
+        operation: {
+          ...operation(),
+          publicationKind: ReviewPublicationKind.ManagedCheck,
+        },
+        capability: capability(),
+      }),
+    ).rejects.toThrow("sdk_growth_check_identity_reserved");
+    expect(routes).toEqual([]);
+
+    await expect(
+      githubPublicationClient(octokit, ordinary).applyOperation({
+        operation: {
+          ...operation(),
+          publicationKind: ReviewPublicationKind.ManagedCheck,
+        },
+        capability: capability(),
+      }),
+    ).resolves.toMatchObject({ externalObjectId: "check-run:17" });
+    expect(routes).toEqual(["POST /repos/{owner}/{repo}/check-runs"]);
+    const customPolicy = (name: string) => {
+      if (name === "ReviewRouter") throw new Error("custom_reservation");
+    };
+    await expect(
+      githubPublicationClient(octokit, ordinary, customPolicy).applyOperation({
+        operation: {
+          ...operation(),
+          publicationKind: ReviewPublicationKind.ManagedCheck,
+        },
+        capability: capability(),
+      }),
+    ).rejects.toThrow("custom_reservation");
+    expect(routes).toHaveLength(1);
+    await expect(
+      githubPublicationClient(
+        octokit,
+        { ...ordinary, name: "ReviewRouter / SDK growth authority" },
+        customPolicy,
+      ).applyOperation({
+        operation: {
+          ...operation(),
+          publicationKind: ReviewPublicationKind.ManagedCheck,
+        },
+        capability: capability(),
+      }),
+    ).resolves.toMatchObject({ externalObjectId: "check-run:17" });
+  });
+
+  it("fetches compensation targets and refuses a disguised reserved check id", async () => {
+    const routes: string[] = [];
+    const payload = {
+      kind: ReviewV2PublicationPayloadKind.ManagedCheck,
+      marker: "ordinary-marker",
+      markerHash: hash("1"),
+      bodyHash: hash("2"),
+      bodyByteCount: 15,
+      name: "ReviewRouter",
+      title: "Review complete",
+      summary: "ordinary-marker",
+      conclusion: "success",
+    } as const;
+    const client = githubPublicationClient(
+      {
+        async request(route) {
+          routes.push(route);
+          return {
+            data: {
+              id: 17,
+              name: "ReviewRouter / SDK growth authority",
+            },
+          };
+        },
+        async graphql<T = unknown>(): Promise<T> {
+          throw new Error("unexpected_graphql_call");
+        },
+      },
+      payload,
+    );
+
+    await expect(
+      client.markStaleOrDelete({
+        operation: {
+          ...operation(),
+          publicationKind: ReviewPublicationKind.ManagedCheck,
+        },
+        canonicalExternalObjectId: "check-run:17",
+        duplicateExternalObjectIds: [],
+        compensateCanonical: true,
+      }),
+    ).rejects.toThrow("sdk_growth_check_identity_reserved");
+    expect(routes).toEqual([
+      "GET /repos/{owner}/{repo}/check-runs/{check_run_id}",
+    ]);
+  });
+
+  it("still compensates an ordinary fetched check target", async () => {
+    const routes: string[] = [];
+    const payload = {
+      kind: ReviewV2PublicationPayloadKind.ManagedCheck,
+      marker: "ordinary-marker",
+      markerHash: hash("1"),
+      bodyHash: hash("2"),
+      bodyByteCount: 15,
+      name: "ReviewRouter",
+      title: "Review complete",
+      summary: "ordinary-marker",
+      conclusion: "success",
+    } as const;
+    const client = githubPublicationClient(
+      {
+        async request(route) {
+          routes.push(route);
+          return {
+            data: route.startsWith("GET ")
+              ? { id: 17, name: "ReviewRouter" }
+              : { id: 17 },
+          };
+        },
+        async graphql<T = unknown>(): Promise<T> {
+          throw new Error("unexpected_graphql_call");
+        },
+      },
+      payload,
+    );
+
+    await expect(
+      client.markStaleOrDelete({
+        operation: {
+          ...operation(),
+          publicationKind: ReviewPublicationKind.ManagedCheck,
+        },
+        canonicalExternalObjectId: "check-run:17",
+        duplicateExternalObjectIds: [],
+        compensateCanonical: true,
+      }),
+    ).resolves.toBe(ReviewPublicationReceiptStatus.Compensated);
+    expect(routes).toEqual([
+      "GET /repos/{owner}/{repo}/check-runs/{check_run_id}",
+      "PATCH /repos/{owner}/{repo}/check-runs/{check_run_id}",
+    ]);
+  });
+
+  it("validates every compensation target before mutating any check", async () => {
+    const routes: string[] = [];
+    const payload = {
+      kind: ReviewV2PublicationPayloadKind.ManagedCheck,
+      marker: "ordinary-marker",
+      markerHash: hash("1"),
+      bodyHash: hash("2"),
+      bodyByteCount: 15,
+      name: "ReviewRouter",
+      title: "Review complete",
+      summary: "ordinary-marker",
+      conclusion: "success",
+    } as const;
+    const client = githubPublicationClient(
+      {
+        async request(route, parameters) {
+          routes.push(route);
+          const id = parameters?.check_run_id;
+          return {
+            data: {
+              id,
+              name:
+                id === 18
+                  ? "ReviewRouter / SDK growth authority"
+                  : "ReviewRouter",
+            },
+          };
+        },
+        async graphql<T = unknown>(): Promise<T> {
+          throw new Error("unexpected_graphql_call");
+        },
+      },
+      payload,
+    );
+
+    await expect(
+      client.markStaleOrDelete({
+        operation: {
+          ...operation(),
+          publicationKind: ReviewPublicationKind.ManagedCheck,
+        },
+        canonicalExternalObjectId: "check-run:17",
+        duplicateExternalObjectIds: ["check-run:18"],
+        compensateCanonical: true,
+      }),
+    ).rejects.toThrow("sdk_growth_check_identity_reserved");
+    expect(routes).toEqual([
+      "GET /repos/{owner}/{repo}/check-runs/{check_run_id}",
+      "GET /repos/{owner}/{repo}/check-runs/{check_run_id}",
+    ]);
+  });
+
   it("queries managed-check inventory at the operation target commit", async () => {
     const refs: unknown[] = [];
     const payload = {
@@ -887,9 +1109,13 @@ function githubRevisionClient(
 function githubPublicationClient(
   octokit: GitHubInstallationClient,
   payload: ReviewV2PublicationPayload,
+  assertCheckIdentityAllowed: (
+    name: string,
+  ) => void = assertUnreservedCheckIdentity,
 ) {
   return new GitHubReviewV2PublicationClient({
     octokit,
+    assertCheckIdentityAllowed,
     repository: githubRepository,
     permit: permit(),
     capability: capability(),
