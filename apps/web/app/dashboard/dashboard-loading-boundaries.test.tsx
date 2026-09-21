@@ -215,6 +215,10 @@ beforeEach(() => vi.clearAllMocks());
 describe("dashboard server loading boundaries", () => {
   it("shares one persistent route layout across dashboard and Accounts while keeping previews outside it", () => {
     const route = (path: string) => new URL(path, import.meta.url);
+    const workspacePageSource = readFileSync(
+      route("./dashboard-workspace-page.tsx"),
+      "utf8",
+    );
     expect(readFileSync(route("./(workspace)/layout.tsx"), "utf8")).toContain(
       "DashboardWorkspaceLayout as default",
     );
@@ -226,6 +230,10 @@ describe("dashboard server loading boundaries", () => {
     expect(existsSync(route("./memory-preview/page.tsx"))).toBe(true);
     expect(existsSync(route("./hosted-pool-preview/page.tsx"))).toBe(true);
     expect(existsSync(route("./loading.tsx"))).toBe(false);
+    expect(workspacePageSource).toContain("readParam(params.repository)");
+    expect(workspacePageSource).not.toContain(
+      "selectedSection,\n          params,",
+    );
   });
 
   it("renders shell data without section queries", async () => {

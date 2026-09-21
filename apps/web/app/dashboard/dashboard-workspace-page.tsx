@@ -1121,17 +1121,15 @@ export async function DashboardWorkspacePage({
     selectedWorkspace.workspace,
     workspaces,
   );
+  const sectionBoundaryKey = JSON.stringify([
+    selectedWorkspace.workspace.id,
+    selectedSection,
+    readParam(params.repository),
+  ]);
   return (
     <>
       <DashboardShellSnapshot workspaces={workspaces} />
-      <Suspense
-        key={JSON.stringify([
-          selectedWorkspace.workspace.id,
-          selectedSection,
-          params,
-        ])}
-        fallback={<DashboardSectionLoading />}
-      >
+      <Suspense key={sectionBoundaryKey} fallback={<DashboardSectionLoading />}>
         <DashboardSectionContent
           context={context}
           selectedWorkspace={selectedWorkspace}

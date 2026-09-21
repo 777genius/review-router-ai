@@ -27,6 +27,9 @@ describe("migration deploy PostgreSQL preflight", () => {
     expect(() => postgresMajor("unknown")).toThrow(
       "reviewrouter_migrate_postgres_version_invalid",
     );
+    expect(() => postgresMajor("170010junk")).toThrow(
+      "reviewrouter_migrate_postgres_version_invalid",
+    );
   });
 
   it("does not invoke Prisma when the target server is unsupported", async () => {

@@ -9,7 +9,11 @@ export const MIN_SUPPORTED_POSTGRES_MAJOR = 17;
 export const MIGRATION_PREFLIGHT_TIMEOUT_MS = 10_000;
 
 export function postgresMajor(serverVersionNum) {
-  const parsed = Number.parseInt(String(serverVersionNum), 10);
+  const serialized = String(serverVersionNum);
+  if (!/^\d+$/u.test(serialized)) {
+    throw new Error("reviewrouter_migrate_postgres_version_invalid");
+  }
+  const parsed = Number.parseInt(serialized, 10);
   if (!Number.isSafeInteger(parsed) || parsed < 10_000) {
     throw new Error("reviewrouter_migrate_postgres_version_invalid");
   }
