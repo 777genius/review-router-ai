@@ -213,6 +213,7 @@ class InMemoryItems implements MemoryItemRepositoryPort {
   async listForDashboard(input: {
     readonly workspaceId: string;
     readonly repositoryId?: string | null;
+    readonly repositoryIds?: readonly string[];
     readonly scope?: MemoryScope;
     readonly statuses: readonly MemoryItemSnapshot["status"][];
     readonly limit: number;
@@ -224,6 +225,12 @@ class InMemoryItems implements MemoryItemRepositoryPort {
         input.repositoryId === undefined
           ? true
           : item.repositoryId === input.repositoryId,
+      )
+      .filter((item) =>
+        input.repositoryIds === undefined
+          ? true
+          : item.repositoryId !== null &&
+            input.repositoryIds.includes(item.repositoryId),
       )
       .filter((item) => (input.scope ? item.scope === input.scope : true))
       .filter((item) => input.statuses.includes(item.status))
@@ -533,6 +540,7 @@ class InMemorySuggestions implements MemorySuggestionRepositoryPort {
   async listForDashboard(input: {
     readonly workspaceId: string;
     readonly repositoryId?: string | null;
+    readonly repositoryIds?: readonly string[];
     readonly scope?: MemoryScope;
     readonly statuses: readonly MemorySuggestionStatus[];
     readonly limit: number;
@@ -545,6 +553,12 @@ class InMemorySuggestions implements MemorySuggestionRepositoryPort {
         input.repositoryId === undefined
           ? true
           : suggestion.repositoryId === input.repositoryId,
+      )
+      .filter((suggestion) =>
+        input.repositoryIds === undefined
+          ? true
+          : suggestion.repositoryId !== null &&
+            input.repositoryIds.includes(suggestion.repositoryId),
       )
       .filter((suggestion) =>
         input.scope ? suggestion.suggestedScope === input.scope : true,
@@ -1938,6 +1952,22 @@ describe("memory core", () => {
       },
       deps,
     );
+    await rememberMemoryDirectly(
+      {
+        ...memoryInput("repository", "Hidden repository memory."),
+        workspaceId: "workspace_1",
+        repositoryId: "repo_hidden",
+      },
+      deps,
+    );
+
+    const visibleRepositories = await listMemoryItemsForDashboard(
+      { workspaceId: "workspace_1", repositoryIds: ["repo_1"] },
+      deps,
+    );
+    expect(visibleRepositories.items.map((item) => item.body)).not.toContain(
+      "Hidden repository memory.",
+    );
 
     const firstPage = await listMemoryItemsForDashboard(
       { workspaceId: "workspace_1", repositoryId: "repo_1", limit: 1 },
@@ -2035,6 +2065,19 @@ describe("memory core", () => {
       },
       deps,
     );
+    await proposeMemoryFromInteraction(
+      {
+        envelope: candidateEnvelope({
+          intent: "explicit_natural_language",
+          extractionMethod: "explicit_natural_language",
+          body: "Hidden repository suggestion.",
+          actor: prAuthor,
+          workspaceId: "workspace_1",
+          repositoryId: "repo_hidden",
+        }),
+      },
+      deps,
+    );
     if (active.status !== "created" || expired.status !== "created") {
       throw new Error("expected_created_suggestions");
     }
@@ -2054,6 +2097,14 @@ describe("memory core", () => {
     expect(defaultList.suggestions.map((item) => item.suggestedBody)).toEqual([
       "Use adapter ports for external systems.",
     ]);
+
+    const visibleRepositories = await listMemorySuggestionsForDashboard(
+      { workspaceId: "workspace_1", repositoryIds: ["repo_1"] },
+      deps,
+    );
+    expect(
+      visibleRepositories.suggestions.map((item) => item.suggestedBody),
+    ).not.toContain("Hidden repository suggestion.");
 
     const withExpired = await listMemorySuggestionsForDashboard(
       {

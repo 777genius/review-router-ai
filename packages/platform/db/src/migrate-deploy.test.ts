@@ -72,6 +72,8 @@ describe("migration deploy PostgreSQL preflight", () => {
       runMigration,
     });
 
-    expect(runMigration).toHaveBeenCalledOnce();
+    expect(runMigration).toHaveBeenCalledExactlyOnceWith(
+      "postgresql://example.invalid/reviewrouter",
+    );
   });
 });

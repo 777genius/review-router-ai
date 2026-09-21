@@ -22,6 +22,7 @@ const DEFAULT_MEMORY_ITEM_STATUSES: readonly MemoryItemStatus[] = [
 export type ListMemoryItemsForDashboardInput = {
   readonly workspaceId: string;
   readonly repositoryId?: string | null;
+  readonly repositoryIds?: readonly string[];
   readonly scope?: MemoryScope;
   readonly statuses?: readonly MemoryItemStatus[];
   readonly limit?: number;
@@ -49,6 +50,9 @@ export async function listMemoryItemsForDashboard(
     limit: limit + 1,
     ...(input.repositoryId !== undefined
       ? { repositoryId: input.repositoryId }
+      : {}),
+    ...(input.repositoryIds !== undefined
+      ? { repositoryIds: input.repositoryIds }
       : {}),
     ...(input.scope ? { scope: input.scope } : {}),
     ...(cursor ? { cursor } : {}),

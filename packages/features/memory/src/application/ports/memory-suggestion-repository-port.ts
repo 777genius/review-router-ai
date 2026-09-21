@@ -47,6 +47,7 @@ export interface MemorySuggestionRepositoryPort {
   listForDashboard(input: {
     readonly workspaceId: string;
     readonly repositoryId?: string | null;
+    readonly repositoryIds?: readonly string[];
     readonly scope?: MemoryScope;
     readonly statuses: readonly MemorySuggestionStatus[];
     readonly limit: number;

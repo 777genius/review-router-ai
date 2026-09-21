@@ -21,6 +21,7 @@ const DEFAULT_MEMORY_SUGGESTION_STATUSES: readonly MemorySuggestionStatus[] = [
 export type ListMemorySuggestionsForDashboardInput = {
   readonly workspaceId: string;
   readonly repositoryId?: string | null;
+  readonly repositoryIds?: readonly string[];
   readonly scope?: MemoryScope;
   readonly statuses?: readonly MemorySuggestionStatus[];
   readonly includeExpiredPending?: boolean;
@@ -55,6 +56,9 @@ export async function listMemorySuggestionsForDashboard(
     limit: limit + 1,
     ...(input.repositoryId !== undefined
       ? { repositoryId: input.repositoryId }
+      : {}),
+    ...(input.repositoryIds !== undefined
+      ? { repositoryIds: input.repositoryIds }
       : {}),
     ...(input.scope ? { scope: input.scope } : {}),
     ...(cursor ? { cursor } : {}),

@@ -533,11 +533,31 @@ export async function loadDashboardSectionData(
     section === "memory"
       ? await Promise.all([
           listMemoryItemsForDashboard(
-            { workspaceId: workspace.id, limit: 25 },
+            {
+              workspaceId: workspace.id,
+              limit: 25,
+              ...(!hasWorkspaceWideAccess
+                ? {
+                    repositoryIds: visibleRepositories.map(
+                      (repository) => repository.id,
+                    ),
+                  }
+                : {}),
+            },
             { memoryItems: memoryItemStore },
           ),
           listMemorySuggestionsForDashboard(
-            { workspaceId: workspace.id, limit: 25 },
+            {
+              workspaceId: workspace.id,
+              limit: 25,
+              ...(!hasWorkspaceWideAccess
+                ? {
+                    repositoryIds: visibleRepositories.map(
+                      (repository) => repository.id,
+                    ),
+                  }
+                : {}),
+            },
             {
               memorySuggestions: memorySuggestionStore,
               clock: { now: () => new Date() },
@@ -550,7 +570,7 @@ export async function loadDashboardSectionData(
     section === "memory"
       ? await buildMemoryPolicySimulation({
           workspaceId: workspace.id,
-          repositories,
+          repositories: visibleRepositories,
           actor: currentActor ?? null,
           memoryPolicyConfig,
           memoryPermission,

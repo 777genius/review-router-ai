@@ -15,7 +15,7 @@ export function assertSupportedPostgresVersion(
 export interface MigrateDeployOptions {
   readonly databaseUrl?: string;
   readonly inspectVersion?: (databaseUrl: string) => Promise<unknown>;
-  readonly runMigration?: () => Promise<void>;
+  readonly runMigration?: (databaseUrl: string) => Promise<void>;
 }
 
 export function migrateDeploy(options?: MigrateDeployOptions): Promise<void>;

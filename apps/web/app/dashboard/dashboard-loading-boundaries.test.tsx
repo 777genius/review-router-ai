@@ -326,6 +326,30 @@ describe("dashboard server loading boundaries", () => {
     );
   });
 
+  it("restricts Memory reads to repositories visible to a scoped actor", async () => {
+    await loadDashboardSectionData(
+      { ...workspace, hasWorkspaceWideAccess: false },
+      "memory",
+      access,
+    );
+    expect(spies.memoryItems).toHaveBeenCalledWith(
+      {
+        workspaceId: "workspace-a",
+        repositoryIds: ["repo-a"],
+        limit: 25,
+      },
+      expect.anything(),
+    );
+    expect(spies.memorySuggestions).toHaveBeenCalledWith(
+      {
+        workspaceId: "workspace-a",
+        repositoryIds: ["repo-a"],
+        limit: 25,
+      },
+      expect.anything(),
+    );
+  });
+
   it("keeps selected-workspace audit and support diagnostics in Diagnostics", async () => {
     const data = await loadDashboardSectionData(
       workspace,

@@ -56,12 +56,20 @@ async function inspectPostgresVersion(databaseUrl) {
   }
 }
 
-async function runPrismaMigrateDeploy() {
+async function runPrismaMigrateDeploy(databaseUrl) {
+  const {
+    REVIEW_ROUTER_DATABASE_URL_FILE: _credentialFile,
+    ...migrationEnvironment
+  } = process.env;
   await new Promise((resolve, reject) => {
     const child = spawn(
       "prisma",
       ["migrate", "deploy", "--config", "prisma.config.ts"],
-      { env: process.env, shell: false, stdio: "inherit" },
+      {
+        env: { ...migrationEnvironment, DATABASE_URL: databaseUrl },
+        shell: false,
+        stdio: "inherit",
+      },
     );
     child.once("error", reject);
     child.once("exit", (code, signal) => {
@@ -92,7 +100,7 @@ export async function migrateDeploy({
   console.log(
     `ReviewRouter migration preflight: PostgreSQL ${major} accepted.`,
   );
-  await runMigration();
+  await runMigration(databaseUrl);
 }
 
 const invokedPath = process.argv[1];
