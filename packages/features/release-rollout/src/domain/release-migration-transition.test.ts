@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps full101 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps full102 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,13 +107,13 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(101);
+    expect(full).toHaveLength(102);
     expect(full).toEqual(readRenderManagedCheckoutInventory());
     expect(full.at(-1)?.migrationName).toBe(
-      "000102_sdk_growth_current_authority",
+      "000103_sdk_growth_authority_custody",
     );
     expect(manifest(full)).toBe(
-      "sha256:dfcbd39f6b18377d7da5b4c1cd1351ae058ade6dc08ba2ebf33ffec5506c9804",
+      "sha256:a2e683899abcc3f9adf377cbc8ecb2e051d84a0e7c6e9fffc0fe32fa150c3983",
     );
     const historical = readRenderHistorical96CheckoutInventory();
     expect(historical).toHaveLength(96);
