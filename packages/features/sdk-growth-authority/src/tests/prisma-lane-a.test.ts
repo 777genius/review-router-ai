@@ -317,6 +317,7 @@ describe.skipIf(!url)(
               request: typeof f.request,
             ) {
               return {
+                version: 1,
                 grantId: `grant-${scope.pullRequest}`,
                 identity,
                 request,
@@ -362,7 +363,7 @@ describe.skipIf(!url)(
         binding: Binding,
       ): DecodedEfAdmission => {
         const assertions = {
-          repositoryId: execution.repositoryId,
+          repositoryId: execution.githubRepositoryId,
           installationId: execution.installationId,
           runId: execution.runId,
           runAttempt: execution.runAttempt,

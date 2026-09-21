@@ -336,6 +336,21 @@ describe("EF authority application boundary", () => {
     ).rejects.toBe(failure);
   });
 
+  it("rejects an admission whose repository assertion is not the authenticated GitHub repository", async () => {
+    const h = harness();
+    h.codec.decodeAdmission = () => ({
+      ...structuredClone(h.f.admission),
+      assertions: {
+        ...h.f.admission.assertions,
+        repositoryId: h.f.execution.repositoryId,
+      },
+    });
+    await expect(
+      h.service.admit(h.f.execution, "repo", 42, {}),
+    ).rejects.toMatchObject({ code: "wrong-identity" });
+    expect(h.authority.request).not.toHaveBeenCalled();
+  });
+
   it("retains exact admission and completion relationships through the transaction port", async () => {
     const h = harness();
     const grantWire = await h.service.admit(h.f.execution, "repo", 42, {});
