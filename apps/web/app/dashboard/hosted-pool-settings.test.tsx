@@ -91,16 +91,16 @@ describe("HostedPoolSettingsPanel", () => {
     ).toBeTruthy();
     expect(screen.queryByText("Add another ChatGPT account")).toBeNull();
     expect(screen.queryByRole("heading", { name: "1 account" })).toBeNull();
-    expect(screen.getByText(/Connect ChatGPT to get started/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Connect ChatGPT so ReviewRouter can run hosted reviews/,
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("Upload auth.json fallback")).toBeTruthy();
     expect(screen.getByPlaceholderText("Fallback session")).toBeTruthy();
     expect(screen.queryByPlaceholderText("Work laptop")).toBeTruthy();
     expect(fallbackPriorityInput()?.value).toBe("100");
-    expect(screen.getByText(/encrypted at rest/i)).toBeTruthy();
-    expect(screen.getAllByText(/encrypt/i).length).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText(/never go to the browser/i).length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/encrypted at rest/i)).toBeNull();
     expectNoRawPriority();
     expectNoCredentialLeak();
   });
@@ -143,11 +143,8 @@ describe("HostedPoolSettingsPanel", () => {
     expect(screen.queryByText(/Connect ChatGPT to get started/)).toBeNull();
     expect(screen.getByPlaceholderText("Fallback session")).toBeTruthy();
     expect(fallbackPriorityInput()?.value).toBe("100");
-    expect(screen.getAllByText(/encrypted at rest/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/encrypted/i).length).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText(/never go to the browser/i).length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/encrypted at rest/i)).toBeNull();
+    expect(screen.queryByText(/We encrypt each ChatGPT session/i)).toBeNull();
     expectNoRawPriority();
     expectNoCredentialLeak();
   });

@@ -15,7 +15,6 @@ import {
   type HostedPoolDeviceLoginPollResult,
   type HostedPoolDeviceLoginStartResult,
 } from "./hosted-pool-device-login";
-import { HostedSessionEncryptionBadge } from "./hosted-session-encryption-mark";
 
 type HostedPoolSettingsActions = Readonly<{
   importAccount: DashboardActionFormAction;
@@ -88,7 +87,6 @@ export function HostedPoolSettingsPanel({
             <h3 className="text-sm font-semibold text-cyan-50">
               ChatGPT accounts for reviews
             </h3>
-            <HostedSessionEncryptionBadge size="xs" label="Encrypted at rest" />
             <Badge tone={hasHealthyAccount ? "success" : "warning"}>
               {poolStatusLabel({
                 enrolled,
@@ -102,24 +100,19 @@ export function HostedPoolSettingsPanel({
             {enrolled ? (
               hasHealthyAccount ? (
                 <>
-                  We encrypt each ChatGPT session before it is stored. Sessions
-                  never go to the browser, and a session is decrypted only to
-                  run a review. Add more accounts for capacity. Pause or remove
-                  one without affecting the others.
+                  Add more accounts for capacity. Pause or remove one without
+                  affecting the others.
                 </>
               ) : (
                 <>
                   None of these accounts are ready for reviews right now. Use
-                  one again or sign in with ChatGPT again. We keep sessions
-                  encrypted on the server; they never go to the browser.
+                  one again or sign in with ChatGPT again.
                 </>
               )
             ) : (
               <>
-                Connect ChatGPT so ReviewRouter can run hosted reviews. We
-                encrypt each session before it is stored. Sessions never go to
-                the browser, and we only decrypt a session to run a review.
-                Upload a local{" "}
+                Connect ChatGPT so ReviewRouter can run hosted reviews. Upload a
+                local{" "}
                 <span className="whitespace-nowrap font-mono">auth.json</span>{" "}
                 only if ChatGPT sign-in is unavailable.
               </>
