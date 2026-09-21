@@ -76,7 +76,7 @@ export function createPrismaHostedPoolDashboardMutationPort(input: {
           },
           adapters.pools,
         );
-        await importAndEnrollHostedCodexAccount(
+        return await importAndEnrollHostedCodexAccount(
           {
             workspaceId: commandWorkspaceId,
             poolId: pool.id,

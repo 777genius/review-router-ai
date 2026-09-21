@@ -1,4 +1,8 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
 import { Badge, SelectField } from "@reviewrouter/ui";
+import type { HostedAccountSafeSummary } from "@reviewrouter/features-hosted-account-pool";
 import type {
   HostedPoolDashboardView,
   HostedPoolRepositoryView,
@@ -45,6 +49,22 @@ export function HostedPoolSettingsPanel({
   readonly mutationsEnabled: boolean;
   readonly previewDeviceLoginFlight?: HostedPoolDeviceLoginFlight | undefined;
 }): React.ReactElement | null {
+  const [accounts, setAccounts] = useState(view.accounts);
+  useEffect(() => setAccounts(view.accounts), [view.accounts]);
+  const addImportedAccount = useCallback(
+    (account: HostedAccountSafeSummary) => {
+      setAccounts((current) =>
+        [...current.filter((item) => item.id !== account.id), account].sort(
+          (left, right) =>
+            left.priority - right.priority ||
+            left.createdAt.getTime() - right.createdAt.getTime() ||
+            String(left.id).localeCompare(String(right.id)),
+        ),
+      );
+    },
+    [],
+  );
+
   if (view.gate === "feature_disabled") {
     return (
       <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
@@ -73,12 +93,14 @@ export function HostedPoolSettingsPanel({
     );
   }
 
-  const healthy = view.pool?.healthyAccountCount ?? 0;
-  const total = view.pool?.accountCount ?? view.accounts.length;
-  const enrolled = view.accounts.length > 0;
+  const healthy = accounts.filter(
+    (account) => account.availability.status === "healthy",
+  ).length;
+  const total = Math.max(view.pool?.accountCount ?? 0, accounts.length);
+  const enrolled = accounts.length > 0;
   const hasHealthyAccount =
     healthy > 0 ||
-    view.accounts.some((account) => account.availability.status === "healthy");
+    accounts.some((account) => account.availability.status === "healthy");
   return (
     <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -128,6 +150,7 @@ export function HostedPoolSettingsPanel({
           enrolled
           startAction={actions.startDeviceLogin}
           pollAction={actions.pollDeviceLogin}
+          onImported={addImportedAccount}
           previewFlight={previewDeviceLoginFlight}
           header={
             <div>
@@ -144,7 +167,7 @@ export function HostedPoolSettingsPanel({
         >
           <HostedPoolAccountCards
             workspaceId={workspaceId}
-            accounts={view.accounts}
+            accounts={accounts}
             setAccountState={actions.setAccountState}
             removeAccount={actions.removeAccount}
             mutationsEnabled={mutationsEnabled}
@@ -156,6 +179,7 @@ export function HostedPoolSettingsPanel({
           mutationsEnabled={mutationsEnabled}
           startAction={actions.startDeviceLogin}
           pollAction={actions.pollDeviceLogin}
+          onImported={addImportedAccount}
           previewFlight={previewDeviceLoginFlight}
         />
       )}

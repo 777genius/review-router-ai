@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HostedPoolQueryPort } from "@reviewrouter/features-hosted-account-pool";
+import type {
+  HostedAccountSafeSummary,
+  HostedPoolQueryPort,
+} from "@reviewrouter/features-hosted-account-pool";
 import {
   changeHostedRepositorySessionSource,
   importHostedPoolAccount,
@@ -10,6 +13,25 @@ import {
   type HostedPoolDashboardMutationDependencies,
   type HostedPoolDeviceLoginDependencies,
 } from "./hosted-pool-dashboard";
+
+function safeAccount(
+  overrides: Partial<HostedAccountSafeSummary> = {},
+): HostedAccountSafeSummary {
+  return {
+    id: "account-1" as never,
+    label: "Primary",
+    priority: 10,
+    availability: { status: "healthy" },
+    healthVersion: 1,
+    authGeneration: 1,
+    validatedAt: new Date("2026-08-15T12:00:00.000Z"),
+    credentialExpiresAt: null,
+    refreshDue: false,
+    createdAt: new Date("2026-08-15T12:00:00.000Z"),
+    updatedAt: new Date("2026-08-15T12:00:00.000Z"),
+    ...overrides,
+  };
+}
 
 function mutationDependencies(
   overrides: Partial<HostedPoolDashboardMutationDependencies> = {},
@@ -25,7 +47,7 @@ function mutationDependencies(
       visibility: "private",
     })),
     mutations: {
-      importAccount: vi.fn(async () => undefined),
+      importAccount: vi.fn(async () => safeAccount()),
       setAccountState: vi.fn(async () => undefined),
       removeAccount: vi.fn(async () => undefined),
       setRepositorySource: vi.fn(async () => ({
@@ -141,6 +163,7 @@ describe("hosted pool dashboard boundary", () => {
       mutations: {
         importAccount: vi.fn(async () => {
           order.push("import");
+          return safeAccount();
         }),
         setAccountState: vi.fn(async () => undefined),
         removeAccount: vi.fn(async () => undefined),
@@ -223,6 +246,52 @@ describe("hosted pool dashboard boundary", () => {
     );
     expect(pending.status).toBe("pending");
     expect(JSON.stringify(pending)).not.toMatch(/device-auth-secret|refresh/iu);
+  });
+
+  it("returns the enrolled account for an immediate dashboard update", async () => {
+    const enrolled = safeAccount({
+      id: "account-new" as never,
+      label: "New account",
+    });
+    const dependencies = deviceLoginDependencies({
+      mutations: {
+        importAccount: vi.fn(async () => enrolled),
+        setAccountState: vi.fn(async () => undefined),
+        removeAccount: vi.fn(async () => undefined),
+        setRepositorySource: vi.fn(async () => ({
+          activation: "pending" as const,
+        })),
+      },
+      deviceAuth: {
+        requestUserCode: vi.fn(async () => ({
+          deviceAuthId: "device-auth-secret",
+          userCode: "ABCD-EFGH",
+          verificationUrl: "https://auth.openai.com/codex/device",
+          intervalSeconds: 3,
+        })),
+        pollAuthorization: vi.fn(async () => ({
+          status: "authorized" as const,
+          authorizationCode: "authorization-code",
+          codeVerifier: "code-verifier",
+        })),
+        exchangeAuthorizationCode: vi.fn(async () => ({
+          idToken: "id-token",
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+        })),
+      },
+    });
+    const started = await startHostedPoolDeviceLogin(
+      { workspaceId: "workspace-1", label: "New account", priority: 10 },
+      dependencies,
+    );
+
+    await expect(
+      pollHostedPoolDeviceLogin(
+        { workspaceId: "workspace-1", loginId: started.loginId },
+        dependencies,
+      ),
+    ).resolves.toMatchObject({ status: "imported", account: enrolled });
   });
 
   it("rejects unknown visibility before a hosted binding mutation", async () => {
