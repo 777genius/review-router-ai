@@ -341,13 +341,20 @@ describe("HostedPoolSettingsPanel", () => {
     expectNoCredentialLeak();
   });
 
-  it("keeps the custody UI absent when the feature gate is off", () => {
-    const { container } = renderPanel({
+  it("explains why Accounts is unavailable when the feature gate is off", () => {
+    renderPanel({
       gate: "feature_disabled",
       pool: null,
       accounts: [],
       repositories: [],
     });
-    expect(container.innerHTML).toBe("");
+    expect(
+      screen.getByRole("heading", {
+        name: "ChatGPT accounts are not enabled",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/nothing to manage on this page right now/i),
+    ).toBeTruthy();
   });
 });

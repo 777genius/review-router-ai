@@ -50,38 +50,51 @@ export function WorkspaceSourceConnectionPanel({
   readonly hasWorkspaceWideAccess: boolean;
   readonly mutationsEnabled: boolean;
 }): React.ReactElement {
-  const connectedCount = installations.length + gitLabInstallations.length;
+  const visibleInstallations = dedupeGitHubInstallations(installations);
+  const connectedCount =
+    visibleInstallations.length + gitLabInstallations.length;
   const addSourceOpen = connectedCount === 0;
 
   return (
-    <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 max-w-3xl">
-          <Badge tone="accent">Source of repositories</Badge>
-          <h3 className="mt-3 text-lg font-semibold text-cyan-50">
-            GitHub and GitLab connection
-          </h3>
-          <p className="mt-2 text-sm leading-6 text-slate-400">
-            This workspace is attached to a GitHub App install or a GitLab group
-            or project. Repositories on this page come from that connection.
-            ChatGPT logins used to run reviews are on{" "}
-            <a
-              href={dashboardSectionHref("setup", workspaceKey)}
-              className="text-cyan-100 underline decoration-cyan-300/40 underline-offset-4"
-            >
-              Accounts
-            </a>
-            , not here.
-          </p>
+    <details
+      {...(addSourceOpen ? { open: true } : {})}
+      className="group rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
+    >
+      <summary className="cursor-pointer list-none rounded-xl outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/40">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <Badge tone="accent">Repository sources</Badge>
+            <p className="mt-2 truncate text-sm text-slate-400">
+              {sourceSummary(visibleInstallations, gitLabInstallations)}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-xs uppercase tracking-[0.16em] text-cyan-100">
+              {connectedCount} connected
+            </span>
+            <span className="rounded-full border border-cyan-200/20 px-3 py-1.5 text-xs font-semibold text-cyan-100">
+              <span className="group-open:hidden">Manage</span>
+              <span className="hidden group-open:inline">Hide</span>
+            </span>
+          </div>
         </div>
-        <span className="font-mono text-xs uppercase tracking-[0.16em] text-cyan-100">
-          {connectedCount} connected
-        </span>
-      </div>
+      </summary>
 
-      {installations.length > 0 ? (
+      <p className="mt-5 border-t border-cyan-200/10 pt-5 text-sm leading-6 text-slate-400">
+        Repositories come from the GitHub App or GitLab connection shown here.
+        ChatGPT logins used to run reviews are managed under{" "}
+        <a
+          href={dashboardSectionHref("setup", workspaceKey)}
+          className="text-cyan-100 underline decoration-cyan-300/40 underline-offset-4"
+        >
+          Accounts
+        </a>
+        .
+      </p>
+
+      {visibleInstallations.length > 0 ? (
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {installations.map((installation) => (
+          {visibleInstallations.map((installation) => (
             <GitHubInstallCard
               key={`${workspaceId}-${installation.githubInstallationId}`}
               workspaceId={workspaceId}
@@ -140,8 +153,53 @@ export function WorkspaceSourceConnectionPanel({
           </div>
         </div>
       </details>
-    </section>
+    </details>
   );
+}
+
+function dedupeGitHubInstallations(
+  installations: readonly WorkspaceSourceInstallation[],
+): readonly WorkspaceSourceInstallation[] {
+  const byAccount = new Map<string, WorkspaceSourceInstallation>();
+  for (const installation of installations) {
+    const key =
+      `${installation.accountType}:${installation.accountLogin}`.toLowerCase();
+    const current = byAccount.get(key);
+    if (
+      !current ||
+      compareInstallationIds(
+        installation.githubInstallationId,
+        current.githubInstallationId,
+      ) > 0
+    ) {
+      byAccount.set(key, installation);
+    }
+  }
+  return [...byAccount.values()];
+}
+
+function compareInstallationIds(left: string, right: string): number {
+  if (/^[0-9]+$/u.test(left) && /^[0-9]+$/u.test(right)) {
+    const leftId = BigInt(left);
+    const rightId = BigInt(right);
+    return leftId === rightId ? 0 : leftId > rightId ? 1 : -1;
+  }
+  return left.localeCompare(right);
+}
+
+function sourceSummary(
+  installations: readonly WorkspaceSourceInstallation[],
+  gitLabInstallations: readonly WorkspaceGitLabInstallation[],
+): string {
+  const sources = [
+    ...installations.map(
+      (installation) => `GitHub: ${installation.accountLogin}`,
+    ),
+    ...gitLabInstallations.map(
+      (installation) => `GitLab: ${installation.namespacePath}`,
+    ),
+  ];
+  return sources.length > 0 ? sources.join(" / ") : "Connect GitHub or GitLab";
 }
 
 function GitHubInstallCard({

@@ -38,13 +38,13 @@ describe("WorkspaceSourceConnectionPanel", () => {
       />,
     );
 
-    expect(screen.getByText("Source of repositories")).toBeTruthy();
-    expect(screen.getByText("GitHub and GitLab connection")).toBeTruthy();
+    expect(screen.getByText("Repository sources")).toBeTruthy();
+    expect(screen.getByText("GitHub: Padelapp-Club")).toBeTruthy();
     expect(
       screen.getAllByText(/GitLab group or project/).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getByText(/Repositories on this page come from that connection/),
+      screen.getByText(/Repositories come from the GitHub App/),
     ).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Accounts" }).getAttribute("href"),
@@ -57,6 +57,43 @@ describe("WorkspaceSourceConnectionPanel", () => {
     expect(
       screen.queryByText("Installation sync and repository selection."),
     ).toBeNull();
+  });
+
+  it("collapses connected sources and hides stale duplicate installs", () => {
+    render(
+      <WorkspaceSourceConnectionPanel
+        workspaceId="workspace-1"
+        workspaceKey="777genius"
+        hasWorkspaceWideAccess
+        mutationsEnabled
+        repositories={[]}
+        gitLabInstallations={[]}
+        installations={[
+          {
+            accountLogin: "777genius",
+            accountType: "User",
+            accountAvatarUrl: null,
+            githubInstallationId: "100",
+            status: "active",
+            repositorySelection: "all",
+          },
+          {
+            accountLogin: "777genius",
+            accountType: "User",
+            accountAvatarUrl: null,
+            githubInstallationId: "200",
+            status: "active",
+            repositorySelection: "all",
+          },
+        ]}
+      />,
+    );
+
+    const panel = screen.getByText("Repository sources").closest("details");
+    expect(panel?.open).toBe(false);
+    expect(screen.getByText("1 connected")).toBeTruthy();
+    expect(screen.getAllByText("777genius")).toHaveLength(1);
+    expect(screen.getAllByText("Refresh repos")).toHaveLength(1);
   });
 
   it("keeps GitLab and extra GitHub install help collapsed when a source is already connected", () => {
