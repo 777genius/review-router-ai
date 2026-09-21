@@ -236,7 +236,7 @@ function identifier(value: unknown): void {
     invalid();
 }
 function validateGrant(value: unknown): Grant {
-  const v = record(value, [
+  const baseKeys = [
     "version",
     "grantId",
     "identity",
@@ -246,7 +246,12 @@ function validateGrant(value: unknown): Grant {
     "fence",
     "issuedAt",
     "expiresAt",
-  ]);
+  ] as const;
+  const legacy =
+    value !== null &&
+    typeof value === "object" &&
+    !Object.hasOwn(value, "authorityEpoch");
+  const v = record(value, legacy ? baseKeys : [...baseKeys, "authorityEpoch"]);
   version(v.version);
   identifier(v.grantId);
   validateIdentity(v.identity);
@@ -254,13 +259,21 @@ function validateGrant(value: unknown): Grant {
   validateBinding(v.binding);
   validateOwnerEvidence(v.ownerEvidence);
   integer(v.fence, 1);
+  // Zero is the stable, historical-only sentinel. Accepting it on a second
+  // validation pass keeps decoded legacy rows readable without ever treating
+  // them as a current authority generation (live epochs begin at one).
+  if (!legacy) integer(v.authorityEpoch, 0);
   integer(v.issuedAt);
   integer(v.expiresAt);
   if ((v.expiresAt as number) <= (v.issuedAt as number)) invalid();
+  // `v` is already the single detached validation snapshot. Preserve that
+  // boundary (and its aliasing guarantee) while normalizing legacy bytes to a
+  // historical-only epoch.
+  if (legacy) v.authorityEpoch = 0;
   return v as unknown as Grant;
 }
 function validateReceipt(value: unknown): Receipt {
-  const v = record(value, [
+  const baseKeys = [
     "version",
     "receiptId",
     "grantId",
@@ -271,18 +284,25 @@ function validateReceipt(value: unknown): Receipt {
     "reportDigest",
     "admitted",
     "reason",
-  ]);
+  ] as const;
+  const legacy =
+    value !== null &&
+    typeof value === "object" &&
+    !Object.hasOwn(value, "authorityEpoch");
+  const v = record(value, legacy ? baseKeys : [...baseKeys, "authorityEpoch"]);
   version(v.version);
   identifier(v.receiptId);
   identifier(v.grantId);
   validateIdentity(v.identity);
   validateBinding(v.binding);
   integer(v.fence, 1);
+  if (!legacy) integer(v.authorityEpoch, 0);
   integer(v.completedAt);
   digest(v.reportDigest);
   oneOf(v.admitted, [true, false]);
   oneOf(v.reason, ["admitted", "failed", "incomplete"]);
   if (v.admitted !== (v.reason === "admitted")) invalid();
+  if (legacy) v.authorityEpoch = 0;
   return v as unknown as Receipt;
 }
 /** Stable structural equality; object key order is immaterial, array order is contractual. */

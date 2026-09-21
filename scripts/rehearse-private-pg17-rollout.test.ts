@@ -1292,6 +1292,7 @@ describe("disposable dual-version rehearsal", () => {
       "000100_hosted_codex_device_login",
       "000101_sdk_growth_authority",
       "000102_sdk_growth_current_authority",
+      "000103_sdk_growth_authority_custody",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1333,7 +1334,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000099_certified_fork_proof_facts" &&
             name !== "000100_hosted_codex_device_login" &&
             name !== "000101_sdk_growth_authority" &&
-            name !== "000102_sdk_growth_current_authority",
+            name !== "000102_sdk_growth_current_authority" &&
+            name !== "000103_sdk_growth_authority_custody",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1348,7 +1350,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000099_certified_fork_proof_facts" &&
             name !== "000100_hosted_codex_device_login" &&
             name !== "000101_sdk_growth_authority" &&
-            name !== "000102_sdk_growth_current_authority",
+            name !== "000102_sdk_growth_current_authority" &&
+            name !== "000103_sdk_growth_authority_custody",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1370,12 +1373,12 @@ describe("disposable dual-version rehearsal", () => {
   });
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
-    const exact99 = "000099_certified_fork_proof_facts";
+    const exact103 = "000103_sdk_growth_authority_custody";
     for (const candidate of [
-      names.filter((name) => name !== exact99),
-      [...names, exact99],
-      names.map((name) => (name === exact99 ? "000099_unknown" : name)),
-      [...names, "000100_future_migration"],
+      names.filter((name) => name !== exact103),
+      [...names, exact103],
+      names.map((name) => (name === exact103 ? "000103_unknown" : name)),
+      [...names, "000104_future_migration"],
     ]) {
       expect(() => resolvePreReleaseMigrationExclusions(candidate)).toThrow(
         "private_pg17_rehearsal_migration_boundary_unclassified",
@@ -1389,6 +1392,7 @@ describe("disposable dual-version rehearsal", () => {
     "000100_hosted_codex_device_login",
     "000101_sdk_growth_authority",
     "000102_sdk_growth_current_authority",
+    "000103_sdk_growth_authority_custody",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1419,7 +1423,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000099_certified_fork_proof_facts" &&
                 name !== "000100_hosted_codex_device_login" &&
                 name !== "000101_sdk_growth_authority" &&
-                name !== "000102_sdk_growth_current_authority",
+                name !== "000102_sdk_growth_current_authority" &&
+                name !== "000103_sdk_growth_authority_custody",
               "000102_sdk_growth_current_authority",
             ),
           ),

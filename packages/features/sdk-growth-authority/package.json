@@ -19,6 +19,11 @@
       "production": "./dist/infrastructure/prisma/prisma-receipt-repository.js",
       "default": "./src/infrastructure/prisma/prisma-receipt-repository.ts"
     },
+    "./infrastructure/custody": {
+      "types": "./src/infrastructure/prisma/prisma-authority-custody.ts",
+      "production": "./dist/infrastructure/prisma/prisma-authority-custody.js",
+      "default": "./src/infrastructure/prisma/prisma-authority-custody.ts"
+    },
     "./infrastructure/current-authority": {
       "types": "./src/infrastructure/prisma/prisma-current-authority.ts",
       "production": "./dist/infrastructure/prisma/prisma-current-authority.js",

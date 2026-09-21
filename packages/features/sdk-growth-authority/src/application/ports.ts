@@ -17,6 +17,8 @@ export interface AuthorityIoBudget {
 }
 
 export interface CurrentAuthoritySnapshot {
+  /** Monotonic canonical-authority generation held through decision commit. */
+  readonly epoch: number;
   readonly binding: Binding;
   readonly ownerEvidence: OwnerEvidence;
 }

@@ -177,6 +177,11 @@ import {
   registerCertifiedForkLiveReviewRoutes,
 } from "./certified-fork-live-review-routes.js";
 import { composeProductionCertifiedForkLiveReview } from "./certified-fork-live-review-composition.js";
+import {
+  registerSdkGrowthAuthorityRoutes,
+  type RegisterSdkGrowthAuthorityRoutesDependencies,
+} from "./sdk-growth-authority-routes.js";
+import { composeProductionSdkGrowthAuthorityRoutes } from "./sdk-growth-authority-composition.js";
 
 export type CreateApiAppOptions = {
   readonly githubWebhookSecret?: string;
@@ -206,6 +211,7 @@ export type CreateApiAppOptions = {
   readonly hostedPoolOperatorConnect?: HostedPoolOperatorConnect;
   readonly hostedCodexRelayDependencies?: RegisterHostedCodexRelayRoutesDependencies;
   readonly certifiedForkLiveReviewDependencies?: CertifiedForkLiveReviewDependencies;
+  readonly sdkGrowthAuthorityDependencies?: RegisterSdkGrowthAuthorityRoutesDependencies;
   readonly prisma?: PrismaClient;
   readonly commentTokenCustodyPrisma?: PrismaClient;
 };
@@ -239,6 +245,8 @@ export async function createApiApp(
     reviewActionV2Env.REVIEW_ROUTER_REVIEW_V2_RUN_CONTROL_ENABLED === "1";
   const hostedCodexFeatureFlags =
     readHostedCodexFeatureFlags(reviewActionV2Env);
+  const sdkGrowthAuthorityEnabled =
+    reviewActionV2Env.REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED === "1";
   assertHostedCodexProductionReadiness(reviewActionV2Env, "api");
   const prisma =
     options.prisma ??
@@ -250,7 +258,8 @@ export async function createApiApp(
     investigationEvaluationImportCredentialSha256 ||
     hostedCodexFeatureFlags.custody ||
     hostedCodexFeatureFlags.admission ||
-    hostedCodexFeatureFlags.relay
+    hostedCodexFeatureFlags.relay ||
+    sdkGrowthAuthorityEnabled
       ? createPrismaClient()
       : undefined);
   const codexEffectAuthorityDatabaseUrl =
@@ -305,6 +314,31 @@ export async function createApiApp(
     ...definedOption("model", process.env.REVIEW_ROUTER_DEFAULT_MODEL),
     ...definedOption("effort", process.env.REVIEW_ROUTER_DEFAULT_EFFORT),
   });
+
+  const sdkGrowthAuthorityDependencies =
+    options.sdkGrowthAuthorityDependencies ??
+    (sdkGrowthAuthorityEnabled
+      ? (() => {
+          if (!prisma)
+            throw new Error("sdk_growth_authority_prisma_unavailable");
+          const audience =
+            reviewActionV2Env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE?.trim();
+          const githubAppId = reviewActionV2Env.GITHUB_APP_ID?.trim();
+          const githubAppPrivateKey =
+            readGitHubAppPrivateKey(reviewActionV2Env);
+          if (!audience || !githubAppId || !githubAppPrivateKey)
+            throw new Error("sdk_growth_authority_configuration_missing");
+          return composeProductionSdkGrowthAuthorityRoutes({
+            prisma,
+            audience,
+            githubAppId,
+            githubAppPrivateKey,
+          });
+        })()
+      : undefined);
+  if (sdkGrowthAuthorityDependencies) {
+    await registerSdkGrowthAuthorityRoutes(app, sdkGrowthAuthorityDependencies);
+  }
 
   const hostedCodexRelayDependencies =
     options.hostedCodexRelayDependencies ??
