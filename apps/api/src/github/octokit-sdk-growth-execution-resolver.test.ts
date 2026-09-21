@@ -83,7 +83,12 @@ describe("Octokit SDK growth execution resolver", () => {
     { sha: "4".repeat(40) },
     { sha: undefined },
     { tree: { sha: "invalid" } },
-  ])("rejects commit/tree evidence that does not bind the run head %#", async (change) => {
-    await expect(resolver({}, change).value.resolve(input)).resolves.toBeNull();
-  });
+  ])(
+    "rejects commit/tree evidence that does not bind the run head %#",
+    async (change) => {
+      await expect(
+        resolver({}, change).value.resolve(input),
+      ).resolves.toBeNull();
+    },
+  );
 });

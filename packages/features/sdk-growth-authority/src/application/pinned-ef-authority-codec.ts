@@ -186,8 +186,16 @@ function binary(value: unknown): Uint8Array {
   const end = value.length - padding;
   for (let index = 0; index < end; index++) {
     const code = value.charCodeAt(index);
-    if (!((code >= 65 && code <= 90) || (code >= 97 && code <= 122) ||
-      (code >= 48 && code <= 57) || code === 43 || code === 47)) invalid();
+    if (
+      !(
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        (code >= 48 && code <= 57) ||
+        code === 43 ||
+        code === 47
+      )
+    )
+      invalid();
   }
   for (let index = end; index < value.length; index++)
     if (value.charCodeAt(index) !== 61) invalid();

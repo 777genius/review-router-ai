@@ -95,7 +95,14 @@ export function storageRecord(
         value.intent === null &&
         value.dispatched === false,
     );
-    normalized = { grant, revoked: value.revoked, completion: null, receipt: null, intent: null, dispatched: value.dispatched };
+    normalized = {
+      grant,
+      revoked: value.revoked,
+      completion: null,
+      receipt: null,
+      intent: null,
+      dispatched: value.dispatched,
+    };
   } else {
     const completion = parseCompletion(value.completion);
     const receipt = parseReceipt(value.receipt);
@@ -114,13 +121,27 @@ export function storageRecord(
     exact(value.intent, ["version", "intentId", "receipt"]);
     const intentReceipt = parseReceipt(value.intent.receipt);
     requireStorage(
-      equal({ ...value.intent, receipt: intentReceipt }, {
+      equal(
+        { ...value.intent, receipt: intentReceipt },
+        {
+          version: 1,
+          intentId: receipt.receiptId,
+          receipt,
+        },
+      ),
+    );
+    normalized = {
+      grant,
+      revoked: value.revoked,
+      completion,
+      receipt,
+      intent: {
         version: 1,
         intentId: receipt.receiptId,
-        receipt,
-      }),
-    );
-    normalized = { grant, revoked: value.revoked, completion, receipt, intent: { version: 1, intentId: receipt.receiptId, receipt: intentReceipt }, dispatched: value.dispatched };
+        receipt: intentReceipt,
+      },
+      dispatched: value.dispatched,
+    };
   }
   // Seven scope arrays at most: 7 * 1024 * (256 ASCII bytes + 3 JSON bytes)
   // = 1,856,512 bytes. All remaining bounded metadata fits in 100KB, including
