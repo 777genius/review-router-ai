@@ -17,6 +17,7 @@ export interface FinalizedVerifierReportRecord {
   readonly producer: "reviewrouter-verifier";
   readonly candidateWritable: false;
   readonly repositoryId: string;
+  readonly pullRequest: number;
   readonly runId: string;
   readonly runAttempt: string;
   readonly verifierRevision: string;
@@ -85,6 +86,7 @@ export class SdkGrowthVerifierCustody implements TrustedVerifierCustodyPort {
       record.producer !== "reviewrouter-verifier" ||
       record.candidateWritable !== false ||
       record.repositoryId !== input.execution.repositoryId ||
+      record.pullRequest !== input.execution.pullRequest ||
       record.runId !== input.execution.runId ||
       record.runAttempt !== input.execution.runAttempt ||
       record.verifierRevision !== input.execution.verifierRevision ||
@@ -120,9 +122,10 @@ export class PrismaSdkGrowthVerifierEvidenceSource implements SdkGrowthVerifierE
   async load(execution: AuthenticatedEfExecution) {
     const [value] = await this.prisma.$queryRaw`
       SELECT * FROM "SdkGrowthVerifierEvidence"
-      WHERE "evidenceId" = ${executionId(execution)}
+      WHERE "evidenceId" = ${sdkGrowthVerifierExecutionId(execution)}
         AND "tenantId" = ${execution.tenantId}
         AND "repositoryId" = ${execution.repositoryId}
+        AND "pullRequest" = ${execution.pullRequest}
         AND "githubRepositoryId" = ${execution.githubRepositoryId}
         AND "installationId" = ${execution.installationId}
         AND "subject" = ${execution.subject}
@@ -169,12 +172,13 @@ export class PrismaSdkGrowthVerifierEvidenceSource implements SdkGrowthVerifierE
     reportDigest: string,
   ) {
     const [value] = await this.prisma.$queryRaw`
-      SELECT r.* FROM "SdkGrowthFinalizedReportEvidence" r
+      SELECT r.*, e."pullRequest" FROM "SdkGrowthFinalizedReportEvidence" r
       JOIN "SdkGrowthVerifierEvidence" e ON e."evidenceId" = r."evidenceId"
-      WHERE r."evidenceId" = ${executionId(execution)}
+      WHERE r."evidenceId" = ${sdkGrowthVerifierExecutionId(execution)}
         AND r."reportDigest" = ${reportDigest}
         AND e."tenantId" = ${execution.tenantId}
         AND e."repositoryId" = ${execution.repositoryId}
+        AND e."pullRequest" = ${execution.pullRequest}
         AND e."githubRepositoryId" = ${execution.githubRepositoryId}
         AND e."installationId" = ${execution.installationId}
         AND e."subject" = ${execution.subject}
@@ -192,6 +196,7 @@ export class PrismaSdkGrowthVerifierEvidenceSource implements SdkGrowthVerifierE
       producer: row.producer as "reviewrouter-verifier",
       candidateWritable: row.candidateWritable as false,
       repositoryId: String(row.repositoryId),
+      pullRequest: Number(row.pullRequest),
       runId: String(row.runId),
       runAttempt: String(row.runAttempt),
       verifierRevision: String(row.verifierRevision),
@@ -214,12 +219,15 @@ function sameStrings(left: readonly string[], right: readonly string[]) {
   );
 }
 
-function executionId(execution: AuthenticatedEfExecution) {
+export function sdkGrowthVerifierExecutionId(
+  execution: AuthenticatedEfExecution,
+) {
   return createHash("sha256")
     .update(
       JSON.stringify([
         execution.tenantId,
         execution.repositoryId,
+        execution.pullRequest,
         execution.githubRepositoryId,
         execution.installationId,
         execution.subject,

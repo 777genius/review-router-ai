@@ -3879,8 +3879,8 @@ model SdkGrowthAuthorityCustody {
   finalizedReport             Bytes?
   receiptDigest               String?                     @db.VarChar(71)
   receiptWire                 Bytes?
-  createdAt                   DateTime                    @default(now())
-  completedAt                 DateTime?
+  createdAt                   DateTime                    @default(now()) @db.Timestamptz(3)
+  completedAt                 DateTime?                   @db.Timestamptz(3)
   publication                 SdkGrowthPublicationEffect?
 
   @@unique([tenantId, repositoryId, pullRequest, runId, runAttempt, verifierRevision, requestDigest], map: "SdkGrowthAuthorityCustody_request_key")
@@ -3896,9 +3896,9 @@ model SdkGrowthPublicationEffect {
   claimVersion        BigInt                    @default(0)
   attemptId           String?
   providerCorrelation String?
-  createdAt           DateTime                  @default(now())
-  updatedAt           DateTime                  @updatedAt
-  custody             SdkGrowthAuthorityCustody @relation(fields: [custodyId], references: [custodyId], onDelete: Restrict, onUpdate: NoAction)
+  createdAt           DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime                  @default(now()) @updatedAt @db.Timestamptz(3)
+  custody             SdkGrowthAuthorityCustody @relation(fields: [custodyId], references: [custodyId], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([state, createdAt], map: "SdkGrowthPublicationEffect_pending_idx")
 }
@@ -3908,6 +3908,7 @@ model SdkGrowthVerifierEvidence {
   evidenceId                   String   @id
   tenantId                    String   @db.VarChar(256)
   repositoryId                String   @db.VarChar(256)
+  pullRequest                 BigInt
   githubRepositoryId          String   @db.VarChar(256)
   installationId              String   @db.VarChar(256)
   subject                     String   @db.VarChar(256)
@@ -3930,10 +3931,10 @@ model SdkGrowthVerifierEvidence {
   toolArchiveSha512Sri        String   @db.VarChar(95)
   installedDistributionWire   Bytes
   installedDistributionDigest String   @db.VarChar(71)
-  createdAt                    DateTime @default(now())
+  createdAt                    DateTime @default(now()) @db.Timestamptz(3)
   reports                      SdkGrowthFinalizedReportEvidence[]
 
-  @@index([tenantId, repositoryId, runId, runAttempt], map: "SdkGrowthVerifierEvidence_execution_idx")
+  @@index([tenantId, repositoryId, pullRequest, runId, runAttempt], map: "SdkGrowthVerifierEvidence_execution_idx")
 }
 
 model SdkGrowthFinalizedReportEvidence {
@@ -3952,8 +3953,8 @@ model SdkGrowthFinalizedReportEvidence {
   coverage          String
   coveredScopes     Json
   phases            Json
-  createdAt         DateTime                  @default(now())
-  evidence          SdkGrowthVerifierEvidence @relation(fields: [evidenceId], references: [evidenceId], onDelete: Restrict, onUpdate: NoAction)
+  createdAt         DateTime                  @default(now()) @db.Timestamptz(3)
+  evidence          SdkGrowthVerifierEvidence @relation(fields: [evidenceId], references: [evidenceId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([evidenceId, reportDigest], map: "SdkGrowthFinalizedReportEvidence_digest_key")
 }

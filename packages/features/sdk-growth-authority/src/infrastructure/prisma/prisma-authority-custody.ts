@@ -77,28 +77,22 @@ interface CustodyRow {
   publicationState: AuthorityCustodyRead["publicationState"] | null;
 }
 
-function scopedKey(
-  scope: AuthorityScope,
-  execution: AuthenticatedEfExecution,
-): string {
+function scopedKey(execution: AuthenticatedEfExecution): string {
   return JSON.stringify([
     execution.tenantId,
     execution.repositoryId,
+    execution.pullRequest,
     execution.githubRepositoryId,
     execution.installationId,
     execution.subject,
     execution.runId,
     execution.runAttempt,
     execution.verifierRevision,
-    scope.pullRequest,
   ]);
 }
 
-function id(
-  scope: AuthorityScope,
-  execution: AuthenticatedEfExecution,
-): string {
-  return createHash("sha256").update(scopedKey(scope, execution)).digest("hex");
+function id(execution: AuthenticatedEfExecution): string {
+  return createHash("sha256").update(scopedKey(execution)).digest("hex");
 }
 
 function assertScope(
@@ -108,6 +102,7 @@ function assertScope(
   if (
     scope.tenantId !== execution.tenantId ||
     scope.repositoryId !== execution.repositoryId ||
+    scope.pullRequest !== execution.pullRequest ||
     !Number.isSafeInteger(scope.pullRequest) ||
     scope.pullRequest < 1
   )
@@ -146,6 +141,7 @@ function sameExecution(
   return (
     row.tenantId === value.tenantId &&
     row.repositoryId === value.repositoryId &&
+    row.pullRequest === BigInt(value.pullRequest) &&
     row.githubRepositoryId === value.githubRepositoryId &&
     row.installationId === value.installationId &&
     row.subject === value.subject &&
@@ -216,8 +212,8 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
     value: AuthorityCustodyAdmission,
   ): Promise<AuthorityCustodyRead> {
     assertScope(scope, value.execution);
-    const custodyId = id(scope, value.execution);
-    const executionKey = scopedKey(scope, value.execution);
+    const custodyId = id(value.execution);
+    const executionKey = scopedKey(value.execution);
     const execute = async (
       tx: CustodyTransaction,
     ): Promise<AuthorityCustodyRead> => {
@@ -274,8 +270,8 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
     value: AuthorityCustodyCompletion,
   ): Promise<AuthorityCustodyRead> {
     assertScope(scope, value.execution);
-    const custodyId = id(scope, value.execution);
-    const executionKey = scopedKey(scope, value.execution);
+    const custodyId = id(value.execution);
+    const executionKey = scopedKey(value.execution);
     const execute = async (
       tx: CustodyTransaction,
     ): Promise<AuthorityCustodyRead> => {
@@ -337,7 +333,7 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
       SELECT c.*, p."state" AS "publicationState"
       FROM "SdkGrowthAuthorityCustody" c
       LEFT JOIN "SdkGrowthPublicationEffect" p ON p."custodyId" = c."custodyId"
-      WHERE c."custodyId" = ${id(scope, execution)}
+      WHERE c."custodyId" = ${id(execution)}
         AND c."tenantId" = ${execution.tenantId}
         AND c."repositoryId" = ${execution.repositoryId}
         AND c."pullRequest" = ${scope.pullRequest}
@@ -360,7 +356,7 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
       SELECT c.*, p."state" AS "publicationState"
       FROM "SdkGrowthAuthorityCustody" c
       LEFT JOIN "SdkGrowthPublicationEffect" p ON p."custodyId" = c."custodyId"
-      WHERE c."custodyId" = ${id(scope, execution)}
+      WHERE c."custodyId" = ${id(execution)}
         AND c."tenantId" = ${execution.tenantId}
         AND c."repositoryId" = ${execution.repositoryId}
         AND c."pullRequest" = ${scope.pullRequest}
@@ -414,7 +410,8 @@ export class PrismaEfAuthorityDecisionTransaction implements EfAuthorityDecision
   ): Promise<T> {
     if (
       scope.tenantId !== execution.tenantId ||
-      scope.repositoryId !== execution.repositoryId
+      scope.repositoryId !== execution.repositoryId ||
+      scope.pullRequest !== execution.pullRequest
     )
       throw new AuthorityError("wrong-identity");
     const authorityKey = JSON.stringify([
@@ -422,7 +419,7 @@ export class PrismaEfAuthorityDecisionTransaction implements EfAuthorityDecision
       scope.repositoryId,
       scope.pullRequest,
     ]);
-    const executionKey = scopedKey(scope, execution);
+    const executionKey = scopedKey(execution);
     return this.prisma.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtextextended(${authorityKey}, 0))`;

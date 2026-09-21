@@ -70,6 +70,7 @@ CREATE TABLE "SdkGrowthVerifierEvidence" (
   "evidenceId" TEXT PRIMARY KEY,
   "tenantId" VARCHAR(256) NOT NULL,
   "repositoryId" VARCHAR(256) NOT NULL,
+  "pullRequest" BIGINT NOT NULL CHECK ("pullRequest" BETWEEN 1 AND 9007199254740991),
   "githubRepositoryId" VARCHAR(256) NOT NULL,
   "installationId" VARCHAR(256) NOT NULL,
   "subject" VARCHAR(256) NOT NULL,
@@ -95,7 +96,7 @@ CREATE TABLE "SdkGrowthVerifierEvidence" (
   "createdAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX "SdkGrowthVerifierEvidence_execution_idx"
-  ON "SdkGrowthVerifierEvidence" ("tenantId", "repositoryId", "runId", "runAttempt");
+  ON "SdkGrowthVerifierEvidence" ("tenantId", "repositoryId", "pullRequest", "runId", "runAttempt");
 
 CREATE TABLE "SdkGrowthFinalizedReportEvidence" (
   "reportEvidenceId" TEXT PRIMARY KEY,

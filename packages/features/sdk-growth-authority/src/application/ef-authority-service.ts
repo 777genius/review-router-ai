@@ -24,6 +24,7 @@ export const efSuccessorCompatibilityTodo = Object.freeze([
 export interface AuthenticatedEfExecution {
   readonly tenantId: string;
   readonly repositoryId: string;
+  readonly pullRequest: number;
   readonly githubRepositoryId: string;
   readonly installationId: string;
   readonly subject: string;
@@ -331,13 +332,13 @@ export class EfAuthorityService {
     pullRequest: number,
     input: unknown,
   ): Promise<Uint8Array> {
+    assertRouteExecution(execution, repositoryId, pullRequest);
     const decoded = this.codec.decodeAdmission(input);
     if (decoded.adapterVersion !== efAuthorityAdapterVersion)
       throw new AuthorityError("invalid-contract");
     assertExecution(execution, decoded.assertions);
     if (
       decoded.request.repositoryId !== repositoryId ||
-      decoded.request.repositoryId !== execution.repositoryId ||
       decoded.request.pullRequest !== pullRequest
     )
       throw new AuthorityError("wrong-identity");
@@ -434,13 +435,13 @@ export class EfAuthorityService {
     pullRequest: number,
     input: unknown,
   ): Promise<Uint8Array> {
+    assertRouteExecution(execution, repositoryId, pullRequest);
     const decoded = this.codec.decodeCompletion(input);
     if (decoded.adapterVersion !== efAuthorityAdapterVersion)
       throw new AuthorityError("invalid-contract");
     assertExecution(execution, decoded.assertions);
     if (
       decoded.completion.binding.repositoryId !== repositoryId ||
-      repositoryId !== execution.repositoryId ||
       decoded.completion.binding.pullRequest !== pullRequest
     )
       throw new AuthorityError("wrong-identity");
@@ -516,6 +517,7 @@ export class EfAuthorityService {
     pullRequest: number,
     requestDigest: string,
   ): Promise<Uint8Array | null> {
+    assertRouteExecution(execution, repositoryId, pullRequest);
     const retained = await this.transactions.transact(
       execution,
       { tenantId: execution.tenantId, repositoryId, pullRequest },
@@ -536,6 +538,7 @@ export class EfAuthorityService {
     requestDigest: string,
     completionDigest: string,
   ): Promise<Uint8Array | null> {
+    assertRouteExecution(execution, repositoryId, pullRequest);
     const retained = await this.transactions.transact(
       execution,
       { tenantId: execution.tenantId, repositoryId, pullRequest },
@@ -561,6 +564,7 @@ export class EfAuthorityService {
       })
     | null
   > {
+    assertRouteExecution(execution, repositoryId, pullRequest);
     return this.transactions.transact(
       execution,
       { tenantId: execution.tenantId, repositoryId, pullRequest },
@@ -590,6 +594,18 @@ export class EfAuthorityService {
       },
     );
   }
+}
+
+function assertRouteExecution(
+  execution: AuthenticatedEfExecution,
+  repositoryId: string,
+  pullRequest: number,
+): void {
+  if (
+    execution.repositoryId !== repositoryId ||
+    execution.pullRequest !== pullRequest
+  )
+    throw new AuthorityError("wrong-identity");
 }
 
 function isStaleAuthority(error: unknown): boolean {

@@ -121,6 +121,7 @@ describe("SDK growth OIDC authentication", () => {
     ).resolves.toEqual({
       tenantId: "tenant",
       repositoryId: "repo",
+      pullRequest: 42,
       githubRepositoryId: "123",
       installationId: "789",
       subject: "repo:acme/repo:pull_request",
@@ -211,6 +212,7 @@ describe("SDK growth authority routes", () => {
     const execution = {
       tenantId: "tenant",
       repositoryId: "repo",
+      pullRequest: 42,
     } as AuthenticatedEfExecution;
     const service = {
       admit: vi.fn().mockResolvedValue(Buffer.from("grant")),
@@ -291,6 +293,7 @@ describe("SDK growth authority routes", () => {
     const execution = {
       tenantId: "tenant",
       repositoryId: "repo",
+      pullRequest: 99,
     } as AuthenticatedEfExecution;
     const service = {
       admissionReadback: vi.fn().mockResolvedValue(null),
@@ -447,9 +450,11 @@ it.each([
     const authenticate =
       stage === "auth"
         ? vi.fn().mockRejectedValue(error)
-        : vi
-            .fn()
-            .mockResolvedValue({ tenantId: "tenant", repositoryId: "repo" });
+        : vi.fn().mockResolvedValue({
+            tenantId: "tenant",
+            repositoryId: "repo",
+            pullRequest: 42,
+          });
     const fail = vi.fn().mockRejectedValue(error);
     await registerSdkGrowthAuthorityRoutes(app, {
       authentication: { authenticate },

@@ -5,11 +5,14 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SdkGrowthAuthority } from "../application/authority.js";
-import type {
-  AuthenticatedEfExecution,
-  AuthorityCustodyAdmission,
-  AuthorityCustodyCompletion,
+import {
+  EfAuthorityService,
+  type AuthenticatedEfExecution,
+  type AuthorityCustodyAdmission,
+  type AuthorityCustodyCompletion,
+  type DecodedEfAdmission,
 } from "../application/ef-authority-service.js";
+import { PinnedEfAuthorityCodecV1 } from "../application/pinned-ef-authority-codec.js";
 import type {
   CanonicalAuthorityMaterial,
   CurrentAuthoritySnapshotPort,
@@ -30,6 +33,11 @@ import {
   PrismaEfAuthorityDecisionTransaction,
 } from "../infrastructure/prisma/prisma-authority-custody.js";
 import { PrismaReceiptRepository } from "../infrastructure/prisma/prisma-receipt-repository.js";
+import {
+  PrismaSdkGrowthVerifierEvidenceSource,
+  SdkGrowthVerifierCustody,
+  sdkGrowthVerifierExecutionId,
+} from "../../../../../apps/api/src/sdk-growth-verifier-custody.js";
 
 const url = process.env.SDK_GROWTH_TEST_DATABASE_URL;
 const schema = "sdk_growth_lane_a_" + randomUUID().replaceAll("-", "");
@@ -50,6 +58,29 @@ const digest = (value: Uint8Array) =>
 const sri = (value: Uint8Array) =>
   "sha512-" + createHash("sha512").update(value).digest("base64");
 const constantDigest = "sha256:" + "a".repeat(64);
+
+function admissionEnvelope(value: DecodedEfAdmission) {
+  const binary = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
+  const retainedArchive = (item: DecodedEfAdmission["candidateArchive"]) => ({
+    bytes: binary(item.bytes),
+    sha256: item.sha256,
+    sha512Sri: item.sha512Sri,
+  });
+  return {
+    adapterVersion: 1,
+    kind: "request",
+    requestWire: binary(value.requestWire),
+    requestDigest: value.requestDigest,
+    request: value.request,
+    assertions: value.assertions,
+    authorityBinding: value.authorityBinding,
+    candidateArchive: retainedArchive(value.candidateArchive),
+    releasedArchive: retainedArchive(value.releasedArchive),
+    toolArchive: retainedArchive(value.toolArchive),
+    installedDistributionWire: binary(value.installedDistributionWire),
+    installedDistributionDigest: value.installedDistributionDigest,
+  };
+}
 
 function fixture() {
   const tenantId = randomUUID();
@@ -123,6 +154,7 @@ function executionFor(
   return {
     tenantId: f.identity.tenantId,
     repositoryId: f.identity.repositoryId,
+    pullRequest: f.scope.pullRequest,
     githubRepositoryId: "123",
     installationId: "456",
     subject: f.identity.subject,
@@ -213,12 +245,12 @@ describe.skipIf(!url)(
       const bytes = Buffer.from("archive");
       const insert = (binding: string) => db.$executeRaw`
         INSERT INTO "SdkGrowthVerifierEvidence" (
-          "evidenceId", "tenantId", "repositoryId", "githubRepositoryId", "installationId", "subject",
+          "evidenceId", "tenantId", "repositoryId", "pullRequest", "githubRepositoryId", "installationId", "subject",
           "runId", "runAttempt", "verifierRevision", "sourceCommit", "sourceTree", "producer", "authorityBinding",
           "candidateArchive", "candidateArchiveSha256", "candidateArchiveSha512Sri",
           "releasedArchive", "releasedArchiveSha256", "releasedArchiveSha512Sri",
           "toolArchive", "toolArchiveSha256", "toolArchiveSha512Sri", "installedDistributionWire", "installedDistributionDigest"
-        ) VALUES (${randomUUID()}, ${f.identity.tenantId}, 'repo', '123', '456', 'runner', 'max-scopes', '1',
+        ) VALUES (${randomUUID()}, ${f.identity.tenantId}, 'repo', 42, '123', '456', 'runner', 'max-scopes', '1',
           ${"8".repeat(40)}, ${f.binding.head}, ${"9".repeat(40)}, 'reviewrouter-verifier', ${binding}::jsonb,
           ${bytes}, ${digest(bytes)}, ${sri(bytes)}, ${bytes}, ${digest(bytes)}, ${sri(bytes)},
           ${bytes}, ${digest(bytes)}, ${sri(bytes)}, ${bytes}, ${digest(bytes)})`;
@@ -232,6 +264,227 @@ describe.skipIf(!url)(
       await expect(
         insert(JSON.stringify({ padding: "x".repeat(400_000) })),
       ).rejects.toThrow();
+    });
+
+    it("keeps production verifier reads and finalized reports isolated for two PRs in one execution", async () => {
+      const f = fixture();
+      const archiveBytes = Buffer.from("archive");
+      const distribution = Buffer.from("distribution");
+      const archive = {
+        bytes: archiveBytes,
+        sha256: digest(archiveBytes),
+        sha512Sri: sri(archiveBytes),
+      };
+      const execution42 = executionFor(f, "shared-run");
+      const execution99 = { ...execution42, pullRequest: 99 };
+      const binding42 = f.binding;
+      const binding99 = { ...f.binding, pullRequest: 99 };
+
+      const insertEvidence = async (
+        execution: AuthenticatedEfExecution,
+        binding: Binding,
+      ) => {
+        await db.$executeRaw`
+          INSERT INTO "SdkGrowthVerifierEvidence" (
+            "evidenceId", "tenantId", "repositoryId", "pullRequest", "githubRepositoryId", "installationId", "subject",
+            "runId", "runAttempt", "verifierRevision", "sourceCommit", "sourceTree", "producer", "authorityBinding",
+            "candidateArchive", "candidateArchiveSha256", "candidateArchiveSha512Sri",
+            "releasedArchive", "releasedArchiveSha256", "releasedArchiveSha512Sri",
+            "toolArchive", "toolArchiveSha256", "toolArchiveSha512Sri", "installedDistributionWire", "installedDistributionDigest"
+          ) VALUES (
+            ${sdkGrowthVerifierExecutionId(execution)}, ${execution.tenantId}, ${execution.repositoryId}, ${execution.pullRequest},
+            ${execution.githubRepositoryId}, ${execution.installationId}, ${execution.subject}, ${execution.runId},
+            ${execution.runAttempt}, ${execution.verifierRevision}, ${execution.sourceCommit}, ${execution.sourceTree},
+            'reviewrouter-verifier', ${JSON.stringify(binding)}::jsonb, ${archiveBytes}, ${archive.sha256}, ${archive.sha512Sri},
+            ${archiveBytes}, ${archive.sha256}, ${archive.sha512Sri}, ${archiveBytes}, ${archive.sha256}, ${archive.sha512Sri},
+            ${distribution}, ${digest(distribution)})`;
+      };
+      await insertEvidence(execution42, binding42);
+      await insertEvidence(execution99, binding99);
+
+      const source = new PrismaSdkGrowthVerifierEvidenceSource(db);
+      const verifier = new SdkGrowthVerifierCustody(source);
+      const transactions = {
+        async transact(
+          execution: AuthenticatedEfExecution,
+          scope: typeof f.scope,
+          operation: (context: never) => Promise<unknown>,
+        ) {
+          const binding = scope.pullRequest === 42 ? binding42 : binding99;
+          const authority = {
+            async request(
+              identity: typeof f.identity,
+              request: typeof f.request,
+            ) {
+              return {
+                grantId: `grant-${scope.pullRequest}`,
+                identity,
+                request,
+                binding,
+                ownerEvidence: f.evidence(binding),
+                fence: 1,
+                authorityEpoch: 1,
+                issuedAt: 100,
+                expiresAt: 1_000,
+              };
+            },
+          };
+          const custody = {
+            async readExecution() {
+              return null;
+            },
+            async retainAdmission(
+              _scope: typeof f.scope,
+              value: AuthorityCustodyAdmission,
+            ) {
+              return {
+                requestDigest: value.requestDigest,
+                grantDigest: value.grantDigest,
+                grantWire: value.grantWire,
+                completionDigest: null,
+                receiptDigest: null,
+                receiptWire: null,
+                publicationState: "absent" as const,
+              };
+            },
+          };
+          expect(execution.pullRequest).toBe(scope.pullRequest);
+          return operation({ authority, custody } as never);
+        },
+      };
+      const service = new EfAuthorityService(
+        transactions as never,
+        new PinnedEfAuthorityCodecV1(),
+        verifier,
+      );
+      const admission = (
+        execution: AuthenticatedEfExecution,
+        binding: Binding,
+      ): DecodedEfAdmission => {
+        const assertions = {
+          repositoryId: execution.repositoryId,
+          installationId: execution.installationId,
+          runId: execution.runId,
+          runAttempt: execution.runAttempt,
+          verifierRevision: execution.verifierRevision,
+          sourceCommit: execution.sourceCommit,
+          sourceTree: execution.sourceTree,
+        };
+        const request = {
+          version: 1 as const,
+          repositoryId: execution.repositoryId,
+          pullRequest: execution.pullRequest,
+        };
+        const installedDistributionDigest = digest(distribution);
+        const requestWire = Buffer.from(
+          canonical({
+            ...request,
+            assertions,
+            authorityBinding: binding,
+            candidateArchive: {
+              sha256: archive.sha256,
+              sha512Sri: archive.sha512Sri,
+            },
+            releasedArchive: {
+              sha256: archive.sha256,
+              sha512Sri: archive.sha512Sri,
+            },
+            toolArchive: {
+              sha256: archive.sha256,
+              sha512Sri: archive.sha512Sri,
+            },
+            installedDistributionDigest,
+          }),
+        );
+        return {
+          adapterVersion: 1,
+          requestWire,
+          requestDigest: digest(requestWire),
+          request,
+          assertions,
+          authorityBinding: binding,
+          candidateArchive: archive,
+          releasedArchive: archive,
+          toolArchive: archive,
+          installedDistributionWire: distribution,
+          installedDistributionDigest,
+        };
+      };
+
+      for (const [execution, binding] of [
+        [execution42, binding42],
+        [execution99, binding99],
+      ] as const) {
+        const value = admission(execution, binding);
+        const wire = await service.admit(
+          execution,
+          execution.repositoryId,
+          execution.pullRequest,
+          admissionEnvelope(value),
+        );
+        expect(JSON.parse(Buffer.from(wire).toString()).grant.binding).toEqual(
+          binding,
+        );
+      }
+      expect(await source.load({ ...execution42, pullRequest: 77 })).toBeNull();
+
+      const finalizedReport = Buffer.from("finalized-report");
+      const reportDigest = digest(finalizedReport);
+      for (const execution of [execution42, execution99]) {
+        await db.$executeRaw`
+          INSERT INTO "SdkGrowthFinalizedReportEvidence" (
+            "reportEvidenceId", "evidenceId", "repositoryId", "runId", "runAttempt", "verifierRevision",
+            "producer", "reportDigest", "finalizedReport", "grantId", "outcome", "coverage", "coveredScopes", "phases"
+          ) VALUES (
+            ${randomUUID()}, ${sdkGrowthVerifierExecutionId(execution)}, ${execution.repositoryId}, ${execution.runId},
+            ${execution.runAttempt}, ${execution.verifierRevision}, 'reviewrouter-verifier', ${reportDigest},
+            ${finalizedReport}, ${`grant-${execution.pullRequest}`}, 'passed', 'complete', '["public-api"]'::jsonb,
+            '["authority","decision"]'::jsonb)`;
+        await expect(
+          verifier.verifyFinalizedReport({
+            execution,
+            report: finalizedReport,
+            completion: {
+              version: 1,
+              grantId: `grant-${execution.pullRequest}`,
+              fence: 1,
+              binding: execution.pullRequest === 42 ? binding42 : binding99,
+              coveredScopes: ["public-api"],
+              coverage: "complete",
+              outcome: "passed",
+              reportDigest,
+            },
+            reportDecision: {
+              outcome: "passed",
+              coverage: "complete",
+              coveredScopes: ["public-api"],
+              phases: ["authority", "decision"],
+            },
+          }),
+        ).resolves.toBeUndefined();
+      }
+      await expect(
+        verifier.verifyFinalizedReport({
+          execution: { ...execution42, pullRequest: 77 },
+          report: finalizedReport,
+          completion: {
+            version: 1,
+            grantId: "grant-42",
+            fence: 1,
+            binding: binding42,
+            coveredScopes: ["public-api"],
+            coverage: "complete",
+            outcome: "passed",
+            reportDigest,
+          },
+          reportDecision: {
+            outcome: "passed",
+            coverage: "complete",
+            coveredScopes: ["public-api"],
+            phases: ["authority", "decision"],
+          },
+        }),
+      ).rejects.toMatchObject({ code: "owner-evidence" });
     });
 
     it("holds replacement through grant commit and never revives epoch one", async () => {
@@ -313,6 +566,7 @@ describe.skipIf(!url)(
       const execution: AuthenticatedEfExecution = {
         tenantId: randomUUID(),
         repositoryId: "repo",
+        pullRequest: 42,
         githubRepositoryId: "123",
         installationId: "456",
         subject: "runner",
@@ -346,6 +600,7 @@ describe.skipIf(!url)(
         pullRequest: 42,
       };
       const scope99 = { ...scope42, pullRequest: 99 };
+      const execution99 = { ...execution, pullRequest: 99 };
       const first = new PrismaAuthorityCustody(db);
       const second = new PrismaAuthorityCustody(peer);
       const retained = await Promise.all([
@@ -398,27 +653,34 @@ describe.skipIf(!url)(
         ),
       ).toBeNull();
       expect(
-        await first.readAdmission(scope99, execution, admission.requestDigest),
+        await first.readAdmission(
+          scope99,
+          execution99,
+          admission.requestDigest,
+        ),
       ).toBeNull();
-      expect(await first.readExecution(scope99, execution)).toBeNull();
+      expect(await first.readExecution(scope99, execution99)).toBeNull();
       expect(
         await first.readCompletion(
           scope99,
-          execution,
+          execution99,
           admission.requestDigest,
           completion.completionDigest,
         ),
       ).toBeNull();
 
       await expect(
-        first.retainAdmission(scope99, structuredClone(admission)),
+        first.retainAdmission(scope99, {
+          ...structuredClone(admission),
+          execution: execution99,
+        }),
       ).resolves.toMatchObject({ requestDigest: admission.requestDigest });
-      await expect(first.readExecution(scope99, execution)).resolves.toMatchObject(
-        {
-          requestDigest: admission.requestDigest,
-          publicationState: "absent",
-        },
-      );
+      await expect(
+        first.readExecution(scope99, execution99),
+      ).resolves.toMatchObject({
+        requestDigest: admission.requestDigest,
+        publicationState: "absent",
+      });
       expect(
         await db.$queryRawUnsafe<Array<{ count: bigint }>>(
           'SELECT count(*)::bigint AS count FROM "SdkGrowthAuthorityCustody" WHERE "tenantId" = $1 AND "repositoryId" = $2 AND "requestDigest" = $3',
@@ -456,6 +718,7 @@ describe.skipIf(!url)(
       const execution: AuthenticatedEfExecution = {
         tenantId: f.identity.tenantId,
         repositoryId: f.identity.repositoryId,
+        pullRequest: f.scope.pullRequest,
         githubRepositoryId: "123",
         installationId: "456",
         subject: f.identity.subject,
@@ -605,6 +868,7 @@ describe.skipIf(!url)(
       const execution: AuthenticatedEfExecution = {
         tenantId: f.identity.tenantId,
         repositoryId: f.identity.repositoryId,
+        pullRequest: f.scope.pullRequest,
         githubRepositoryId: "123",
         installationId: "456",
         subject: f.identity.subject,

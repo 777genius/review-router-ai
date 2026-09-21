@@ -354,7 +354,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
 
   it("pins checkout102 to actual SQL103 bytes and the complete manifest", () => {
     expect(migration103.checksum).toBe(
-      "a27193f550f47bc9aca709dd7aa017a0c8f4c14b1f057caea2bb4536b8317b8e",
+      "d6ae002a076c616d33ce854477096408b37e4285bb1c036dd2be13072786c8f9",
     );
     expect(checkout102.map((row) => row.migrationName)).toEqual(
       canonicalPrismaMigrationNames,
@@ -367,7 +367,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
             .join(","),
         )
         .digest("hex"),
-    ).toBe("384f390ef5ba48ad314688fa78d6fe3d2ee64d6746c92e4c1469798cd0ca9b9c");
+    ).toBe("a2e683899abcc3f9adf377cbc8ecb2e051d84a0e7c6e9fffc0fe32fa150c3983");
     expect(() => assertRenderSchemaHandoffCatalog(checkout102)).toThrow(
       "migration_catalog",
     );

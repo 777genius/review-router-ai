@@ -119,6 +119,7 @@ export class SdkGrowthOidcAuthentication implements SdkGrowthRequestAuthenticati
     return {
       tenantId: repository.workspaceId,
       repositoryId: repository.repositoryId,
+      pullRequest: route.pullRequest,
       githubRepositoryId: repository.githubRepositoryId,
       installationId: resolved.installationId,
       subject: claims.sub,

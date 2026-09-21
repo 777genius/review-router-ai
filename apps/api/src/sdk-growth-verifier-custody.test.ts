@@ -6,6 +6,7 @@ import type {
 } from "@reviewrouter/features-sdk-growth-authority";
 import {
   SdkGrowthVerifierCustody,
+  sdkGrowthVerifierExecutionId,
   type FinalizedVerifierReportRecord,
   type VerifierCustodyRecord,
 } from "./sdk-growth-verifier-custody.js";
@@ -13,6 +14,7 @@ import {
 const execution: AuthenticatedEfExecution = {
   tenantId: "tenant",
   repositoryId: "repo",
+  pullRequest: 42,
   githubRepositoryId: "123",
   installationId: "456",
   subject: "runner",
@@ -70,6 +72,7 @@ const finalized: FinalizedVerifierReportRecord = {
   producer: "reviewrouter-verifier",
   candidateWritable: false,
   repositoryId: execution.repositoryId,
+  pullRequest: execution.pullRequest,
   runId: execution.runId,
   runAttempt: execution.runAttempt,
   verifierRevision: execution.verifierRevision,
@@ -104,6 +107,12 @@ function custody(
 }
 
 describe("SDK verifier custody adapter", () => {
+  it("derives distinct evidence identity for pull requests in one execution", () => {
+    expect(sdkGrowthVerifierExecutionId(execution)).not.toBe(
+      sdkGrowthVerifierExecutionId({ ...execution, pullRequest: 99 }),
+    );
+  });
+
   it("accepts verifier-owned archive and finalized report custody", async () => {
     await expect(custody().load(execution)).resolves.toEqual(evidence);
     await expect(
@@ -136,6 +145,7 @@ describe("SDK verifier custody adapter", () => {
   });
 
   it.each([
+    { pullRequest: 99 },
     { runId: "wrong" },
     { runAttempt: "wrong" },
     { verifierRevision: "9".repeat(40) },

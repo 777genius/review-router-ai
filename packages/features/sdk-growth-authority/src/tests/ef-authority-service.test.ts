@@ -87,6 +87,7 @@ function fixture() {
   const execution: AuthenticatedEfExecution = {
     tenantId: "tenant",
     repositoryId: "repo",
+    pullRequest: 42,
     githubRepositoryId: "123",
     installationId: "456",
     subject: "runner",
@@ -380,7 +381,7 @@ describe("EF authority application boundary", () => {
         99,
         h.f.admission.requestDigest,
       ),
-    ).resolves.toBeNull();
+    ).rejects.toMatchObject({ code: "wrong-identity" });
     await expect(
       h.service.completionReadback(
         h.f.execution,
@@ -389,10 +390,10 @@ describe("EF authority application boundary", () => {
         h.f.completion.requestDigest,
         h.f.completion.completionDigest,
       ),
-    ).resolves.toBeNull();
+    ).rejects.toMatchObject({ code: "wrong-identity" });
     await expect(
       h.service.status(h.f.execution, "repo", 99, h.f.admission.requestDigest),
-    ).resolves.toBeNull();
+    ).rejects.toMatchObject({ code: "wrong-identity" });
     expect(h.authority.currentGrant).not.toHaveBeenCalled();
   });
 
