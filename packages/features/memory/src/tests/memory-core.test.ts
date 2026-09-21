@@ -1965,6 +1965,9 @@ describe("memory core", () => {
       { workspaceId: "workspace_1", repositoryIds: ["repo_1"] },
       deps,
     );
+    expect(visibleRepositories.items.map((item) => item.body)).toContain(
+      "Prefer explicit domain policies.",
+    );
     expect(visibleRepositories.items.map((item) => item.body)).not.toContain(
       "Hidden repository memory.",
     );
@@ -2102,6 +2105,9 @@ describe("memory core", () => {
       { workspaceId: "workspace_1", repositoryIds: ["repo_1"] },
       deps,
     );
+    expect(
+      visibleRepositories.suggestions.map((item) => item.suggestedBody),
+    ).toContain("Use adapter ports for external systems.");
     expect(
       visibleRepositories.suggestions.map((item) => item.suggestedBody),
     ).not.toContain("Hidden repository suggestion.");

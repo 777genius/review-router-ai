@@ -57,10 +57,8 @@ async function inspectPostgresVersion(databaseUrl) {
 }
 
 async function runPrismaMigrateDeploy(databaseUrl) {
-  const {
-    REVIEW_ROUTER_DATABASE_URL_FILE: _credentialFile,
-    ...migrationEnvironment
-  } = process.env;
+  const migrationEnvironment = { ...process.env };
+  delete migrationEnvironment.REVIEW_ROUTER_DATABASE_URL_FILE;
   await new Promise((resolve, reject) => {
     const child = spawn(
       "prisma",
