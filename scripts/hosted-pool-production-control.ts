@@ -626,20 +626,43 @@ export function createRenderHostedPoolControlPort(input: {
     const service = serviceValue?.service ?? serviceValue;
     if (service?.id !== id || service?.name !== expectedName)
       throw new Error(`hosted_pool_render_service_identity_mismatch:${id}`);
-    const value = await request("GET", `/services/${id}/env-vars?limit=100`);
-    if (!Array.isArray(value))
+    const items: any[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const value = await request(
+        "GET",
+        `/services/${id}/env-vars?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+      );
+      if (!Array.isArray(value))
+        throw new Error("hosted_pool_render_env_invalid");
+      items.push(...value);
+      if (value.length < 100) break;
+      const nextCursor = value.at(-1)?.cursor;
+      if (
+        typeof nextCursor !== "string" ||
+        nextCursor.length === 0 ||
+        seenCursors.has(nextCursor)
+      )
+        throw new Error("hosted_pool_render_env_cursor_invalid");
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+      if (page === 19)
+        throw new Error("hosted_pool_render_env_page_limit_exceeded");
+    }
+    const entries = items.map((item: any) => {
+      const envVar = item?.envVar ?? item;
+      return [
+        envVar?.key,
+        String(envVar?.value ?? envVar?.envVarValue?.value ?? ""),
+      ] as const;
+    });
+    if (
+      entries.some(([key]) => typeof key !== "string" || key.length === 0) ||
+      new Set(entries.map(([key]) => key)).size !== entries.length
+    )
       throw new Error("hosted_pool_render_env_invalid");
-    if (value.length >= 100)
-      throw new Error("hosted_pool_render_env_pagination_unsupported");
-    return Object.fromEntries(
-      value.map((item: any) => {
-        const envVar = item?.envVar ?? item;
-        return [
-          envVar?.key,
-          String(envVar?.value ?? envVar?.envVarValue?.value ?? ""),
-        ];
-      }),
-    );
+    return Object.fromEntries(entries);
   };
   const readRuntimeGate = async (): Promise<HostedPoolRuntimeGate> => {
     const rows = await prisma.$queryRaw<

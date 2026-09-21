@@ -236,12 +236,9 @@ export function HostedPoolDeviceLogin({
             </Button>
           )}
         </div>
-        <p className="text-xs leading-5 text-slate-500">
-          Each session is encrypted at rest and never sent to the browser.
-        </p>
         {toasts}
-        {children}
         {flight ? codePanel : addOpen ? addFormPanel : null}
+        {children}
       </div>
     );
   }

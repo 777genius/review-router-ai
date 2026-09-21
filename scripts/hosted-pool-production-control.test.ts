@@ -70,6 +70,64 @@ function fixture(
 }
 
 describe("hosted pool production controls", () => {
+  it("reads every paginated Render env var page", async () => {
+    const flags = [
+      "REVIEW_ROUTER_ENABLE_HOSTED_CODEX_POOL",
+      "REVIEW_ROUTER_ENABLE_HOSTED_CODEX_CUSTODY",
+      "REVIEW_ROUTER_ENABLE_HOSTED_CODEX_ADMISSION",
+      "REVIEW_ROUTER_ENABLE_HOSTED_CODEX_RELAY",
+      "REVIEW_ROUTER_ENABLE_HOSTED_CODEX_FAILOVER",
+    ];
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      const serviceId = url.pathname.split("/")[3]!;
+      if (!url.pathname.endsWith("/env-vars")) {
+        return Response.json({
+          id: serviceId,
+          name:
+            serviceId === "srv-api" ? "reviewrouter-api" : "reviewrouter-web",
+        });
+      }
+      const cursor = url.searchParams.get("cursor");
+      if (cursor) {
+        return Response.json([
+          {
+            cursor: `${serviceId}-complete`,
+            envVar: { key: `${serviceId}_EXTRA`, value: "preserved" },
+          },
+        ]);
+      }
+      return Response.json(
+        Array.from({ length: 100 }, (_, index) => ({
+          cursor: `${serviceId}-${index === 99 ? "next" : index}`,
+          envVar: {
+            key: flags[index] ?? `${serviceId}_ENV_${index}`,
+            value: flags[index] ? "1" : String(index),
+          },
+        })),
+      );
+    });
+    const port = createRenderHostedPoolControlPort({
+      apiKey: "render-secret",
+      serviceIds: ["srv-api", "srv-web"],
+      databaseUrl: "postgresql://unused:unused@127.0.0.1:1/unused",
+      fetchImpl,
+    });
+    try {
+      await expect(port.readFlags()).resolves.toEqual({
+        "srv-api": Object.fromEntries(flags.map((name) => [name, "1"])),
+        "srv-web": Object.fromEntries(flags.map((name) => [name, "1"])),
+      });
+      expect(
+        fetchImpl.mock.calls.filter(([input]) =>
+          String(input).includes("cursor=srv-"),
+        ),
+      ).toHaveLength(2);
+    } finally {
+      await port.disconnect();
+    }
+  });
+
   it("rejects oversized Render JSON from content-length and cancels the body", async () => {
     const cancellations: string[] = [];
     const fetchImpl = vi.fn(
