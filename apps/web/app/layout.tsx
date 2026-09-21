@@ -184,20 +184,6 @@ export default async function RootLayout({
             </div>
             <div className="flex min-w-0 items-center justify-end gap-2 lg:justify-end">
               <ThemeToggle />
-              <div className="hidden items-center gap-2.5 border-r border-cyan-200/10 pr-2.5 xl:flex">
-                <span className="relative grid h-8 w-8 place-items-center rounded-lg border border-lime-300/20 bg-lime-300/[0.07] text-lime-300">
-                  <ShieldCheck aria-hidden="true" className="size-3.5" />
-                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-lime-300 shadow-[0_0_10px_rgba(190,242,100,0.8)]" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block font-mono text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-lime-200">
-                    Secure
-                  </span>
-                  <span className="block text-[0.68rem] leading-4 text-slate-500">
-                    Systems operational
-                  </span>
-                </span>
-              </div>
               <div className="hidden lg:block">
                 <HeaderProfileMenu {...headerProfileMenuProps} />
               </div>
