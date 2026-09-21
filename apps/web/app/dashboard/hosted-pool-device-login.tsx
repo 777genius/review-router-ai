@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, ExternalLink, Plus } from "lucide-react";
+import type { HostedAccountSafeSummary } from "@reviewrouter/features-hosted-account-pool";
 import { Button, LinkButton } from "@reviewrouter/ui";
 import { FormSubmitButton } from "../form-submit-button";
 import { ActionToast } from "../action-toast";
@@ -36,6 +37,7 @@ export type HostedPoolDeviceLoginPollResult =
   | {
       readonly ok: true;
       readonly status: "imported";
+      readonly account?: HostedAccountSafeSummary;
       readonly params: Record<string, string>;
     }
   | { readonly ok: false; readonly params: Record<string, string> };
@@ -61,6 +63,7 @@ export function HostedPoolDeviceLogin({
   children,
   startAction,
   pollAction,
+  onImported,
   previewFlight,
 }: {
   readonly workspaceId: string;
@@ -70,6 +73,7 @@ export function HostedPoolDeviceLogin({
   readonly children?: ReactNode;
   readonly startAction: DeviceLoginAction<HostedPoolDeviceLoginStartResult>;
   readonly pollAction: DeviceLoginAction<HostedPoolDeviceLoginPollResult>;
+  readonly onImported?: (account: HostedAccountSafeSummary) => void;
   readonly previewFlight?: HostedPoolDeviceLoginFlight | undefined;
 }): React.ReactElement {
   const router = useRouter();
@@ -98,6 +102,7 @@ export function HostedPoolDeviceLogin({
         return;
       }
       if (result.status === "imported") {
+        if (result.account) onImported?.(result.account);
         setImported(true);
         setFlight(null);
         setAddOpen(false);
@@ -129,7 +134,7 @@ export function HostedPoolDeviceLogin({
       cancelled = true;
       clearInterval(interval);
     };
-  }, [flight?.loginId, flight?.intervalMs, router, workspaceId]);
+  }, [flight?.loginId, flight?.intervalMs, onImported, router, workspaceId]);
 
   async function start(formData: FormData): Promise<void> {
     setError(null);

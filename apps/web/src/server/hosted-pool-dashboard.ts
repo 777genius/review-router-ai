@@ -57,7 +57,7 @@ export interface HostedPoolDashboardMutationPort {
     readonly priority: number;
     readonly authJson: Uint8Array;
     readonly requestedAt: Date;
-  }): Promise<void>;
+  }): Promise<HostedAccountSafeSummary>;
   setAccountState(input: {
     readonly workspaceId: string;
     readonly accountId: string;
@@ -150,8 +150,8 @@ export async function importHostedPoolAccount(
     readonly authJson: Uint8Array | (() => Promise<Uint8Array>);
   },
   dependencies: HostedPoolDashboardMutationDependencies,
-): Promise<void> {
-  const actor = await authorizeAndEntitle(input.workspaceId, dependencies);
+): Promise<HostedAccountSafeSummary> {
+  await authorizeAndEntitle(input.workspaceId, dependencies);
   if (!input.label.trim() || input.label.trim().length > 80)
     throw new Error("hosted_account_label_invalid");
   if (!Number.isSafeInteger(input.priority) || input.priority < 0)
@@ -163,7 +163,7 @@ export async function importHostedPoolAccount(
   try {
     if (authJson.byteLength === 0 || authJson.byteLength > 1024 * 1024)
       throw new Error("hosted_account_auth_file_invalid");
-    await dependencies.mutations.importAccount({
+    return await dependencies.mutations.importAccount({
       workspaceId: input.workspaceId,
       label: input.label.trim(),
       priority: input.priority,
@@ -173,7 +173,6 @@ export async function importHostedPoolAccount(
   } finally {
     authJson.fill(0);
   }
-  void actor;
 }
 
 export async function startHostedPoolDeviceLogin(
@@ -232,9 +231,14 @@ export async function pollHostedPoolDeviceLogin(
       readonly verificationUrl: string;
       readonly expiresAt: string;
     }
-  | { readonly status: "imported"; readonly loginId: string }
+  | {
+      readonly status: "imported";
+      readonly loginId: string;
+      readonly account?: HostedAccountSafeSummary;
+    }
 > {
   const actor = await authorizeAndEntitle(input.workspaceId, dependencies);
+  let importedAccount: HostedAccountSafeSummary | undefined;
   const polled = await pollHostedCodexDeviceLogin(
     {
       id: hostedDeviceLoginId(input.loginId),
@@ -247,7 +251,7 @@ export async function pollHostedPoolDeviceLogin(
       deviceAuth: dependencies.deviceAuth,
       enroll: {
         enrollAuthJson: async (command) => {
-          await importHostedPoolAccount(
+          importedAccount = await importHostedPoolAccount(
             {
               workspaceId: command.workspaceId,
               label: command.label,
@@ -269,7 +273,11 @@ export async function pollHostedPoolDeviceLogin(
       expiresAt: polled.expiresAt.toISOString(),
     };
   }
-  return { status: "imported", loginId: polled.loginId };
+  return {
+    status: "imported",
+    loginId: polled.loginId,
+    ...(importedAccount ? { account: importedAccount } : {}),
+  };
 }
 
 export async function changeHostedPoolAccountState(

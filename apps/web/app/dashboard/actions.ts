@@ -47,6 +47,7 @@ import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
   CodexDeviceAuthGateway,
   PrismaHostedCodexDeviceLoginStore,
+  type HostedAccountSafeSummary,
 } from "@reviewrouter/features-hosted-account-pool";
 import {
   isCodexRotatingOAuthAllowedForRepository,
@@ -263,6 +264,7 @@ export async function pollHostedPoolDeviceLoginClientAction(
   | {
       readonly ok: true;
       readonly status: "imported";
+      readonly account?: HostedAccountSafeSummary;
       readonly params: Record<string, string>;
     }
   | { readonly ok: false; readonly params: Record<string, string> }
@@ -281,6 +283,7 @@ export async function pollHostedPoolDeviceLoginClientAction(
       return {
         ok: true,
         status: "imported",
+        ...(polled.account ? { account: polled.account } : {}),
         params: {
           notice: "hosted_pool_account_added",
           workspace: workspaceId,
