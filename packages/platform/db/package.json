@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.8.0",
-    "@prisma/client": "^7.8.0"
+    "@prisma/client": "^7.8.0",
+    "pg": "8.23.0"
   },
   "devDependencies": {
     "prisma": "^7.8.0"
@@ -23,7 +24,7 @@
     "db:generate": "prisma generate --config prisma.config.ts",
     "db:push": "prisma db push --config prisma.config.ts",
     "db:migrate": "prisma migrate dev --config prisma.config.ts",
-    "db:migrate:deploy": "prisma migrate deploy --config prisma.config.ts",
+    "db:migrate:deploy": "node scripts/migrate-deploy.mjs",
     "db:migrate:status": "prisma migrate status --config prisma.config.ts"
   }
 }

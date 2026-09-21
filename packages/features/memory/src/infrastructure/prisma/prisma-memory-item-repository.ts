@@ -195,6 +195,7 @@ export class PrismaMemoryItemRepository implements MemoryItemRepositoryPort {
   async listForDashboard(input: {
     readonly workspaceId: string;
     readonly repositoryId?: string | null;
+    readonly repositoryIds?: readonly string[];
     readonly scope?: MemoryScope;
     readonly statuses: readonly MemoryItemStatus[];
     readonly limit: number;
@@ -391,6 +392,7 @@ export class PrismaMemoryItemRepository implements MemoryItemRepositoryPort {
 function toDashboardWhere(input: {
   readonly workspaceId: string;
   readonly repositoryId?: string | null;
+  readonly repositoryIds?: readonly string[];
   readonly scope?: MemoryScope;
   readonly statuses: readonly MemoryItemStatus[];
   readonly cursor?: MemoryDashboardRepositoryCursor;
@@ -399,6 +401,9 @@ function toDashboardWhere(input: {
     workspaceId: input.workspaceId,
     ...(input.repositoryId !== undefined
       ? { repositoryId: input.repositoryId }
+      : {}),
+    ...(input.repositoryIds !== undefined
+      ? { repositoryId: { in: [...input.repositoryIds] } }
       : {}),
     ...(input.scope ? { scope: input.scope } : {}),
     status: { in: [...input.statuses] },

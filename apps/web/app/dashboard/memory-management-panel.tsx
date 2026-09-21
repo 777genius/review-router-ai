@@ -1,4 +1,5 @@
 import type React from "react";
+import Link from "next/link";
 import {
   Badge,
   Button,
@@ -22,6 +23,7 @@ import {
   DashboardActionForm,
   type DashboardActionFormAction,
 } from "./dashboard-action-form";
+import { dashboardClientNavigationHref } from "./dashboard-section";
 import {
   buildMemoryDashboardViewModel,
   type MemoryDashboardRepositoryOption,
@@ -787,13 +789,14 @@ function MemoryModeTab({
 
   if (href) {
     return (
-      <a
-        href={href}
+      <Link
+        href={dashboardClientNavigationHref(href)}
+        scroll={false}
         aria-current={selected ? "page" : undefined}
         className={className}
       >
         {content}
-      </a>
+      </Link>
     );
   }
 

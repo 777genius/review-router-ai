@@ -29,7 +29,7 @@ describe("DashboardSectionTabs", () => {
     expect(DASHBOARD_SECTIONS.at(-1)).toBe("memory");
     const setupLink = screen.getByRole("tab", { name: /AccountsEncrypted/i });
     expect(setupLink.getAttribute("href")).toBe(
-      "/dashboard/setup?workspace=acme#dashboard-section-content",
+      "/dashboard/setup?workspace=acme",
     );
     expect(setupLink.getAttribute("aria-current")).toBe("page");
     expect(setupLink.className).toContain("border-cyan-200");

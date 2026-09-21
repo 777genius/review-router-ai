@@ -13,6 +13,7 @@ import {
   safeDefaultReviewConfiguration,
   effectiveInlineMaxComments,
   type PersistedReviewConfiguration,
+  type ReviewConfigurationBatchReaderPort,
   type ReviewConfigurationRepositoryPort,
 } from "../index";
 
@@ -52,7 +53,11 @@ const disabledInvestigationRuntimeEnv = {
   REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "0",
 } as const;
 
-class InMemoryReviewConfigurationRepository implements ReviewConfigurationRepositoryPort {
+class InMemoryReviewConfigurationRepository
+  implements
+    ReviewConfigurationRepositoryPort,
+    ReviewConfigurationBatchReaderPort
+{
   private readonly versions = new Map<string, PersistedReviewConfiguration[]>();
 
   async findLatest(
@@ -60,6 +65,24 @@ class InMemoryReviewConfigurationRepository implements ReviewConfigurationReposi
   ) {
     const records = this.versions.get(reviewConfigurationTargetKey(target));
     return records?.at(-1) ?? null;
+  }
+
+  async findLatestForRepositories(input: {
+    readonly workspaceId: string;
+    readonly repositoryIds: readonly string[];
+  }) {
+    return [...new Set(input.repositoryIds)].flatMap((repositoryId) => {
+      const config = this.versions
+        .get(
+          reviewConfigurationTargetKey({
+            scope: "repository",
+            workspaceId: input.workspaceId,
+            repositoryId,
+          }),
+        )
+        ?.at(-1);
+      return config ? [{ repositoryId, config }] : [];
+    });
   }
 
   async saveNextVersion(
