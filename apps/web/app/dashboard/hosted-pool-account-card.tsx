@@ -120,6 +120,14 @@ function HostedPoolAccountCard({
       <dl className="mt-3 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
         <div>
           <dt className="font-mono text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            Added
+          </dt>
+          <dd className="mt-0.5 text-slate-300">
+            {formatSafeTimestamp(account.createdAt)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-mono text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
             Last validated
           </dt>
           <dd className="mt-0.5 text-slate-300">

@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostedPoolSettingsPanel } from "./hosted-pool-settings";
 import type { HostedPoolDashboardView } from "../../src/server/hosted-pool-dashboard";
@@ -10,7 +16,9 @@ vi.mock("next/navigation", () => ({
 
 const action = vi.fn(async () => ({ params: {} }));
 
-const actions = {
+type SettingsActions = Parameters<typeof HostedPoolSettingsPanel>[0]["actions"];
+
+const actions: SettingsActions = {
   importAccount: action,
   startDeviceLogin: async () => ({
     ok: false as const,
@@ -57,12 +65,16 @@ function account(
   };
 }
 
-function renderPanel(view: HostedPoolDashboardView, mutationsEnabled = true) {
+function renderPanel(
+  view: HostedPoolDashboardView,
+  mutationsEnabled = true,
+  actionOverrides: Partial<SettingsActions> = {},
+) {
   return render(
     <HostedPoolSettingsPanel
       workspaceId="workspace-1"
       mutationsEnabled={mutationsEnabled}
-      actions={actions}
+      actions={{ ...actions, ...actionOverrides }}
       view={view}
     />,
   );
@@ -132,6 +144,8 @@ describe("HostedPoolSettingsPanel", () => {
     expect(screen.getByText("1st in line")).toBeTruthy();
     expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
     expect(screen.getByText(/Last validated/)).toBeTruthy();
+    expect(screen.getByText("Added")).toBeTruthy();
+    expect(screen.getByText("Sep 1, 2026, 12:00 AM")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
     expect(
       screen.getAllByRole("button", { name: "Remove account" }).length,
@@ -147,6 +161,59 @@ describe("HostedPoolSettingsPanel", () => {
     expect(screen.queryByText(/We encrypt each ChatGPT session/i)).toBeNull();
     expectNoRawPriority();
     expectNoCredentialLeak();
+  });
+
+  it("adds a newly connected account before the dashboard refresh finishes", async () => {
+    const connected = account({
+      id: "account-2" as never,
+      label: "Connected now",
+      priority: 20,
+      createdAt: new Date("2026-09-21T15:30:00.000Z"),
+      validatedAt: new Date("2026-09-21T15:30:00.000Z"),
+    });
+    renderPanel(
+      {
+        gate: "enabled",
+        pool: null,
+        accounts: [account({ id: "account-1" as never, label: "Primary" })],
+        repositories: [],
+      },
+      true,
+      {
+        startDeviceLogin: async () => ({
+          ok: true,
+          loginId: "login-1",
+          userCode: "ABCD-EFGH",
+          verificationUrl: "https://auth.openai.com/codex/device",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          intervalSeconds: 3,
+        }),
+        pollDeviceLogin: async () => ({
+          ok: true,
+          status: "imported",
+          account: connected,
+          params: {},
+        }),
+      },
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add another ChatGPT account" }),
+    );
+    fireEvent.change(screen.getByPlaceholderText("Work laptop"), {
+      target: { value: "Connected now" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Start ChatGPT sign-in" }),
+    );
+
+    expect(await screen.findByText("Connected now")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "2 accounts" })).toBeTruthy(),
+    );
+    expect(
+      screen.getAllByText("Sep 21, 2026, 3:30 PM").length,
+    ).toBeGreaterThanOrEqual(1);
   });
 
   it("opens the ChatGPT add panel from the enrolled list header", () => {
