@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { createNoIndexPageMetadata } from "../seo";
-import { DashboardWorkspacePage } from "./dashboard-workspace-page";
+import { createNoIndexPageMetadata } from "../../seo";
+import { DashboardWorkspacePage } from "../dashboard-workspace-page";
 
 export const dynamic = "force-dynamic";
 

@@ -114,6 +114,16 @@ export function dashboardSectionHref(
   })}#dashboard-section-content`;
 }
 
+/**
+ * Persistent dashboard navigation keeps the shell mounted, so client-side
+ * transitions do not need a fragment jump. Keeping the fragment out of the
+ * Next Link also prevents revisiting a cached route from duplicating it.
+ */
+export function dashboardClientNavigationHref(href: string): string {
+  const fragmentIndex = href.indexOf("#");
+  return fragmentIndex === -1 ? href : href.slice(0, fragmentIndex);
+}
+
 export function resolveDashboardSection(
   params: Record<string, string | string[] | undefined>,
 ): DashboardSection {

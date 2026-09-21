@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { Tabs } from "@base-ui/react/tabs";
 import {
   Activity,
@@ -9,6 +11,7 @@ import {
   Settings2,
   type LucideIcon,
 } from "lucide-react";
+import { dashboardClientNavigationHref } from "./dashboard-section";
 
 const dashboardSectionIcons: Record<string, LucideIcon> = {
   repositories: GitPullRequest,
@@ -57,9 +60,10 @@ export function DashboardSectionCompactNav({
       {items.map((item) => {
         const active = selectedSection === item.section;
         return (
-          <a
+          <Link
             key={item.section}
-            href={item.href}
+            href={dashboardClientNavigationHref(item.href)}
+            scroll={false}
             title={item.description}
             aria-current={active ? "page" : undefined}
             className={[
@@ -74,7 +78,7 @@ export function DashboardSectionCompactNav({
               className="h-3.5 w-3.5 shrink-0 text-current opacity-80"
             />
             {item.label}
-          </a>
+          </Link>
         );
       })}
     </nav>
@@ -102,8 +106,9 @@ export function DashboardSectionTabs({
               value={item.section}
               nativeButton={false}
               render={
-                <a
-                  href={item.href}
+                <Link
+                  href={dashboardClientNavigationHref(item.href)}
+                  scroll={false}
                   title={item.description}
                   aria-current={
                     selectedSection === item.section ? "page" : undefined

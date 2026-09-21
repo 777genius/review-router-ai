@@ -10,6 +10,8 @@ import {
 } from "../../domain/review-configuration-target";
 import type {
   PersistedReviewConfiguration,
+  RepositoryReviewConfiguration,
+  ReviewConfigurationBatchReaderPort,
   ReviewConfigurationRepositoryPort,
 } from "../../application/ports/review-configuration-repository-port";
 import {
@@ -17,13 +19,24 @@ import {
   ReviewConfigurationWriteConflictError as WriteConflict,
 } from "../../application/ports/review-configuration-repository-port";
 
-export class PrismaReviewConfigurationRepository implements ReviewConfigurationRepositoryPort {
+export class PrismaReviewConfigurationRepository
+  implements
+    ReviewConfigurationRepositoryPort,
+    ReviewConfigurationBatchReaderPort
+{
   constructor(private readonly prisma: PrismaClient) {}
 
   async findLatest(
     target: ReviewConfigurationTarget,
   ): Promise<PersistedReviewConfiguration | null> {
     return findLatestReviewConfiguration(this.prisma, target);
+  }
+
+  async findLatestForRepositories(input: {
+    readonly workspaceId: string;
+    readonly repositoryIds: readonly string[];
+  }): Promise<readonly RepositoryReviewConfiguration[]> {
+    return findLatestReviewConfigurationsForRepositories(this.prisma, input);
   }
 
   async saveNextVersion(input: {
@@ -74,11 +87,22 @@ export async function acquireReviewConfigurationWriteScope(
   ]);
 }
 
-export class PrismaReviewConfigurationTransactionRepository implements ReviewConfigurationRepositoryPort {
+export class PrismaReviewConfigurationTransactionRepository
+  implements
+    ReviewConfigurationRepositoryPort,
+    ReviewConfigurationBatchReaderPort
+{
   constructor(private readonly prisma: Prisma.TransactionClient) {}
 
   findLatest(target: ReviewConfigurationTarget) {
     return findLatestReviewConfiguration(this.prisma, target);
+  }
+
+  findLatestForRepositories(input: {
+    readonly workspaceId: string;
+    readonly repositoryIds: readonly string[];
+  }) {
+    return findLatestReviewConfigurationsForRepositories(this.prisma, input);
   }
 
   saveNextVersion(
@@ -141,6 +165,47 @@ async function findLatestReviewConfiguration(
   });
   const version = record?.versions[0];
   return version ? toPersistedConfiguration(version) : null;
+}
+
+async function findLatestReviewConfigurationsForRepositories(
+  prisma: ReviewConfigurationPrismaClient,
+  input: {
+    readonly workspaceId: string;
+    readonly repositoryIds: readonly string[];
+  },
+): Promise<readonly RepositoryReviewConfiguration[]> {
+  const repositoryIds = [...new Set(input.repositoryIds)];
+  if (repositoryIds.length === 0) {
+    return [];
+  }
+
+  const records = await prisma.reviewConfiguration.findMany({
+    where: {
+      workspaceId: input.workspaceId,
+      repositoryId: { in: repositoryIds },
+    },
+    orderBy: { repositoryId: "asc" },
+    select: {
+      repositoryId: true,
+      versions: {
+        orderBy: { version: "desc" },
+        take: 1,
+        select: versionSelect,
+      },
+    },
+  });
+
+  return records.flatMap((record) => {
+    const version = record.versions[0];
+    return record.repositoryId && version
+      ? [
+          {
+            repositoryId: record.repositoryId,
+            config: toPersistedConfiguration(version),
+          },
+        ]
+      : [];
+  });
 }
 
 async function saveNextReviewConfigurationVersion(

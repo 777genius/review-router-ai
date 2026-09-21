@@ -1,8 +1,11 @@
 "use client";
 
+import Link from "next/link";
+
 import { useEffect, useMemo, useState } from "react";
 import { Tabs } from "@base-ui/react/tabs";
 import { GitHubAccountAvatar } from "../github-account-avatar";
+import { dashboardClientNavigationHref } from "./dashboard-section";
 
 export type DashboardWorkspaceTabItem = {
   readonly id: string;
@@ -72,8 +75,9 @@ export function DashboardWorkspaceTabs({
             value={item.id}
             nativeButton={false}
             render={
-              <a
-                href={item.href}
+              <Link
+                href={dashboardClientNavigationHref(item.href)}
+                scroll={false}
                 aria-current={
                   selectedWorkspaceId === item.id ? "page" : undefined
                 }

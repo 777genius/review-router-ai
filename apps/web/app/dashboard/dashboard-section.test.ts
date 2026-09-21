@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  dashboardClientNavigationHref,
   dashboardPath,
   dashboardSectionHref,
   resolveDashboardSection,
@@ -27,6 +28,15 @@ describe("dashboard section routing", () => {
       }),
     ).toBe(
       "/dashboard?section=policy&workspace=acme&notice=review_config_saved",
+    );
+  });
+
+  it("removes the content fragment from persistent client navigation", () => {
+    expect(
+      dashboardClientNavigationHref(dashboardSectionHref("policy", "acme")),
+    ).toBe("/dashboard?section=policy&workspace=acme");
+    expect(dashboardClientNavigationHref("/dashboard?section=memory")).toBe(
+      "/dashboard?section=memory",
     );
   });
 
