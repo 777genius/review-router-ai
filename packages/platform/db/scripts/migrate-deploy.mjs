@@ -6,6 +6,7 @@ import pg from "pg";
 const { Client } = pg;
 
 export const MIN_SUPPORTED_POSTGRES_MAJOR = 17;
+export const MIGRATION_PREFLIGHT_TIMEOUT_MS = 10_000;
 
 export function postgresMajor(serverVersionNum) {
   const parsed = Number.parseInt(String(serverVersionNum), 10);
@@ -29,6 +30,8 @@ async function inspectPostgresVersion(databaseUrl) {
   const client = new Client({
     connectionString: databaseUrl,
     application_name: "reviewrouter-migration-preflight",
+    connectionTimeoutMillis: MIGRATION_PREFLIGHT_TIMEOUT_MS,
+    query_timeout: MIGRATION_PREFLIGHT_TIMEOUT_MS,
   });
   await client.connect();
   try {

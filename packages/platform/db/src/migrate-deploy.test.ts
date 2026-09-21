@@ -4,11 +4,16 @@ import { describe, expect, it, vi } from "vitest";
 // TypeScript runtime in deploy images.
 import {
   assertSupportedPostgresVersion,
+  MIGRATION_PREFLIGHT_TIMEOUT_MS,
   migrateDeploy,
   postgresMajor,
 } from "../scripts/migrate-deploy.mjs";
 
 describe("migration deploy PostgreSQL preflight", () => {
+  it("bounds the database preflight before Prisma starts", () => {
+    expect(MIGRATION_PREFLIGHT_TIMEOUT_MS).toBe(10_000);
+  });
+
   it("accepts PostgreSQL 17 and newer version numbers", () => {
     expect(postgresMajor("170010")).toBe(17);
     expect(assertSupportedPostgresVersion("170010")).toBe(17);
