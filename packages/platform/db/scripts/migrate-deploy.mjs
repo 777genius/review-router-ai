@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
 
@@ -7,6 +8,15 @@ const { Client } = pg;
 
 export const MIN_SUPPORTED_POSTGRES_MAJOR = 17;
 export const MIGRATION_PREFLIGHT_TIMEOUT_MS = 10_000;
+
+export function resolveMigrationDatabaseUrl(
+  environment = process.env,
+  readFile = readFileSync,
+) {
+  const credentialPath = environment.REVIEW_ROUTER_DATABASE_URL_FILE;
+  if (credentialPath) return readFile(credentialPath, "utf8").trim();
+  return environment.DATABASE_URL;
+}
 
 export function postgresMajor(serverVersionNum) {
   const serialized = String(serverVersionNum);
@@ -69,7 +79,7 @@ async function runPrismaMigrateDeploy() {
 }
 
 export async function migrateDeploy({
-  databaseUrl = process.env.DATABASE_URL,
+  databaseUrl = resolveMigrationDatabaseUrl(),
   inspectVersion = inspectPostgresVersion,
   runMigration = runPrismaMigrateDeploy,
 } = {}) {

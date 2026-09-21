@@ -7,11 +7,27 @@ import {
   MIGRATION_PREFLIGHT_TIMEOUT_MS,
   migrateDeploy,
   postgresMajor,
+  resolveMigrationDatabaseUrl,
 } from "../scripts/migrate-deploy.mjs";
 
 describe("migration deploy PostgreSQL preflight", () => {
   it("bounds the database preflight before Prisma starts", () => {
     expect(MIGRATION_PREFLIGHT_TIMEOUT_MS).toBe(10_000);
+  });
+
+  it("reads secret-safe database credentials from the file boundary", () => {
+    const readFile = vi.fn().mockReturnValue("postgresql://example/smoke\n");
+
+    expect(
+      resolveMigrationDatabaseUrl(
+        {
+          DATABASE_URL: "postgresql://example/default",
+          REVIEW_ROUTER_DATABASE_URL_FILE: "/secure/database-url",
+        },
+        readFile,
+      ),
+    ).toBe("postgresql://example/smoke");
+    expect(readFile).toHaveBeenCalledWith("/secure/database-url", "utf8");
   });
 
   it("accepts PostgreSQL 17 and newer version numbers", () => {
