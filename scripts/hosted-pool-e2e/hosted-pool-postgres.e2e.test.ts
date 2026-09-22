@@ -1272,6 +1272,123 @@ describe("hosted pool production adapters on disposable PostgreSQL 17", () => {
     });
   });
 
+  it("fails over a later request after an earlier request recorded a successful effect", async () => {
+    const issued = await issueGrant("request-scoped-failover");
+    const authorization = new PrismaHostedCodexRelayAuthorization(prisma, true);
+    const effects = new PrismaHostedCodexUpstreamEffectLedger(prisma);
+
+    const first = await authorization.authorize({
+      opaqueGrant: issued.plaintextToken,
+      requestOrdinal: 1,
+      idempotencyKey: "request-scoped-failover-first",
+      requestBytes: 64,
+    });
+    const firstRequestHash = sha256("request-scoped-failover-first-body");
+    await ledger.recordRequestHash({
+      grantId: issued.grant.id,
+      requestId: first.requestId,
+      requestHash: firstRequestHash,
+    });
+    const firstEffect = await effects.prepare({
+      relayRequestId: first.requestId,
+      grantId: issued.grant.id,
+      workspaceId: workspace,
+      poolId: pool,
+      accountId: "account-primary",
+      credentialGeneration: await activeCredentialGeneration("account-primary"),
+      requestHash: firstRequestHash,
+    });
+    await effects.markDispatching(firstEffect);
+    await recordHostedPoolProviderResponseStarted(
+      {
+        grantId: issued.grant.id,
+        requestId: relayRequestId(first.requestId),
+        startedAt: new Date(),
+        effect: {
+          ...effects.authority(firstEffect),
+          providerResponseIdHash: null,
+        },
+      },
+      ledger,
+    );
+    await recordHostedPoolSuccessfulProviderResponse(
+      {
+        grantId: issued.grant.id,
+        requestId: relayRequestId(first.requestId),
+        responseBytes: 2,
+        responseHash: sha256("ok"),
+        completedAt: new Date(),
+        effect: {
+          ...effects.authority(firstEffect),
+          terminalState: "succeeded",
+          terminalEvidenceHash: sha256("request-scoped-first-success"),
+        },
+      },
+      ledger,
+    );
+
+    const second = await authorization.authorize({
+      opaqueGrant: issued.plaintextToken,
+      requestOrdinal: 2,
+      idempotencyKey: "request-scoped-failover-second",
+      requestBytes: 64,
+    });
+    const secondRequestHash = sha256("request-scoped-failover-second-body");
+    await ledger.recordRequestHash({
+      grantId: issued.grant.id,
+      requestId: second.requestId,
+      requestHash: secondRequestHash,
+    });
+    const secondEffect = await effects.prepare({
+      relayRequestId: second.requestId,
+      grantId: issued.grant.id,
+      workspaceId: workspace,
+      poolId: pool,
+      accountId: "account-primary",
+      credentialGeneration: await activeCredentialGeneration("account-primary"),
+      requestHash: secondRequestHash,
+    });
+    await effects.markDispatching(secondEffect);
+    await effects.markResponseStarted(secondEffect, "provider-rate-limit");
+    const failedAt = new Date();
+    const result = await failoverCurrentRelayRequestBeforeEffect(
+      {
+        grantId: issued.grant.id,
+        requestId: relayRequestId(second.requestId),
+        failure: "rate_limited",
+        effectFence: "classified_response_before_success",
+        cooldownUntil: new Date(failedAt.getTime() + 60_000),
+        now: failedAt,
+        effect: {
+          ...effects.authority(secondEffect),
+          sourceState: "response_started",
+          terminalState: "failed_classified",
+          terminalEvidenceHash: sha256("request-scoped-second-rate-limit"),
+          errorCode: "rate_limited",
+        },
+      },
+      ledger,
+    );
+
+    expect(result).toMatchObject({
+      status: "switched",
+      grant: {
+        activeAccountId: hostedAccountId("account-backup"),
+        failoverCount: 1,
+      },
+    });
+    await expect(
+      prisma.hostedCodexUpstreamEffectAttempt.findMany({
+        where: { grantId: issued.grant.id },
+        orderBy: { attemptOrdinal: "asc" },
+        select: { relayRequestId: true, state: true },
+      }),
+    ).resolves.toEqual([
+      { relayRequestId: first.requestId, state: "succeeded" },
+      { relayRequestId: second.requestId, state: "failed_classified" },
+    ]);
+  });
+
   it("binds each upstream attempt to the exact active credential generation", async () => {
     const issued = await issueGrant("effect-generation-binding");
     const authorization = new PrismaHostedCodexRelayAuthorization(prisma);

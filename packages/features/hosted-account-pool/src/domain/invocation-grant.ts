@@ -111,8 +111,7 @@ export type FailoverEligibility = {
     | "eligible"
     | "not_failover_class"
     | "backup_unavailable"
-    | "already_failed_over"
-    | "successful_response_fence";
+    | "already_failed_over";
   readonly accountDisposition: "none" | "cooldown" | "quarantine";
 };
 
@@ -415,13 +414,6 @@ export function classifyFailoverEligibility(input: {
   readonly failure: ArProviderFailureClassification;
   readonly effectFence: ProviderEffectFence;
 }): FailoverEligibility {
-  if (input.grant.successfulProviderResponseRecorded) {
-    return {
-      eligible: false,
-      reason: "successful_response_fence",
-      accountDisposition: "none",
-    };
-  }
   if (input.grant.backupActivated) {
     return {
       eligible: false,
@@ -480,11 +472,7 @@ export function activateInvocationBackup(input: {
   if (!input.eligibility.eligible || input.eligibility.reason !== "eligible") {
     throw new Error("invocation_backup_not_eligible");
   }
-  if (
-    input.grant.successfulProviderResponseRecorded ||
-    input.grant.backupActivated ||
-    input.grant.backupAccountId === null
-  ) {
+  if (input.grant.backupActivated || input.grant.backupAccountId === null) {
     throw new Error("invocation_backup_fence_conflict");
   }
   return {
@@ -507,6 +495,7 @@ export type CurrentRelayRequestFailover =
       readonly reason:
         | FailoverEligibility["reason"]
         | "request_not_in_flight"
+        | "successful_response_fence"
         | "backup_unhealthy"
         | "sibling_effect_recorded";
       readonly grant: InvocationGrant;
@@ -522,6 +511,7 @@ export function failoverCurrentRelayRequest(input: {
   readonly requestId: RelayRequestId;
   readonly failedAccount: HostedPoolAccount;
   readonly backupAccount: HostedPoolAccount | null;
+  readonly currentRequestSuccessfulResponseStarted: boolean;
   readonly failure: ArProviderFailureClassification;
   readonly effectFence: ProviderEffectFence;
   readonly cooldownUntil: Date | null;
@@ -552,6 +542,14 @@ export function failoverCurrentRelayRequest(input: {
     cooldownUntil: input.cooldownUntil,
     now: input.now,
   });
+  if (input.currentRequestSuccessfulResponseStarted) {
+    return {
+      status: "denied",
+      reason: "successful_response_fence",
+      grant: input.grant,
+      failedAccount,
+    };
+  }
   if (!eligibility.eligible) {
     return {
       status: "denied",

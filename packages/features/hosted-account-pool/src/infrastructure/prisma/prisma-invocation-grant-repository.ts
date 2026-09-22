@@ -675,25 +675,26 @@ export class PrismaInvocationGrantRepository
           include: grantInclude,
         });
         if (!stored) throw new Error("invocation_grant_not_found");
-        let siblingEffectRecorded = false;
-        if (input.effect) {
-          const siblingEffect =
-            await transaction.hostedCodexUpstreamEffectAttempt.count({
-              where: {
-                grantId: input.grantId,
-                id: { not: input.effect.attemptId },
-                state: {
-                  in: [
-                    "dispatching",
-                    "response_started",
-                    "succeeded",
-                    "terminal_unknown",
-                  ],
-                },
+        const currentRequest = stored.relayRequests.find(
+          (request) => request.id === input.requestId,
+        );
+        const siblingEffect =
+          await transaction.hostedCodexUpstreamEffectAttempt.count({
+            where: {
+              grantId: input.grantId,
+              relayRequestId: input.requestId,
+              ...(input.effect ? { id: { not: input.effect.attemptId } } : {}),
+              state: {
+                in: [
+                  "dispatching",
+                  "response_started",
+                  "succeeded",
+                  "terminal_unknown",
+                ],
               },
-            });
-          siblingEffectRecorded = siblingEffect > 0;
-        }
+            },
+          });
+        const siblingEffectRecorded = siblingEffect > 0;
         const accountIds = [
           stored.activeAccountId,
           stored.backupAccountId,
@@ -727,6 +728,7 @@ export class PrismaInvocationGrantRepository
           restoreGrant(stored),
           failedAccount,
           backupStored ? restorePoolAccount(backupStored) : null,
+          Boolean(currentRequest?.successfulResponseStartedAt),
         );
         if (result.status === "denied") {
           await persistFailedAccountDisposition(

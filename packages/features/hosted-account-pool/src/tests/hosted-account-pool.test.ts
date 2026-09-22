@@ -752,6 +752,7 @@ describe("invocation-bounded relay grant", () => {
       requestId,
       failedAccount: primary,
       backupAccount: backup,
+      currentRequestSuccessfulResponseStarted: false,
       failure: "rate_limited",
       effectFence: "before_refresh_or_upstream_effect",
       cooldownUntil: new Date("2026-08-15T10:05:00.000Z"),
@@ -768,6 +769,7 @@ describe("invocation-bounded relay grant", () => {
       requestId,
       failedAccount: backup,
       backupAccount: backup,
+      currentRequestSuccessfulResponseStarted: false,
       failure: "rate_limited",
       effectFence: "before_refresh_or_upstream_effect",
       cooldownUntil: new Date("2026-08-15T10:06:00.000Z"),
@@ -780,7 +782,7 @@ describe("invocation-bounded relay grant", () => {
     expect(repeated.grant.failoverCount).toBe(1);
   });
 
-  it("denies current-request failover after response start", () => {
+  it("denies current-request failover when its effect may have started", () => {
     const primary = accountFixture("started-primary", 0);
     const backup = accountFixture("started-backup", 1);
     let grant = grantFixture([primary, backup]);
@@ -798,8 +800,9 @@ describe("invocation-bounded relay grant", () => {
       requestId,
       failedAccount: primary,
       backupAccount: backup,
-      failure: "credential_invalid",
-      effectFence: "before_refresh_or_upstream_effect",
+      currentRequestSuccessfulResponseStarted: true,
+      failure: "rate_limited",
+      effectFence: "classified_response_before_success",
       cooldownUntil: null,
       now,
     });
@@ -810,10 +813,22 @@ describe("invocation-bounded relay grant", () => {
     expect(result.failedAccount.availability.status).toBe("quarantined");
   });
 
-  it("cools a rate-limited account even when current-request failover is fenced", () => {
+  it("fails over a later request after an earlier request succeeded", () => {
     const primary = accountFixture("quota-primary", 0);
     const backup = accountFixture("quota-backup", 1);
     let grant = grantFixture([primary, backup]);
+    const completedRequestId = relayRequestId("completed-request");
+    grant = admitRelayRequest({
+      grant,
+      requestId: completedRequestId,
+      authority: grant.authority,
+      requestBytes: 128,
+      now,
+    }).grant;
+    grant = recordSuccessfulProviderResponse({
+      grant,
+      requestId: completedRequestId,
+    });
     const requestId = relayRequestId("quota-request");
     grant = admitRelayRequest({
       grant,
@@ -822,22 +837,19 @@ describe("invocation-bounded relay grant", () => {
       requestBytes: 128,
       now,
     }).grant;
-    grant = recordProviderResponseStarted({ grant, requestId });
     const result = failoverCurrentRelayRequest({
       grant,
       requestId,
       failedAccount: primary,
       backupAccount: backup,
+      currentRequestSuccessfulResponseStarted: false,
       failure: "rate_limited",
       effectFence: "classified_response_before_success",
       cooldownUntil: new Date("2026-08-15T10:20:00.000Z"),
       now,
     });
-    expect(result.status).toBe("denied");
-    if (result.status === "denied") {
-      expect(result.reason).toBe("successful_response_fence");
-    }
-    expect(result.grant.activeAccountId).toBe(primary.id);
+    expect(result.status).toBe("switched");
+    expect(result.grant.activeAccountId).toBe(backup.id);
     expect(result.failedAccount.availability).toEqual({
       status: "cooldown",
       reason: "rate_limited",
@@ -863,6 +875,7 @@ describe("invocation-bounded relay grant", () => {
         requestId,
         failedAccount: primary,
         backupAccount: backup,
+        currentRequestSuccessfulResponseStarted: false,
         failure: "needs_reconnect",
         effectFence: "before_refresh_or_upstream_effect",
         cooldownUntil: null,
@@ -878,7 +891,7 @@ describe("invocation-bounded relay grant", () => {
     );
   });
 
-  it("fences failover forever after the first successful provider response", () => {
+  it("does not use a previous request success as the failover fence", () => {
     let grant = grantFixture([
       accountFixture("primary", 0),
       accountFixture("backup", 1),
@@ -901,13 +914,13 @@ describe("invocation-bounded relay grant", () => {
         effectFence: "before_refresh_or_upstream_effect",
       }),
     ).toEqual({
-      eligible: false,
-      reason: "successful_response_fence",
-      accountDisposition: "none",
+      eligible: true,
+      reason: "eligible",
+      accountDisposition: "quarantine",
     });
   });
 
-  it("fences failover as soon as upstream response starts", () => {
+  it("uses the current request effect fence after response start", () => {
     let grant = grantFixture([
       accountFixture("primary", 0),
       accountFixture("backup", 1),
@@ -927,9 +940,9 @@ describe("invocation-bounded relay grant", () => {
       classifyFailoverEligibility({
         grant,
         failure: "rate_limited",
-        effectFence: "before_refresh_or_upstream_effect",
+        effectFence: "upstream_effect_started",
       }).reason,
-    ).toBe("successful_response_fence");
+    ).toBe("not_failover_class");
   });
 
   it("uses AR classification without inspecting raw provider failures", () => {
