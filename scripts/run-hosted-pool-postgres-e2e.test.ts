@@ -35,7 +35,7 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     );
   });
 
-  it("hands off authority before V5 in the populated migration rehearsal", () => {
+  it("hands off authority before V5 and applies SQL104 after public eligibility", () => {
     const migrationMode = section(
       "if (runMigration) {",
       "if (runPostgresE2e) {",
@@ -45,6 +45,27 @@ describe("hosted pool PostgreSQL migration ordering", () => {
       "for (const migration of hostedPoolStagedMigrations)",
       "await prepareCodexOAuthV5ReleaseAuthority(migrationDatabaseUrl)",
       "applyCodexOAuthV5Migrations(rehearsalDirectory, migrationDatabaseUrl)",
+      "await applyPublicEligibilityMigration(",
+      "applyRequestScopedFailoverMigration(",
+    ]);
+  });
+
+  it("keeps SQL104 out of the pre-handoff catalog and verifies it after deploy", () => {
+    expect(
+      source.match(/000104_hosted_pool_request_scoped_failover/gu),
+    ).toHaveLength(1);
+    const preparation = section(
+      "function prepareMigrationRehearsal",
+      "function addMigration",
+    );
+    expect(preparation).toContain("requestScopedFailoverMigration.name");
+    const helper = source.slice(
+      source.indexOf("function applyRequestScopedFailoverMigration"),
+    );
+    expectOrdered(helper, [
+      "addMigration(directory, requestScopedFailoverMigration.name)",
+      "runMigrationDeploy(directory, url)",
+      "runMigrationTest(url, requestScopedFailoverMigration.phase)",
     ]);
   });
 

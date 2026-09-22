@@ -98,6 +98,10 @@ const hostedPoolStagedMigrations = [
 
 const publicEligibilityMigration =
   "000096_hosted_pool_public_repository_eligibility";
+const requestScopedFailoverMigration = Object.freeze({
+  name: "000104_hosted_pool_request_scoped_failover",
+  phase: "verify-000104",
+});
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -158,6 +162,10 @@ try {
     await prepareCodexOAuthV5ReleaseAuthority(migrationDatabaseUrl);
     applyCodexOAuthV5Migrations(rehearsalDirectory, migrationDatabaseUrl);
     await applyPublicEligibilityMigration(
+      rehearsalDirectory,
+      migrationDatabaseUrl,
+    );
+    applyRequestScopedFailoverMigration(
       rehearsalDirectory,
       migrationDatabaseUrl,
     );
@@ -735,7 +743,10 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
     publicEligibilityMigration,
     ...codexOAuthV5Migrations,
     ...(excludeHostedPoolMigrations
-      ? hostedPoolStagedMigrations.map((migration) => migration.name)
+      ? [
+          ...hostedPoolStagedMigrations.map((migration) => migration.name),
+          requestScopedFailoverMigration.name,
+        ]
       : []),
   ]);
   cpSync("packages/platform/db/prisma", join(directory, "prisma"), {
@@ -921,4 +932,10 @@ async function applyPublicEligibilityMigration(directory, url) {
   } finally {
     await client.end();
   }
+}
+
+function applyRequestScopedFailoverMigration(directory, url) {
+  addMigration(directory, requestScopedFailoverMigration.name);
+  runMigrationDeploy(directory, url);
+  runMigrationTest(url, requestScopedFailoverMigration.phase);
 }

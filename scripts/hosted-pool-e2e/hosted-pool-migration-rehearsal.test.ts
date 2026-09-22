@@ -21,7 +21,8 @@ if (
   phase !== "verify-000083" &&
   phase !== "verify-000084" &&
   phase !== "verify-000085" &&
-  phase !== "verify-000086"
+  phase !== "verify-000086" &&
+  phase !== "verify-000104"
 ) {
   throw new Error("hosted_pool_migration_phase_required");
 }
@@ -578,6 +579,51 @@ describe("hosted pool populated 000074 to 000075 migration", () => {
           validation_committed: true,
         },
       ]);
+    },
+  );
+
+  it.runIf(phase === "verify-000104")(
+    "adds request-scoped failover provenance without rewriting populated grants",
+    async () => {
+      const catalog = await client.query(`
+        SELECT
+          (SELECT is_nullable FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'HostedCodexInvocationGrant'
+             AND column_name = 'failoverRequestId') AS nullable,
+          (SELECT convalidated FROM pg_constraint
+           WHERE conname = 'HostedCodexInvocationGrant_failover_request_fkey') AS fk_validated,
+          (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+           WHERE conname = 'HostedCodexInvocationGrant_failover_request_fkey') AS fk_definition,
+          (SELECT indisunique FROM pg_index
+           WHERE indexrelid = '"HostedCodexInvocationGrant_failoverRequestId_key"'::regclass) AS index_unique,
+          (SELECT COUNT(*)::int FROM "HostedCodexInvocationGrant"
+           WHERE "failoverRequestId" IS NOT NULL) AS populated_failovers,
+          (SELECT COUNT(*)::int FROM "_prisma_migrations"
+           WHERE migration_name = '000104_hosted_pool_request_scoped_failover'
+             AND finished_at IS NOT NULL AND rolled_back_at IS NULL) AS migration_count,
+          pg_get_functiondef('hosted_codex_invocation_grant_guard()'::regprocedure) AS guard_definition
+      `);
+      expect(catalog.rows).toHaveLength(1);
+      expect(catalog.rows[0]).toMatchObject({
+        nullable: "YES",
+        fk_validated: true,
+        index_unique: true,
+        populated_failovers: 0,
+        migration_count: 1,
+      });
+      expect(catalog.rows[0]?.fk_definition).toContain(
+        'FOREIGN KEY ("failoverRequestId")',
+      );
+      expect(catalog.rows[0]?.fk_definition).toContain(
+        'REFERENCES "HostedCodexRelayRequest"(id)',
+      );
+      expect(catalog.rows[0]?.guard_definition).toContain(
+        'request."successfulResponseStartedAt" IS NULL',
+      );
+      expect(catalog.rows[0]?.guard_definition).toContain(
+        "request.\"status\" IN ('received', 'processing')",
+      );
     },
   );
 
