@@ -226,7 +226,7 @@ describe("SDK growth authority routes", () => {
         completionDigest: "completion",
         receiptDigest: "receipt",
         receiptWire: Buffer.from("receipt"),
-        publicationState: "pending",
+        publicationState: "ready",
       }),
     };
     const app = Fastify();

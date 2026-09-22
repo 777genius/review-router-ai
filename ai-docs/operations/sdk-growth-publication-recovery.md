@@ -1,9 +1,22 @@
 # SDK growth publication recovery
 
-External activation is **HOLD**. The dependency-independent implementation is
-not registered in the production worker. Activation requires the Lane A schema,
-transaction-bound authority adapter, effect insertion, package exports and final
-composition.
+External activation is **HOLD**. The production worker composition is registered
+behind `REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED=1`, but that does not prove a
+deployed migration, credentials, merge-time required-check control or a live App
+authored result. Keep the flag disabled until migration
+`000105_sdk_growth_publication_effect` is deployed and B2 proves those external
+conditions end to end.
+
+Worker startup rejects publication activation unless
+`REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED=1` is also set. This is required
+so another worker can reclaim a publication event after its original claimant
+crashes; maintenance only repairs effects that have not yet been linked to an
+outbox event.
+
+Completion and its immutable publication envelope commit atomically. The worker
+recovers an unlinked envelope into the existing outbox, validates the exact
+claimed event under the effect lock, and holds the receipt/current-authority
+database fence across the single provider mutation call.
 
 The publication effect has three nonterminal states: `ready`, `sending` and
 `reconcile-required`. `applied`, `not-applied`, `superseded` and

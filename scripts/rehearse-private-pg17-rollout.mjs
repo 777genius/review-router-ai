@@ -310,6 +310,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000102_sdk_growth_current_authority",
     "000103_sdk_growth_authority_custody",
     "000104_hosted_pool_request_scoped_failover",
+    "000105_sdk_growth_publication_effect",
   ]),
   retained: Object.freeze([
     "000067_review_live_progress",

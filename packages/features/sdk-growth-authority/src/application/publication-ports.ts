@@ -153,6 +153,18 @@ export interface PublicationEffectStore {
     | Readonly<{ kind: "committed"; value: T }>
     | Readonly<{ kind: "stale-claim" | "missing" }>
   >;
+  /** Hold the current-authority and delivery-claim database fences until the
+   * one provider mutation call has settled. No replacement epoch can commit
+   * while this callback is allowed to begin the mutation. */
+  withMutationPermit<T>(
+    intentId: string,
+    claim: DeliveryClaim,
+    attemptId: string,
+    mutate: () => Promise<T>,
+  ): Promise<
+    | Readonly<{ kind: "committed"; value: T }>
+    | Readonly<{ kind: "stale-claim" | "missing" | "not-current" }>
+  >;
 }
 
 export type PostResult =

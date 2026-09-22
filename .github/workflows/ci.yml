@@ -398,6 +398,7 @@ jobs:
           pnpm exec vitest run \
             packages/features/sdk-growth-authority/src/tests/prisma-receipt-repository.test.ts \
             packages/features/sdk-growth-authority/src/tests/prisma-current-authority.test.ts \
+            packages/features/sdk-growth-authority/src/tests/prisma-lane-a.test.ts \
             packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts \
             --reporter=json --outputFile="$results"
           RESULTS_PATH="$results" EXPECTED_HEAD="$GITHUB_SHA" node --input-type=module <<'NODE'
@@ -407,6 +408,7 @@ jobs:
           const expected = [
             "packages/features/sdk-growth-authority/src/tests/prisma-receipt-repository.test.ts",
             "packages/features/sdk-growth-authority/src/tests/prisma-current-authority.test.ts",
+            "packages/features/sdk-growth-authority/src/tests/prisma-lane-a.test.ts",
             "packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts",
           ];
           const suites = report.testResults.map((suite) =>
@@ -428,7 +430,7 @@ jobs:
           }
           console.log(JSON.stringify({
             head: process.env.EXPECTED_HEAD,
-            command: "pnpm exec vitest run <three required PostgreSQL suites> --reporter=json",
+            command: "pnpm exec vitest run <four required PostgreSQL suites> --reporter=json",
             executed: report.numTotalTests,
             passed: report.numPassedTests,
             skipped: report.numPendingTests + report.numTodoTests,

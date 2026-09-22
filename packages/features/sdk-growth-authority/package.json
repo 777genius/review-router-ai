@@ -28,6 +28,16 @@
       "types": "./src/infrastructure/prisma/prisma-current-authority.ts",
       "production": "./dist/infrastructure/prisma/prisma-current-authority.js",
       "default": "./src/infrastructure/prisma/prisma-current-authority.ts"
+    },
+    "./infrastructure/publication": {
+      "types": "./src/infrastructure/prisma/prisma-publication-effect.ts",
+      "production": "./dist/infrastructure/prisma/prisma-publication-effect.js",
+      "default": "./src/infrastructure/prisma/prisma-publication-effect.ts"
+    },
+    "./infrastructure/outbox": {
+      "types": "./src/infrastructure/outbox/sdk-growth-publication.ts",
+      "production": "./dist/infrastructure/outbox/sdk-growth-publication.js",
+      "default": "./src/infrastructure/outbox/sdk-growth-publication.ts"
     }
   },
   "scripts": {
