@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { DashboardShell, DashboardShellSnapshot } from "./dashboard-shell";
 import { DashboardSectionLoading } from "./dashboard-section-loading";
+import { NavigationFeedbackProvider } from "../navigation-feedback";
 import type { DashboardWorkspaceSummary } from "./dashboard-workspace-navigation";
 
 const route = vi.hoisted(() => ({
@@ -15,8 +16,15 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(route.search),
 }));
 vi.mock("next/link", () => ({
-  default: (props: ComponentProps<"a">) => (
-    <a {...props} data-next-link="true" />
+  default: ({ onClick, ...props }: ComponentProps<"a">) => (
+    <a
+      {...props}
+      data-next-link="true"
+      onClick={(event) => {
+        onClick?.(event);
+        event.preventDefault();
+      }}
+    />
   ),
 }));
 vi.mock("../connect-source-dialog", () => ({
@@ -84,6 +92,61 @@ describe("persistent dashboard shell", () => {
     );
     expect(screen.getByRole("main").getAttribute("aria-busy")).toBeNull();
     expect(sidebar?.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
+  it("shows the content skeleton immediately when a section link starts navigation", () => {
+    render(
+      <NavigationFeedbackProvider>
+        <DashboardShell {...shellProps}>
+          <div>Repository content</div>
+        </DashboardShell>
+      </NavigationFeedbackProvider>,
+    );
+    const workspaceSwitcher = screen.getByRole("tablist", {
+      name: "Workspace",
+    });
+    const sidebar = document.getElementById("dashboard-section-sidebar");
+
+    fireEvent.click(
+      screen.getByRole("tab", {
+        name: /Memory\s*Suggestions and knowledge/,
+      }),
+    );
+
+    expect(screen.getByRole("tablist", { name: "Workspace" })).toBe(
+      workspaceSwitcher,
+    );
+    expect(document.getElementById("dashboard-section-sidebar")).toBe(sidebar);
+    expect(screen.queryByText("Repository content")).toBeNull();
+    expect(screen.getByLabelText("Loading dashboard section")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("tab", { name: /Memory\s*Suggestions and knowledge/ })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(screen.getByRole("progressbar")).toBeTruthy();
+  });
+
+  it("shows the same content-only skeleton when switching workspaces", () => {
+    render(
+      <NavigationFeedbackProvider>
+        <DashboardShell {...shellProps}>
+          <div>Workspace one content</div>
+        </DashboardShell>
+      </NavigationFeedbackProvider>,
+    );
+    const sidebar = document.getElementById("dashboard-section-sidebar");
+
+    fireEvent.click(screen.getByRole("tab", { name: /two\s*3 repos/ }));
+
+    expect(screen.queryByText("Workspace one content")).toBeNull();
+    expect(screen.getByLabelText("Loading dashboard section")).toBeTruthy();
+    expect(document.getElementById("dashboard-section-sidebar")).toBe(sidebar);
+    expect(
+      screen
+        .getByRole("tab", { name: /two\s*3 repos/ })
+        .getAttribute("aria-current"),
+    ).toBe("page");
   });
 
   it("uses fragment-free client links across Accounts and workspace changes", () => {

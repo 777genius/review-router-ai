@@ -9,7 +9,9 @@ import {
 } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { buildPendingOrganizationInstallRequest } from "../../src/server/dashboard-app-install-request";
+import { useNavigationFeedback } from "../navigation-feedback";
 import { DashboardCollapsibleShell } from "./dashboard-collapsible-shell";
+import { DashboardSectionLoading } from "./dashboard-section-loading";
 import { resolveDashboardSection } from "./dashboard-section";
 import {
   DashboardSectionNav,
@@ -53,14 +55,10 @@ export function DashboardShell({
   const [workspaces, setWorkspaces] = useState(initialWorkspaces);
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const params: Record<string, string> = {};
-  // Match the server's first-value semantics for repeated query parameters.
-  searchParams.forEach((value, key) => {
-    if (!(key in params)) params[key] = value;
-  });
-  const selectedSection =
-    pathname === "/dashboard/setup" ? "setup" : resolveDashboardSection(params);
-  const selectedWorkspace =
+  const { isPending, target } = useNavigationFeedback();
+  const params = firstValueParams(searchParams);
+  const currentSection = dashboardSection(pathname, params);
+  const currentWorkspace =
     workspaces.length > 0
       ? selectDashboardWorkspace(
           workspaces,
@@ -68,6 +66,36 @@ export function DashboardShell({
           params.installation_id ?? "",
         )
       : null;
+  const pendingParams =
+    isPending && target && isDashboardPath(target.pathname)
+      ? firstValueParams(new URLSearchParams(target.search))
+      : null;
+  const pendingSection = pendingParams
+    ? dashboardSection(target?.pathname ?? pathname, pendingParams)
+    : null;
+  const pendingWorkspace =
+    pendingParams && workspaces.length > 0
+      ? selectDashboardWorkspace(
+          workspaces,
+          pendingParams.workspace ?? "",
+          pendingParams.installation_id ?? "",
+        )
+      : null;
+  const isDashboardContentPending = Boolean(
+    pendingParams &&
+    pendingSection &&
+    pendingWorkspace &&
+    (pendingSection !== currentSection ||
+      pendingWorkspace.workspace.id !== currentWorkspace?.workspace.id),
+  );
+  const displayedParams =
+    isDashboardContentPending && pendingParams ? pendingParams : params;
+  const selectedSection = isDashboardContentPending
+    ? (pendingSection ?? currentSection)
+    : currentSection;
+  const selectedWorkspace = isDashboardContentPending
+    ? pendingWorkspace
+    : currentWorkspace;
 
   return (
     <DashboardShellContext.Provider value={setWorkspaces}>
@@ -79,7 +107,7 @@ export function DashboardShell({
             selectedSection={selectedSection}
             appInstallUrl={appInstallUrl}
             pendingOrganizationInstallRequest={buildPendingOrganizationInstallRequest(
-              params,
+              displayedParams,
             )}
             fallbackUser={fallbackUser}
           />
@@ -98,7 +126,11 @@ export function DashboardShell({
                 />
               }
             >
-              {children}
+              {isDashboardContentPending ? (
+                <DashboardSectionLoading />
+              ) : (
+                children
+              )}
             </DashboardCollapsibleShell>
           </section>
         </main>
@@ -107,4 +139,25 @@ export function DashboardShell({
       )}
     </DashboardShellContext.Provider>
   );
+}
+
+function firstValueParams(
+  searchParams: URLSearchParams | Readonly<URLSearchParams>,
+): Record<string, string> {
+  const params: Record<string, string> = {};
+  // Match the server's first-value semantics for repeated query parameters.
+  searchParams.forEach((value, key) => {
+    if (!(key in params)) params[key] = value;
+  });
+  return params;
+}
+
+function dashboardSection(pathname: string, params: Record<string, string>) {
+  return pathname === "/dashboard/setup"
+    ? ("setup" as const)
+    : resolveDashboardSection(params);
+}
+
+function isDashboardPath(pathname: string): boolean {
+  return pathname === "/dashboard" || pathname === "/dashboard/setup";
 }

@@ -9,6 +9,7 @@ import { LogoMark } from "./logo-mark";
 import { CompactPrimaryNav, MobilePrimaryNav, PrimaryNav } from "./primary-nav";
 import { HeaderProfileMenu } from "./header-profile-menu";
 import { ThemeToggle } from "./theme-toggle";
+import { NavigationFeedbackProvider } from "./navigation-feedback";
 import "./globals.css";
 import {
   reviewRouterContactEmail,
@@ -148,6 +149,7 @@ export default async function RootLayout({
       <body>
         <a
           href="#content"
+          data-navigation-feedback="ignore"
           className="sr-only rounded-lg border border-cyan-300/40 bg-slate-950 px-3 py-2 text-cyan-50 focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50"
         >
           Skip to content
@@ -195,7 +197,9 @@ export default async function RootLayout({
           </div>
           <CompactPrimaryNav signedIn={profile.signedIn} />
         </header>
-        <div id="content">{children}</div>
+        <NavigationFeedbackProvider>
+          <div id="content">{children}</div>
+        </NavigationFeedbackProvider>
         <AppToaster />
         <footer className="site-footer relative isolate overflow-hidden border-t border-cyan-200/10 bg-[var(--rr-footer-bg)]">
           <div
