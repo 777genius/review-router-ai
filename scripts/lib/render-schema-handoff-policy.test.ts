@@ -130,9 +130,23 @@ const migration103 = {
     .digest("hex"),
 };
 const checkout102 = [...checkout101, migration103];
+const migration104 = {
+  migrationName: "000104_hosted_pool_request_scoped_failover",
+  checksum: createHash("sha256")
+    .update(
+      readFileSync(
+        new URL(
+          "../../packages/platform/db/prisma/migrations/000104_hosted_pool_request_scoped_failover/migration.sql",
+          import.meta.url,
+        ),
+      ),
+    )
+    .digest("hex"),
+};
+const checkout103 = [...checkout102, migration104];
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("projects exactly92, exactly95, exactly96, exactly97, exactly98, exactly99 and exactly100 to the same ordered rows", () => {
+  it("projects every admitted boundary through exactly103 to the same managed92 rows", () => {
     for (const source of [
       catalog,
       expanded,
@@ -143,6 +157,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       checkout100,
       checkout101,
       checkout102,
+      checkout103,
     ]) {
       const before = structuredClone(source);
       const managed = partitionRenderSchemaHandoffCheckout(source);
@@ -173,6 +188,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       checkout100,
       checkout101,
       checkout102,
+      checkout103,
     ]) {
       for (const [index] of source.entries()) {
         const changed = source.map((row) => ({ ...row }));
@@ -186,7 +202,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
           (source === checkout99 && index === 98) ||
           (source === checkout100 && index === 99) ||
           (source === checkout101 && index === 100) ||
-          (source === checkout102 && index === 101)
+          (source === checkout102 && index === 101) ||
+          (source === checkout103 && index === 102)
         )
           expect(partitionRenderSchemaHandoffCheckout(removed)).toEqual(
             catalog,
@@ -206,7 +223,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
           name !== migration100.migrationName &&
           name !== migration101.migrationName &&
           name !== migration102.migrationName &&
-          name !== migration103.migrationName,
+          name !== migration103.migrationName &&
+          name !== migration104.migrationName,
       ),
     );
     expect(
@@ -234,7 +252,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
           name !== migration100.migrationName &&
           name !== migration101.migrationName &&
           name !== migration102.migrationName &&
-          name !== migration103.migrationName,
+          name !== migration103.migrationName &&
+          name !== migration104.migrationName,
       ),
     );
     expect(
@@ -261,7 +280,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
           name !== migration100.migrationName &&
           name !== migration101.migrationName &&
           name !== migration102.migrationName &&
-          name !== migration103.migrationName,
+          name !== migration103.migrationName &&
+          name !== migration104.migrationName,
       ),
     );
     expect(
@@ -287,7 +307,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
         (name) =>
           name !== migration101.migrationName &&
           name !== migration102.migrationName &&
-          name !== migration103.migrationName,
+          name !== migration103.migrationName &&
+          name !== migration104.migrationName,
       ),
     );
     expect(
@@ -312,7 +333,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       canonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration102.migrationName &&
-          name !== migration103.migrationName,
+          name !== migration103.migrationName &&
+          name !== migration104.migrationName,
       ),
     );
     expect(
@@ -335,7 +357,9 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     );
     expect(checkout101.map((row) => row.migrationName)).toEqual(
       canonicalPrismaMigrationNames.filter(
-        (name) => name !== migration103.migrationName,
+        (name) =>
+          name !== migration103.migrationName &&
+          name !== migration104.migrationName,
       ),
     );
     expect(
@@ -357,7 +381,9 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "d6ae002a076c616d33ce854477096408b37e4285bb1c036dd2be13072786c8f9",
     );
     expect(checkout102.map((row) => row.migrationName)).toEqual(
-      canonicalPrismaMigrationNames,
+      canonicalPrismaMigrationNames.filter(
+        (name) => name !== migration104.migrationName,
+      ),
     );
     expect(
       createHash("sha256")
@@ -369,6 +395,27 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
         .digest("hex"),
     ).toBe("a2e683899abcc3f9adf377cbc8ecb2e051d84a0e7c6e9fffc0fe32fa150c3983");
     expect(() => assertRenderSchemaHandoffCatalog(checkout102)).toThrow(
+      "migration_catalog",
+    );
+  });
+
+  it("pins checkout103 to actual SQL104 bytes and the complete manifest", () => {
+    expect(migration104.checksum).toBe(
+      "7e63286c8bfab3c1cf7aa559c1515fa39a47ec3f8861eefcbf569a5d462039a7",
+    );
+    expect(checkout103.map((row) => row.migrationName)).toEqual(
+      canonicalPrismaMigrationNames,
+    );
+    expect(
+      createHash("sha256")
+        .update(
+          checkout103
+            .map((row) => `${row.migrationName}:${row.checksum}`)
+            .join(","),
+        )
+        .digest("hex"),
+    ).toBe("d8c18d54579a469dc03635213cfc3e61e2d9564ed775ee67653482f9776c7287");
+    expect(() => assertRenderSchemaHandoffCatalog(checkout103)).toThrow(
       "migration_catalog",
     );
   });
@@ -589,14 +636,19 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(102);
+    expect(inventory).toHaveLength(103);
     const actual = fixture.read();
     expect(actual).toEqual(catalog);
     expect(Object.isFrozen(actual)).toBe(true);
     expect(actual.every(Object.isFrozen)).toBe(true);
+    rmSync(join(fixture.migrations, migration104.migrationName), {
+      recursive: true,
+    });
+    expect(fixture.read()).toEqual(actual);
     rmSync(join(fixture.migrations, migration103.migrationName), {
       recursive: true,
     });
+    expect(readdirSync(fixture.migrations)).toHaveLength(101);
     expect(fixture.read()).toEqual(actual);
     rmSync(join(fixture.migrations, migration102.migrationName), {
       recursive: true,
@@ -664,6 +716,7 @@ describe("complete filesystem checkout inventory", () => {
       migration101,
       migration102,
       migration103,
+      migration104,
     ];
     const bytes = tail.map((row) =>
       readFileSync(
@@ -679,11 +732,11 @@ describe("complete filesystem checkout inventory", () => {
           writeFileSync(join(directory, "migration.sql"), bytes[index]!);
         }
       }
-      if ([0, 7, 15, 31, 63, 127, 255, 511, 1023].includes(bits))
+      if ([0, 7, 15, 31, 63, 127, 255, 511, 1023, 2047].includes(bits))
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
     }
-  });
+  }, 60_000);
 
   it.each([
     "000000_unknown",
@@ -740,7 +793,7 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      if (name === migration103.migrationName)
+      if (name === migration104.migrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

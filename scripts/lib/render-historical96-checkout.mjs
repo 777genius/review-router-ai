@@ -12,12 +12,13 @@ const checkoutOnlyMigrations = Object.freeze([
   "000101_sdk_growth_authority",
   "000102_sdk_growth_current_authority",
   "000103_sdk_growth_authority_custody",
+  "000104_hosted_pool_request_scoped_failover",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
 export function readRenderHistorical96CheckoutInventory() {
   const checkout = readRenderManagedCheckoutInventory();
-  if (![96, 97, 98, 99, 100, 101, 102].includes(checkout.length))
+  if (![96, 97, 98, 99, 100, 101, 102, 103].includes(checkout.length))
     throw new Error("render_historical96_checkout_rejected:count");
   const historical = checkout.filter(
     (row) => !checkoutOnlyMigrations.includes(row.migrationName),

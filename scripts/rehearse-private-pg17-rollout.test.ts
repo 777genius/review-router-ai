@@ -62,8 +62,8 @@ function gitCustodyFixture() {
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
   git("init", "-q");
-  git("config", "user.name", "ReviewRouter Test");
-  git("config", "user.email", "reviewrouter@example.invalid");
+  git("config", "user.name", "iliya");
+  git("config", "user.email", "iliyazelenkog@gmail.com");
   writeFileSync(join(root, "evidence.txt"), "base\n");
   git("add", "evidence.txt");
   git("commit", "-qm", "base");
@@ -1293,6 +1293,7 @@ describe("disposable dual-version rehearsal", () => {
       "000101_sdk_growth_authority",
       "000102_sdk_growth_current_authority",
       "000103_sdk_growth_authority_custody",
+      "000104_hosted_pool_request_scoped_failover",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1335,7 +1336,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000100_hosted_codex_device_login" &&
             name !== "000101_sdk_growth_authority" &&
             name !== "000102_sdk_growth_current_authority" &&
-            name !== "000103_sdk_growth_authority_custody",
+            name !== "000103_sdk_growth_authority_custody" &&
+            name !== "000104_hosted_pool_request_scoped_failover",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1351,7 +1353,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000100_hosted_codex_device_login" &&
             name !== "000101_sdk_growth_authority" &&
             name !== "000102_sdk_growth_current_authority" &&
-            name !== "000103_sdk_growth_authority_custody",
+            name !== "000103_sdk_growth_authority_custody" &&
+            name !== "000104_hosted_pool_request_scoped_failover",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1373,12 +1376,12 @@ describe("disposable dual-version rehearsal", () => {
   });
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
-    const exact103 = "000103_sdk_growth_authority_custody";
+    const exact104 = "000104_hosted_pool_request_scoped_failover";
     for (const candidate of [
-      names.filter((name) => name !== exact103),
-      [...names, exact103],
-      names.map((name) => (name === exact103 ? "000103_unknown" : name)),
-      [...names, "000104_future_migration"],
+      names.filter((name) => name !== exact104),
+      [...names, exact104],
+      names.map((name) => (name === exact104 ? "000104_unknown" : name)),
+      [...names, "000105_future_migration"],
     ]) {
       expect(() => resolvePreReleaseMigrationExclusions(candidate)).toThrow(
         "private_pg17_rehearsal_migration_boundary_unclassified",
@@ -1393,6 +1396,7 @@ describe("disposable dual-version rehearsal", () => {
     "000101_sdk_growth_authority",
     "000102_sdk_growth_current_authority",
     "000103_sdk_growth_authority_custody",
+    "000104_hosted_pool_request_scoped_failover",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1424,7 +1428,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000100_hosted_codex_device_login" &&
                 name !== "000101_sdk_growth_authority" &&
                 name !== "000102_sdk_growth_current_authority" &&
-                name !== "000103_sdk_growth_authority_custody",
+                name !== "000103_sdk_growth_authority_custody" &&
+                name !== "000104_hosted_pool_request_scoped_failover",
               "000102_sdk_growth_current_authority",
             ),
           ),

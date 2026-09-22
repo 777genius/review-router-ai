@@ -29,8 +29,11 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full102 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(102);
+  it("validates the full103 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(103);
+    expect(full[102]?.migrationName).toBe(
+      "000104_hosted_pool_request_scoped_failover",
+    );
     expect(full[101]?.migrationName).toBe(
       "000103_sdk_growth_authority_custody",
     );
