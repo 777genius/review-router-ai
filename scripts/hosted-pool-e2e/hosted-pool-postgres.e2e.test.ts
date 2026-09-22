@@ -1351,42 +1351,53 @@ describe("hosted pool production adapters on disposable PostgreSQL 17", () => {
     await effects.markDispatching(secondEffect);
     await effects.markResponseStarted(secondEffect, "provider-rate-limit");
     const failedAt = new Date();
-    const result = await failoverCurrentRelayRequestBeforeEffect(
-      {
-        grantId: issued.grant.id,
-        requestId: relayRequestId(second.requestId),
-        failure: "rate_limited",
-        effectFence: "classified_response_before_success",
-        cooldownUntil: new Date(failedAt.getTime() + 60_000),
-        now: failedAt,
-        effect: {
-          ...effects.authority(secondEffect),
-          sourceState: "response_started",
-          terminalState: "failed_classified",
-          terminalEvidenceHash: sha256("request-scoped-second-rate-limit"),
-          errorCode: "rate_limited",
+    try {
+      const result = await failoverCurrentRelayRequestBeforeEffect(
+        {
+          grantId: issued.grant.id,
+          requestId: relayRequestId(second.requestId),
+          failure: "rate_limited",
+          effectFence: "classified_response_before_success",
+          cooldownUntil: new Date(failedAt.getTime() + 60_000),
+          now: failedAt,
+          effect: {
+            ...effects.authority(secondEffect),
+            sourceState: "response_started",
+            terminalState: "failed_classified",
+            terminalEvidenceHash: sha256("request-scoped-second-rate-limit"),
+            errorCode: "rate_limited",
+          },
         },
-      },
-      ledger,
-    );
+        ledger,
+      );
 
-    expect(result).toMatchObject({
-      status: "switched",
-      grant: {
-        activeAccountId: hostedAccountId("account-backup"),
-        failoverCount: 1,
-      },
-    });
-    await expect(
-      prisma.hostedCodexUpstreamEffectAttempt.findMany({
-        where: { grantId: issued.grant.id },
-        orderBy: { attemptOrdinal: "asc" },
-        select: { relayRequestId: true, state: true },
-      }),
-    ).resolves.toEqual([
-      { relayRequestId: first.requestId, state: "succeeded" },
-      { relayRequestId: second.requestId, state: "failed_classified" },
-    ]);
+      expect(result).toMatchObject({
+        status: "switched",
+        grant: {
+          activeAccountId: hostedAccountId("account-backup"),
+          failoverCount: 1,
+        },
+      });
+      await expect(
+        prisma.hostedCodexUpstreamEffectAttempt.findMany({
+          where: { grantId: issued.grant.id },
+          orderBy: { attemptOrdinal: "asc" },
+          select: { relayRequestId: true, state: true },
+        }),
+      ).resolves.toEqual([
+        { relayRequestId: first.requestId, state: "succeeded" },
+        { relayRequestId: second.requestId, state: "failed_classified" },
+      ]);
+    } finally {
+      await prisma.hostedCodexAccount.update({
+        where: { id: "account-primary" },
+        data: {
+          state: "healthy",
+          cooldownUntil: null,
+          healthVersion: { increment: 1 },
+        },
+      });
+    }
   });
 
   it("binds each upstream attempt to the exact active credential generation", async () => {
