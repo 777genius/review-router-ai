@@ -637,6 +637,8 @@ describe("Codex rotating GitHub Action runtime", () => {
       "codex",
     );
     const requestBodies: string[] = [];
+    const invokedUrls: string[] = [];
+    const pullRequestAuthorizationHeaders: string[] = [];
     await mkdir(join(tempDir, "action-dist", "codex", "linux-x64"), {
       recursive: true,
     });
@@ -668,6 +670,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     );
     const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const href = String(url);
+      invokedUrls.push(href);
       if (typeof init?.body === "string") requestBodies.push(init.body);
       if (
         href.startsWith(
@@ -706,6 +709,32 @@ describe("Codex rotating GitHub Action runtime", () => {
       }
       if (
         href ===
+        "https://api.github.com/repos/777genius/agent-teams-ai/pulls/118"
+      ) {
+        pullRequestAuthorizationHeaders.push(
+          new Headers(init?.headers).get("authorization") ?? "",
+        );
+        return jsonResponse({
+          head: { sha: "0123456789abcdef0123456789abcdef01234567" },
+        });
+      }
+      if (href.endsWith("/api/action/v1/codex-oauth/review-snapshot/commit")) {
+        return jsonResponse({
+          protocolVersion: 1,
+          status: "committed",
+          version: 1,
+          reviewedHeadSha: "0123456789abcdef0123456789abcdef01234567",
+        });
+      }
+      if (
+        href.endsWith(
+          "/api/action/v1/codex-oauth/review-execution-checkpoint/clear",
+        )
+      ) {
+        return jsonResponse({ protocolVersion: 1, status: "cleared" });
+      }
+      if (
+        href ===
         "https://api.github.com/repos/777genius/agent-teams-ai/issues/118/comments?per_page=100"
       ) {
         return jsonResponse([]);
@@ -739,11 +768,34 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(
         readFileSync(join(input.tempCodexHome, "config.toml"), "utf8"),
       ).not.toContain("opaque-hosted-grant");
+      await writeFile(
+        input.reviewSnapshotOutputPath!,
+        JSON.stringify({
+          protocolVersion: 1,
+          expectedVersion: 0,
+          pullRequestNumber: 118,
+          schemaVersion: 1,
+          reviewedHeadSha: "0123456789abcdef0123456789abcdef01234567",
+          baseSha: "abcdef0123456789abcdef0123456789abcdef01",
+          compatibilityKey: "c".repeat(64),
+          payload: { reviewSummary: "Hosted review complete", findings: [] },
+        }),
+      );
+      await writeFile(
+        input.reviewCheckpointFinalizationPath!,
+        JSON.stringify({
+          protocolVersion: 1,
+          pullRequestNumber: 118,
+          headSha: "0123456789abcdef0123456789abcdef01234567",
+          planHash: "d".repeat(64),
+          expectedVersion: 3,
+        }),
+      );
     });
     const env: NodeJS.ProcessEnv = {
       INPUT_MODE: "fork-agentic-sandbox-hosted-pool",
       "INPUT_API-URL": "https://api.reviewrouter.site/",
-      "INPUT_PROVIDER-INSTANCE-ID": "codex-hosted:123456",
+      "INPUT_PROVIDER-INSTANCE-ID": "hosted-pool:repository:777",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "5",
       "INPUT_SESSION-BINDING-ID": "binding-123",
       "INPUT_SESSION-BINDING-VERSION": "4",
@@ -778,13 +830,36 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(JSON.parse(requestBodies[0] ?? "{}")).toMatchObject({
         bindingId: "binding-123",
         bindingVersion: 4,
-        providerInstanceId: "codex-hosted:123456",
+        providerInstanceId: "hosted-pool:repository:777",
         workflowSchemaVersion: 5,
       });
       expect(requestBodies.join("\n")).not.toContain("opaque-hosted-grant");
       expect(requestBodies.join("\n")).not.toContain(
         "auth-json-must-not-be-read",
       );
+      expect(
+        invokedUrls.some((url) => url.endsWith("/review-snapshot/commit")),
+      ).toBe(true);
+      expect(
+        invokedUrls.some((url) =>
+          url.endsWith("/review-execution-checkpoint/clear"),
+        ),
+      ).toBe(true);
+      expect(
+        invokedUrls.some((url) => url.endsWith("/review-snapshot/head-token")),
+      ).toBe(false);
+      expect(pullRequestAuthorizationHeaders).toEqual([
+        "Bearer ghs_hosted_comment_token",
+      ]);
+      expect(
+        requestBodies
+          .map((body) => JSON.parse(body) as Record<string, unknown>)
+          .find((body) => body.compatibilityKey === "c".repeat(64)),
+      ).toMatchObject({
+        leaseId: "hosted-lease-1",
+        providerInstanceId: "hosted-pool:repository:777",
+        pullRequestNumber: 118,
+      });
       expect(env).not.toHaveProperty("INPUT_AUTH_JSON");
       expect(env).not.toHaveProperty("REVIEWROUTER_CODEX_AUTH_JSON");
     } finally {

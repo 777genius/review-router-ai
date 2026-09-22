@@ -1300,6 +1300,7 @@ async function runHostedForkAgenticSandboxGitHubAction(input: {
                     leaseId: invocationLeaseId,
                     event,
                     candidatePath: reviewSnapshotOutputPath,
+                    headToken: cleanupCommentToken,
                     io: input.io,
                   }),
                 clearCheckpoint: (marker) =>
@@ -2267,6 +2268,7 @@ async function tryCommitReviewSnapshot(input: {
   readonly leaseId: string;
   readonly event: PullRequestEvent;
   readonly candidatePath: string;
+  readonly headToken?: string | undefined;
   readonly io: ActionIO;
 }): Promise<boolean> {
   let candidateStats;
@@ -2298,22 +2300,26 @@ async function tryCommitReviewSnapshot(input: {
       throw new Error("review_snapshot_candidate_context_mismatch");
     }
 
-    const headToken = await postJson<CheckoutTokenResponse>({
-      fetchImpl: input.fetchImpl,
-      label: "api_review_snapshot_head_token",
-      url: `${input.inputs.apiUrl}/api/action/v1/codex-oauth/review-snapshot/head-token`,
-      body: {
-        leaseId: input.leaseId,
-        providerInstanceId: input.inputs.providerInstanceId,
-      },
-    });
-    if (headToken.repository !== input.event.repository) {
-      throw new Error("review_snapshot_head_token_repository_mismatch");
+    let headToken = input.headToken;
+    if (!headToken) {
+      const issuedHeadToken = await postJson<CheckoutTokenResponse>({
+        fetchImpl: input.fetchImpl,
+        label: "api_review_snapshot_head_token",
+        url: `${input.inputs.apiUrl}/api/action/v1/codex-oauth/review-snapshot/head-token`,
+        body: {
+          leaseId: input.leaseId,
+          providerInstanceId: input.inputs.providerInstanceId,
+        },
+      });
+      if (issuedHeadToken.repository !== input.event.repository) {
+        throw new Error("review_snapshot_head_token_repository_mismatch");
+      }
+      headToken = issuedHeadToken.token;
+      mask(input.io, headToken);
     }
-    mask(input.io, headToken.token);
     const currentHeadSha = await fetchCurrentPullRequestHeadSha({
       fetchImpl: input.fetchImpl,
-      token: headToken.token,
+      token: headToken,
       event: input.event,
     });
     if (currentHeadSha !== input.event.headSha) {
@@ -2350,7 +2356,7 @@ async function tryCommitReviewSnapshot(input: {
     ) {
       const recheckedHeadSha = await fetchCurrentPullRequestHeadSha({
         fetchImpl: input.fetchImpl,
-        token: headToken.token,
+        token: headToken,
         event: input.event,
       });
       if (recheckedHeadSha !== candidate.reviewedHeadSha) {

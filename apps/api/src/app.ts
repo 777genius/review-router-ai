@@ -167,6 +167,10 @@ import {
 } from "./review-investigation-operator-routes.js";
 import { appRouter } from "./trpc.js";
 import { ProductionHostedReviewPreleaseGate } from "./hosted-review-prelease-gate.js";
+import {
+  CompositeReviewStateAccess,
+  PrismaHostedReviewStateAccess,
+} from "./hosted-review-state-access.js";
 import { registerRuntimeGenerationCanaryRoute } from "./runtime-generation-canary-routes.js";
 import {
   composeProductionHostedCodexRelayRoutes,
@@ -616,6 +620,10 @@ export async function createApiApp(
                 : {}),
             },
           );
+          const reviewStateAccess = new CompositeReviewStateAccess(
+            codexRotatingOAuth,
+            new PrismaHostedReviewStateAccess(prisma),
+          );
           const codexRotatingVersionedWriteback =
             codexRotatingGitHubSecretGateway
               ? new CodexRotatingVersionedWritebackDispatcher(
@@ -693,9 +701,9 @@ export async function createApiApp(
                   : {}),
               }),
             codexRotatingOAuth,
-            codexRotatingReviewSnapshotAccess: codexRotatingOAuth,
+            codexRotatingReviewSnapshotAccess: reviewStateAccess,
             reviewSnapshots: new PrismaReviewSnapshotRepository(prisma),
-            codexRotatingReviewExecutionCheckpointAccess: codexRotatingOAuth,
+            codexRotatingReviewExecutionCheckpointAccess: reviewStateAccess,
             reviewExecutionCheckpoints:
               new PrismaReviewExecutionCheckpointRepository(prisma),
             codexRotatingRuntimeGate: {
