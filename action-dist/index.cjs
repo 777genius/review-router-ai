@@ -24102,10 +24102,39 @@ async function runHostedForkAgenticSandboxGitHubAction(input) {
               baseUrl,
               model: codexModelForForkRuntime(runtimeEnv)
             });
+            const restoredReviewSnapshot = await tryRestoreReviewSnapshot({
+              fetchImpl: input.fetchImpl,
+              inputs: input.inputs,
+              leaseId: invocationLeaseId,
+              event,
+              io: input.io
+            });
+            const reviewSnapshotForRuntime = restoredReviewSnapshot ?? {
+              protocolVersion: 1,
+              status: "missing",
+              expectedVersion: 0
+            };
             const reviewHome = await makeTempDirectory(
               "reviewrouter-review-home-"
             );
             try {
+              const reviewSnapshotInputPath = (0, import_node_path8.join)(
+                reviewHome,
+                reviewSnapshotInputFileName
+              );
+              const reviewSnapshotOutputPath = (0, import_node_path8.join)(
+                reviewHome,
+                reviewSnapshotOutputFileName
+              );
+              const reviewCheckpointFinalizationPath = (0, import_node_path8.join)(
+                reviewHome,
+                reviewCheckpointFinalizationFileName
+              );
+              await (0, import_promises6.writeFile)(
+                reviewSnapshotInputPath,
+                JSON.stringify(reviewSnapshotForRuntime),
+                { encoding: "utf8", mode: 384 }
+              );
               let cleanupCommentToken = commentToken;
               let reviewRuntimeFailure;
               try {
@@ -24127,6 +24156,9 @@ async function runHostedForkAgenticSandboxGitHubAction(input) {
                     commentTokenExpiresAt,
                     runtimeConfigVersion,
                     runtimeEnv,
+                    reviewSnapshotInputPath,
+                    reviewSnapshotOutputPath,
+                    reviewCheckpointFinalizationPath,
                     executionDeadlineEpochMs: input.executionDeadlineEpochMs,
                     commentTokenRefreshUrl,
                     commentTokenRefreshMode: "hosted-relay",
@@ -24140,6 +24172,30 @@ async function runHostedForkAgenticSandboxGitHubAction(input) {
               } catch (error51) {
                 reviewRuntimeFailure = error51;
               }
+              const finalizedCheckpointMarkerRead = await tryReadFinalizedReviewCheckpointMarker({
+                markerPath: reviewCheckpointFinalizationPath,
+                event,
+                io: input.io
+              });
+              await settleFinalizedReviewCheckpoint({
+                markerRead: finalizedCheckpointMarkerRead,
+                runtimeCompleted: didReviewRuntimeComplete(reviewRuntimeFailure),
+                commitSnapshot: () => tryCommitReviewSnapshot({
+                  fetchImpl: input.fetchImpl,
+                  inputs: input.inputs,
+                  leaseId: invocationLeaseId,
+                  event,
+                  candidatePath: reviewSnapshotOutputPath,
+                  io: input.io
+                }),
+                clearCheckpoint: (marker) => tryClearFinalizedReviewCheckpoint({
+                  fetchImpl: input.fetchImpl,
+                  inputs: input.inputs,
+                  leaseId: invocationLeaseId,
+                  marker,
+                  io: input.io
+                })
+              });
               try {
                 await deleteFullRuntimeProgressCommentsWithTokenRefresh({
                   fetchImpl: input.fetchImpl,

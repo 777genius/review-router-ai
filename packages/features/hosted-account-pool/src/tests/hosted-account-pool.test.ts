@@ -801,7 +801,7 @@ describe("invocation-bounded relay grant", () => {
       failedAccount: primary,
       backupAccount: backup,
       currentRequestSuccessfulResponseStarted: true,
-      failure: "rate_limited",
+      failure: "credential_invalid",
       effectFence: "classified_response_before_success",
       cooldownUntil: null,
       now,

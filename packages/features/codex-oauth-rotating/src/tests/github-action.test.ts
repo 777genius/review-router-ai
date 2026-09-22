@@ -697,6 +697,13 @@ describe("Codex rotating GitHub Action runtime", () => {
           policy: { maxRequests: 16 },
         });
       }
+      if (href.endsWith("/api/action/v1/codex-oauth/review-snapshot/restore")) {
+        return jsonResponse({
+          protocolVersion: 1,
+          status: "missing",
+          expectedVersion: 0,
+        });
+      }
       if (
         href ===
         "https://api.github.com/repos/777genius/agent-teams-ai/issues/118/comments?per_page=100"
@@ -716,6 +723,16 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(input.sessionBindingId).toBe("binding-123");
       expect(input.sessionBindingVersion).toBe(4);
       expect(input.runtimeEnv.REVIEWROUTER_FORK_AGENTIC_SANDBOX).toBe("true");
+      expect(input.reviewSnapshotInputPath).toBeTruthy();
+      expect(input.reviewSnapshotOutputPath).toBeTruthy();
+      expect(input.reviewCheckpointFinalizationPath).toBeTruthy();
+      expect(
+        JSON.parse(readFileSync(input.reviewSnapshotInputPath!, "utf8")),
+      ).toEqual({
+        protocolVersion: 1,
+        status: "missing",
+        expectedVersion: 0,
+      });
       expect(() =>
         readFileSync(join(input.tempCodexHome, "auth.json"), "utf8"),
       ).toThrow();
