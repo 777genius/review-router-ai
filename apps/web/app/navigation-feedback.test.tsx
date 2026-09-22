@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useNavigationFeedback,
+  NavigationContentReady,
   NavigationFeedbackProvider,
 } from "./navigation-feedback";
 
@@ -37,6 +38,14 @@ function PendingTargetProbe(): React.ReactElement {
       >
         Accept current dashboard navigation
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          startNavigation("/dashboard?workspace=one&section=memory")
+        }
+      >
+        Accept dashboard navigation
+      </button>
       <output data-testid="pending-target">
         {isPending && target ? `${target.pathname}${target.search}` : "idle"}
       </output>
@@ -47,6 +56,11 @@ function PendingTargetProbe(): React.ReactElement {
 beforeEach(() => {
   route.pathname = "/dashboard";
   route.search = "workspace=one&section=repositories";
+  window.history.replaceState(
+    null,
+    "",
+    "/dashboard?workspace=one&section=repositories",
+  );
 });
 
 afterEach(() => {
@@ -73,6 +87,7 @@ describe("NavigationFeedbackProvider", () => {
 
     route.pathname = "/security";
     route.search = "";
+    window.history.replaceState(null, "", "/security");
     view.rerender(
       <NavigationFeedbackProvider>
         <PendingTargetProbe />
@@ -85,6 +100,49 @@ describe("NavigationFeedbackProvider", () => {
     act(() => vi.advanceTimersByTime(220));
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(screen.getByTestId("pending-target").textContent).toBe("idle");
+  });
+
+  it("keeps dashboard progress active until streamed content is ready", () => {
+    vi.useFakeTimers();
+    const view = render(
+      <NavigationFeedbackProvider>
+        <PendingTargetProbe />
+        <NavigationContentReady completionKey="one-repositories" />
+      </NavigationFeedbackProvider>,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Accept dashboard navigation" }),
+    );
+    route.search = "workspace=one&section=memory";
+    window.history.replaceState(
+      null,
+      "",
+      "/dashboard?workspace=one&section=memory",
+    );
+    view.rerender(
+      <NavigationFeedbackProvider>
+        <PendingTargetProbe />
+        <NavigationContentReady completionKey="one-repositories" />
+      </NavigationFeedbackProvider>,
+    );
+
+    expect(screen.getByRole("progressbar").getAttribute("data-state")).toBe(
+      "loading",
+    );
+
+    view.rerender(
+      <NavigationFeedbackProvider>
+        <PendingTargetProbe />
+        <NavigationContentReady completionKey="one-memory" />
+      </NavigationFeedbackProvider>,
+    );
+    expect(screen.getByRole("progressbar").getAttribute("data-state")).toBe(
+      "complete",
+    );
+
+    act(() => vi.advanceTimersByTime(220));
+    expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
   it("ignores external, hash-only, new-tab and explicitly ignored links", () => {
