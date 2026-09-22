@@ -265,7 +265,7 @@ function harness() {
         completionDigest: value.completionDigest,
         receiptDigest: value.receiptDigest,
         receiptWire: value.receiptWire,
-        publicationState: "pending",
+        publicationState: "ready",
       };
       return retained;
     },

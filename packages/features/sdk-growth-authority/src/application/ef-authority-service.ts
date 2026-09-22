@@ -156,6 +156,7 @@ export interface AuthorityCustodyCompletion {
   readonly finalizedReport: Uint8Array;
   readonly receiptDigest: string;
   readonly receiptWire: Uint8Array;
+  readonly receipt: Receipt;
 }
 
 export interface AuthorityCustodyRead {
@@ -167,13 +168,13 @@ export interface AuthorityCustodyRead {
   readonly receiptWire: Uint8Array | null;
   readonly publicationState:
     | "absent"
-    | "pending"
-    | "queued"
+    | "ready"
     | "sending"
     | "reconcile-required"
     | "superseded"
     | "not-applied"
-    | "applied";
+    | "applied"
+    | "recovery-required";
 }
 
 export interface AuthorityCustodyPort {
@@ -499,6 +500,7 @@ export class EfAuthorityService {
           finalizedReport: report,
           receiptDigest,
           receiptWire,
+          receipt,
         });
         if (
           retained.completionDigest !== completion.digest ||

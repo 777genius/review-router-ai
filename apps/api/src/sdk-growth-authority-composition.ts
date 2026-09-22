@@ -3,7 +3,10 @@ import {
   PrismaAuthorityProvisioning,
   PrismaCurrentAuthoritySnapshot,
 } from "@reviewrouter/features-sdk-growth-authority/infrastructure/current-authority";
-import { PrismaEfAuthorityDecisionTransaction } from "@reviewrouter/features-sdk-growth-authority/infrastructure/custody";
+import {
+  PrismaEfAuthorityDecisionTransaction,
+  PrismaSdkGrowthPublicationIdentitySource,
+} from "@reviewrouter/features-sdk-growth-authority/infrastructure/custody";
 import {
   EfAuthorityService,
   PinnedEfAuthorityCodecV1,
@@ -51,6 +54,7 @@ export interface ComposeSdkGrowthAuthorityRoutesInput {
   readonly executions: SdkGrowthExecutionResolverPort;
   readonly verifierEvidence: SdkGrowthVerifierEvidenceSourcePort;
   readonly audience: string;
+  readonly githubAppId: string;
   readonly ttlMs?: number;
 }
 
@@ -79,6 +83,7 @@ export function composeSdkGrowthAuthorityRoutes(
         { now: Date.now },
         publication,
         input.ttlMs,
+        new PrismaSdkGrowthPublicationIdentitySource(input.githubAppId),
       ),
       input.codec,
       new SdkGrowthVerifierCustody(input.verifierEvidence),
@@ -106,5 +111,6 @@ export function composeProductionSdkGrowthAuthorityRoutes(input: {
     }),
     verifierEvidence: new PrismaSdkGrowthVerifierEvidenceSource(input.prisma),
     audience: input.audience,
+    githubAppId: input.githubAppId,
   });
 }

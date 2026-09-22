@@ -11,3 +11,5 @@ export {
   parseReceipt,
 } from "./domain/validation.js";
 export * from "./application/check-identity-policy.js";
+export * from "./application/publication-ports.js";
+export * from "./application/publication.js";

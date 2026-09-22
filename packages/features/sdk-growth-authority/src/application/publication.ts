@@ -335,32 +335,21 @@ export async function runPublicationIntent(
     );
   }
 
-  // A database fence cannot prevent a paused remote sender. This immediate
-  // check only prevents a known-stale worker from beginning a new mutation.
-  const permission = await input.effects.withClaim(
+  // The adapter holds the delivery and current-authority database fences while
+  // the one-shot sender runs. A timed-out remote request can still complete
+  // late, so every non-definite outcome remains reconciliation-only.
+  const post = await input.effects.withMutationPermit(
     input.intentId,
     input.claim,
-    (effect, authority) => {
-      validateEffectView(effect);
-      return decision(
-        null,
-        authority.kind === "current" &&
-          effect.state === "sending" &&
-          effect.attempt?.id === action.attemptId,
-      );
-    },
-  );
-  if (permission.kind !== "committed") return permission.kind;
-  if (!permission.value) return "retry";
-
-  const post = await safeCreate(
-    input.gateway,
-    action.spec,
     action.attemptId,
-    input.signal,
+    () =>
+      safeCreate(input.gateway, action.spec, action.attemptId, input.signal),
   );
-  if (post.kind === "no-effect") {
-    return finish(input, action.attemptId, "not-applied", post);
+  if (post.kind !== "committed") {
+    return post.kind === "not-current" ? "retry" : post.kind;
+  }
+  if (post.value.kind === "no-effect") {
+    return finish(input, action.attemptId, "not-applied", post.value);
   }
   // Acknowledgement and transport uncertainty both require full readback.
   return commitObservation(

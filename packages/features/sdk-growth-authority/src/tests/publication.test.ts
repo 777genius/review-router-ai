@@ -79,6 +79,23 @@ class FakeEffects implements PublicationEffectStore {
     return { kind: "committed", value: result.value };
   }
 
+  async withMutationPermit<T>(
+    _intentId: string,
+    incoming: DeliveryClaim,
+    attemptId: string,
+    mutate: () => Promise<T>,
+  ) {
+    if (incoming.claimId !== this.currentClaimId)
+      return { kind: "stale-claim" as const };
+    if (
+      this.authority.kind !== "current" ||
+      this.effect.state !== "sending" ||
+      this.effect.attempt?.id !== attemptId
+    )
+      return { kind: "not-current" as const };
+    return { kind: "committed" as const, value: await mutate() };
+  }
+
   private apply(change: EffectChange) {
     if (change.kind === "start") {
       this.effect = {

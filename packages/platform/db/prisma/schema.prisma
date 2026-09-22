@@ -3894,11 +3894,17 @@ model SdkGrowthAuthorityCustody {
 model SdkGrowthPublicationEffect {
   custodyId           String                    @id
   intentId            String                    @unique
+  envelopeDigest      String                    @db.VarChar(64)
+  intent              Json
   state               String
   claimId             String?
   claimVersion        BigInt                    @default(0)
   attemptId           String?
-  providerCorrelation String?
+  attemptStartedAt    DateTime?                 @db.Timestamptz(3)
+  reconciliationCount Int                       @default(0)
+  lastEvidence        Json?
+  outboxEventId       String?                   @unique(map: "SdkGrowthPublicationEffect_outbox_event_key")
+  completedAt         DateTime?                 @db.Timestamptz(3)
   createdAt           DateTime                  @default(now()) @db.Timestamptz(3)
   updatedAt           DateTime                  @default(now()) @updatedAt @db.Timestamptz(3)
   custody             SdkGrowthAuthorityCustody @relation(fields: [custodyId], references: [custodyId], onDelete: Restrict, onUpdate: Restrict)

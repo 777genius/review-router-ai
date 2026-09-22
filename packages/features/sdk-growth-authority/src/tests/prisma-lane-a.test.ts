@@ -32,6 +32,8 @@ import {
   PrismaAuthorityCustody,
   PrismaEfAuthorityDecisionTransaction,
 } from "../infrastructure/prisma/prisma-authority-custody.js";
+import { PrismaSdkGrowthPublicationEffect } from "../infrastructure/prisma/prisma-publication-effect.js";
+import { runPublicationIntent } from "../application/publication.js";
 import { PrismaReceiptRepository } from "../infrastructure/prisma/prisma-receipt-repository.js";
 import {
   PrismaSdkGrowthVerifierEvidenceSource,
@@ -58,6 +60,16 @@ const digest = (value: Uint8Array) =>
 const sri = (value: Uint8Array) =>
   "sha512-" + createHash("sha512").update(value).digest("base64");
 const constantDigest = "sha256:" + "a".repeat(64);
+const publicationIdentities = {
+  async resolve() {
+    return {
+      appId: "789",
+      repositoryId: "123",
+      installationId: "456",
+      repositoryFullName: "owner/repo",
+    };
+  },
+};
 
 function admissionEnvelope(value: DecodedEfAdmission) {
   const binary = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
@@ -198,10 +210,18 @@ describe.skipIf(!url)(
         await connection.query(
           'CREATE SCHEMA "' + schema + '"; SET search_path TO "' + schema + '"',
         );
+        await connection.query(`
+          CREATE TABLE "OutboxEvent" (
+            "id" TEXT PRIMARY KEY, "type" TEXT NOT NULL, "version" INTEGER NOT NULL,
+            "idempotencyKey" TEXT NOT NULL UNIQUE, "payload" JSONB NOT NULL,
+            "status" TEXT NOT NULL, "claimId" TEXT, "claimVersion" BIGINT,
+            "claimOwnerHash" TEXT
+          )`);
         for (const name of [
           "000101_sdk_growth_authority",
           "000102_sdk_growth_current_authority",
           "000103_sdk_growth_authority_custody",
+          "000105_sdk_growth_publication_effect",
         ])
           await connection.query(
             readFileSync(
@@ -602,8 +622,16 @@ describe.skipIf(!url)(
       };
       const scope99 = { ...scope42, pullRequest: 99 };
       const execution99 = { ...execution, pullRequest: 99 };
-      const first = new PrismaAuthorityCustody(db);
-      const second = new PrismaAuthorityCustody(peer);
+      const first = new PrismaAuthorityCustody(
+        db,
+        false,
+        publicationIdentities,
+      );
+      const second = new PrismaAuthorityCustody(
+        peer,
+        false,
+        publicationIdentities,
+      );
       const retained = await Promise.all([
         first.retainAdmission(scope42, admission),
         second.retainAdmission(scope42, structuredClone(admission)),
@@ -618,6 +646,10 @@ describe.skipIf(!url)(
       const completionWire = Buffer.from("completion");
       const report = Buffer.from("finalized-report");
       const receiptWire = Buffer.from("receipt");
+      const binding = {
+        ...fixture().binding,
+        head: execution.sourceCommit,
+      };
       const completion: AuthorityCustodyCompletion = {
         execution,
         requestDigest: admission.requestDigest,
@@ -628,9 +660,26 @@ describe.skipIf(!url)(
         finalizedReport: report,
         receiptDigest: digest(receiptWire),
         receiptWire,
+        receipt: {
+          version: 1,
+          receiptId: "receipt-42",
+          grantId: "grant-42",
+          identity: {
+            tenantId: execution.tenantId,
+            repositoryId: execution.repositoryId,
+            subject: execution.subject,
+          },
+          binding,
+          fence: 1,
+          authorityEpoch: 1,
+          completedAt: 100,
+          reportDigest: digest(report),
+          admitted: true,
+          reason: "admitted",
+        },
       };
       const receipt = await second.retainCompletion(scope42, completion);
-      expect(receipt.publicationState).toBe("pending");
+      expect(receipt.publicationState).toBe("ready");
       expect(
         await first.readCompletion(
           scope42,
@@ -700,6 +749,15 @@ describe.skipIf(!url)(
 
     it("rolls ledger, exact custody and completion effect back together across crash retries", async () => {
       const f = fixture();
+      const testNow = Date.now();
+      f.state.material = {
+        ...f.state.material,
+        ownerEvidence: {
+          ...f.state.material.ownerEvidence,
+          issuedAt: testNow - 1_000,
+          expiresAt: testNow + 60_000,
+        },
+      };
       const archive = (text: string) => {
         const bytes = Buffer.from(text);
         return { bytes, sha256: digest(bytes), sha512Sri: sri(bytes) };
@@ -712,9 +770,10 @@ describe.skipIf(!url)(
       await writer.advance("operator", f.scope, 0n, "provision");
       const transactions = new PrismaEfAuthorityDecisionTransaction(
         db,
-        { now: () => 100 },
+        { now: () => testNow },
         { enqueue: async () => {} },
         1_000,
+        publicationIdentities,
       );
       const execution: AuthenticatedEfExecution = {
         tenantId: f.identity.tenantId,
@@ -810,6 +869,7 @@ describe.skipIf(!url)(
               finalizedReport: report,
               receiptDigest: digest(receiptWire),
               receiptWire,
+              receipt,
             });
             if (crash) throw new Error("crash-after-completion-effect");
             return receipt;
@@ -850,6 +910,110 @@ describe.skipIf(!url)(
           f.identity.tenantId,
         ),
       ).toEqual([{ count: 1n }]);
+
+      const firstProcess = new PrismaSdkGrowthPublicationEffect(db);
+      const publication = await firstProcess.load(receipt.receiptId);
+      expect(publication).toMatchObject({
+        intentId: receipt.receiptId,
+        authority: {
+          receiptFence: BigInt(receipt.fence),
+          authorityEpoch: BigInt(receipt.authorityEpoch),
+        },
+        check: {
+          repositoryId: "123",
+          installationId: "456",
+          appId: "789",
+          repositoryFullName: "owner/repo",
+          headSha: execution.sourceCommit,
+        },
+      });
+      const eventId = "event-" + randomUUID();
+      await db.$executeRaw`
+        INSERT INTO "OutboxEvent" ("id", "type", "version", "idempotencyKey", "payload", "status")
+        VALUES (${eventId}, 'sdk_growth.publication_requested', 1,
+          ${publication!.intentId},
+          ${JSON.stringify({ intentId: publication!.intentId, envelopeDigest: publication!.envelopeDigest })}::jsonb,
+          'pending')`;
+      await expect(
+        firstProcess.link(
+          publication!.intentId,
+          publication!.envelopeDigest,
+          eventId,
+        ),
+      ).resolves.toBe("linked");
+      await db.$executeRaw`
+        UPDATE "OutboxEvent" SET "status" = 'processing', "claimId" = 'claim-7',
+          "claimVersion" = 7, "claimOwnerHash" = 'worker-new' WHERE "id" = ${eventId}`;
+      const restarted = new PrismaSdkGrowthPublicationEffect(peer);
+      let mutations = 0;
+      let replacement: Promise<bigint> | null = null;
+      await expect(
+        runPublicationIntent({
+          intentId: publication!.intentId,
+          claim: {
+            eventId,
+            claimId: "claim-7",
+            claimVersion: 7n,
+            claimOwnerHash: "worker-new",
+          },
+          effects: restarted,
+          gateway: {
+            async create() {
+              mutations += 1;
+              f.state.material = {
+                ...f.state.material,
+                ownerEvidence: {
+                  ...f.state.material.ownerEvidence,
+                  evidenceId: "replacement-owner",
+                },
+              };
+              replacement = writer.advance(
+                "operator",
+                f.scope,
+                1n,
+                "owner-replacement",
+              );
+              await expect(
+                Promise.race([
+                  replacement.then(() => "advanced" as const),
+                  new Promise<"blocked">((resolve) =>
+                    setTimeout(() => resolve("blocked"), 50),
+                  ),
+                ]),
+              ).resolves.toBe("blocked");
+              return { kind: "acknowledged", checkRunId: "900" };
+            },
+            async inspect() {
+              return {
+                kind: "exact",
+                checkRunId: "900",
+                observedDigest: "b".repeat(64),
+                at: testNow + 1,
+              };
+            },
+          },
+          newAttemptId: () => "attempt-one",
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toBe("applied");
+      await expect(replacement).resolves.toBe(2n);
+      expect(mutations).toBe(1);
+      await expect(
+        restarted.withMutationPermit(
+          publication!.intentId,
+          {
+            eventId,
+            claimId: "claim-old",
+            claimVersion: 6n,
+            claimOwnerHash: "worker-old",
+          },
+          "attempt-one",
+          async () => {
+            mutations += 1;
+          },
+        ),
+      ).resolves.toEqual({ kind: "stale-claim" });
+      expect(mutations).toBe(1);
     });
 
     it("serializes a changed execution request before advancing the winner fence", async () => {
@@ -865,6 +1029,7 @@ describe.skipIf(!url)(
         { now: () => 100 },
         { enqueue: async () => {} },
         1_000,
+        publicationIdentities,
       );
       const execution: AuthenticatedEfExecution = {
         tenantId: f.identity.tenantId,
@@ -963,6 +1128,7 @@ describe.skipIf(!url)(
         { now: () => 100 },
         { enqueue: async () => {} },
         1_000,
+        publicationIdentities,
       );
       const grant = await transactions.transact(
         execution,
@@ -1049,6 +1215,7 @@ describe.skipIf(!url)(
         { now: () => time.now },
         { enqueue: async () => {} },
         1_000,
+        publicationIdentities,
       );
       const requestWire = Buffer.from("expiry-request");
       const requestDigest = digest(requestWire);
@@ -1108,6 +1275,7 @@ describe.skipIf(!url)(
               finalizedReport: report,
               receiptDigest: digest(receiptWire),
               receiptWire,
+              receipt,
             });
             time.now = grant.expiresAt;
             return receipt;
@@ -1147,6 +1315,7 @@ describe.skipIf(!url)(
         { now: () => time.now },
         { enqueue: async () => {} },
         1_000,
+        publicationIdentities,
       );
       const grant = await transactions.transact(
         execution,

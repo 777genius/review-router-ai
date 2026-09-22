@@ -17,6 +17,8 @@ import type {
 import { AuthorityError } from "../../domain/contracts.js";
 import { PrismaCurrentAuthoritySnapshot } from "./prisma-current-authority.js";
 import { PrismaReceiptRepository } from "./prisma-receipt-repository.js";
+import { buildPublicationSeed } from "../../application/publication.js";
+import type { PublicationSeed } from "../../application/publication-ports.js";
 
 interface CustodyTransaction {
   $queryRaw<T = unknown[]>(
@@ -75,6 +77,67 @@ interface CustodyRow {
   receiptDigest: string | null;
   receiptWire: Uint8Array | null;
   publicationState: AuthorityCustodyRead["publicationState"] | null;
+}
+
+export type SdkGrowthPublicationIdentity = Readonly<{
+  appId: string;
+  repositoryId: string;
+  installationId: string;
+  repositoryFullName: string;
+}>;
+
+export interface SdkGrowthPublicationIdentitySource {
+  resolve(
+    transaction: CustodyTransaction,
+    execution: AuthenticatedEfExecution,
+  ): Promise<SdkGrowthPublicationIdentity>;
+}
+
+/** Resolves mutable repository records only while completion is committing;
+ * the returned identity is copied into the immutable publication envelope. */
+export class PrismaSdkGrowthPublicationIdentitySource implements SdkGrowthPublicationIdentitySource {
+  constructor(private readonly appId: string) {
+    numeric(this.appId, "sdk_growth_app_id_invalid");
+  }
+
+  async resolve(
+    transaction: CustodyTransaction,
+    execution: AuthenticatedEfExecution,
+  ) {
+    const [value] = await transaction.$queryRaw<
+      Array<{
+        repositoryId: bigint;
+        installationId: bigint;
+        repositoryFullName: string;
+      }>
+    >`
+      SELECT r."githubRepositoryId" AS "repositoryId",
+             i."githubInstallationId" AS "installationId",
+             r."fullName" AS "repositoryFullName"
+      FROM "RepositoryConnection" r
+      JOIN "GitHubInstallation" i ON i."id" = r."installationId"
+      WHERE r."id" = ${execution.repositoryId}
+        AND r."workspaceId" = ${execution.tenantId}
+        AND r."provider" = 'github'::"ScmProvider"
+        AND r."selected" = TRUE AND r."archived" = FALSE
+        AND i."status" = 'active'::"GitHubInstallationStatus"
+        AND r."githubRepositoryId"::text = ${execution.githubRepositoryId}
+        AND i."githubInstallationId"::text = ${execution.installationId}
+      FOR SHARE OF r, i`;
+    if (!value) throw new AuthorityError("wrong-identity");
+    return {
+      appId: this.appId,
+      repositoryId: numeric(
+        value.repositoryId.toString(),
+        "sdk_growth_repository_id_invalid",
+      ),
+      installationId: numeric(
+        value.installationId.toString(),
+        "sdk_growth_installation_id_invalid",
+      ),
+      repositoryFullName: value.repositoryFullName,
+    };
+  }
 }
 
 function scopedKey(execution: AuthenticatedEfExecution): string {
@@ -205,6 +268,7 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
   constructor(
     private readonly prisma: AuthorityCustodyPrismaClient | CustodyTransaction,
     private readonly transactionHeld = false,
+    private readonly publicationIdentities?: SdkGrowthPublicationIdentitySource,
   ) {}
 
   async retainAdmission(
@@ -298,6 +362,13 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
         stored.grantDigest !== value.grantDigest
       )
         throw new AuthorityError("conflict");
+      if (!this.publicationIdentities)
+        throw new AuthorityError("invalid-contract");
+      const publicationIdentity = await this.publicationIdentities.resolve(
+        tx,
+        value.execution,
+      );
+      const seed = publicationSeed(value, publicationIdentity);
       await tx.$executeRaw`
         UPDATE "SdkGrowthAuthorityCustody"
         SET "completionDigest" = ${value.completionDigest},
@@ -309,8 +380,11 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
             "completedAt" = CURRENT_TIMESTAMP
         WHERE "custodyId" = ${custodyId} AND "completionDigest" IS NULL`;
       await tx.$executeRaw`
-        INSERT INTO "SdkGrowthPublicationEffect" ("custodyId", "intentId", "state")
-        VALUES (${custodyId}, ${value.receiptDigest}, 'pending')`;
+        INSERT INTO "SdkGrowthPublicationEffect" (
+          "custodyId", "intentId", "envelopeDigest", "intent", "state", "createdAt", "updatedAt")
+        VALUES (${custodyId}, ${seed.intentId}, ${seed.envelopeDigest},
+          ${JSON.stringify(storedSeed(seed))}::jsonb, 'ready',
+          ${new Date(seed.createdAt)}, ${new Date(seed.createdAt)})`;
       return {
         requestDigest: value.requestDigest,
         grantDigest: value.grantDigest,
@@ -318,7 +392,7 @@ export class PrismaAuthorityCustody implements AuthorityCustodyPort {
         completionDigest: value.completionDigest,
         receiptDigest: value.receiptDigest,
         receiptWire: Uint8Array.from(value.receiptWire),
-        publicationState: "pending",
+        publicationState: "ready",
       };
     };
     return this.run(execute);
@@ -401,6 +475,7 @@ export class PrismaEfAuthorityDecisionTransaction implements EfAuthorityDecision
     private readonly clock: ClockPort,
     private readonly publication: PublicationIntentPort,
     private readonly ttlMs = 15 * 60 * 1000,
+    private readonly publicationIdentities?: SdkGrowthPublicationIdentitySource,
   ) {}
 
   async transact<T>(
@@ -424,7 +499,11 @@ export class PrismaEfAuthorityDecisionTransaction implements EfAuthorityDecision
       async (tx) => {
         await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtextextended(${authorityKey}, 0))`;
         await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtextextended(${executionKey}, 1))`;
-        const custody = new PrismaAuthorityCustody(tx, true);
+        const custody = new PrismaAuthorityCustody(
+          tx,
+          true,
+          this.publicationIdentities,
+        );
         const authority = new SdkGrowthAuthority(
           {
             currentAuthority: new PrismaCurrentAuthoritySnapshot(
@@ -447,4 +526,72 @@ export class PrismaEfAuthorityDecisionTransaction implements EfAuthorityDecision
       { isolationLevel: "ReadCommitted" },
     );
   }
+}
+
+function publicationSeed(
+  value: AuthorityCustodyCompletion,
+  identity: SdkGrowthPublicationIdentity,
+): PublicationSeed {
+  const receipt = value.receipt;
+  if (
+    receipt.identity.tenantId !== value.execution.tenantId ||
+    receipt.identity.repositoryId !== value.execution.repositoryId ||
+    receipt.binding.repositoryId !== value.execution.repositoryId ||
+    receipt.binding.pullRequest !== value.execution.pullRequest ||
+    receipt.binding.head !== value.execution.sourceCommit ||
+    receipt.reportDigest !== value.reportDigest ||
+    receipt.fence < 1 ||
+    receipt.authorityEpoch < 1
+  )
+    throw new AuthorityError("conflict");
+  return buildPublicationSeed({
+    intentId: receipt.receiptId,
+    authority: {
+      tenantId: receipt.identity.tenantId,
+      repositoryId: receipt.identity.repositoryId,
+      pullRequest: receipt.binding.pullRequest,
+      receiptFence: BigInt(receipt.fence),
+      authorityEpoch: BigInt(receipt.authorityEpoch),
+      receiptDigest: digestHex(value.receiptDigest),
+    },
+    repositoryId: identity.repositoryId,
+    installationId: identity.installationId,
+    appId: identity.appId,
+    repositoryFullName: identity.repositoryFullName,
+    headSha: receipt.binding.head,
+    admitted: receipt.admitted,
+    output: {
+      title: receipt.admitted
+        ? "SDK growth authority admitted"
+        : "SDK growth authority not admitted",
+      summary: `ReviewRouter retained authenticated receipt ${receipt.receiptId} for ${receipt.reportDigest}.`,
+    },
+    createdAt: receipt.completedAt,
+  });
+}
+
+function storedSeed(seed: PublicationSeed) {
+  return {
+    ...seed,
+    authority: {
+      ...seed.authority,
+      receiptFence: seed.authority.receiptFence.toString(),
+      authorityEpoch: seed.authority.authorityEpoch.toString(),
+    },
+  };
+}
+
+function digestHex(value: string): string {
+  const match = /^sha256:([a-f0-9]{64})$/u.exec(value);
+  if (!match) throw new AuthorityError("invalid-contract");
+  return match[1]!;
+}
+
+function numeric(value: string, code: string): string {
+  if (
+    !/^[1-9][0-9]*$/u.test(value) ||
+    BigInt(value) > BigInt(Number.MAX_SAFE_INTEGER)
+  )
+    throw new Error(code);
+  return value;
 }

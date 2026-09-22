@@ -99,6 +99,8 @@ import {
 } from "./review-v2-worker-runtime";
 import { createProductionReviewV2WorkerRuntime } from "./review-v2-production-runtime";
 import { PrismaRepositoryIdentitySynchronizer } from "./repository-identity-synchronization";
+import { createSdkGrowthPublicationFeature } from "./sdk-growth-publication-composition";
+import { SDK_GROWTH_PUBLICATION_HANDLER } from "./sdk-growth-publication-runtime";
 
 loadDotenv({ path: "../../.env.local", override: false });
 loadDotenv({ path: "../../.env", override: false });
@@ -133,9 +135,19 @@ async function main(): Promise<void> {
         });
       },
     });
+    const sdkGrowthPrivateKey = readGitHubAppPrivateKey();
+    const sdkGrowthPublication = createSdkGrowthPublicationFeature({
+      env: process.env,
+      prisma,
+      ...(process.env.GITHUB_APP_ID
+        ? { githubAppId: process.env.GITHUB_APP_ID }
+        : {}),
+      ...(sdkGrowthPrivateKey ? { githubPrivateKey: sdkGrowthPrivateKey } : {}),
+    });
     const handlers = [
       ...createOutboxHandlers(prisma, clock),
       ...reviewV2Worker.handlers,
+      ...sdkGrowthPublication.handlers,
     ];
     if (handlers.length === 0) {
       logger.warn(
@@ -179,6 +191,7 @@ async function main(): Promise<void> {
     const takeoverEnabled =
       process.env.REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED === "1";
     const processBatch = async () => {
+      await sdkGrowthPublication.runMaintenance();
       const result =
         handlers.length > 0
           ? await processOutboxBatch(
@@ -270,6 +283,7 @@ const knownOutboxHandlers = [
   { type: "memory.suggestion.rejected", version: 1 },
   { type: "memory.embedding.reindex.requested", version: 1 },
   { type: "memory.embedding.delete.requested", version: 1 },
+  SDK_GROWTH_PUBLICATION_HANDLER,
 ] as const satisfies readonly OutboxHandlerDefinition[];
 
 function createOutboxHandlers(
