@@ -1812,6 +1812,7 @@ model HostedCodexInvocationGrant {
   inFlight                  Int                              @default(0)
   firstSuccessfulResponseAt DateTime?
   failoverCount             Int                              @default(0)
+  failoverRequestId         String?                          @unique
   revision                  BigInt                           @default(1)
   revokedAt                 DateTime?
   createdAt                 DateTime                         @default(now())
@@ -1821,6 +1822,7 @@ model HostedCodexInvocationGrant {
   account                  HostedCodexAccount                   @relation("HostedCodexGrantAccount", fields: [activeAccountId, workspaceId, poolId], references: [id, workspaceId, poolId], onDelete: Restrict, map: "HostedCodexInvocationGrant_account_tenant_fkey")
   primaryAccount           HostedCodexAccount                   @relation("HostedCodexGrantPrimaryAccount", fields: [primaryAccountId, workspaceId, poolId], references: [id, workspaceId, poolId], onDelete: Restrict, map: "HostedCodexInvocationGrant_primary_account_tenant_fkey")
   backupAccount            HostedCodexAccount?                  @relation("HostedCodexGrantBackupAccount", fields: [backupAccountId, workspaceId, poolId], references: [id, workspaceId, poolId], onDelete: Restrict, map: "HostedCodexInvocationGrant_backup_account_tenant_fkey")
+  failoverRequest          HostedCodexRelayRequest?             @relation("HostedCodexGrantFailoverRequest", fields: [failoverRequestId], references: [id], onDelete: Restrict, map: "HostedCodexInvocationGrant_failover_request_fkey")
   relayRequests            HostedCodexRelayRequest[]
   upstreamAttempts         HostedCodexUpstreamEffectAttempt[]
   commentRefreshCapability HostedCodexCommentRefreshCapability?
@@ -1853,6 +1855,7 @@ model HostedCodexRelayRequest {
   updatedAt                   DateTime                      @updatedAt
 
   grant            HostedCodexInvocationGrant         @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  failoverGrant    HostedCodexInvocationGrant?        @relation("HostedCodexGrantFailoverRequest")
   upstreamAttempts HostedCodexUpstreamEffectAttempt[]
 
   @@unique([grantId, ordinal])

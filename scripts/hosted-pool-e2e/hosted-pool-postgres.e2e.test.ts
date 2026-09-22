@@ -1389,14 +1389,20 @@ describe("hosted pool production adapters on disposable PostgreSQL 17", () => {
         { relayRequestId: second.requestId, state: "failed_classified" },
       ]);
     } finally {
-      await prisma.hostedCodexAccount.update({
+      const primary = await prisma.hostedCodexAccount.findUniqueOrThrow({
         where: { id: "account-primary" },
-        data: {
-          state: "healthy",
-          cooldownUntil: null,
-          healthVersion: { increment: 1 },
-        },
+        select: { state: true, cooldownUntil: true },
       });
+      if (primary.state !== "healthy" || primary.cooldownUntil !== null) {
+        await prisma.hostedCodexAccount.update({
+          where: { id: "account-primary" },
+          data: {
+            state: "healthy",
+            cooldownUntil: null,
+            healthVersion: { increment: 1 },
+          },
+        });
+      }
     }
   });
 

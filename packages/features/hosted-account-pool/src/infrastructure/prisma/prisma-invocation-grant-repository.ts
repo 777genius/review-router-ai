@@ -440,7 +440,12 @@ export class PrismaInvocationGrantRepository
           persisted.activeAccountId !== next.activeAccountId ||
           persisted.failoverCount !== (next.backupActivated ? 1 : 0)
         ) {
-          await updateGrantWithCas(transaction, persisted, next);
+          await updateGrantWithCas(
+            transaction,
+            persisted,
+            next,
+            input.requestId,
+          );
           persisted =
             await transaction.hostedCodexInvocationGrant.findUniqueOrThrow({
               where: { id: input.grantId },
@@ -771,6 +776,7 @@ export class PrismaInvocationGrantRepository
             data: {
               activeAccountId: result.grant.activeAccountId,
               failoverCount: result.grant.failoverCount,
+              failoverRequestId: input.requestId,
               revision: { increment: 1 },
             },
           });
@@ -830,6 +836,7 @@ export class PrismaInvocationGrantRepository
       stored.failoverCount !== 1 ||
       stored.backupAccountId === null ||
       stored.activeAccountId !== stored.backupAccountId ||
+      stored.failoverRequestId !== input.requestId ||
       effect.accountId !== stored.primaryAccountId
     ) {
       throw new Error("hosted_codex_failover_reconciliation_conflict");
@@ -873,12 +880,16 @@ async function updateGrantWithCas(
   transaction: Prisma.TransactionClient,
   stored: StoredGrant,
   next: InvocationGrant,
+  failoverRequestId: string,
 ): Promise<void> {
   const updated = await transaction.hostedCodexInvocationGrant.updateMany({
     where: { id: next.id, revision: stored.revision },
     data: {
       activeAccountId: next.activeAccountId,
       failoverCount: next.backupActivated ? 1 : 0,
+      ...(stored.activeAccountId !== next.activeAccountId
+        ? { failoverRequestId }
+        : {}),
       revision: { increment: 1 },
     },
   });
