@@ -231,6 +231,12 @@ describe("dashboard server loading boundaries", () => {
     expect(existsSync(route("./hosted-pool-preview/page.tsx"))).toBe(true);
     expect(existsSync(route("./loading.tsx"))).toBe(false);
     expect(workspacePageSource).toContain("readParam(params.repository)");
+    expect(workspacePageSource).toContain(
+      "<NavigationContentReady completionKey={sectionBoundaryKey} />",
+    );
+    expect(workspacePageSource.match(/<NavigationContentReady/g)).toHaveLength(
+      2,
+    );
     expect(workspacePageSource).not.toContain(
       "selectedSection,\n          params,",
     );

@@ -183,6 +183,7 @@ import {
 
 import { cache, Suspense, type ReactNode } from "react";
 import { DashboardShell, DashboardShellSnapshot } from "./dashboard-shell";
+import { NavigationContentReady } from "../navigation-feedback";
 import { DashboardSectionLoading } from "./dashboard-section-loading";
 import {
   filterVisibleDashboardWorkspaces,
@@ -1129,6 +1130,9 @@ export async function DashboardWorkspacePage({
           githubAvatarUrl={mutationStatus.sourceAvatarUrl}
           appInstallUrl={appInstallUrl}
         />
+        <NavigationContentReady
+          completionKey={JSON.stringify(["empty", selectedSection, params])}
+        />
       </>
     );
   }
@@ -1157,6 +1161,7 @@ export async function DashboardWorkspacePage({
           params={params}
           workspaceKey={workspaceKey}
         />
+        <NavigationContentReady completionKey={sectionBoundaryKey} />
       </Suspense>
     </>
   );

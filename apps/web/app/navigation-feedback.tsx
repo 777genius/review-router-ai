@@ -23,12 +23,14 @@ type NavigationFeedbackValue = {
   readonly isPending: boolean;
   readonly target: PendingNavigationTarget | null;
   readonly startNavigation: (href: string) => void;
+  readonly completeNavigation: () => void;
 };
 
 const idleNavigationFeedback: NavigationFeedbackValue = {
   isPending: false,
   target: null,
   startNavigation: () => undefined,
+  completeNavigation: () => undefined,
 };
 
 const NavigationFeedbackContext = createContext<NavigationFeedbackValue>(
@@ -40,6 +42,18 @@ const completionDurationMs = 220;
 
 export function useNavigationFeedback(): NavigationFeedbackValue {
   return useContext(NavigationFeedbackContext);
+}
+
+export function NavigationContentReady({
+  completionKey,
+}: {
+  readonly completionKey: string;
+}): null {
+  const { completeNavigation } = useNavigationFeedback();
+  useEffect(() => {
+    completeNavigation();
+  }, [completeNavigation, completionKey]);
+  return null;
 }
 
 export function NavigationFeedbackProvider({
@@ -55,6 +69,7 @@ export function NavigationFeedbackProvider({
   const completionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [phase, setPhase] = useState<NavigationPhase>("idle");
   const [target, setTarget] = useState<PendingNavigationTarget | null>(null);
+  const targetRef = useRef<PendingNavigationTarget | null>(target);
 
   const clearTimers = useCallback(() => {
     if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
@@ -68,15 +83,19 @@ export function NavigationFeedbackProvider({
       if (navigationKey(url.pathname, url.search) === routeKey) {
         clearTimers();
         setPhase("idle");
+        targetRef.current = null;
         setTarget(null);
         return;
       }
 
       clearTimers();
-      setTarget({ pathname: url.pathname, search: url.search });
+      const nextTarget = { pathname: url.pathname, search: url.search };
+      targetRef.current = nextTarget;
+      setTarget(nextTarget);
       setPhase("loading");
       fallbackTimer.current = setTimeout(() => {
         setPhase("idle");
+        targetRef.current = null;
         setTarget(null);
       }, fallbackTimeoutMs);
     },
@@ -87,16 +106,41 @@ export function NavigationFeedbackProvider({
     [beginNavigation],
   );
 
-  useEffect(() => {
-    if (previousRouteKey.current === routeKey) return;
-    previousRouteKey.current = routeKey;
+  const completeNavigation = useCallback(() => {
+    const pendingTarget = targetRef.current;
+    if (
+      !pendingTarget ||
+      navigationKey(pendingTarget.pathname, pendingTarget.search) !==
+        navigationKey(window.location.pathname, window.location.search)
+    )
+      return;
+
     clearTimers();
     setPhase((current) => (current === "idle" ? current : "complete"));
     completionTimer.current = setTimeout(() => {
       setPhase("idle");
+      targetRef.current = null;
       setTarget(null);
     }, completionDurationMs);
-  }, [clearTimers, routeKey]);
+  }, [clearTimers]);
+
+  useEffect(() => {
+    if (previousRouteKey.current === routeKey) return;
+    previousRouteKey.current = routeKey;
+    if (
+      target &&
+      isDashboardPath(target.pathname) &&
+      navigationKey(target.pathname, target.search) === routeKey
+    )
+      return;
+    clearTimers();
+    setPhase((current) => (current === "idle" ? current : "complete"));
+    completionTimer.current = setTimeout(() => {
+      setPhase("idle");
+      targetRef.current = null;
+      setTarget(null);
+    }, completionDurationMs);
+  }, [clearTimers, routeKey, target]);
 
   useEffect(() => {
     const handleClick = (event: MouseEvent): void => {
@@ -142,8 +186,13 @@ export function NavigationFeedbackProvider({
   }, [beginNavigation, clearTimers]);
 
   const value = useMemo<NavigationFeedbackValue>(
-    () => ({ isPending: phase === "loading", target, startNavigation }),
-    [phase, startNavigation, target],
+    () => ({
+      isPending: phase === "loading",
+      target,
+      startNavigation,
+      completeNavigation,
+    }),
+    [completeNavigation, phase, startNavigation, target],
   );
 
   return (
@@ -169,4 +218,8 @@ export function NavigationFeedbackProvider({
 function navigationKey(pathname: string, search: string): string {
   const normalizedSearch = search.startsWith("?") ? search.slice(1) : search;
   return normalizedSearch ? `${pathname}?${normalizedSearch}` : pathname;
+}
+
+function isDashboardPath(pathname: string): boolean {
+  return pathname === "/dashboard" || pathname === "/dashboard/setup";
 }
