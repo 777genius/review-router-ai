@@ -24,6 +24,7 @@ import {
   type DashboardActionFormAction,
 } from "./dashboard-action-form";
 import { dashboardClientNavigationHref } from "./dashboard-section";
+import { useNavigationFeedback } from "../navigation-feedback";
 import {
   buildMemoryDashboardViewModel,
   type MemoryDashboardRepositoryOption,
@@ -772,6 +773,7 @@ function MemoryModeTab({
   readonly selected?: boolean;
   readonly href?: string | undefined;
 }): React.ReactElement {
+  const { startNavigation } = useNavigationFeedback();
   const className = [
     "flex min-h-12 min-w-0 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm font-semibold",
     selected
@@ -788,10 +790,13 @@ function MemoryModeTab({
   );
 
   if (href) {
+    const navigationHref = dashboardClientNavigationHref(href);
     return (
       <Link
-        href={dashboardClientNavigationHref(href)}
+        href={navigationHref}
         scroll={false}
+        data-navigation-feedback="ignore"
+        onNavigate={() => startNavigation(navigationHref)}
         aria-current={selected ? "page" : undefined}
         className={className}
       >

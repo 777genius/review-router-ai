@@ -22,11 +22,13 @@ type NavigationPhase = "idle" | "loading" | "complete";
 type NavigationFeedbackValue = {
   readonly isPending: boolean;
   readonly target: PendingNavigationTarget | null;
+  readonly startNavigation: (href: string) => void;
 };
 
 const idleNavigationFeedback: NavigationFeedbackValue = {
   isPending: false,
   target: null,
+  startNavigation: () => undefined,
 };
 
 const NavigationFeedbackContext = createContext<NavigationFeedbackValue>(
@@ -80,6 +82,10 @@ export function NavigationFeedbackProvider({
     },
     [clearTimers, routeKey],
   );
+  const startNavigation = useCallback(
+    (href: string) => beginNavigation(new URL(href, window.location.href)),
+    [beginNavigation],
+  );
 
   useEffect(() => {
     if (previousRouteKey.current === routeKey) return;
@@ -95,6 +101,7 @@ export function NavigationFeedbackProvider({
   useEffect(() => {
     const handleClick = (event: MouseEvent): void => {
       if (
+        event.defaultPrevented ||
         event.button !== 0 ||
         event.metaKey ||
         event.ctrlKey ||
@@ -135,8 +142,8 @@ export function NavigationFeedbackProvider({
   }, [beginNavigation, clearTimers]);
 
   const value = useMemo<NavigationFeedbackValue>(
-    () => ({ isPending: phase === "loading", target }),
-    [phase, target],
+    () => ({ isPending: phase === "loading", target, startNavigation }),
+    [phase, startNavigation, target],
   );
 
   return (

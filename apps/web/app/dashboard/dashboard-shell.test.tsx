@@ -16,12 +16,17 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(route.search),
 }));
 vi.mock("next/link", () => ({
-  default: ({ onClick, ...props }: ComponentProps<"a">) => (
+  default: ({
+    onClick,
+    onNavigate,
+    ...props
+  }: ComponentProps<"a"> & { readonly onNavigate?: () => void }) => (
     <a
       {...props}
       data-next-link="true"
       onClick={(event) => {
         onClick?.(event);
+        if (!event.defaultPrevented) onNavigate?.();
         event.preventDefault();
       }}
     />

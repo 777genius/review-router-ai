@@ -11,6 +11,7 @@ import {
   Settings2,
   type LucideIcon,
 } from "lucide-react";
+import { useNavigationFeedback } from "../navigation-feedback";
 import { dashboardClientNavigationHref } from "./dashboard-section";
 
 const dashboardSectionIcons: Record<string, LucideIcon> = {
@@ -52,6 +53,7 @@ export function DashboardSectionCompactNav({
   readonly items: readonly DashboardSectionTabItem[];
   readonly selectedSection: string;
 }): React.ReactElement {
+  const { startNavigation } = useNavigationFeedback();
   return (
     <nav
       aria-label="Dashboard sections"
@@ -59,11 +61,14 @@ export function DashboardSectionCompactNav({
     >
       {items.map((item) => {
         const active = selectedSection === item.section;
+        const href = dashboardClientNavigationHref(item.href);
         return (
           <Link
             key={item.section}
-            href={dashboardClientNavigationHref(item.href)}
+            href={href}
             scroll={false}
+            data-navigation-feedback="ignore"
+            onNavigate={() => startNavigation(href)}
             title={item.description}
             aria-current={active ? "page" : undefined}
             className={[
@@ -92,6 +97,7 @@ export function DashboardSectionTabs({
   readonly items: readonly DashboardSectionTabItem[];
   readonly selectedSection: string;
 }): React.ReactElement {
+  const { startNavigation } = useNavigationFeedback();
   return (
     <Tabs.Root value={selectedSection} orientation="vertical">
       <Tabs.List
@@ -100,6 +106,7 @@ export function DashboardSectionTabs({
         className="grid gap-1 border-l border-cyan-200/15 pl-3"
       >
         {items.map((item) => {
+          const href = dashboardClientNavigationHref(item.href);
           return (
             <Tabs.Tab
               key={item.section}
@@ -107,8 +114,10 @@ export function DashboardSectionTabs({
               nativeButton={false}
               render={
                 <Link
-                  href={dashboardClientNavigationHref(item.href)}
+                  href={href}
                   scroll={false}
+                  data-navigation-feedback="ignore"
+                  onNavigate={() => startNavigation(href)}
                   title={item.description}
                   aria-current={
                     selectedSection === item.section ? "page" : undefined

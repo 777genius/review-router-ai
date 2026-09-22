@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Tabs } from "@base-ui/react/tabs";
 import { GitHubAccountAvatar } from "../github-account-avatar";
+import { useNavigationFeedback } from "../navigation-feedback";
 import { dashboardClientNavigationHref } from "./dashboard-section";
 
 export type DashboardWorkspaceTabItem = {
@@ -34,6 +35,7 @@ export function DashboardWorkspaceTabs({
   readonly selectedWorkspaceId: string;
   readonly pendingInstallRequest?: DashboardPendingWorkspaceTabItem | null;
 }): React.ReactElement {
+  const { startNavigation } = useNavigationFeedback();
   const [showPendingRequest, setShowPendingRequest] = useState(false);
   const activeLabels = useMemo(
     () => new Set(items.map((item) => item.label.toLowerCase())),
@@ -69,46 +71,51 @@ export function DashboardWorkspaceTabs({
         activateOnFocus
         className="flex gap-4 overflow-x-auto overflow-y-hidden border-b border-cyan-200/15 pb-px [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {visibleItems.map((item) => (
-          <Tabs.Tab
-            key={item.id}
-            value={item.id}
-            nativeButton={false}
-            render={
-              <Link
-                href={dashboardClientNavigationHref(item.href)}
-                scroll={false}
-                aria-current={
-                  selectedWorkspaceId === item.id ? "page" : undefined
-                }
-              />
-            }
-            className={({ active }) =>
-              [
-                "group relative inline-flex min-h-12 shrink-0 items-center gap-2 rounded-t-xl border-b-2 px-2 py-3 text-sm font-semibold transition duration-200 ease-out hover:bg-cyan-300/[0.04] hover:saturate-125 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200",
-                active
-                  ? "border-cyan-200 text-cyan-50"
-                  : "border-transparent text-slate-300 hover:border-cyan-300/35 hover:text-cyan-50",
-              ].join(" ")
-            }
-          >
-            <GitHubAccountAvatar
-              avatarUrl={item.avatarUrl}
-              login={item.label}
-              size="sm"
-              className="-my-1"
-            />
-            <span>{item.label}</span>
-            <span
-              className={[
-                "font-mono text-xs group-hover:text-slate-300 group-data-[active]:text-cyan-100/80",
-                item.statusLabel ? "text-amber-200/85" : "text-slate-500",
-              ].join(" ")}
+        {visibleItems.map((item) => {
+          const href = dashboardClientNavigationHref(item.href);
+          return (
+            <Tabs.Tab
+              key={item.id}
+              value={item.id}
+              nativeButton={false}
+              render={
+                <Link
+                  href={href}
+                  scroll={false}
+                  data-navigation-feedback="ignore"
+                  onNavigate={() => startNavigation(href)}
+                  aria-current={
+                    selectedWorkspaceId === item.id ? "page" : undefined
+                  }
+                />
+              }
+              className={({ active }) =>
+                [
+                  "group relative inline-flex min-h-12 shrink-0 items-center gap-2 rounded-t-xl border-b-2 px-2 py-3 text-sm font-semibold transition duration-200 ease-out hover:bg-cyan-300/[0.04] hover:saturate-125 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200",
+                  active
+                    ? "border-cyan-200 text-cyan-50"
+                    : "border-transparent text-slate-300 hover:border-cyan-300/35 hover:text-cyan-50",
+                ].join(" ")
+              }
             >
-              {item.statusLabel ?? `${item.repositoryCount ?? 0} repos`}
-            </span>
-          </Tabs.Tab>
-        ))}
+              <GitHubAccountAvatar
+                avatarUrl={item.avatarUrl}
+                login={item.label}
+                size="sm"
+                className="-my-1"
+              />
+              <span>{item.label}</span>
+              <span
+                className={[
+                  "font-mono text-xs group-hover:text-slate-300 group-data-[active]:text-cyan-100/80",
+                  item.statusLabel ? "text-amber-200/85" : "text-slate-500",
+                ].join(" ")}
+              >
+                {item.statusLabel ?? `${item.repositoryCount ?? 0} repos`}
+              </span>
+            </Tabs.Tab>
+          );
+        })}
       </Tabs.List>
     </Tabs.Root>
   );

@@ -23,11 +23,24 @@ vi.mock("next/navigation", () => ({
 }));
 
 function PendingTargetProbe(): React.ReactElement {
-  const { isPending, target } = useNavigationFeedback();
+  const { isPending, startNavigation, target } = useNavigationFeedback();
   return (
-    <output data-testid="pending-target">
-      {isPending && target ? `${target.pathname}${target.search}` : "idle"}
-    </output>
+    <>
+      <button type="button" onClick={() => startNavigation("/security")}>
+        Accept managed navigation
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          startNavigation("/dashboard?workspace=one&section=repositories")
+        }
+      >
+        Accept current dashboard navigation
+      </button>
+      <output data-testid="pending-target">
+        {isPending && target ? `${target.pathname}${target.search}` : "idle"}
+      </output>
+    </>
   );
 }
 
@@ -44,18 +57,15 @@ afterEach(() => {
 describe("NavigationFeedbackProvider", () => {
   it("starts a global progress bar for an internal route and completes it after the route changes", () => {
     vi.useFakeTimers();
-    const preventNavigation = (event: React.MouseEvent<HTMLAnchorElement>) =>
-      event.preventDefault();
     const view = render(
       <NavigationFeedbackProvider>
-        <a href="/security" onClick={preventNavigation}>
-          Security
-        </a>
         <PendingTargetProbe />
       </NavigationFeedbackProvider>,
     );
 
-    fireEvent.click(screen.getByRole("link", { name: "Security" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Accept managed navigation" }),
+    );
     expect(screen.getByRole("progressbar").getAttribute("data-state")).toBe(
       "loading",
     );
@@ -65,9 +75,6 @@ describe("NavigationFeedbackProvider", () => {
     route.search = "";
     view.rerender(
       <NavigationFeedbackProvider>
-        <a href="/security" onClick={preventNavigation}>
-          Security
-        </a>
         <PendingTargetProbe />
       </NavigationFeedbackProvider>,
     );
@@ -111,25 +118,54 @@ describe("NavigationFeedbackProvider", () => {
   });
 
   it("cancels pending feedback when navigation returns to the current route", () => {
+    render(
+      <NavigationFeedbackProvider>
+        <PendingTargetProbe />
+      </NavigationFeedbackProvider>,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Accept managed navigation" }),
+    );
+    expect(screen.getByRole("progressbar")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Accept current dashboard navigation",
+      }),
+    );
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("waits for managed navigation acceptance before starting feedback", () => {
     const preventNavigation = (event: React.MouseEvent<HTMLAnchorElement>) =>
       event.preventDefault();
     render(
       <NavigationFeedbackProvider>
-        <a href="/security" onClick={preventNavigation}>
-          Security
-        </a>
         <a
-          href="/dashboard?workspace=one&section=repositories"
+          href="/security"
+          data-navigation-feedback="ignore"
           onClick={preventNavigation}
         >
-          Current dashboard
+          Cancelled managed link
         </a>
+        <a href="/security" onClick={preventNavigation}>
+          Cancelled plain link
+        </a>
+        <PendingTargetProbe />
       </NavigationFeedbackProvider>,
     );
 
-    fireEvent.click(screen.getByRole("link", { name: "Security" }));
-    expect(screen.getByRole("progressbar")).toBeTruthy();
-    fireEvent.click(screen.getByRole("link", { name: "Current dashboard" }));
+    fireEvent.click(
+      screen.getByRole("link", { name: "Cancelled managed link" }),
+    );
     expect(screen.queryByRole("progressbar")).toBeNull();
+    fireEvent.click(screen.getByRole("link", { name: "Cancelled plain link" }));
+    expect(screen.queryByRole("progressbar")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Accept managed navigation" }),
+    );
+    expect(screen.getByRole("progressbar")).toBeTruthy();
+    expect(screen.getByTestId("pending-target").textContent).toBe("/security");
   });
 });
