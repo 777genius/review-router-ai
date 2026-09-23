@@ -749,7 +749,10 @@ function reviewV2RuntimeActive(env) {
 }
 
 export function assertReviewV2ApiWorkerEnvConvergence(apiEnv, workerEnv) {
-  for (const key of reviewV2SharedRuntimeEnvNames) {
+  for (const key of [
+    ...reviewV2SharedRuntimeEnvNames,
+    "REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED",
+  ]) {
     if (apiEnv[key] !== workerEnv[key]) {
       throw new Error(`Review v2 API/worker environment drift for ${key}`);
     }
@@ -788,6 +791,35 @@ function optionalExactBinaryFlag(env, name) {
     throw new Error(`${name} must be exactly 0 or 1`);
   }
   return value;
+}
+
+export function sdkGrowthRuntimeEnvForRole(env, role) {
+  if (role !== "api" && role !== "worker") return {};
+  const enabled = optionalExactBinaryFlag(
+    env,
+    "REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED",
+  );
+  const fencedTakeover = optionalExactBinaryFlag(
+    env,
+    "REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED",
+  );
+  if (enabled === "1" && fencedTakeover !== "1") {
+    throw new Error(
+      "SDK growth authority requires fenced outbox takeover on API and worker",
+    );
+  }
+  if (
+    enabled === "1" &&
+    !String(env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE ?? "").trim()
+  ) {
+    throw new Error(
+      "SDK growth authority requires REVIEW_ROUTER_ACTION_OIDC_AUDIENCE",
+    );
+  }
+  return {
+    REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED: enabled,
+    REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED: fencedTakeover,
+  };
 }
 
 const investigationPreservedFlagNames = Object.freeze([
@@ -1023,7 +1055,8 @@ export function buildServiceEnv({
           ),
         }
       : {}),
-    REVIEW_ROUTER_ACTION_OIDC_AUDIENCE: "reviewrouter",
+    REVIEW_ROUTER_ACTION_OIDC_AUDIENCE:
+      env.REVIEW_ROUTER_ACTION_OIDC_AUDIENCE ?? "reviewrouter",
     REVIEW_ROUTER_ACTION_SESSION_SECRET:
       stableSecrets.REVIEW_ROUTER_ACTION_SESSION_SECRET,
     REVIEW_ROUTER_API_URL: apiUrl,
@@ -1091,6 +1124,7 @@ export function buildServiceEnv({
     Object.assign(values, readOptionalEnvVars(env, apiOnlyGitLabEnvKeys));
   }
   Object.assign(values, reviewV2RuntimeEnvForRole(env, role));
+  Object.assign(values, sdkGrowthRuntimeEnvForRole(env, role));
   Object.assign(values, reviewV2ContextEnvForRole(env, role));
   Object.assign(values, hostedPoolRuntimeEnvForRole(env, role));
   if (
@@ -1130,6 +1164,13 @@ function resolveRuntimeGenerationProofEnv(env) {
   )
     throw new Error("runtime generation proof environment is invalid");
   return { expectedWitnessSha256, rolloutId, commitSha, startedAt };
+}
+
+export function assertRuntimeReleaseCommit(env, commit) {
+  if (resolveRuntimeGenerationProofEnv(env).commitSha !== commit)
+    throw new Error(
+      "runtime generation proof identifies a stale service revision",
+    );
 }
 
 export async function addToEnvironment(client, environmentId, resourceIds) {
@@ -1984,6 +2025,7 @@ export async function main() {
       "REVIEW_ROUTER_RENDER_IMAGE_DIGEST must be an exact sha256 digest",
     );
   const imageUrl = `ghcr.io/777genius/review-router-saas-runtime@${imageDigest}`;
+  if (phase === "runtime-deploy") assertRuntimeReleaseCommit(env, commit);
   const webUrl = env.REVIEW_ROUTER_WEB_URL ?? "https://reviewrouter.site";
   const apiUrl = env.REVIEW_ROUTER_API_URL ?? "https://api.reviewrouter.site";
   assertHostedDeployEnv({ apiUrl, env, envFile, webUrl });
@@ -2159,6 +2201,12 @@ export async function main() {
           role: services[index].spec.role,
           url: service.serviceDetails?.url ?? null,
           deployId: resolvedDeploys[index]?.id ?? null,
+          imageDigest: resolvedDeploys[index]?.imageDigest ?? null,
+          releaseCommit: commit,
+          configuredSdkGrowthAuthorityEnabled:
+            convergedEnvByRole[services[index].spec.role]
+              ?.REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED ?? null,
+          deployedRuntimeConfiguration: "unverified",
         })),
       },
       null,
