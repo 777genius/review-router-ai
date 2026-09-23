@@ -1,0 +1,139 @@
+name: SDK growth application schema checkpoint
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        required: true
+        type: choice
+        options:
+          - preflight
+          - postflight
+      release_commit_sha:
+        required: true
+        type: string
+      confirmation:
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: reviewrouter-sdk-growth-application-schema-checkpoint
+  cancel-in-progress: false
+
+jobs:
+  trust-bootstrap:
+    name: Verify protected main and checkpoint environment
+    if: ${{ inputs.confirmation == 'CHECK_SDK_GROWTH_SCHEMA' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      trusted_sha: ${{ steps.trust.outputs.trusted_sha }}
+    steps:
+      - name: Establish credential-free checkpoint trust
+        id: trust
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.release_commit_sha }}
+          GH_TOKEN: ${{ github.token }}
+          REQUIRED_ENVIRONMENT: production-sdk-growth-schema-checkpoint
+          REVIEW_ROUTER_RELEASE_APPROVAL_MODE: ${{ vars.REVIEW_ROUTER_RELEASE_APPROVAL_MODE }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          // trust-bootstrap-node:start
+          const { appendFileSync } = await import("node:fs");
+          const required = (name) => {
+            const value = process.env[name];
+            if (!value) throw new Error(`sdk_growth_checkpoint_trust_missing:${name}`);
+            return value;
+          };
+          const fail = (reason) => {
+            throw new Error(`sdk_growth_checkpoint_trust_rejected:${reason}`);
+          };
+          const repository = required("GITHUB_REPOSITORY");
+          const sha = required("GITHUB_SHA").toLowerCase();
+          const expectedSha = required("EXPECTED_SHA").toLowerCase();
+          const approvalMode = required("REVIEW_ROUTER_RELEASE_APPROVAL_MODE");
+          if (!["solo_owner", "independent"].includes(approvalMode)) fail("approval_mode");
+          if (required("GITHUB_EVENT_NAME") !== "workflow_dispatch") fail("event");
+          if (required("GITHUB_REF") !== "refs/heads/main") fail("workflow_ref");
+          if (!/^[a-f0-9]{40}$/.test(sha) || expectedSha !== sha) fail("dispatch_sha");
+          const headers = {
+            Authorization: `Bearer ${required("GH_TOKEN")}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          };
+          const get = async (path) => {
+            const response = await fetch(`https://api.github.com${path}`, { headers });
+            if (!response.ok) fail(`github_api_${response.status}`);
+            return response.json();
+          };
+          const branch = await get(`/repos/${repository}/branches/main`);
+          if (branch.protected !== true || branch.commit?.sha?.toLowerCase() !== sha)
+            fail("stale_or_unprotected_main");
+          const environment = await get(
+            `/repos/${repository}/environments/${encodeURIComponent(required("REQUIRED_ENVIRONMENT"))}`,
+          );
+          const rules = environment.protection_rules;
+          const reviewers = Array.isArray(rules)
+            ? rules.find((rule) => rule?.type === "required_reviewers")
+            : undefined;
+          const branchPolicy = Array.isArray(rules)
+            ? rules.find((rule) => rule?.type === "branch_policy")
+            : undefined;
+          if (
+            !reviewers ||
+            !Array.isArray(reviewers.reviewers) ||
+            reviewers.reviewers.length < 1 ||
+            typeof reviewers.prevent_self_review !== "boolean" ||
+            (approvalMode === "independent" && reviewers.prevent_self_review !== true) ||
+            !branchPolicy ||
+            environment.deployment_branch_policy?.protected_branches !== true ||
+            environment.deployment_branch_policy?.custom_branch_policies !== false
+          ) fail("environment_unprotected");
+          appendFileSync(required("GITHUB_OUTPUT"), `trusted_sha=${sha}\n`, "utf8");
+          // trust-bootstrap-node:end
+          NODE
+
+  checkpoint:
+    name: Verify application schema checkpoint
+    needs: trust-bootstrap
+    environment: production-sdk-growth-schema-checkpoint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout immutable checkpoint tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          ref: ${{ needs.trust-bootstrap.outputs.trusted_sha }}
+
+      - name: Capture non-secret checkpoint evidence
+        shell: bash
+        env:
+          REVIEW_ROUTER_RELEASE_COMMIT_SHA: ${{ needs.trust-bootstrap.outputs.trusted_sha }}
+          REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL: ${{ secrets.REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL }}
+          REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OBSERVER_DATABASE_URL: ${{ secrets.REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OBSERVER_DATABASE_URL }}
+          REVIEW_ROUTER_SDK_GROWTH_SCHEMA_CHECKPOINT_PHASE: ${{ inputs.phase }}
+          REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED: "0"
+          REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED: "1"
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVIEW_ROUTER_RELEASE_COMMIT_SHA"
+          node scripts/sdk-growth-application-schema-checkpoint.mjs \
+            | tee sdk-growth-application-schema-checkpoint.json
+
+      - name: Upload checkpoint evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sdk-growth-application-schema-${{ inputs.phase }}-${{ needs.trust-bootstrap.outputs.trusted_sha }}
+          path: sdk-growth-application-schema-checkpoint.json
+          if-no-files-found: error
+          retention-days: 14
