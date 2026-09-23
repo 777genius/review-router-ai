@@ -59,6 +59,69 @@ export interface CanonicalAuthorityMaterial {
   readonly installationActive: boolean;
   readonly verifierActive: boolean;
 }
+
+/** Result of authenticating the server-side owner/operator credential. The
+ * credential itself is opaque to SDK growth and none of these values may be
+ * copied from a candidate request. */
+export interface AuthenticatedAuthorityPrincipal {
+  readonly issuer: string;
+  readonly subject: string;
+  readonly authenticationId: string;
+  readonly tenantId: string;
+  readonly repositoryId: string;
+  readonly githubRepositoryId: string;
+  readonly installationId: string;
+}
+
+export interface TrustedOwnerApproval {
+  readonly version: 1;
+  readonly evidenceId: string;
+  readonly tenantId: string;
+  readonly ownerSubject: string;
+  readonly scopes: readonly string[];
+  readonly decision: "approved" | "rejected";
+  readonly sourceDigest: string;
+  readonly issuedAt: number;
+  readonly expiresAt: number;
+  readonly revoked: boolean;
+}
+
+/** Complete authority facts loaded from trusted server-side custody. Binding
+ * contains source/base/merge-base and every pinned tool, policy and artifact
+ * identity. */
+export interface TrustedAuthorityRecord {
+  readonly tenantId: string;
+  readonly repositoryId: string;
+  readonly pullRequest: number;
+  readonly githubRepositoryId: string;
+  readonly installationId: string;
+  readonly binding: Binding;
+  readonly approval: TrustedOwnerApproval;
+  /** Immutable authentication provenance captured when the approval was
+   * accepted. This is deliberately distinct from the principal authorizing
+   * the current lifecycle operation. */
+  readonly approvalProvenance: AuthenticatedOwnerProvenance;
+  readonly installationActive: boolean;
+  readonly verifierActive: boolean;
+}
+
+export interface TrustedAuthorityAuthenticatorPort {
+  /** Authenticate and authorize the principal performing this operation.
+   * A later login/session is expected to differ from approval provenance. */
+  authenticate(
+    credential: unknown,
+    scope: AuthorityScope,
+    change: AuthorityChange,
+  ): Promise<AuthenticatedAuthorityPrincipal>;
+}
+
+export interface TrustedAuthoritySourcePort {
+  load(input: {
+    readonly principal: AuthenticatedAuthorityPrincipal;
+    readonly scope: AuthorityScope;
+    readonly change: AuthorityChange;
+  }): Promise<TrustedAuthorityRecord | null>;
+}
 /** Authenticate the operator and owner, then load independently trusted custody.
  * Candidate request JSON must never be returned as canonical material. */
 export interface TrustedAuthorityIngestion {

@@ -3,6 +3,7 @@ import {
   cpSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -537,6 +538,20 @@ describePg17("SDK growth separate disposable PG17 migration rehearsal", () => {
           sdkGrowthApplicationSchemaContract.target.migrationName,
         ),
         { recursive: true },
+      );
+      rmSync(
+        join(
+          prismaRoot,
+          "migrations",
+          "000106_sdk_growth_finalized_report_logical_identity",
+        ),
+        { recursive: true },
+      );
+      const fixtureMigrations = readdirSync(join(prismaRoot, "migrations"))
+        .filter((name) => /^\d{6}_/u.test(name))
+        .sort();
+      expect(fixtureMigrations.at(-1)).toBe(
+        sdkGrowthApplicationSchemaContract.predecessor.migrationName,
       );
       const configPath = join(root, "prisma.config.ts");
       writeFileSync(

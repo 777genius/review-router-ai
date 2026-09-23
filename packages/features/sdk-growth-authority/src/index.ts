@@ -1,9 +1,12 @@
 export { SdkGrowthAuthority } from "./application/authority.js";
 export * from "./application/ef-authority-service.js";
 export { PinnedEfAuthorityCodecV1 } from "./application/pinned-ef-authority-codec.js";
+export { ServerSideTrustedAuthorityIngestion } from "./application/trusted-authority-ingestion.js";
+export * from "./application/verifier-authority-policy.js";
 export type * from "./application/ports.js";
 export * from "./domain/contracts.js";
 export {
+  parseBinding,
   parseRequest,
   parseGrant,
   parseOwnerEvidence,

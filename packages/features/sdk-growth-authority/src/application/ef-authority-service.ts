@@ -103,6 +103,12 @@ export interface EfAuthorityCodecPort {
 }
 
 export interface TrustedVerifierEvidence {
+  /** Authority generation and owner evidence under which the verifier accepted
+   * the archives. These are persisted producer custody, not a fresh annotation
+   * added by the authority reader. */
+  readonly authorityEpoch: number;
+  readonly ownerEvidenceId: string;
+  readonly ownerSourceDigest: string;
   readonly verifierRevision: string;
   readonly sourceCommit: string;
   readonly sourceTree: string;
@@ -397,6 +403,9 @@ export class EfAuthorityService {
           grant.binding.repositoryId !== repositoryId ||
           grant.binding.pullRequest !== pullRequest ||
           grant.binding.head !== execution.sourceCommit ||
+          grant.authorityEpoch !== trusted.authorityEpoch ||
+          grant.ownerEvidence.evidenceId !== trusted.ownerEvidenceId ||
+          grant.ownerEvidence.sourceDigest !== trusted.ownerSourceDigest ||
           !equal(grant.binding, trusted.authorityBinding)
         )
           throw new AuthorityError("binding-changed");

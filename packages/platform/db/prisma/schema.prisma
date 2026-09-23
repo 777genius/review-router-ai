@@ -3965,5 +3965,4 @@ model SdkGrowthFinalizedReportEvidence {
   createdAt         DateTime                  @default(now()) @db.Timestamptz(3)
   evidence          SdkGrowthVerifierEvidence @relation(fields: [evidenceId], references: [evidenceId], onDelete: Restrict, onUpdate: Restrict)
 
-  @@unique([evidenceId, reportDigest], map: "SdkGrowthFinalizedReportEvidence_digest_key")
 }

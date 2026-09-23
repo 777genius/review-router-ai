@@ -10,8 +10,11 @@ import {
 import {
   EfAuthorityService,
   PinnedEfAuthorityCodecV1,
+  ServerSideTrustedAuthorityIngestion,
+  SdkGrowthVerifierAuthorityPolicy,
   type EfAuthorityCodecPort,
-  type TrustedAuthorityIngestion,
+  type TrustedAuthorityAuthenticatorPort,
+  type TrustedAuthoritySourcePort,
 } from "@reviewrouter/features-sdk-growth-authority";
 import {
   JoseGitHubActionsOidcTokenVerifier,
@@ -28,7 +31,9 @@ import {
 } from "./sdk-growth-authority-routes.js";
 import {
   PrismaSdkGrowthVerifierEvidenceSource,
+  PrismaSdkGrowthVerifierEvidenceCustody,
   SdkGrowthVerifierCustody,
+  type SdkGrowthVerifierProducerAuthenticatorPort,
   type SdkGrowthVerifierEvidenceSourcePort,
 } from "./sdk-growth-verifier-custody.js";
 import { OctokitSdkGrowthExecutionResolver } from "./github/octokit-sdk-growth-execution-resolver.js";
@@ -37,12 +42,33 @@ import { OctokitSdkGrowthExecutionResolver } from "./github/octokit-sdk-growth-e
  * operators; request handlers receive only currentAuthority. */
 export function composeSdkGrowthCurrentAuthority(
   prisma: PrismaClient,
-  ingestion: TrustedAuthorityIngestion,
+  authority: {
+    readonly authenticator: TrustedAuthorityAuthenticatorPort;
+    readonly source: TrustedAuthoritySourcePort;
+  },
 ) {
+  const ingestion = new ServerSideTrustedAuthorityIngestion(
+    authority.authenticator,
+    authority.source,
+  );
   return {
     currentAuthority: new PrismaCurrentAuthoritySnapshot(prisma),
     provisioning: new PrismaAuthorityProvisioning(prisma, ingestion),
   };
+}
+
+/** Verifier process composition. The authenticator must be backed by a
+ * protected workload identity and must not accept the candidate Actions OIDC
+ * credential used by the public authority routes. */
+export function composeSdkGrowthVerifierProducerCustody(
+  prisma: PrismaClient,
+  authenticator: SdkGrowthVerifierProducerAuthenticatorPort,
+) {
+  return new PrismaSdkGrowthVerifierEvidenceCustody(
+    prisma,
+    authenticator,
+    new SdkGrowthVerifierAuthorityPolicy(),
+  );
 }
 
 export interface ComposeSdkGrowthAuthorityRoutesInput {
@@ -109,7 +135,10 @@ export function composeProductionSdkGrowthAuthorityRoutes(input: {
       appId: input.githubAppId,
       privateKey: input.githubAppPrivateKey,
     }),
-    verifierEvidence: new PrismaSdkGrowthVerifierEvidenceSource(input.prisma),
+    verifierEvidence: new PrismaSdkGrowthVerifierEvidenceSource(
+      input.prisma,
+      new SdkGrowthVerifierAuthorityPolicy(),
+    ),
     audience: input.audience,
     githubAppId: input.githubAppId,
   });
