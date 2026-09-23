@@ -14,5 +14,8 @@ export {
   parseReceipt,
 } from "./domain/validation.js";
 export * from "./application/check-identity-policy.js";
+export * from "./application/effective-github-policy.js";
+export type * from "./application/ports/effective-github-policy-observer-port.js";
 export * from "./application/publication-ports.js";
 export * from "./application/publication.js";
+export * from "./domain/effective-github-policy.js";
