@@ -300,6 +300,9 @@ function harness() {
   const verifier: TrustedVerifierCustodyPort = {
     async load() {
       return {
+        authorityEpoch: f.grant.authorityEpoch,
+        ownerEvidenceId: f.grant.ownerEvidence.evidenceId,
+        ownerSourceDigest: f.grant.ownerEvidence.sourceDigest,
         verifierRevision: f.execution.verifierRevision,
         sourceCommit: f.execution.sourceCommit,
         sourceTree: f.execution.sourceTree,
@@ -426,6 +429,25 @@ describe("EF authority application boundary", () => {
     ).rejects.toMatchObject({ code: "conflict" });
     expect(h.authority.request).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    { authorityEpoch: 2 },
+    { ownerEvidenceId: "replaced-owner" },
+    { ownerSourceDigest: "sha256:" + "b".repeat(64) },
+  ])(
+    "rejects verifier evidence from a stale authority owner %#",
+    async (change) => {
+      const h = harness();
+      h.verifier.load = async () => ({
+        ...(await trustedEvidence(h.f)),
+        ...change,
+      });
+      await expect(
+        h.service.admit(h.f.execution, "repo", 42, {}),
+      ).rejects.toMatchObject({ code: "binding-changed" });
+      expect(h.authority.request).toHaveBeenCalledOnce();
+    },
+  );
 
   it.each(["candidateArchive", "releasedArchive"] as const)(
     "rejects %s exceeding 8 MiB before authority or custody writes",
@@ -641,6 +663,9 @@ describe("EF authority application boundary", () => {
         execution: secondExecution,
         binding: secondBinding,
         admission: secondAdmission,
+        authorityEpoch: 2,
+        ownerEvidenceId: secondOwnerEvidence.evidenceId,
+        ownerSourceDigest: secondOwnerEvidence.sourceDigest,
       }),
     );
 
@@ -663,9 +688,16 @@ function trustedEvidence(
   value: Pick<
     ReturnType<typeof fixture>,
     "execution" | "binding" | "admission"
-  >,
+  > & {
+    authorityEpoch?: number;
+    ownerEvidenceId?: string;
+    ownerSourceDigest?: string;
+  },
 ) {
   return {
+    authorityEpoch: value.authorityEpoch ?? 1,
+    ownerEvidenceId: value.ownerEvidenceId ?? "owner",
+    ownerSourceDigest: value.ownerSourceDigest ?? constantDigest,
     verifierRevision: value.execution.verifierRevision,
     sourceCommit: value.execution.sourceCommit,
     sourceTree: value.execution.sourceTree,

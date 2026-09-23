@@ -10,6 +10,7 @@ import {
   PrismaAuthorityProvisioning,
   PrismaCurrentAuthoritySnapshot,
 } from "../infrastructure/prisma/prisma-current-authority.js";
+import { ServerSideTrustedAuthorityIngestion } from "../application/trusted-authority-ingestion.js";
 import type {
   AuthorityProvisioningPrismaClient,
   AuthorityReadTransaction,
@@ -234,6 +235,81 @@ describe.skipIf(!url)("canonical authority epochs / real PostgreSQL", () => {
       f.reader(db, 0).resolve(f.identity, f.request, budget),
     ).rejects.toMatchObject({ code: "owner-evidence" });
   });
+  it.each([
+    "owner-revocation",
+    "installation-invalidation",
+    "verifier-withdrawal",
+  ] as const)(
+    "preserves approval provenance while %s is authorized by a fresh login",
+    async (change) => {
+      const f = fixture();
+      const principal = (authenticationId: string) => ({
+        issuer: "control-plane",
+        subject: f.state.ownerEvidence.ownerSubject,
+        authenticationId,
+        tenantId: f.scope.tenantId,
+        repositoryId: f.scope.repositoryId,
+        githubRepositoryId: "123",
+        installationId: f.state.provenance.installationId,
+      });
+      const approvalProvenance = structuredClone(f.state.provenance);
+      let record = {
+        ...f.scope,
+        githubRepositoryId: "123",
+        installationId: f.state.provenance.installationId,
+        binding: f.state.binding,
+        approval: {
+          version: 1 as const,
+          evidenceId: f.state.ownerEvidence.evidenceId,
+          tenantId: f.state.ownerEvidence.tenantId,
+          ownerSubject: f.state.ownerEvidence.ownerSubject,
+          scopes: f.state.ownerEvidence.scopes,
+          decision: f.state.ownerEvidence.decision,
+          sourceDigest: f.state.ownerEvidence.sourceDigest,
+          issuedAt: f.state.ownerEvidence.issuedAt,
+          expiresAt: f.state.ownerEvidence.expiresAt,
+          revoked: f.state.ownerEvidence.revoked,
+        },
+        approvalProvenance,
+        installationActive: true,
+        verifierActive: true,
+      };
+      const ingestion = new ServerSideTrustedAuthorityIngestion(
+        {
+          async authenticate(credential) {
+            if (credential !== "login-1" && credential !== "login-2")
+              throw new Error("unauthorized");
+            return principal(credential);
+          },
+        },
+        {
+          async load() {
+            return structuredClone(record);
+          },
+        },
+      );
+      const writer = new PrismaAuthorityProvisioning(db, ingestion);
+      expect(await writer.advance("login-1", f.scope, 0n, "provision")).toBe(
+        1n,
+      );
+      record = {
+        ...record,
+        approval:
+          change === "owner-revocation"
+            ? { ...record.approval, revoked: true }
+            : record.approval,
+        installationActive: change !== "installation-invalidation",
+        verifierActive: change !== "verifier-withdrawal",
+      };
+      expect(await writer.advance("login-2", f.scope, 1n, change)).toBe(2n);
+      const [stored] = await db.$queryRaw<
+        Array<{ authenticationId: string }>
+      >`SELECT "provenance"->>'authenticationId' AS "authenticationId"
+        FROM "SdkGrowthOwnerVersion"
+        WHERE "scopeKey" = ${f.key} AND "epoch" = 2`;
+      expect(stored?.authenticationId).toBe("login-1");
+    },
+  );
   it("round-trips maximum bounded binding and owner scope metadata", async () => {
     const f = fixture();
     const scopes = Array.from(

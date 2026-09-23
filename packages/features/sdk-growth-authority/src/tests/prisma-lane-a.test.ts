@@ -13,6 +13,7 @@ import {
   type DecodedEfAdmission,
 } from "../application/ef-authority-service.js";
 import { PinnedEfAuthorityCodecV1 } from "../application/pinned-ef-authority-codec.js";
+import { SdkGrowthVerifierAuthorityPolicy } from "../application/verifier-authority-policy.js";
 import type {
   CanonicalAuthorityMaterial,
   CurrentAuthoritySnapshotPort,
@@ -38,6 +39,7 @@ import { PrismaReceiptRepository } from "../infrastructure/prisma/prisma-receipt
 import {
   PrismaSdkGrowthVerifierEvidenceSource,
   SdkGrowthVerifierCustody,
+  sdkGrowthFinalizedReportEvidenceId,
   sdkGrowthVerifierExecutionId,
 } from "../../../../../apps/api/src/sdk-growth-verifier-custody.js";
 
@@ -261,7 +263,13 @@ describe.skipIf(!url)(
           return structuredClone(f.state.material);
         },
       });
-      await writer.advance("operator", f.scope, 0n, "provision");
+      const epoch = await writer.advance("operator", f.scope, 0n, "provision");
+      const link = {
+        binding: f.binding,
+        authorityEpoch: Number(epoch),
+        ownerEvidenceId: f.state.material.ownerEvidence.evidenceId,
+        ownerSourceDigest: f.state.material.ownerEvidence.sourceDigest,
+      };
       const bytes = Buffer.from("archive");
       const insert = (binding: string) => db.$executeRaw`
         INSERT INTO "SdkGrowthVerifierEvidence" (
@@ -274,9 +282,9 @@ describe.skipIf(!url)(
           ${"8".repeat(40)}, ${f.binding.head}, ${"9".repeat(40)}, 'reviewrouter-verifier', ${binding}::jsonb,
           ${bytes}, ${digest(bytes)}, ${sri(bytes)}, ${bytes}, ${digest(bytes)}, ${sri(bytes)},
           ${bytes}, ${digest(bytes)}, ${sri(bytes)}, ${bytes}, ${digest(bytes)})`;
-      await insert(JSON.stringify(f.binding));
+      await insert(JSON.stringify(link));
       const [row] = await db.$queryRaw<{ binding: Binding; bytes: number }[]>`
-        SELECT "authorityBinding" AS binding, octet_length("authorityBinding"::text) AS bytes
+        SELECT "authorityBinding"->'binding' AS binding, octet_length("authorityBinding"::text) AS bytes
         FROM "SdkGrowthVerifierEvidence" WHERE "tenantId" = ${f.identity.tenantId}`;
       expect(row!.binding).toEqual(f.binding);
       expect(row!.bytes).toBeGreaterThan(266_000);
@@ -300,9 +308,49 @@ describe.skipIf(!url)(
       const binding42 = f.binding;
       const binding99 = { ...f.binding, pullRequest: 99 };
 
-      const insertEvidence = async (
+      const authorityLink = async (
         execution: AuthenticatedEfExecution,
         binding: Binding,
+      ) => {
+        const ownerEvidence = f.evidence(binding);
+        const scope = {
+          tenantId: execution.tenantId,
+          repositoryId: execution.repositoryId,
+          pullRequest: execution.pullRequest,
+        };
+        const provisioning = new PrismaAuthorityProvisioning(db, {
+          async authenticateAndLoad() {
+            return {
+              binding,
+              ownerEvidence,
+              provenance: {
+                ...f.state.material.provenance,
+                installationId: execution.installationId,
+              },
+              installationActive: true,
+              verifierActive: true,
+            };
+          },
+        });
+        const epoch = await provisioning.advance(
+          "operator",
+          scope,
+          0n,
+          "provision",
+        );
+        return {
+          binding,
+          authorityEpoch: Number(epoch),
+          ownerEvidenceId: ownerEvidence.evidenceId,
+          ownerSourceDigest: ownerEvidence.sourceDigest,
+        };
+      };
+      const link42 = await authorityLink(execution42, binding42);
+      const link99 = await authorityLink(execution99, binding99);
+
+      const insertEvidence = async (
+        execution: AuthenticatedEfExecution,
+        link: typeof link42,
       ) => {
         await db.$executeRaw`
           INSERT INTO "SdkGrowthVerifierEvidence" (
@@ -312,17 +360,20 @@ describe.skipIf(!url)(
             "releasedArchive", "releasedArchiveSha256", "releasedArchiveSha512Sri",
             "toolArchive", "toolArchiveSha256", "toolArchiveSha512Sri", "installedDistributionWire", "installedDistributionDigest"
           ) VALUES (
-            ${sdkGrowthVerifierExecutionId(execution)}, ${execution.tenantId}, ${execution.repositoryId}, ${execution.pullRequest},
+            ${sdkGrowthVerifierExecutionId(execution, link)}, ${execution.tenantId}, ${execution.repositoryId}, ${execution.pullRequest},
             ${execution.githubRepositoryId}, ${execution.installationId}, ${execution.subject}, ${execution.runId},
             ${execution.runAttempt}, ${execution.verifierRevision}, ${execution.sourceCommit}, ${execution.sourceTree},
-            'reviewrouter-verifier', ${JSON.stringify(binding)}::jsonb, ${archiveBytes}, ${archive.sha256}, ${archive.sha512Sri},
+            'reviewrouter-verifier', ${JSON.stringify(link)}::jsonb, ${archiveBytes}, ${archive.sha256}, ${archive.sha512Sri},
             ${archiveBytes}, ${archive.sha256}, ${archive.sha512Sri}, ${archiveBytes}, ${archive.sha256}, ${archive.sha512Sri},
             ${distribution}, ${digest(distribution)})`;
       };
-      await insertEvidence(execution42, binding42);
-      await insertEvidence(execution99, binding99);
+      await insertEvidence(execution42, link42);
+      await insertEvidence(execution99, link99);
 
-      const source = new PrismaSdkGrowthVerifierEvidenceSource(db);
+      const source = new PrismaSdkGrowthVerifierEvidenceSource(
+        db,
+        new SdkGrowthVerifierAuthorityPolicy(() => 100),
+      );
       const verifier = new SdkGrowthVerifierCustody(source);
       const transactions = {
         async transact(
@@ -451,15 +502,20 @@ describe.skipIf(!url)(
 
       const finalizedReport = Buffer.from("finalized-report");
       const reportDigest = digest(finalizedReport);
-      for (const execution of [execution42, execution99]) {
+      for (const [execution, link] of [
+        [execution42, link42],
+        [execution99, link99],
+      ] as const) {
+        const evidenceId = sdkGrowthVerifierExecutionId(execution, link);
+        const grantId = `grant-${execution.pullRequest}`;
         await db.$executeRaw`
           INSERT INTO "SdkGrowthFinalizedReportEvidence" (
             "reportEvidenceId", "evidenceId", "repositoryId", "runId", "runAttempt", "verifierRevision",
             "producer", "reportDigest", "finalizedReport", "grantId", "outcome", "coverage", "coveredScopes", "phases"
           ) VALUES (
-            ${randomUUID()}, ${sdkGrowthVerifierExecutionId(execution)}, ${execution.repositoryId}, ${execution.runId},
+            ${sdkGrowthFinalizedReportEvidenceId(evidenceId, grantId)}, ${evidenceId}, ${execution.repositoryId}, ${execution.runId},
             ${execution.runAttempt}, ${execution.verifierRevision}, 'reviewrouter-verifier', ${reportDigest},
-            ${finalizedReport}, ${`grant-${execution.pullRequest}`}, 'passed', 'complete', '["public-api"]'::jsonb,
+            ${finalizedReport}, ${grantId}, 'passed', 'complete', '["public-api"]'::jsonb,
             '["authority","decision"]'::jsonb)`;
         await expect(
           verifier.verifyFinalizedReport({
