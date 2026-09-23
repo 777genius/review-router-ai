@@ -22,36 +22,74 @@ describe("GitHub user repository access", () => {
     expect(repositoryPermissionAllowsDashboardMutation(null)).toBe(false);
   });
 
-  it("skips GitHub discovery when all active installations have workspace-wide access", async () => {
-    const findFirst = vi.fn().mockResolvedValue(null);
-    const fetchMock = vi.fn();
+  it("caches an empty discovery briefly and still permits explicit refresh", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ installations: [] }), { status: 200 }),
+        ),
+      );
     const prisma = {
       repositoryPermissionCache: {
         findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
-      gitHubInstallation: { findFirst },
+      gitHubUserAuthorization: {
+        findUnique: vi.fn().mockResolvedValue({
+          encryptedAccessToken: encryptServerToken("ghu_access", env),
+          encryptedRefreshToken: null,
+          accessTokenExpiresAt: new Date("2026-05-12T12:00:00Z"),
+          refreshTokenExpiresAt: null,
+          revokedAt: null,
+          lastErrorCode: null,
+        }),
+      },
+      $transaction: vi
+        .fn()
+        .mockImplementation((operations) => Promise.all(operations)),
     } as unknown as PrismaClient;
-
-    const result = await listGitHubUserRepositoryAccess({
+    const input = {
       prisma,
+      env,
       actor: {
-        userId: "user_1",
+        userId: "user_empty_cache_test",
         githubUserId: "123",
         githubLogin: "maintainer",
       },
       excludedWorkspaceIds: ["workspace_1"],
       fetch: fetchMock,
-    });
+    };
 
-    expect(result).toMatchObject({ status: "ready", workspaceIds: [] });
-    expect(findFirst).toHaveBeenCalledWith({
-      where: {
-        status: "active",
-        workspaceId: { notIn: ["workspace_1"] },
-      },
-      select: { id: true },
+    await expect(
+      listGitHubUserRepositoryAccess({
+        ...input,
+        now: new Date("2026-05-12T10:00:00Z"),
+      }),
+    ).resolves.toMatchObject({ status: "ready", workspaceIds: [] });
+    const cached = await listGitHubUserRepositoryAccess({
+      ...input,
+      now: new Date("2026-05-12T10:00:01Z"),
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(cached.checkedAt?.toISOString()).toBe("2026-05-12T10:00:00.000Z");
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    const refreshed = await refreshGitHubUserRepositoryAccess({
+      ...input,
+      now: new Date("2026-05-12T10:00:02Z"),
+    });
+    expect(refreshed.status).toBe("ready");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await listGitHubUserRepositoryAccess({
+      ...input,
+      now: new Date("2026-05-12T10:00:03Z"),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await listGitHubUserRepositoryAccess({
+      ...input,
+      now: new Date("2026-05-12T10:01:03Z"),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("discovers manageable installed repositories from the user access token", async () => {
