@@ -220,6 +220,144 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.restoreAllMocks());
 
 describe("dashboard server loading boundaries", () => {
+  it("starts workspace-only reads while the repository list is pending", async () => {
+    let resolveRepositories!: (
+      value: Awaited<ReturnType<typeof spies.repositories>>,
+    ) => void;
+    spies.repositories.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRepositories = resolve;
+        }),
+    );
+    const withInstallation = {
+      ...workspace,
+      workspace: {
+        ...workspace.workspace,
+        installations: [
+          {
+            accountLogin: "Acme",
+            accountType: "Organization",
+            accountAvatarUrl: null,
+            githubInstallationId: "900004",
+            status: "active",
+            repositorySelection: "all",
+            organizationSecretPolicy: null,
+          },
+        ],
+      },
+    };
+
+    const loading = loadDashboardSectionData(
+      withInstallation,
+      "repositories",
+      access,
+    );
+    try {
+      expect(spies.repositories).toHaveBeenCalledOnce();
+      expect(spies.health).toHaveBeenCalledOnce();
+      expect(spies.config).toHaveBeenCalledOnce();
+      expect(spies.ruleset).toHaveBeenCalledOnce();
+      await vi.waitFor(() =>
+        expect(spies.organizationRequest).toHaveBeenCalledOnce(),
+      );
+      expect(spies.batchConfig).not.toHaveBeenCalled();
+      expect(spies.provisioning).not.toHaveBeenCalled();
+      expect(spies.hostedPool).not.toHaveBeenCalled();
+    } finally {
+      resolveRepositories([
+        {
+          id: "repo-a",
+          workspaceId: "workspace-a",
+          owner: "acme",
+          fullName: "acme/test",
+          visibility: "private",
+          selected: true,
+          archived: false,
+        },
+      ]);
+      await loading;
+    }
+  });
+
+  it("observes early read failures while repositories are pending", async () => {
+    let resolveRepositories!: (
+      value: Awaited<ReturnType<typeof spies.repositories>>,
+    ) => void;
+    spies.repositories.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRepositories = resolve;
+        }),
+    );
+    spies.health.mockRejectedValueOnce(new Error("health unavailable"));
+
+    const loading = loadDashboardSectionData(workspace, "repositories", access);
+    await Promise.resolve();
+    resolveRepositories([]);
+    await expect(loading).rejects.toThrow("health unavailable");
+  });
+
+  it("waits for repository visibility before exposing scoped installations", async () => {
+    let resolveRepositories!: (
+      value: Awaited<ReturnType<typeof spies.repositories>>,
+    ) => void;
+    spies.repositories.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRepositories = resolve;
+        }),
+    );
+    const scopedWorkspace = {
+      ...workspace,
+      hasWorkspaceWideAccess: false,
+      workspace: {
+        ...workspace.workspace,
+        installations: ["acme", "hidden"].map((accountLogin, index) => ({
+          accountLogin,
+          accountType: "Organization",
+          accountAvatarUrl: null,
+          githubInstallationId: String(900010 + index),
+          status: "active",
+          repositorySelection: "all",
+          organizationSecretPolicy: null,
+        })),
+      },
+    };
+
+    const loading = loadDashboardSectionData(
+      scopedWorkspace,
+      "repositories",
+      access,
+    );
+    expect(spies.organizationRequest).not.toHaveBeenCalled();
+    resolveRepositories([
+      {
+        id: "repo-a",
+        workspaceId: "workspace-a",
+        owner: "acme",
+        fullName: "acme/test",
+        visibility: "private",
+        selected: true,
+        archived: false,
+      },
+      {
+        id: "repo-hidden",
+        workspaceId: "workspace-a",
+        owner: "hidden",
+        fullName: "hidden/test",
+        visibility: "private",
+        selected: true,
+        archived: false,
+      },
+    ]);
+    const data = await loading;
+    expect(
+      data.workspace.installations.map(({ accountLogin }) => accountLogin),
+    ).toEqual(["acme"]);
+    expect(spies.organizationRequest).not.toHaveBeenCalled();
+  });
+
   it("starts provider readiness before an unrelated hosted pool read completes", async () => {
     let resolveHostedPool!: (
       value: Awaited<ReturnType<typeof spies.hostedPool>>,

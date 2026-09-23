@@ -390,13 +390,55 @@ export async function loadDashboardSectionData(
     { serviceEnabled: readMemoryServiceEnabled(process.env) },
   );
 
+  const hasWorkspaceWideAccess = selectedWorkspace.hasWorkspaceWideAccess;
+  const independentReadsPromise = Promise.all([
+    needsReadiness
+      ? listWorkspaceRepositoryHealth(
+          {
+            workspaceId: workspace.id,
+            expectedActionRef: resolveReviewRouterActionRef(),
+            workflowProbeMaxRepositories: 0,
+          },
+          { repositories: healthStore },
+        )
+      : Promise.resolve([]),
+    needsConfig
+      ? findReviewConfiguration(
+          { scope: "workspace", workspaceId: workspace.id },
+          { configurations: reviewConfigStore },
+        )
+      : Promise.resolve(null),
+    section === "repositories" && hasWorkspaceWideAccess
+      ? orgRulesetStore.findByWorkspaceId(workspace.id)
+      : Promise.resolve(null),
+    hasWorkspaceWideAccess
+      ? Promise.all(
+          workspace.installations.map(async (installation) => ({
+            ...installation,
+            githubInstallationId: installation.githubInstallationId.toString(),
+            organizationSecretPolicy:
+              section === "repositories"
+                ? await loadOrganizationSecretPolicy({
+                    ...installation,
+                    githubInstallationId: BigInt(
+                      installation.githubInstallationId,
+                    ),
+                  })
+                : null,
+          })),
+        )
+      : Promise.resolve(null),
+  ]);
+  // The repository barrier can remain pending after an independent read fails.
+  // Observe that rejection now; the awaited aggregate below still propagates it.
+  void independentReadsPromise.catch(() => {});
+
   const [repositories, storedEntitlement] = await Promise.all([
     section === "setup"
       ? Promise.resolve([])
       : repositoryStore.listWorkspaceRepositories(workspace.id),
     entitlementStore.findWorkspaceEntitlement(workspace.id),
   ]);
-  const hasWorkspaceWideAccess = selectedWorkspace.hasWorkspaceWideAccess;
   const visibleRepositories = hasWorkspaceWideAccess
     ? repositories
     : repositories.filter((repository) =>
@@ -442,101 +484,76 @@ export async function loadDashboardSectionData(
           }),
         )
     : Promise.resolve([]);
-  // These reads do not depend on one another. Run them together so the section
-  // waits for its slowest source, rather than the sum of every DB/API latency.
   const [
-    hostedPool,
-    workspaceHealth,
-    reviewConfig,
-    repositoryConfigs,
-    outboxFailures,
-    provisioning,
-    providerSetup,
-    supportDiagnostics,
-    orgRuleset,
-    dashboardInstallations,
+    [workspaceHealth, reviewConfig, orgRuleset, workspaceWideInstallations],
+    [
+      hostedPool,
+      repositoryConfigs,
+      outboxFailures,
+      provisioning,
+      providerSetup,
+      supportDiagnostics,
+    ],
   ] = await Promise.all([
-    loadHostedPoolDashboardView({
-      workspaceId: workspace.id,
-      repositories: needsReadiness
-        ? visibleRepositories.map((repository) => ({
-            id: repository.id,
-            fullName: repository.fullName,
-            visibility: repository.visibility,
-          }))
-        : [],
-      featureEnabled:
-        (needsReadiness || section === "setup") && isHostedCodexPoolEnabled(),
-      entitled: entitlement.flags.hosted_codex_pool,
-      queries: new PrismaHostedPoolQuery(prisma),
-    }),
-    needsReadiness
-      ? listWorkspaceRepositoryHealth(
-          {
-            workspaceId: workspace.id,
-            expectedActionRef: resolveReviewRouterActionRef(),
-            workflowProbeMaxRepositories: 0,
-          },
-          { repositories: healthStore },
-        )
-      : Promise.resolve([]),
-    needsConfig
-      ? findReviewConfiguration(
-          { scope: "workspace", workspaceId: workspace.id },
-          { configurations: reviewConfigStore },
-        )
-      : Promise.resolve(null),
-    needsConfig
-      ? findRepositoryReviewConfigurations(
-          { workspaceId: workspace.id, repositoryIds },
-          { configurations: reviewConfigStore },
-        )
-      : Promise.resolve([]),
-    section === "diagnostics" && hasWorkspaceWideAccess
-      ? listWorkspaceOutboxFailures(
-          { workspaceId: workspace.id, limit: 5 },
-          { outbox: outboxStore },
-        )
-      : Promise.resolve([]),
-    needsReadiness
-      ? listRepositoryWorkflowProvisioning(
-          { workspaceId: workspace.id, repositoryIds },
-          { provisioning: new PrismaWorkflowProvisioningQuery(prisma) },
-        )
-      : Promise.resolve([]),
-    providerSetupPromise,
-    section === "diagnostics" && hasWorkspaceWideAccess
-      ? getWorkspaceSupportDiagnostics(
-          {
-            workspaceId: workspace.id,
-            checkedAt: new Date(),
-            ...(supportAudit ? { audit: supportAudit } : {}),
-          },
-          {
-            diagnostics: diagnosticsStore,
-            ...(supportAudit
-              ? { auditLog: new PrismaAuditLogRepository(prisma) }
-              : {}),
-          },
-        )
-      : Promise.resolve(null),
-    section === "repositories" && hasWorkspaceWideAccess
-      ? orgRulesetStore.findByWorkspaceId(workspace.id)
-      : Promise.resolve(null),
-    Promise.all(
-      visibleInstallations.map(async (installation) => ({
-        ...installation,
-        githubInstallationId: installation.githubInstallationId.toString(),
-        organizationSecretPolicy:
-          section === "repositories" && hasWorkspaceWideAccess
-            ? await loadOrganizationSecretPolicy({
-                ...installation,
-                githubInstallationId: BigInt(installation.githubInstallationId),
-              })
-            : null,
-      })),
-    ),
+    independentReadsPromise,
+    Promise.all([
+      loadHostedPoolDashboardView({
+        workspaceId: workspace.id,
+        repositories: needsReadiness
+          ? visibleRepositories.map((repository) => ({
+              id: repository.id,
+              fullName: repository.fullName,
+              visibility: repository.visibility,
+            }))
+          : [],
+        featureEnabled:
+          (needsReadiness || section === "setup") && isHostedCodexPoolEnabled(),
+        entitled: entitlement.flags.hosted_codex_pool,
+        queries: new PrismaHostedPoolQuery(prisma),
+      }),
+      needsConfig
+        ? findRepositoryReviewConfigurations(
+            { workspaceId: workspace.id, repositoryIds },
+            { configurations: reviewConfigStore },
+          )
+        : Promise.resolve([]),
+      section === "diagnostics" && hasWorkspaceWideAccess
+        ? listWorkspaceOutboxFailures(
+            { workspaceId: workspace.id, limit: 5 },
+            { outbox: outboxStore },
+          )
+        : Promise.resolve([]),
+      needsReadiness
+        ? listRepositoryWorkflowProvisioning(
+            { workspaceId: workspace.id, repositoryIds },
+            { provisioning: new PrismaWorkflowProvisioningQuery(prisma) },
+          )
+        : Promise.resolve([]),
+      providerSetupPromise,
+      section === "diagnostics" && hasWorkspaceWideAccess
+        ? getWorkspaceSupportDiagnostics(
+            {
+              workspaceId: workspace.id,
+              checkedAt: new Date(),
+              ...(supportAudit ? { audit: supportAudit } : {}),
+            },
+            {
+              diagnostics: diagnosticsStore,
+              ...(supportAudit
+                ? { auditLog: new PrismaAuditLogRepository(prisma) }
+                : {}),
+            },
+          )
+        : Promise.resolve(null),
+    ]),
   ]);
+  const dashboardInstallations =
+    workspaceWideInstallations ??
+    visibleInstallations.map((installation) => ({
+      ...installation,
+      githubInstallationId: installation.githubInstallationId.toString(),
+      organizationSecretPolicy: null,
+    }));
   const health = workspaceHealth.filter((item) =>
     visibleRepositoryIds.has(item.repositoryId),
   );
