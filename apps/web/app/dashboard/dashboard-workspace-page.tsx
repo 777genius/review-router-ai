@@ -1748,7 +1748,7 @@ function WorkspaceCard({
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               mutationsEnabled={mutationsEnabled}
               workspaceKey={workspaceKey}
-              initialWorkspaceParam={readParam(params.workspace)}
+              initialWorkspaceParam={readParam(params.workspace) || null}
               searchQuery={repositorySearchQuery}
               searchFilter={repositorySearchFilter}
               selectedRepositoryFullName={selectedRepository?.fullName ?? null}

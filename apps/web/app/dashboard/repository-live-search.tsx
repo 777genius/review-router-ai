@@ -553,7 +553,7 @@ function isCurrentRepositoryScope(
   const section = params.get("section");
   if (section && section !== "repositories") return false;
   const workspace = params.get("workspace");
-  if (!workspace) return initialWorkspaceParam === null;
+  if (!workspace) return !initialWorkspaceParam;
   return workspace === workspaceKey || workspace === initialWorkspaceParam;
 }
 

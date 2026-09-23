@@ -156,6 +156,18 @@ describe("RepositoryLiveSearch", () => {
     expect(replaceState).not.toHaveBeenCalled();
   });
 
+  it("normalizes a bare default dashboard URL when filtering", () => {
+    window.history.replaceState({}, "", "/dashboard");
+    render(<Fixture initialWorkspaceParam="" />);
+    search("project-40");
+    expect(window.location.pathname).toBe("/dashboard");
+    expect(window.location.search).toBe(
+      "?workspace=workspace_1&section=repositories&q=project-40",
+    );
+    expect(rowIds()).toEqual(["repo_40"]);
+    expect(routerMock.replace).not.toHaveBeenCalled();
+  });
+
   it("updates URL without navigation and restores query/filter on popstate", () => {
     renderFixture();
     const replaceState = vi.spyOn(window.history, "replaceState");
