@@ -32,7 +32,7 @@ describe("DashboardSectionTabs", () => {
     );
     expect(dashboardSectionMeta.memory.description).toMatch(/in development/i);
     expect(
-      screen.getByRole("tab", { name: /MemoryIn development/i }),
+      screen.getByRole("tab", { name: /^Memory\s*In development$/i }),
     ).toBeTruthy();
     const setupLink = screen.getByRole("tab", { name: /AccountsEncrypted/i });
     expect(setupLink.getAttribute("href")).toBe(

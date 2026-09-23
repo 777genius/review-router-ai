@@ -152,9 +152,11 @@ export function DashboardSectionTabs({
                       In development
                     </span>
                   ) : null}
-                  <span className="mt-1 overflow-hidden text-xs leading-4 text-slate-500 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] group-hover:text-slate-300 group-data-[active]:text-cyan-100/80">
-                    {item.description}
-                  </span>
+                  {item.section === "memory" ? null : (
+                    <span className="mt-1 overflow-hidden text-xs leading-4 text-slate-500 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] group-hover:text-slate-300 group-data-[active]:text-cyan-100/80">
+                      {item.description}
+                    </span>
+                  )}
                 </span>
               </span>
             </Tabs.Tab>
