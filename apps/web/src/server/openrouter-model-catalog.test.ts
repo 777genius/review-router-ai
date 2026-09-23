@@ -1,10 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  getOpenRouterCatalog,
   getReviewModelOptions,
   normalizeOpenRouterModelsResponse,
 } from "./openrouter-model-catalog";
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe("openrouter model catalog", () => {
+  it("reuses the default catalog for calls without overrides", async () => {
+    const fetchSpy = vi.fn(async () =>
+      Response.json({
+        data: [{ id: "vendor/cached", name: "Cached" }],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    expect((await getOpenRouterCatalog())[0]?.id).toBe("vendor/cached");
+    expect((await getOpenRouterCatalog())[0]?.id).toBe("vendor/cached");
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
   it("normalizes pricing to dollars per million tokens", () => {
     const models = normalizeOpenRouterModelsResponse({
       data: [

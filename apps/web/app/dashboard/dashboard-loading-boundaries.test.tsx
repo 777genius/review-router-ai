@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DashboardWorkspaceLayout,
   listDashboardRepositoryAccess,
@@ -36,6 +36,9 @@ const fixtures = vi.hoisted(() => {
     provisioning: vi.fn(async () => []),
     providerSetup: vi.fn(async () => []),
     readiness: vi.fn(async () => []),
+    organizationRequest: vi.fn(async () => ({
+      data: { plan: { name: "team" } },
+    })),
     discovery: vi.fn(async () => ({
       status: "ready" as const,
       workspaceIds: ["workspace-a"],
@@ -96,6 +99,9 @@ vi.mock("../../src/server/prisma", () => ({
   }),
 }));
 vi.mock("../../src/server/dashboard-mutations", () => ({
+  createGitHubAppInstallationOctokit: async () => ({
+    request: fixtures.spies.organizationRequest,
+  }),
   getDashboardMutationStatus: async () => ({
     signedIn: true,
     enabled: true,
@@ -211,8 +217,154 @@ const access = {
 };
 
 beforeEach(() => vi.clearAllMocks());
+afterEach(() => vi.restoreAllMocks());
 
 describe("dashboard server loading boundaries", () => {
+  it("starts provider readiness before an unrelated hosted pool read completes", async () => {
+    let resolveHostedPool!: (
+      value: Awaited<ReturnType<typeof spies.hostedPool>>,
+    ) => void;
+    const hostedPoolPending = new Promise<
+      Awaited<ReturnType<typeof spies.hostedPool>>
+    >((resolve) => {
+      resolveHostedPool = resolve;
+    });
+    spies.hostedPool.mockImplementationOnce(() => hostedPoolPending);
+
+    const loading = loadDashboardSectionData(workspace, "repositories", access);
+    await vi.waitFor(() => expect(spies.providerSetup).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(spies.readiness).toHaveBeenCalledOnce());
+    expect(spies.readiness).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerSetup: [],
+        workspaceId: "workspace-a",
+      }),
+    );
+
+    resolveHostedPool({
+      gate: "enabled",
+      pool: null,
+      accounts: [],
+      repositories: [],
+    });
+    await loading;
+  });
+
+  it("single-flights and caches organization plan presentation metadata", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+    let resolveOrganization!: (value: {
+      data: { plan: { name: string } };
+    }) => void;
+    spies.organizationRequest.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOrganization = resolve;
+        }),
+    );
+    const withInstallation = {
+      ...workspace,
+      workspace: {
+        ...workspace.workspace,
+        installations: [
+          {
+            accountLogin: "Acme",
+            accountType: "Organization",
+            accountAvatarUrl: null,
+            githubInstallationId: "900001",
+            status: "active",
+            repositorySelection: "all",
+            organizationSecretPolicy: null,
+          },
+        ],
+      },
+    };
+
+    const first = loadDashboardSectionData(
+      withInstallation,
+      "repositories",
+      access,
+    );
+    const second = loadDashboardSectionData(
+      withInstallation,
+      "repositories",
+      access,
+    );
+    await vi.waitFor(() =>
+      expect(spies.organizationRequest).toHaveBeenCalledOnce(),
+    );
+    resolveOrganization({ data: { plan: { name: "Team" } } });
+    const results = await Promise.all([first, second]);
+    expect(
+      results[0]?.workspace.installations[0]?.organizationSecretPolicy,
+    ).toEqual({
+      planName: "team",
+      privateRepositoriesAvailable: true,
+      status: "available",
+    });
+    await loadDashboardSectionData(withInstallation, "repositories", access);
+    expect(spies.organizationRequest).toHaveBeenCalledOnce();
+
+    await loadDashboardSectionData(
+      {
+        ...withInstallation,
+        workspace: {
+          ...withInstallation.workspace,
+          installations: [
+            {
+              ...withInstallation.workspace.installations[0]!,
+              accountLogin: "Other",
+            },
+          ],
+        },
+      },
+      "repositories",
+      access,
+    );
+    expect(spies.organizationRequest).toHaveBeenCalledTimes(2);
+
+    now.mockReturnValue(5 * 60 * 1000 + 1000);
+    await loadDashboardSectionData(withInstallation, "repositories", access);
+    expect(spies.organizationRequest).toHaveBeenCalledTimes(3);
+  });
+
+  it("preserves permission and missing-plan statuses on organization lookup failure", async () => {
+    spies.organizationRequest
+      .mockRejectedValueOnce({ status: 403 })
+      .mockRejectedValueOnce({ status: 404 });
+    const installation = (githubInstallationId: string) => ({
+      ...workspace,
+      workspace: {
+        ...workspace.workspace,
+        installations: [
+          {
+            accountLogin: "Acme",
+            accountType: "Organization",
+            accountAvatarUrl: null,
+            githubInstallationId,
+            status: "active",
+            repositorySelection: "all",
+            organizationSecretPolicy: null,
+          },
+        ],
+      },
+    });
+    const denied = await loadDashboardSectionData(
+      installation("900002"),
+      "repositories",
+      access,
+    );
+    const missing = await loadDashboardSectionData(
+      installation("900003"),
+      "repositories",
+      access,
+    );
+    expect(
+      denied.workspace.installations[0]?.organizationSecretPolicy?.status,
+    ).toBe("permission_required");
+    expect(
+      missing.workspace.installations[0]?.organizationSecretPolicy?.status,
+    ).toBe("unknown");
+  });
   it("shares one persistent route layout across dashboard and Accounts while keeping previews outside it", () => {
     const route = (path: string) => new URL(path, import.meta.url);
     const workspacePageSource = readFileSync(
