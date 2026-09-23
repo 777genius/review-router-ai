@@ -8,283 +8,313 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  buildRepositorySearchHelperText,
   RepositoryLiveSearch,
-  type RepositorySearchFilter,
+  selectVisibleRepositoryIds,
   type RepositorySearchIndexItem,
 } from "./repository-live-search";
 
-const routerMock = vi.hoisted(() => ({
-  replace: vi.fn(),
-}));
+const routerMock = vi.hoisted(() => ({ replace: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => routerMock }));
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => routerMock,
-}));
+const index: RepositorySearchIndexItem[] = Array.from(
+  { length: 40 },
+  (_, i) => ({
+    id: `repo_${i + 1}`,
+    fullName: `personal/project-${i + 1}`,
+    sourceUrl: `https://github.com/personal/project-${i + 1}`,
+    searchText: `personal/project-${i + 1}`,
+    visibility: i === 39 ? "public" : "private",
+    readiness: i === 39 ? "needs_setup" : "ready",
+    stargazersCount: i + 1,
+    archived: i === 39,
+  }),
+);
 
 beforeEach(() => {
   window.history.replaceState(
     {},
     "",
-    "/dashboard?workspace=workspace_1&section=repositories",
+    "/dashboard?workspace=workspace_1&section=repositories&other=kept",
   );
 });
-
 afterEach(() => {
   cleanup();
-  vi.useRealTimers();
   vi.clearAllMocks();
   vi.restoreAllMocks();
 });
 
-const baseInput = {
-  activeFilter: "all" as const,
-  hasActiveQuery: false,
-  isSearchLoading: false,
-  matchingCount: 37,
-  renderedCountLabel: 24,
-  renderedRepositoryCount: 24,
-  rowLimit: 24,
-  totalRepositoryCount: 60,
-};
-
-describe("buildRepositorySearchHelperText", () => {
-  it("does not show optimistic match counts while updated repository rows load", () => {
+describe("RepositoryLiveSearch", () => {
+  it("renders repository #395 immediately as a real summary", () => {
+    const deep = {
+      ...index[0]!,
+      id: "repo_395",
+      fullName: "personal/project-395",
+      searchText: "personal/project-395",
+    };
+    renderFixture({ searchIndex: [...index, deep] });
+    search("project-395");
+    expect(rowIds()).toEqual(["repo_395"]);
+    expect(screen.getByText("personal/project-395")).toBeTruthy();
     expect(
-      buildRepositorySearchHelperText({
-        ...baseInput,
-        hasActiveQuery: true,
-        isSearchLoading: true,
+      screen.getByRole("button", {
+        name: /Open setup\/settings for personal\/project-395/,
       }),
-    ).toBe("Loading updated results...");
-  });
-
-  it("shows match counts once repository rows are ready", () => {
-    expect(
-      buildRepositorySearchHelperText({
-        ...baseInput,
-        hasActiveQuery: true,
-      }),
-    ).toBe("37 matching repositories. Showing first 24.");
-  });
-
-  it("filters rendered rows immediately without a spinner or server navigation", () => {
-    vi.useFakeTimers();
-    renderRepositoryLiveSearch();
-    const replaceState = vi.spyOn(window.history, "replaceState");
-
-    fireEvent.change(
-      screen.getByRole("searchbox", { name: "Find repository" }),
-      {
-        target: { value: "p" },
-      },
-    );
-
-    expect(
-      screen.getByText("37 matching repositories. Showing first 24."),
     ).toBeTruthy();
-    expect(screen.queryByText("Loading updated results...")).toBeNull();
-    expect(
-      document.querySelector<HTMLElement>("[data-repository-search-loader]")
-        ?.hidden,
-    ).toBe(true);
-    act(() => vi.runAllTimers());
-    expect(window.location.search).toContain("q=p");
-    expect(replaceState).toHaveBeenCalledWith(
-      null,
-      "",
-      "/dashboard?workspace=workspace_1&section=repositories&q=p",
-    );
     expect(routerMock.replace).not.toHaveBeenCalled();
+    expect(window.location.search).toContain("q=project-395");
   });
 
-  it("hides nonmatching rows locally and preserves the selected row beyond the cap", () => {
-    vi.useFakeTimers();
-    renderRepositoryLiveSearch({ selectedRepositoryId: "repo_37" });
-
-    fireEvent.change(
-      screen.getByRole("searchbox", { name: "Find repository" }),
-      {
-        target: { value: "project" },
-      },
-    );
-    act(() => vi.runAllTimers());
-    expect(routerMock.replace).not.toHaveBeenCalled();
-    expect(
-      document.querySelector<HTMLElement>('[data-repository-row-id="repo_37"]')
-        ?.hidden,
-    ).toBe(false);
-
-    fireEvent.change(
-      screen.getByRole("searchbox", { name: "Find repository" }),
-      {
-        target: { value: "project-1" },
-      },
+  it("orders rich and summary rows by the search index, with no duplicates", () => {
+    renderFixture({ richIds: ["repo_2", "repo_1", "repo_24"] });
+    expect(rowIds()).toEqual(
+      Array.from({ length: 24 }, (_, i) => `repo_${i + 1}`),
     );
     expect(
-      document.querySelector<HTMLElement>('[data-repository-row-id="repo_2"]')
-        ?.hidden,
-    ).toBe(true);
-    expect(screen.queryByText("Loading updated results...")).toBeNull();
-  });
-
-  it("loads server rows only when the first matching page is missing locally", () => {
-    vi.useFakeTimers();
-    renderRepositoryLiveSearch();
-
-    fireEvent.change(
-      screen.getByRole("searchbox", { name: "Find repository" }),
-      {
-        target: { value: "project-37" },
-      },
-    );
-
-    expect(screen.getByText("Loading updated results...")).toBeTruthy();
+      document.querySelectorAll("[data-repository-summary-row]"),
+    ).toHaveLength(21);
+    expect(screen.getByText("rich repo_1")).toBeTruthy();
     expect(
-      document.querySelector<HTMLElement>("[data-repository-search-loader]")
-        ?.hidden,
-    ).toBe(false);
-    act(() => vi.advanceTimersByTime(180));
-    expect(routerMock.replace).toHaveBeenCalledWith(
-      "/dashboard?workspace=workspace_1&section=repositories&q=project-37",
-      { scroll: false },
-    );
+      document.querySelectorAll('[data-repository-row-id="repo_1"]'),
+    ).toHaveLength(1);
   });
 
-  it("fetches a selected repository that was excluded by the previous filter", () => {
-    vi.useFakeTimers();
-    window.history.replaceState(
-      {},
-      "",
-      "/dashboard?workspace=workspace_1&section=repositories&repository=personal%2Fproject-37&visibility=public",
-    );
-    renderRepositoryLiveSearch({
-      selectedRepositoryId: "repo_37",
-      initialFilter: "public",
-      rowIds: Array.from({ length: 24 }, (_, index) => `repo_${index + 1}`),
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "All" }));
-    act(() => vi.runAllTimers());
-
-    expect(routerMock.replace).toHaveBeenCalledWith(
-      "/dashboard?workspace=workspace_1&section=repositories&repository=personal%2Fproject-37",
-      { scroll: false },
-    );
-  });
-
-  it("cancels a pending server search when the next query is local", () => {
-    vi.useFakeTimers();
-    renderRepositoryLiveSearch();
-    const input = screen.getByRole("searchbox", { name: "Find repository" });
-    fireEvent.change(input, { target: { value: "project-37" } });
-    fireEvent.change(input, { target: { value: "project-1" } });
-    act(() => vi.runAllTimers());
-
-    expect(routerMock.replace).not.toHaveBeenCalled();
-    expect(window.location.search).toContain("q=project-1");
-  });
-
-  it("keeps server-rendered deep-link results without another navigation", () => {
-    vi.useFakeTimers();
-    window.history.replaceState(
-      {},
-      "",
-      "/dashboard?workspace=workspace_1&section=repositories&q=project-37",
-    );
-    renderRepositoryLiveSearch({
-      initialQuery: "project-37",
-      rowIds: ["repo_37"],
-    });
-    act(() => vi.runAllTimers());
-
+  it("keeps a selected match beyond the cap in one rich row", () => {
+    renderFixture({ selectedId: "repo_40", richIds: ["repo_40", "repo_1"] });
+    expect(rowIds()).toHaveLength(24);
+    expect(rowIds()[0]).toBe("repo_40");
+    expect(rowIds()).not.toContain("repo_24");
+    expect(screen.getByText("rich repo_40")).toBeTruthy();
     expect(
-      (
-        screen.getByRole("searchbox", {
-          name: "Find repository",
-        }) as HTMLInputElement
-      ).value,
-    ).toBe("project-37");
-    expect(screen.getByText("1 matching repositories.")).toBeTruthy();
-    expect(routerMock.replace).not.toHaveBeenCalled();
+      document.querySelectorAll('[data-repository-row-id="repo_40"]'),
+    ).toHaveLength(1);
   });
 
-  it("restores search and filter controls when browser history changes", () => {
-    renderRepositoryLiveSearch();
+  it("preserves a rich row's unsaved state while it is filtered out", () => {
+    renderFixture();
+    const checkbox = document.querySelector<HTMLInputElement>(
+      '[data-repository-row-id="repo_1"] input[type="checkbox"]',
+    );
+    expect(checkbox).not.toBeNull();
+    fireEvent.click(checkbox!);
+    search("project-40");
+    expect(rowIds()).toEqual(["repo_40"]);
+    search("");
+    expect(
+      document.querySelector<HTMLInputElement>(
+        '[data-repository-row-id="repo_1"] input[type="checkbox"]',
+      ),
+    ).toBe(checkbox);
+    expect(checkbox?.checked).toBe(true);
+  });
+
+  it("does not overwrite browser navigation to another section or workspace", () => {
+    renderFixture();
+    search("project-40");
+    const replaceState = vi.spyOn(window.history, "replaceState");
     act(() => {
       window.history.replaceState(
         window.history.state,
         "",
-        "/dashboard?workspace=workspace_1&section=repositories&q=missing&setup=attention",
+        "/dashboard/setup?workspace=workspace_1",
+      );
+      replaceState.mockClear();
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(window.location.pathname).toBe("/dashboard/setup");
+    expect(replaceState).not.toHaveBeenCalled();
+
+    act(() => {
+      window.history.replaceState(
+        window.history.state,
+        "",
+        "/dashboard?workspace=workspace_2&section=repositories",
+      );
+      replaceState.mockClear();
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(window.location.search).toBe(
+      "?workspace=workspace_2&section=repositories",
+    );
+    expect(replaceState).not.toHaveBeenCalled();
+  });
+
+  it("does not claim the bare default dashboard from a nondefault workspace", () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/dashboard?workspace=workspace_2&section=repositories",
+    );
+    render(<Fixture workspaceKey="workspace_2" />);
+    search("project-40");
+    const replaceState = vi.spyOn(window.history, "replaceState");
+    act(() => {
+      window.history.replaceState(window.history.state, "", "/dashboard?q=all");
+      replaceState.mockClear();
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(window.location.href).toContain("/dashboard?q=all");
+    expect(replaceState).not.toHaveBeenCalled();
+  });
+
+  it("updates URL without navigation and restores query/filter on popstate", () => {
+    renderFixture();
+    const replaceState = vi.spyOn(window.history, "replaceState");
+    search("project-40");
+    expect(rowIds()).toEqual(["repo_40"]);
+    expect(replaceState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/dashboard?workspace=workspace_1&section=repositories&other=kept&q=project-40",
+    );
+    expect(routerMock.replace).not.toHaveBeenCalled();
+    act(() => {
+      window.history.replaceState(
+        window.history.state,
+        "",
+        "/dashboard?workspace=workspace_1&section=repositories&other=kept&visibility=public",
       );
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
-
     expect(
       (
         screen.getByRole("searchbox", {
           name: "Find repository",
         }) as HTMLInputElement
       ).value,
-    ).toBe("missing");
+    ).toBe("");
     expect(
       screen
-        .getByRole("button", { name: "Needs attention" })
+        .getByRole("button", { name: "Public" })
         .getAttribute("aria-pressed"),
     ).toBe("true");
+    expect(rowIds()).toEqual(["repo_40"]);
+  });
+
+  it("opens a summary with preserved URL state and row-local pending", () => {
+    renderFixture();
+    search("project-40");
+    fireEvent.click(screen.getByRole("button", { name: "Public" }));
+    const button = screen.getByRole("button", {
+      name: /Open setup\/settings for personal\/project-40/,
+    });
+    fireEvent.click(button);
+    expect(routerMock.replace).toHaveBeenCalledWith(
+      "/dashboard?workspace=workspace_1&section=repositories&other=kept&q=project-40&visibility=public&repository=personal%2Fproject-40",
+      { scroll: false },
+    );
+    expect(button.textContent).toBe("Opening...");
+  });
+
+  it("replaces a stale pending search and clears locally", () => {
+    renderFixture();
+    search("project-40");
+    search("project-1");
+    expect(rowIds()).toEqual([
+      "repo_1",
+      ...Array.from({ length: 10 }, (_, i) => `repo_${i + 10}`),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(rowIds()).toHaveLength(24);
+    expect(window.location.search).not.toContain("q=");
     expect(routerMock.replace).not.toHaveBeenCalled();
+  });
+
+  it("resets controls when workspace key changes", () => {
+    const view = render(<Fixture workspaceKey="workspace_1" />);
+    search("project-40");
+    window.history.replaceState(
+      {},
+      "",
+      "/dashboard?workspace=workspace_2&section=repositories",
+    );
+    view.rerender(<Fixture workspaceKey="workspace_2" />);
+    expect(
+      (
+        screen.getByRole("searchbox", {
+          name: "Find repository",
+        }) as HTMLInputElement
+      ).value,
+    ).toBe("");
+    expect(rowIds()).toHaveLength(24);
   });
 });
 
-function renderRepositoryLiveSearch(
+it("includes selected match beyond the cap once", () => {
+  expect(selectVisibleRepositoryIds(["a", "b", "c", "d"], 3, "d")).toEqual([
+    "d",
+    "a",
+    "b",
+  ]);
+  expect(selectVisibleRepositoryIds(["a", "b", "c"], 2, "absent")).toEqual([
+    "a",
+    "b",
+  ]);
+});
+
+function search(value: string): void {
+  fireEvent.change(screen.getByRole("searchbox", { name: "Find repository" }), {
+    target: { value },
+  });
+}
+
+function renderFixture(
   options: {
-    readonly selectedRepositoryId?: string;
-    readonly initialQuery?: string;
-    readonly initialFilter?: RepositorySearchFilter;
-    readonly rowIds?: readonly string[];
+    readonly searchIndex?: readonly RepositorySearchIndexItem[];
+    readonly richIds?: readonly string[];
+    readonly selectedId?: string;
   } = {},
 ): void {
-  const selectedRepositoryId = options.selectedRepositoryId;
-  const rowIds =
-    options.rowIds ??
-    (selectedRepositoryId
-      ? [
-          ...Array.from({ length: 23 }, (_, index) => `repo_${index + 1}`),
-          selectedRepositoryId,
-        ]
-      : Array.from({ length: 24 }, (_, index) => `repo_${index + 1}`));
-  render(
+  render(<Fixture {...options} />);
+}
+
+function Fixture({
+  workspaceKey = "workspace_1",
+  initialWorkspaceParam = workspaceKey,
+  searchIndex = index,
+  richIds = Array.from({ length: 24 }, (_, i) => `repo_${i + 1}`),
+  selectedId,
+}: {
+  readonly workspaceKey?: string;
+  readonly initialWorkspaceParam?: string | null;
+  readonly searchIndex?: readonly RepositorySearchIndexItem[];
+  readonly richIds?: readonly string[];
+  readonly selectedId?: string;
+}): React.ReactElement {
+  return (
     <div data-repository-table>
       <RepositoryLiveSearch
-        workspaceKey="workspace_1"
+        key={workspaceKey}
+        workspaceKey={workspaceKey}
+        initialWorkspaceParam={initialWorkspaceParam}
         selectedRepositoryFullName={
-          selectedRepositoryId ? "personal/project-37" : null
+          selectedId ? `personal/project-${selectedId.slice(5)}` : null
         }
-        selectedRepositoryId={selectedRepositoryId ?? null}
-        initialQuery={options.initialQuery ?? ""}
-        initialFilter={options.initialFilter ?? "all"}
-        searchIndex={repositorySearchIndex()}
-        totalRepositoryCount={37}
-        renderedRepositoryCount={rowIds.length}
+        selectedRepositoryId={selectedId ?? null}
+        initialQuery=""
+        initialFilter="all"
+        searchIndex={searchIndex}
+        totalRepositoryCount={searchIndex.length}
         rowLimit={24}
-      />
-      <div data-repository-search-loader hidden />
-      <div data-repository-results>
-        {rowIds.map((id) => (
-          <div key={id} data-repository-row-id={id}>
-            {id}
+        richRowIds={richIds}
+      >
+        {richIds.map((id) => (
+          <div key={id} data-repository-row-id={id} data-repository-setup-row>
+            <input type="checkbox" defaultChecked={id === selectedId} />
+            rich {id}
           </div>
         ))}
-      </div>
-    </div>,
+      </RepositoryLiveSearch>
+    </div>
   );
 }
 
-function repositorySearchIndex(): RepositorySearchIndexItem[] {
-  return Array.from({ length: 37 }, (_, index) => ({
-    id: `repo_${index + 1}`,
-    searchText: `personal/project-${index + 1}`,
-    visibility: "private",
-    readiness: "ready",
-  }));
+function rowIds(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>("[data-repository-row-id]"),
+  )
+    .filter(
+      (row) =>
+        !row.closest<HTMLElement>("[data-repository-result-slot]")?.hidden,
+    )
+    .map((row) => row.dataset.repositoryRowId ?? "");
 }

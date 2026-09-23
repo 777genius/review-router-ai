@@ -138,7 +138,6 @@ import {
 import {
   RepositorySetupDisclosureToggle,
   RepositorySetupReadyGate,
-  RepositorySetupRowDisclosureController,
 } from "./repository-setup-optimistic-status";
 import { RepositorySetupProgressPanel as RepositorySetupProgressPanelClient } from "./repository-setup-progress-panel";
 import {
@@ -1749,6 +1748,7 @@ function WorkspaceCard({
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               mutationsEnabled={mutationsEnabled}
               workspaceKey={workspaceKey}
+              initialWorkspaceParam={readParam(params.workspace)}
               searchQuery={repositorySearchQuery}
               searchFilter={repositorySearchFilter}
               selectedRepositoryFullName={selectedRepository?.fullName ?? null}
@@ -2447,6 +2447,7 @@ function RepositoryTable({
   claudeCodeProviderEnabled,
   mutationsEnabled,
   workspaceKey,
+  initialWorkspaceParam,
   searchQuery,
   searchFilter,
   selectedRepositoryFullName,
@@ -2466,6 +2467,7 @@ function RepositoryTable({
   readonly claudeCodeProviderEnabled: boolean;
   readonly mutationsEnabled: boolean;
   readonly workspaceKey: string;
+  readonly initialWorkspaceParam: string | null;
   readonly searchQuery: string;
   readonly searchFilter: RepositorySearchFilter;
   readonly selectedRepositoryFullName: string | null;
@@ -2594,9 +2596,13 @@ function RepositoryTable({
   const searchIndex = rows.map(
     (row): RepositorySearchIndexItem => ({
       id: row.repository.id,
+      fullName: row.repository.fullName,
+      sourceUrl: repositorySourceUrl(row.repository),
       searchText: row.searchableText,
       visibility: row.repository.visibility,
       readiness: row.readiness,
+      stargazersCount: row.repository.stargazersCount,
+      archived: row.repository.archived,
     }),
   );
   const initialSearchTokens = tokenizeRepositorySearch(searchQuery);
@@ -2626,67 +2632,24 @@ function RepositoryTable({
     !cappedRows.some((row) => row.repository.id === selectedRow.repository.id)
       ? [selectedRow, ...cappedRows.slice(0, MAX_RENDERED_REPOSITORY_ROWS - 1)]
       : cappedRows;
-  const initiallyVisibleRepositoryIds = new Set(
-    displayRows.map((row) => row.repository.id),
-  );
   return (
     <div
       data-repository-table
       className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
     >
-      <div className="border-b border-cyan-200/10 bg-transparent p-0">
-        <RepositoryLiveSearch
-          workspaceKey={workspaceKey}
-          selectedRepositoryFullName={selectedRepositoryFullName}
-          selectedRepositoryId={selectedRow?.repository.id ?? null}
-          initialQuery={searchQuery}
-          initialFilter={searchFilter}
-          searchIndex={searchIndex}
-          totalRepositoryCount={rows.length}
-          renderedRepositoryCount={displayRows.length}
-          rowLimit={MAX_RENDERED_REPOSITORY_ROWS}
-        />
-      </div>
-
-      <div
-        data-repository-search-loader
-        hidden
-        role="status"
-        aria-live="polite"
-        aria-label="Loading updated repository results"
-        className="border-t border-cyan-200/10 bg-cyan-300/[0.025] px-3 py-5 text-slate-200 lg:px-6 lg:py-6"
+      <RepositoryLiveSearch
+        key={workspaceKey}
+        workspaceKey={workspaceKey}
+        initialWorkspaceParam={initialWorkspaceParam}
+        selectedRepositoryFullName={selectedRepositoryFullName}
+        selectedRepositoryId={selectedRow?.repository.id ?? null}
+        initialQuery={searchQuery}
+        initialFilter={searchFilter}
+        searchIndex={searchIndex}
+        totalRepositoryCount={rows.length}
+        rowLimit={MAX_RENDERED_REPOSITORY_ROWS}
+        richRowIds={displayRows.map((row) => row.repository.id)}
       >
-        <div className="grid gap-4">
-          <p className="inline-flex w-fit items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-300/[0.075] px-3 py-1.5 font-mono text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 shadow-[0_0_38px_-30px_rgba(103,232,249,0.95)]">
-            <span
-              aria-hidden="true"
-              className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-r-transparent"
-            />
-            Loading updated results
-          </p>
-          <div aria-hidden="true" className="grid gap-4">
-            {Array.from({ length: 4 }, (_, index) => (
-              <div
-                key={index}
-                className="grid gap-3 border-t border-cyan-200/10 py-5 first:border-t-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
-              >
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="h-8 w-80 max-w-full animate-pulse rounded-full bg-cyan-100/12" />
-                  <span className="h-8 w-16 animate-pulse rounded-full bg-slate-700/45" />
-                </div>
-                <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                  <span className="h-8 w-28 animate-pulse rounded-full bg-slate-700/45" />
-                  <span className="h-8 w-20 animate-pulse rounded-full bg-slate-800/55" />
-                  <span className="h-9 w-40 animate-pulse rounded-xl bg-slate-800/55" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div data-repository-results className="grid text-slate-200">
-        <RepositorySetupRowDisclosureController />
         {displayRows.map(
           (
             {
@@ -2733,9 +2696,8 @@ function RepositoryTable({
                 data-repository-row-id={repository.id}
                 data-repository-setup-row
                 data-disclosure-id={setupDisclosureId}
-                hidden={!initiallyVisibleRepositoryIds.has(repository.id)}
                 className={[
-                  "grid cursor-pointer gap-3 border-t border-cyan-200/10 px-4 py-3 transition-colors first:border-t-0 lg:px-6 lg:py-3.5",
+                  "grid cursor-pointer gap-3 border-t border-cyan-200/10 px-4 py-3 transition-colors lg:px-6 lg:py-3.5",
                   rowStripeClass,
                 ].join(" ")}
               >
@@ -2863,7 +2825,7 @@ function RepositoryTable({
             );
           },
         )}
-      </div>
+      </RepositoryLiveSearch>
     </div>
   );
 }
