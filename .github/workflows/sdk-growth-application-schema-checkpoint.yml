@@ -10,6 +10,9 @@ on:
           - preflight
           - postflight
           - apply-000105
+          - preflight-000106
+          - postflight-000106
+          - apply-000106
       release_commit_sha:
         required: true
         type: string
@@ -46,7 +49,7 @@ concurrency:
 jobs:
   trust-bootstrap:
     name: Verify protected main and checkpoint environment
-    if: ${{ (inputs.phase != 'apply-000105' && inputs.confirmation == 'CHECK_SDK_GROWTH_SCHEMA') || (inputs.phase == 'apply-000105' && inputs.confirmation == 'APPLY_PINNED_SDK_GROWTH_000105') }}
+    if: ${{ (!startsWith(inputs.phase, 'apply-') && inputs.confirmation == 'CHECK_SDK_GROWTH_SCHEMA') || (inputs.phase == 'apply-000105' && inputs.confirmation == 'APPLY_PINNED_SDK_GROWTH_000105') || (inputs.phase == 'apply-000106' && inputs.confirmation == 'APPLY_PINNED_SDK_GROWTH_000106') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -137,7 +140,7 @@ jobs:
           ref: ${{ needs.trust-bootstrap.outputs.trusted_sha }}
 
       - name: Capture non-secret checkpoint evidence
-        if: ${{ inputs.phase != 'apply-000105' }}
+        if: ${{ !startsWith(inputs.phase, 'apply-') }}
         shell: bash
         env:
           REVIEW_ROUTER_RELEASE_COMMIT_SHA: ${{ needs.trust-bootstrap.outputs.trusted_sha }}
@@ -153,8 +156,8 @@ jobs:
           node scripts/sdk-growth-application-schema-checkpoint.mjs \
             | tee sdk-growth-application-schema-checkpoint.json
 
-      - name: Execute pinned 000105 and capture non-secret evidence
-        if: ${{ inputs.phase == 'apply-000105' }}
+      - name: Execute pinned application migration and capture non-secret evidence
+        if: ${{ startsWith(inputs.phase, 'apply-') }}
         shell: bash
         env:
           REVIEW_ROUTER_RELEASE_COMMIT_SHA: ${{ needs.trust-bootstrap.outputs.trusted_sha }}

@@ -9,6 +9,19 @@ import { runSecretSafePostgresCommand } from "./lib/secret-safe-command-boundary
 const releaseRoleName = "reviewrouter_release_migration";
 const observerRoleName = "reviewrouter_sdk_growth_schema_observer";
 
+const logicalIdentityMigration = Object.freeze({
+  predecessor: Object.freeze({
+    migrationName: "000105_sdk_growth_publication_effect",
+    checksum:
+      "d92d4368cc20c5217cdeaf18f1abbeec7c98efd873fc91110c6178eb1739848f",
+  }),
+  target: Object.freeze({
+    migrationName: "000106_sdk_growth_finalized_report_logical_identity",
+    checksum:
+      "a47efeb47fcac73f502818fdf959ff86e44c228951b2839a1b694072e98c3f6d",
+  }),
+});
+
 export const sdkGrowthApplicationSchemaContract = Object.freeze({
   predecessor: Object.freeze({
     migrationName: "000104_hosted_pool_request_scoped_failover",
@@ -20,6 +33,7 @@ export const sdkGrowthApplicationSchemaContract = Object.freeze({
     checksum:
       "d92d4368cc20c5217cdeaf18f1abbeec7c98efd873fc91110c6178eb1739848f",
   }),
+  logicalIdentity: logicalIdentityMigration,
   releaseRole: releaseRoleName,
   observerRole: observerRoleName,
 });
@@ -205,6 +219,146 @@ export const sdkGrowthApplicationSchemaShape = Object.freeze({
   triggers: targetTriggers,
 });
 
+const finalizedReportConstraints = Object.freeze([
+  "SdkGrowthFinalizedReportEvidence_candidateWritable_check",
+  "SdkGrowthFinalizedReportEvidence_coverage_check",
+  "SdkGrowthFinalizedReportEvidence_coveredScopes_check",
+  "SdkGrowthFinalizedReportEvidence_evidenceId_fkey",
+  "SdkGrowthFinalizedReportEvidence_finalizedReport_check",
+  "SdkGrowthFinalizedReportEvidence_outcome_check",
+  "SdkGrowthFinalizedReportEvidence_phases_check",
+  "SdkGrowthFinalizedReportEvidence_pkey",
+  "SdkGrowthFinalizedReportEvidence_producer_check",
+  "SdkGrowthFinalizedReportEvidence_reportDigest_check",
+  "SdkGrowthFinalizedReportEvidence_verifierRevision_check",
+]);
+
+const finalizedReportColumns = Object.freeze([
+  Object.freeze({
+    name: "candidateWritable",
+    type: "boolean",
+    notNull: true,
+    default: "false",
+  }),
+  Object.freeze({
+    name: "coverage",
+    type: "text",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "coveredScopes",
+    type: "jsonb",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "createdAt",
+    type: "timestamp(3) with time zone",
+    notNull: true,
+    default: "CURRENT_TIMESTAMP",
+  }),
+  Object.freeze({
+    name: "evidenceId",
+    type: "text",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "finalizedReport",
+    type: "bytea",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "grantId",
+    type: "character varying(2048)",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "outcome",
+    type: "text",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "phases",
+    type: "jsonb",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "producer",
+    type: "text",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "reportDigest",
+    type: "character varying(71)",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "reportEvidenceId",
+    type: "text",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "repositoryId",
+    type: "character varying(256)",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "runAttempt",
+    type: "character varying(256)",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "runId",
+    type: "character varying(256)",
+    notNull: true,
+    default: null,
+  }),
+  Object.freeze({
+    name: "verifierRevision",
+    type: "character varying(40)",
+    notNull: true,
+    default: null,
+  }),
+]);
+
+export const sdkGrowthFinalizedReportShape = Object.freeze({
+  columns: finalizedReportColumns,
+  constraints: finalizedReportConstraints,
+  digestConstraint: "SdkGrowthFinalizedReportEvidence_digest_key",
+  preflightConstraintDigest:
+    "c8def03f86f42efc877f3f01af9cd55fcb9f253345ff0878ad8a4321900f8b83",
+  postflightConstraintDigest:
+    "3546009d14d16a6a0fa67e0911028c335a35accf948bbe10f460b203490ba24b",
+  immutableTrigger: "sdk_growth_finalized_report_immutable",
+});
+
+function checkpointContract(phase) {
+  if (phase === "preflight" || phase === "postflight")
+    return {
+      contract: sdkGrowthApplicationSchemaContract,
+      applied: phase === "postflight",
+      logicalIdentity: false,
+    };
+  if (phase === "preflight-000106" || phase === "postflight-000106")
+    return {
+      contract: logicalIdentityMigration,
+      applied: phase === "postflight-000106",
+      logicalIdentity: true,
+    };
+  throw new Error("sdk_growth_schema_checkpoint_phase_rejected");
+}
+
 const sqlLiteral = (value) => `'${String(value).replaceAll("'", "''")}'`;
 
 function migrationPath(name) {
@@ -235,6 +389,20 @@ function expectedFunctionSourceHash(phase) {
     .digest("hex");
 }
 
+function verifierFunctionSourceHash() {
+  const source = readFileSync(
+    migrationPath("000103_sdk_growth_authority_custody"),
+    "utf8",
+  );
+  const match =
+    /CREATE FUNCTION sdk_growth_verifier_evidence_preserve\(\) RETURNS trigger[\s\S]+?AS \$\$([\s\S]+?)\$\$;/u.exec(
+      source,
+    );
+  if (!match?.[1])
+    throw new Error("sdk_growth_schema_checkpoint_source_function_rejected");
+  return createHash("sha256").update(match[1]).digest("hex");
+}
+
 export function sdkGrowthApplicationSchemaObserverGrantSql() {
   return `DO $observer_role$
 BEGIN
@@ -255,6 +423,7 @@ $observer_role$;
 GRANT USAGE ON SCHEMA public TO ${observerRoleName};
 REVOKE ALL ON TABLE public._prisma_migrations FROM ${observerRoleName};
 REVOKE ALL ON TABLE public."SdkGrowthPublicationEffect" FROM ${observerRoleName};
+REVOKE ALL ON TABLE public."SdkGrowthFinalizedReportEvidence" FROM ${observerRoleName};
 DO $observer_columns$
 DECLARE
   observed_column record;
@@ -266,7 +435,7 @@ BEGIN
     JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
     JOIN pg_attribute attribute ON attribute.attrelid=relation.oid
     WHERE namespace.nspname='public'
-      AND relation.relname IN ('_prisma_migrations','SdkGrowthPublicationEffect')
+      AND relation.relname IN ('_prisma_migrations','SdkGrowthPublicationEffect','SdkGrowthFinalizedReportEvidence')
       AND attribute.attnum>0 AND NOT attribute.attisdropped
   LOOP
     EXECUTE format(
@@ -280,7 +449,8 @@ BEGIN
 END
 $observer_columns$;
 GRANT SELECT ON TABLE public._prisma_migrations TO ${observerRoleName};
-GRANT SELECT ON TABLE public."SdkGrowthPublicationEffect" TO ${observerRoleName};`;
+GRANT SELECT ON TABLE public."SdkGrowthPublicationEffect" TO ${observerRoleName};
+GRANT SELECT ON TABLE public."SdkGrowthFinalizedReportEvidence" TO ${observerRoleName};`;
 }
 
 export function sdkGrowthReleaseLoginProbeSql() {
@@ -306,8 +476,10 @@ export function sdkGrowthReleaseLoginProbeSql() {
 );`;
 }
 
-export function sdkGrowthApplicationSchemaObservationSql() {
-  const contract = sdkGrowthApplicationSchemaContract;
+export function sdkGrowthApplicationSchemaObservationSql({
+  phase = "postflight",
+} = {}) {
+  const { contract } = checkpointContract(phase);
   const observedColumnNames = [
     ...targetColumns.map(({ name }) => name),
     "providerCorrelation",
@@ -344,6 +516,68 @@ export function sdkGrowthApplicationSchemaObservationSql() {
       AND rolled_back_at IS NULL),
   'legacyRowCount', (SELECT count(*)::integer
     FROM public."SdkGrowthPublicationEffect"),
+  'finalizedReportRowCount', (SELECT count(*)::integer
+    FROM public."SdkGrowthFinalizedReportEvidence"),
+  'finalizedReportColumns', coalesce((SELECT json_agg(json_build_object(
+      'name',attribute.attname,
+      'type',format_type(attribute.atttypid,attribute.atttypmod),
+      'notNull',attribute.attnotnull,
+      'default',pg_get_expr(default_row.adbin,default_row.adrelid))
+    ORDER BY attribute.attname)
+    FROM pg_attribute attribute
+    LEFT JOIN pg_attrdef default_row ON default_row.adrelid=attribute.attrelid
+      AND default_row.adnum=attribute.attnum
+    WHERE attribute.attrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+      AND attribute.attnum>0 AND NOT attribute.attisdropped), '[]'::json),
+  'finalizedReportConstraints', coalesce((SELECT json_agg(constraint_row.conname
+      ORDER BY constraint_row.conname)
+    FROM pg_constraint constraint_row
+    WHERE constraint_row.conrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+      AND constraint_row.convalidated),'[]'::json),
+  'finalizedReportConstraintDigest', (SELECT encode(pg_catalog.sha256(convert_to(
+      string_agg(constraint_row.conname||'='||pg_get_constraintdef(constraint_row.oid,false),E'\\n'
+        ORDER BY constraint_row.conname),'UTF8')),'hex')
+    FROM pg_constraint constraint_row
+    WHERE constraint_row.conrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+      AND constraint_row.convalidated),
+  'finalizedReportDigestIndexes', (SELECT count(*)::integer
+    FROM pg_index index_row
+    JOIN pg_class index_relation ON index_relation.oid=index_row.indexrelid
+    WHERE index_row.indrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+      AND index_row.indisunique
+      AND (index_relation.relname=${sqlLiteral(sdkGrowthFinalizedReportShape.digestConstraint)}
+        OR (SELECT array_agg(attribute.attname ORDER BY key_row.ordinality)
+          FROM unnest(index_row.indkey::smallint[]) WITH ORDINALITY key_row(attnum,ordinality)
+          JOIN pg_attribute attribute ON attribute.attrelid=index_row.indrelid
+            AND attribute.attnum=key_row.attnum
+          WHERE key_row.ordinality<=index_row.indnkeyatts)
+          = ARRAY['evidenceId','reportDigest']::name[])),
+  'finalizedReportTrigger', (SELECT json_build_object(
+      'name',trigger_row.tgname,'enabled',trigger_row.tgenabled,
+      'type',trigger_row.tgtype::integer,'functionSchema',routine_namespace.nspname,
+      'functionName',routine.proname,'functionOid',routine.oid::text,
+      'constraint',trigger_row.tgconstraint<>0,
+      'when',pg_get_expr(trigger_row.tgqual,trigger_row.tgrelid),
+      'updateColumns',trigger_row.tgattr::text)
+    FROM pg_trigger trigger_row
+    JOIN pg_proc routine ON routine.oid=trigger_row.tgfoid
+    JOIN pg_namespace routine_namespace ON routine_namespace.oid=routine.pronamespace
+    WHERE trigger_row.tgrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+      AND NOT trigger_row.tgisinternal
+      AND trigger_row.tgname=${sqlLiteral(sdkGrowthFinalizedReportShape.immutableTrigger)}),
+  'finalizedReportOwnership', (SELECT json_build_object(
+    'tableOwner',table_owner.rolname,'functionOwner',function_owner.rolname,
+    'functionOid',routine.oid::text,
+    'functionConfig',coalesce(routine.proconfig,'{}'::text[]),
+    'functionSecurityDefiner',routine.prosecdef,'functionVolatility',routine.provolatile,
+    'functionSource',routine.prosrc,
+    'publicCanExecute',has_function_privilege('public',routine.oid,'EXECUTE'))
+    FROM pg_class relation JOIN pg_roles table_owner ON table_owner.oid=relation.relowner
+    JOIN pg_proc routine ON routine.proname='sdk_growth_verifier_evidence_preserve'
+      AND routine.pronargs=0 AND routine.prorettype='trigger'::regtype
+    JOIN pg_namespace routine_namespace ON routine_namespace.oid=routine.pronamespace AND routine_namespace.nspname='public'
+    JOIN pg_roles function_owner ON function_owner.oid=routine.proowner
+    WHERE relation.oid='public."SdkGrowthFinalizedReportEvidence"'::regclass),
   'columns', coalesce((SELECT json_agg(json_build_object(
       'name',attribute.attname,
       'type',format_type(attribute.atttypid,attribute.atttypmod),
@@ -431,7 +665,7 @@ export function sdkGrowthApplicationSchemaObservationSql() {
     FROM pg_class relation
     JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
     WHERE namespace.nspname='public'
-      AND relation.relname IN ('_prisma_migrations','SdkGrowthPublicationEffect')),
+      AND relation.relname IN ('_prisma_migrations','SdkGrowthFinalizedReportEvidence','SdkGrowthPublicationEffect')),
   'observerColumnWrites', coalesce((SELECT json_agg(json_build_object(
       'schema',namespace.nspname,'table',relation.relname,'column',attribute.attname,
       'insert',has_column_privilege(${sqlLiteral(observerRoleName)},relation.oid,attribute.attnum,'INSERT'),
@@ -443,7 +677,7 @@ export function sdkGrowthApplicationSchemaObservationSql() {
     JOIN pg_attribute attribute ON attribute.attrelid=relation.oid
       AND attribute.attnum>0 AND NOT attribute.attisdropped
     WHERE namespace.nspname='public'
-      AND relation.relname IN ('_prisma_migrations','SdkGrowthPublicationEffect')
+      AND relation.relname IN ('_prisma_migrations','SdkGrowthFinalizedReportEvidence','SdkGrowthPublicationEffect')
       AND (has_column_privilege(${sqlLiteral(observerRoleName)},relation.oid,attribute.attnum,'INSERT')
         OR has_column_privilege(${sqlLiteral(observerRoleName)},relation.oid,attribute.attnum,'UPDATE')
         OR has_column_privilege(${sqlLiteral(observerRoleName)},relation.oid,attribute.attnum,'REFERENCES'))),'[]'::json),
@@ -502,8 +736,7 @@ export function assertSdkGrowthApplicationSchemaCheckpoint(
   observation,
   { phase } = {},
 ) {
-  if (phase !== "preflight" && phase !== "postflight")
-    throw new Error("sdk_growth_schema_checkpoint_phase_rejected");
+  const checkpoint = checkpointContract(phase);
   if (
     !observation ||
     observation.postgresVersion < 170000 ||
@@ -551,12 +784,23 @@ export function assertSdkGrowthApplicationSchemaCheckpoint(
     !exact(observation.observerGrants, [
       {
         schema: "public",
+        table: "SdkGrowthFinalizedReportEvidence",
+        privilege: "SELECT",
+      },
+      {
+        schema: "public",
         table: "SdkGrowthPublicationEffect",
         privilege: "SELECT",
       },
       { schema: "public", table: "_prisma_migrations", privilege: "SELECT" },
     ]) ||
     !exact(observation.observerTablePrivileges, [
+      {
+        schema: "public",
+        table: "SdkGrowthFinalizedReportEvidence",
+        ...noPrivileges,
+        select: true,
+      },
       {
         schema: "public",
         table: "SdkGrowthPublicationEffect",
@@ -578,12 +822,14 @@ export function assertSdkGrowthApplicationSchemaCheckpoint(
     );
   assertMigrationRow(
     observation.predecessor,
-    sdkGrowthApplicationSchemaContract.predecessor,
+    checkpoint.contract.predecessor,
     "predecessor",
   );
   if (observation.laterMigrationCount !== 0)
     throw new Error("sdk_growth_schema_checkpoint_later_migration_rejected");
   if (observation.legacyRowCount !== 0)
+    throw new Error("sdk_growth_schema_checkpoint_legacy_rows_rejected");
+  if (checkpoint.logicalIdentity && observation.finalizedReportRowCount !== 0)
     throw new Error("sdk_growth_schema_checkpoint_legacy_rows_rejected");
   const expectedConstraints =
     phase === "preflight" ? preflightConstraints : targetConstraints;
@@ -620,13 +866,13 @@ export function assertSdkGrowthApplicationSchemaCheckpoint(
     observation.ownership?.publicCanExecute !== false
   )
     throw new Error("sdk_growth_schema_checkpoint_function_semantics_rejected");
-  if (phase === "preflight") {
+  if (!checkpoint.applied) {
     if (!exact(observation.target, []))
       throw new Error("sdk_growth_schema_checkpoint_partial_upgrade_rejected");
   } else {
     assertMigrationRow(
       observation.target,
-      sdkGrowthApplicationSchemaContract.target,
+      checkpoint.contract.target,
       "target",
     );
     if (
@@ -658,6 +904,55 @@ export function assertSdkGrowthApplicationSchemaCheckpoint(
     )
       throw new Error("sdk_growth_schema_checkpoint_permissions_rejected");
   }
+  if (checkpoint.logicalIdentity) {
+    const expectedConstraints = checkpoint.applied
+      ? finalizedReportConstraints
+      : [
+          ...finalizedReportConstraints,
+          sdkGrowthFinalizedReportShape.digestConstraint,
+        ].sort();
+    if (
+      !exact(
+        observation.finalizedReportColumns,
+        sdkGrowthFinalizedReportShape.columns,
+      ) ||
+      !exact(observation.finalizedReportConstraints, expectedConstraints) ||
+      observation.finalizedReportConstraintDigest !==
+        (checkpoint.applied
+          ? sdkGrowthFinalizedReportShape.postflightConstraintDigest
+          : sdkGrowthFinalizedReportShape.preflightConstraintDigest) ||
+      observation.finalizedReportDigestIndexes !==
+        (checkpoint.applied ? 0 : 1) ||
+      !exact(observation.finalizedReportTrigger, {
+        name: sdkGrowthFinalizedReportShape.immutableTrigger,
+        enabled: "O",
+        type: 58,
+        functionSchema: "public",
+        functionName: "sdk_growth_verifier_evidence_preserve",
+        functionOid: observation.finalizedReportOwnership?.functionOid,
+        constraint: false,
+        when: null,
+        updateColumns: "",
+      }) ||
+      observation.finalizedReportOwnership?.tableOwner !==
+        "reviewrouter_release_schema_owner" ||
+      observation.finalizedReportOwnership?.functionOwner !==
+        "reviewrouter_release_schema_owner" ||
+      !/^[1-9][0-9]*$/u.test(
+        observation.finalizedReportOwnership?.functionOid ?? "",
+      ) ||
+      !exact(observation.finalizedReportOwnership?.functionConfig, [
+        "search_path=pg_catalog, pg_temp",
+      ]) ||
+      observation.finalizedReportOwnership?.functionSecurityDefiner !== false ||
+      observation.finalizedReportOwnership?.functionVolatility !== "v" ||
+      observation.finalizedReportOwnership?.publicCanExecute !== false ||
+      createHash("sha256")
+        .update(observation.finalizedReportOwnership?.functionSource ?? "")
+        .digest("hex") !== verifierFunctionSourceHash()
+    )
+      throw new Error("sdk_growth_schema_checkpoint_logical_identity_rejected");
+  }
   return observation;
 }
 
@@ -681,7 +976,12 @@ export function validateSdkGrowthCheckpointEnvironment(env, headSha) {
   const phase = env.REVIEW_ROUTER_SDK_GROWTH_SCHEMA_CHECKPOINT_PHASE;
   const releaseCommit = env.REVIEW_ROUTER_RELEASE_COMMIT_SHA;
   if (
-    !["preflight", "postflight"].includes(phase) ||
+    ![
+      "preflight",
+      "postflight",
+      "preflight-000106",
+      "postflight-000106",
+    ].includes(phase) ||
     !/^[a-f0-9]{40}$/u.test(releaseCommit ?? "") ||
     releaseCommit !== headSha
   )
@@ -710,7 +1010,8 @@ export function validateSdkGrowthCheckpointEnvironment(env, headSha) {
   const expectedDatabaseIdentity =
     env.REVIEW_ROUTER_SDK_GROWTH_DATABASE_IDENTITY || undefined;
   if (
-    (phase === "postflight" && expectedDatabaseIdentity === undefined) ||
+    (phase.startsWith("postflight") &&
+      expectedDatabaseIdentity === undefined) ||
     (expectedDatabaseIdentity !== undefined &&
       !/^sha256:[a-f0-9]{64}$/u.test(expectedDatabaseIdentity))
   )
@@ -776,7 +1077,7 @@ export function observeSdkGrowthApplicationSchemaCheckpoint(
   const observation = {
     ...observeQuery(
       configuration.observerDatabaseUrl,
-      sdkGrowthApplicationSchemaObservationSql(),
+      sdkGrowthApplicationSchemaObservationSql({ phase: configuration.phase }),
     ),
     releaseProbe,
   };
@@ -817,8 +1118,8 @@ export function executeSdkGrowthApplicationSchemaCheckpoint(env = process.env) {
     version: 2,
     phase: configuration.phase,
     releaseCommit: configuration.releaseCommit,
-    predecessor: sdkGrowthApplicationSchemaContract.predecessor,
-    target: sdkGrowthApplicationSchemaContract.target,
+    predecessor: checkpointContract(configuration.phase).contract.predecessor,
+    target: checkpointContract(configuration.phase).contract.target,
     postgresMajor: 17,
     databaseIdentity,
     releaseDatabaseRole: releaseProbe.currentUser,
