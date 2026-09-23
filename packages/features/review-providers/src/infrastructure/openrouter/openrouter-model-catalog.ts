@@ -185,6 +185,10 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
         this.failureCooldownUntil = 0;
         return models;
       } catch {
+        if (!signal.aborted) {
+          this.failureCooldownUntil =
+            (this.dependencies.now?.() ?? Date.now()) + failureCooldownMs;
+        }
         return stale;
       }
     }

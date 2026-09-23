@@ -32,9 +32,12 @@ export async function getOpenRouterCatalog(input?: {
   readonly now?: number;
 }): Promise<readonly OpenRouterCatalogModel[]> {
   const now = input?.now;
-  const modelCatalog = new OpenRouterModelCatalogAdapter({
-    ...(input?.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
-    ...(now !== undefined ? { now: () => now } : {}),
-  });
+  const modelCatalog =
+    input?.fetchImpl !== undefined || now !== undefined
+      ? new OpenRouterModelCatalogAdapter({
+          ...(input?.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+          ...(now !== undefined ? { now: () => now } : {}),
+        })
+      : defaultOpenRouterModelCatalog;
   return modelCatalog.getOpenRouterCatalog();
 }

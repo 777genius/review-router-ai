@@ -117,4 +117,27 @@ describe("OpenRouter default catalog cache", () => {
     );
     expect(fetchSpy).toHaveBeenCalledOnce();
   });
+
+  it("cools down failed signal-bound fetches unless the caller aborted", async () => {
+    let now = 0;
+    const fetchSpy = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValueOnce(response("vendor/recovered"));
+    vi.stubGlobal("fetch", fetchSpy);
+    const catalog = new OpenRouterModelCatalogAdapter({ now: () => now });
+
+    const fallback = await catalog.getOpenRouterCatalog(
+      new AbortController().signal,
+    );
+    expect(fallback.length).toBeGreaterThan(0);
+    expect(await catalog.getOpenRouterCatalog()).toEqual(fallback);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+
+    now += 5 * 60 * 1000;
+    expect((await catalog.getOpenRouterCatalog())[0]?.id).toBe(
+      "vendor/recovered",
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
 });
