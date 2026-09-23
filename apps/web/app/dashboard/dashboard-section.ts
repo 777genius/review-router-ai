@@ -32,11 +32,10 @@ export const dashboardSectionMeta: Record<
     navDescription: "Setup PRs and health",
   },
   memory: {
-    eyebrow: "Memory management",
+    eyebrow: "In development",
     title: "Memory",
-    description:
-      "Confirm suggested memories, manage approved knowledge, and keep runtime context scoped to this workspace.",
-    navDescription: "Suggestions and knowledge",
+    description: "Memory management is in development and not available yet.",
+    navDescription: "In development",
   },
   setup: {
     eyebrow: "ChatGPT",

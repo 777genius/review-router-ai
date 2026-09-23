@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
+  findRepositoryReviewConfigurations,
   findReviewConfiguration,
   PrismaReviewConfigurationRepository,
   safeDefaultReviewConfiguration,
@@ -202,18 +203,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             { scope: "workspace", workspaceId: workspace.id },
             { configurations: reviewConfigStore },
           ),
-          Promise.all(
-            providerSetupConfigRepositoryIds.map(async (repositoryId) => ({
-              repositoryId,
-              config: await findReviewConfiguration(
-                {
-                  scope: "repository",
-                  workspaceId: workspace.id,
-                  repositoryId,
-                },
-                { configurations: reviewConfigStore },
-              ),
-            })),
+          findRepositoryReviewConfigurations(
+            {
+              workspaceId: workspace.id,
+              repositoryIds: providerSetupConfigRepositoryIds,
+            },
+            { configurations: reviewConfigStore },
           ),
         ])
       : [null, []];

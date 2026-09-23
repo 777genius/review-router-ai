@@ -289,13 +289,31 @@ describe("dashboard server loading boundaries", () => {
     "does not load Memory when visiting %s",
     async (section) => {
       await loadDashboardSectionData(workspace, section, access);
-      expect(spies.repositories).toHaveBeenCalledExactlyOnceWith("workspace-a");
+      if (section === "setup") {
+        expect(spies.repositories).not.toHaveBeenCalled();
+      } else {
+        expect(spies.repositories).toHaveBeenCalledExactlyOnceWith(
+          "workspace-a",
+        );
+      }
       expect(spies.memoryItems).not.toHaveBeenCalled();
       expect(spies.memorySuggestions).not.toHaveBeenCalled();
       expect(spies.memoryPolicy).not.toHaveBeenCalled();
       expect(spies.memorySimulation).not.toHaveBeenCalled();
     },
   );
+
+  it("loads account summaries without reading per-repository hosted bindings", async () => {
+    const data = await loadDashboardSectionData(workspace, "setup", access);
+    expect(data.repositoryCount).toBe(2);
+    expect(spies.repositories).not.toHaveBeenCalled();
+    expect(spies.hostedPool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        featureEnabled: true,
+        repositories: [],
+      }),
+    );
+  });
 
   it.each(["setup", "memory"] as const)(
     "skips configuration, readiness, diagnostics and audit for %s",

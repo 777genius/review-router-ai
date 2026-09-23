@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   listWorkspaceRepositoryHealth: vi.fn(),
   providerSetupFindMany: vi.fn(),
   reviewConfigurationFindUnique: vi.fn(),
+  reviewConfigurationFindMany: vi.fn(),
   repositoryConnectionFindMany: vi.fn(),
   workspaceFindMany: vi.fn(),
   hostedCodexRepositoryBindingFindMany: vi.fn(),
@@ -55,7 +56,10 @@ vi.mock(
 vi.mock("../../../../../src/server/prisma", () => ({
   getPrisma: () => ({
     providerSetupState: { findMany: mocks.providerSetupFindMany },
-    reviewConfiguration: { findUnique: mocks.reviewConfigurationFindUnique },
+    reviewConfiguration: {
+      findUnique: mocks.reviewConfigurationFindUnique,
+      findMany: mocks.reviewConfigurationFindMany,
+    },
     repositoryConnection: { findMany: mocks.repositoryConnectionFindMany },
     workspace: { findMany: mocks.workspaceFindMany },
     hostedCodexRepositoryBinding: {
@@ -89,6 +93,7 @@ describe("dashboard repository search route", () => {
     mocks.providerSetupFindMany.mockResolvedValue([]);
     mocks.hostedCodexRepositoryBindingFindMany.mockResolvedValue([]);
     mocks.reviewConfigurationFindUnique.mockResolvedValue(null);
+    mocks.reviewConfigurationFindMany.mockResolvedValue([]);
     mocks.listWorkspaceRepositoryHealth.mockResolvedValue([]);
     mocks.deriveDashboardProviderSetupReadiness.mockImplementation(
       async (input: { readonly providerSetup: readonly unknown[] }) =>
@@ -348,22 +353,18 @@ describe("dashboard repository search route", () => {
   });
 
   it("loads repository policies for non-configured provider setup rows", async () => {
-    mocks.reviewConfigurationFindUnique.mockImplementation(
-      async (input: ReviewConfigurationFindUniqueInput) => {
-        const targetKey = input.where?.workspaceId_targetKey?.targetKey;
-        if (targetKey !== "repo:repo_missing") return null;
-
-        return {
-          versions: [
-            reviewConfigurationVersionRow({
-              providerKind: "openrouter",
-              providerAuthMode: "openrouter_api_key",
-              model: "poolside/laguna-m.1:free",
-            }),
-          ],
-        };
+    mocks.reviewConfigurationFindMany.mockResolvedValue([
+      {
+        repositoryId: "repo_missing",
+        versions: [
+          reviewConfigurationVersionRow({
+            providerKind: "openrouter",
+            providerAuthMode: "openrouter_api_key",
+            model: "poolside/laguna-m.1:free",
+          }),
+        ],
       },
-    );
+    ]);
     mocks.getDashboardWorkspaceScope.mockResolvedValue({
       kind: "workspace_ids",
       workspaceIds: ["workspace_1"],
@@ -401,13 +402,12 @@ describe("dashboard repository search route", () => {
       total: 1,
       filter: "ready",
     });
-    expect(mocks.reviewConfigurationFindUnique).toHaveBeenCalledWith(
+    expect(mocks.reviewConfigurationFindMany).toHaveBeenCalledOnce();
+    expect(mocks.reviewConfigurationFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          workspaceId_targetKey: {
-            workspaceId: "workspace_1",
-            targetKey: "repo:repo_missing",
-          },
+          workspaceId: "workspace_1",
+          repositoryId: { in: ["repo_missing"] },
         },
       }),
     );
@@ -501,14 +501,6 @@ function providerSetupRow(input: {
     updatedAt: new Date("2026-01-02T00:00:00Z"),
   };
 }
-
-type ReviewConfigurationFindUniqueInput = {
-  readonly where?: {
-    readonly workspaceId_targetKey?: {
-      readonly targetKey?: string;
-    };
-  };
-};
 
 function reviewConfigurationVersionRow(input: {
   readonly providerKind: "codex" | "claude" | "openrouter";

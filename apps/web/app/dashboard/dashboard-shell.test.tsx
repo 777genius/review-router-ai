@@ -88,7 +88,7 @@ describe("persistent dashboard shell", () => {
     ).toBe("page");
     expect(
       screen
-        .getByRole("tab", { name: /Memory\s*Suggestions and knowledge/ })
+        .getByRole("tab", { name: /Memory\s*In development/ })
         .getAttribute("aria-current"),
     ).toBe("page");
     expect(document.querySelectorAll('[aria-busy="true"]')).toHaveLength(1);
@@ -114,7 +114,7 @@ describe("persistent dashboard shell", () => {
 
     fireEvent.click(
       screen.getByRole("tab", {
-        name: /Memory\s*Suggestions and knowledge/,
+        name: /Memory\s*In development/,
       }),
     );
 
@@ -126,7 +126,7 @@ describe("persistent dashboard shell", () => {
     expect(screen.getByLabelText("Loading dashboard section")).toBeTruthy();
     expect(
       screen
-        .getByRole("tab", { name: /Memory\s*Suggestions and knowledge/ })
+        .getByRole("tab", { name: /Memory\s*In development/ })
         .getAttribute("aria-current"),
     ).toBe("page");
     expect(screen.getByRole("progressbar")).toBeTruthy();

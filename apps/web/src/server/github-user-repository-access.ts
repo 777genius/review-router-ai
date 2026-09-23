@@ -9,6 +9,16 @@ import {
 } from "./github-user-authorization";
 
 const repositoryAccessCacheTtlMs = 15 * 60 * 1000;
+const emptyRepositoryAccessCacheTtlMs = 60 * 1000;
+const emptyRepositoryAccessCacheMaxEntries = 1024;
+const emptyRepositoryAccessCache = new Map<
+  string,
+  {
+    readonly userId: string;
+    readonly checkedAt: Date;
+    readonly expiresAt: number;
+  }
+>();
 const githubApiBaseUrl = "https://api.github.com";
 const githubApiVersion = "2022-11-28";
 
@@ -81,18 +91,23 @@ export async function listGitHubUserRepositoryAccess(input: {
     };
   }
 
-  const refreshed = await refreshGitHubUserRepositoryAccess(input);
-  if (refreshed.status !== "ready") return refreshed;
+  // The DB cache has no row to record a successful empty discovery. Keep a
+  // short-lived, user-and-scope-specific negative result so page navigation
+  // does not repeat all GitHub installation pages until an explicit refresh.
+  const cacheKey = emptyRepositoryAccessCacheKey(
+    input.actor.userId,
+    input.excludedWorkspaceIds ?? [],
+  );
+  const emptyCached = emptyRepositoryAccessCache.get(cacheKey);
+  if (emptyCached && emptyCached.expiresAt > now.getTime()) {
+    return {
+      ...emptyGitHubUserRepositoryAccess({ status: "ready" }),
+      checkedAt: emptyCached.checkedAt,
+    };
+  }
+  emptyRepositoryAccessCache.delete(cacheKey);
 
-  return {
-    status: "ready",
-    ...(await readFreshRepositoryPermissionCache({
-      prisma: input.prisma,
-      userId: input.actor.userId,
-      excludedWorkspaceIds: input.excludedWorkspaceIds ?? [],
-      now,
-    })),
-  };
+  return refreshGitHubUserRepositoryAccess(input);
 }
 
 export async function refreshGitHubUserRepositoryAccess(input: {
@@ -104,6 +119,7 @@ export async function refreshGitHubUserRepositoryAccess(input: {
   readonly fetch?: FetchLike;
 }): Promise<GitHubUserRepositoryAccessScope> {
   const now = input.now ?? new Date();
+  clearEmptyRepositoryAccessCacheForUser(input.actor.userId);
   const token = await getValidGitHubUserAccessToken({
     prisma: input.prisma,
     userId: input.actor.userId,
@@ -249,6 +265,24 @@ export async function refreshGitHubUserRepositoryAccess(input: {
         : []),
     ]);
 
+    if (cacheRows.length === 0) {
+      const cacheKey = emptyRepositoryAccessCacheKey(
+        input.actor.userId,
+        input.excludedWorkspaceIds ?? [],
+      );
+      if (
+        emptyRepositoryAccessCache.size >= emptyRepositoryAccessCacheMaxEntries
+      ) {
+        const oldestKey = emptyRepositoryAccessCache.keys().next().value;
+        if (oldestKey) emptyRepositoryAccessCache.delete(oldestKey);
+      }
+      emptyRepositoryAccessCache.set(cacheKey, {
+        userId: input.actor.userId,
+        checkedAt: now,
+        expiresAt: now.getTime() + emptyRepositoryAccessCacheTtlMs,
+      });
+    }
+
     return {
       status: "ready",
       ...(await readFreshRepositoryPermissionCache({
@@ -291,6 +325,7 @@ export async function updateRepositoryPermissionCacheFromLiveCheck(input: {
   readonly now?: Date;
 }): Promise<void> {
   const now = input.now ?? new Date();
+  clearEmptyRepositoryAccessCacheForUser(input.actor.userId);
   await input.prisma.repositoryPermissionCache.upsert({
     where: {
       userId_repositoryId: {
@@ -490,6 +525,19 @@ function emptyGitHubUserRepositoryAccess(input: {
     checkedAt: null,
     ...(input.errorCode ? { errorCode: input.errorCode } : {}),
   };
+}
+
+function emptyRepositoryAccessCacheKey(
+  userId: string,
+  excludedWorkspaceIds: readonly string[],
+): string {
+  return JSON.stringify([userId, [...excludedWorkspaceIds].sort()]);
+}
+
+function clearEmptyRepositoryAccessCacheForUser(userId: string): void {
+  for (const [key, value] of emptyRepositoryAccessCache) {
+    if (value.userId === userId) emptyRepositoryAccessCache.delete(key);
+  }
 }
 
 function repositoryAccessEntryKey(input: {

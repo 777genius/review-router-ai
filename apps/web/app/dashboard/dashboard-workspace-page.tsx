@@ -391,9 +391,12 @@ export async function loadDashboardSectionData(
     { serviceEnabled: readMemoryServiceEnabled(process.env) },
   );
 
-  const repositories = await repositoryStore.listWorkspaceRepositories(
-    workspace.id,
-  );
+  const [repositories, storedEntitlement] = await Promise.all([
+    section === "setup"
+      ? Promise.resolve([])
+      : repositoryStore.listWorkspaceRepositories(workspace.id),
+    entitlementStore.findWorkspaceEntitlement(workspace.id),
+  ]);
   const hasWorkspaceWideAccess = selectedWorkspace.hasWorkspaceWideAccess;
   const visibleRepositories = hasWorkspaceWideAccess
     ? repositories
@@ -403,24 +406,46 @@ export async function loadDashboardSectionData(
   const visibleRepositoryIds = new Set(
     visibleRepositories.map((repository) => repository.id),
   );
-  const entitlement =
-    (await entitlementStore.findWorkspaceEntitlement(workspace.id)) ??
-    freeBetaEntitlement(workspace.id);
-  const hostedPool = await loadHostedPoolDashboardView({
-    workspaceId: workspace.id,
-    repositories: visibleRepositories.map((repository) => ({
-      id: repository.id,
-      fullName: repository.fullName,
-      visibility: repository.visibility,
-    })),
-    featureEnabled:
-      (needsReadiness || section === "setup") && isHostedCodexPoolEnabled(),
-    entitled: entitlement.flags.hosted_codex_pool,
-    queries: new PrismaHostedPoolQuery(prisma),
-  });
-  const health = needsReadiness
-    ? (
-        await listWorkspaceRepositoryHealth(
+  const entitlement = storedEntitlement ?? freeBetaEntitlement(workspace.id);
+  const repositoryIds = visibleRepositories.map((repository) => repository.id);
+  const visibleRepositoryOwners = new Set(
+    visibleRepositories.map((repository) => repository.owner.toLowerCase()),
+  );
+  const visibleInstallations = hasWorkspaceWideAccess
+    ? workspace.installations
+    : workspace.installations.filter((installation) =>
+        visibleRepositoryOwners.has(installation.accountLogin.toLowerCase()),
+      );
+  // These reads do not depend on one another. Run them together so the section
+  // waits for its slowest source, rather than the sum of every DB/API latency.
+  const [
+    hostedPool,
+    workspaceHealth,
+    reviewConfig,
+    repositoryConfigs,
+    outboxFailures,
+    provisioning,
+    cachedProviderSetup,
+    supportDiagnostics,
+    orgRuleset,
+    dashboardInstallations,
+  ] = await Promise.all([
+    loadHostedPoolDashboardView({
+      workspaceId: workspace.id,
+      repositories: needsReadiness
+        ? visibleRepositories.map((repository) => ({
+            id: repository.id,
+            fullName: repository.fullName,
+            visibility: repository.visibility,
+          }))
+        : [],
+      featureEnabled:
+        (needsReadiness || section === "setup") && isHostedCodexPoolEnabled(),
+      entitled: entitlement.flags.hosted_codex_pool,
+      queries: new PrismaHostedPoolQuery(prisma),
+    }),
+    needsReadiness
+      ? listWorkspaceRepositoryHealth(
           {
             workspaceId: workspace.id,
             expectedActionRef: resolveReviewRouterActionRef(),
@@ -428,70 +453,48 @@ export async function loadDashboardSectionData(
           },
           { repositories: healthStore },
         )
-      ).filter((item) => visibleRepositoryIds.has(item.repositoryId))
-    : [];
-  const reviewConfig = needsConfig
-    ? await findReviewConfiguration(
-        { scope: "workspace", workspaceId: workspace.id },
-        { configurations: reviewConfigStore },
-      )
-    : null;
-  const repositoryConfigs = needsConfig
-    ? await findRepositoryReviewConfigurations(
-        {
-          workspaceId: workspace.id,
-          repositoryIds: visibleRepositories.map((repository) => repository.id),
-        },
-        { configurations: reviewConfigStore },
-      )
-    : [];
-  const outboxFailures =
+      : Promise.resolve([]),
+    needsConfig
+      ? findReviewConfiguration(
+          { scope: "workspace", workspaceId: workspace.id },
+          { configurations: reviewConfigStore },
+        )
+      : Promise.resolve(null),
+    needsConfig
+      ? findRepositoryReviewConfigurations(
+          { workspaceId: workspace.id, repositoryIds },
+          { configurations: reviewConfigStore },
+        )
+      : Promise.resolve([]),
     section === "diagnostics" && hasWorkspaceWideAccess
-      ? await listWorkspaceOutboxFailures(
+      ? listWorkspaceOutboxFailures(
           { workspaceId: workspace.id, limit: 5 },
           { outbox: outboxStore },
         )
-      : [];
-  const provisioning = needsReadiness
-    ? await listRepositoryWorkflowProvisioning(
-        {
-          workspaceId: workspace.id,
-          repositoryIds: visibleRepositories.map((repository) => repository.id),
-        },
-        { provisioning: new PrismaWorkflowProvisioningQuery(prisma) },
-      )
-    : [];
-  const cachedProviderSetup = needsReadiness
-    ? await prisma.providerSetupState.findMany({
-        where: {
-          workspaceId: workspace.id,
-          repositoryId: {
-            in: visibleRepositories.map((repository) => repository.id),
+      : Promise.resolve([]),
+    needsReadiness
+      ? listRepositoryWorkflowProvisioning(
+          { workspaceId: workspace.id, repositoryIds },
+          { provisioning: new PrismaWorkflowProvisioningQuery(prisma) },
+        )
+      : Promise.resolve([]),
+    needsReadiness
+      ? prisma.providerSetupState.findMany({
+          where: {
+            workspaceId: workspace.id,
+            repositoryId: { in: repositoryIds },
           },
-        },
-        select: {
-          repositoryId: true,
-          providerKind: true,
-          authMode: true,
-          state: true,
-          updatedAt: true,
-        },
-      })
-    : [];
-  const providerSetup = needsReadiness
-    ? await deriveDashboardProviderSetupReadiness({
-        providerSetup: cachedProviderSetup,
-        repositories: visibleRepositories,
-        workspaceId: workspace.id,
-        readiness: new PrismaCodexRotatingSetupReadiness(
-          prisma,
-          requireReviewRouterDatabaseRecoveryWitness(),
-        ),
-      })
-    : [];
-  const supportDiagnostics =
+          select: {
+            repositoryId: true,
+            providerKind: true,
+            authMode: true,
+            state: true,
+            updatedAt: true,
+          },
+        })
+      : Promise.resolve([]),
     section === "diagnostics" && hasWorkspaceWideAccess
-      ? await getWorkspaceSupportDiagnostics(
+      ? getWorkspaceSupportDiagnostics(
           {
             workspaceId: workspace.id,
             checkedAt: new Date(),
@@ -504,32 +507,38 @@ export async function loadDashboardSectionData(
               : {}),
           },
         )
-      : null;
-  const orgRuleset =
+      : Promise.resolve(null),
     section === "repositories" && hasWorkspaceWideAccess
-      ? await orgRulesetStore.findByWorkspaceId(workspace.id)
-      : null;
-  const visibleRepositoryOwners = new Set(
-    visibleRepositories.map((repository) => repository.owner.toLowerCase()),
+      ? orgRulesetStore.findByWorkspaceId(workspace.id)
+      : Promise.resolve(null),
+    Promise.all(
+      visibleInstallations.map(async (installation) => ({
+        ...installation,
+        githubInstallationId: installation.githubInstallationId.toString(),
+        organizationSecretPolicy:
+          section === "repositories" && hasWorkspaceWideAccess
+            ? await loadOrganizationSecretPolicy({
+                ...installation,
+                githubInstallationId: BigInt(installation.githubInstallationId),
+              })
+            : null,
+      })),
+    ),
+  ]);
+  const health = workspaceHealth.filter((item) =>
+    visibleRepositoryIds.has(item.repositoryId),
   );
-  const visibleInstallations = hasWorkspaceWideAccess
-    ? workspace.installations
-    : workspace.installations.filter((installation) =>
-        visibleRepositoryOwners.has(installation.accountLogin.toLowerCase()),
-      );
-  const dashboardInstallations = await Promise.all(
-    visibleInstallations.map(async (installation) => ({
-      ...installation,
-      githubInstallationId: installation.githubInstallationId.toString(),
-      organizationSecretPolicy:
-        section === "repositories" && hasWorkspaceWideAccess
-          ? await loadOrganizationSecretPolicy({
-              ...installation,
-              githubInstallationId: BigInt(installation.githubInstallationId),
-            })
-          : null,
-    })),
-  );
+  const providerSetup = needsReadiness
+    ? await deriveDashboardProviderSetupReadiness({
+        providerSetup: cachedProviderSetup,
+        repositories: visibleRepositories,
+        workspaceId: workspace.id,
+        readiness: new PrismaCodexRotatingSetupReadiness(
+          prisma,
+          requireReviewRouterDatabaseRecoveryWitness(),
+        ),
+      })
+    : [];
   const [memoryItems, memorySuggestions, memoryPolicy] =
     section === "memory"
       ? await Promise.all([
@@ -613,9 +622,12 @@ export async function loadDashboardSectionData(
         : [],
       auditEvents,
     },
-    repositoryCount: hasWorkspaceWideAccess
-      ? repositories.length
-      : visibleRepositories.length,
+    repositoryCount:
+      section === "setup"
+        ? selectedWorkspace.repositoryCount
+        : hasWorkspaceWideAccess
+          ? repositories.length
+          : visibleRepositories.length,
     repositories: visibleRepositories,
     provisioning,
     providerSetup,
@@ -1180,6 +1192,28 @@ async function DashboardSectionContent({
   readonly params: Record<string, string | string[] | undefined>;
   readonly workspaceKey: string;
 }): Promise<React.ReactElement> {
+  if (selectedSection === "memory") {
+    return (
+      <section
+        id="dashboard-section-content"
+        className="min-w-0 px-1 py-8"
+        aria-labelledby="dashboard-memory-title"
+      >
+        <p className="font-mono text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+          In development
+        </p>
+        <h2
+          id="dashboard-memory-title"
+          className="mt-3 text-3xl font-bold tracking-tight text-cyan-50"
+        >
+          Memory
+        </h2>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+          Workspace memory is being prepared. This section is not available yet.
+        </p>
+      </section>
+    );
+  }
   const { workspaceScope, mutationStatus, repositoryAccess, signedInActor } =
     context;
   const supportAudit =
@@ -2086,7 +2120,7 @@ function DashboardSectionHeader({
       : selectedSection === "policy"
         ? `${activeConfig.provider.model} / ${activeConfig.provider.reasoningEffort}`
         : selectedSection === "memory"
-          ? "Confirm before use"
+          ? "In development"
           : "Metadata only";
 
   return (
@@ -2543,6 +2577,7 @@ function RepositoryTable({
         <RepositoryLiveSearch
           workspaceKey={workspaceKey}
           selectedRepositoryFullName={selectedRepositoryFullName}
+          selectedRepositoryId={selectedRow?.repository.id ?? null}
           initialQuery={searchQuery}
           initialFilter={searchFilter}
           searchIndex={searchIndex}

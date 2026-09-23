@@ -670,19 +670,56 @@ export class PrismaHostedPoolQuery implements HostedPoolQueryPort {
       },
     });
     if (!binding || binding.tombstonedAt !== null) return null;
-    const status = bindingStatus(binding.status);
-    return {
-      id: hostedBindingId(binding.id),
-      bindingId: hostedBindingId(binding.id),
-      repositoryId: repositoryId(binding.repositoryConnectionId),
-      poolId: hostedPoolId(binding.poolId),
-      status,
-      revision: toSafeNumber(binding.revision),
-      stateVersion: toSafeNumber(binding.stateVersion),
-      activatedAt: binding.activatedAt,
-      updatedAt: binding.updatedAt,
-    };
+    return toRepositoryBindingSummary(binding);
   }
+
+  async listRepositoryBindingSummaries(
+    ids: readonly ReturnType<typeof repositoryId>[],
+  ) {
+    if (ids.length === 0) return [];
+    const bindings = await this.prisma.hostedCodexRepositoryBinding.findMany({
+      where: {
+        repositoryConnectionId: { in: [...new Set(ids)] },
+        tombstonedAt: null,
+      },
+      select: {
+        id: true,
+        repositoryConnectionId: true,
+        poolId: true,
+        status: true,
+        revision: true,
+        stateVersion: true,
+        activatedAt: true,
+        updatedAt: true,
+        tombstonedAt: true,
+      },
+    });
+    return bindings.map(toRepositoryBindingSummary);
+  }
+}
+
+function toRepositoryBindingSummary(binding: {
+  readonly id: string;
+  readonly repositoryConnectionId: string;
+  readonly poolId: string;
+  readonly status: string;
+  readonly revision: bigint;
+  readonly stateVersion: bigint;
+  readonly activatedAt: Date | null;
+  readonly updatedAt: Date;
+}) {
+  const status = bindingStatus(binding.status);
+  return {
+    id: hostedBindingId(binding.id),
+    bindingId: hostedBindingId(binding.id),
+    repositoryId: repositoryId(binding.repositoryConnectionId),
+    poolId: hostedPoolId(binding.poolId),
+    status,
+    revision: toSafeNumber(binding.revision),
+    stateVersion: toSafeNumber(binding.stateVersion),
+    activatedAt: binding.activatedAt,
+    updatedAt: binding.updatedAt,
+  };
 }
 
 export class PrismaRepositoryAuthModeSwitch implements RepositoryAuthModeSwitchPort {
