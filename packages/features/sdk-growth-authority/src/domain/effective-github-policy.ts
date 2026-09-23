@@ -1,4 +1,4 @@
-import { SDK_GROWTH_CHECK_NAME } from "../application/check-identity-policy.js";
+import { SDK_GROWTH_CHECK_NAME } from "./sdk-growth-check-identity.js";
 
 export type GitHubRulesetSourceType =
   | "repository"

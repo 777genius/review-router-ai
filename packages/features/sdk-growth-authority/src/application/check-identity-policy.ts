@@ -1,5 +1,6 @@
-export const SDK_GROWTH_CHECK_NAME =
-  "ReviewRouter / SDK growth authority" as const;
+import { SDK_GROWTH_CHECK_NAME } from "../domain/sdk-growth-check-identity.js";
+
+export { SDK_GROWTH_CHECK_NAME } from "../domain/sdk-growth-check-identity.js";
 
 /**
  * GitHub status contexts and check names share this reservation. Comparison is
