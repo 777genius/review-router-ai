@@ -9,11 +9,32 @@ on:
         options:
           - preflight
           - postflight
+          - apply-000105
       release_commit_sha:
         required: true
         type: string
       confirmation:
         required: true
+        type: string
+      database_identity:
+        description: sha256 identity emitted by a prior protected checkpoint for this exact database
+        required: false
+        type: string
+      release_image_digest:
+        description: Immutable sha256 release image digest bound into execution evidence
+        required: false
+        type: string
+      release_config_revision:
+        description: Exact repository revision of the protected release configuration
+        required: false
+        type: string
+      api_service_revision:
+        description: Observed API service source revision (activation remains HOLD)
+        required: false
+        type: string
+      worker_service_revision:
+        description: Observed worker service source revision (activation remains HOLD)
+        required: false
         type: string
 
 permissions: {}
@@ -25,7 +46,7 @@ concurrency:
 jobs:
   trust-bootstrap:
     name: Verify protected main and checkpoint environment
-    if: ${{ inputs.confirmation == 'CHECK_SDK_GROWTH_SCHEMA' }}
+    if: ${{ (inputs.phase != 'apply-000105' && inputs.confirmation == 'CHECK_SDK_GROWTH_SCHEMA') || (inputs.phase == 'apply-000105' && inputs.confirmation == 'APPLY_PINNED_SDK_GROWTH_000105') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -116,18 +137,42 @@ jobs:
           ref: ${{ needs.trust-bootstrap.outputs.trusted_sha }}
 
       - name: Capture non-secret checkpoint evidence
+        if: ${{ inputs.phase != 'apply-000105' }}
         shell: bash
         env:
           REVIEW_ROUTER_RELEASE_COMMIT_SHA: ${{ needs.trust-bootstrap.outputs.trusted_sha }}
           REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL: ${{ secrets.REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL }}
           REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OBSERVER_DATABASE_URL: ${{ secrets.REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OBSERVER_DATABASE_URL }}
           REVIEW_ROUTER_SDK_GROWTH_SCHEMA_CHECKPOINT_PHASE: ${{ inputs.phase }}
+          REVIEW_ROUTER_SDK_GROWTH_DATABASE_IDENTITY: ${{ inputs.database_identity }}
           REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED: "0"
           REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED: "1"
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$REVIEW_ROUTER_RELEASE_COMMIT_SHA"
           node scripts/sdk-growth-application-schema-checkpoint.mjs \
+            | tee sdk-growth-application-schema-checkpoint.json
+
+      - name: Execute pinned 000105 and capture non-secret evidence
+        if: ${{ inputs.phase == 'apply-000105' }}
+        shell: bash
+        env:
+          REVIEW_ROUTER_RELEASE_COMMIT_SHA: ${{ needs.trust-bootstrap.outputs.trusted_sha }}
+          REVIEW_ROUTER_SCHEMA_OWNER_COORDINATOR_DATABASE_URL: ${{ secrets.REVIEW_ROUTER_SCHEMA_OWNER_COORDINATOR_DATABASE_URL }}
+          REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL: ${{ secrets.REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL }}
+          REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OBSERVER_DATABASE_URL: ${{ secrets.REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OBSERVER_DATABASE_URL }}
+          REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OPERATION_PHASE: ${{ inputs.phase }}
+          REVIEW_ROUTER_SDK_GROWTH_DATABASE_IDENTITY: ${{ inputs.database_identity }}
+          REVIEW_ROUTER_RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
+          REVIEW_ROUTER_RELEASE_CONFIG_REVISION: ${{ inputs.release_config_revision }}
+          REVIEW_ROUTER_API_SERVICE_REVISION: ${{ inputs.api_service_revision }}
+          REVIEW_ROUTER_WORKER_SERVICE_REVISION: ${{ inputs.worker_service_revision }}
+          REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED: "0"
+          REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED: "1"
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVIEW_ROUTER_RELEASE_COMMIT_SHA"
+          node scripts/execute-sdk-growth-application-schema.mjs \
             | tee sdk-growth-application-schema-checkpoint.json
 
       - name: Upload checkpoint evidence

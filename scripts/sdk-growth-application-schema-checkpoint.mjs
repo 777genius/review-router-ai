@@ -24,6 +24,44 @@ export const sdkGrowthApplicationSchemaContract = Object.freeze({
   observerRole: observerRoleName,
 });
 
+export function sdkGrowthDatabaseIdentitySql() {
+  return `SELECT json_build_object(
+  'systemIdentifier',(SELECT system_identifier::text FROM pg_control_system()),
+  'databaseOid',(SELECT oid::text FROM pg_database WHERE datname=current_database()),
+  'databaseName',current_database(),
+  'postgresVersion',current_setting('server_version_num')::integer,
+  'sessionUser',session_user,
+  'currentUser',current_user
+);`;
+}
+
+function sdkGrowthDatabaseIdentityJsonSql() {
+  return `json_build_object(
+    'systemIdentifier',(SELECT system_identifier::text FROM pg_control_system()),
+    'databaseOid',(SELECT oid::text FROM pg_database WHERE datname=current_database()),
+    'databaseName',current_database(),
+    'postgresVersion',current_setting('server_version_num')::integer,
+    'sessionUser',session_user,
+    'currentUser',current_user)`;
+}
+
+export function sdkGrowthDatabaseIdentityDigest(identity) {
+  if (
+    !identity ||
+    !/^[1-9][0-9]*$/u.test(identity.systemIdentifier ?? "") ||
+    !/^[1-9][0-9]*$/u.test(identity.databaseOid ?? "") ||
+    !/^[A-Za-z0-9_.-]{1,63}$/u.test(identity.databaseName ?? "") ||
+    identity.postgresVersion < 170000 ||
+    identity.postgresVersion >= 180000
+  )
+    throw new Error("sdk_growth_schema_checkpoint_database_identity_rejected");
+  return `sha256:${createHash("sha256")
+    .update(
+      `${identity.systemIdentifier}:${identity.databaseOid}:${identity.databaseName}`,
+    )
+    .digest("hex")}`;
+}
+
 const targetColumns = Object.freeze([
   Object.freeze({
     name: "attemptStartedAt",
@@ -247,6 +285,7 @@ GRANT SELECT ON TABLE public."SdkGrowthPublicationEffect" TO ${observerRoleName}
 
 export function sdkGrowthReleaseLoginProbeSql() {
   return `SELECT json_build_object(
+  'databaseIdentity', ${sdkGrowthDatabaseIdentityJsonSql()},
   'sessionUser', session_user,
   'currentUser', current_user,
   'releaseRole', (SELECT json_build_object(
@@ -274,6 +313,7 @@ export function sdkGrowthApplicationSchemaObservationSql() {
     "providerCorrelation",
   ];
   return `SELECT json_build_object(
+  'databaseIdentity', ${sdkGrowthDatabaseIdentityJsonSql()},
   'postgresVersion', current_setting('server_version_num')::integer,
   'sessionUser', session_user,
   'currentUser', current_user,
@@ -667,7 +707,21 @@ export function validateSdkGrowthCheckpointEnvironment(env, headSha) {
     .digest("hex");
   if (migrationChecksum !== sdkGrowthApplicationSchemaContract.target.checksum)
     throw new Error("sdk_growth_schema_checkpoint_source_checksum_rejected");
-  return { phase, releaseCommit, releaseDatabaseUrl, observerDatabaseUrl };
+  const expectedDatabaseIdentity =
+    env.REVIEW_ROUTER_SDK_GROWTH_DATABASE_IDENTITY || undefined;
+  if (
+    (phase === "postflight" && expectedDatabaseIdentity === undefined) ||
+    (expectedDatabaseIdentity !== undefined &&
+      !/^sha256:[a-f0-9]{64}$/u.test(expectedDatabaseIdentity))
+  )
+    throw new Error("sdk_growth_schema_checkpoint_database_identity_rejected");
+  return {
+    phase,
+    releaseCommit,
+    releaseDatabaseUrl,
+    observerDatabaseUrl,
+    expectedDatabaseIdentity,
+  };
 }
 
 function checked(command, args, options = {}) {
@@ -703,20 +757,58 @@ function observe(databaseUrl, sql) {
   }
 }
 
-export function executeSdkGrowthApplicationSchemaCheckpoint(env = process.env) {
-  const headSha = checked("git", ["rev-parse", "HEAD"]);
-  const configuration = validateSdkGrowthCheckpointEnvironment(env, headSha);
-  const releaseProbe = observe(
+export function observeSdkGrowthDatabaseIdentity(databaseUrl) {
+  const identity = observe(databaseUrl, sdkGrowthDatabaseIdentitySql());
+  return Object.freeze({
+    ...identity,
+    digest: sdkGrowthDatabaseIdentityDigest(identity),
+  });
+}
+
+export function observeSdkGrowthApplicationSchemaCheckpoint(
+  configuration,
+  observeQuery = observe,
+) {
+  const releaseProbe = observeQuery(
     configuration.releaseDatabaseUrl,
     sdkGrowthReleaseLoginProbeSql(),
   );
   const observation = {
-    ...observe(
+    ...observeQuery(
       configuration.observerDatabaseUrl,
       sdkGrowthApplicationSchemaObservationSql(),
     ),
     releaseProbe,
   };
+  const releaseDatabaseIdentity = sdkGrowthDatabaseIdentityDigest(
+    releaseProbe.databaseIdentity,
+  );
+  const observerDatabaseIdentity = sdkGrowthDatabaseIdentityDigest(
+    observation.databaseIdentity,
+  );
+  const expectedDatabaseIdentity =
+    configuration.expectedDatabaseIdentity ?? releaseDatabaseIdentity;
+  if (
+    releaseDatabaseIdentity !== expectedDatabaseIdentity ||
+    observerDatabaseIdentity !== expectedDatabaseIdentity ||
+    releaseProbe.databaseIdentity?.sessionUser !== releaseRoleName ||
+    releaseProbe.databaseIdentity?.currentUser !== releaseRoleName ||
+    observation.databaseIdentity?.sessionUser !== observerRoleName ||
+    observation.databaseIdentity?.currentUser !== observerRoleName
+  )
+    throw new Error("sdk_growth_schema_checkpoint_database_target_rejected");
+  return Object.freeze({
+    observation,
+    releaseProbe,
+    databaseIdentity: expectedDatabaseIdentity,
+  });
+}
+
+export function executeSdkGrowthApplicationSchemaCheckpoint(env = process.env) {
+  const headSha = checked("git", ["rev-parse", "HEAD"]);
+  const configuration = validateSdkGrowthCheckpointEnvironment(env, headSha);
+  const { observation, releaseProbe, databaseIdentity } =
+    observeSdkGrowthApplicationSchemaCheckpoint(configuration);
   assertSdkGrowthApplicationSchemaCheckpoint(observation, {
     phase: configuration.phase,
   });
@@ -728,6 +820,7 @@ export function executeSdkGrowthApplicationSchemaCheckpoint(env = process.env) {
     predecessor: sdkGrowthApplicationSchemaContract.predecessor,
     target: sdkGrowthApplicationSchemaContract.target,
     postgresMajor: 17,
+    databaseIdentity,
     releaseDatabaseRole: releaseProbe.currentUser,
     observerDatabaseRole: observation.currentUser,
     legacyRowCount: observation.legacyRowCount,
