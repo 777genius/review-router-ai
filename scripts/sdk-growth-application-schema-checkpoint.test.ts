@@ -20,6 +20,7 @@ import {
   sdkGrowthApplicationSchemaObserverGrantSql,
   sdkGrowthApplicationSchemaShape,
   sdkGrowthDatabaseIdentityDigest,
+  sdkGrowthFinalizedReportShape,
   sdkGrowthReleaseLoginProbeSql,
   validateSdkGrowthCheckpointEnvironment,
 } from "./sdk-growth-application-schema-checkpoint.mjs";
@@ -102,8 +103,14 @@ function commonObservation() {
     ),
     laterMigrationCount: 0,
     legacyRowCount: 0,
+    finalizedReportRowCount: 0,
     triggers: sdkGrowthApplicationSchemaShape.triggers,
     observerGrants: [
+      {
+        schema: "public",
+        table: "SdkGrowthFinalizedReportEvidence",
+        privilege: "SELECT",
+      },
       {
         schema: "public",
         table: "SdkGrowthPublicationEffect",
@@ -112,6 +119,12 @@ function commonObservation() {
       { schema: "public", table: "_prisma_migrations", privilege: "SELECT" },
     ],
     observerTablePrivileges: [
+      {
+        schema: "public",
+        table: "SdkGrowthFinalizedReportEvidence",
+        ...noPrivileges,
+        select: true,
+      },
       {
         schema: "public",
         table: "SdkGrowthPublicationEffect",
@@ -172,6 +185,57 @@ function postflight() {
       privileges("reviewrouter_api"),
       privileges("reviewrouter_worker"),
     ],
+  };
+}
+
+function logicalIdentity(appliedTarget: boolean) {
+  return {
+    ...postflight(),
+    predecessor: applied(
+      sdkGrowthApplicationSchemaContract.logicalIdentity.predecessor.checksum,
+    ),
+    target: appliedTarget
+      ? applied(
+          sdkGrowthApplicationSchemaContract.logicalIdentity.target.checksum,
+        )
+      : [],
+    finalizedReportConstraints: [
+      ...sdkGrowthFinalizedReportShape.constraints,
+      ...(appliedTarget
+        ? []
+        : [sdkGrowthFinalizedReportShape.digestConstraint]),
+    ].sort(),
+    finalizedReportColumns: sdkGrowthFinalizedReportShape.columns,
+    finalizedReportDigestIndexes: appliedTarget ? 0 : 1,
+    finalizedReportConstraintDigest: appliedTarget
+      ? sdkGrowthFinalizedReportShape.postflightConstraintDigest
+      : sdkGrowthFinalizedReportShape.preflightConstraintDigest,
+    finalizedReportTrigger: {
+      name: sdkGrowthFinalizedReportShape.immutableTrigger,
+      enabled: "O",
+      type: 58,
+      functionSchema: "public",
+      functionName: "sdk_growth_verifier_evidence_preserve",
+      functionOid: "16384",
+      constraint: false,
+      when: null,
+      updateColumns: "",
+    },
+    finalizedReportOwnership: {
+      tableOwner: "reviewrouter_release_schema_owner",
+      functionOwner: "reviewrouter_release_schema_owner",
+      functionOid: "16384",
+      functionConfig: ["search_path=pg_catalog, pg_temp"],
+      functionSecurityDefiner: false,
+      functionVolatility: "v",
+      functionSource: readFileSync(
+        "packages/platform/db/prisma/migrations/000103_sdk_growth_authority_custody/migration.sql",
+        "utf8",
+      ).match(
+        /CREATE FUNCTION sdk_growth_verifier_evidence_preserve\(\) RETURNS trigger[\s\S]+?AS \$\$([\s\S]+?)\$\$;/u,
+      )![1],
+      publicCanExecute: false,
+    },
   };
 }
 
@@ -243,6 +307,81 @@ describe("SDK growth application-schema checkpoint", () => {
         phase: "postflight",
       }),
     ).toEqual(postflight());
+  });
+
+  it("accepts exact 000106 states and rejects digest or legacy-row drift", () => {
+    expect(
+      assertSdkGrowthApplicationSchemaCheckpoint(logicalIdentity(false), {
+        phase: "preflight-000106",
+      }),
+    ).toBeTruthy();
+    expect(
+      assertSdkGrowthApplicationSchemaCheckpoint(logicalIdentity(true), {
+        phase: "postflight-000106",
+      }),
+    ).toBeTruthy();
+    expect(() =>
+      assertSdkGrowthApplicationSchemaCheckpoint(
+        { ...logicalIdentity(true), finalizedReportDigestIndexes: 1 },
+        { phase: "postflight-000106" },
+      ),
+    ).toThrow("logical_identity_rejected");
+    expect(() =>
+      assertSdkGrowthApplicationSchemaCheckpoint(
+        { ...logicalIdentity(false), finalizedReportRowCount: 1 },
+        { phase: "preflight-000106" },
+      ),
+    ).toThrow("legacy_rows_rejected");
+    expect(() =>
+      assertSdkGrowthApplicationSchemaCheckpoint(
+        {
+          ...logicalIdentity(false),
+          finalizedReportColumns: sdkGrowthFinalizedReportShape.columns.map(
+            (column) =>
+              column.name === "grantId" ? { ...column, type: "text" } : column,
+          ),
+        },
+        { phase: "preflight-000106" },
+      ),
+    ).toThrow("logical_identity_rejected");
+    expect(() =>
+      assertSdkGrowthApplicationSchemaCheckpoint(
+        {
+          ...logicalIdentity(true),
+          finalizedReportColumns: sdkGrowthFinalizedReportShape.columns.map(
+            (column) =>
+              column.name === "finalizedReport"
+                ? { ...column, notNull: false }
+                : column,
+          ),
+        },
+        { phase: "postflight-000106" },
+      ),
+    ).toThrow("logical_identity_rejected");
+    expect(() =>
+      assertSdkGrowthApplicationSchemaCheckpoint(
+        {
+          ...logicalIdentity(false),
+          finalizedReportTrigger: {
+            ...logicalIdentity(false).finalizedReportTrigger,
+            when: "false",
+          },
+        },
+        { phase: "preflight-000106" },
+      ),
+    ).toThrow("logical_identity_rejected");
+    expect(() =>
+      assertSdkGrowthApplicationSchemaCheckpoint(
+        {
+          ...logicalIdentity(true),
+          finalizedReportTrigger: {
+            ...logicalIdentity(true).finalizedReportTrigger,
+            functionOid: "16385",
+          },
+        },
+        { phase: "postflight-000106" },
+      ),
+    ).toThrow("logical_identity_rejected");
   });
 
   it.each([
@@ -435,7 +574,7 @@ const requirePg17 =
 const describePg17 = requirePg17 ? describe : describe.skip;
 
 describePg17("SDK growth separate disposable PG17 migration rehearsal", () => {
-  it("applies actual migrations through 000104 and then 000105 using real restricted logins", async () => {
+  it("rehearses actual 000104 to 000105 to 000106 with real restricted logins", async () => {
     const token = randomUUID();
     const name = `rr-sdk-schema-${token}`;
     const image =
@@ -531,22 +670,13 @@ describePg17("SDK growth separate disposable PG17 migration rehearsal", () => {
         });
       const prismaRoot = join(root, "prisma");
       cpSync("packages/platform/db/prisma", prismaRoot, { recursive: true });
-      rmSync(
-        join(
-          prismaRoot,
-          "migrations",
-          sdkGrowthApplicationSchemaContract.target.migrationName,
-        ),
-        { recursive: true },
-      );
-      rmSync(
-        join(
-          prismaRoot,
-          "migrations",
-          "000106_sdk_growth_finalized_report_logical_identity",
-        ),
-        { recursive: true },
-      );
+      for (const migration of [
+        sdkGrowthApplicationSchemaContract.target,
+        sdkGrowthApplicationSchemaContract.logicalIdentity.target,
+      ])
+        rmSync(join(prismaRoot, "migrations", migration.migrationName), {
+          recursive: true,
+        });
       const fixtureMigrations = readdirSync(join(prismaRoot, "migrations"))
         .filter((name) => /^\d{6}_/u.test(name))
         .sort();
@@ -581,6 +711,8 @@ GRANT reviewrouter_release_schema_owner TO reviewrouter
       const convergeGrants = () =>
         admin(`ALTER TABLE public."SdkGrowthPublicationEffect" OWNER TO reviewrouter_release_schema_owner;
 ALTER FUNCTION public.sdk_growth_publication_preserve() OWNER TO reviewrouter_release_schema_owner;
+ALTER TABLE public."SdkGrowthFinalizedReportEvidence" OWNER TO reviewrouter_release_schema_owner;
+ALTER FUNCTION public.sdk_growth_verifier_evidence_preserve() OWNER TO reviewrouter_release_schema_owner;
 REVOKE ALL ON FUNCTION public.sdk_growth_publication_preserve() FROM PUBLIC;
 GRANT SELECT ON TABLE public._prisma_migrations TO reviewrouter_release_migration;
 ${sdkGrowthApplicationSchemaObserverGrantSql()}
@@ -608,7 +740,13 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."SdkGrowthPublicationEffect
         REVIEW_ROUTER_SDK_GROWTH_DATABASE_IDENTITY: databaseIdentity.digest,
         REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OPERATION_PHASE: "apply-000105",
       });
-      const checkpoint = (phase: "preflight" | "postflight") =>
+      const checkpoint = (
+        phase:
+          | "preflight"
+          | "postflight"
+          | "preflight-000106"
+          | "postflight-000106",
+      ) =>
         executeSdkGrowthApplicationSchemaCheckpoint({
           ...environment,
           REVIEW_ROUTER_SDK_GROWTH_SCHEMA_CHECKPOINT_PHASE: phase,
@@ -777,28 +915,296 @@ GRANT reviewrouter_release_schema_owner TO reviewrouter_sdk_growth_schema_observ
         SET checksum='${sdkGrowthApplicationSchemaContract.target.checksum}'
         WHERE migration_name='${sdkGrowthApplicationSchemaContract.target.migrationName}';`);
 
+      Object.assign(environment, {
+        REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OPERATION_PHASE: "apply-000106",
+      });
+      rehearsalPhase = "preflight-000106";
+      expect(checkpoint("preflight-000106").phase).toBe("preflight-000106");
+
+      const originalDigestConstraintOid = admin(`SELECT oid::text
+        FROM pg_constraint
+        WHERE conrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+          AND conname='SdkGrowthFinalizedReportEvidence_digest_key';`).stdout.trim();
+      expect(originalDigestConstraintOid).toMatch(/^[1-9][0-9]*$/u);
+      const expectUnapplied000106 = () => {
+        expect(
+          admin(`SELECT count(*) FROM public._prisma_migrations
+            WHERE migration_name='${sdkGrowthApplicationSchemaContract.logicalIdentity.target.migrationName}';`).stdout.trim(),
+        ).toBe("0");
+        expect(
+          admin(`SELECT oid::text FROM pg_constraint
+            WHERE conrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+              AND conname='SdkGrowthFinalizedReportEvidence_digest_key';`).stdout.trim(),
+        ).toBe(originalDigestConstraintOid);
+      };
+
+      rehearsalPhase = "000106-grant-id-type-drift";
+      admin(`ALTER TABLE public."SdkGrowthFinalizedReportEvidence"
+        ALTER COLUMN "grantId" TYPE text;`);
+      expect(() => checkpoint("preflight-000106")).toThrow(
+        "sdk_growth_schema_checkpoint_logical_identity_rejected",
+      );
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      expectUnapplied000106();
+      admin(`ALTER TABLE public."SdkGrowthFinalizedReportEvidence"
+        ALTER COLUMN "grantId" TYPE varchar(2048);`);
+      expect(checkpoint("preflight-000106").phase).toBe("preflight-000106");
+
+      rehearsalPhase = "000106-finalized-report-nullability-drift";
+      admin(`ALTER TABLE public."SdkGrowthFinalizedReportEvidence"
+        ALTER COLUMN "finalizedReport" DROP NOT NULL;`);
+      expect(() => checkpoint("preflight-000106")).toThrow(
+        "sdk_growth_schema_checkpoint_logical_identity_rejected",
+      );
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      expectUnapplied000106();
+      admin(`ALTER TABLE public."SdkGrowthFinalizedReportEvidence"
+        ALTER COLUMN "finalizedReport" SET NOT NULL;`);
+      expect(checkpoint("preflight-000106").phase).toBe("preflight-000106");
+
+      rehearsalPhase = "000106-conditional-immutability-trigger";
+      admin(`DROP TRIGGER sdk_growth_finalized_report_immutable
+  ON public."SdkGrowthFinalizedReportEvidence";
+CREATE TRIGGER sdk_growth_finalized_report_immutable
+  BEFORE UPDATE OR DELETE OR TRUNCATE
+  ON public."SdkGrowthFinalizedReportEvidence"
+  FOR EACH STATEMENT WHEN (false)
+  EXECUTE FUNCTION public.sdk_growth_verifier_evidence_preserve();`);
+      expect(() => checkpoint("preflight-000106")).toThrow(
+        "sdk_growth_schema_checkpoint_logical_identity_rejected",
+      );
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      expectUnapplied000106();
+      admin(`DROP TRIGGER sdk_growth_finalized_report_immutable
+  ON public."SdkGrowthFinalizedReportEvidence";
+CREATE TRIGGER sdk_growth_finalized_report_immutable
+  BEFORE UPDATE OR DELETE OR TRUNCATE
+  ON public."SdkGrowthFinalizedReportEvidence"
+  FOR EACH STATEMENT
+  EXECUTE FUNCTION public.sdk_growth_verifier_evidence_preserve();`);
+      expect(checkpoint("preflight-000106").phase).toBe("preflight-000106");
+
+      rehearsalPhase = "000106-conditional-publication-trigger";
+      admin(`DROP TRIGGER sdk_growth_publication_immutable
+  ON public."SdkGrowthPublicationEffect";
+CREATE TRIGGER sdk_growth_publication_immutable
+  BEFORE UPDATE OR DELETE
+  ON public."SdkGrowthPublicationEffect"
+  FOR EACH ROW
+  WHEN (false)
+  EXECUTE FUNCTION public.sdk_growth_publication_preserve();`);
+      expect(() => checkpoint("preflight-000106")).toThrow(
+        "sdk_growth_schema_checkpoint_semantics_rejected",
+      );
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      expectUnapplied000106();
+      admin(`DROP TRIGGER sdk_growth_publication_immutable
+  ON public."SdkGrowthPublicationEffect";
+CREATE TRIGGER sdk_growth_publication_immutable
+  BEFORE UPDATE OR DELETE
+  ON public."SdkGrowthPublicationEffect"
+  FOR EACH ROW
+  EXECUTE FUNCTION public.sdk_growth_publication_preserve();`);
+      expect(checkpoint("preflight-000106").phase).toBe("preflight-000106");
+
+      rehearsalPhase = "000106-partial-publication-outbox-index";
+      admin(`DROP INDEX public."SdkGrowthPublicationEffect_outbox_event_key";
+CREATE UNIQUE INDEX "SdkGrowthPublicationEffect_outbox_event_key"
+  ON public."SdkGrowthPublicationEffect"("outboxEventId")
+  WHERE false;`);
+      expect(() => checkpoint("preflight-000106")).toThrow(
+        "sdk_growth_schema_checkpoint_semantics_rejected",
+      );
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      expectUnapplied000106();
+      admin(`DROP INDEX public."SdkGrowthPublicationEffect_outbox_event_key";
+CREATE UNIQUE INDEX "SdkGrowthPublicationEffect_outbox_event_key"
+  ON public."SdkGrowthPublicationEffect"("outboxEventId");`);
+      expect(checkpoint("preflight-000106").phase).toBe("preflight-000106");
+
+      rehearsalPhase = "000106-concurrent-uncommitted-report";
+      const reportWriter = spawn(
+        "docker",
+        [
+          "exec",
+          name,
+          "psql",
+          "-XqAt",
+          "-v",
+          "ON_ERROR_STOP=1",
+          "-U",
+          "postgres",
+          "-d",
+          "postgres",
+          "-c",
+          `BEGIN;
+SET LOCAL session_replication_role=replica;
+INSERT INTO public."SdkGrowthFinalizedReportEvidence"(
+  "reportEvidenceId","evidenceId","repositoryId","runId","runAttempt",
+  "verifierRevision",producer,"candidateWritable","reportDigest","finalizedReport",
+  "grantId",outcome,coverage,"coveredScopes",phases
+) VALUES ('concurrent-legacy-report','missing-evidence','repo','run','1','${"2".repeat(40)}',
+  'reviewrouter-verifier',false,'sha256:${"3".repeat(64)}',decode('01','hex'),
+  'legacy-grant','passed','complete','[]'::jsonb,'["legacy"]'::jsonb);
+SELECT pg_sleep(3);
+COMMIT;`,
+        ],
+        { stdio: "ignore" },
+      );
+      let reportWriteObserved = false;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        if (
+          admin(`SELECT count(*) FROM pg_locks
+            WHERE relation='public."SdkGrowthFinalizedReportEvidence"'::regclass
+              AND mode='RowExclusiveLock' AND granted;`).stdout.trim() === "1"
+        ) {
+          reportWriteObserved = true;
+          break;
+        }
+        await new Promise((resolveWrite) => setTimeout(resolveWrite, 100));
+      }
+      expect(reportWriteObserved).toBe(true);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      await new Promise<void>((resolveWriter, rejectWriter) => {
+        reportWriter.once("error", rejectWriter);
+        reportWriter.once("exit", (code) =>
+          code === 0
+            ? resolveWriter()
+            : rejectWriter(new Error("sdk_growth_test_report_writer_failed")),
+        );
+      });
+      expectUnapplied000106();
+      expect(
+        admin(`SELECT count(*) FROM public."SdkGrowthFinalizedReportEvidence"
+          WHERE "reportEvidenceId"='concurrent-legacy-report';`).stdout.trim(),
+      ).toBe("1");
+      admin(`SET session_replication_role=replica;
+DELETE FROM public."SdkGrowthFinalizedReportEvidence"
+  WHERE "reportEvidenceId"='concurrent-legacy-report';
+SET session_replication_role=origin;`);
+      expect(checkpoint("preflight-000106").phase).toBe("preflight-000106");
+
+      rehearsalPhase = "stale-logical-writer-binding";
+      expect(() =>
+        executeSdkGrowthApplicationSchema({
+          ...environment,
+          REVIEW_ROUTER_API_SERVICE_REVISION: "0".repeat(40),
+        }),
+      ).toThrow("sdk_growth_schema_executor_release_binding_rejected");
+
+      rehearsalPhase = "unfinished-000106-ledger";
+      admin(`INSERT INTO public._prisma_migrations(
+        id,checksum,finished_at,migration_name,logs,rolled_back_at,started_at,applied_steps_count
+      ) VALUES (gen_random_uuid()::text,
+        '${sdkGrowthApplicationSchemaContract.logicalIdentity.target.checksum}',NULL,
+        '${sdkGrowthApplicationSchemaContract.logicalIdentity.target.migrationName}',
+        NULL,NULL,clock_timestamp(),0);`);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      rehearsalPhase = "committed-ledger-missing-000106-catalog";
+      admin(`UPDATE public._prisma_migrations
+        SET finished_at=clock_timestamp(),applied_steps_count=1
+        WHERE migration_name='${sdkGrowthApplicationSchemaContract.logicalIdentity.target.migrationName}';`);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      rehearsalPhase = "duplicate-000106-ledger";
+      admin(`INSERT INTO public._prisma_migrations
+        SELECT gen_random_uuid()::text,checksum,finished_at,migration_name,logs,
+          rolled_back_at,started_at,applied_steps_count
+        FROM public._prisma_migrations
+        WHERE migration_name='${sdkGrowthApplicationSchemaContract.logicalIdentity.target.migrationName}';`);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      admin(`DELETE FROM public._prisma_migrations
+        WHERE migration_name='${sdkGrowthApplicationSchemaContract.logicalIdentity.target.migrationName}';`);
+
+      rehearsalPhase = "wrong-000106-predecessor";
+      admin(`UPDATE public._prisma_migrations SET checksum='${"1".repeat(64)}'
+        WHERE migration_name='${sdkGrowthApplicationSchemaContract.logicalIdentity.predecessor.migrationName}';`);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      admin(`UPDATE public._prisma_migrations
+        SET checksum='${sdkGrowthApplicationSchemaContract.logicalIdentity.predecessor.checksum}'
+        WHERE migration_name='${sdkGrowthApplicationSchemaContract.logicalIdentity.predecessor.migrationName}';`);
+
+      rehearsalPhase = "legacy-finalized-report";
+      admin(`SET session_replication_role=replica;
+INSERT INTO public."SdkGrowthFinalizedReportEvidence"(
+  "reportEvidenceId","evidenceId","repositoryId","runId","runAttempt",
+  "verifierRevision",producer,"candidateWritable","reportDigest","finalizedReport",
+  "grantId",outcome,coverage,"coveredScopes",phases
+) VALUES ('legacy-report','missing-evidence','repo','run','1','${"2".repeat(40)}',
+  'reviewrouter-verifier',false,'sha256:${"3".repeat(64)}',decode('01','hex'),
+  'legacy-grant','passed','complete','[]'::jsonb,'["legacy"]'::jsonb);
+SET session_replication_role=origin;`);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      admin(`SET session_replication_role=replica;
+DELETE FROM public."SdkGrowthFinalizedReportEvidence"
+  WHERE "reportEvidenceId"='legacy-report';
+SET session_replication_role=origin;`);
+
+      rehearsalPhase = "execute-000106";
+      const logicalExecution = executeSdkGrowthApplicationSchema(environment);
+      expect(logicalExecution.outcome).toBe("applied");
+      expect(logicalExecution.activationStatus).toBe("HOLD");
+      expect(checkpoint("postflight-000106").phase).toBe("postflight-000106");
+      expect(executeSdkGrowthApplicationSchema(environment).outcome).toBe(
+        "already-committed",
+      );
+      expect(
+        admin(`SELECT count(*) FROM pg_constraint
+          WHERE conrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+            AND conname='SdkGrowthFinalizedReportEvidence_digest_key';`).stdout.trim(),
+      ).toBe("0");
+
+      rehearsalPhase = "000106-retry-and-postflight-column-drift";
+      admin(`ALTER TABLE public."SdkGrowthFinalizedReportEvidence"
+        ALTER COLUMN "grantId" TYPE text;`);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      expect(() => checkpoint("postflight-000106")).toThrow(
+        "sdk_growth_schema_checkpoint_logical_identity_rejected",
+      );
+      admin(`ALTER TABLE public."SdkGrowthFinalizedReportEvidence"
+        ALTER COLUMN "grantId" TYPE varchar(2048);`);
+      admin(`ALTER TABLE public."SdkGrowthFinalizedReportEvidence"
+        ALTER COLUMN "finalizedReport" DROP NOT NULL;`);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      expect(() => checkpoint("postflight-000106")).toThrow(
+        "sdk_growth_schema_checkpoint_logical_identity_rejected",
+      );
+      admin(`ALTER TABLE public."SdkGrowthFinalizedReportEvidence"
+        ALTER COLUMN "finalizedReport" SET NOT NULL;`);
+      expect(checkpoint("postflight-000106").phase).toBe("postflight-000106");
+      expect(executeSdkGrowthApplicationSchema(environment).outcome).toBe(
+        "already-committed",
+      );
+
+      rehearsalPhase = "wrong-000106-target-checksum";
+      admin(`UPDATE public._prisma_migrations SET checksum='${"f".repeat(64)}'
+        WHERE migration_name='${sdkGrowthApplicationSchemaContract.logicalIdentity.target.migrationName}';`);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      admin(`UPDATE public._prisma_migrations
+        SET checksum='${sdkGrowthApplicationSchemaContract.logicalIdentity.target.checksum}'
+        WHERE migration_name='${sdkGrowthApplicationSchemaContract.logicalIdentity.target.migrationName}';`);
+
       rehearsalPhase = "postflight-negative-probes";
       admin(`DROP TRIGGER sdk_growth_publication_immutable ON public."SdkGrowthPublicationEffect";
 CREATE TRIGGER sdk_growth_publication_immutable
   BEFORE UPDATE OF "lastEvidence" OR DELETE ON public."SdkGrowthPublicationEffect"
   FOR EACH ROW EXECUTE FUNCTION public.sdk_growth_publication_preserve();`);
-      expect(() => checkpoint("postflight")).toThrow(
+      expect(() => checkpoint("postflight-000106")).toThrow(
         "sdk_growth_schema_checkpoint_semantics_rejected",
       );
       admin(`DROP TRIGGER sdk_growth_publication_immutable ON public."SdkGrowthPublicationEffect";
 CREATE TRIGGER sdk_growth_publication_immutable
   BEFORE UPDATE OR DELETE ON public."SdkGrowthPublicationEffect"
   FOR EACH ROW EXECUTE FUNCTION public.sdk_growth_publication_preserve();`);
-      expect(checkpoint("postflight").phase).toBe("postflight");
+      expect(checkpoint("postflight-000106").phase).toBe("postflight-000106");
 
       admin(`GRANT UPDATE (finished_at) ON TABLE public._prisma_migrations
   TO reviewrouter_sdk_growth_schema_observer;`);
-      expect(() => checkpoint("postflight")).toThrow(
+      expect(() => checkpoint("postflight-000106")).toThrow(
         "sdk_growth_schema_checkpoint_observer_permissions_rejected",
       );
       admin(`REVOKE UPDATE (finished_at) ON TABLE public._prisma_migrations
   FROM reviewrouter_sdk_growth_schema_observer;`);
-      expect(checkpoint("postflight").phase).toBe("postflight");
+      expect(checkpoint("postflight-000106").phase).toBe("postflight-000106");
 
       admin(`CREATE ROLE reviewrouter_sdk_growth_inherited_writer NOLOGIN;
 GRANT UPDATE ON TABLE public."SdkGrowthPublicationEffect"
@@ -811,14 +1217,14 @@ GRANT reviewrouter_sdk_growth_inherited_writer
             'public."SdkGrowthPublicationEffect"','UPDATE');`,
         ),
       ).toBe("t");
-      expect(() => checkpoint("postflight")).toThrow(
+      expect(() => checkpoint("postflight-000106")).toThrow(
         "sdk_growth_schema_checkpoint_observer_permissions_rejected",
       );
       admin(`REVOKE reviewrouter_sdk_growth_inherited_writer
   FROM reviewrouter_sdk_growth_schema_observer;
 DROP OWNED BY reviewrouter_sdk_growth_inherited_writer;
 DROP ROLE reviewrouter_sdk_growth_inherited_writer;`);
-      expect(checkpoint("postflight").phase).toBe("postflight");
+      expect(checkpoint("postflight-000106").phase).toBe("postflight-000106");
 
       admin(`CREATE ROLE reviewrouter_sdk_growth_set_role_writer NOLOGIN;
 GRANT UPDATE ON TABLE public."SdkGrowthPublicationEffect"
@@ -830,14 +1236,14 @@ GRANT reviewrouter_sdk_growth_set_role_writer
 SELECT has_table_privilege(current_user,
   'public."SdkGrowthPublicationEffect"','UPDATE');`),
       ).toBe("t");
-      expect(() => checkpoint("postflight")).toThrow(
+      expect(() => checkpoint("postflight-000106")).toThrow(
         "sdk_growth_schema_checkpoint_observer_permissions_rejected",
       );
       admin(`REVOKE reviewrouter_sdk_growth_set_role_writer
   FROM reviewrouter_sdk_growth_schema_observer;
 DROP OWNED BY reviewrouter_sdk_growth_set_role_writer;
 DROP ROLE reviewrouter_sdk_growth_set_role_writer;`);
-      expect(checkpoint("postflight").phase).toBe("postflight");
+      expect(checkpoint("postflight-000106").phase).toBe("postflight-000106");
     } catch (error) {
       executionError = new Error(
         `sdk_growth_pg17_rehearsal_phase_failed:${rehearsalPhase}`,

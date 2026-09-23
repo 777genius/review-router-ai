@@ -9,6 +9,8 @@ import {
   executeSdkGrowthApplicationSchemaCheckpoint,
   observeSdkGrowthDatabaseIdentity,
   sdkGrowthApplicationSchemaContract,
+  sdkGrowthApplicationSchemaShape,
+  sdkGrowthFinalizedReportShape,
 } from "./sdk-growth-application-schema-checkpoint.mjs";
 
 const coordinatorRole = "reviewrouter";
@@ -17,10 +19,15 @@ const releaseRole = sdkGrowthApplicationSchemaContract.releaseRole;
 const observerRole = sdkGrowthApplicationSchemaContract.observerRole;
 const advisoryLock = Object.freeze([1381126735, 1396983635]);
 
-const migrationPath = resolve(
-  import.meta.dirname,
-  `../packages/platform/db/prisma/migrations/${sdkGrowthApplicationSchemaContract.target.migrationName}/migration.sql`,
-);
+const operationContracts = Object.freeze({
+  "apply-000105": sdkGrowthApplicationSchemaContract,
+  "apply-000106": sdkGrowthApplicationSchemaContract.logicalIdentity,
+});
+const migrationPath = (contract) =>
+  resolve(
+    import.meta.dirname,
+    `../packages/platform/db/prisma/migrations/${contract.target.migrationName}/migration.sql`,
+  );
 const sqlLiteral = (value) => `'${String(value).replaceAll("'", "''")}'`;
 
 function required(env, name) {
@@ -57,8 +64,10 @@ export function validateSdkGrowthSchemaExecutorEnvironment(env, headSha) {
     env,
     "REVIEW_ROUTER_SDK_GROWTH_DATABASE_IDENTITY",
   );
+  const operationPhase = env.REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OPERATION_PHASE;
+  const contract = operationContracts[operationPhase];
   if (
-    env.REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OPERATION_PHASE !== "apply-000105" ||
+    !contract ||
     !/^[a-f0-9]{40}$/u.test(releaseCommit) ||
     releaseCommit !== headSha ||
     configRevision !== releaseCommit ||
@@ -85,11 +94,11 @@ export function validateSdkGrowthSchemaExecutorEnvironment(env, headSha) {
     required(env, "REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OBSERVER_DATABASE_URL"),
     observerRole,
   );
-  const migration = readFileSync(migrationPath);
+  const migration = readFileSync(migrationPath(contract));
   const migrationChecksum = createHash("sha256")
     .update(migration)
     .digest("hex");
-  if (migrationChecksum !== sdkGrowthApplicationSchemaContract.target.checksum)
+  if (migrationChecksum !== contract.target.checksum)
     throw new Error("sdk_growth_schema_executor_source_checksum_rejected");
   return Object.freeze({
     releaseCommit,
@@ -98,6 +107,8 @@ export function validateSdkGrowthSchemaExecutorEnvironment(env, headSha) {
     workerRevision,
     imageDigest,
     databaseIdentity,
+    operationPhase,
+    contract,
     coordinatorDatabaseUrl,
     releaseDatabaseUrl,
     observerDatabaseUrl,
@@ -106,7 +117,10 @@ export function validateSdkGrowthSchemaExecutorEnvironment(env, headSha) {
 }
 
 function functionSourceHash() {
-  const source = readFileSync(migrationPath, "utf8");
+  const source = readFileSync(
+    migrationPath(sdkGrowthApplicationSchemaContract),
+    "utf8",
+  );
   const match =
     /CREATE FUNCTION sdk_growth_publication_preserve\(\) RETURNS trigger[\s\S]+?AS \$\$([\s\S]+?)\$\$;/u.exec(
       source,
@@ -116,10 +130,111 @@ function functionSourceHash() {
   return createHash("sha256").update(match[1]).digest("hex");
 }
 
+function verifierFunctionSourceHash() {
+  const source = readFileSync(
+    resolve(
+      import.meta.dirname,
+      "../packages/platform/db/prisma/migrations/000103_sdk_growth_authority_custody/migration.sql",
+    ),
+    "utf8",
+  );
+  const match =
+    /CREATE FUNCTION sdk_growth_verifier_evidence_preserve\(\) RETURNS trigger[\s\S]+?AS \$\$([\s\S]+?)\$\$;/u.exec(
+      source,
+    );
+  if (!match?.[1])
+    throw new Error("sdk_growth_schema_executor_source_function_rejected");
+  return createHash("sha256").update(match[1]).digest("hex");
+}
+
+function catalogDigest(rows, fields) {
+  return createHash("sha256")
+    .update(
+      [...rows]
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((row) => fields.map((field) => row[field] ?? "").join("|"))
+        .join("\n"),
+    )
+    .digest("hex");
+}
+
+const publicationColumnDigest = catalogDigest(
+  sdkGrowthApplicationSchemaShape.columns,
+  ["name", "type", "notNull", "default"],
+);
+const publicationConstraintDigest = catalogDigest(
+  sdkGrowthApplicationSchemaShape.constraints,
+  ["name", "type", "validated", "definition"],
+);
+const finalizedReportColumnDigest = catalogDigest(
+  sdkGrowthFinalizedReportShape.columns,
+  ["name", "type", "notNull", "default"],
+);
+const finalizedReportCatalogRejectedSql = `(SELECT count(*) FROM pg_attribute
+  WHERE attrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+    AND attnum>0 AND NOT attisdropped) <> ${sdkGrowthFinalizedReportShape.columns.length}
+OR (SELECT encode(pg_catalog.sha256(convert_to(string_agg(concat_ws('|',attribute.attname,
+  format_type(attribute.atttypid,attribute.atttypmod),attribute.attnotnull::text,
+  coalesce(pg_get_expr(default_row.adbin,default_row.adrelid),'')),E'\\n' ORDER BY attribute.attname),'UTF8')),'hex')
+  FROM pg_attribute attribute LEFT JOIN pg_attrdef default_row
+    ON default_row.adrelid=attribute.attrelid AND default_row.adnum=attribute.attnum
+  WHERE attribute.attrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+    AND attribute.attnum>0 AND NOT attribute.attisdropped) <> '${finalizedReportColumnDigest}'
+OR (SELECT count(*) FROM pg_trigger trigger_row
+  JOIN pg_proc routine ON routine.oid=trigger_row.tgfoid
+  JOIN pg_namespace namespace ON namespace.oid=routine.pronamespace
+  WHERE trigger_row.tgrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+    AND trigger_row.tgname='sdk_growth_finalized_report_immutable'
+    AND NOT trigger_row.tgisinternal AND trigger_row.tgenabled='O'
+    AND trigger_row.tgtype::integer=58 AND trigger_row.tgattr::text=''
+    AND trigger_row.tgqual IS NULL AND trigger_row.tgconstraint=0
+    AND routine.oid='public.sdk_growth_verifier_evidence_preserve()'::regprocedure
+    AND namespace.nspname='public' AND routine.proname='sdk_growth_verifier_evidence_preserve'
+    AND routine.pronargs=0 AND routine.prorettype='trigger'::regtype) <> 1`;
+const publicationCatalogRejectedSql = `(SELECT count(*) FROM pg_attribute
+  WHERE attrelid='public."SdkGrowthPublicationEffect"'::regclass AND attnum>0 AND NOT attisdropped
+    AND attname IN ('envelopeDigest','intent','attemptStartedAt','reconciliationCount','lastEvidence','outboxEventId','completedAt')) <> 7
+OR (SELECT encode(pg_catalog.sha256(convert_to(string_agg(concat_ws('|',attribute.attname,
+  format_type(attribute.atttypid,attribute.atttypmod),attribute.attnotnull::text,
+  coalesce(pg_get_expr(default_row.adbin,default_row.adrelid),'')),E'\\n' ORDER BY attribute.attname),'UTF8')),'hex')
+  FROM pg_attribute attribute LEFT JOIN pg_attrdef default_row ON default_row.adrelid=attribute.attrelid AND default_row.adnum=attribute.attnum
+  WHERE attribute.attrelid='public."SdkGrowthPublicationEffect"'::regclass AND attribute.attnum>0 AND NOT attribute.attisdropped
+    AND attribute.attname IN ('envelopeDigest','intent','attemptStartedAt','reconciliationCount','lastEvidence','outboxEventId','completedAt')) <> '${publicationColumnDigest}'
+OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public."SdkGrowthPublicationEffect"'::regclass AND attnum>0 AND NOT attisdropped AND attname='providerCorrelation')
+OR (SELECT count(*) FROM pg_constraint WHERE conrelid='public."SdkGrowthPublicationEffect"'::regclass AND convalidated
+  AND conname IN ('SdkGrowthPublicationEffect_envelope_digest_check','SdkGrowthPublicationEffect_intent_check','SdkGrowthPublicationEffect_reconciliation_count_check','SdkGrowthPublicationEffect_shape_check','SdkGrowthPublicationEffect_state_check')) <> 5
+OR (SELECT encode(pg_catalog.sha256(convert_to(string_agg(concat_ws('|',conname,contype,convalidated::text,
+  pg_get_constraintdef(oid,false)),E'\\n' ORDER BY conname),'UTF8')),'hex') FROM pg_constraint
+  WHERE conrelid='public."SdkGrowthPublicationEffect"'::regclass AND conname IN ('SdkGrowthPublicationEffect_envelope_digest_check','SdkGrowthPublicationEffect_intent_check','SdkGrowthPublicationEffect_reconciliation_count_check','SdkGrowthPublicationEffect_shape_check','SdkGrowthPublicationEffect_state_check')) <> '${publicationConstraintDigest}'
+OR (SELECT count(*) FROM pg_trigger trigger_row JOIN pg_proc routine ON routine.oid=trigger_row.tgfoid
+  JOIN pg_namespace namespace ON namespace.oid=routine.pronamespace
+  WHERE trigger_row.tgrelid='public."SdkGrowthPublicationEffect"'::regclass AND NOT trigger_row.tgisinternal
+    AND trigger_row.tgenabled='O' AND trigger_row.tgattr::text=''
+    AND trigger_row.tgqual IS NULL AND trigger_row.tgconstraint=0
+    AND routine.oid='public.sdk_growth_publication_preserve()'::regprocedure
+    AND namespace.nspname='public' AND routine.proname='sdk_growth_publication_preserve'
+    AND ((trigger_row.tgname='sdk_growth_publication_immutable' AND trigger_row.tgtype::integer=27) OR (trigger_row.tgname='sdk_growth_publication_no_truncate' AND trigger_row.tgtype::integer=34))) <> 2
+OR NOT EXISTS (SELECT 1 FROM pg_index index_row JOIN pg_class relation ON relation.oid=index_row.indexrelid
+  WHERE index_row.indrelid='public."SdkGrowthPublicationEffect"'::regclass AND relation.relname='SdkGrowthPublicationEffect_outbox_event_key'
+    AND index_row.indisunique AND index_row.indisvalid AND index_row.indisready AND index_row.indislive
+    AND index_row.indpred IS NULL AND index_row.indexprs IS NULL AND index_row.indnkeyatts=1
+    AND (SELECT array_agg(attribute.attname ORDER BY key_row.ordinality) FROM unnest(index_row.indkey::smallint[]) WITH ORDINALITY key_row(attnum,ordinality)
+      JOIN pg_attribute attribute ON attribute.attrelid=index_row.indrelid AND attribute.attnum=key_row.attnum WHERE key_row.ordinality<=index_row.indnkeyatts)=ARRAY['outboxEventId']::name[])
+OR (SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public."SdkGrowthPublicationEffect"'::regclass) <> '${schemaOwnerRole}'
+OR NOT EXISTS (SELECT 1 FROM pg_proc routine JOIN pg_namespace namespace ON namespace.oid=routine.pronamespace
+  WHERE namespace.nspname='public' AND routine.proname='sdk_growth_publication_preserve' AND routine.pronargs=0
+    AND pg_get_userbyid(routine.proowner)='${schemaOwnerRole}' AND NOT routine.prosecdef AND routine.provolatile='v'
+    AND routine.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
+    AND encode(pg_catalog.sha256(convert_to(routine.prosrc,'UTF8')),'hex')='${functionSourceHash()}' AND NOT has_function_privilege('public',routine.oid,'EXECUTE'))`;
+
 export function renderSdkGrowthSchemaExecutorSql({
   databaseIdentity,
   migrationSql,
+  operationPhase = "apply-000105",
 }) {
+  const contract = operationContracts[operationPhase];
+  if (!contract)
+    throw new Error("sdk_growth_schema_executor_release_binding_rejected");
   if (
     databaseIdentity?.sessionUser !== coordinatorRole ||
     databaseIdentity?.currentUser !== coordinatorRole ||
@@ -131,10 +246,10 @@ export function renderSdkGrowthSchemaExecutorSql({
   const migrationChecksum = createHash("sha256")
     .update(migrationSql)
     .digest("hex");
-  if (migrationChecksum !== sdkGrowthApplicationSchemaContract.target.checksum)
+  if (migrationChecksum !== contract.target.checksum)
     throw new Error("sdk_growth_schema_executor_source_checksum_rejected");
-  const predecessor = sdkGrowthApplicationSchemaContract.predecessor;
-  const target = sdkGrowthApplicationSchemaContract.target;
+  const { predecessor, target } = contract;
+  const logicalIdentity = operationPhase === "apply-000106";
   return `\\set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -152,6 +267,20 @@ BEGIN
      OR (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()) <> '${coordinatorRole}'
      OR (SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='public') <> '${schemaOwnerRole}'
      OR (SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public._prisma_migrations'::regclass) <> '${coordinatorRole}'
+     ${
+       logicalIdentity
+         ? `OR (SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='public."SdkGrowthFinalizedReportEvidence"'::regclass) <> '${schemaOwnerRole}'
+     OR NOT EXISTS (SELECT 1 FROM pg_proc routine JOIN pg_namespace namespace ON namespace.oid=routine.pronamespace
+       WHERE namespace.nspname='public' AND routine.proname='sdk_growth_verifier_evidence_preserve'
+         AND routine.pronargs=0 AND pg_get_userbyid(routine.proowner)='${schemaOwnerRole}'
+         AND routine.oid='public.sdk_growth_verifier_evidence_preserve()'::regprocedure
+         AND routine.prorettype='trigger'::regtype
+         AND NOT routine.prosecdef AND routine.provolatile='v'
+         AND routine.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
+         AND encode(pg_catalog.sha256(convert_to(routine.prosrc,'UTF8')),'hex')='${verifierFunctionSourceHash()}'
+         AND NOT has_function_privilege('public',routine.oid,'EXECUTE'))`
+         : ""
+     }
      OR EXISTS (SELECT 1 FROM (VALUES
        ('${schemaOwnerRole}',false),('${releaseRole}',true),('${observerRole}',true)
      ) expected(name,login) LEFT JOIN pg_roles role_row ON role_row.rolname=expected.name
@@ -196,13 +325,37 @@ GRANT ${schemaOwnerRole} TO ${coordinatorRole}
   WITH ADMIN FALSE, INHERIT TRUE, SET TRUE GRANTED BY ${coordinatorRole};
 SET LOCAL ROLE ${schemaOwnerRole};
 SET LOCAL search_path = public, pg_catalog;
+${logicalIdentity ? 'LOCK TABLE public."SdkGrowthFinalizedReportEvidence" IN ACCESS EXCLUSIVE MODE;' : ""}
 DO $legacy_precondition$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public."SdkGrowthPublicationEffect") THEN
+  IF EXISTS (SELECT 1 FROM public.${logicalIdentity ? '"SdkGrowthFinalizedReportEvidence"' : '"SdkGrowthPublicationEffect"'}) THEN
     RAISE EXCEPTION 'sdk_growth_schema_executor_predecessor_or_legacy_rejected';
   END IF;
 END
 $legacy_precondition$;
+${
+  logicalIdentity
+    ? `\\if :apply_target
+DO $predecessor_catalog$
+BEGIN
+  IF ${publicationCatalogRejectedSql}
+     OR ${finalizedReportCatalogRejectedSql}
+     OR (SELECT encode(pg_catalog.sha256(convert_to(string_agg(conname||'='||pg_get_constraintdef(oid,false),E'\\n'
+       ORDER BY conname),'UTF8')),'hex') FROM pg_constraint
+       WHERE conrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass AND convalidated)
+       <> 'c8def03f86f42efc877f3f01af9cd55fcb9f253345ff0878ad8a4321900f8b83'
+     OR NOT EXISTS (SELECT 1 FROM pg_index index_row JOIN pg_class relation ON relation.oid=index_row.indexrelid
+       WHERE index_row.indrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+         AND relation.relname='SdkGrowthFinalizedReportEvidence_digest_key'
+         AND index_row.indisunique AND index_row.indisvalid AND index_row.indisready AND index_row.indislive)
+     THEN
+    RAISE EXCEPTION 'sdk_growth_schema_executor_predecessor_catalog_rejected';
+  END IF;
+END
+$predecessor_catalog$;
+\\endif`
+    : ""
+}
 \\if :apply_target
 RESET ROLE;
 INSERT INTO public._prisma_migrations(
@@ -224,6 +377,7 @@ SET LOCAL search_path = public, pg_catalog;
 ALTER TABLE public."SdkGrowthPublicationEffect" OWNER TO ${schemaOwnerRole};
 ALTER FUNCTION public.sdk_growth_publication_preserve() OWNER TO ${schemaOwnerRole};
 REVOKE ALL ON FUNCTION public.sdk_growth_publication_preserve() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.sdk_growth_verifier_evidence_preserve() FROM PUBLIC;
 REVOKE ALL ON TABLE public."SdkGrowthPublicationEffect" FROM reviewrouter_api, reviewrouter_worker;
 DO $runtime_columns$
 DECLARE column_row record;
@@ -253,6 +407,19 @@ $observer_columns$;
 REVOKE CREATE ON SCHEMA public FROM ${observerRole};
 GRANT USAGE ON SCHEMA public TO ${observerRole};
 GRANT SELECT ON TABLE public."SdkGrowthPublicationEffect" TO ${observerRole};
+REVOKE ALL ON TABLE public."SdkGrowthFinalizedReportEvidence" FROM ${observerRole};
+DO $observer_report_columns$
+DECLARE column_row record;
+BEGIN
+  FOR column_row IN SELECT attname FROM pg_attribute
+    WHERE attrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+      AND attnum>0 AND NOT attisdropped
+  LOOP
+    EXECUTE format('REVOKE ALL PRIVILEGES (%I) ON TABLE public."SdkGrowthFinalizedReportEvidence" FROM ${observerRole}',column_row.attname);
+  END LOOP;
+END
+$observer_report_columns$;
+GRANT SELECT ON TABLE public."SdkGrowthFinalizedReportEvidence" TO ${observerRole};
 REVOKE ALL ON TABLE public."SdkGrowthPublicationEffect" FROM ${releaseRole};
 RESET ROLE;
 REVOKE ALL ON TABLE public._prisma_migrations FROM ${observerRole};
@@ -292,36 +459,13 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM public._prisma_migrations
        WHERE migration_name='${target.migrationName}' AND checksum='${target.checksum}'
          AND finished_at IS NOT NULL AND rolled_back_at IS NULL AND applied_steps_count=1)
-     OR (SELECT count(*) FROM pg_attribute WHERE attrelid='public."SdkGrowthPublicationEffect"'::regclass
-       AND attnum>0 AND NOT attisdropped AND attname IN
-       ('envelopeDigest','intent','attemptStartedAt','reconciliationCount','lastEvidence','outboxEventId','completedAt')) <> 7
-     OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public."SdkGrowthPublicationEffect"'::regclass
-       AND attnum>0 AND NOT attisdropped AND attname='providerCorrelation')
-     OR (SELECT count(*) FROM pg_constraint WHERE conrelid='public."SdkGrowthPublicationEffect"'::regclass
-       AND convalidated AND conname IN ('SdkGrowthPublicationEffect_envelope_digest_check',
-       'SdkGrowthPublicationEffect_intent_check','SdkGrowthPublicationEffect_reconciliation_count_check',
-       'SdkGrowthPublicationEffect_shape_check','SdkGrowthPublicationEffect_state_check')) <> 5
-     OR (SELECT count(*) FROM pg_trigger WHERE tgrelid='public."SdkGrowthPublicationEffect"'::regclass
-       AND NOT tgisinternal AND tgenabled='O' AND tgattr::text=''
-       AND tgname IN ('sdk_growth_publication_immutable','sdk_growth_publication_no_truncate')) <> 2
-     OR NOT EXISTS (SELECT 1 FROM pg_index index_row JOIN pg_class relation ON relation.oid=index_row.indexrelid
-       WHERE index_row.indrelid='public."SdkGrowthPublicationEffect"'::regclass
-         AND relation.relname='SdkGrowthPublicationEffect_outbox_event_key'
-         AND index_row.indisunique AND index_row.indisvalid AND index_row.indisready AND index_row.indislive)
-     OR (SELECT pg_get_userbyid(relowner) FROM pg_class
-       WHERE oid='public."SdkGrowthPublicationEffect"'::regclass) <> '${schemaOwnerRole}'
-     OR NOT EXISTS (SELECT 1 FROM pg_proc routine JOIN pg_namespace namespace ON namespace.oid=routine.pronamespace
-       WHERE namespace.nspname='public' AND routine.proname='sdk_growth_publication_preserve'
-         AND routine.pronargs=0 AND pg_get_userbyid(routine.proowner)='${schemaOwnerRole}'
-         AND NOT routine.prosecdef AND routine.provolatile='v'
-         AND routine.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
-         AND encode(pg_catalog.sha256(convert_to(routine.prosrc,'UTF8')),'hex')='${functionSourceHash()}'
-         AND NOT has_function_privilege('public',routine.oid,'EXECUTE'))
+     OR ${publicationCatalogRejectedSql}
      OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member='${observerRole}'::regrole)
      OR has_schema_privilege('${observerRole}','public','CREATE')
      OR NOT has_schema_privilege('${observerRole}','public','USAGE')
      OR EXISTS (SELECT 1 FROM (VALUES
        ('public._prisma_migrations'::regclass),
+       ('public."SdkGrowthFinalizedReportEvidence"'::regclass),
        ('public."SdkGrowthPublicationEffect"'::regclass)
      ) observed(relation_oid)
        WHERE NOT has_table_privilege('${observerRole}',relation_oid,'SELECT')
@@ -330,6 +474,7 @@ BEGIN
      OR EXISTS (SELECT 1 FROM pg_attribute attribute
        WHERE attribute.attrelid IN (
          'public._prisma_migrations'::regclass,
+         'public."SdkGrowthFinalizedReportEvidence"'::regclass,
          'public."SdkGrowthPublicationEffect"'::regclass)
          AND attribute.attnum>0 AND NOT attribute.attisdropped
          AND (has_column_privilege('${observerRole}',attribute.attrelid,attribute.attnum,'INSERT')
@@ -346,7 +491,29 @@ BEGIN
            AND membership.grantor<>'${coordinatorRole}'::regrole) <> 1
      OR (SELECT count(*) FROM pg_auth_members membership
          WHERE membership.roleid='${schemaOwnerRole}'::regrole
-           AND membership.member='${coordinatorRole}'::regrole) <> 1 THEN
+           AND membership.member='${coordinatorRole}'::regrole) <> 1
+     ${
+       logicalIdentity
+         ? `OR ${finalizedReportCatalogRejectedSql}
+     OR EXISTS (SELECT 1 FROM pg_constraint
+       WHERE conrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+         AND conname='SdkGrowthFinalizedReportEvidence_digest_key')
+     OR EXISTS (SELECT 1 FROM pg_index index_row JOIN pg_class relation ON relation.oid=index_row.indexrelid
+       WHERE index_row.indrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass
+         AND (relation.relname='SdkGrowthFinalizedReportEvidence_digest_key'
+           OR (index_row.indisunique AND (SELECT array_agg(attribute.attname ORDER BY key_row.ordinality)
+             FROM unnest(index_row.indkey::smallint[]) WITH ORDINALITY key_row(attnum,ordinality)
+             JOIN pg_attribute attribute ON attribute.attrelid=index_row.indrelid
+               AND attribute.attnum=key_row.attnum
+             WHERE key_row.ordinality<=index_row.indnkeyatts)
+             = ARRAY['evidenceId','reportDigest']::name[])))
+     OR (SELECT encode(pg_catalog.sha256(convert_to(string_agg(conname||'='||pg_get_constraintdef(oid,false),E'\\n'
+       ORDER BY conname),'UTF8')),'hex') FROM pg_constraint
+       WHERE conrelid='public."SdkGrowthFinalizedReportEvidence"'::regclass AND convalidated)
+       <> '3546009d14d16a6a0fa67e0911028c335a35accf948bbe10f460b203490ba24b'
+     `
+         : ""
+     } THEN
     RAISE EXCEPTION 'sdk_growth_schema_executor_postcondition_rejected';
   END IF;
 END
@@ -411,6 +578,7 @@ export function executeSdkGrowthApplicationSchema(env = process.env) {
   const sql = renderSdkGrowthSchemaExecutorSql({
     databaseIdentity: coordinatorIdentity,
     migrationSql: configuration.migrationSql,
+    operationPhase: configuration.operationPhase,
   });
   const { stdout } = runSecretSafePostgresCommand({
     databaseUrl: configuration.coordinatorDatabaseUrl,
@@ -427,24 +595,26 @@ export function executeSdkGrowthApplicationSchema(env = process.env) {
   }
   if (
     !["applied", "already-committed"].includes(operation?.outcome) ||
-    operation.target !==
-      sdkGrowthApplicationSchemaContract.target.migrationName ||
-    operation.checksum !== sdkGrowthApplicationSchemaContract.target.checksum
+    operation.target !== configuration.contract.target.migrationName ||
+    operation.checksum !== configuration.contract.target.checksum
   )
     throw new Error("sdk_growth_schema_executor_result_rejected");
   const checkpoint = executeSdkGrowthApplicationSchemaCheckpoint({
     ...env,
-    REVIEW_ROUTER_SDK_GROWTH_SCHEMA_CHECKPOINT_PHASE: "postflight",
+    REVIEW_ROUTER_SDK_GROWTH_SCHEMA_CHECKPOINT_PHASE:
+      configuration.operationPhase === "apply-000106"
+        ? "postflight-000106"
+        : "postflight",
   });
   if (checkpoint.databaseIdentity !== configuration.databaseIdentity)
     throw new Error("sdk_growth_schema_executor_postflight_target_rejected");
   return Object.freeze({
     kind: "reviewrouter-sdk-growth-application-schema-execution",
-    version: 1,
-    phase: "apply-000105",
+    version: 2,
+    phase: configuration.operationPhase,
     outcome: operation.outcome,
     releaseCommit: configuration.releaseCommit,
-    migration: sdkGrowthApplicationSchemaContract.target,
+    migration: configuration.contract.target,
     databaseIdentity: configuration.databaseIdentity,
     releaseImageDigest: configuration.imageDigest,
     releaseConfigRevision: configuration.configRevision,

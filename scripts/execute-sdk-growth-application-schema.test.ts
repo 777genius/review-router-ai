@@ -7,6 +7,7 @@ import {
 import {
   sdkGrowthApplicationSchemaContract,
   sdkGrowthDatabaseIdentityDigest,
+  sdkGrowthFinalizedReportShape,
 } from "./sdk-growth-application-schema-checkpoint.mjs";
 
 const head = "a".repeat(40);
@@ -40,6 +41,10 @@ const migrationSql = readFileSync(
   `packages/platform/db/prisma/migrations/${sdkGrowthApplicationSchemaContract.target.migrationName}/migration.sql`,
   "utf8",
 );
+const logicalIdentitySql = readFileSync(
+  `packages/platform/db/prisma/migrations/${sdkGrowthApplicationSchemaContract.logicalIdentity.target.migrationName}/migration.sql`,
+  "utf8",
+);
 
 describe("SDK growth pinned application-schema executor", () => {
   it("requires exact source, service, image, target and restricted-role bindings", () => {
@@ -51,6 +56,17 @@ describe("SDK growth pinned application-schema executor", () => {
       environment.REVIEW_ROUTER_SDK_GROWTH_DATABASE_IDENTITY,
     );
     expect(result.migrationSql).toBe(migrationSql);
+    const logical = validateSdkGrowthSchemaExecutorEnvironment(
+      {
+        ...environment,
+        REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OPERATION_PHASE: "apply-000106",
+      },
+      head,
+    );
+    expect(logical.migrationSql).toBe(logicalIdentitySql);
+    expect(logical.contract.target.checksum).toBe(
+      "a47efeb47fcac73f502818fdf959ff86e44c228951b2839a1b694072e98c3f6d",
+    );
     for (const change of [
       { REVIEW_ROUTER_API_SERVICE_REVISION: "c".repeat(40) },
       { REVIEW_ROUTER_WORKER_SERVICE_REVISION: "c".repeat(40) },
@@ -58,6 +74,7 @@ describe("SDK growth pinned application-schema executor", () => {
       { REVIEW_ROUTER_RELEASE_IMAGE_DIGEST: "latest" },
       { REVIEW_ROUTER_SDK_GROWTH_DATABASE_IDENTITY: "unbound" },
       { REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED: "1" },
+      { REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OPERATION_PHASE: "apply-unknown" },
     ])
       expect(() =>
         validateSdkGrowthSchemaExecutorEnvironment(
@@ -111,6 +128,60 @@ describe("SDK growth pinned application-schema executor", () => {
     expect(sql.indexOf(migrationSql)).toBeLessThan(sql.indexOf("COMMIT;"));
   });
 
+  it("renders 000106 behind the same lock with exact predecessor and catalog custody", () => {
+    const sql = renderSdkGrowthSchemaExecutorSql({
+      databaseIdentity,
+      migrationSql: logicalIdentitySql,
+      operationPhase: "apply-000106",
+    });
+    expect(sql).toContain("pg_advisory_xact_lock(1381126735,1396983635)");
+    expect(sql).toContain(
+      sdkGrowthApplicationSchemaContract.logicalIdentity.predecessor.checksum,
+    );
+    expect(sql).toContain(
+      sdkGrowthApplicationSchemaContract.logicalIdentity.target.checksum,
+    );
+    expect(sql).toContain(
+      "sdk_growth_schema_executor_predecessor_catalog_rejected",
+    );
+    expect(sql).toContain("SdkGrowthFinalizedReportEvidence_digest_key");
+    expect(sql).toContain(
+      'LOCK TABLE public."SdkGrowthFinalizedReportEvidence" IN ACCESS EXCLUSIVE MODE',
+    );
+    expect(sql.indexOf("LOCK TABLE")).toBeLessThan(
+      sql.indexOf("DO $legacy_precondition$"),
+    );
+    expect(sql).toContain(") <> 16");
+    expect(
+      sdkGrowthFinalizedReportShape.columns.find(
+        (column) => column.name === "grantId",
+      ),
+    ).toEqual({
+      name: "grantId",
+      type: "character varying(2048)",
+      notNull: true,
+      default: null,
+    });
+    expect(sql).toContain("trigger_row.tgqual IS NULL");
+    expect(sql).toContain("trigger_row.tgconstraint=0");
+    expect(sql).toContain(
+      "routine.oid='public.sdk_growth_publication_preserve()'::regprocedure",
+    );
+    expect(sql).toContain("index_row.indpred IS NULL");
+    expect(sql).toContain("index_row.indexprs IS NULL");
+    expect(sql).toContain("index_row.indnkeyatts=1");
+    expect(sql).toContain(
+      "routine.oid='public.sdk_growth_verifier_evidence_preserve()'::regprocedure",
+    );
+    expect(sql).toContain(
+      "3546009d14d16a6a0fa67e0911028c335a35accf948bbe10f460b203490ba24b",
+    );
+    expect(sql).toContain("sdk_growth_finalized_report_immutable");
+    expect(sql.indexOf(logicalIdentitySql)).toBeLessThan(
+      sql.indexOf("-- sdk-growth-executor-before-postcondition"),
+    );
+  });
+
   it("keeps mutation credentials protected and activation explicitly on HOLD", () => {
     const workflow = readFileSync(
       ".github/workflows/sdk-growth-application-schema-checkpoint.yml",
@@ -123,6 +194,7 @@ describe("SDK growth pinned application-schema executor", () => {
     const protectedJob = workflow.slice(workflow.indexOf("  checkpoint:"));
     expect(trust).not.toContain("secrets.");
     expect(workflow).toContain("APPLY_PINNED_SDK_GROWTH_000105");
+    expect(workflow).toContain("APPLY_PINNED_SDK_GROWTH_000106");
     expect(protectedJob).toContain(
       "secrets.REVIEW_ROUTER_SCHEMA_OWNER_COORDINATOR_DATABASE_URL",
     );
