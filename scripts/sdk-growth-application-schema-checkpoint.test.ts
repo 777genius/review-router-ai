@@ -7,18 +7,25 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
   assertSdkGrowthApplicationSchemaCheckpoint,
   executeSdkGrowthApplicationSchemaCheckpoint,
+  observeSdkGrowthApplicationSchemaCheckpoint,
+  observeSdkGrowthDatabaseIdentity,
   sdkGrowthApplicationSchemaContract,
   sdkGrowthApplicationSchemaObservationSql,
   sdkGrowthApplicationSchemaObserverGrantSql,
   sdkGrowthApplicationSchemaShape,
+  sdkGrowthDatabaseIdentityDigest,
   sdkGrowthReleaseLoginProbeSql,
   validateSdkGrowthCheckpointEnvironment,
 } from "./sdk-growth-application-schema-checkpoint.mjs";
+import {
+  executeSdkGrowthApplicationSchema,
+  renderSdkGrowthSchemaExecutorSql,
+} from "./execute-sdk-growth-application-schema.mjs";
 import { runSecretSafePostgresCommand } from "./lib/secret-safe-command-boundary.mjs";
 
 const restrictedRole = Object.freeze({
@@ -212,8 +219,10 @@ describe("SDK growth application-schema checkpoint", () => {
     expect(observationSql).toContain("reviewrouter_sdk_growth_schema_observer");
     expect(observationSql).toContain("observerColumnWrites");
     expect(observationSql).toContain("observerMemberships");
+    expect(observationSql).toContain("'databaseIdentity'");
     expect(releaseSql).toContain("session_user");
     expect(releaseSql).toContain("publicationPrivileges");
+    expect(releaseSql).toContain("'databaseIdentity'");
     expect(grants).toContain(
       'GRANT SELECT ON TABLE public."SdkGrowthPublicationEffect"',
     );
@@ -352,6 +361,15 @@ describe("SDK growth application-schema checkpoint", () => {
       validateSdkGrowthCheckpointEnvironment(
         {
           ...environment,
+          REVIEW_ROUTER_SDK_GROWTH_SCHEMA_CHECKPOINT_PHASE: "postflight",
+        },
+        head,
+      ),
+    ).toThrow("database_identity_rejected");
+    expect(() =>
+      validateSdkGrowthCheckpointEnvironment(
+        {
+          ...environment,
           REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OBSERVER_DATABASE_URL:
             "postgresql://reviewrouter_release_migration:secret@db/reviewrouter",
         },
@@ -365,6 +383,49 @@ describe("SDK growth application-schema checkpoint", () => {
     expect(source).toContain("runSecretSafePostgresCommand");
     expect(source).toContain('deployedRuntimeConfiguration: "unverified"');
     expect(source).not.toContain("args: [configuration.releaseDatabaseUrl");
+  });
+
+  it("rejects a mocked database switch between identity-bound catalog probes", () => {
+    const identity = {
+      systemIdentifier: "7522147049465590841",
+      databaseOid: "16384",
+      databaseName: "reviewrouter",
+      postgresVersion: 170010,
+    };
+    const switchedIdentity = {
+      ...identity,
+      databaseOid: "16385",
+      databaseName: "proxy_switched",
+    };
+    const configuration = {
+      releaseDatabaseUrl: new URL(
+        "postgresql://reviewrouter_release_migration:secret@db/reviewrouter",
+      ),
+      observerDatabaseUrl: new URL(
+        "postgresql://reviewrouter_sdk_growth_schema_observer:secret@db/reviewrouter",
+      ),
+      expectedDatabaseIdentity: sdkGrowthDatabaseIdentityDigest(identity),
+    };
+    const probe = (databaseUrl: URL) =>
+      databaseUrl.username === sdkGrowthApplicationSchemaContract.releaseRole
+        ? {
+            ...releaseProbe(),
+            databaseIdentity: {
+              ...switchedIdentity,
+              sessionUser: sdkGrowthApplicationSchemaContract.releaseRole,
+              currentUser: sdkGrowthApplicationSchemaContract.releaseRole,
+            },
+          }
+        : {
+            databaseIdentity: {
+              ...switchedIdentity,
+              sessionUser: sdkGrowthApplicationSchemaContract.observerRole,
+              currentUser: sdkGrowthApplicationSchemaContract.observerRole,
+            },
+          };
+    expect(() =>
+      observeSdkGrowthApplicationSchemaCheckpoint(configuration, probe),
+    ).toThrow("sdk_growth_schema_checkpoint_database_target_rejected");
   });
 });
 
@@ -382,6 +443,7 @@ describePg17("SDK growth separate disposable PG17 migration rehearsal", () => {
       join(process.cwd(), ".sdk-growth-schema-rehearsal."),
     );
     let created = false;
+    let rehearsalPhase = "container-start";
     let executionError: unknown;
     let cleanupError: Error | undefined;
     const command = (
@@ -487,12 +549,20 @@ describePg17("SDK growth separate disposable PG17 migration rehearsal", () => {
           ["migrate", "deploy", "--config", configPath],
           { env: { ...process.env, DATABASE_URL: adminUrl } },
         );
+      rehearsalPhase = "migrate-through-000104";
       migrate();
+      rehearsalPhase = "role-and-owner-setup";
       admin(`CREATE ROLE reviewrouter_release_schema_owner NOLOGIN;
+CREATE ROLE reviewrouter LOGIN PASSWORD 'coordinator-test' INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE reviewrouter_release_migration LOGIN PASSWORD 'release-test' INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE reviewrouter_sdk_growth_schema_observer LOGIN PASSWORD 'observer-test' NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE reviewrouter_api NOLOGIN;
-CREATE ROLE reviewrouter_worker NOLOGIN;`);
+CREATE ROLE reviewrouter_worker NOLOGIN;
+ALTER DATABASE postgres OWNER TO reviewrouter;
+ALTER SCHEMA public OWNER TO reviewrouter_release_schema_owner;
+ALTER TABLE public._prisma_migrations OWNER TO reviewrouter;
+GRANT reviewrouter_release_schema_owner TO reviewrouter
+  WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;`);
       const convergeGrants = () =>
         admin(`ALTER TABLE public."SdkGrowthPublicationEffect" OWNER TO reviewrouter_release_schema_owner;
 ALTER FUNCTION public.sdk_growth_publication_preserve() OWNER TO reviewrouter_release_schema_owner;
@@ -502,13 +572,27 @@ ${sdkGrowthApplicationSchemaObserverGrantSql()}
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."SdkGrowthPublicationEffect" TO reviewrouter_api, reviewrouter_worker;`);
       convergeGrants();
       const head = command("git", ["rev-parse", "HEAD"]);
+      const coordinatorDatabaseUrl = `postgresql://reviewrouter:coordinator-test@127.0.0.1:${port}/postgres`;
       const environment = {
         REVIEW_ROUTER_RELEASE_COMMIT_SHA: head,
+        REVIEW_ROUTER_RELEASE_CONFIG_REVISION: head,
+        REVIEW_ROUTER_API_SERVICE_REVISION: head,
+        REVIEW_ROUTER_WORKER_SERVICE_REVISION: head,
+        REVIEW_ROUTER_RELEASE_IMAGE_DIGEST: `sha256:${"a".repeat(64)}`,
+        REVIEW_ROUTER_SCHEMA_OWNER_COORDINATOR_DATABASE_URL:
+          coordinatorDatabaseUrl,
         REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL: `postgresql://reviewrouter_release_migration:release-test@127.0.0.1:${port}/postgres`,
         REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OBSERVER_DATABASE_URL: `postgresql://reviewrouter_sdk_growth_schema_observer:observer-test@127.0.0.1:${port}/postgres`,
         REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED: "0",
         REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED: "1",
       };
+      const databaseIdentity = observeSdkGrowthDatabaseIdentity(
+        coordinatorDatabaseUrl,
+      );
+      Object.assign(environment, {
+        REVIEW_ROUTER_SDK_GROWTH_DATABASE_IDENTITY: databaseIdentity.digest,
+        REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OPERATION_PHASE: "apply-000105",
+      });
       const checkpoint = (phase: "preflight" | "postflight") =>
         executeSdkGrowthApplicationSchemaCheckpoint({
           ...environment,
@@ -522,23 +606,163 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."SdkGrowthPublicationEffect
           input: sql,
           timeoutMs: 30_000,
         }).stdout.trim();
+      rehearsalPhase = "initial-preflight";
       expect(checkpoint("preflight").phase).toBe("preflight");
-      cpSync(
+
+      rehearsalPhase = "public-column-write-atomic-rollback";
+      admin(
+        `GRANT UPDATE (checksum) ON TABLE public._prisma_migrations TO PUBLIC;`,
+      );
+      expect(
+        observer(`SELECT has_column_privilege(current_user,
+          'public._prisma_migrations','checksum','UPDATE');`),
+      ).toBe("t");
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      expect(
+        admin(`SELECT count(*) FROM public._prisma_migrations
+          WHERE migration_name='${sdkGrowthApplicationSchemaContract.target.migrationName}';`).stdout.trim(),
+      ).toBe("0");
+      expect(
+        admin(`SELECT (count(*) FILTER (WHERE attname='providerCorrelation'))::text
+          || '|' || (count(*) FILTER (WHERE attname='envelopeDigest'))::text
+        FROM pg_attribute
+        WHERE attrelid='public."SdkGrowthPublicationEffect"'::regclass
+          AND attnum>0 AND NOT attisdropped;`).stdout.trim(),
+      ).toBe("1|0");
+      admin(
+        `REVOKE UPDATE (checksum) ON TABLE public._prisma_migrations FROM PUBLIC;`,
+      );
+      expect(checkpoint("preflight").phase).toBe("preflight");
+
+      rehearsalPhase = "wrong-predecessor";
+      admin(`UPDATE public._prisma_migrations SET checksum='${"0".repeat(64)}'
+        WHERE migration_name='${sdkGrowthApplicationSchemaContract.predecessor.migrationName}';`);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      admin(`UPDATE public._prisma_migrations
+        SET checksum='${sdkGrowthApplicationSchemaContract.predecessor.checksum}'
+        WHERE migration_name='${sdkGrowthApplicationSchemaContract.predecessor.migrationName}';`);
+
+      rehearsalPhase = "legacy-row";
+      admin(`SET session_replication_role=replica;
+INSERT INTO public."SdkGrowthPublicationEffect"(
+  "custodyId","intentId",state,"claimVersion","createdAt","updatedAt"
+) VALUES ('legacy-custody','legacy-intent','pending',0,clock_timestamp(),clock_timestamp());
+SET session_replication_role=origin;`);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      admin(`SET session_replication_role=replica;
+DELETE FROM public."SdkGrowthPublicationEffect" WHERE "custodyId"='legacy-custody';
+SET session_replication_role=origin;`);
+
+      rehearsalPhase = "wrong-database";
+      const wrongDatabase = `wrong_${token.replaceAll("-", "")}`;
+      admin(`CREATE DATABASE ${wrongDatabase} OWNER reviewrouter;`);
+      expect(() =>
+        executeSdkGrowthApplicationSchema({
+          ...environment,
+          REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OBSERVER_DATABASE_URL:
+            environment.REVIEW_ROUTER_SDK_GROWTH_SCHEMA_OBSERVER_DATABASE_URL.replace(
+              /\/postgres$/u,
+              `/${wrongDatabase}`,
+            ),
+        }),
+      ).toThrow("sdk_growth_schema_executor_database_target_rejected");
+      admin(`DROP DATABASE ${wrongDatabase};`);
+
+      rehearsalPhase = "advisory-lock";
+      const locker = spawn(
+        "docker",
+        [
+          "exec",
+          name,
+          "psql",
+          "-XqAt",
+          "-U",
+          "postgres",
+          "-d",
+          "postgres",
+          "-c",
+          "SELECT pg_advisory_lock(1381126735,1396983635); SELECT pg_sleep(8);",
+        ],
+        { stdio: "ignore" },
+      );
+      let lockObserved = false;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        if (
+          admin(`SELECT count(*) FROM pg_locks WHERE locktype='advisory'
+            AND classid=1381126735 AND objid=1396983635 AND granted;`).stdout.trim() ===
+          "1"
+        ) {
+          lockObserved = true;
+          break;
+        }
+        await new Promise((resolveLock) => setTimeout(resolveLock, 100));
+      }
+      expect(lockObserved).toBe(true);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      await new Promise<void>((resolveLocker, rejectLocker) => {
+        locker.once("error", rejectLocker);
+        locker.once("exit", (code) =>
+          code === 0
+            ? resolveLocker()
+            : rejectLocker(new Error("sdk_growth_test_locker_failed")),
+        );
+      });
+
+      rehearsalPhase = "interrupted-transaction";
+      const migrationSql = readFileSync(
         join(
           "packages/platform/db/prisma/migrations",
           sdkGrowthApplicationSchemaContract.target.migrationName,
+          "migration.sql",
         ),
-        join(
-          prismaRoot,
-          "migrations",
-          sdkGrowthApplicationSchemaContract.target.migrationName,
-        ),
-        { recursive: true },
+        "utf8",
       );
-      migrate();
-      convergeGrants();
-      expect(checkpoint("postflight").phase).toBe("postflight");
+      const interrupted = renderSdkGrowthSchemaExecutorSql({
+        databaseIdentity,
+        migrationSql,
+      }).replace(
+        "-- sdk-growth-executor-before-commit",
+        "DO $$ BEGIN RAISE EXCEPTION 'test interruption'; END $$;",
+      );
+      expect(() =>
+        runSecretSafePostgresCommand({
+          databaseUrl: coordinatorDatabaseUrl,
+          args: ["-XqAt", "-v", "ON_ERROR_STOP=1"],
+          input: interrupted,
+          timeoutMs: 30_000,
+        }),
+      ).toThrow();
+      expect(
+        admin(`SELECT count(*) FROM public._prisma_migrations
+          WHERE migration_name='${sdkGrowthApplicationSchemaContract.target.migrationName}';`).stdout.trim(),
+      ).toBe("0");
+      expect(checkpoint("preflight").phase).toBe("preflight");
 
+      rehearsalPhase = "apply-and-converge";
+      admin(`GRANT UPDATE ("updatedAt") ON TABLE public."SdkGrowthPublicationEffect"
+        TO reviewrouter_sdk_growth_schema_observer;
+GRANT reviewrouter_release_schema_owner TO reviewrouter_sdk_growth_schema_observer
+  WITH ADMIN FALSE, INHERIT FALSE, SET TRUE GRANTED BY reviewrouter;`);
+      rehearsalPhase = "execute-first-apply";
+      const execution = executeSdkGrowthApplicationSchema(environment);
+      expect(execution.outcome).toBe("applied");
+      expect(execution.activationStatus).toBe("HOLD");
+      rehearsalPhase = "postflight-after-apply";
+      expect(checkpoint("postflight").phase).toBe("postflight");
+      rehearsalPhase = "exact-retry";
+      expect(executeSdkGrowthApplicationSchema(environment).outcome).toBe(
+        "already-committed",
+      );
+
+      rehearsalPhase = "wrong-target-checksum";
+      admin(`UPDATE public._prisma_migrations SET checksum='${"f".repeat(64)}'
+        WHERE migration_name='${sdkGrowthApplicationSchemaContract.target.migrationName}';`);
+      expect(() => executeSdkGrowthApplicationSchema(environment)).toThrow();
+      admin(`UPDATE public._prisma_migrations
+        SET checksum='${sdkGrowthApplicationSchemaContract.target.checksum}'
+        WHERE migration_name='${sdkGrowthApplicationSchemaContract.target.migrationName}';`);
+
+      rehearsalPhase = "postflight-negative-probes";
       admin(`DROP TRIGGER sdk_growth_publication_immutable ON public."SdkGrowthPublicationEffect";
 CREATE TRIGGER sdk_growth_publication_immutable
   BEFORE UPDATE OF "lastEvidence" OR DELETE ON public."SdkGrowthPublicationEffect"
@@ -600,7 +824,10 @@ DROP OWNED BY reviewrouter_sdk_growth_set_role_writer;
 DROP ROLE reviewrouter_sdk_growth_set_role_writer;`);
       expect(checkpoint("postflight").phase).toBe("postflight");
     } catch (error) {
-      executionError = error;
+      executionError = new Error(
+        `sdk_growth_pg17_rehearsal_phase_failed:${rehearsalPhase}`,
+        { cause: error },
+      );
     } finally {
       const identity = spawnSync(
         "docker",
