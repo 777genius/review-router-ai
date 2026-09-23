@@ -38,6 +38,11 @@
       "types": "./src/infrastructure/outbox/sdk-growth-publication.ts",
       "production": "./dist/infrastructure/outbox/sdk-growth-publication.js",
       "default": "./src/infrastructure/outbox/sdk-growth-publication.ts"
+    },
+    "./infrastructure/github-policy": {
+      "types": "./src/infrastructure/github/octokit-effective-github-policy-observer.ts",
+      "production": "./dist/infrastructure/github/octokit-effective-github-policy-observer.js",
+      "default": "./src/infrastructure/github/octokit-effective-github-policy-observer.ts"
     }
   },
   "scripts": {
