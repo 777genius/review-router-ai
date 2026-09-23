@@ -126,18 +126,23 @@ export async function loadHostedPoolDashboardView(input: {
   );
   const [accounts, bindings] = await Promise.all([
     pool ? input.queries.listAccountSummaries(pool.id) : Promise.resolve([]),
-    Promise.all(
-      input.repositories.map((repository) =>
-        input.queries.getRepositoryBindingSummary(repositoryId(repository.id)),
-      ),
+    input.queries.listRepositoryBindingSummaries(
+      input.repositories.map((repository) => repositoryId(repository.id)),
     ),
   ]);
+  const bindingByRepositoryId = new Map(
+    bindings.map((binding) => [String(binding.repositoryId), binding] as const),
+  );
   return {
     gate: "enabled",
     pool,
     accounts,
-    repositories: input.repositories.map((repository, index) =>
-      toRepositoryView(repository, bindings[index] ?? null, pool),
+    repositories: input.repositories.map((repository) =>
+      toRepositoryView(
+        repository,
+        bindingByRepositoryId.get(repository.id) ?? null,
+        pool,
+      ),
     ),
   };
 }

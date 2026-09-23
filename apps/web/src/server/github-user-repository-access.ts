@@ -81,6 +81,25 @@ export async function listGitHubUserRepositoryAccess(input: {
     };
   }
 
+  // A workspace admin does not need GitHub user permission discovery for
+  // installations already covered by workspace-wide access. When no other
+  // active installation exists, an empty cache would otherwise trigger a
+  // multi-page GitHub API refresh on every dashboard navigation.
+  const excludedWorkspaceIds = input.excludedWorkspaceIds ?? [];
+  if (excludedWorkspaceIds.length > 0) {
+    const unscopedInstallation =
+      await input.prisma.gitHubInstallation.findFirst({
+        where: {
+          status: "active",
+          workspaceId: { notIn: [...excludedWorkspaceIds] },
+        },
+        select: { id: true },
+      });
+    if (!unscopedInstallation) {
+      return emptyGitHubUserRepositoryAccess({ status: "ready" });
+    }
+  }
+
   const refreshed = await refreshGitHubUserRepositoryAccess(input);
   if (refreshed.status !== "ready") return refreshed;
 

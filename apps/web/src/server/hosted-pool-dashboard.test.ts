@@ -350,6 +350,7 @@ describe("hosted pool dashboard boundary", () => {
           getDefaultPoolSummary: vi.fn(async () => null),
           listAccountSummaries: vi.fn(async () => []),
           getRepositoryBindingSummary: vi.fn(async () => null),
+          listRepositoryBindingSummaries: vi.fn(async () => []),
         },
       });
       expect(view.repositories[0]).toMatchObject({
@@ -405,11 +406,13 @@ describe("hosted pool dashboard boundary", () => {
       getDefaultPoolSummary: vi.fn(async () => null),
       listAccountSummaries: vi.fn(async () => []),
       getRepositoryBindingSummary: vi.fn(async () => null),
+      listRepositoryBindingSummaries: vi.fn(async () => []),
     };
     const view = await loadHostedPoolDashboardView({
       workspaceId: "workspace-1",
       repositories: [
         { id: "repo-1", fullName: "acme/private", visibility: "private" },
+        { id: "repo-2", fullName: "acme/second", visibility: "public" },
       ],
       featureEnabled: true,
       entitled: true,
@@ -420,6 +423,14 @@ describe("hosted pool dashboard boundary", () => {
       bindingVersion: 0,
       activation: "legacy",
     });
+    expect(view.repositories[1]).toMatchObject({
+      source: "repository_secret",
+      bindingVersion: 0,
+    });
+    expect(
+      queries.listRepositoryBindingSummaries,
+    ).toHaveBeenCalledExactlyOnceWith(["repo-1", "repo-2"]);
+    expect(queries.getRepositoryBindingSummary).not.toHaveBeenCalled();
   });
 
   it("never silently falls back when a hosted binding exists but its pool is unavailable", async () => {
@@ -437,6 +448,19 @@ describe("hosted pool dashboard boundary", () => {
         activatedAt: new Date(),
         updatedAt: new Date(),
       })),
+      listRepositoryBindingSummaries: vi.fn(async () => [
+        {
+          id: "binding-1" as never,
+          bindingId: "binding-1" as never,
+          repositoryId: "repo-1" as never,
+          poolId: "pool-1" as never,
+          revision: 3,
+          stateVersion: 5,
+          status: "active" as const,
+          activatedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]),
     };
     const view = await loadHostedPoolDashboardView({
       workspaceId: "workspace-1",
@@ -479,6 +503,19 @@ describe("hosted pool dashboard boundary", () => {
         activatedAt: new Date(),
         updatedAt: new Date(),
       })),
+      listRepositoryBindingSummaries: vi.fn(async () => [
+        {
+          id: "binding-1" as never,
+          bindingId: "binding-1" as never,
+          repositoryId: "repo-1" as never,
+          poolId: "pool-1" as never,
+          revision: 4,
+          stateVersion: 6,
+          status: "draining" as const,
+          activatedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]),
     };
     const view = await loadHostedPoolDashboardView({
       workspaceId: "workspace-1",

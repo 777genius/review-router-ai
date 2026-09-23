@@ -40,6 +40,7 @@ const repositoryFilterOptions = [
 export function RepositoryLiveSearch({
   workspaceKey,
   selectedRepositoryFullName,
+  selectedRepositoryId,
   initialQuery,
   initialFilter,
   searchIndex,
@@ -49,6 +50,7 @@ export function RepositoryLiveSearch({
 }: {
   readonly workspaceKey: string;
   readonly selectedRepositoryFullName: string | null;
+  readonly selectedRepositoryId: string | null;
   readonly initialQuery: string;
   readonly initialFilter: RepositorySearchFilter;
   readonly searchIndex: readonly RepositorySearchIndexItem[];
@@ -63,21 +65,26 @@ export function RepositoryLiveSearch({
   const [matchingIds, setMatchingIds] = useState<ReadonlySet<string>>(
     () => new Set(filterLocalSearch(searchIndex, initialQuery, initialFilter)),
   );
-  const [isRoutePending, startRouteTransition] = useTransition();
+  const [needsServerRows, setNeedsServerRows] = useState(false);
+  const [, startRouteTransition] = useTransition();
   const normalizedQuery = query.trim();
-  const hasUncommittedSearch =
-    normalizedQuery !== initialQuery.trim() || activeFilter !== initialFilter;
   const matchingCount = matchingIds.size;
   const hasActiveQuery = normalizedQuery.length > 0;
   const hasActiveFilter = hasActiveQuery || activeFilter !== "all";
-  const isSearchLoading = isRoutePending || hasUncommittedSearch;
+  const isSearchLoading = needsServerRows;
   const renderedCountLabel = Math.min(matchingCount, rowLimit);
   const updateLocalMatches = (
     nextQuery: string,
     nextFilter: RepositorySearchFilter,
   ) => {
-    setMatchingIds(
-      new Set(filterLocalSearch(searchIndex, nextQuery.trim(), nextFilter)),
+    const nextMatchingIds = filterLocalSearch(
+      searchIndex,
+      nextQuery.trim(),
+      nextFilter,
+    );
+    setMatchingIds(new Set(nextMatchingIds));
+    setNeedsServerRows(
+      firstPageNeedsServerRows(nextMatchingIds, rowLimit, selectedRepositoryId),
     );
   };
   const helperText = useRepositorySearchHelperText({
@@ -100,8 +107,10 @@ export function RepositoryLiveSearch({
   }, [isSearchLoading]);
 
   useEffect(() => {
-    const nextMatchingIds = new Set(
-      filterLocalSearch(searchIndex, normalizedQuery, activeFilter),
+    const nextMatchingIds = filterLocalSearch(
+      searchIndex,
+      normalizedQuery,
+      activeFilter,
     );
     const nextUrl = buildSearchUrl({
       workspaceKey,
@@ -110,12 +119,26 @@ export function RepositoryLiveSearch({
       filter: activeFilter,
     });
 
-    setMatchingIds(nextMatchingIds);
+    setMatchingIds(new Set(nextMatchingIds));
+    const requiresServerRows = firstPageNeedsServerRows(
+      nextMatchingIds,
+      rowLimit,
+      selectedRepositoryId,
+    );
+    setNeedsServerRows(requiresServerRows);
     const timeout = window.setTimeout(
       () => {
-        replaceSearchUrl(router, nextUrl, startRouteTransition);
+        if (requiresServerRows) {
+          startRouteTransition(() => {
+            router.replace(nextUrl, { scroll: false });
+          });
+        } else if (!searchUrlMatchesCurrentPage(nextUrl)) {
+          // Passing Next's current __NA state bypasses its patched History API
+          // and leaves useSearchParams stale. Next copies that state itself.
+          window.history.replaceState(null, "", nextUrl);
+        }
       },
-      hasActiveQuery ? 180 : 0,
+      requiresServerRows && hasActiveQuery ? 180 : 0,
     );
 
     return () => {
@@ -126,11 +149,39 @@ export function RepositoryLiveSearch({
     hasActiveQuery,
     normalizedQuery,
     router,
+    rowLimit,
     searchIndex,
+    selectedRepositoryId,
     selectedRepositoryFullName,
     startRouteTransition,
     workspaceKey,
   ]);
+
+  useEffect(() => {
+    const restoreSearchFromUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      const restoredQuery = params.get("q") ?? "";
+      const restoredFilter = readRepositorySearchFilter(params);
+      setQuery(restoredQuery);
+      setActiveFilter(restoredFilter);
+      const restoredMatches = filterLocalSearch(
+        searchIndex,
+        restoredQuery,
+        restoredFilter,
+      );
+      setMatchingIds(new Set(restoredMatches));
+      setNeedsServerRows(
+        firstPageNeedsServerRows(
+          restoredMatches,
+          rowLimit,
+          selectedRepositoryId,
+        ),
+      );
+    };
+
+    window.addEventListener("popstate", restoreSearchFromUrl);
+    return () => window.removeEventListener("popstate", restoreSearchFromUrl);
+  }, [rowLimit, searchIndex, selectedRepositoryId]);
 
   return (
     <section
@@ -427,6 +478,32 @@ function applyRepositoryVisibility(matchingIds: ReadonlySet<string>): void {
     });
 }
 
+function firstPageNeedsServerRows(
+  matchingIds: readonly string[],
+  rowLimit: number,
+  selectedRepositoryId: string | null,
+): boolean {
+  const table = document
+    .querySelector<HTMLElement>("[data-repository-live-search]")
+    ?.closest<HTMLElement>("[data-repository-table]");
+  const renderedIds = new Set(
+    Array.from(
+      table?.querySelectorAll<HTMLElement>("[data-repository-row-id]") ?? [],
+      (element) => element.dataset.repositoryRowId,
+    ),
+  );
+  const selectedBeyondFirstPage =
+    selectedRepositoryId &&
+    matchingIds.includes(selectedRepositoryId) &&
+    !matchingIds.slice(0, rowLimit).includes(selectedRepositoryId);
+  const firstPageCount = selectedBeyondFirstPage ? rowLimit - 1 : rowLimit;
+  return (
+    Boolean(
+      selectedBeyondFirstPage && !renderedIds.has(selectedRepositoryId),
+    ) || matchingIds.slice(0, firstPageCount).some((id) => !renderedIds.has(id))
+  );
+}
+
 function applyRepositorySearchLoading(loading: boolean): void {
   const search = document.querySelector<HTMLElement>(
     "[data-repository-live-search]",
@@ -496,18 +573,6 @@ function appendFilterParams(
   }
 }
 
-function replaceSearchUrl(
-  router: ReturnType<typeof useRouter>,
-  nextUrl: string,
-  startTransition: (callback: () => void) => void,
-): void {
-  if (searchUrlMatchesCurrentPage(nextUrl)) return;
-
-  startTransition(() => {
-    router.replace(nextUrl, { scroll: false });
-  });
-}
-
 function searchUrlMatchesCurrentPage(nextUrl: string): boolean {
   const current = new URL(window.location.href);
   const next = new URL(nextUrl, window.location.origin);
@@ -525,4 +590,21 @@ function searchUrlMatchesCurrentPage(nextUrl: string): boolean {
       (current.searchParams.get(key) ?? "") ===
       (next.searchParams.get(key) ?? ""),
   );
+}
+
+function readRepositorySearchFilter(
+  params: URLSearchParams,
+): RepositorySearchFilter {
+  switch (params.get("setup")) {
+    case "needed":
+      return "needs_setup";
+    case "attention":
+      return "needs_attention";
+    case "ready":
+      return "ready";
+  }
+  const visibility = params.get("visibility");
+  return visibility === "private" || visibility === "public"
+    ? visibility
+    : "all";
 }

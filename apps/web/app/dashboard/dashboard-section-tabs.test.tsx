@@ -27,6 +27,13 @@ describe("DashboardSectionTabs", () => {
     render(<DashboardSectionTabs items={items} selectedSection="setup" />);
 
     expect(DASHBOARD_SECTIONS.at(-1)).toBe("memory");
+    expect(dashboardSectionMeta.memory.navDescription).toMatch(
+      /in development/i,
+    );
+    expect(dashboardSectionMeta.memory.description).toMatch(/in development/i);
+    expect(
+      screen.getByRole("tab", { name: /MemoryIn development/i }),
+    ).toBeTruthy();
     const setupLink = screen.getByRole("tab", { name: /AccountsEncrypted/i });
     expect(setupLink.getAttribute("href")).toBe(
       "/dashboard/setup?workspace=acme",
@@ -61,6 +68,9 @@ describe("DashboardSectionTabs", () => {
     }
     expect(
       screen.getByRole("link", { name: /Accounts/i }).querySelector("svg"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: /MemoryIn development/i }),
     ).toBeTruthy();
   });
 });

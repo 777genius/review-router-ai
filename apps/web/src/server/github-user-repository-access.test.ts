@@ -22,6 +22,38 @@ describe("GitHub user repository access", () => {
     expect(repositoryPermissionAllowsDashboardMutation(null)).toBe(false);
   });
 
+  it("skips GitHub discovery when all active installations have workspace-wide access", async () => {
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const fetchMock = vi.fn();
+    const prisma = {
+      repositoryPermissionCache: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      gitHubInstallation: { findFirst },
+    } as unknown as PrismaClient;
+
+    const result = await listGitHubUserRepositoryAccess({
+      prisma,
+      actor: {
+        userId: "user_1",
+        githubUserId: "123",
+        githubLogin: "maintainer",
+      },
+      excludedWorkspaceIds: ["workspace_1"],
+      fetch: fetchMock,
+    });
+
+    expect(result).toMatchObject({ status: "ready", workspaceIds: [] });
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        status: "active",
+        workspaceId: { notIn: ["workspace_1"] },
+      },
+      select: { id: true },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("discovers manageable installed repositories from the user access token", async () => {
     const cacheRows: {
       checkedAt: Date;
