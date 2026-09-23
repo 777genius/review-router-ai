@@ -416,6 +416,33 @@ export async function loadDashboardSectionData(
     : workspace.installations.filter((installation) =>
         visibleRepositoryOwners.has(installation.accountLogin.toLowerCase()),
       );
+  const providerSetupPromise = needsReadiness
+    ? prisma.providerSetupState
+        .findMany({
+          where: {
+            workspaceId: workspace.id,
+            repositoryId: { in: repositoryIds },
+          },
+          select: {
+            repositoryId: true,
+            providerKind: true,
+            authMode: true,
+            state: true,
+            updatedAt: true,
+          },
+        })
+        .then((providerSetup) =>
+          deriveDashboardProviderSetupReadiness({
+            providerSetup,
+            repositories: visibleRepositories,
+            workspaceId: workspace.id,
+            readiness: new PrismaCodexRotatingSetupReadiness(
+              prisma,
+              requireReviewRouterDatabaseRecoveryWitness(),
+            ),
+          }),
+        )
+    : Promise.resolve([]);
   // These reads do not depend on one another. Run them together so the section
   // waits for its slowest source, rather than the sum of every DB/API latency.
   const [
@@ -425,7 +452,7 @@ export async function loadDashboardSectionData(
     repositoryConfigs,
     outboxFailures,
     provisioning,
-    cachedProviderSetup,
+    providerSetup,
     supportDiagnostics,
     orgRuleset,
     dashboardInstallations,
@@ -478,21 +505,7 @@ export async function loadDashboardSectionData(
           { provisioning: new PrismaWorkflowProvisioningQuery(prisma) },
         )
       : Promise.resolve([]),
-    needsReadiness
-      ? prisma.providerSetupState.findMany({
-          where: {
-            workspaceId: workspace.id,
-            repositoryId: { in: repositoryIds },
-          },
-          select: {
-            repositoryId: true,
-            providerKind: true,
-            authMode: true,
-            state: true,
-            updatedAt: true,
-          },
-        })
-      : Promise.resolve([]),
+    providerSetupPromise,
     section === "diagnostics" && hasWorkspaceWideAccess
       ? getWorkspaceSupportDiagnostics(
           {
@@ -528,17 +541,6 @@ export async function loadDashboardSectionData(
   const health = workspaceHealth.filter((item) =>
     visibleRepositoryIds.has(item.repositoryId),
   );
-  const providerSetup = needsReadiness
-    ? await deriveDashboardProviderSetupReadiness({
-        providerSetup: cachedProviderSetup,
-        repositories: visibleRepositories,
-        workspaceId: workspace.id,
-        readiness: new PrismaCodexRotatingSetupReadiness(
-          prisma,
-          requireReviewRouterDatabaseRecoveryWitness(),
-        ),
-      })
-    : [];
   const [memoryItems, memorySuggestions, memoryPolicy] =
     section === "memory"
       ? await Promise.all([
@@ -749,6 +751,19 @@ async function buildMemoryPolicySimulation(input: {
   ]);
 }
 
+const organizationSecretPolicyCache = new Map<
+  string,
+  | { readonly pending: Promise<DashboardOrganizationSecretPolicy> }
+  | {
+      readonly policy: DashboardOrganizationSecretPolicy;
+      readonly expiresAt: number;
+    }
+>();
+const organizationSecretPolicyCacheMaxEntries = 128;
+const organizationSecretPolicyTtlMs = 5 * 60 * 1000;
+const organizationSecretPolicyPermissionTtlMs = 30 * 1000;
+const organizationSecretPolicyUnknownTtlMs = 5 * 1000;
+
 async function loadOrganizationSecretPolicy(input: {
   readonly accountLogin: string;
   readonly accountType: string;
@@ -758,6 +773,52 @@ async function loadOrganizationSecretPolicy(input: {
     return null;
   }
 
+  const key = `${input.githubInstallationId}:${input.accountLogin.toLowerCase()}`;
+  const cached = organizationSecretPolicyCache.get(key);
+  if (cached) {
+    if ("pending" in cached) {
+      return cached.pending;
+    }
+    if (cached.expiresAt > Date.now()) {
+      organizationSecretPolicyCache.delete(key);
+      organizationSecretPolicyCache.set(key, cached);
+      return cached.policy;
+    }
+    organizationSecretPolicyCache.delete(key);
+  }
+
+  const pending = fetchOrganizationSecretPolicy(input).then((policy) => {
+    if (organizationSecretPolicyCache.get(key) !== entry) {
+      return policy;
+    }
+    const ttl =
+      policy.status === "available"
+        ? organizationSecretPolicyTtlMs
+        : policy.status === "permission_required"
+          ? organizationSecretPolicyPermissionTtlMs
+          : organizationSecretPolicyUnknownTtlMs;
+    organizationSecretPolicyCache.set(key, {
+      policy,
+      expiresAt: Date.now() + ttl,
+    });
+    return policy;
+  });
+  const entry = { pending };
+  organizationSecretPolicyCache.set(key, entry);
+  if (
+    organizationSecretPolicyCache.size > organizationSecretPolicyCacheMaxEntries
+  ) {
+    organizationSecretPolicyCache.delete(
+      organizationSecretPolicyCache.keys().next().value!,
+    );
+  }
+  return pending;
+}
+
+async function fetchOrganizationSecretPolicy(input: {
+  readonly accountLogin: string;
+  readonly githubInstallationId: bigint;
+}): Promise<DashboardOrganizationSecretPolicy> {
   try {
     const octokit = await createGitHubAppInstallationOctokit(
       input.githubInstallationId.toString(),
