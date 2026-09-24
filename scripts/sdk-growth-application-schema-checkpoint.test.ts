@@ -680,7 +680,20 @@ describePg17("SDK growth separate disposable PG17 migration rehearsal", () => {
       const fixtureMigrations = readdirSync(join(prismaRoot, "migrations"))
         .filter((name) => /^\d{6}_/u.test(name))
         .sort();
-      expect(fixtureMigrations.at(-1)).toBe(
+      for (const migration of fixtureMigrations) {
+        if (
+          migration >
+          sdkGrowthApplicationSchemaContract.predecessor.migrationName
+        ) {
+          rmSync(join(prismaRoot, "migrations", migration), {
+            recursive: true,
+          });
+        }
+      }
+      const historicalMigrations = readdirSync(join(prismaRoot, "migrations"))
+        .filter((name) => /^\d{6}_/u.test(name))
+        .sort();
+      expect(historicalMigrations.at(-1)).toBe(
         sdkGrowthApplicationSchemaContract.predecessor.migrationName,
       );
       const configPath = join(root, "prisma.config.ts");
