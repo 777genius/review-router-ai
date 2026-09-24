@@ -670,11 +670,13 @@ describePg17("SDK growth separate disposable PG17 migration rehearsal", () => {
         });
       const prismaRoot = join(root, "prisma");
       cpSync("packages/platform/db/prisma", prismaRoot, { recursive: true });
-      for (const migration of [
-        sdkGrowthApplicationSchemaContract.target,
-        sdkGrowthApplicationSchemaContract.logicalIdentity.target,
+      for (const migrationName of [
+        sdkGrowthApplicationSchemaContract.target.migrationName,
+        sdkGrowthApplicationSchemaContract.logicalIdentity.target.migrationName,
+        "000107_sdk_growth_verifier_assignment",
+        "000108_sdk_growth_verifier_assignment_lock",
       ])
-        rmSync(join(prismaRoot, "migrations", migration.migrationName), {
+        rmSync(join(prismaRoot, "migrations", migrationName), {
           recursive: true,
         });
       const fixtureMigrations = readdirSync(join(prismaRoot, "migrations"))
