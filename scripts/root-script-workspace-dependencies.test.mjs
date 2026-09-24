@@ -15,7 +15,9 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const rootPackage = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const rootPackage = JSON.parse(
+  readFileSync(join(root, "package.json"), "utf8"),
+);
 const rootLock = readFileSync(join(root, "pnpm-lock.yaml"), "utf8").split(
   "\n  apps/",
 )[0];
@@ -37,14 +39,18 @@ function fixtureFor(name, packagePath, exportSource) {
 }
 
 function runFixture(fixture, script) {
-  const result = spawnSync(process.execPath, ["--conditions=production", script], {
-    cwd: fixture,
-    encoding: "utf8",
-    env: { NODE_ENV: "test" },
-    timeout: 15_000,
-    killSignal: "SIGKILL",
-    maxBuffer: 65_536,
-  });
+  const result = spawnSync(
+    process.execPath,
+    ["--conditions=production", script],
+    {
+      cwd: fixture,
+      encoding: "utf8",
+      env: { NODE_ENV: "test" },
+      timeout: 15_000,
+      killSignal: "SIGKILL",
+      maxBuffer: 65_536,
+    },
+  );
   assert.ifError(result.error);
   return result;
 }
