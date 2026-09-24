@@ -29,9 +29,11 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git \
   && rm -rf /var/lib/apt/lists/*
 COPY . .
-RUN node scripts/install-private-dependencies.mjs --frozen-lockfile \
-  && pnpm --filter @reviewrouter/platform-db db:generate \
-  && pnpm --filter @reviewrouter/api... --filter @reviewrouter/worker... --filter @reviewrouter/web... build \
+RUN node scripts/install-private-dependencies.mjs --frozen-lockfile
+RUN --network=none \
+  env REVIEW_ROUTER_PRISMA_NETWORK_ALREADY_ISOLATED=1 \
+  node scripts/generate-prisma-offline.mjs
+RUN pnpm --filter @reviewrouter/api... --filter @reviewrouter/worker... --filter @reviewrouter/web... build \
   && node scripts/rewrite-dist-esm-imports.mjs \
   && pnpm store prune
 

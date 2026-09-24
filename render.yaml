@@ -9,7 +9,7 @@ services:
     plan: starter
     region: frankfurt
     branch: main
-    buildCommand: pnpm --version && NODE_ENV=development node scripts/install-private-dependencies.mjs --frozen-lockfile && pnpm db:generate && pnpm build
+    buildCommand: pnpm --version && NODE_ENV=development node scripts/install-private-dependencies.mjs --frozen-lockfile && env -u SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 -u GIT_SSH_COMMAND -u GIT_SSH_VARIANT node scripts/generate-prisma-offline.mjs && pnpm build
     startCommand: env -u SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 HOST=0.0.0.0 pnpm release-control:start
     healthCheckPath: /health
     autoDeployTrigger: off
@@ -72,7 +72,7 @@ services:
     plan: starter
     region: frankfurt
     branch: main
-    buildCommand: pnpm --version && NODE_ENV=development node scripts/install-private-dependencies.mjs --frozen-lockfile && pnpm db:generate && pnpm build
+    buildCommand: pnpm --version && NODE_ENV=development node scripts/install-private-dependencies.mjs --frozen-lockfile && env -u SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 -u GIT_SSH_COMMAND -u GIT_SSH_VARIANT node scripts/generate-prisma-offline.mjs && pnpm build
     startCommand: env -u SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64 HOST=0.0.0.0 pnpm release-witness:start
     healthCheckPath: /health
     autoDeployTrigger: off
