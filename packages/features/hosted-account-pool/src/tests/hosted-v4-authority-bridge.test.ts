@@ -28,6 +28,8 @@ const live: HostedV4LiveAuthority = {
   scmRepositoryIdentityId: "scm-1",
   githubRepositoryId: "123",
   githubInstallationId: "456",
+  owner: "owner",
+  repo: "repo",
   providerInstanceId: "hosted-pool:repository:123",
   bindingId: "binding-1",
   bindingVersion: 2,
@@ -123,9 +125,12 @@ describe("hosted v4 authority bridge", () => {
     );
   });
 
+  // A stale signed scope would remain usable after any one of these authority changes.
   it.each([
     ["repository", { repositoryConnectionId: "other-repository" }],
     ["SCM identity", { scmRepositoryIdentityId: "scm-other" }],
+    ["repository rename", { repo: "other-repo" }],
+    ["pull request", { pullRequestNumber: 8 }],
     ["binding", { bindingVersion: 3 }],
     ["head", { headSha: "b".repeat(40) }],
     ["revision", { reviewRevisionHash: "revision-2" }],

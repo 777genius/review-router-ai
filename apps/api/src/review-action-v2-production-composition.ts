@@ -20,6 +20,7 @@ import type {
   RegisterReviewSnapshotReadV2RoutesDependencies,
 } from "@reviewrouter/features-action-control-plane/v2";
 import { InvestigationTurnProviderKind } from "@reviewrouter/features-review-investigations";
+import { HostedV4AuthorityBridge } from "@reviewrouter/features-hosted-account-pool";
 import {
   investigationPrivateMaterialActiveKeyIdEnvironmentVariable,
   investigationPrivateMaterialKeysEnvironmentVariable,
@@ -103,6 +104,7 @@ import {
   CanonicalReviewRevisionResolutionStatus,
   ImmutableRegistryWriteStatus,
   ProducerReleaseState,
+  ProducerReleaseAttestationStatus,
   ReviewProviderKind,
   ReviewRunAuthorizationState as RunAuthorizationState,
   ReviewSafetyDecisionKind,
@@ -144,6 +146,8 @@ import {
 } from "@reviewrouter/platform-signed-capabilities";
 import {
   ReviewActionV2ProtocolErrorCode,
+  reviewActionV2CanonicalizerDigest,
+  reviewActionV2PublishedSchemaDigest,
   reviewInvestigationExtensionV1,
 } from "@reviewrouter/protocol-review-action-v2";
 import { SystemClock } from "@reviewrouter/shared";
@@ -184,6 +188,9 @@ import {
   composeReviewInvestigationUseCases,
 } from "./review-action-v2-investigation-composition.js";
 import { OctokitCodexRotatingGitHubSecretGateway } from "./github/octokit-codex-rotating-github-secret-gateway.js";
+import { HostedV4ScmReadGateway } from "./github/hosted-v4-scm-read-gateway.js";
+import { createHostedV4AuthoritySources } from "./hosted-v4-authority-sources.js";
+import type { HostedV4ReadRoutesDependencies } from "./hosted-v4-read-routes.js";
 import { ProductionReviewMutationAuthorityProofFacts } from "./review-action-v2-mutation-proof-facts.js";
 import { OctokitReviewV2DispatchCapabilityInspector } from "./github/octokit-review-v2-dispatch-capability-inspector.js";
 import { ReviewInvestigationCertificateVerificationAdapter } from "./review-investigation-certificate-verification-adapter.js";
@@ -252,6 +259,7 @@ type ReviewActionV2RouteRuntime = Pick<
 >;
 
 export type ReviewActionV2ProductionRoutes = Readonly<{
+  hostedV4: HostedV4ReadRoutesDependencies;
   runControl: RegisterReviewRunControlV2RoutesDependencies;
   execution: RegisterReviewExecutionV2RoutesDependencies;
   investigation: RegisterReviewInvestigationV2RoutesDependencies;
@@ -387,6 +395,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
 }): ReviewActionV2ProductionRoutes {
   if (!input.enabled) {
     return Object.freeze({
+      hostedV4: { enabled: false },
       runControl: input.runtime,
       execution: input.runtime,
       investigation: input.runtime,
@@ -440,6 +449,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     runControl,
     oidcAudience,
     providerVoteLanes,
+    workflowInventory,
   } = composeReviewActionV2ProductionRunControl({
     env: input.env,
     prisma: input.prisma,
@@ -486,11 +496,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
     {
       record: (code) => input.recordInvestigationOperationsDiagnostic?.(code),
     };
+  const repositoryReleaseSelector = createRepositoryReleaseSelector(
+    input.env[repositoryReleaseBindingsEnv],
+    repositories.producerReleases,
+  );
   const runControlHandlers = {
-    repositoryReleaseSelector: createRepositoryReleaseSelector(
-      input.env[repositoryReleaseBindingsEnv],
-      repositories.producerReleases,
-    ),
+    repositoryReleaseSelector,
     oidcVerifier: new JoseGitHubActionsOidcTokenVerifier(),
     oidcAudience,
     actionRepositories,
@@ -923,6 +934,15 @@ export function composeReviewActionV2ProductionRoutes(input: {
   });
 
   return Object.freeze({
+    hostedV4: composeProductionHostedV4ReadRoutes({
+      env: input.env,
+      prisma,
+      runControl,
+      repositories,
+      prerequisites,
+      repositoryReleaseSelector,
+      workflowInventory,
+    }),
     runControl: composeReviewActionV2RunControlRoutes({
       enabled: true,
       runtime: input.runtime,
@@ -966,6 +986,73 @@ export function composeReviewActionV2ProductionRoutes(input: {
     snapshot: snapshotPublication.snapshot,
     publication: snapshotPublication.publication,
   });
+}
+
+export const hostedV4ReadEnabledEnv = "REVIEW_ROUTER_HOSTED_V4_READ_ENABLED";
+export const hostedV4ReadSigningKeyEnv =
+  "REVIEW_ROUTER_HOSTED_V4_READ_SIGNING_KEY";
+
+function composeProductionHostedV4ReadRoutes(input: {
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly prisma: PrismaClient;
+  readonly runControl: ReturnType<typeof composeReviewRunControl>;
+  readonly repositories: ReturnType<
+    typeof createPrismaReviewRunControlRepositories
+  >;
+  readonly prerequisites: ReturnType<
+    typeof composeProductionReviewRunAuthorizationPrerequisites
+  >;
+  readonly repositoryReleaseSelector: ReturnType<
+    typeof createRepositoryReleaseSelector
+  >;
+  readonly workflowInventory: OctokitCodexRotatingGitHubSecretGateway;
+}): HostedV4ReadRoutesDependencies {
+  if (input.env[hostedV4ReadEnabledEnv] !== "1") return { enabled: false };
+  const encodedKey = input.env[hostedV4ReadSigningKeyEnv] ?? "";
+  const signingKey = Buffer.from(encodedKey, "base64url");
+  if (
+    signingKey.length < 32 ||
+    signingKey.length > 64 ||
+    signingKey.toString("base64url") !== encodedKey
+  ) {
+    throw new Error("hosted_v4_read_signing_key_invalid");
+  }
+  const scm = new HostedV4ScmReadGateway(input.workflowInventory);
+  const sources = createHostedV4AuthoritySources({
+    prisma: input.prisma,
+    authorizations: input.runControl.authorizations,
+    authorizationQueries: input.repositories.authorizations,
+    releases: input.repositories.producerReleases,
+    scm,
+    currentProducerReleaseId: async (authorization, actionCommitSha) => {
+      const attested = await input.prerequisites.releaseAttestations.attest({
+        actionCommitSha,
+        expectedSchemaDigest: reviewActionV2PublishedSchemaDigest,
+        expectedCanonicalizerDigest: reviewActionV2CanonicalizerDigest,
+      });
+      if (
+        attested.status !== ProducerReleaseAttestationStatus.Attested ||
+        attested.release.state !== ProducerReleaseState.Registered
+      )
+        return null;
+      const selected = await input.repositoryReleaseSelector.select({
+        workspaceId: authorization.workspaceId,
+        repositoryConnectionId: authorization.repositoryConnectionId,
+        scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
+        actionCommitSha,
+        baseRelease: attested.release,
+      });
+      return selected.state === ProducerReleaseState.Registered &&
+        selected.actionCommitSha === actionCommitSha
+        ? selected.producerReleaseId
+        : null;
+    },
+  });
+  return {
+    enabled: true,
+    bridge: new HostedV4AuthorityBridge(sources, signingKey, () => new Date()),
+    scm,
+  };
 }
 
 function requiredGithubRepositoryId(repository: {

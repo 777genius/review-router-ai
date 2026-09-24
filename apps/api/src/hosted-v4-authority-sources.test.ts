@@ -24,6 +24,7 @@ function fixture() {
   let releaseActionSha = "f".repeat(40);
   let currentHead = authorization.headSha;
   let bindingStatus = "active";
+  let pullRequestAccepted = true;
   let beforeReleaseRead = async () => {};
   const sources = createHostedV4AuthoritySources({
     prisma: {
@@ -69,16 +70,16 @@ function fixture() {
     authorizationQueries: {
       findReviewRunAuthorizationById: async () => null,
     } as never,
-    revisions: {
-      resolve: async () => ({
-        status: "resolved",
-        pullRequestNumber: 7,
-        baseSha: "b".repeat(40),
-        mergeBaseSha: "c".repeat(40),
-        headSha: currentHead,
-        reviewRevisionHash: "revision-1",
-      }),
-    } as never,
+    scm: {
+      readCanonicalRevision: async () =>
+        pullRequestAccepted
+          ? {
+              pullRequestNumber: 7,
+              headSha: currentHead,
+              reviewRevisionHash: "revision-1",
+            }
+          : null,
+    },
     releases: {
       findProducerReleaseById: async () => {
         await beforeReleaseRead();
@@ -106,6 +107,9 @@ function fixture() {
     },
     setBindingStatus: (value: string) => {
       bindingStatus = value;
+    },
+    setPullRequestAccepted: (value: boolean) => {
+      pullRequestAccepted = value;
     },
     setBeforeReleaseRead: (value: () => Promise<void>) => {
       beforeReleaseRead = value;
@@ -145,6 +149,15 @@ describe("hosted v4 current-state source", () => {
     ).resolves.toBeNull();
     f.setInstallationWorkspaceId("workspace-1");
     f.setSourceTrust("untrusted");
+    await expect(
+      f.sources.readLiveAuthority(authorization),
+    ).resolves.toBeNull();
+  });
+
+  // A PR response with a foreign base repository or closed state must stop admission.
+  it("rejects a pull request that fails exact live identity", async () => {
+    const f = fixture();
+    f.setPullRequestAccepted(false);
     await expect(
       f.sources.readLiveAuthority(authorization),
     ).resolves.toBeNull();

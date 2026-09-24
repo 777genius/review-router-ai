@@ -4,10 +4,8 @@ import type {
   HostedV4Authorization,
 } from "@reviewrouter/features-hosted-account-pool";
 import {
-  CanonicalReviewRevisionResolutionStatus,
   ProducerReleaseState,
   ReviewRunAuthorizationTokenResolutionStatus,
-  type CanonicalReviewRevisionResolverPort,
   type ProducerReleaseQueryPort,
   type ReviewRunAuthorization,
   type ReviewRunAuthorizationQueryPort,
@@ -58,11 +56,27 @@ export function createHostedV4AuthoritySources(input: {
     "resolveReviewRunAuthorizationToken"
   >;
   readonly authorizationQueries: ReviewRunAuthorizationQueryPort;
-  readonly revisions: CanonicalReviewRevisionResolverPort;
   readonly releases: ProducerReleaseQueryPort;
+  readonly scm: {
+    readCanonicalRevision(input: {
+      readonly workspaceId: string;
+      readonly repositoryConnectionId: string;
+      readonly scmRepositoryIdentityId: string;
+      readonly githubInstallationId: string;
+      readonly githubRepositoryId: string;
+      readonly owner: string;
+      readonly repo: string;
+      readonly pullRequestNumber: number;
+    }): Promise<{
+      readonly pullRequestNumber: number;
+      readonly headSha: string;
+      readonly reviewRevisionHash: string;
+    } | null>;
+  };
   /** Resolve the currently selected exact-head release; never echo the saved ID. */
   readonly currentProducerReleaseId: (
     authorization: HostedV4Authorization,
+    actionCommitSha: string,
   ) => Promise<string | null>;
 }): HostedV4AuthoritySources {
   return {
@@ -116,21 +130,22 @@ export function createHostedV4AuthoritySources(input: {
       }
 
       const [revision, currentProducerReleaseId] = await Promise.all([
-        input.revisions.resolve({
+        input.scm.readCanonicalRevision({
           workspaceId: authorization.workspaceId,
           repositoryConnectionId: repository.id,
           scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
           githubInstallationId:
             repository.installation.githubInstallationId.toString(),
+          githubRepositoryId: repository.githubRepositoryId.toString(),
           owner: repository.owner,
           repo: repository.name,
-          sourceRunId: null,
-          pullRequestNumberHint: authorization.pullRequestNumber,
+          pullRequestNumber: authorization.pullRequestNumber,
         }),
-        input.currentProducerReleaseId(authorization),
+        input.currentProducerReleaseId(authorization, workflowJob.sha),
       ]);
       if (
-        revision.status !== CanonicalReviewRevisionResolutionStatus.Resolved ||
+        !revision ||
+        revision.pullRequestNumber !== authorization.pullRequestNumber ||
         !currentProducerReleaseId
       )
         return null;
@@ -194,6 +209,8 @@ export function createHostedV4AuthoritySources(input: {
         githubRepositoryId,
         githubInstallationId:
           repository.installation.githubInstallationId.toString(),
+        owner: repository.owner,
+        repo: repository.name,
         providerInstanceId: `hosted-pool:repository:${githubRepositoryId}`,
         bindingId: binding.id,
         bindingVersion: Number(binding.revision),

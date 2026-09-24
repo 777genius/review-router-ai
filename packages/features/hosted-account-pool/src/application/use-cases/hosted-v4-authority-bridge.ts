@@ -27,6 +27,8 @@ export type HostedV4LiveAuthority = Readonly<{
   scmRepositoryIdentityId: string;
   githubRepositoryId: string;
   githubInstallationId: string;
+  owner: string;
+  repo: string;
   providerInstanceId: string;
   bindingId: string;
   bindingVersion: number;
@@ -59,6 +61,9 @@ export type HostedV4ReadScope = Readonly<{
   repositoryConnectionId: string;
   githubRepositoryId: string;
   githubInstallationId: string;
+  owner: string;
+  repo: string;
+  pullRequestNumber: number;
   providerInstanceId: string;
   bindingId: string;
   bindingVersion: number;
@@ -71,7 +76,7 @@ export type HostedV4ReadScope = Readonly<{
 type SignedScope = HostedV4ReadScope & { readonly version: 1 };
 
 /**
- * Server-only bridge. The signed capability is for a future SCM read gateway;
+ * Server-only bridge. The signed capability is for the SCM read gateway;
  * it is never a GitHub bearer and cannot be used with relay or comment routes.
  * Each use and refresh checks live authority, so a moved head or revoked run
  * closes an already issued capability without a new persistence table.
@@ -170,6 +175,9 @@ export class HostedV4AuthorityBridge {
       scope.repositoryConnectionId !== live.repositoryConnectionId ||
       scope.githubRepositoryId !== live.githubRepositoryId ||
       scope.githubInstallationId !== live.githubInstallationId ||
+      scope.owner !== live.owner ||
+      scope.repo !== live.repo ||
+      scope.pullRequestNumber !== live.pullRequestNumber ||
       scope.providerInstanceId !== live.providerInstanceId ||
       scope.bindingId !== live.bindingId ||
       scope.bindingVersion !== live.bindingVersion ||
@@ -231,7 +239,9 @@ export class HostedV4AuthorityBridge {
       live.reviewRevisionHash !== authorization.reviewRevisionHash ||
       live.producerReleaseId !== authorization.producerReleaseId ||
       live.providerInstanceId !==
-        `hosted-pool:repository:${live.githubRepositoryId}`
+        `hosted-pool:repository:${live.githubRepositoryId}` ||
+      !live.owner ||
+      !live.repo
     )
       throw denied();
     return live;
@@ -254,6 +264,9 @@ export class HostedV4AuthorityBridge {
       repositoryConnectionId: live.repositoryConnectionId,
       githubRepositoryId: live.githubRepositoryId,
       githubInstallationId: live.githubInstallationId,
+      owner: live.owner,
+      repo: live.repo,
+      pullRequestNumber: live.pullRequestNumber,
       providerInstanceId: live.providerInstanceId,
       bindingId: live.bindingId,
       bindingVersion: live.bindingVersion,
@@ -305,6 +318,9 @@ function isSignedScope(value: unknown): value is SignedScope {
     "repositoryConnectionId",
     "githubRepositoryId",
     "githubInstallationId",
+    "owner",
+    "repo",
+    "pullRequestNumber",
     "providerInstanceId",
     "bindingId",
     "bindingVersion",
@@ -320,8 +336,16 @@ function isSignedScope(value: unknown): value is SignedScope {
     typeof value.bindingVersion === "number" &&
     Number.isSafeInteger(value.bindingVersion) &&
     value.bindingVersion > 0 &&
+    typeof value.pullRequestNumber === "number" &&
+    Number.isSafeInteger(value.pullRequestNumber) &&
+    value.pullRequestNumber > 0 &&
     keys
-      .filter((key) => key !== "version" && key !== "bindingVersion")
+      .filter(
+        (key) =>
+          key !== "version" &&
+          key !== "bindingVersion" &&
+          key !== "pullRequestNumber",
+      )
       .every(
         (key) =>
           typeof value[key] === "string" && (value[key] as string).length > 0,

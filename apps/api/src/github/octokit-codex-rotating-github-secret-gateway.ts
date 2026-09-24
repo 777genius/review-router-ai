@@ -1079,6 +1079,21 @@ export class OctokitCodexRotatingGitHubSecretGateway
     ) {
       throw new Error("codex_rotating_installation_token_permissions_mismatch");
     }
+    if (
+      input.permissions.contents === "read" &&
+      input.permissions.pull_requests === "read" &&
+      (typeof data.permissions !== "object" ||
+        Object.entries(data.permissions).some(
+          ([permission, level]) =>
+            !(
+              (permission === "contents" && level === "read") ||
+              (permission === "pull_requests" && level === "read") ||
+              (permission === "metadata" && level === "read")
+            ),
+        ))
+    ) {
+      throw new Error("codex_rotating_installation_token_permissions_mismatch");
+    }
     return { token: data.token, expiresAt };
   }
 
