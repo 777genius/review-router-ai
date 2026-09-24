@@ -19,6 +19,7 @@ import {
   hostedCodexProductionKmsBindingArn,
   PrismaHostedCodexUpstreamEffectLedger,
   startHostedCodexEffectSweeper,
+  type HostedCommentTokenRevocationProviderPort,
   type RegisterHostedCodexRelayRoutesDependencies,
   assertHostedCustodyReady,
 } from "@reviewrouter/features-hosted-account-pool";
@@ -30,7 +31,7 @@ import {
   isHostedCodexPoolEnabled,
   isHostedCodexRelayEnabled,
 } from "@reviewrouter/platform-config";
-import { SystemClock } from "@reviewrouter/shared";
+import { SystemClock, type Clock } from "@reviewrouter/shared";
 import { OctokitGitHubAppCommentTokenIssuer } from "./github/octokit-github-app-comment-token-issuer.js";
 import { OctokitHostedWorkflowSourceReader } from "./github/octokit-hosted-workflow-source-reader.js";
 import {
@@ -200,44 +201,11 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
       ledger: commentTokenMintLedger,
       vault: commentTokenVault,
       now: () => clock.now(),
-      provider: {
-        async revoke({ token, signal }) {
-          const tokenHash = createHash("sha256")
-            .update(token, "utf8")
-            .digest("hex");
-          const mint = await input.prisma.hostedCodexCommentTokenMint.findFirst(
-            {
-              where: { tokenHash },
-              orderBy: { createdAt: "desc" },
-              select: {
-                grant: {
-                  select: {
-                    status: true,
-                    expiresAt: true,
-                    revokedAt: true,
-                  },
-                },
-              },
-            },
-          );
-          if (hostedCommentTokenGrantStillLive(mint?.grant, clock.now())) {
-            throw new Error("grant_still_live");
-          }
-          const result = await githubCommentTokens.revokeCommentToken({
-            token,
-            signal,
-          });
-          return {
-            evidenceHash: createHash("sha256")
-              .update(`github-installation-token:${result.proof}`, "utf8")
-              .digest("hex"),
-            receipt: {
-              authority: "github_token_delete" as const,
-              result: result.proof,
-            },
-          };
-        },
-      },
+      provider: createHostedCommentTokenRevocationProvider({
+        custodyPrisma: input.custodyPrisma,
+        githubCommentTokens,
+        clock,
+      }),
     }),
   );
   const custodyLifecycle = {
@@ -340,6 +308,54 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
           ),
         };
       },
+    },
+  };
+}
+
+export function createHostedCommentTokenRevocationProvider(input: {
+  readonly custodyPrisma: Pick<PrismaClient, "hostedCodexCommentTokenMint">;
+  readonly githubCommentTokens: Pick<
+    OctokitGitHubAppCommentTokenIssuer,
+    "revokeCommentToken"
+  >;
+  readonly clock: Pick<Clock, "now">;
+}): HostedCommentTokenRevocationProviderPort {
+  return {
+    async revoke({ token, signal }) {
+      const tokenHash = createHash("sha256")
+        .update(token, "utf8")
+        .digest("hex");
+      // The runtime API role cannot SELECT mint rows; only custody may read them.
+      const mint =
+        await input.custodyPrisma.hostedCodexCommentTokenMint.findFirst({
+          where: { tokenHash },
+          orderBy: { createdAt: "desc" },
+          select: {
+            grant: {
+              select: {
+                status: true,
+                expiresAt: true,
+                revokedAt: true,
+              },
+            },
+          },
+        });
+      if (hostedCommentTokenGrantStillLive(mint?.grant, input.clock.now())) {
+        throw new Error("grant_still_live");
+      }
+      const result = await input.githubCommentTokens.revokeCommentToken({
+        token,
+        signal,
+      });
+      return {
+        evidenceHash: createHash("sha256")
+          .update(`github-installation-token:${result.proof}`, "utf8")
+          .digest("hex"),
+        receipt: {
+          authority: "github_token_delete",
+          result: result.proof,
+        },
+      };
     },
   };
 }
