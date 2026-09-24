@@ -62,6 +62,7 @@ describe("Review Action v2 production composition", () => {
       }),
     ).toEqual({
       hostedV4: { enabled: false },
+      hostedV4Relay: { enabled: false },
       runControl: runtime,
       execution: runtime,
       investigation: runtime,
@@ -151,6 +152,9 @@ describe("Review Action v2 production composition", () => {
       prisma: inertPrisma(),
     });
     expect(routes.hostedV4.enabled).toBe(true);
+    // Regression: the v4 read flag must not imply relay grant admission.
+    expect(routes.hostedV4Relay.enabled).toBe(false);
+    expect(routes.hostedV4Relay.resolver).toBeDefined();
   });
 
   it("constructs Prisma-backed enabled handlers only with complete production config", () => {
@@ -179,6 +183,7 @@ describe("Review Action v2 production composition", () => {
 
     expect(routes.runControl.authorize?.capabilityEnabled).toBe(true);
     expect(routes.hostedV4.enabled).toBe(false);
+    expect(routes.hostedV4Relay).toEqual({ enabled: false });
     expect(routes.runControl.renew?.capabilityEnabled).toBe(true);
     expect(routes.execution.start?.capabilityEnabled).toBe(true);
     expect(routes.execution.acquireLease?.capabilityEnabled).toBe(true);

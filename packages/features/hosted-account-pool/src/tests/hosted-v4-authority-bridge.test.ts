@@ -14,8 +14,11 @@ const authorization: HostedV4Authorization = {
   repositoryConnectionId: "repository-1",
   scmRepositoryIdentityId: "scm-1",
   pullRequestNumber: 7,
+  baseSha: "b".repeat(40),
+  mergeBaseSha: "c".repeat(40),
   headSha: head,
   reviewRevisionHash: "revision-1",
+  mutationEpoch: 1n,
   producerReleaseId: "release-1",
   trustDomain: "trusted_managed",
   investigationCodexRecordingAllowed: true,
@@ -88,6 +91,34 @@ function fixture(signingKey = Buffer.alloc(32, 42)) {
 }
 
 describe("hosted v4 authority bridge", () => {
+  // Regression: reusing a read capability or cached authorization would bypass
+  // the v2 token, live head/release, or mutation epoch checks.
+  it("resolves relay prerequisites only from a current v2 token and live authority", async () => {
+    const f = fixture();
+    await expect(
+      f.bridge.resolveRelayAuthority({
+        ...f.input,
+        authorizationToken: "v1-comment-token",
+      }),
+    ).rejects.toThrow("hosted_v4_authority_denied");
+    const resolved = await f.bridge.resolveRelayAuthority(f.input);
+    expect(resolved.authorization.mutationEpoch).toBe(1n);
+    expect(Object.keys(resolved)).toEqual(["authorization", "live"]);
+    f.setLive({ ...live, headSha: "e".repeat(40) });
+    await expect(f.bridge.resolveRelayAuthority(f.input)).rejects.toThrow(
+      "hosted_v4_authority_denied",
+    );
+    f.setLive({ ...live, producerReleaseId: "release-2" });
+    await expect(f.bridge.resolveRelayAuthority(f.input)).rejects.toThrow(
+      "hosted_v4_authority_denied",
+    );
+    f.setLive(live);
+    f.setAuthorization({ ...authorization, state: "revoked" });
+    await expect(f.bridge.resolveRelayAuthority(f.input)).rejects.toThrow(
+      "hosted_v4_authority_denied",
+    );
+  });
+
   it("requires an existing v2 token and issues a five-minute repository-scoped read capability", async () => {
     const f = fixture();
     await expect(
