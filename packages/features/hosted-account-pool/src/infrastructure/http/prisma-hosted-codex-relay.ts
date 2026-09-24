@@ -579,8 +579,7 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
         this.now,
         () => source.destroy(),
       );
-      completion.once("error", () => source.destroy());
-      const body = source.pipe(completion);
+      const body = connectHostedProviderResponseStream(source, completion);
       return {
         statusCode: upstream.status,
         headers: safeResponseHeaders(upstream.headers),
@@ -687,6 +686,18 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
     }
     return result.grant.activeAccountId;
   }
+}
+
+/** Keep both sides of the provider pipe error-observed across client aborts. */
+export function connectHostedProviderResponseStream(
+  source: Readable,
+  completion: Transform,
+): Readable {
+  // pipeline() in the HTTP route observes completion, not this upstream source.
+  // Readable.fromWeb can error when its fetch is aborted by a client close.
+  source.on("error", (error) => completion.destroy(error));
+  completion.once("error", () => source.destroy());
+  return source.pipe(completion);
 }
 
 async function completeFailedRequest(
