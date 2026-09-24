@@ -57,21 +57,44 @@ function execution(value: unknown): AuthenticatedEfExecution {
     !executionKeys.every((key) => Object.hasOwn(record, key))
   )
     reject();
-  const bounded = (key: string) =>
-    typeof record[key] === "string" &&
-    /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}$/.test(record[key]);
-  if (
-    !Number.isSafeInteger(record.pullRequest) ||
-    (record.pullRequest as number) < 1 ||
-    !executionKeys.filter((key) => key !== "pullRequest").every(bounded) ||
-    !["verifierRevision", "sourceCommit", "sourceTree"].every((key) =>
-      /^[a-f0-9]{40}$/.test(record[key] as string),
+  const stringField = (key: string): string => {
+    const field = record[key];
+    if (
+      typeof field !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}$/.test(field)
     )
+      reject();
+    return field;
+  };
+  const pullRequest = record.pullRequest;
+  if (
+    typeof pullRequest !== "number" ||
+    !Number.isSafeInteger(pullRequest) ||
+    pullRequest < 1
   )
     reject();
-  return Object.fromEntries(
-    executionKeys.map((key) => [key, record[key]]),
-  ) as unknown as AuthenticatedEfExecution;
+  const identity = {
+    tenantId: stringField("tenantId"),
+    repositoryId: stringField("repositoryId"),
+    pullRequest,
+    githubRepositoryId: stringField("githubRepositoryId"),
+    installationId: stringField("installationId"),
+    subject: stringField("subject"),
+    runId: stringField("runId"),
+    runAttempt: stringField("runAttempt"),
+    verifierRevision: stringField("verifierRevision"),
+    sourceCommit: stringField("sourceCommit"),
+    sourceTree: stringField("sourceTree"),
+  };
+  if (
+    ![
+      identity.verifierRevision,
+      identity.sourceCommit,
+      identity.sourceTree,
+    ].every((value) => /^[a-f0-9]{40}$/.test(value))
+  )
+    reject();
+  return identity;
 }
 
 function executionDigest(value: AuthenticatedEfExecution): string {
@@ -157,13 +180,23 @@ export class PrismaSdkGrowthVerifierAssignmentStore {
     const scope = jobKey(identity);
     return this.prisma.$transaction(
       async (transaction) => {
+        // The scope may have no row yet. Lock its stable key before either write.
+        await transaction.$queryRaw`
+          SELECT 1 AS "locked"
+          FROM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(${scope}, 0))`;
+        const lockedAt = new Date();
+        if (
+          expiresAt.getTime() <= lockedAt.getTime() ||
+          expiresAt.getTime() > lockedAt.getTime() + maxAssignmentMs
+        )
+          reject();
         await transaction.$executeRaw`
           UPDATE "SdkGrowthVerifierAssignment" SET "revokedAt" = now()
           WHERE "jobKey" = ${scope} AND "revokedAt" IS NULL`;
         const rows = await transaction.$queryRaw`
           INSERT INTO "SdkGrowthVerifierAssignment" (
             "assignmentId", "jobKey", "execution", "createdAt", "expiresAt"
-          ) VALUES (${assignmentId}, ${scope}, ${JSON.stringify(identity)}::jsonb, ${now}, ${expiresAt})
+          ) VALUES (${assignmentId}, ${scope}, ${JSON.stringify(identity)}::jsonb, ${lockedAt}, ${expiresAt})
           RETURNING *`;
         if (rows.length !== 1) reject();
         return assignment(rows[0]);
@@ -186,9 +219,12 @@ export class PrismaSdkGrowthVerifierAssignmentStore {
     transaction?: Query,
   ): Promise<ProtectedVerifierAssignment | null> {
     if (!/^[0-9a-f-]{36}$/.test(assignmentId)) reject();
-    const rows = await (transaction ?? this.prisma).$queryRaw`
-      SELECT * FROM "SdkGrowthVerifierAssignment"
-      WHERE "assignmentId" = ${assignmentId} FOR SHARE`;
+    const rows = transaction
+      ? await transaction.$queryRaw`
+          SELECT * FROM public.sdk_growth_verifier_assignment_lock(${assignmentId})`
+      : await this.prisma.$queryRaw`
+          SELECT * FROM "SdkGrowthVerifierAssignment"
+          WHERE "assignmentId" = ${assignmentId}`;
     if (rows.length !== 1) return null;
     return assignment(rows[0]);
   }
@@ -287,11 +323,15 @@ export class JoseSdkGrowthVerifierProducerAuthenticator implements SdkGrowthVeri
       )
         reject();
       const row = await this.store.load(payload.assignmentId, transaction);
+      // The row lock may have waited behind a scheduler revocation. Validate
+      // both deadlines against time observed after acquiring that lock.
+      const lockedAt = this.now();
       if (
         !row ||
         row.revokedAt ||
-        current.getTime() >= row.expiresAt.getTime() ||
-        current.getTime() < row.createdAt.getTime() ||
+        lockedAt.getTime() >= payload.exp * 1000 ||
+        lockedAt.getTime() >= row.expiresAt.getTime() ||
+        lockedAt.getTime() < row.createdAt.getTime() ||
         payload.iat < Math.floor(row.createdAt.getTime() / 1000) ||
         payload.exp * 1000 > row.expiresAt.getTime() ||
         payload.executionDigest !== executionDigest(row.execution)

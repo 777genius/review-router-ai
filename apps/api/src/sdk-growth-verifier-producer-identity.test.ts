@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { decodeJwt, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import type { AuthenticatedEfExecution } from "@reviewrouter/features-sdk-growth-authority";
@@ -46,10 +47,16 @@ type FakeTransaction = {
 function fixture() {
   const rows = new Map<string, AssignmentRow>();
   const writes: string[] = [];
+  const statements: string[] = [];
   const db = {
     async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
       const sql = strings.join("?");
+      if (sql.includes("pg_advisory_xact_lock")) {
+        statements.push("scope-lock");
+        return [];
+      }
       if (sql.includes('INSERT INTO "SdkGrowthVerifierAssignment"')) {
+        statements.push("insert");
         const row: AssignmentRow = {
           assignmentId: values[0] as string,
           jobKey: values[1] as string,
@@ -61,6 +68,11 @@ function fixture() {
         rows.set(row.assignmentId, row);
         return [structuredClone(row)];
       }
+      if (sql.includes("sdk_growth_verifier_assignment_lock")) {
+        statements.push("assignment-lock");
+        const row = rows.get(values[0] as string);
+        return row ? [structuredClone(row)] : [];
+      }
       if (sql.includes('FROM "SdkGrowthVerifierAssignment"')) {
         const row = rows.get(values[0] as string);
         return row ? [structuredClone(row)] : [];
@@ -71,6 +83,7 @@ function fixture() {
       const sql = strings.join("?");
       if (sql.includes('UPDATE "SdkGrowthVerifierAssignment"')) {
         if (sql.includes('"jobKey"')) {
+          statements.push("replace");
           let count = 0;
           for (const row of rows.values()) {
             if (row.jobKey === values[0] && !row.revokedAt) {
@@ -110,6 +123,7 @@ function fixture() {
     db,
     rows,
     writes,
+    statements,
     store,
     issuer,
     authenticator,
@@ -121,6 +135,131 @@ function fixture() {
 }
 
 describe("protected SDK verifier producer identity", () => {
+  it("locks the empty PR scope before replacement and locks assignment through the custody transaction", async () => {
+    const h = fixture();
+    const first = await h.store.create(
+      execution,
+      new Date(Date.now() + 15 * 60_000),
+    );
+    expect(h.statements.slice(0, 3)).toEqual([
+      "scope-lock",
+      "replace",
+      "insert",
+    ]);
+    const token = await h.issuer.issue(first.assignmentId);
+    expect(h.statements).not.toContain("assignment-lock");
+    await h.authenticator.authenticate(token, h.db);
+    expect(h.statements).toContain("assignment-lock");
+  });
+
+  it("serializes two replacements when their PR scope initially has no row", async () => {
+    const rows: AssignmentRow[] = [];
+    let predecessor = Promise.resolve();
+    const db = {
+      async $transaction<T>(operation: (tx: FakeTransaction) => Promise<T>) {
+        let release: (() => void) | undefined;
+        const tx: FakeTransaction = {
+          async $queryRaw(strings, ...values) {
+            const sql = strings.join("?");
+            if (sql.includes("pg_advisory_xact_lock")) {
+              const previous = predecessor;
+              predecessor = new Promise<void>((resolve) => {
+                release = resolve;
+              });
+              await previous;
+              return [];
+            }
+            if (!sql.includes('INSERT INTO "SdkGrowthVerifierAssignment"'))
+              throw new Error(`unexpected query: ${sql}`);
+            const scope = values[1] as string;
+            if (rows.some((row) => row.jobKey === scope && !row.revokedAt))
+              throw new Error("active_job_key_unique_violation");
+            const row: AssignmentRow = {
+              assignmentId: values[0] as string,
+              jobKey: scope,
+              execution: JSON.parse(values[2] as string),
+              createdAt: values[3] as Date,
+              expiresAt: values[4] as Date,
+              revokedAt: null,
+            };
+            rows.push(row);
+            return [row];
+          },
+          async $executeRaw(_strings, ...values) {
+            let count = 0;
+            for (const row of rows) {
+              if (row.jobKey === values[0] && !row.revokedAt) {
+                row.revokedAt = new Date();
+                count++;
+              }
+            }
+            return count;
+          },
+        };
+        try {
+          return await operation(tx);
+        } finally {
+          release?.();
+        }
+      },
+      async $queryRaw() {
+        return [];
+      },
+      async $executeRaw() {
+        return 0;
+      },
+    };
+    const store = new PrismaSdkGrowthVerifierAssignmentStore(db);
+    const expiresAt = new Date(Date.now() + 15 * 60_000);
+    const [first, second] = await Promise.all([
+      store.create(execution, expiresAt),
+      store.create({ ...execution, runAttempt: "2" }, expiresAt),
+    ]);
+    expect(first.jobKey).toBe(second.jobKey);
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((row) => !row.revokedAt)).toHaveLength(1);
+  });
+
+  it("rejects a JWT that expires while the assignment row lock waits", async () => {
+    const h = fixture();
+    const initial = Date.now();
+    h.setNow(new Date(initial));
+    const row = await h.store.create(
+      execution,
+      new Date(initial + 15 * 60_000),
+    );
+    const token = await h.issuer.issue(row.assignmentId);
+    const originalQuery = h.db.$queryRaw.bind(h.db);
+    h.db.$queryRaw = async (strings, ...values) => {
+      const result = await originalQuery(strings, ...values);
+      if (strings.join("?").includes("sdk_growth_verifier_assignment_lock"))
+        h.setNow(new Date(initial + 6 * 60_000));
+      return result;
+    };
+    await expect(h.authenticator.authenticate(token, h.db)).rejects.toThrow(
+      "credential_rejected",
+    );
+  });
+
+  it("keeps assignment locking restricted to a fixed-path definer function", () => {
+    const migration = readFileSync(
+      new URL(
+        "../../../packages/platform/db/prisma/migrations/000108_sdk_growth_verifier_assignment_lock/migration.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(migration).toMatch(
+      /SECURITY DEFINER\s+SET search_path = pg_catalog/,
+    );
+    expect(migration).toContain('FROM public."SdkGrowthVerifierAssignment"');
+    expect(migration).toContain("FOR SHARE OF assignment");
+    expect(migration).toContain(
+      "REVOKE ALL ON FUNCTION public.sdk_growth_verifier_assignment_lock(text) FROM PUBLIC",
+    );
+    expect(migration).not.toMatch(/GRANT\s+UPDATE/i);
+  });
+
   it("derives the exact execution from the persisted assignment and controls same-token retries", async () => {
     const h = fixture();
     const row = await h.store.create(

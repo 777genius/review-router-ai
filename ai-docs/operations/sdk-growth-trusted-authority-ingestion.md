@@ -102,16 +102,34 @@ verifier custody table access, the verifier producer role assignment SELECT,
 current authority/admission SELECT and verifier custody INSERT/SELECT through
 this adapter, and the protected scheduler role assignment INSERT and
 `revokedAt` UPDATE. The authority API should have only SELECT
-on verifier evidence and finalized reports. The current migration creates
-tables and an immutability trigger; it does **not** create or verify deployed
-database roles or grants. Those grants and process isolation must be checked
-in the target environment before enabling the producer. A shared DB owner or
-shared verifier key with the candidate process would invalidate this boundary.
+on verifier evidence and finalized reports. The assignment migrations create
+the table, an immutability trigger, and a fixed-search-path security-definer
+assignment lock function; it does **not** create or verify deployed database
+roles or grants. Before enabling the producer, substitute the actual isolated
+producer role name and grant:
+
+```sql
+GRANT EXECUTE ON FUNCTION public.sdk_growth_verifier_assignment_lock(text)
+  TO "<verifier_producer_role>";
+```
+
+Migration `000108_sdk_growth_verifier_assignment_lock` revokes the default
+PUBLIC execute grant. Its owner must be the trusted
+assignment table owner so the function can acquire `FOR SHARE` while the
+producer role retains SELECT without assignment UPDATE. The adapter invokes
+the function inside the custody transaction, retaining the row lock through
+commit; the scheduler serializes replacements on the stable PR scope using a
+transaction advisory lock before its UPDATE and INSERT. Those grants and
+process isolation must be checked in the target environment before enabling
+the producer. A shared DB owner or shared verifier key with the candidate
+process would invalidate this boundary.
 
 The assignment checkpoint requires application migration
 `000107_sdk_growth_verifier_assignment` before any protected job is issued.
-This serialization also requires application migration
-`000106_sdk_growth_finalized_report_logical_identity`, which removes the
+It also requires `000108_sdk_growth_verifier_assignment_lock` before the
+producer authenticates a credential. Finalized report serialization requires
+application migration `000106_sdk_growth_finalized_report_logical_identity`,
+which removes the
 digest-based uniqueness constraint. The existing primary key becomes the
 SHA-256 identity of `(evidenceId, grantId)`, so PostgreSQL serializes competing
 writers without indexing the bounded-but-long grant text. The sibling
