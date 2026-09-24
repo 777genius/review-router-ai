@@ -45,6 +45,7 @@ export * from "./application/use-cases/manage-comment-token-refresh-capability";
 export * from "./application/use-cases/reconcile-expired-invocation-grants";
 export * from "./application/use-cases/reconcile-hosted-comment-token-closure";
 export * from "./application/use-cases/hosted-comment-token-mint-protocol";
+export * from "./application/use-cases/hosted-v4-authority-bridge";
 export * from "./application/use-cases/failover-current-relay-request";
 export {
   admitRelayRequest as admitHostedPoolRelayRequest,

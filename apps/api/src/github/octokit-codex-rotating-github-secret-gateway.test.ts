@@ -507,6 +507,26 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     });
   });
 
+  // A GitHub response with issues:write would otherwise turn a read bearer into write authority.
+  it("rejects a read token response with an extra write permission", async () => {
+    mocks.auth.mockResolvedValueOnce({
+      token: "overprivileged-token",
+      expiresAt: "2026-05-25T12:15:00.000Z",
+      permissions: { contents: "read", pull_requests: "read", issues: "write" },
+    });
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+    await expect(
+      gateway.issueContentsReadToken({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        repositoryFullName: "777genius/example",
+      }),
+    ).rejects.toThrow("codex_rotating_installation_token_permissions_mismatch");
+  });
+
   it("rejects unexpected GitHub secret write statuses", async () => {
     mocks.auth.mockResolvedValueOnce({
       token: "ghs_secret_write_token",

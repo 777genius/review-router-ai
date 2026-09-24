@@ -564,6 +564,9 @@ importers:
 
   packages/features/codex-oauth-rotating:
     dependencies:
+      '@reviewrouter/protocol-review-action-v2':
+        specifier: workspace:*
+        version: link:../../protocol-review-action-v2
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared

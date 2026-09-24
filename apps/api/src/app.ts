@@ -186,6 +186,7 @@ import {
   type RegisterSdkGrowthAuthorityRoutesDependencies,
 } from "./sdk-growth-authority-routes.js";
 import { composeProductionSdkGrowthAuthorityRoutes } from "./sdk-growth-authority-composition.js";
+import { registerHostedV4ReadRoutes } from "./hosted-v4-read-routes.js";
 
 export type CreateApiAppOptions = {
   readonly githubWebhookSecret?: string;
@@ -900,6 +901,10 @@ export async function createApiApp(
   if (reviewRunControlV2Dependencies) {
     await registerReviewRunControlV2Routes(app, reviewRunControlV2Dependencies);
   }
+  await registerHostedV4ReadRoutes(
+    app,
+    productionReviewActionV2Dependencies?.hostedV4 ?? { enabled: false },
+  );
   const reviewExecutionV2Dependencies =
     options.reviewExecutionV2Dependencies ??
     productionReviewActionV2Dependencies?.execution ??

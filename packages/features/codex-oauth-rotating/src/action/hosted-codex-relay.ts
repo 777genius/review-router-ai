@@ -243,7 +243,14 @@ export async function startHostedCodexRelayProxy(input: {
   let commentTokenRefreshCount = 0;
   let inFlightRelayRequests = 0;
   let closing = false;
-  let failoverReason: HostedRelayFailoverReason;
+  let fencedReason: HostedRelayFailoverReason;
+  const fenceFurtherResponses = (
+    reason: Exclude<HostedRelayFailoverReason, undefined>,
+  ) => {
+    if (fencedReason === undefined || reason === "ambiguous") {
+      fencedReason = reason;
+    }
+  };
   let replayFenced = false;
   const activeUpstreamRequests = new Set<AbortController>();
   const relaySlotWaiters: Array<() => void> = [];
@@ -337,7 +344,7 @@ export async function startHostedCodexRelayProxy(input: {
             writeProxyError(res, 503, "proxy_closing");
             return;
           }
-          if (replayFenced) {
+          if (replayFenced || fencedReason !== undefined) {
             writeProxyError(res, 409, "proxy_replay_fenced");
             return;
           }
@@ -367,6 +374,13 @@ export async function startHostedCodexRelayProxy(input: {
           }
           return;
         }
+        if (fencedReason !== undefined) {
+          body.fill(0);
+          replayFenced = false;
+          notifyRelaySlot();
+          writeProxyError(res, 409, "proxy_replay_fenced");
+          return;
+        }
         if (requestCount >= input.policy.maxRequests) {
           body.fill(0);
           replayFenced = false;
@@ -381,7 +395,6 @@ export async function startHostedCodexRelayProxy(input: {
         if (inFlightRelayRequests < maxConcurrentRelayRequests) {
           notifyRelaySlot();
         }
-        failoverReason = "ambiguous";
         try {
           upstreamController = new AbortController();
           activeUpstreamRequests.add(upstreamController);
@@ -411,25 +424,27 @@ export async function startHostedCodexRelayProxy(input: {
                 upstream.status >= 200 &&
                 upstream.status < 300
               ) {
-                failoverReason = undefined;
+                fenceFurtherResponses("ambiguous");
                 return;
               }
               throw writeError;
             }
             if (upstream.status === 401 || upstream.status === 429) {
-              failoverReason =
+              fenceFurtherResponses(
                 upstream.status === 401
                   ? "authentication_failed"
-                  : "quota_exhausted";
-            } else if (responseCompletion === "successful") {
-              failoverReason = undefined;
+                  : "quota_exhausted",
+              );
+            } else if (responseCompletion !== "successful") {
+              fenceFurtherResponses("ambiguous");
             }
           } else {
             await upstream.body?.cancel().catch(() => undefined);
-            if (upstream.status >= 200 && upstream.status < 300) {
-              failoverReason = undefined;
-            }
+            fenceFurtherResponses("ambiguous");
           }
+        } catch (error) {
+          fenceFurtherResponses("ambiguous");
+          throw error;
         } finally {
           inFlightRelayRequests -= 1;
           notifyRelaySlot();
@@ -476,7 +491,8 @@ export async function startHostedCodexRelayProxy(input: {
   return {
     baseUrl: `http://127.0.0.1:${address.port}/${nonce}/v1`,
     commentTokenRefreshUrl: `http://127.0.0.1:${address.port}/${nonce}/control/comment-token`,
-    failoverReason: () => failoverReason,
+    failoverReason: () =>
+      fencedReason ?? (inFlightRelayRequests > 0 ? "ambiguous" : undefined),
     close: async () => {
       if (closing) return;
       closing = true;

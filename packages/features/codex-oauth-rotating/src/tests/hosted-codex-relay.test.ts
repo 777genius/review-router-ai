@@ -540,7 +540,7 @@ describe("hosted Codex relay transport", () => {
     }
   });
 
-  it("keeps failover ambiguous after a 200 SSE without the DONE sentinel", async () => {
+  it("fences new turns after a 200 SSE without the DONE sentinel", async () => {
     let upstreamCalls = 0;
     const proxy = await startHostedCodexRelayProxy({
       grant: "opaque-relay-grant",
@@ -571,15 +571,15 @@ describe("hosted Codex relay transport", () => {
         method: "POST",
         body: "{}",
       });
-      expect(nextTurn.status).toBe(200);
-      expect(upstreamCalls).toBe(2);
+      expect(nextTurn.status).toBe(409);
+      expect(upstreamCalls).toBe(1);
       expect(proxy.failoverReason()).toBe("ambiguous");
     } finally {
       await proxy.close();
     }
   });
 
-  it("admits the next Codex turn after a completed 5xx", async () => {
+  it("fences new turns after a completed 5xx with uncertain effects", async () => {
     let upstreamCalls = 0;
     const proxy = await startHostedCodexRelayProxy({
       grant: "opaque-relay-grant",
@@ -607,8 +607,82 @@ describe("hosted Codex relay transport", () => {
         method: "POST",
         body: "{}",
       });
-      expect(nextTurn.status).toBe(500);
+      expect(nextTurn.status).toBe(409);
+      expect(upstreamCalls).toBe(1);
+      expect(proxy.failoverReason()).toBe("ambiguous");
+    } finally {
+      await proxy.close();
+    }
+  });
+
+  it("keeps an ambiguous fence when another in-flight turn succeeds", async () => {
+    let firstStarted!: () => void;
+    let secondStarted!: () => void;
+    let releaseFirst!: (response: Response) => void;
+    let releaseSecond!: (response: Response) => void;
+    const firstStart = new Promise<void>((resolve) => (firstStarted = resolve));
+    const secondStart = new Promise<void>(
+      (resolve) => (secondStarted = resolve),
+    );
+    const firstReply = new Promise<Response>(
+      (resolve) => (releaseFirst = resolve),
+    );
+    const secondReply = new Promise<Response>(
+      (resolve) => (releaseSecond = resolve),
+    );
+    let upstreamCalls = 0;
+    const proxy = await startHostedCodexRelayProxy({
+      grant: "opaque-relay-grant",
+      commentTokenRefreshCapability: "comment-refresh-capability",
+      invocationLeaseId: "invocation-lease-1",
+      bindingId: "binding-1",
+      bindingVersion: 7,
+      relayUrl: "https://relay.reviewrouter.test/v1/responses",
+      upstreamCommentTokenRefreshUrl:
+        "https://relay.reviewrouter.test/v1/comment-token",
+      policy: { maxRequests: 3 },
+      fetchImpl: vi.fn(async () => {
+        upstreamCalls += 1;
+        if (upstreamCalls === 1) {
+          firstStarted();
+          return firstReply;
+        }
+        secondStarted();
+        return secondReply;
+      }) as unknown as typeof fetch,
+    });
+    try {
+      const first = fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      await firstStart;
+      const second = fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      await secondStart;
+      releaseFirst(new Response("failed", { status: 500 }));
+      const firstResponse = await first;
+      expect(firstResponse.status).toBe(500);
+      await firstResponse.text();
+      expect(proxy.failoverReason()).toBe("ambiguous");
+      releaseSecond(
+        new Response("data: [DONE]\n\n", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        }),
+      );
+      const secondResponse = await second;
+      expect(secondResponse.status).toBe(200);
+      await secondResponse.text();
+      const replay = await fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      expect(replay.status).toBe(409);
       expect(upstreamCalls).toBe(2);
+      expect(proxy.failoverReason()).toBe("ambiguous");
     } finally {
       await proxy.close();
     }
@@ -665,7 +739,7 @@ describe("hosted Codex relay transport", () => {
         },
         () => 0,
       );
-      expect(replay).not.toBe(409);
+      expect(replay).toBe(409);
     } finally {
       await proxy.close();
     }

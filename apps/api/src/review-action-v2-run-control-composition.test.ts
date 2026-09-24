@@ -56,6 +56,7 @@ import {
   composeReviewActionV2RunControlRoutes,
   createReviewActionV2RunControlHandlers,
   createServerOwnedReviewActionV2AdmissionFacts,
+  hasAuthorizedCodexInvestigationRecording,
   type ReviewActionV2ResolvedRevision,
   type ReviewActionV2RunControlHandlerDependencies,
 } from "./review-action-v2-run-control-composition.js";
@@ -1034,6 +1035,44 @@ describe("Review Action v2 run-control composition", () => {
         replay.result.authorizationFactsCanonicalJson!,
       ),
     );
+  });
+
+  it("reuses the exact v2 investigation snapshot validator for hosted Codex reads", () => {
+    const descriptor = {
+      authorizationDescriptorVersion: 3,
+      capability: reviewInvestigationCapabilityV1,
+      coverageProfileHash: hash("5"),
+      extensionCanonicalizerDigest:
+        reviewInvestigationExtensionV1.canonicalizerDigest,
+      extensionId: reviewInvestigationExtensionV1.extensionId,
+      extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
+      policyHash: hash("6"),
+      providerCapabilities: [
+        {
+          providerKind: "codex",
+          capabilities: [InvestigationRolloutCapability.Recording],
+        },
+      ],
+    };
+    const authorization = {
+      providerVoteLanes: facts.providerVoteLanes,
+      reviewInvestigationAuthorizationDescriptorCanonicalJson:
+        canonicalJson(descriptor),
+    };
+    expect(hasAuthorizedCodexInvestigationRecording(authorization)).toBe(true);
+    expect(
+      hasAuthorizedCodexInvestigationRecording({
+        ...authorization,
+        reviewInvestigationAuthorizationDescriptorCanonicalJson:
+          JSON.stringify(descriptor),
+      }),
+    ).toBe(false);
+    expect(
+      hasAuthorizedCodexInvestigationRecording({
+        ...authorization,
+        providerVoteLanes: [],
+      }),
+    ).toBe(false);
   });
 
   it("restores a persisted legacy V2 investigation snapshot across deployment", async () => {
