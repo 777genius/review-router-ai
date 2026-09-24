@@ -3913,6 +3913,18 @@ model SdkGrowthPublicationEffect {
 }
 
 // Verifier-owned immutable producer custody. The authority API has read access only.
+model SdkGrowthVerifierAssignment {
+  assignmentId String    @id
+  jobKey       String    @db.VarChar(64)
+  execution    Json
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt    DateTime  @db.Timestamptz(3)
+  revokedAt    DateTime? @db.Timestamptz(3)
+
+  @@index([expiresAt], map: "SdkGrowthVerifierAssignment_expires_idx")
+  // SQL migration has a partial unique index on jobKey WHERE revokedAt IS NULL.
+}
+
 model SdkGrowthVerifierEvidence {
   evidenceId                   String   @id
   tenantId                    String   @db.VarChar(256)

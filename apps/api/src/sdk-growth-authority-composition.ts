@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import type { KeyObject } from "node:crypto";
 import {
   PrismaAuthorityProvisioning,
   PrismaCurrentAuthoritySnapshot,
@@ -37,6 +38,11 @@ import {
   type SdkGrowthVerifierEvidenceSourcePort,
 } from "./sdk-growth-verifier-custody.js";
 import { OctokitSdkGrowthExecutionResolver } from "./github/octokit-sdk-growth-execution-resolver.js";
+import {
+  JoseSdkGrowthVerifierProducerAuthenticator,
+  PrismaSdkGrowthVerifierAssignmentStore,
+  SdkGrowthVerifierCredentialIssuer,
+} from "./sdk-growth-verifier-producer-identity.js";
 
 /** Internal composition only. The provisioning capability must remain with trusted
  * operators; request handlers receive only currentAuthority. */
@@ -69,6 +75,47 @@ export function composeSdkGrowthVerifierProducerCustody(
     authenticator,
     new SdkGrowthVerifierAuthorityPolicy(),
   );
+}
+
+/** Isolated verifier-process composition. Production activation remains off;
+ * no candidate route or API startup path calls this function. The runtime's
+ * DB role needs assignment SELECT but must not have assignment write grants. */
+export function composeProtectedSdkGrowthVerifierProducer(input: {
+  readonly enabled: boolean;
+  readonly prisma: PrismaClient;
+  readonly credentialPublicKey?: KeyObject;
+}) {
+  if (!input.enabled) return null;
+  if (!input.credentialPublicKey)
+    throw new Error("sdk_growth_verifier_key_required");
+  const assignments = new PrismaSdkGrowthVerifierAssignmentStore(input.prisma);
+  return composeSdkGrowthVerifierProducerCustody(
+    input.prisma,
+    new JoseSdkGrowthVerifierProducerAuthenticator(
+      assignments,
+      input.credentialPublicKey,
+    ),
+  );
+}
+
+/** Separate protected scheduler composition; deploy with assignment INSERT and
+ * revocation UPDATE grants, without verifier custody INSERT grants. */
+export function composeProtectedSdkGrowthVerifierScheduler(input: {
+  readonly enabled: boolean;
+  readonly prisma: PrismaClient;
+  readonly credentialPrivateKey?: KeyObject;
+}) {
+  if (!input.enabled) return null;
+  if (!input.credentialPrivateKey)
+    throw new Error("sdk_growth_verifier_key_required");
+  const assignments = new PrismaSdkGrowthVerifierAssignmentStore(input.prisma);
+  return {
+    assignments,
+    credentials: new SdkGrowthVerifierCredentialIssuer(
+      assignments,
+      input.credentialPrivateKey,
+    ),
+  };
 }
 
 export interface ComposeSdkGrowthAuthorityRoutesInput {

@@ -68,15 +68,49 @@ writers. The normal completion transaction still creates the exact receipt relat
 historical receipt readback reads immutable authority custody and therefore
 does not require current authority to remain active.
 
-No dedicated verifier workload credential implementation exists in this
-checkout. The remaining producer integration point is the implementation of
-`SdkGrowthVerifierProducerAuthenticatorPort` in the isolated verifier runtime.
-It must not accept the candidate route's GitHub Actions OIDC credential or give
-the candidate process database write access. Database roles should give the
-authority API read-only access to verifier evidence and the isolated verifier
-producer insert-only access through this adapter.
+`PrismaSdkGrowthVerifierAssignmentStore` and
+`JoseSdkGrowthVerifierProducerAuthenticator` provide the bounded protected
+producer identity checkpoint. A protected scheduler persists the exact
+execution in `SdkGrowthVerifierAssignment`; the internal issuer signs a
+five-minute Ed25519 token containing only the assignment ID and execution
+digest. The protected scheduler holds the private key; the isolated verifier
+producer receives only its public key. The authenticator uses a dedicated
+verifier issuer, audience, subject and token type. It locks and reloads the assignment in the same custody
+transaction, rejects revocation and assignment/token expiry, and returns only
+the persisted execution. A token can be replayed for the same assignment until
+expiry so identical evidence/report retries remain idempotent; revocation or
+expiry stops subsequent writes. Creating another assignment for the same
+tenant/repository/PR revokes the old one atomically, including when the run,
+attempt, verifier revision or head tree changes. A partial unique index permits
+only one active assignment for that PR. The migration
+prevents execution edits after creation. Candidate Actions OIDC and action
+session credentials cannot satisfy this verifier credential boundary.
 
-This serialization requires application migration
+`composeProtectedSdkGrowthVerifierProducer` and
+`composeProtectedSdkGrowthVerifierScheduler` are separate internal composition
+gates requiring explicit `enabled: true` and their respective public/private
+keys. No production
+startup path calls it; production activation remains 0. The issuer and
+assignment create/revoke capability must be exposed only to the isolated
+protected scheduler, never to candidate routes or processes. Key bytes must
+come from the protected runtime secret store and must not be logged. The
+separate scheduler/runtime deployment and key distribution remain integration
+work before activation.
+
+The code assumes the deployment gives the candidate role no assignment or
+verifier custody table access, the verifier producer role assignment SELECT,
+current authority/admission SELECT and verifier custody INSERT/SELECT through
+this adapter, and the protected scheduler role assignment INSERT and
+`revokedAt` UPDATE. The authority API should have only SELECT
+on verifier evidence and finalized reports. The current migration creates
+tables and an immutability trigger; it does **not** create or verify deployed
+database roles or grants. Those grants and process isolation must be checked
+in the target environment before enabling the producer. A shared DB owner or
+shared verifier key with the candidate process would invalidate this boundary.
+
+The assignment checkpoint requires application migration
+`000107_sdk_growth_verifier_assignment` before any protected job is issued.
+This serialization also requires application migration
 `000106_sdk_growth_finalized_report_logical_identity`, which removes the
 digest-based uniqueness constraint. The existing primary key becomes the
 SHA-256 identity of `(evidenceId, grantId)`, so PostgreSQL serializes competing

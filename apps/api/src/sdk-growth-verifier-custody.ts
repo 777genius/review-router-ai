@@ -64,6 +64,7 @@ export interface AuthenticatedSdkGrowthVerifierProducer {
 export interface SdkGrowthVerifierProducerAuthenticatorPort {
   authenticate(
     credential: unknown,
+    transaction?: VerifierEvidencePrisma,
   ): Promise<AuthenticatedSdkGrowthVerifierProducer>;
 }
 
@@ -515,10 +516,6 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
     credential: unknown,
     input: RetainVerifierEvidenceInput,
   ): Promise<VerifierCustodyRecord> {
-    const producer = authenticatedProducer(
-      await this.authenticator.authenticate(credential),
-    );
-    const execution = producer.execution;
     const candidate = boundedBytes(input.candidateArchive, 8 * 1024 * 1024);
     const released = boundedBytes(input.releasedArchive, 8 * 1024 * 1024);
     const tool = boundedBytes(input.toolArchive, 16 * 1024 * 1024);
@@ -528,6 +525,10 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
     );
     return this.prisma.$transaction(
       async (transaction) => {
+        const producer = authenticatedProducer(
+          await this.authenticator.authenticate(credential, transaction),
+        );
+        const execution = producer.execution;
         const link = await currentAuthorityLink(
           transaction,
           execution,
@@ -588,10 +589,6 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
     credential: unknown,
     input: RetainFinalizedVerifierReportInput,
   ): Promise<FinalizedVerifierReportRecord> {
-    const producer = authenticatedProducer(
-      await this.authenticator.authenticate(credential),
-    );
-    const execution = producer.execution;
     const requestDigest = digest(input.requestDigest);
     const grantDigest = digest(input.grantDigest);
     const report = boundedBytes(input.finalizedReport, 16 * 1024 * 1024);
@@ -604,6 +601,10 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
       throw new AuthorityError("invalid-contract");
     return this.prisma.$transaction(
       async (transaction) => {
+        const producer = authenticatedProducer(
+          await this.authenticator.authenticate(credential, transaction),
+        );
+        const execution = producer.execution;
         const link = await currentAuthorityLink(
           transaction,
           execution,
