@@ -2,13 +2,12 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { createEfV3HostTransport, createEfV3InstalledInventoryReader, efV3RequiredPhases } from "../application/ef-v3-host-transport.ts";
 
-const packageRoot = process.env.EF_SDK_PACKAGE_ROOT;
-if (!packageRoot) throw new Error("Set EF_SDK_PACKAGE_ROOT to an installed @agent-teams/engineering-foundation 1.6.0 package.");
+const packageRoot = dirname(fileURLToPath(import.meta.resolve("@agent-teams/engineering-foundation/package.json")));
 const installedManifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
 assert.equal(installedManifest.name, "@agent-teams/engineering-foundation");
 assert.equal(installedManifest.version, "1.6.0");
@@ -19,7 +18,8 @@ const { ReviewRouterGrowthAuthorityAcl } = await ef("capabilities/public-api-com
 const { hashGrowthPayload } = await ef("capabilities/public-api-compatibility/application/policies/compare-growth-surfaces.js");
 const { growthCanonicalJson, normalizeGrowthObservation, growthObservationReference } = await ef("capabilities/public-api-compatibility/application/policies/normalize-growth-observation.js");
 const { growthDimensions } = await ef("capabilities/public-api-compatibility/application/model/growth-observation.js");
-const { growthAuthorityRequestDigest, growthAuthorityGrantDigest, growthAuthorityCompletionDigest } = await ef("capabilities/public-api-compatibility/application/policies/validate-growth-authority.js");
+const { growthAuthorityRequestDigest, growthAuthorityGrantDigest, growthAuthorityCompletionDigest, validateGrowthAuthorityBinding } = await ef("capabilities/public-api-compatibility/application/policies/validate-growth-authority.js");
+const { digest: efDigest, object: efObject } = await ef("capabilities/public-api-compatibility/application/policies/validate-growth-authority-primitives.js");
 const { assertGrowthMetadataRootSources } = await ef("capabilities/public-api-compatibility/adapters/outbound/filesystem/growth-metadata-root-sources.js");
 const { metadataRootObservation } = await ef("capabilities/public-api-compatibility/application/policies/validate-growth-metadata-root.js");
 const { readContainedRegularFile } = await ef("source-inventory/node.js");
@@ -31,6 +31,28 @@ const wire = value => new TextEncoder().encode(JSON.stringify(value));
 const wireDigest = value => `sha256:${fingerprint.sha256(value)}`;
 const cancellation = { throwIfCancelled() {} };
 const now = () => new Date("2026-09-16T11:00:00Z");
+function validateHostRequest(raw) {
+  growthCanonicalJson(raw);
+  growthAuthorityRequestDigest(raw, fingerprint);
+}
+function validateHostCompletion(raw) {
+  growthCanonicalJson(raw);
+  const c = efObject(raw, ["schemaVersion", "kind", "grantId", "grantDigest", "requestDigest", "binding",
+    "reportDigest", "reportByteLength", "coverageDigest", "phasesDigest", "verdict", "releaseEligible",
+    "publication", "promotion"]);
+  if (c.schemaVersion !== "reviewrouter:sdk-growth-authority:3" || c.kind !== "completion" ||
+      c.publication !== "finalized" || typeof c.grantId !== "string" || !c.grantId ||
+      !Number.isSafeInteger(c.reportByteLength) || c.reportByteLength < 0 ||
+      !["admitted", "rejected", "incomplete"].includes(c.verdict) || typeof c.releaseEligible !== "boolean")
+    throw new TypeError("growth-authority-completion-invalid");
+  validateGrowthAuthorityBinding(c.binding);
+  for (const key of ["grantDigest", "requestDigest", "reportDigest", "coverageDigest", "phasesDigest"]) efDigest(c[key]);
+  const promotion = efObject(c.promotion, c.promotion?.kind === "none" ? ["kind"] : ["kind", "planDigest"]);
+  if (promotion.kind !== "none" && promotion.kind !== "plan") throw new TypeError("growth-authority-completion-invalid");
+  if (promotion.kind === "plan") efDigest(promotion.planDigest);
+  growthAuthorityCompletionDigest(raw, fingerprint);
+}
+
 const source = { commit: "1".repeat(40), tree: "2".repeat(40) };
 const invocation = { repository: "github:123", sourceCommit: source.commit, sourceTree: source.tree,
   topologyDigest: d("1"), lockDigest: d("2"), toolchainDigest: d("3"), artifactDigests: [d("4")],
@@ -142,13 +164,15 @@ function fixture() {
 
 function harness(value, installedMutation = files => files, receiptMutation = receipt => receipt) {
   const calls = { resolve: 0, complete: 0, inventory: [] };
-  const port = { async resolve(input) { calls.resolve++;
-    assert.equal(wireDigest(input.canonicalRequestWire), input.requestWireDigest);
-    assert.equal(new TextDecoder().decode(input.canonicalRequestWire), growthCanonicalJson(input.request));
+  const port = { async resolve(input) {
+    // The host validates the original value and canonicalizes the same value
+    // before the first effect. This test host uses EF's exact pinned domain.
+    validateHostRequest(input.request);
+    calls.resolve++;
     const bytes = wire(value.grant); return { wire: bytes, wireDigest: wireDigest(bytes) }; },
-  async complete(input) { calls.complete++;
-    assert.equal(wireDigest(input.canonicalCompletionWire), input.completionWireDigest);
-    assert.equal(new TextDecoder().decode(input.canonicalCompletionWire), growthCanonicalJson(input.completion));
+  async complete(input) {
+    validateHostCompletion(input.completion);
+    calls.complete++;
     const c = input.completion;
     const receipt = { schemaVersion: c.schemaVersion, kind: "receipt", receiptId: "synthetic-receipt", grantId: c.grantId,
       grantDigest: c.grantDigest, requestDigest: c.requestDigest,
@@ -211,11 +235,11 @@ test("v1 substitution is rejected before any installed read", async () => {
   assert.deepEqual(calls.inventory, []);
 });
 
-// Breakage caught: v1 requests must not enter the trusted v3 host port.
-test("v1 request substitution never reaches host resolution", async () => {
+// Breakage caught: v1 requests must be rejected by the host before effects.
+test("v1 request substitution is rejected before host effects", async () => {
   const value = fixture(); value.request.schemaVersion = "reviewrouter:sdk-growth-authority:1";
   const { acl, calls } = harness(value);
-  await assert.rejects(acl.resolve(value.request, cancellation), /ef-v3-request-invalid/);
+  await assert.rejects(acl.resolve(value.request, cancellation), /growth-authority-request-invalid/);
   assert.equal(calls.resolve, 0);
 });
 
@@ -285,4 +309,57 @@ test("EF rejects mismatched metadata root source bytes", async () => {
     value.root.evidence.base.workspaceBytes += "  - forged\n";
     await assert.rejects(verify(), /growth-metadata-root-source-bytes-mismatch/);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+// The adapter deliberately does not claim an EF type. A host must reject the
+// exact EF canonical domain and full request contract before its first effect.
+for (const [name, mutate] of [
+  ["array hole", request => { request.decisionDigests = new Array(1); }],
+  ["non-NFC Unicode", request => { request.binding.target.repository.owner = "e\u0301"; }],
+  ["fractional number", request => { request.binding.target.pullRequestNumber = 44.5; }],
+  ["extra array property", request => { request.decisionDigests.extra = "surprise"; }],
+  ["changing getter", request => {
+    let reads = 0;
+    Object.defineProperty(request, "operation", { enumerable: true,
+      get() { return ++reads === 1 ? "check" : "promote-release"; } });
+  }],
+  ["missing binding field", request => { delete request.binding.historyDigest; }],
+  ["invalid binding digest", request => { request.binding.historyDigest = "sha256:bad"; }],
+]) test(`host rejects ${name} before effects`, async () => {
+  const request = fixture().request;
+  mutate(request);
+  let effects = 0;
+  const host = { async resolve({ request: raw }) {
+    validateHostRequest(raw);
+    effects++;
+    throw new Error("unexpected effect");
+  }, async complete() { throw new Error("unexpected completion"); },
+  async readInstalled() { throw new Error("unexpected inventory"); } };
+  await assert.rejects(createEfV3HostTransport(host).resolve(request), /growth-|invalid-/);
+  assert.equal(effects, 0);
+});
+
+test("host rejects malformed completion before effects", async () => {
+  const completion = incompleteCompletion(fixture().grant);
+  completion.reportDigest = "sha256:bad";
+  let effects = 0;
+  const host = { async resolve() { throw new Error("unexpected resolve"); },
+    async complete({ completion: raw }) {
+      validateHostCompletion(raw);
+      effects++;
+      throw new Error("unexpected effect");
+    }, async readInstalled() { throw new Error("unexpected inventory"); } };
+  await assert.rejects(createEfV3HostTransport(host).complete(completion), /growth-|invalid-/);
+  assert.equal(effects, 0);
+});
+
+test("host rejects missing completion field before effects", async () => {
+  const completion = incompleteCompletion(fixture().grant);
+  delete completion.coverageDigest;
+  let effects = 0;
+  const host = { async resolve() { throw new Error("unexpected resolve"); },
+    async complete({ completion: raw }) { validateHostCompletion(raw); effects++; throw new Error("unexpected effect"); },
+    async readInstalled() { throw new Error("unexpected inventory"); } };
+  await assert.rejects(createEfV3HostTransport(host).complete(completion), /growth-/);
+  assert.equal(effects, 0);
 });
