@@ -674,6 +674,7 @@ function assertCurrentDispatchAuthority(
       grant.account.cooldownUntil !== null &&
       grant.account.cooldownUntil <= now);
   if (
+    grant.authorityKind === "v4_relay_turn" ||
     !["issued", "exhausted"].includes(grant.status) ||
     grant.revokedAt !== null ||
     grant.expiresAt <= now ||

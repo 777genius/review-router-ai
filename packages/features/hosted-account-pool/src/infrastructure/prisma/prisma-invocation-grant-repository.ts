@@ -14,6 +14,8 @@ import type {
   CommentTokenRefreshConsumption,
   CurrentRelayRequestFailover,
   InvocationGrant,
+  LegacyInvocationGrant,
+  CommentTokenRefreshCapability,
 } from "../../domain/invocation-grant";
 import {
   hostedAccountId,
@@ -74,7 +76,14 @@ export class PrismaInvocationGrantRepository
     return restoreGrant(stored);
   }
 
-  async insert(grant: InvocationGrant): Promise<void> {
+  async insert(grant: LegacyInvocationGrant): Promise<void> {
+    // This repository issues only legacy comment-token grants. V4 turn records
+    // have a separate persistence contract and no PR1 dispatch entry point.
+    const authority = grant.authority;
+    if ("kind" in authority) {
+      throw new Error("hosted_v4_relay_dispatch_disabled");
+    }
+    const commentCapability = grant.commentTokenRefreshCapability;
     await this.prisma.$transaction(
       async (transaction) => {
         const rows = await transaction.$queryRaw<
@@ -87,6 +96,7 @@ export class PrismaInvocationGrantRepository
         await transaction.hostedCodexInvocationGrant.create({
           data: {
             id: grant.id,
+            authorityKind: "v1_comment",
             invocationId: grant.invocationId,
             workspaceId: grant.workspaceId,
             poolId: grant.poolId,
@@ -95,16 +105,16 @@ export class PrismaInvocationGrantRepository
             activeAccountId: grant.activeAccountId,
             primaryAccountId: grant.primaryAccountId,
             backupAccountId: grant.backupAccountId,
-            reviewRequestId: grant.authority.reviewRequestId,
-            providerInvocationKey: grant.authority.providerInvocationKey,
-            runId: grant.authority.runId,
-            runAttempt: grant.authority.runAttempt,
-            model: grant.authority.model,
+            reviewRequestId: authority.reviewRequestId,
+            providerInvocationKey: authority.providerInvocationKey,
+            runId: authority.runId,
+            runAttempt: authority.runAttempt,
+            model: authority.model,
             policyVersion: "hosted-codex-v1",
-            policyFingerprint: grant.authority.policyFingerprint,
-            runtimeConfigVersion: grant.authority.runtimeConfigVersion,
-            bindingRevision: BigInt(grant.authority.bindingRevision),
-            authzEpoch: grant.authority.authzEpoch,
+            policyFingerprint: authority.policyFingerprint,
+            runtimeConfigVersion: authority.runtimeConfigVersion,
+            bindingRevision: BigInt(authority.bindingRevision),
+            authzEpoch: authority.authzEpoch,
             runtimeAuthzEpoch: grant.runtimeAuthzEpoch,
             capabilityTokenHash: grant.capabilityTokenHash,
             issuedAt: grant.createdAt,
@@ -118,13 +128,12 @@ export class PrismaInvocationGrantRepository
             inFlight: 0,
             commentRefreshCapability: {
               create: {
-                capabilityTokenHash:
-                  grant.commentTokenRefreshCapability.tokenHash,
+                capabilityTokenHash: commentCapability.tokenHash,
                 issuedAt: grant.createdAt,
-                expiresAt: grant.commentTokenRefreshCapability.expiresAt,
-                maxUses: grant.commentTokenRefreshCapability.maxUses,
-                useCount: grant.commentTokenRefreshCapability.useCount,
-                revokedAt: grant.commentTokenRefreshCapability.revokedAt,
+                expiresAt: commentCapability.expiresAt,
+                maxUses: commentCapability.maxUses,
+                useCount: commentCapability.useCount,
+                revokedAt: commentCapability.revokedAt,
               },
             },
           },
@@ -226,8 +235,8 @@ export class PrismaInvocationGrantRepository
 
   async mutate(
     grantId: ReturnType<typeof invocationGrantId>,
-    transition: (current: InvocationGrant) => InvocationGrant,
-  ): Promise<InvocationGrant> {
+    transition: (current: LegacyInvocationGrant) => LegacyInvocationGrant,
+  ): Promise<LegacyInvocationGrant> {
     return serializableTransaction(
       this.prisma,
       async (transaction) => {
@@ -897,7 +906,10 @@ async function updateGrantWithCas(
     throw new Error("invocation_grant_revision_conflict");
 }
 
-function restoreGrant(stored: StoredGrant): InvocationGrant {
+function restoreGrant(stored: StoredGrant): LegacyInvocationGrant {
+  if (stored.authorityKind === "v4_relay_turn") {
+    throw new Error("hosted_v4_relay_dispatch_disabled");
+  }
   const admitted = stored.relayRequests.map((request) =>
     relayRequestId(request.id),
   );
@@ -957,7 +969,7 @@ function restoreGrant(stored: StoredGrant): InvocationGrant {
 
 function restoreCommentRefreshCapability(
   stored: StoredGrant,
-): InvocationGrant["commentTokenRefreshCapability"] {
+): CommentTokenRefreshCapability {
   const capability = stored.commentRefreshCapability;
   if (!capability) throw new Error("hosted_comment_refresh_capability_missing");
   return {
@@ -1016,7 +1028,7 @@ export async function consumeCommentTokenRefreshCapabilityInTransaction(
     readonly requestIdHash: string;
     readonly now: Date;
     readonly transition: (
-      grant: InvocationGrant,
+      grant: LegacyInvocationGrant,
     ) => CommentTokenRefreshConsumption;
   },
   mintId: string,

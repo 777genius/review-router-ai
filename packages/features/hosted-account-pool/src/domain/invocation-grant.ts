@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { HostedV4RelayGrantContract } from "./hosted-v4-relay-grant";
 import type {
   HostedAccountId,
   HostedBindingId,
@@ -25,7 +26,7 @@ export type InvocationGrantBudget = {
   readonly maxOutputTokens: number;
 };
 
-export type InvocationGrantAuthority = {
+export type LegacyInvocationGrantAuthority = {
   readonly repositoryBindingId: HostedBindingId;
   readonly reviewRequestId: string;
   readonly providerInvocationKey: string;
@@ -38,6 +39,10 @@ export type InvocationGrantAuthority = {
   readonly authzEpoch: bigint;
 };
 
+export type InvocationGrantAuthority =
+  | LegacyInvocationGrantAuthority
+  | HostedV4RelayGrantContract;
+
 export type CommentTokenRefreshCapability = {
   readonly tokenHash: string;
   readonly grantId: InvocationGrantId;
@@ -49,7 +54,7 @@ export type CommentTokenRefreshCapability = {
   readonly revokedAt: Date | null;
 };
 
-export type InvocationGrant = {
+export type LegacyInvocationGrant = {
   readonly id: InvocationGrantId;
   readonly invocationId: InvocationId;
   readonly repositoryId: RepositoryId;
@@ -66,13 +71,27 @@ export type InvocationGrant = {
   readonly capabilityTokenHash: string;
   readonly commentTokenRefreshCapability: CommentTokenRefreshCapability;
   /** Immutable trust-domain binding copied into the signed relay grant. */
-  readonly authority: InvocationGrantAuthority;
+  readonly authority: LegacyInvocationGrantAuthority;
   readonly runtimeAuthzEpoch: bigint;
   readonly budget: InvocationGrantBudget;
   readonly admittedRequestIds: readonly RelayRequestId[];
   readonly inFlightRequestIds: readonly RelayRequestId[];
   readonly createdAt: Date;
 };
+
+export type InvocationGrant<
+  Authority extends InvocationGrantAuthority = LegacyInvocationGrantAuthority,
+> = Authority extends HostedV4RelayGrantContract
+  ? Omit<
+      LegacyInvocationGrant,
+      "authority" | "commentTokenRefreshCapability"
+    > & {
+      readonly authority: Authority;
+      readonly commentTokenRefreshCapability: null;
+    }
+  : LegacyInvocationGrant;
+
+export type AnyInvocationGrant = InvocationGrant<InvocationGrantAuthority>;
 
 export type RelayAdmission =
   | {
@@ -156,17 +175,17 @@ export function issueInvocationGrant(input: {
   readonly workspaceId: WorkspaceId;
   readonly poolId: HostedPoolId;
   readonly accounts: readonly HostedPoolAccount[];
-  readonly authority: InvocationGrantAuthority;
+  readonly authority: LegacyInvocationGrantAuthority;
   readonly runtimeAuthzEpoch: bigint;
   readonly capabilityTokenHash: string;
   readonly commentTokenRefreshCapability: CommentTokenRefreshCapability;
   readonly budget: InvocationGrantBudget;
   readonly now: Date;
-}): InvocationGrant {
+}): LegacyInvocationGrant {
   const budget = budgetSchema.parse(input.budget);
   const authority = authoritySchema.parse(
     input.authority,
-  ) as InvocationGrantAuthority;
+  ) as LegacyInvocationGrantAuthority;
   const runtimeAuthzEpoch = z
     .bigint()
     .positive()
@@ -269,6 +288,9 @@ export function assertInvocationGrantAuthorityMatches(
   expected: InvocationGrantAuthority,
   presented: InvocationGrantAuthority,
 ): void {
+  if ("kind" in expected || "kind" in presented) {
+    throw new Error("hosted_v4_relay_dispatch_disabled");
+  }
   const left = authoritySchema.parse(expected);
   const right = authoritySchema.parse(presented);
   if (
@@ -290,11 +312,11 @@ export function assertInvocationGrantAuthorityMatches(
 export type CommentTokenRefreshConsumption =
   | {
       readonly status: "consumed" | "replayed";
-      readonly grant: InvocationGrant;
+      readonly grant: LegacyInvocationGrant;
     }
   | {
       readonly status: "expired" | "revoked" | "budget_exhausted";
-      readonly grant: InvocationGrant;
+      readonly grant: LegacyInvocationGrant;
     };
 
 export function commentTokenRefreshCapabilityStatus(input: {
@@ -311,7 +333,7 @@ export function commentTokenRefreshCapabilityStatus(input: {
 }
 
 export function consumeCommentTokenRefreshCapability(input: {
-  readonly grant: InvocationGrant;
+  readonly grant: LegacyInvocationGrant;
   readonly now: Date;
 }): CommentTokenRefreshConsumption {
   const capability = input.grant.commentTokenRefreshCapability;
@@ -333,9 +355,9 @@ export function consumeCommentTokenRefreshCapability(input: {
 }
 
 export function revokeCommentTokenRefreshCapability(input: {
-  readonly grant: InvocationGrant;
+  readonly grant: LegacyInvocationGrant;
   readonly revokedAt: Date;
-}): InvocationGrant {
+}): LegacyInvocationGrant {
   if (input.grant.commentTokenRefreshCapability.revokedAt !== null) {
     return input.grant;
   }
