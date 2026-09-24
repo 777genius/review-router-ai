@@ -800,6 +800,9 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      - name: EF v3 SDK growth contract
+        run: pnpm --filter @reviewrouter/features-sdk-growth-authority test:ef-v3
+
       - name: Architecture boundaries
         run: pnpm architecture:check
 
