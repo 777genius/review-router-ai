@@ -243,7 +243,11 @@ function verifierWriterHarness() {
   const transaction = {
     async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
       const sql = strings.join("?");
-      if (sql.includes('SELECT c."epoch", b."binding"'))
+      if (
+        sql.includes(
+          "SELECT * FROM public.sdk_growth_verifier_current_authority_lock(",
+        )
+      )
         return [
           {
             epoch: currentEpoch,

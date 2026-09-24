@@ -412,12 +412,7 @@ async function currentAuthorityLink(
   if (!Number.isSafeInteger(expectedEpoch) || expectedEpoch < 1)
     throw new AuthorityError("invalid-contract");
   const [value] = await transaction.$queryRaw`
-    SELECT c."epoch", b."binding", o."evidence", o."provenance", o."installationActive", o."verifierActive"
-    FROM "SdkGrowthCurrentAuthority" c
-    JOIN "SdkGrowthBindingVersion" b ON b."scopeKey" = c."scopeKey" AND b."epoch" = c."epoch"
-    JOIN "SdkGrowthOwnerVersion" o ON o."scopeKey" = c."scopeKey" AND o."epoch" = c."epoch"
-    WHERE c."scopeKey" = ${scopeKey(execution)}
-    FOR SHARE OF c`;
+    SELECT * FROM public.sdk_growth_verifier_current_authority_lock(${scopeKey(execution)})`;
   if (!value || typeof value !== "object")
     throw new AuthorityError("owner-evidence");
   return policy.authorize({

@@ -111,14 +111,20 @@ producer role name and grant:
 ```sql
 GRANT EXECUTE ON FUNCTION public.sdk_growth_verifier_assignment_lock(text)
   TO "<verifier_producer_role>";
+GRANT EXECUTE ON FUNCTION public.sdk_growth_verifier_current_authority_lock(text)
+  TO "<verifier_producer_role>";
 ```
 
 Migration `000108_sdk_growth_verifier_assignment_lock` revokes the default
-PUBLIC execute grant. Its owner must be the trusted
-assignment table owner so the function can acquire `FOR SHARE` while the
-producer role retains SELECT without assignment UPDATE. The adapter invokes
-the function inside the custody transaction, retaining the row lock through
-commit; the scheduler serializes replacements on the stable PR scope using a
+PUBLIC execute grant on both functions. The migration owner must own the
+assignment and current-authority tables so the functions can acquire `FOR SHARE`
+while the producer retains SELECT without UPDATE on either table. Both functions
+use a fixed `pg_catalog` search path and schema-qualified authority reads.
+The authenticator and custody adapter invoke the functions inside the same
+custody transaction, retaining both row locks through commit. The current
+authority function returns a row only when the epoch has matching binding and
+owner facts; the adapter still rejects missing, malformed or stale authority.
+The scheduler serializes replacements on the stable PR scope using a
 transaction advisory lock before its UPDATE and INSERT. Those grants and
 process isolation must be checked in the target environment before enabling
 the producer. A shared DB owner or shared verifier key with the candidate

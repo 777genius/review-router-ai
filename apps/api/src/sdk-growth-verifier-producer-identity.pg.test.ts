@@ -97,6 +97,17 @@ describe.skipIf(!url)("verifier assignment / disposable PostgreSQL", () => {
       owner.query(`SET search_path TO "${schema}"`),
       peer.query(`SET search_path TO "${schema}"`),
     ]);
+    // The unshipped lock migration also defines an authority read function.
+    // This fixture exercises assignments only, so supply its minimal inputs.
+    await owner.query(
+      `CREATE TABLE "${schema}"."SdkGrowthCurrentAuthority" ("scopeKey" text PRIMARY KEY, "epoch" bigint NOT NULL)`,
+    );
+    await owner.query(
+      `CREATE TABLE "${schema}"."SdkGrowthBindingVersion" ("scopeKey" text NOT NULL, "epoch" bigint NOT NULL, "binding" jsonb NOT NULL)`,
+    );
+    await owner.query(
+      `CREATE TABLE "${schema}"."SdkGrowthOwnerVersion" ("scopeKey" text NOT NULL, "epoch" bigint NOT NULL, "evidence" jsonb NOT NULL, "provenance" jsonb NOT NULL, "installationActive" boolean NOT NULL, "verifierActive" boolean NOT NULL)`,
+    );
     for (const name of [
       "000107_sdk_growth_verifier_assignment",
       "000108_sdk_growth_verifier_assignment_lock",

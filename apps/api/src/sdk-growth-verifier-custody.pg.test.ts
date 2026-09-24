@@ -13,7 +13,50 @@ import { PrismaSdkGrowthVerifierEvidenceCustody } from "./sdk-growth-verifier-cu
 
 const url = process.env.SDK_GROWTH_TEST_DATABASE_URL;
 const schema = `sdk_growth_verifier_writer_${randomUUID().replaceAll("-", "")}`;
+const role = `sdk_growth_verifier_reader_${randomUUID().replaceAll("-", "")}`;
 const clients: PrismaClient[] = [];
+// The production adapter names public explicitly. Keep this disposable suite's
+// tables and SECURITY DEFINER function in its private schema while exercising
+// the same adapter transaction/query path.
+function custodyClient(connection: PrismaClient) {
+  return {
+    $transaction<T>(
+      operation: (transaction: {
+        $queryRaw: (
+          strings: TemplateStringsArray,
+          ...values: unknown[]
+        ) => Promise<unknown[]>;
+        $executeRaw: (
+          strings: TemplateStringsArray,
+          ...values: unknown[]
+        ) => Promise<number>;
+      }) => Promise<T>,
+      options: { isolationLevel: "ReadCommitted" },
+    ) {
+      return connection.$transaction(
+        (transaction) =>
+          operation({
+            $executeRaw: (strings, ...values) =>
+              transaction.$executeRaw(strings, ...values),
+            $queryRaw: (strings, ...values) => {
+              const parts = [...strings];
+              parts[0] = parts[0]!.replace(
+                "public.sdk_growth_verifier_current_authority_lock",
+                `"${schema}".sdk_growth_verifier_current_authority_lock`,
+              );
+              return transaction.$queryRaw(
+                Object.assign(parts, {
+                  raw: [...parts],
+                }) as unknown as TemplateStringsArray,
+                ...values,
+              );
+            },
+          }),
+        options,
+      );
+    },
+  };
+}
 function client() {
   const value = new PrismaClient({
     adapter: new PrismaPg(
@@ -229,6 +272,8 @@ describe.skipIf(!url)("verifier custody writer / real PostgreSQL 17", () => {
         "000102_sdk_growth_current_authority",
         "000103_sdk_growth_authority_custody",
         "000106_sdk_growth_finalized_report_logical_identity",
+        "000107_sdk_growth_verifier_assignment",
+        "000108_sdk_growth_verifier_assignment_lock",
       ])
         await connection.query(
           readFileSync(
@@ -237,8 +282,22 @@ describe.skipIf(!url)("verifier custody writer / real PostgreSQL 17", () => {
               import.meta.url,
             ),
             "utf8",
-          ),
+          ).replaceAll("public.", `"${schema}".`),
         );
+      await connection.query(`CREATE ROLE "${role}" NOLOGIN`);
+      await connection.query(`CREATE TABLE "SdkGrowthVerifierCustodyProbe" (
+        "scopeKey" text PRIMARY KEY, "epoch" bigint NOT NULL
+      )`);
+      await connection.query(`GRANT USAGE ON SCHEMA "${schema}" TO "${role}"`);
+      await connection.query(
+        `GRANT SELECT ON "SdkGrowthCurrentAuthority", "SdkGrowthBindingVersion", "SdkGrowthOwnerVersion" TO "${role}"`,
+      );
+      await connection.query(
+        `GRANT INSERT ON "SdkGrowthVerifierCustodyProbe" TO "${role}"`,
+      );
+      await connection.query(
+        `GRANT EXECUTE ON FUNCTION "${schema}".sdk_growth_verifier_current_authority_lock(text) TO "${role}"`,
+      );
     } finally {
       await connection.end();
     }
@@ -247,21 +306,143 @@ describe.skipIf(!url)("verifier custody writer / real PostgreSQL 17", () => {
   });
 
   afterAll(async () => {
-    if (db)
+    if (db) {
       await db.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await db.$executeRawUnsafe(`DROP ROLE IF EXISTS "${role}"`);
+    }
     await Promise.all(clients.map((value) => value.$disconnect()));
+  });
+
+  it("lets a SELECT-only producer lock current authority and insert custody in one transaction", async () => {
+    const f = fixture("restricted");
+    await seedAuthorityAndAdmission(db, f);
+    const scope = JSON.stringify([
+      f.execution.tenantId,
+      f.execution.repositoryId,
+      f.execution.pullRequest,
+    ]);
+    const pg = createRequire(import.meta.url)("pg") as {
+      Client: new (options: { connectionString: string }) => {
+        connect(): Promise<void>;
+        query(
+          sql: string,
+          values?: unknown[],
+        ): Promise<{
+          rows: Record<string, unknown>[];
+          rowCount: number | null;
+        }>;
+        end(): Promise<void>;
+      };
+    };
+    const producer = new pg.Client({ connectionString: url! });
+    const contender = new pg.Client({ connectionString: url! });
+    await Promise.all([producer.connect(), contender.connect()]);
+    try {
+      const privileges = await producer.query(
+        `SELECT has_table_privilege($1, '"${schema}"."SdkGrowthCurrentAuthority"', 'UPDATE') AS "canUpdate",
+                has_function_privilege($1, '"${schema}".sdk_growth_verifier_current_authority_lock(text)', 'EXECUTE') AS "canExecute"`,
+        [role],
+      );
+      expect(privileges.rows[0]).toEqual({
+        canUpdate: false,
+        canExecute: true,
+      });
+      await producer.query("BEGIN");
+      try {
+        await producer.query(`SET LOCAL ROLE "${role}"`);
+        expect(
+          (
+            await producer.query(
+              `SELECT "epoch" FROM "${schema}"."SdkGrowthCurrentAuthority" WHERE "scopeKey" = $1`,
+              [scope],
+            )
+          ).rows,
+        ).toHaveLength(1);
+        await expect(
+          producer.query(
+            `SELECT "epoch" FROM "${schema}"."SdkGrowthCurrentAuthority" WHERE "scopeKey" = $1 FOR SHARE`,
+            [scope],
+          ),
+        ).rejects.toMatchObject({ code: "42501" });
+      } finally {
+        await producer.query("ROLLBACK");
+      }
+
+      await producer.query("BEGIN");
+      try {
+        await producer.query(`SET LOCAL ROLE "${role}"`);
+        const locked = await producer.query(
+          `SELECT * FROM "${schema}".sdk_growth_verifier_current_authority_lock($1)`,
+          [scope],
+        );
+        expect(locked.rows[0]).toMatchObject({
+          epoch: "1",
+          binding: f.binding,
+          evidence: f.ownerEvidence,
+          installationActive: true,
+          verifierActive: true,
+        });
+        expect(locked.rows[0]?.provenance).toMatchObject({
+          issuer: "control-plane",
+        });
+        expect(
+          (
+            await producer.query(
+              `SELECT * FROM "${schema}".sdk_growth_verifier_current_authority_lock($1)`,
+              ["missing-scope"],
+            )
+          ).rows,
+        ).toHaveLength(0);
+        await producer.query(
+          `INSERT INTO "${schema}"."SdkGrowthVerifierCustodyProbe" ("scopeKey", "epoch") VALUES ($1, $2)`,
+          [scope, 1],
+        );
+        await contender.query("BEGIN");
+        try {
+          await contender.query("SET LOCAL lock_timeout = '200ms'");
+          await expect(
+            contender.query(
+              `SELECT "epoch" FROM "${schema}"."SdkGrowthCurrentAuthority" WHERE "scopeKey" = $1 FOR UPDATE`,
+              [scope],
+            ),
+          ).rejects.toMatchObject({ code: "55P03" });
+        } finally {
+          await contender.query("ROLLBACK");
+        }
+      } finally {
+        await producer.query("COMMIT");
+      }
+      expect(
+        (
+          await contender.query(
+            `SELECT "epoch" FROM "${schema}"."SdkGrowthCurrentAuthority" WHERE "scopeKey" = $1 FOR UPDATE`,
+            [scope],
+          )
+        ).rows,
+      ).toHaveLength(1);
+      expect(
+        (
+          await contender.query(
+            `SELECT "epoch" FROM "${schema}"."SdkGrowthVerifierCustodyProbe" WHERE "scopeKey" = $1`,
+            [scope],
+          )
+        ).rows,
+      ).toHaveLength(1);
+    } finally {
+      await Promise.all([producer.end(), contender.end()]);
+    }
   });
 
   it("serializes competing identical retries and retains one logical report", async () => {
     const f = fixture("identical");
     await seedAuthorityAndAdmission(db, f);
     const first = new PrismaSdkGrowthVerifierEvidenceCustody(
-      db,
+      custodyClient(db) as never,
       f.authenticator,
       f.policy,
     );
     const second = new PrismaSdkGrowthVerifierEvidenceCustody(
-      peer,
+      custodyClient(peer) as never,
       f.authenticator,
       f.policy,
     );
@@ -282,12 +463,12 @@ describe.skipIf(!url)("verifier custody writer / real PostgreSQL 17", () => {
     const f = fixture("conflict");
     await seedAuthorityAndAdmission(db, f);
     const first = new PrismaSdkGrowthVerifierEvidenceCustody(
-      db,
+      custodyClient(db) as never,
       f.authenticator,
       f.policy,
     );
     const second = new PrismaSdkGrowthVerifierEvidenceCustody(
-      peer,
+      custodyClient(peer) as never,
       f.authenticator,
       f.policy,
     );
@@ -320,7 +501,7 @@ describe.skipIf(!url)("verifier custody writer / real PostgreSQL 17", () => {
     const f = fixture("rollback");
     await seedAuthorityAndAdmission(db, f);
     const ordinary = new PrismaSdkGrowthVerifierEvidenceCustody(
-      db,
+      custodyClient(db) as never,
       f.authenticator,
       f.policy,
     );
@@ -330,7 +511,7 @@ describe.skipIf(!url)("verifier custody writer / real PostgreSQL 17", () => {
         operation: (transaction: object) => Promise<T>,
         options: { isolationLevel: "ReadCommitted" },
       ) {
-        return db.$transaction(
+        return custodyClient(db).$transaction(
           async (transaction) =>
             operation(
               new Proxy(transaction, {
