@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { Badge, Card, LinkButton } from "@reviewrouter/ui";
+import Link from "next/link";
+import { Github, Gitlab, ShieldCheck } from "lucide-react";
+import { Badge, Card } from "@reviewrouter/ui";
 import {
   GitHubSignInButton,
   GitLabSignInButton,
@@ -75,69 +77,71 @@ export default async function SignInPage({
   const gitlabConfigured = isGitLabAuthConfigured();
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-8 sm:px-6 md:py-12">
-      <section className="min-w-0 rounded-[2rem] border border-cyan-300/[0.12] bg-[var(--rr-surface-card-strong)] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.42),0_0_90px_-54px_rgba(0,240,255,0.9)] backdrop-blur-2xl sm:p-8">
-        <div className="flex flex-wrap items-center gap-3">
+    <main className="mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-lg flex-col justify-center gap-5 px-4 py-10 sm:px-6">
+      <section className="rounded-[2rem] border border-cyan-300/[0.12] bg-[var(--rr-surface-card-strong)] p-7 shadow-[0_24px_80px_rgba(0,0,0,0.42),0_0_90px_-54px_rgba(0,240,255,0.9)] backdrop-blur-2xl sm:p-10">
+        <div className="flex items-center gap-3">
           <LogoMark size="sm" />
           <Badge tone={issue ? issue.tone : "accent"}>Source sign-in</Badge>
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-          <div className="min-w-0 space-y-4">
-            <h1 className="max-w-full text-3xl font-extrabold leading-[1.08] tracking-[-0.035em] text-cyan-50 [overflow-wrap:anywhere] sm:max-w-3xl sm:text-4xl sm:tracking-[-0.04em] md:text-6xl">
-              Sign in to ReviewRouter
-            </h1>
-            <p className="max-w-full text-base leading-7 text-[var(--rr-color-text-muted)] [overflow-wrap:anywhere] sm:max-w-2xl">
-              Continue with GitHub or GitLab to map repository metadata to your
-              dashboard. Provider credentials and PR diffs stay in your CI
-              boundary.
-            </p>
-          </div>
-          <div className="grid w-full gap-3 sm:flex sm:w-auto sm:flex-wrap lg:justify-end">
-            <GitHubSignInButton
-              callbackUrl={callbackUrl}
-              size="lg"
-              className="w-full rounded-2xl sm:min-w-56 sm:w-auto"
-              disabled={!githubConfigured}
-            >
+        <h1 className="mt-7 text-4xl font-extrabold leading-[1.12] tracking-[-0.04em] text-[var(--rr-color-text)] text-pretty sm:text-5xl">
+          Sign in to <span className="whitespace-nowrap">ReviewRouter</span>
+        </h1>
+        <p className="mt-4 text-base leading-7 text-[var(--rr-color-text-muted)] text-pretty">
+          Continue with GitHub or GitLab to map repository metadata to your
+          dashboard. Provider credentials and PR diffs stay in your CI boundary.
+        </p>
+
+        <div className="mt-8 grid gap-3">
+          <GitHubSignInButton
+            callbackUrl={callbackUrl}
+            size="lg"
+            className="w-full rounded-2xl"
+            disabled={!githubConfigured}
+          >
+            <span className="inline-flex items-center justify-center gap-2">
+              <Github className="h-5 w-5" aria-hidden="true" />
               {githubConfigured
                 ? "Continue with GitHub"
                 : "GitHub sign-in unavailable"}
-            </GitHubSignInButton>
+            </span>
+          </GitHubSignInButton>
+          {gitlabConfigured ? (
             <GitLabSignInButton
               callbackUrl={callbackUrl}
               size="lg"
               variant="outline"
-              className="w-full rounded-2xl sm:min-w-56 sm:w-auto"
-              disabled={!gitlabConfigured}
+              className="w-full rounded-2xl"
             >
-              {gitlabConfigured
-                ? "Continue with GitLab"
-                : "GitLab sign-in unavailable"}
+              <span className="inline-flex items-center justify-center gap-2">
+                <Gitlab className="h-5 w-5" aria-hidden="true" />
+                Continue with GitLab
+              </span>
             </GitLabSignInButton>
-            <LinkButton
-              href="/"
-              variant="outline"
-              size="lg"
-              className="w-full rounded-2xl sm:min-w-36 sm:w-auto"
-            >
-              Back to home
-            </LinkButton>
-          </div>
+          ) : null}
         </div>
+
+        <p className="mt-6 text-center text-sm text-[var(--rr-color-text-muted)]">
+          <Link
+            href="/"
+            className="underline-offset-4 transition hover:text-[var(--rr-color-text)] hover:underline"
+          >
+            Back to home
+          </Link>
+        </p>
       </section>
 
       {issue ? (
         <Card className="rounded-2xl border-amber-300/20 bg-amber-300/[0.05] p-5 sm:p-6">
           <Badge tone={issue.tone}>{issue.badge}</Badge>
-          <h2 className="mt-4 text-2xl font-semibold text-cyan-50">
+          <h2 className="mt-4 text-2xl font-semibold text-[var(--rr-color-text)]">
             {issue.title}
           </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+          <p className="mt-3 text-sm leading-6 text-[var(--rr-color-text-muted)]">
             {issue.body}
           </p>
           {issue.nextStep ? (
-            <p className="mt-3 max-w-2xl text-xs leading-5 text-slate-400">
+            <p className="mt-3 text-xs leading-5 text-[var(--rr-color-text-muted)]">
               {issue.nextStep}
             </p>
           ) : null}
@@ -145,10 +149,11 @@ export default async function SignInPage({
       ) : (
         <Card className="rounded-2xl p-5 sm:p-6">
           <Badge tone="success">No secrets stored here</Badge>
-          <h2 className="mt-4 text-2xl font-semibold text-cyan-50">
+          <h2 className="mt-4 flex items-center gap-2 text-xl font-semibold text-[var(--rr-color-text)]">
+            <ShieldCheck className="h-5 w-5 shrink-0" aria-hidden="true" />
             Sign-in only connects metadata.
           </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+          <p className="mt-3 text-sm leading-6 text-[var(--rr-color-text-muted)]">
             ReviewRouter uses source identity to show repositories, setup
             status, and health. It does not ask for Codex OAuth files or
             provider API keys here.
