@@ -1296,6 +1296,7 @@ describe("disposable dual-version rehearsal", () => {
       "000104_hosted_pool_request_scoped_failover",
       "000105_sdk_growth_publication_effect",
       "000106_sdk_growth_finalized_report_logical_identity",
+      "000107_hosted_v4_relay_turn_contract",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1341,7 +1342,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000103_sdk_growth_authority_custody" &&
             name !== "000104_hosted_pool_request_scoped_failover" &&
             name !== "000105_sdk_growth_publication_effect" &&
-            name !== "000106_sdk_growth_finalized_report_logical_identity",
+            name !== "000106_sdk_growth_finalized_report_logical_identity" &&
+            name !== "000107_hosted_v4_relay_turn_contract",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1360,7 +1362,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000103_sdk_growth_authority_custody" &&
             name !== "000104_hosted_pool_request_scoped_failover" &&
             name !== "000105_sdk_growth_publication_effect" &&
-            name !== "000106_sdk_growth_finalized_report_logical_identity",
+            name !== "000106_sdk_growth_finalized_report_logical_identity" &&
+            name !== "000107_hosted_v4_relay_turn_contract",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1405,6 +1408,7 @@ describe("disposable dual-version rehearsal", () => {
     "000104_hosted_pool_request_scoped_failover",
     "000105_sdk_growth_publication_effect",
     "000106_sdk_growth_finalized_report_logical_identity",
+    "000107_hosted_v4_relay_turn_contract",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1439,7 +1443,9 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000103_sdk_growth_authority_custody" &&
                 name !== "000104_hosted_pool_request_scoped_failover" &&
                 name !== "000105_sdk_growth_publication_effect" &&
-                name !== "000106_sdk_growth_finalized_report_logical_identity",
+                name !==
+                  "000106_sdk_growth_finalized_report_logical_identity" &&
+                name !== "000107_hosted_v4_relay_turn_contract",
               "000102_sdk_growth_current_authority",
             ),
           ),
