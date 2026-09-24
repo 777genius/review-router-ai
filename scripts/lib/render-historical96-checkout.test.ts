@@ -29,8 +29,11 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full105 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(105);
+  it("validates the full106 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(106);
+    expect(full[105]?.migrationName).toBe(
+      "000107_hosted_v4_relay_turn_contract",
+    );
     expect(full[104]?.migrationName).toBe(
       "000106_sdk_growth_finalized_report_logical_identity",
     );
