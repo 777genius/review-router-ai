@@ -22,6 +22,8 @@ const historical = full.slice(0, 96);
 const checkout97 = full.slice(0, 97);
 const checkout98 = full.slice(0, 98);
 const checkout99 = full.slice(0, 99);
+const checkout105 = full.slice(0, 105);
+const checkout106 = full.slice(0, 106);
 const manifest = (rows: typeof full) =>
   `sha256:${createHash("sha256")
     .update(rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","))
@@ -29,8 +31,14 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full105 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(105);
+  it("validates the full107 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(107);
+    expect(full[106]?.migrationName).toBe(
+      "000108_sdk_growth_verifier_assignment_lock",
+    );
+    expect(full[105]?.migrationName).toBe(
+      "000107_sdk_growth_verifier_assignment",
+    );
     expect(full[104]?.migrationName).toBe(
       "000106_sdk_growth_finalized_report_logical_identity",
     );
@@ -69,6 +77,8 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: checkout97 },
     { checkout: checkout98 },
     { checkout: checkout99 },
+    { checkout: checkout105 },
+    { checkout: checkout106 },
   ])(
     "also accepts a complete validated older checkout (%#)",
     ({ checkout }) => {
@@ -127,7 +137,7 @@ describe("trusted historical96 checkout reader", () => {
     },
   );
 
-  it.each([96, 97, 98, 99, 100, 101, 102, 103, 104])(
+  it.each([96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {
       reader.mockImplementationOnce(() => {
