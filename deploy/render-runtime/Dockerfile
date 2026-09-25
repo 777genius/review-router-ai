@@ -43,7 +43,10 @@ ENV CI=1 \
     PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 
-RUN mkdir -p "$COREPACK_HOME" \
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/* \
+  && mkdir -p "$COREPACK_HOME" \
   && corepack enable \
   && corepack prepare pnpm@10.33.0 --activate \
   && chmod -R a+rX "$COREPACK_HOME"
@@ -56,6 +59,7 @@ USER node
 
 ENV COREPACK_ENABLE_NETWORK=0
 RUN --network=none pnpm --version | grep -Fxq '10.33.0'
+RUN --network=none pnpm --filter @reviewrouter/platform-db exec prisma -v | grep -Fq 'debian-openssl-3.0.x'
 
 EXPOSE 10000
 
