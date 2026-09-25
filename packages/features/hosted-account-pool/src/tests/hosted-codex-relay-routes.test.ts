@@ -1,4 +1,5 @@
-import { Readable } from "node:stream";
+import http from "node:http";
+import { PassThrough, Readable } from "node:stream";
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { hostedCommentTokenDelivery } from "../application/ports/hosted-comment-token-mint-ledger-port";
@@ -228,6 +229,88 @@ describe("hosted Codex relay routes", () => {
     expect(grant.statusCode).toBe(503);
     expect(grant.json()).toEqual({ error: "hosted_codex_grant_rejected" });
     await app.close();
+  });
+
+  it("does not crash the process when the client disconnects mid-stream", async () => {
+    const upstreamBody = new PassThrough();
+    const app = Fastify({ logger: false });
+    await registerHostedCodexRelayRoutes(app, {
+      enabled: true,
+      grants: { issue: vi.fn() },
+      commentTokens: { issue: vi.fn() },
+      authorization: {
+        authorize: async () => ({
+          grantId: "grant-id",
+          requestId: "request-id",
+          accountId: "account-id",
+          workspaceId: "workspace-test",
+          poolId: "pool-test",
+          runId: "run-id",
+          runAttempt: 1,
+          model: "gpt-5.1-codex-mini",
+          accountUsable: true,
+          grantExpiresAtMs: Date.now() + 60_000,
+          declaredRequestBytes: 2,
+          maxRequestBodyBytes: 1_024,
+          maxResponseBytes: 4_096,
+          maxOutputTokens: 1_024,
+        }),
+      },
+      relay: {
+        open: async () => ({
+          statusCode: 200,
+          headers: { "content-type": "text/event-stream" },
+          body: upstreamBody,
+        }),
+      },
+    });
+    const address = await app.listen({ port: 0, host: "127.0.0.1" });
+
+    const uncaughtExceptions: unknown[] = [];
+    const onUncaughtException = (error: unknown) => {
+      uncaughtExceptions.push(error);
+    };
+    process.on("uncaughtException", onUncaughtException);
+
+    try {
+      const requestBody = '{"input":"hello"}';
+      const clientRequest = http.request(
+        `${address}${hostedCodexResponsesPath}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: "Bearer opaque-grant",
+            "idempotency-key": "request-idempotency",
+            "x-reviewrouter-request-ordinal": "1",
+            "content-type": "application/json",
+            "content-length": Buffer.byteLength(requestBody),
+          },
+        },
+      );
+      clientRequest.end(requestBody);
+      // Buffered on the PassThrough until pipeline() starts reading it, so
+      // this does not race the route's async authorize()/relay.open() calls.
+      upstreamBody.write("data: one\n\n");
+
+      await new Promise<void>((resolve, reject) => {
+        clientRequest.once("response", () => resolve());
+        clientRequest.once("error", reject);
+      });
+
+      // Destroying the client socket while the upstream body is still open
+      // races reply.raw's "close" listener against pipeline()'s own abort
+      // handling and previously crashed the process with an unhandled
+      // "error" event on the upstream Readable.
+      clientRequest.destroy();
+      await vi.waitFor(() => expect(upstreamBody.destroyed).toBe(true));
+      // Let any deferred error/close emissions from the destroy settle.
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(uncaughtExceptions).toEqual([]);
+    } finally {
+      process.off("uncaughtException", onUncaughtException);
+      await app.close();
+    }
   });
 
   it("does not register any route while the master flag is off", async () => {

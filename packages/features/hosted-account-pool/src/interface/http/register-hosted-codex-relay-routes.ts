@@ -231,8 +231,10 @@ export async function registerHostedCodexRelayRoutes(
 
     scope.post(hostedCodexResponsesPath, async (request, reply) => {
       const controller = new AbortController();
-      const abort = () =>
+      const abort = () => {
+        if (controller.signal.aborted) return;
         controller.abort(new Error("relay_client_disconnected"));
+      };
       const abortPrematureClose = () => {
         if (!reply.raw.writableEnded || request.raw.aborted) abort();
       };
@@ -261,8 +263,14 @@ export async function registerHostedCodexRelayRoutes(
           accept: readOptionalHeader(request, "accept"),
           abortSignal: controller.signal,
         });
+        // pipeline() already surfaces upstream/destination errors through its
+        // rejected promise; without this, a destroy triggered by the abort
+        // signal after reply.raw's own "close" can emit a second, unlistened
+        // "error" on the Readable and crash the process (relay_client_disconnected).
+        upstream.body.on("error", () => undefined);
 
         reply.hijack();
+        reply.raw.on("error", () => undefined);
         reply.raw.statusCode = upstream.statusCode;
         copySafeUpstreamHeaders(reply, upstream.headers);
         await pipeline(upstream.body, reply.raw, { signal: controller.signal });
