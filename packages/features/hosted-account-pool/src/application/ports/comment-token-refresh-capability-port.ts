@@ -3,7 +3,7 @@ import type {
   InvocationGrantId,
   InvocationId,
 } from "../../domain/identifiers";
-import type { InvocationGrant } from "../../domain/invocation-grant";
+import type { LegacyInvocationGrant } from "../../domain/invocation-grant";
 
 export interface CommentTokenRefreshCapabilityPort {
   issue(input: {
@@ -21,6 +21,8 @@ export interface CommentTokenRefreshCapabilityPort {
   revoke(input: {
     readonly grantId: InvocationGrantId;
     readonly revokedAt: Date;
-    readonly transition: (grant: InvocationGrant) => InvocationGrant;
-  }): Promise<InvocationGrant>;
+    readonly transition: (
+      grant: LegacyInvocationGrant,
+    ) => LegacyInvocationGrant;
+  }): Promise<LegacyInvocationGrant>;
 }

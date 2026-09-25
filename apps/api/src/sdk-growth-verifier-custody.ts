@@ -64,6 +64,7 @@ export interface AuthenticatedSdkGrowthVerifierProducer {
 export interface SdkGrowthVerifierProducerAuthenticatorPort {
   authenticate(
     credential: unknown,
+    transaction?: VerifierEvidencePrisma,
   ): Promise<AuthenticatedSdkGrowthVerifierProducer>;
 }
 
@@ -411,12 +412,7 @@ async function currentAuthorityLink(
   if (!Number.isSafeInteger(expectedEpoch) || expectedEpoch < 1)
     throw new AuthorityError("invalid-contract");
   const [value] = await transaction.$queryRaw`
-    SELECT c."epoch", b."binding", o."evidence", o."provenance", o."installationActive", o."verifierActive"
-    FROM "SdkGrowthCurrentAuthority" c
-    JOIN "SdkGrowthBindingVersion" b ON b."scopeKey" = c."scopeKey" AND b."epoch" = c."epoch"
-    JOIN "SdkGrowthOwnerVersion" o ON o."scopeKey" = c."scopeKey" AND o."epoch" = c."epoch"
-    WHERE c."scopeKey" = ${scopeKey(execution)}
-    FOR SHARE OF c`;
+    SELECT * FROM public.sdk_growth_verifier_current_authority_lock(${scopeKey(execution)})`;
   if (!value || typeof value !== "object")
     throw new AuthorityError("owner-evidence");
   return policy.authorize({
@@ -515,10 +511,6 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
     credential: unknown,
     input: RetainVerifierEvidenceInput,
   ): Promise<VerifierCustodyRecord> {
-    const producer = authenticatedProducer(
-      await this.authenticator.authenticate(credential),
-    );
-    const execution = producer.execution;
     const candidate = boundedBytes(input.candidateArchive, 8 * 1024 * 1024);
     const released = boundedBytes(input.releasedArchive, 8 * 1024 * 1024);
     const tool = boundedBytes(input.toolArchive, 16 * 1024 * 1024);
@@ -528,12 +520,23 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
     );
     return this.prisma.$transaction(
       async (transaction) => {
+        const producer = authenticatedProducer(
+          await this.authenticator.authenticate(credential, transaction),
+        );
+        const execution = producer.execution;
         const link = await currentAuthorityLink(
           transaction,
           execution,
           input.expectedAuthorityEpoch,
           this.authorityPolicy,
         );
+        // The authority lock can wait past either producer deadline. Authenticate
+        // again under the same transaction before writing custody.
+        const currentProducer = authenticatedProducer(
+          await this.authenticator.authenticate(credential, transaction),
+        );
+        if (!isDeepStrictEqual(currentProducer, producer))
+          throw new AuthorityError("wrong-identity");
         const evidenceId = sdkGrowthVerifierExecutionId(execution, link);
         const candidateSha256 = sha256(candidate);
         const candidateSha512 = sha512(candidate);
@@ -588,10 +591,6 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
     credential: unknown,
     input: RetainFinalizedVerifierReportInput,
   ): Promise<FinalizedVerifierReportRecord> {
-    const producer = authenticatedProducer(
-      await this.authenticator.authenticate(credential),
-    );
-    const execution = producer.execution;
     const requestDigest = digest(input.requestDigest);
     const grantDigest = digest(input.grantDigest);
     const report = boundedBytes(input.finalizedReport, 16 * 1024 * 1024);
@@ -604,12 +603,21 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
       throw new AuthorityError("invalid-contract");
     return this.prisma.$transaction(
       async (transaction) => {
+        const producer = authenticatedProducer(
+          await this.authenticator.authenticate(credential, transaction),
+        );
+        const execution = producer.execution;
         const link = await currentAuthorityLink(
           transaction,
           execution,
           input.expectedAuthorityEpoch,
           this.authorityPolicy,
         );
+        const currentProducer = authenticatedProducer(
+          await this.authenticator.authenticate(credential, transaction),
+        );
+        if (!isDeepStrictEqual(currentProducer, producer))
+          throw new AuthorityError("wrong-identity");
         const evidenceId = sdkGrowthVerifierExecutionId(execution, link);
         const [evidence] = await transaction.$queryRaw`
           SELECT * FROM "SdkGrowthVerifierEvidence" WHERE "evidenceId" = ${evidenceId}`;

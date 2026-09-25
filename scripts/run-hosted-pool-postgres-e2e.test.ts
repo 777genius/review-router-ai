@@ -69,6 +69,28 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     ]);
   });
 
+  it("applies hosted-v4 before both SDK verifier migrations in the staged PG17 rehearsal", () => {
+    for (const migration of [
+      "000107_hosted_v4_relay_turn_contract",
+      "000108_sdk_growth_verifier_assignment",
+      "000109_sdk_growth_verifier_assignment_lock",
+    ])
+      expect(source.match(new RegExp(migration, "gu"))).toHaveLength(1);
+    const preparation = section(
+      "function prepareMigrationRehearsal",
+      "function addMigration",
+    );
+    expect(preparation).toContain("v4RelayTurnMigration");
+    expect(preparation).toContain("...sdkGrowthVerifierAssignmentMigrations");
+    const stagedTail = section(
+      "addMigration(rehearsalDirectory, v4RelayTurnMigration)",
+      "const migrationCount =",
+    );
+    expect(stagedTail).toMatch(
+      /addMigration\(rehearsalDirectory, v4RelayTurnMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*for \(const migrationName of sdkGrowthVerifierAssignmentMigrations\) \{\s*addMigration\(rehearsalDirectory, migrationName\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*\}/u,
+    );
+  });
+
   it("hands off authority before V5 in the full PostgreSQL E2E", () => {
     const postgresMode = section("if (runPostgresE2e) {", "} finally {");
     expect(postgresMode).toContain("excludeHostedPoolMigrations: false");

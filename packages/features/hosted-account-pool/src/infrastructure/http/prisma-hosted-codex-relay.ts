@@ -92,6 +92,7 @@ export class PrismaHostedCodexRelayAuthorization implements HostedCodexRelayAuth
         : null;
     if (
       !stored ||
+      stored.authorityKind === "v4_relay_turn" ||
       (stored.status !== "issued" && !resumableNoEffectRequest) ||
       stored.revokedAt !== null ||
       stored.expiresAt <= now

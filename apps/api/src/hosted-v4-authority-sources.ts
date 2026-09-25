@@ -239,8 +239,11 @@ function toHostedAuthorization(
     repositoryConnectionId: authorization.repositoryConnectionId,
     scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
     pullRequestNumber: authorization.pullRequestNumber,
+    baseSha: authorization.baseSha,
+    mergeBaseSha: authorization.mergeBaseSha,
     headSha: authorization.headSha,
     reviewRevisionHash: authorization.reviewRevisionHash,
+    mutationEpoch: authorization.mutationEpoch,
     producerReleaseId: authorization.producerReleaseId,
     trustDomain: authorization.trustDomain,
     investigationCodexRecordingAllowed:

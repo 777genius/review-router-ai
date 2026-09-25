@@ -1296,6 +1296,9 @@ describe("disposable dual-version rehearsal", () => {
       "000104_hosted_pool_request_scoped_failover",
       "000105_sdk_growth_publication_effect",
       "000106_sdk_growth_finalized_report_logical_identity",
+      "000107_hosted_v4_relay_turn_contract",
+      "000108_sdk_growth_verifier_assignment",
+      "000109_sdk_growth_verifier_assignment_lock",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1341,7 +1344,10 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000103_sdk_growth_authority_custody" &&
             name !== "000104_hosted_pool_request_scoped_failover" &&
             name !== "000105_sdk_growth_publication_effect" &&
-            name !== "000106_sdk_growth_finalized_report_logical_identity",
+            name !== "000106_sdk_growth_finalized_report_logical_identity" &&
+            name !== "000107_hosted_v4_relay_turn_contract" &&
+            name !== "000108_sdk_growth_verifier_assignment" &&
+            name !== "000109_sdk_growth_verifier_assignment_lock",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1360,7 +1366,10 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000103_sdk_growth_authority_custody" &&
             name !== "000104_hosted_pool_request_scoped_failover" &&
             name !== "000105_sdk_growth_publication_effect" &&
-            name !== "000106_sdk_growth_finalized_report_logical_identity",
+            name !== "000106_sdk_growth_finalized_report_logical_identity" &&
+            name !== "000107_hosted_v4_relay_turn_contract" &&
+            name !== "000108_sdk_growth_verifier_assignment" &&
+            name !== "000109_sdk_growth_verifier_assignment_lock",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1382,12 +1391,12 @@ describe("disposable dual-version rehearsal", () => {
   });
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
-    const exact105 = "000106_sdk_growth_finalized_report_logical_identity";
+    const exactTail = "000109_sdk_growth_verifier_assignment_lock";
     for (const candidate of [
-      names.filter((name) => name !== exact105),
-      [...names, exact105],
-      names.map((name) => (name === exact105 ? "000106_unknown" : name)),
-      [...names, "000107_future_migration"],
+      names.filter((name) => name !== exactTail),
+      [...names, exactTail],
+      names.map((name) => (name === exactTail ? "000108_unknown" : name)),
+      [...names, "000109_future_migration"],
     ]) {
       expect(() => resolvePreReleaseMigrationExclusions(candidate)).toThrow(
         "private_pg17_rehearsal_migration_boundary_unclassified",
@@ -1405,6 +1414,9 @@ describe("disposable dual-version rehearsal", () => {
     "000104_hosted_pool_request_scoped_failover",
     "000105_sdk_growth_publication_effect",
     "000106_sdk_growth_finalized_report_logical_identity",
+    "000107_hosted_v4_relay_turn_contract",
+    "000108_sdk_growth_verifier_assignment",
+    "000109_sdk_growth_verifier_assignment_lock",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1439,7 +1451,11 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000103_sdk_growth_authority_custody" &&
                 name !== "000104_hosted_pool_request_scoped_failover" &&
                 name !== "000105_sdk_growth_publication_effect" &&
-                name !== "000106_sdk_growth_finalized_report_logical_identity",
+                name !==
+                  "000106_sdk_growth_finalized_report_logical_identity" &&
+                name !== "000107_hosted_v4_relay_turn_contract" &&
+                name !== "000108_sdk_growth_verifier_assignment" &&
+                name !== "000109_sdk_growth_verifier_assignment_lock",
               "000102_sdk_growth_current_authority",
             ),
           ),

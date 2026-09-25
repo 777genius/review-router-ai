@@ -240,10 +240,19 @@ function verifierWriterHarness() {
   let currentInstallationActive = true;
   let currentVerifierActive = true;
   let admissionAvailable = true;
+  let now = 100;
+  let credentialExpiresAt = Infinity;
+  let assignmentExpiresAt = Infinity;
+  let authorityLockWait: (() => Promise<void>) | undefined;
   const transaction = {
     async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
       const sql = strings.join("?");
-      if (sql.includes('SELECT c."epoch", b."binding"'))
+      if (
+        sql.includes(
+          "SELECT * FROM public.sdk_growth_verifier_current_authority_lock(",
+        )
+      ) {
+        await authorityLockWait?.();
         return [
           {
             epoch: currentEpoch,
@@ -261,6 +270,7 @@ function verifierWriterHarness() {
             verifierActive: currentVerifierActive,
           },
         ];
+      }
       if (sql.includes('SELECT * FROM "SdkGrowthVerifierEvidence" WHERE')) {
         const row = evidenceRows.get(String(values[0]));
         return row ? [structuredClone(row)] : [];
@@ -358,6 +368,8 @@ function verifierWriterHarness() {
   const authenticator = {
     async authenticate(credential: unknown) {
       if (credential !== "verifier-credential") throw new Error("unauthorized");
+      if (now >= credentialExpiresAt || now >= assignmentExpiresAt)
+        throw new Error("credential_expired");
       return {
         producer: "reviewrouter-verifier" as const,
         issuer: "workload-identity",
@@ -384,6 +396,18 @@ function verifierWriterHarness() {
     evidenceInput,
     requestDigest,
     grantDigest,
+    evidenceRows,
+    reportRows,
+    setNow(value: number) {
+      now = value;
+    },
+    setDeadlines(credential: number, assignment: number) {
+      credentialExpiresAt = credential;
+      assignmentExpiresAt = assignment;
+    },
+    waitAtAuthorityLock(wait: () => Promise<void>) {
+      authorityLockWait = wait;
+    },
     setExecution(value: AuthenticatedEfExecution) {
       authenticatedExecution = value;
     },
@@ -410,6 +434,77 @@ function verifierWriterHarness() {
 }
 
 describe("trusted verifier producer custody", () => {
+  it("retains evidence when the authority wait ends before both deadlines", async () => {
+    const h = verifierWriterHarness();
+    h.setDeadlines(150, 150);
+    h.waitAtAuthorityLock(async () => h.setNow(149));
+    await expect(
+      h.writer.retainEvidence("verifier-credential", h.evidenceInput),
+    ).resolves.toMatchObject({ authorityEpoch: 1 });
+    expect(h.evidenceRows.size).toBe(1);
+  });
+
+  it.each([
+    ["credential", 150, 200],
+    ["assignment", 200, 150],
+  ] as const)(
+    "rejects evidence when the %s expires while the authority lock waits",
+    async (_deadline, credentialExpiry, assignmentExpiry) => {
+      const h = verifierWriterHarness();
+      h.setDeadlines(credentialExpiry, assignmentExpiry);
+      let entered!: () => void;
+      let release!: () => void;
+      const locked = new Promise<void>((resolve) => (entered = resolve));
+      const blocked = new Promise<void>((resolve) => (release = resolve));
+      h.waitAtAuthorityLock(async () => {
+        entered();
+        await blocked;
+      });
+      const attempt = h.writer.retainEvidence(
+        "verifier-credential",
+        h.evidenceInput,
+      );
+      await locked;
+      h.setNow(150);
+      release();
+      await expect(attempt).rejects.toThrow("credential_expired");
+      expect(h.evidenceRows.size).toBe(0);
+    },
+  );
+
+  it.each([
+    ["credential", 150, 200],
+    ["assignment", 200, 150],
+  ] as const)(
+    "rejects finalization when the %s expires while the authority lock waits",
+    async (_deadline, credentialExpiry, assignmentExpiry) => {
+      const h = verifierWriterHarness();
+      await h.writer.retainEvidence("verifier-credential", h.evidenceInput);
+      h.setDeadlines(credentialExpiry, assignmentExpiry);
+      let entered!: () => void;
+      let release!: () => void;
+      const locked = new Promise<void>((resolve) => (entered = resolve));
+      const blocked = new Promise<void>((resolve) => (release = resolve));
+      h.waitAtAuthorityLock(async () => {
+        entered();
+        await blocked;
+      });
+      const attempt = h.writer.retainFinalizedReport("verifier-credential", {
+        expectedAuthorityEpoch: 1,
+        requestDigest: h.requestDigest,
+        grantDigest: h.grantDigest,
+        finalizedReport: report,
+        decision: reportDecision,
+      });
+      await locked;
+      h.setNow(150);
+      release();
+      await expect(attempt).rejects.toThrow("credential_expired");
+      expect(h.evidenceRows.size).toBe(1);
+      expect(h.reportRows.size).toBe(0);
+    },
+  );
+
   it("persists independently authenticated evidence and a report bound to the exact admission grant", async () => {
     const h = verifierWriterHarness();
     await expect(

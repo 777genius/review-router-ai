@@ -1,6 +1,8 @@
 export * from "./domain/identifiers";
 export * from "./domain/account-pool";
 export * from "./domain/invocation-grant";
+export * from "./domain/hosted-v4-relay-grant";
+export * from "./application/ports/hosted-v4-relay-turn-port";
 export * from "./application/ports/hosted-pool-repository-port";
 export * from "./application/ports/hosted-account-repository-port";
 export * from "./application/ports/invocation-grant-repository-port";
@@ -26,6 +28,7 @@ export * from "./infrastructure/runtime/hosted-codex-session-runtime";
 export * from "./infrastructure/prisma/prisma-hosted-codex-session-persistence";
 export * from "./infrastructure/prisma/prisma-hosted-codex-mutation-fence";
 export * from "./infrastructure/prisma/prisma-invocation-grant-repository";
+export * from "./infrastructure/prisma/prisma-hosted-v4-relay-turn";
 export * from "./infrastructure/prisma/prisma-hosted-comment-token-mint-ledger";
 export * from "./infrastructure/prisma/prisma-hosted-codex-upstream-effect-ledger";
 export * from "./infrastructure/prisma/prisma-hosted-codex-restore-reconciler";

@@ -166,6 +166,21 @@ const checkoutExtensions = Object.freeze([
     checksum:
       "a47efeb47fcac73f502818fdf959ff86e44c228951b2839a1b694072e98c3f6d",
   }),
+  Object.freeze({
+    migrationName: "000107_hosted_v4_relay_turn_contract",
+    checksum:
+      "476184a558e47d23ee4127b7ff2221979b37e81faabf8ad66cba42dfd35aba9b",
+  }),
+  Object.freeze({
+    migrationName: "000108_sdk_growth_verifier_assignment",
+    checksum:
+      "ad11dc22b7c528e68fa371d5a435d1ae494fc07b517d14822bfe9472df35ff1a",
+  }),
+  Object.freeze({
+    migrationName: "000109_sdk_growth_verifier_assignment_lock",
+    checksum:
+      "750038a865bced544ae9cca42060112a6479c05163c3dc05c41f504c993147ef",
+  }),
 ]);
 
 export function partitionRenderSchemaHandoffCheckout(catalog) {
@@ -192,7 +207,9 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
       extensions++;
     }
   }
-  if (![0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(extensions))
+  if (
+    ![0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].includes(extensions)
+  )
     fail("checkout_extension");
   if (
     extensions === 3 &&
@@ -258,6 +275,24 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     extensions === 13 &&
     manifest(catalog) !==
       "sha256:51fb004c51bbd2612b04316903695d2d445cb98b64e04f1c054492206683677c"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 14 &&
+    manifest(catalog) !==
+      "sha256:c4849371f75ab6239dc91a1ec2ba7ae5bde6d7a5368bc1c7d5509d3d7959fc43"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 15 &&
+    manifest(catalog) !==
+      "sha256:118042ec41e57c6a7f35e35d48ab9365ee80f3a1acb864181a7cf9ebf01c72bc"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 16 &&
+    manifest(catalog) !==
+      "sha256:1d97937b91028e91b3987eee05057fbe915b7f2354cf2464c8fb507f1086590f"
   )
     fail("checkout_manifest");
   assertRenderSchemaHandoffCatalog(managed);
