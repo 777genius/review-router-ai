@@ -39,17 +39,23 @@ ENV CI=1 \
     HOST=0.0.0.0 \
     NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
+    COREPACK_HOME=/pnpm/corepack \
     PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 
-RUN corepack enable \
-  && corepack prepare pnpm@10.33.0 --activate
+RUN mkdir -p "$COREPACK_HOME" \
+  && corepack enable \
+  && corepack prepare pnpm@10.33.0 --activate \
+  && chmod -R a+rX "$COREPACK_HOME"
 
 COPY --from=build --chown=node:node /app /app
 COPY --chown=root:root deploy/render-runtime/entrypoint.sh /usr/local/bin/reviewrouter-runtime
 RUN chmod 0555 /usr/local/bin/reviewrouter-runtime
 
 USER node
+
+ENV COREPACK_ENABLE_NETWORK=0
+RUN --network=none pnpm --version | grep -Fxq '10.33.0'
 
 EXPOSE 10000
 
