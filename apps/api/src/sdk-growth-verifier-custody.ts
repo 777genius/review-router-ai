@@ -530,6 +530,13 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
           input.expectedAuthorityEpoch,
           this.authorityPolicy,
         );
+        // The authority lock can wait past either producer deadline. Authenticate
+        // again under the same transaction before writing custody.
+        const currentProducer = authenticatedProducer(
+          await this.authenticator.authenticate(credential, transaction),
+        );
+        if (!isDeepStrictEqual(currentProducer, producer))
+          throw new AuthorityError("wrong-identity");
         const evidenceId = sdkGrowthVerifierExecutionId(execution, link);
         const candidateSha256 = sha256(candidate);
         const candidateSha512 = sha512(candidate);
@@ -606,6 +613,11 @@ export class PrismaSdkGrowthVerifierEvidenceCustody {
           input.expectedAuthorityEpoch,
           this.authorityPolicy,
         );
+        const currentProducer = authenticatedProducer(
+          await this.authenticator.authenticate(credential, transaction),
+        );
+        if (!isDeepStrictEqual(currentProducer, producer))
+          throw new AuthorityError("wrong-identity");
         const evidenceId = sdkGrowthVerifierExecutionId(execution, link);
         const [evidence] = await transaction.$queryRaw`
           SELECT * FROM "SdkGrowthVerifierEvidence" WHERE "evidenceId" = ${evidenceId}`;

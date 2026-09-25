@@ -1780,6 +1780,9 @@ model HostedCodexRepositoryBinding {
 
 model HostedCodexInvocationGrant {
   id                        String                           @id @default(cuid())
+  authorityKind             String                           @default("v1_comment")
+  v4TurnKey                 String?                          @unique
+  v4ScopeHash               String?
   invocationId              String                           @unique
   workspaceId               String
   poolId                    String
@@ -1827,6 +1830,7 @@ model HostedCodexInvocationGrant {
   upstreamAttempts         HostedCodexUpstreamEffectAttempt[]
   commentRefreshCapability HostedCodexCommentRefreshCapability?
   commentTokenMints        HostedCodexCommentTokenMint[]
+  v4Turn                   HostedCodexV4RelayTurn?              @relation(fields: [v4TurnKey], references: [logicalTurnKey], onDelete: Restrict)
 
   @@unique([id, workspaceId, poolId])
   @@unique([id, invocationId, repositoryBindingId, workspaceId, poolId, repositoryConnectionId], map: "HostedCodexInvocationGrant_comment_refresh_scope_key")
@@ -1839,6 +1843,7 @@ model HostedCodexInvocationGrant {
 
 model HostedCodexRelayRequest {
   id                          String                        @id @default(cuid())
+  authorityKind               String                        @default("v1_comment")
   grantId                     String
   ordinal                     Int
   idempotencyKeyHash          String
@@ -1868,6 +1873,7 @@ model HostedCodexRelayRequest {
 
 model HostedCodexUpstreamEffectAttempt {
   id                     String                         @id @default(cuid())
+  authorityKind          String                         @default("v1_comment")
   relayRequestId         String
   grantId                String
   workspaceId            String
@@ -1899,6 +1905,29 @@ model HostedCodexUpstreamEffectAttempt {
   @@unique([relayRequestId, attemptOrdinal], map: "HostedCodexUpstreamEffectAttempt_request_attempt_key")
   @@index([state, leaseExpiresAt, id], map: "HostedCodexUpstreamEffectAttempt_sweep_idx")
   @@index([workspaceId, poolId, accountId, state], map: "HostedCodexUpstreamEffectAttempt_account_idx")
+}
+
+/** Sticky logical turn record survives grant replacement and unknown effect recovery. */
+model HostedCodexV4RelayTurn {
+  logicalTurnKey  String   @id
+  scopeHash       String
+  scopeCanonical  String   @db.Text
+  expiresAt       DateTime
+  maxRequests     Int
+  maxRequestBytes Int
+  maxResponseBytes Int
+  maxOutputTokens Int
+  authorizationId String
+  investigationId String
+  turnId          String
+  state           String   @default("open")
+  unknownAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  grant           HostedCodexInvocationGrant?
+
+  @@unique([investigationId, turnId], map: "HostedCodexV4RelayTurn_scope_key")
+  @@index([state, unknownAt], map: "HostedCodexV4RelayTurn_state_unknown_idx")
 }
 
 model HostedCodexCommentRefreshCapability {

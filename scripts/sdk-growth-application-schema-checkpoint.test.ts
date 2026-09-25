@@ -309,6 +309,31 @@ describe("SDK growth application-schema checkpoint", () => {
     ).toEqual(postflight());
   });
 
+  it.each([
+    "000107_hosted_v4_relay_turn_contract",
+    "000108_sdk_growth_verifier_assignment",
+    "000109_sdk_growth_verifier_assignment_lock",
+  ])(
+    "rejects an already-applied later checkout row %s at the 000106 checkpoint",
+    (migrationName) => {
+      expect(
+        migrationName >
+          sdkGrowthApplicationSchemaContract.logicalIdentity.target
+            .migrationName,
+      ).toBe(true);
+      for (const [phase, observation] of [
+        ["preflight-000106", logicalIdentity(false)],
+        ["postflight-000106", logicalIdentity(true)],
+      ] as const)
+        expect(() =>
+          assertSdkGrowthApplicationSchemaCheckpoint(
+            { ...observation, laterMigrationCount: 1 },
+            { phase },
+          ),
+        ).toThrow("sdk_growth_schema_checkpoint_later_migration_rejected");
+    },
+  );
+
   it("accepts exact 000106 states and rejects digest or legacy-row drift", () => {
     expect(
       assertSdkGrowthApplicationSchemaCheckpoint(logicalIdentity(false), {
@@ -673,8 +698,9 @@ describePg17("SDK growth separate disposable PG17 migration rehearsal", () => {
       for (const migrationName of [
         sdkGrowthApplicationSchemaContract.target.migrationName,
         sdkGrowthApplicationSchemaContract.logicalIdentity.target.migrationName,
-        "000107_sdk_growth_verifier_assignment",
-        "000108_sdk_growth_verifier_assignment_lock",
+        "000107_hosted_v4_relay_turn_contract",
+        "000108_sdk_growth_verifier_assignment",
+        "000109_sdk_growth_verifier_assignment_lock",
       ])
         rmSync(join(prismaRoot, "migrations", migrationName), {
           recursive: true,
@@ -682,7 +708,20 @@ describePg17("SDK growth separate disposable PG17 migration rehearsal", () => {
       const fixtureMigrations = readdirSync(join(prismaRoot, "migrations"))
         .filter((name) => /^\d{6}_/u.test(name))
         .sort();
-      expect(fixtureMigrations.at(-1)).toBe(
+      for (const migration of fixtureMigrations) {
+        if (
+          migration >
+          sdkGrowthApplicationSchemaContract.predecessor.migrationName
+        ) {
+          rmSync(join(prismaRoot, "migrations", migration), {
+            recursive: true,
+          });
+        }
+      }
+      const historicalMigrations = readdirSync(join(prismaRoot, "migrations"))
+        .filter((name) => /^\d{6}_/u.test(name))
+        .sort();
+      expect(historicalMigrations.at(-1)).toBe(
         sdkGrowthApplicationSchemaContract.predecessor.migrationName,
       );
       const configPath = join(root, "prisma.config.ts");

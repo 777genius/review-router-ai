@@ -43,9 +43,9 @@ const input = () => ({
 });
 
 describe("bounded managed89-to92 transaction construction", () => {
-  it("keeps the reader-to-builder boundary at92 for the exact107 checkout", () => {
+  it("keeps the reader-to-builder boundary at92 for the exact108 checkout", () => {
     expect(readdirSync("packages/platform/db/prisma/migrations")).toHaveLength(
-      107,
+      108,
     );
     expect(catalog).toHaveLength(92);
     const sql = renderSchemaHandoffTransaction(input());
@@ -166,9 +166,19 @@ describe("bounded managed89-to92 transaction construction", () => {
           )
           .digest("hex"),
       },
+      {
+        migrationName: "000107_hosted_v4_relay_turn_contract",
+        checksum: createHash("sha256")
+          .update(
+            readFileSync(
+              "packages/platform/db/prisma/migrations/000107_hosted_v4_relay_turn_contract/migration.sql",
+            ),
+          )
+          .digest("hex"),
+      },
       ...[
-        "000107_sdk_growth_verifier_assignment",
-        "000108_sdk_growth_verifier_assignment_lock",
+        "000108_sdk_growth_verifier_assignment",
+        "000109_sdk_growth_verifier_assignment_lock",
       ].map((migrationName) => ({
         migrationName,
         checksum: createHash("sha256")

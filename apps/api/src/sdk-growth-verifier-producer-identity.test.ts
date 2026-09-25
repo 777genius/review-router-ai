@@ -244,7 +244,7 @@ describe("protected SDK verifier producer identity", () => {
   it("keeps assignment locking restricted to a fixed-path definer function", () => {
     const migration = readFileSync(
       new URL(
-        "../../../packages/platform/db/prisma/migrations/000108_sdk_growth_verifier_assignment_lock/migration.sql",
+        "../../../packages/platform/db/prisma/migrations/000109_sdk_growth_verifier_assignment_lock/migration.sql",
         import.meta.url,
       ),
       "utf8",

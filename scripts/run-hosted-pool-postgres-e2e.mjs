@@ -102,6 +102,11 @@ const requestScopedFailoverMigration = Object.freeze({
   name: "000104_hosted_pool_request_scoped_failover",
   phase: "verify-000104",
 });
+const v4RelayTurnMigration = "000107_hosted_v4_relay_turn_contract";
+const sdkGrowthVerifierAssignmentMigrations = Object.freeze([
+  "000108_sdk_growth_verifier_assignment",
+  "000109_sdk_growth_verifier_assignment_lock",
+]);
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -169,6 +174,12 @@ try {
       rehearsalDirectory,
       migrationDatabaseUrl,
     );
+    addMigration(rehearsalDirectory, v4RelayTurnMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    for (const migrationName of sdkGrowthVerifierAssignmentMigrations) {
+      addMigration(rehearsalDirectory, migrationName);
+      runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    }
 
     const migrationCount = await countAppliedMigrations(migrationDatabaseUrl);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
@@ -746,6 +757,8 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
       ? [
           ...hostedPoolStagedMigrations.map((migration) => migration.name),
           requestScopedFailoverMigration.name,
+          v4RelayTurnMigration,
+          ...sdkGrowthVerifierAssignmentMigrations,
         ]
       : []),
   ]);

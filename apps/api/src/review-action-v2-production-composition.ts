@@ -190,6 +190,7 @@ import {
 import { OctokitCodexRotatingGitHubSecretGateway } from "./github/octokit-codex-rotating-github-secret-gateway.js";
 import { HostedV4ScmReadGateway } from "./github/hosted-v4-scm-read-gateway.js";
 import { createHostedV4AuthoritySources } from "./hosted-v4-authority-sources.js";
+import { composeHostedV4RelayAuthority } from "./hosted-v4-relay-authority.js";
 import type { HostedV4ReadRoutesDependencies } from "./hosted-v4-read-routes.js";
 import { ProductionReviewMutationAuthorityProofFacts } from "./review-action-v2-mutation-proof-facts.js";
 import { OctokitReviewV2DispatchCapabilityInspector } from "./github/octokit-review-v2-dispatch-capability-inspector.js";
@@ -260,6 +261,10 @@ type ReviewActionV2RouteRuntime = Pick<
 
 export type ReviewActionV2ProductionRoutes = Readonly<{
   hostedV4: HostedV4ReadRoutesDependencies;
+  hostedV4Relay: Readonly<{
+    enabled: false;
+    resolver?: ReturnType<typeof composeHostedV4RelayAuthority>["resolver"];
+  }>;
   runControl: RegisterReviewRunControlV2RoutesDependencies;
   execution: RegisterReviewExecutionV2RoutesDependencies;
   investigation: RegisterReviewInvestigationV2RoutesDependencies;
@@ -396,6 +401,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   if (!input.enabled) {
     return Object.freeze({
       hostedV4: { enabled: false },
+      hostedV4Relay: { enabled: false },
       runControl: input.runtime,
       execution: input.runtime,
       investigation: input.runtime,
@@ -933,16 +939,20 @@ export function composeReviewActionV2ProductionRoutes(input: {
     },
   });
 
+  const hostedV4 = composeProductionHostedV4ReadRoutes({
+    env: input.env,
+    prisma,
+    runControl,
+    repositories,
+    prerequisites,
+    repositoryReleaseSelector,
+    workflowInventory,
+  });
   return Object.freeze({
-    hostedV4: composeProductionHostedV4ReadRoutes({
-      env: input.env,
-      prisma,
-      runControl,
-      repositories,
-      prerequisites,
-      repositoryReleaseSelector,
-      workflowInventory,
-    }),
+    hostedV4,
+    hostedV4Relay: hostedV4.bridge
+      ? composeHostedV4RelayAuthority({ prisma, bridge: hostedV4.bridge })
+      : { enabled: false as const },
     runControl: composeReviewActionV2RunControlRoutes({
       enabled: true,
       runtime: input.runtime,

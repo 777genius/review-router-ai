@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const sql = readFileSync(
   resolve(
     import.meta.dirname,
-    "../prisma/migrations/000107_sdk_growth_verifier_assignment/migration.sql",
+    "../prisma/migrations/000108_sdk_growth_verifier_assignment/migration.sql",
   ),
   "utf8",
 );
@@ -14,7 +14,7 @@ const schema = readFileSync(
   "utf8",
 );
 
-describe("000107 protected verifier assignment", () => {
+describe("000108 protected verifier assignment", () => {
   it("persists the exact execution and permits only revocation after creation", () => {
     expect(schema).toContain("model SdkGrowthVerifierAssignment {");
     expect(sql).toContain('"execution" JSONB NOT NULL');

@@ -12,8 +12,11 @@ export type HostedV4Authorization = Readonly<{
   repositoryConnectionId: string;
   scmRepositoryIdentityId: string;
   pullRequestNumber: number;
+  baseSha: string;
+  mergeBaseSha: string;
   headSha: string;
   reviewRevisionHash: string;
+  mutationEpoch: bigint;
   producerReleaseId: string;
   trustDomain: string;
   investigationCodexRecordingAllowed: boolean;
@@ -135,6 +138,47 @@ export class HostedV4AuthorityBridge {
     return this.issue(authorization, live);
   }
 
+  /** Resolve relay prerequisites from the v2 token and current server state.
+   * This returns no signed SCM capability and cannot issue a relay grant.
+   */
+  async resolveRelayAuthority(input: {
+    readonly authorizationToken: string;
+    readonly repositoryConnectionId: string;
+    readonly providerInstanceId: string;
+    readonly bindingId: string;
+    readonly bindingVersion: number;
+  }): Promise<
+    Readonly<{
+      authorization: HostedV4Authorization;
+      live: HostedV4LiveAuthority;
+    }>
+  > {
+    if (
+      !input.authorizationToken ||
+      !input.repositoryConnectionId ||
+      !input.bindingId ||
+      !Number.isSafeInteger(input.bindingVersion) ||
+      input.bindingVersion < 1
+    )
+      throw denied();
+    const authorization = await this.sources.resolveAuthorizationToken(
+      input.authorizationToken,
+    );
+    if (
+      !authorization ||
+      authorization.repositoryConnectionId !== input.repositoryConnectionId
+    )
+      throw denied();
+    const live = await this.check(authorization);
+    if (
+      live.providerInstanceId !== input.providerInstanceId ||
+      live.bindingId !== input.bindingId ||
+      live.bindingVersion !== input.bindingVersion
+    )
+      throw denied();
+    return { authorization, live };
+  }
+
   async resolveRead(capability: string): Promise<HostedV4ReadScope> {
     const scope = this.verify(capability);
     await this.checkSignedScope(scope);
@@ -216,8 +260,11 @@ export class HostedV4AuthorityBridge {
       current.scmRepositoryIdentityId !==
         authorization.scmRepositoryIdentityId ||
       current.pullRequestNumber !== authorization.pullRequestNumber ||
+      current.baseSha !== authorization.baseSha ||
+      current.mergeBaseSha !== authorization.mergeBaseSha ||
       current.headSha !== authorization.headSha ||
       current.reviewRevisionHash !== authorization.reviewRevisionHash ||
+      current.mutationEpoch !== authorization.mutationEpoch ||
       current.producerReleaseId !== authorization.producerReleaseId ||
       current.trustDomain !== authorization.trustDomain ||
       current.investigationCodexRecordingAllowed !==

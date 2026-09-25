@@ -109,8 +109,8 @@ describe.skipIf(!url)("verifier assignment / disposable PostgreSQL", () => {
       `CREATE TABLE "${schema}"."SdkGrowthOwnerVersion" ("scopeKey" text NOT NULL, "epoch" bigint NOT NULL, "evidence" jsonb NOT NULL, "provenance" jsonb NOT NULL, "installationActive" boolean NOT NULL, "verifierActive" boolean NOT NULL)`,
     );
     for (const name of [
-      "000107_sdk_growth_verifier_assignment",
-      "000108_sdk_growth_verifier_assignment_lock",
+      "000108_sdk_growth_verifier_assignment",
+      "000109_sdk_growth_verifier_assignment_lock",
     ]) {
       const migration = readFileSync(
         new URL(

@@ -115,7 +115,7 @@ GRANT EXECUTE ON FUNCTION public.sdk_growth_verifier_current_authority_lock(text
   TO "<verifier_producer_role>";
 ```
 
-Migration `000108_sdk_growth_verifier_assignment_lock` revokes the default
+Migration `000109_sdk_growth_verifier_assignment_lock` revokes the default
 PUBLIC execute grant on both functions. The migration owner must own the
 assignment and current-authority tables so the functions can acquire `FOR SHARE`
 while the producer retains SELECT without UPDATE on either table. Both functions
@@ -131,8 +131,8 @@ the producer. A shared DB owner or shared verifier key with the candidate
 process would invalidate this boundary.
 
 The assignment checkpoint requires application migration
-`000107_sdk_growth_verifier_assignment` before any protected job is issued.
-It also requires `000108_sdk_growth_verifier_assignment_lock` before the
+`000108_sdk_growth_verifier_assignment` before any protected job is issued.
+It also requires `000109_sdk_growth_verifier_assignment_lock` before the
 producer authenticates a credential. Finalized report serialization requires
 application migration `000106_sdk_growth_finalized_report_logical_identity`,
 which removes the

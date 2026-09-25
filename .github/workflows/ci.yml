@@ -397,14 +397,42 @@ jobs:
           test -n "$SDK_GROWTH_TEST_DATABASE_URL"
           test -n "$REVIEW_ROUTER_TEST_DATABASE_URL"
           results="$RUNNER_TEMP/sdk-growth-authority-outbox-results.json"
-          pnpm exec vitest run \
+          if ! pnpm exec vitest run \
             packages/features/sdk-growth-authority/src/tests/prisma-receipt-repository.test.ts \
             packages/features/sdk-growth-authority/src/tests/prisma-current-authority.test.ts \
             packages/features/sdk-growth-authority/src/tests/prisma-lane-a.test.ts \
             packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts \
             apps/api/src/sdk-growth-verifier-custody.pg.test.ts \
+            apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts \
             scripts/sdk-growth-application-schema-checkpoint.test.ts \
-            --reporter=json --outputFile="$results"
+            --reporter=json --outputFile="$results"; then
+            RESULTS_PATH="$results" node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const report = JSON.parse(readFileSync(process.env.RESULTS_PATH, "utf8"));
+          for (const suite of report.testResults ?? []) {
+            if (suite.status === "failed" && !suite.assertionResults?.length) {
+              console.error(JSON.stringify({
+                suite: suite.name,
+                failure: (suite.message ?? "suite failed before assertions")
+                  .replaceAll(/postgres(?:ql)?:\/\/[^@\s]+@/giu, "postgresql://[redacted]@")
+                  .slice(0, 2000),
+              }));
+            }
+            for (const assertion of suite.assertionResults ?? []) {
+              if (assertion.status !== "failed") continue;
+              console.error(JSON.stringify({
+                suite: suite.name,
+                test: assertion.fullName,
+                failure: (assertion.failureMessages?.[0] ?? "unknown failure")
+                  .replaceAll(/postgres(?:ql)?:\/\/[^@\s]+@/giu, "postgresql://[redacted]@")
+                  .slice(0, 2000),
+              }));
+            }
+          }
+          NODE
+            exit 1
+          fi
           RESULTS_PATH="$results" EXPECTED_HEAD="$GITHUB_SHA" node --input-type=module <<'NODE'
           import { readFileSync } from "node:fs";
 
@@ -415,6 +443,7 @@ jobs:
             "packages/features/sdk-growth-authority/src/tests/prisma-lane-a.test.ts",
             "packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts",
             "apps/api/src/sdk-growth-verifier-custody.pg.test.ts",
+            "apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts",
             "scripts/sdk-growth-application-schema-checkpoint.test.ts",
           ];
           const suites = report.testResults.map((suite) =>
@@ -436,7 +465,7 @@ jobs:
           }
           console.log(JSON.stringify({
             head: process.env.EXPECTED_HEAD,
-            command: "pnpm exec vitest run <six required PostgreSQL suites> --reporter=json",
+            command: "pnpm exec vitest run <seven required PostgreSQL suites> --reporter=json",
             executed: report.numTotalTests,
             passed: report.numPassedTests,
             skipped: report.numPendingTests + report.numTodoTests,
