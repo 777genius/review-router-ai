@@ -79,6 +79,9 @@ describe("Codex rotating GitHub Action runtime", () => {
     expect(actionYml).toContain("auth-json:\n    description:");
     expect(actionYml).toContain("claude-code-oauth-token:\n    description:");
     expect(actionYml).toContain("openrouter-api-key:\n    description:");
+    expect(actionYml).toContain(
+      "mimo-token-plan-api-key:\n    description:",
+    );
     expect(actionYml).not.toContain("codex-package-version");
     expect(actionYml).not.toContain("codex-binary");
     expect(actionYml).not.toMatch(/\bpre:/);
@@ -173,6 +176,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
       "INPUT_CLAUDE-CODE-OAUTH-TOKEN": " sk-ant-oat01-provider-secret\n",
       "INPUT_OPENROUTER-API-KEY": "sk-or-provider-secret",
+      "INPUT_MIMO-TOKEN-PLAN-API-KEY": "tp-provider-secret",
     });
 
     expect(inputs).toMatchObject({
@@ -185,8 +189,54 @@ describe("Codex rotating GitHub Action runtime", () => {
       providerSecrets: {
         claudeCodeOAuthToken: "sk-ant-oat01-provider-secret",
         openRouterApiKey: "sk-or-provider-secret",
+        mimoTokenPlanApiKey: "tp-provider-secret",
       },
     });
+  });
+
+  it("wires the MiMo Token Plan key into the full review runtime only when codex-mimo/ is selected", () => {
+    const baseInput = {
+      sourceEnv: { PATH: "/usr/bin" },
+      inputs: {
+        mode: "codex-oauth-rotating",
+        apiUrl: "https://api.reviewrouter.site",
+        providerInstanceId: "codex-rotating:123456",
+        workflowSchemaVersion: 1,
+        reviewDrafts: false,
+        maxChangedLines: 0,
+        reviewTimeoutMinutes: 60,
+        providerSecrets: { mimoTokenPlanApiKey: "tp-provider-secret" },
+      },
+      leaseId: "lease-123",
+      event: {
+        number: 118,
+        repository: "777genius/agent-teams-ai",
+        owner: "777genius",
+        repo: "agent-teams-ai",
+        headSha: "head-sha",
+        baseSha: "base-sha",
+      },
+      workspace: "/tmp/workspace",
+      tempHome: "/tmp/home",
+      tempCodexHome: "/tmp/codex-home",
+      codexBinDir: "/tmp/codex-bin",
+      commentToken: "comment-token",
+      runtimeConfigVersion: 7,
+    } as const;
+
+    const withMimoProvider = buildFullReviewRuntimeEnv({
+      ...baseInput,
+      runtimeEnv: { REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro" },
+    });
+    expect(withMimoProvider.MIMO_TOKEN_PLAN_API_KEY).toBe(
+      "tp-provider-secret",
+    );
+
+    const withoutMimoProvider = buildFullReviewRuntimeEnv({
+      ...baseInput,
+      runtimeEnv: { REVIEW_PROVIDERS: "codex/gpt-5.5" },
+    });
+    expect(withoutMimoProvider.MIMO_TOKEN_PLAN_API_KEY).toBeUndefined();
   });
 
   it("reads an exact boolean draft review action input", () => {

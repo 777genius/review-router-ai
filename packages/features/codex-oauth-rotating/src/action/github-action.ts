@@ -140,6 +140,7 @@ type ActionInputs = {
 type ProviderSecretInputs = {
   readonly claudeCodeOAuthToken?: string;
   readonly openRouterApiKey?: string;
+  readonly mimoTokenPlanApiKey?: string;
 };
 
 type PullRequestEvent = {
@@ -919,6 +920,10 @@ export function readActionInputs(env: NodeJS.ProcessEnv): ActionInputs {
     "claude-code-oauth-token",
   );
   const openRouterApiKey = optionalSecretInput(env, "openrouter-api-key");
+  const mimoTokenPlanApiKey = optionalSecretInput(
+    env,
+    "mimo-token-plan-api-key",
+  );
   const workflowSchemaVersion = Number(
     readInput(env, "workflow-schema-version") || "1",
   );
@@ -937,6 +942,7 @@ export function readActionInputs(env: NodeJS.ProcessEnv): ActionInputs {
     providerSecrets: {
       ...(claudeCodeOAuthToken ? { claudeCodeOAuthToken } : {}),
       ...(openRouterApiKey ? { openRouterApiKey } : {}),
+      ...(mimoTokenPlanApiKey ? { mimoTokenPlanApiKey } : {}),
     },
   };
 }
@@ -2935,6 +2941,12 @@ function buildProviderSecretEnvForRuntime(input: {
   ) {
     env.OPENROUTER_API_KEY = input.providerSecrets.openRouterApiKey;
   }
+  if (
+    runtimeProvidersInclude(input.runtimeEnv, "codex-mimo/") &&
+    input.providerSecrets.mimoTokenPlanApiKey
+  ) {
+    env.MIMO_TOKEN_PLAN_API_KEY = input.providerSecrets.mimoTokenPlanApiKey;
+  }
   return env;
 }
 
@@ -2992,6 +3004,7 @@ const forkRuntimeEnvAllowedKeys = new Set([
   "REVIEWROUTER_CONFIG_SCHEMA_VERSION",
   "REVIEW_AUTH_MODE",
   "INLINE_MAX_COMMENTS",
+  "INLINE_MIN_SEVERITY",
   "TARGET_TOKENS_PER_BATCH",
   "FAIL_ON_SEVERITY",
   "REVIEW_OUTPUT_LANGUAGE",
@@ -3623,8 +3636,11 @@ function clearActionProviderSecretEnv(env: NodeJS.ProcessEnv): void {
   delete env.INPUT_CLAUDE_CODE_OAUTH_TOKEN;
   delete env["INPUT_OPENROUTER-API-KEY"];
   delete env.INPUT_OPENROUTER_API_KEY;
+  delete env["INPUT_MIMO-TOKEN-PLAN-API-KEY"];
+  delete env.INPUT_MIMO_TOKEN_PLAN_API_KEY;
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
   delete env.OPENROUTER_API_KEY;
+  delete env.MIMO_TOKEN_PLAN_API_KEY;
 }
 
 function maskProviderSecretInputs(
@@ -3636,6 +3652,9 @@ function maskProviderSecretInputs(
   }
   if (providerSecrets.openRouterApiKey) {
     mask(io, providerSecrets.openRouterApiKey);
+  }
+  if (providerSecrets.mimoTokenPlanApiKey) {
+    mask(io, providerSecrets.mimoTokenPlanApiKey);
   }
 }
 

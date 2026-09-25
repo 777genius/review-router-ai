@@ -35,6 +35,9 @@ inputs:
   openrouter-api-key:
     description: OpenRouter API key for hybrid reviews.
     required: false
+  mimo-token-plan-api-key:
+    description: Xiaomi MiMo Token Plan API key for codex-mimo/ reviews.
+    required: false
 runs:
   using: node24
   main: action-dist/index.cjs
