@@ -101,6 +101,13 @@ describe("dashboard repository search route", () => {
 
     await expect(response.json()).resolves.toMatchObject({
       repositoryIds: ["repo_allowed"],
+      repositories: [
+        {
+          id: "repo_allowed",
+          fullName: "fin-int/tvaity",
+          provider: "github",
+        },
+      ],
       total: 1,
       query: "tvaity",
       filter: "all",
@@ -336,6 +343,7 @@ function repositoryRow(input: {
     fullName: input.fullName,
     owner,
     name,
+    provider: "github",
     defaultBranch: "main",
     visibility: "private",
     setupStatus: "configured",

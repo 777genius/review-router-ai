@@ -1129,6 +1129,26 @@ export async function encryptCodexRotatingAuthForGitHubSecret(input: {
   };
 }
 
+export async function encryptApiKeyForGitHubSecret(input: {
+  readonly apiKey: string;
+  readonly githubPublicKeyBase64: string;
+  readonly githubKeyId: string;
+}): Promise<{ readonly encryptedValue: string; readonly keyId: string }> {
+  await sodium.ready;
+  const publicKey = Buffer.from(input.githubPublicKeyBase64, "base64");
+  if (publicKey.length !== sodium.crypto_box_PUBLICKEYBYTES) {
+    throw new Error("github_secret_public_key_invalid");
+  }
+  const encrypted = sodium.crypto_box_seal(
+    Buffer.from(input.apiKey, "utf8"),
+    publicKey,
+  );
+  return {
+    encryptedValue: Buffer.from(encrypted).toString("base64"),
+    keyId: input.githubKeyId,
+  };
+}
+
 export function parseCodexRotatingEncryptedWritebackRequest(
   input: unknown,
 ): CodexRotatingEncryptedWritebackRequest {

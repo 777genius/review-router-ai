@@ -13,25 +13,26 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members                  WorkspaceMember[]
-  installations            GitHubInstallation[]
-  gitLabInstallations      GitLabInstallation[]
-  repositories             RepositoryConnection[]
-  provisioning             WorkflowProvisioning[]
-  orgRulesets              OrgRulesetProvisioning[]
-  reviewConfigs            ReviewConfiguration[]
-  providerSetup            ProviderSetupState[]
-  actionHealth             ActionRunHealthReport[]
-  conflictReviewAttempts   ConflictReviewAttempt[]
-  auditEvents              AuditEvent[]
-  entitlement              WorkspaceEntitlement?
-  memoryItems              MemoryItem[]
-  memorySuggestions        MemorySuggestion[]
-  memoryUsageEvents        MemoryUsageEvent[]
-  codexOAuthProviders      CodexOAuthProviderInstance[]
-  codexOAuthLeases         CodexOAuthLease[]
-  codexOAuthSetupManifests CodexOAuthSetupManifest[]
-  reviewSnapshots          ReviewSnapshot[]
+  members                   WorkspaceMember[]
+  installations             GitHubInstallation[]
+  gitLabInstallations       GitLabInstallation[]
+  repositories              RepositoryConnection[]
+  provisioning              WorkflowProvisioning[]
+  orgRulesets               OrgRulesetProvisioning[]
+  reviewConfigs             ReviewConfiguration[]
+  providerSetup             ProviderSetupState[]
+  actionHealth              ActionRunHealthReport[]
+  conflictReviewAttempts    ConflictReviewAttempt[]
+  auditEvents               AuditEvent[]
+  entitlement               WorkspaceEntitlement?
+  memoryItems               MemoryItem[]
+  memorySuggestions         MemorySuggestion[]
+  memoryUsageEvents         MemoryUsageEvent[]
+  codexOAuthProviders       CodexOAuthProviderInstance[]
+  codexOAuthLeases          CodexOAuthLease[]
+  codexOAuthSetupManifests  CodexOAuthSetupManifest[]
+  providerApiKeyConnections ProviderApiKeyConnection[]
+  reviewSnapshots           ReviewSnapshot[]
 }
 
 model User {
@@ -175,15 +176,15 @@ model RepositoryConnection {
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
-  workspace                Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  installation             GitHubInstallation?          @relation(fields: [installationId], references: [id], onDelete: Cascade)
-  gitlabInstallation       GitLabInstallation?          @relation(fields: [gitlabInstallationId], references: [id], onDelete: Cascade)
+  workspace                Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  installation             GitHubInstallation?            @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  gitlabInstallation       GitLabInstallation?            @relation(fields: [gitlabInstallationId], references: [id], onDelete: Cascade)
   provisioning             WorkflowProvisioning[]
   reviewConfigs            ReviewConfiguration[]
   providerSetup            ProviderSetupState[]
   actionHealth             ActionRunHealthReport[]
   conflictReviewAttempts   ConflictReviewAttempt[]
-  rulesetSources           OrgRulesetProvisioning[]     @relation("OrgRulesetSourceRepository")
+  rulesetSources           OrgRulesetProvisioning[]       @relation("OrgRulesetSourceRepository")
   permissionCache          RepositoryPermissionCache[]
   memoryItems              MemoryItem[]
   memorySuggestions        MemorySuggestion[]
@@ -191,6 +192,7 @@ model RepositoryConnection {
   codexOAuthProviders      CodexOAuthProviderInstance[]
   codexOAuthLeases         CodexOAuthLease[]
   codexOAuthSetupManifests CodexOAuthSetupManifest[]
+  providerApiKeyLinks      ProviderApiKeyRepositoryLink[]
   reviewSnapshots          ReviewSnapshot[]
 
   @@unique([provider, externalRepositoryId, sourceBaseUrl])
@@ -199,6 +201,39 @@ model RepositoryConnection {
   @@index([gitlabInstallationId])
   @@index([workspaceId, setupStatus])
   @@index([workspaceId, provider, sourceBaseUrl, selected, fullName])
+}
+
+model ProviderApiKeyConnection {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  providerType    String
+  encryptedApiKey String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace       Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repositoryLinks ProviderApiKeyRepositoryLink[]
+
+  @@unique([workspaceId, providerType])
+  @@index([workspaceId])
+}
+
+model ProviderApiKeyRepositoryLink {
+  id                         String    @id @default(cuid())
+  providerApiKeyConnectionId String
+  repositoryId               String
+  status                     String    @default("pending")
+  lastErrorReason            String?
+  appliedAt                  DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  connection ProviderApiKeyConnection @relation(fields: [providerApiKeyConnectionId], references: [id], onDelete: Cascade)
+  repository RepositoryConnection     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@unique([providerApiKeyConnectionId, repositoryId])
+  @@index([repositoryId])
+  @@index([providerApiKeyConnectionId, status])
 }
 
 model RepositoryPermissionCache {

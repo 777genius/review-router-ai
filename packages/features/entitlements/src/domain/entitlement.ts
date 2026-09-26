@@ -9,6 +9,7 @@ export const entitlementFeatureSchema = z.enum([
   "advanced_org_policies",
   "cloud_review_execution",
   "compliance_exports",
+  "provider_key_management",
 ]);
 
 export type EntitlementFeature = z.infer<typeof entitlementFeatureSchema>;
@@ -63,6 +64,7 @@ export const freeBetaEntitlement = (
     advanced_org_policies: false,
     cloud_review_execution: false,
     compliance_exports: false,
+    provider_key_management: false,
   },
 });
 

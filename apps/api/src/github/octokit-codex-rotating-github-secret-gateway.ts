@@ -37,6 +37,13 @@ type ContentsResponse = {
   readonly data?: unknown;
 };
 
+type RepositoryActionsPublicKeyResponse = {
+  readonly data?: {
+    readonly key_id?: unknown;
+    readonly key?: unknown;
+  };
+};
+
 export class OctokitCodexRotatingGitHubSecretGateway
   implements
     CodexRotatingGitHubSecretTokenIssuerPort,
@@ -86,6 +93,38 @@ export class OctokitCodexRotatingGitHubSecretGateway
       permission: "write",
     });
     return { status: "ready" };
+  }
+
+  async getRepositoryActionsPublicKey(input: {
+    readonly githubInstallationId: string;
+    readonly githubRepositoryId: string;
+    readonly owner: string;
+    readonly repo: string;
+  }): Promise<{ readonly keyId: string; readonly key: string }> {
+    const token = await this.mintRepositorySecretsToken({
+      githubInstallationId: input.githubInstallationId,
+      githubRepositoryId: input.githubRepositoryId,
+      permission: "read",
+    });
+    const response = (await githubRequest(
+      "GET /repos/{owner}/{repo}/actions/secrets/public-key",
+      {
+        owner: input.owner,
+        repo: input.repo,
+        headers: {
+          authorization: `Bearer ${token.token}`,
+        },
+      },
+    )) as RepositoryActionsPublicKeyResponse;
+    if (
+      typeof response.data?.key_id !== "string" ||
+      response.data.key_id.length === 0 ||
+      typeof response.data.key !== "string" ||
+      response.data.key.length === 0
+    ) {
+      throw new Error("provider_api_key_public_key_invalid_response");
+    }
+    return { keyId: response.data.key_id, key: response.data.key };
   }
 
   async issueContentsReadToken(input: {

@@ -8,6 +8,7 @@ import { AppToaster } from "./app-toaster";
 import { LogoMark } from "./logo-mark";
 import { MobilePrimaryNav, PrimaryNav } from "./primary-nav";
 import { HeaderProfileMenu } from "./header-profile-menu";
+import { QueryProvider } from "./query-provider";
 import { ThemeToggle } from "./theme-toggle";
 import "./globals.css";
 import {
@@ -206,7 +207,9 @@ export default async function RootLayout({
             </div>
           </div>
         </header>
-        <div id="content">{children}</div>
+        <div id="content">
+          <QueryProvider>{children}</QueryProvider>
+        </div>
         <AppToaster />
         <footer className="site-footer relative isolate overflow-hidden border-t border-cyan-200/10 bg-[var(--rr-footer-bg)]">
           <div
