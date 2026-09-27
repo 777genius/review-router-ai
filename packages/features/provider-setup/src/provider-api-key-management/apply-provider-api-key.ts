@@ -8,6 +8,7 @@ import {
 import type {
   ProviderApiKeyErrorClassifier,
   ProviderApiKeyGitHubSecretGatewayPort,
+  ProviderApiKeyLockPort,
   ProviderApiKeyRepositoryPort,
   ProviderApiKeyStorageCipherPort,
   ProviderApiKeyStorePort,
@@ -15,7 +16,7 @@ import type {
 
 export class ProviderApiKeyUnavailableError extends Error {
   constructor() {
-    super("provider_api_key_unavailable");
+    super("stored_api_key_unavailable");
     this.name = "ProviderApiKeyUnavailableError";
   }
 }
@@ -33,107 +34,214 @@ export async function applyProviderApiKey(
     readonly storageCipher: ProviderApiKeyStorageCipherPort;
     readonly githubSecrets: ProviderApiKeyGitHubSecretGatewayPort;
     readonly classifyError: ProviderApiKeyErrorClassifier;
+    readonly lock: ProviderApiKeyLockPort;
   },
 ): Promise<{
   readonly providerType: ProviderApiKeyProvider;
   readonly results: readonly ProviderApiKeyRepositoryResult[];
 }> {
-  const repositoryIds = [...new Set(input.repositoryIds)];
-  const apiKey = await resolveApiKey(input, dependencies);
-  await dependencies.providerApiKeys.saveEncryptedApiKey({
-    workspaceId: input.workspaceId,
-    providerType: input.providerType,
-    encryptedApiKey: dependencies.storageCipher.encrypt(apiKey),
-  });
-  const targets =
-    await dependencies.providerApiKeyRepositories.findRepositoryTargets({
-      workspaceId: input.workspaceId,
-      repositoryIds,
-    });
-  const targetByRepositoryId = new Map(
-    targets.map((target) => [target.repositoryId, target] as const),
-  );
-  const results = await mapWithConcurrency(
-    repositoryIds,
-    5,
-    async (repositoryId): Promise<ProviderApiKeyRepositoryResult> => {
-      const target = targetByRepositoryId.get(repositoryId);
-      if (!target) {
-        return {
-          repositoryId,
-          repositoryFullName: repositoryId,
-          status: "failed",
-          errorReason: "repository_not_found",
-        };
+  const workspaceId = input.workspaceId.trim();
+  const providerType = input.providerType;
+  const requestedRepositoryIds = [...new Set(input.repositoryIds)];
+  const providedApiKey = input.apiKey?.trim();
+
+  return dependencies.lock.withLock(
+    `provider-api-key:${workspaceId}:${providerType}`,
+    15 * 60 * 1000,
+    async () => {
+      const connectedRepositoryIds =
+        await dependencies.providerApiKeys.findConnectedRepositoryIds({
+          workspaceId,
+          providerType,
+        });
+      const candidateRepositoryIds = providedApiKey
+        ? [...new Set([...connectedRepositoryIds, ...requestedRepositoryIds])]
+        : requestedRepositoryIds;
+      const targets =
+        await dependencies.providerApiKeyRepositories.findRepositoryTargets({
+          workspaceId,
+          repositoryIds: candidateRepositoryIds,
+        });
+      const targetByRepositoryId = new Map(
+        targets.map((target) => [target.repositoryId, target] as const),
+      );
+      const deniedResults = candidateRepositoryIds
+        .filter((repositoryId) => !targetByRepositoryId.has(repositoryId))
+        .map(
+          (repositoryId): ProviderApiKeyRepositoryResult => ({
+            repositoryId,
+            repositoryFullName: repositoryId,
+            status: "denied",
+            errorReason: "repository_not_allowed",
+            errorSummary: sanitizeProviderApiKeyError("repository_not_allowed"),
+          }),
+        );
+      const allowedRepositoryIds = targets.map((target) => target.repositoryId);
+      if (allowedRepositoryIds.length === 0) {
+        return { providerType, results: deniedResults };
       }
-      try {
-        const publicKey =
-          await dependencies.githubSecrets.getRepositoryActionsPublicKey({
-            githubInstallationId: target.githubInstallationId,
-            githubRepositoryId: target.githubRepositoryId,
-            owner: target.owner,
-            repo: target.repo,
+
+      let encryptedApiKey: string | undefined;
+      let plaintextApiKey: string;
+      if (providedApiKey) {
+        plaintextApiKey = providedApiKey;
+        encryptedApiKey = dependencies.storageCipher.encrypt(providedApiKey);
+      } else {
+        const storedApiKey =
+          await dependencies.providerApiKeys.findEncryptedApiKey({
+            workspaceId,
+            providerType,
           });
-        const encrypted = await encryptApiKeyForGitHubSecret({
-          apiKey,
-          githubPublicKeyBase64: publicKey.key,
-          githubKeyId: publicKey.keyId,
-        });
-        await dependencies.githubSecrets.putEncryptedRepositorySecret({
-          githubInstallationId: target.githubInstallationId,
-          githubRepositoryId: target.githubRepositoryId,
-          repositoryFullName: target.repositoryFullName,
-          owner: target.owner,
-          repo: target.repo,
-          secretName: providerApiKeySecretName(input.providerType),
-          encryptedValue: encrypted.encryptedValue,
-          keyId: encrypted.keyId,
-        });
-        return {
-          repositoryId: target.repositoryId,
-          repositoryFullName: target.repositoryFullName,
-          status: "applied",
-        };
-      } catch (error) {
-        return {
-          repositoryId: target.repositoryId,
-          repositoryFullName: target.repositoryFullName,
-          status: "failed",
-          errorReason: dependencies.classifyError(error),
-        };
+        if (!storedApiKey) throw new ProviderApiKeyUnavailableError();
+        try {
+          plaintextApiKey = dependencies.storageCipher.decrypt(storedApiKey);
+        } catch {
+          throw new ProviderApiKeyUnavailableError();
+        }
       }
+
+      const session = await dependencies.providerApiKeys.prepareApply({
+        workspaceId,
+        providerType,
+        ...(encryptedApiKey ? { encryptedApiKey } : {}),
+        repositoryIds: allowedRepositoryIds,
+      });
+      const results = await mapWithConcurrency(
+        session.repositoryIds,
+        5,
+        async (repositoryId): Promise<ProviderApiKeyRepositoryResult> => {
+          const target = targetByRepositoryId.get(repositoryId);
+          if (!target) {
+            return {
+              repositoryId,
+              repositoryFullName: repositoryId,
+              status: "denied",
+              errorReason: "repository_not_allowed",
+              errorSummary: sanitizeProviderApiKeyError(
+                "repository_not_allowed",
+              ),
+            };
+          }
+          const applying =
+            await dependencies.providerApiKeys.markRepositoryApplying({
+              operationId: session.operationId,
+              repositoryId,
+            });
+          if (!applying) {
+            return {
+              repositoryId,
+              repositoryFullName: target.repositoryFullName,
+              status: "stale",
+              keyVersion: session.keyVersion,
+            };
+          }
+
+          let result: ProviderApiKeyRepositoryResult;
+          try {
+            const publicKey =
+              await dependencies.githubSecrets.getRepositoryActionsPublicKey({
+                githubInstallationId: target.githubInstallationId,
+                githubRepositoryId: target.githubRepositoryId,
+                owner: target.owner,
+                repo: target.repo,
+              });
+            const encrypted = await encryptApiKeyForGitHubSecret({
+              apiKey: plaintextApiKey,
+              githubPublicKeyBase64: publicKey.key,
+              githubKeyId: publicKey.keyId,
+            });
+            await dependencies.githubSecrets.putEncryptedRepositorySecret({
+              githubInstallationId: target.githubInstallationId,
+              githubRepositoryId: target.githubRepositoryId,
+              repositoryFullName: target.repositoryFullName,
+              owner: target.owner,
+              repo: target.repo,
+              secretName: providerApiKeySecretName(providerType),
+              encryptedValue: encrypted.encryptedValue,
+              keyId: encrypted.keyId,
+            });
+            result = {
+              repositoryId,
+              repositoryFullName: target.repositoryFullName,
+              status: "applied",
+              keyVersion: session.keyVersion,
+            };
+          } catch (error) {
+            const errorReason = dependencies.classifyError(error);
+            result = {
+              repositoryId,
+              repositoryFullName: target.repositoryFullName,
+              status: "failed",
+              errorReason,
+              errorSummary: sanitizeProviderApiKeyError(errorReason),
+              keyVersion: session.keyVersion,
+            };
+          }
+
+          try {
+            const recorded =
+              await dependencies.providerApiKeys.recordRepositoryResult({
+                operationId: session.operationId,
+                keyVersion: session.keyVersion,
+                result,
+              });
+            return recorded === "recorded"
+              ? result
+              : {
+                  repositoryId,
+                  repositoryFullName: target.repositoryFullName,
+                  status: "stale",
+                  keyVersion: session.keyVersion,
+                };
+          } catch {
+            try {
+              await dependencies.providerApiKeys.markRepositoryReconciliationNeeded(
+                {
+                  operationId: session.operationId,
+                  repositoryId,
+                  errorReason: "persistence_failed",
+                },
+              );
+            } catch {}
+            return {
+              repositoryId,
+              repositoryFullName: target.repositoryFullName,
+              status: "reconciliation_needed",
+              errorReason: "persistence_failed",
+              errorSummary: sanitizeProviderApiKeyError("persistence_failed"),
+              keyVersion: session.keyVersion,
+            };
+          }
+        },
+      );
+      return { providerType, results: [...deniedResults, ...results] };
     },
   );
-  await dependencies.providerApiKeys.saveRepositoryResults({
-    workspaceId: input.workspaceId,
-    providerType: input.providerType,
-    results,
-  });
-  return { providerType: input.providerType, results };
 }
 
-async function resolveApiKey(
-  input: {
-    readonly workspaceId: string;
-    readonly providerType: ProviderApiKeyProvider;
-    readonly apiKey?: string;
-  },
-  dependencies: {
-    readonly providerApiKeys: ProviderApiKeyStorePort;
-    readonly storageCipher: ProviderApiKeyStorageCipherPort;
-  },
-): Promise<string> {
-  const provided = input.apiKey?.trim();
-  if (provided) return provided;
-  const encrypted = await dependencies.providerApiKeys.findEncryptedApiKey({
-    workspaceId: input.workspaceId,
-    providerType: input.providerType,
-  });
-  if (!encrypted) throw new ProviderApiKeyUnavailableError();
-  try {
-    return dependencies.storageCipher.decrypt(encrypted);
-  } catch {
-    throw new ProviderApiKeyUnavailableError();
+export function sanitizeProviderApiKeyError(
+  reason: ProviderApiKeyErrorReason,
+): string {
+  switch (reason) {
+    case "repository_not_allowed":
+      return "This repository is not allowed for this workspace.";
+    case "repository_not_found":
+      return "The repository is no longer available.";
+    case "repository_not_available_to_github_app":
+      return "The GitHub App does not have access to this repository.";
+    case "insufficient_permissions":
+      return "The GitHub App cannot update this repository secret.";
+    case "rate_limited":
+      return "GitHub rate limit reached. Try again later.";
+    case "github_secret_encryption_failed":
+      return "The repository secret could not be encrypted.";
+    case "stored_api_key_unavailable":
+      return "The saved provider key is unavailable.";
+    case "persistence_failed":
+      return "The GitHub update needs reconciliation.";
+    case "github_request_failed":
+    default:
+      return "GitHub could not update this repository secret.";
   }
 }
 

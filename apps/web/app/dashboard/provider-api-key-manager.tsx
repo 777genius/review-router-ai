@@ -2,11 +2,10 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, PlugZap, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type ProviderApiKeyProvider,
   type ProviderApiKeyRepositoryResult,
-  type ProviderApiKeyState,
 } from "@reviewrouter/features-provider-setup";
 import {
   Badge,
@@ -20,19 +19,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@reviewrouter/ui";
-
-type RepositorySearchResponse = {
-  readonly repositories: readonly {
-    readonly id: string;
-    readonly fullName: string;
-    readonly provider: string;
-  }[];
-};
-
-type ApplyProviderApiKeyResponse = {
-  readonly providerType: ProviderApiKeyProvider;
-  readonly results: readonly ProviderApiKeyRepositoryResult[];
-};
+import {
+  applyProviderApiKeyRequest,
+  fetchProviderApiKeyState,
+  fetchProviderKeyRepositories,
+  providerApiKeyStateQueryKey,
+  providerKeyRepositoryQueryKey,
+} from "./provider-api-key-manager-api";
 
 const providerOptions = [
   { value: "mimo", label: "MiMo Token Plan" },
@@ -59,57 +52,30 @@ export function ProviderApiKeyManager({
   const [results, setResults] = useState<
     readonly ProviderApiKeyRepositoryResult[] | null
   >(null);
+  const initializedSelectionScopeRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
-  const repositoryQueryKey = [
-    "provider-key-repositories",
-    workspaceId,
-  ] as const;
-  const stateQueryKey = [
-    "provider-api-key-state",
-    workspaceId,
-    providerType,
-  ] as const;
+  const repositoryQueryKey = providerKeyRepositoryQueryKey(workspaceId);
+  const stateQueryKey = providerApiKeyStateQueryKey(workspaceId, providerType);
   const repositoriesQuery = useQuery({
     queryKey: repositoryQueryKey,
     enabled: open,
     staleTime: 60_000,
-    queryFn: async (): Promise<RepositorySearchResponse> => {
-      const response = await fetch(
-        `/api/dashboard/repositories/search?workspace=${encodeURIComponent(workspaceId)}`,
-      );
-      if (!response.ok) throw new Error("repository_search_failed");
-      return response.json();
-    },
+    queryFn: () => fetchProviderKeyRepositories(workspaceId),
   });
   const stateQuery = useQuery({
     queryKey: stateQueryKey,
     enabled: open,
     staleTime: 30_000,
-    queryFn: async (): Promise<ProviderApiKeyState> => {
-      const response = await fetch(
-        `/api/dashboard/provider-keys?workspace=${encodeURIComponent(workspaceId)}&providerType=${providerType}`,
-      );
-      if (!response.ok) throw new Error("provider_key_state_failed");
-      return response.json();
-    },
+    queryFn: () => fetchProviderApiKeyState({ workspaceId, providerType }),
   });
   const applyMutation = useMutation({
-    mutationFn: async (): Promise<ApplyProviderApiKeyResponse> => {
-      const response = await fetch("/api/dashboard/provider-keys/apply", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          workspaceId,
-          providerType,
-          ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-          repositoryIds: [...selectedRepositoryIds],
-        }),
-      });
-      const body = await response.json();
-      if (!response.ok)
-        throw new Error(body.error ?? "provider_key_apply_failed");
-      return body;
-    },
+    mutationFn: () =>
+      applyProviderApiKeyRequest({
+        workspaceId,
+        providerType,
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+        repositoryIds: [...selectedRepositoryIds],
+      }),
     onSuccess: (data) => {
       setResults(data.results);
       setApiKey("");
@@ -118,21 +84,33 @@ export function ProviderApiKeyManager({
   });
 
   useEffect(() => {
-    if (!stateQuery.data) return;
+    initializedSelectionScopeRef.current = null;
+    setApiKey("");
+    setResults(null);
+    setRepositoryFilter("");
+    setSelectedRepositoryIds(new Set());
+  }, [providerType, workspaceId]);
+
+  useEffect(() => {
+    const selectionScope = `${workspaceId}:${providerType}`;
+    if (
+      !stateQuery.data ||
+      initializedSelectionScopeRef.current === selectionScope
+    ) {
+      return;
+    }
+    initializedSelectionScopeRef.current = selectionScope;
     setSelectedRepositoryIds(
       new Set(
         stateQuery.data.repositories
-          .filter((repository) => repository.status !== "failed")
+          .filter(
+            (repository) =>
+              repository.status !== "failed" && repository.status !== "denied",
+          )
           .map((repository) => repository.repositoryId),
       ),
     );
-    setResults(null);
-  }, [stateQuery.data]);
-
-  useEffect(() => {
-    setApiKey("");
-    setResults(null);
-  }, [providerType]);
+  }, [providerType, stateQuery.data, workspaceId]);
 
   const repositories = useMemo(
     () =>
@@ -375,22 +353,15 @@ export function ProviderApiKeyManager({
                             {result.repositoryFullName}
                           </td>
                           <td className="px-3 py-3">
-                            <Badge
-                              tone={
-                                result.status === "applied"
-                                  ? "success"
-                                  : "danger"
-                              }
-                            >
-                              {result.status === "applied"
-                                ? "Success"
-                                : "Error"}
-                            </Badge>
+                            <ProviderKeyResultBadge status={result.status} />
                           </td>
                           <td className="px-3 py-3 text-slate-300">
-                            {result.errorReason
-                              ? providerKeyErrorMessage(result.errorReason)
-                              : "Secret written to repository Actions."}
+                            {result.errorSummary ??
+                              (result.errorReason
+                                ? providerKeyErrorMessage(result.errorReason)
+                                : result.status === "applied"
+                                  ? "Secret written to repository Actions."
+                                  : providerKeyErrorMessage(result.status))}
                           </td>
                         </tr>
                       ))}
@@ -406,13 +377,41 @@ export function ProviderApiKeyManager({
   );
 }
 
+function ProviderKeyResultBadge({
+  status,
+}: {
+  readonly status: ProviderApiKeyRepositoryResult["status"];
+}): React.ReactElement {
+  const presentation: {
+    readonly tone: "accent" | "success" | "warning" | "danger";
+    readonly label: string;
+  } =
+    status === "applied"
+      ? { tone: "success", label: "Success" }
+      : status === "failed"
+        ? { tone: "danger", label: "Error" }
+        : status === "denied"
+          ? { tone: "warning", label: "Denied" }
+          : status === "stale"
+            ? { tone: "warning", label: "Stale" }
+            : status === "reconciliation_needed"
+              ? { tone: "warning", label: "Reconcile" }
+              : status === "applying"
+                ? { tone: "accent", label: "Applying" }
+                : { tone: "accent", label: "Pending" };
+  return <Badge tone={presentation.tone}>{presentation.label}</Badge>;
+}
+
 function providerKeyErrorMessage(code: string): string {
   const messages: Record<string, string> = {
     "entitlement_denied:provider_key_management:feature_not_enabled_for_plan":
       "Provider key management is available on paid plans.",
     workspace_admin_forbidden: "Workspace admin access is required.",
-    provider_api_key_unavailable:
+    stored_api_key_unavailable:
       "Enter a new API key; no saved key is available.",
+    provider_key_workspace_grant_required:
+      "Workspace access to stored provider keys has not been granted.",
+    repository_not_allowed: "Repository is not allowed for this workspace.",
     repository_not_found:
       "Repository was not found or is not in this workspace.",
     repository_not_available_to_github_app:
@@ -423,6 +422,8 @@ function providerKeyErrorMessage(code: string): string {
     github_secret_encryption_failed:
       "GitHub returned an invalid repository encryption key.",
     github_request_failed: "GitHub rejected the repository secret request.",
+    persistence_failed:
+      "GitHub accepted the update, but ReviewRouter needs to reconcile its saved status.",
     provider_key_apply_failed: "The batch request failed.",
     provider_key_storage_not_configured:
       "Server-side key encryption is not configured.",

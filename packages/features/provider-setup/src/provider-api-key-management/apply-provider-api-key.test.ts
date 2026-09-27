@@ -56,7 +56,7 @@ describe("applyProviderApiKey", () => {
       dependencies({ githubSecrets, providerApiKeys }),
     );
 
-    expect(result.results).toEqual([
+    expect(result.results).toMatchObject([
       {
         repositoryId: "repo_1",
         repositoryFullName: "acme/one",
@@ -68,11 +68,13 @@ describe("applyProviderApiKey", () => {
         status: "applied",
       },
     ]);
-    expect(providerApiKeys.saveEncryptedApiKey).toHaveBeenCalledWith({
-      workspaceId: "workspace_1",
-      providerType: "openrouter",
-      encryptedApiKey: `encrypted:${apiKey}`,
-    });
+    expect(providerApiKeys.prepareApply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace_1",
+        providerType: "openrouter",
+        encryptedApiKey: `encrypted:${apiKey}`,
+      }),
+    );
     expect(githubSecrets.putEncryptedRepositorySecret).toHaveBeenCalledTimes(2);
     expect(githubSecrets.putEncryptedRepositorySecret).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -100,7 +102,7 @@ describe("applyProviderApiKey", () => {
       dependencies({ githubSecrets }),
     );
 
-    expect(result.results).toEqual([
+    expect(result.results).toMatchObject([
       {
         repositoryId: "repo_1",
         repositoryFullName: "acme/one",
@@ -158,6 +160,9 @@ function dependencies(overrides?: {
   storageCipher: ProviderApiKeyStorageCipherPort;
   githubSecrets: ProviderApiKeyGitHubSecretGatewayPort;
   classifyError: typeof classifyProviderApiKeyError;
+  lock: {
+    withLock<T>(key: string, ttlMs: number, run: () => Promise<T>): Promise<T>;
+  };
 } {
   return {
     providerApiKeys: overrides?.providerApiKeys ?? store(),
@@ -187,6 +192,9 @@ function dependencies(overrides?: {
     },
     githubSecrets: overrides?.githubSecrets ?? gateway(),
     classifyError: classifyProviderApiKeyError,
+    lock: {
+      withLock: (_key, _ttlMs, run) => run(),
+    },
   };
 }
 
@@ -203,8 +211,19 @@ function gateway(): MockedGitHubSecretGateway {
 function store(): ProviderApiKeyStorePort {
   return {
     findEncryptedApiKey: vi.fn().mockResolvedValue(`encrypted:${apiKey}`),
-    saveEncryptedApiKey: vi.fn().mockResolvedValue(undefined),
-    saveRepositoryResults: vi.fn().mockResolvedValue(undefined),
+    findConnectedRepositoryIds: vi.fn().mockResolvedValue([]),
+    prepareApply: vi
+      .fn()
+      .mockImplementation(
+        async (input: { readonly repositoryIds: readonly string[] }) => ({
+          operationId: "operation_1",
+          keyVersion: 1,
+          repositoryIds: input.repositoryIds,
+        }),
+      ),
+    markRepositoryApplying: vi.fn().mockResolvedValue(true),
+    recordRepositoryResult: vi.fn().mockResolvedValue("recorded"),
+    markRepositoryReconciliationNeeded: vi.fn().mockResolvedValue(undefined),
     findState: vi.fn(),
   };
 }

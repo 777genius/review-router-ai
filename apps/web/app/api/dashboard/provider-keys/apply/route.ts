@@ -13,7 +13,10 @@ import { requireGitHubAppPrivateKey } from "@reviewrouter/platform-config";
 import { z } from "zod";
 import { assertDashboardWorkspaceAdminAllowed } from "../../../../../src/server/dashboard-mutations";
 import { getPrisma } from "../../../../../src/server/prisma";
-import { createProviderApiKeyServiceDependencies } from "../../../../../src/server/provider-api-keys";
+import {
+  assertProviderApiKeyWorkspaceGranted,
+  createProviderApiKeyServiceDependencies,
+} from "../../../../../src/server/provider-api-keys";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +51,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       parsed.data.workspaceId,
     );
     const prisma = getPrisma();
+    if (parsed.data.providerType === "mimo") {
+      await assertProviderApiKeyWorkspaceGranted(prisma, parsed.data.workspaceId);
+    }
     await assertWorkspaceFeatureEntitlement(
       {
         workspaceId: parsed.data.workspaceId,
@@ -105,6 +111,7 @@ function applyProviderApiKeyErrorCode(error: unknown): string {
     case "github_app_private_key_not_configured":
     case "missing_env:GITHUB_APP_PRIVATE_KEY":
     case "provider_key_request_failed":
+    case "provider_key_workspace_grant_required":
       return error.message;
     case "missing_env:REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY":
       return "provider_key_storage_not_configured";
@@ -123,6 +130,7 @@ function applyProviderApiKeyErrorStatus(error: unknown): number {
       return 401;
     case "dashboard_admin_forbidden":
     case "workspace_admin_forbidden":
+    case "provider_key_workspace_grant_required":
       return 403;
     case "github_app_id_not_configured":
     case "github_app_private_key_not_configured":

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import { OctokitCodexRotatingGitHubSecretGateway } from "../../../api/src/github/octokit-codex-rotating-github-secret-gateway.js";
 import { resolveReviewRouterPublicApiUrl } from "@reviewrouter/platform-config";
@@ -9,17 +10,20 @@ import {
   classifyProviderApiKeyError,
   providerApiKeyErrorReasonSchema,
   providerApiKeyRepositoryStatusSchema,
+  sanitizeProviderApiKeyError,
   type ProviderApiKeyErrorReason,
   type ProviderApiKeyGitHubSecretGatewayPort,
+  type ProviderApiKeyLockPort,
   type ProviderApiKeyProvider,
   type ProviderApiKeyRepositoryPort,
   type ProviderApiKeyRepositoryResult,
-  type ProviderApiKeyRepositoryTarget,
   type ProviderApiKeyRepositoryStatus,
+  type ProviderApiKeyRepositoryTarget,
   type ProviderApiKeyState,
   type ProviderApiKeyStorageCipherPort,
   type ProviderApiKeyStorePort,
 } from "@reviewrouter/features-provider-setup";
+import { PostgresLeaseLock } from "@reviewrouter/platform-locks";
 
 export function createProviderApiKeyServiceDependencies(input: {
   readonly prisma: PrismaClient;
@@ -32,6 +36,7 @@ export function createProviderApiKeyServiceDependencies(input: {
   readonly storageCipher: ProviderApiKeyStorageCipherPort;
   readonly githubSecrets: ProviderApiKeyGitHubSecretGatewayPort;
   readonly classifyError: typeof classifyProviderApiKeyError;
+  readonly lock: ProviderApiKeyLockPort;
 } {
   return {
     providerApiKeys: new PrismaProviderApiKeyStore(input.prisma),
@@ -45,7 +50,51 @@ export function createProviderApiKeyServiceDependencies(input: {
       expectedApiUrl: resolveReviewRouterPublicApiUrl(input.env ?? process.env),
     }),
     classifyError: classifyProviderApiKeyError,
+    lock: new PostgresLeaseLock(input.prisma),
   };
+}
+
+export async function assertProviderApiKeyWorkspaceGranted(
+  prisma: PrismaClient,
+  workspaceId: string,
+): Promise<void> {
+  const access = new PrismaProviderApiKeyWorkspaceGrantStore(prisma);
+  if (!(await access.isGranted(workspaceId))) {
+    throw new Error("provider_key_workspace_grant_required");
+  }
+}
+
+export class PrismaProviderApiKeyWorkspaceGrantStore {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async isGranted(workspaceId: string): Promise<boolean> {
+    const grant = await this.prisma.providerApiKeyWorkspaceGrant.findUnique({
+      where: { workspaceId },
+      select: { id: true },
+    });
+    return grant !== null;
+  }
+
+  async grant(input: {
+    readonly workspaceId: string;
+    readonly grantedBy: string;
+    readonly grantReason: string;
+  }): Promise<void> {
+    await this.prisma.providerApiKeyWorkspaceGrant.upsert({
+      where: { workspaceId: input.workspaceId },
+      update: {
+        grantedBy: input.grantedBy,
+        grantReason: input.grantReason,
+      },
+      create: input,
+    });
+  }
+
+  async revoke(workspaceId: string): Promise<void> {
+    await this.prisma.providerApiKeyWorkspaceGrant.deleteMany({
+      where: { workspaceId },
+    });
+  }
 }
 
 export class PrismaProviderApiKeyRepository implements ProviderApiKeyRepositoryPort {
@@ -60,7 +109,13 @@ export class PrismaProviderApiKeyRepository implements ProviderApiKeyRepositoryP
         workspaceId: input.workspaceId,
         provider: "github",
         id: { in: [...input.repositoryIds] },
-        installationId: { not: null },
+        archived: false,
+        installation: {
+          is: {
+            workspaceId: input.workspaceId,
+            status: "active",
+          },
+        },
         githubRepositoryId: { not: null },
       },
       select: {
@@ -104,71 +159,213 @@ export class PrismaProviderApiKeyStore implements ProviderApiKeyStorePort {
     return connection?.encryptedApiKey ?? null;
   }
 
-  async saveEncryptedApiKey(input: {
+  async findConnectedRepositoryIds(input: {
     readonly workspaceId: string;
     readonly providerType: ProviderApiKeyProvider;
-    readonly encryptedApiKey: string;
-  }): Promise<void> {
-    await this.prisma.providerApiKeyConnection.upsert({
+  }): Promise<readonly string[]> {
+    const links = await this.prisma.providerApiKeyRepositoryLink.findMany({
       where: {
-        workspaceId_providerType: {
+        connection: {
           workspaceId: input.workspaceId,
           providerType: input.providerType,
         },
       },
-      update: { encryptedApiKey: input.encryptedApiKey },
-      create: {
-        workspaceId: input.workspaceId,
-        providerType: input.providerType,
-        encryptedApiKey: input.encryptedApiKey,
-      },
+      select: { repositoryId: true },
+      orderBy: { repositoryId: "asc" },
     });
+    return links.map((link) => link.repositoryId);
   }
 
-  async saveRepositoryResults(input: {
+  async prepareApply(input: {
     readonly workspaceId: string;
     readonly providerType: ProviderApiKeyProvider;
-    readonly results: readonly ProviderApiKeyRepositoryResult[];
-  }): Promise<void> {
-    const connection = await this.prisma.providerApiKeyConnection.findUnique({
-      where: {
+    readonly encryptedApiKey?: string;
+    readonly repositoryIds: readonly string[];
+  }): Promise<{
+    readonly operationId: string;
+    readonly keyVersion: number;
+    readonly repositoryIds: readonly string[];
+  }> {
+    const operationId = randomUUID();
+    const now = new Date();
+    return this.prisma.$transaction(async (transaction) => {
+      const connectionWhere = {
         workspaceId_providerType: {
           workspaceId: input.workspaceId,
           providerType: input.providerType,
         },
-      },
-      select: { id: true },
-    });
-    if (!connection) throw new Error("provider_api_key_connection_not_found");
-    const repositories = await this.prisma.repositoryConnection.findMany({
-      where: {
-        workspaceId: input.workspaceId,
-        id: { in: input.results.map((result) => result.repositoryId) },
-      },
-      select: { id: true },
-    });
-    const repositoryIds = new Set(
-      repositories.map((repository) => repository.id),
-    );
-    const operations = input.results
-      .filter((result) => repositoryIds.has(result.repositoryId))
-      .map((result) =>
-        this.prisma.providerApiKeyRepositoryLink.upsert({
+      } as const;
+      const existing = await transaction.providerApiKeyConnection.findUnique({
+        where: connectionWhere,
+        select: { keyVersion: true },
+      });
+      if (!input.encryptedApiKey && !existing) {
+        throw new Error("stored_api_key_unavailable");
+      }
+      const keyVersion = input.encryptedApiKey
+        ? (existing?.keyVersion ?? 0) + 1
+        : (existing?.keyVersion ?? 1);
+      const connection = input.encryptedApiKey
+        ? await transaction.providerApiKeyConnection.upsert({
+            where: connectionWhere,
+            update: {
+              encryptedApiKey: input.encryptedApiKey,
+              keyVersion,
+              latestOperationId: operationId,
+            },
+            create: {
+              workspaceId: input.workspaceId,
+              providerType: input.providerType,
+              encryptedApiKey: input.encryptedApiKey,
+              keyVersion,
+              latestOperationId: operationId,
+            },
+          })
+        : await transaction.providerApiKeyConnection.update({
+            where: connectionWhere,
+            data: { latestOperationId: operationId },
+          });
+      for (const repositoryId of input.repositoryIds) {
+        await transaction.providerApiKeyRepositoryLink.upsert({
           where: {
             providerApiKeyConnectionId_repositoryId: {
               providerApiKeyConnectionId: connection.id,
-              repositoryId: result.repositoryId,
+              repositoryId,
             },
           },
-          update: repositoryLinkValues(result),
+          update: {
+            status: "pending",
+            operationId,
+            attemptedKeyVersion: keyVersion,
+            attemptCount: { increment: 1 },
+            reconciliationNeeded: false,
+            lastErrorReason: null,
+            lastErrorSummary: null,
+            lastAttemptAt: now,
+          },
           create: {
             providerApiKeyConnectionId: connection.id,
-            repositoryId: result.repositoryId,
-            ...repositoryLinkValues(result),
+            repositoryId,
+            status: "pending",
+            operationId,
+            attemptedKeyVersion: keyVersion,
+            attemptCount: 1,
+            reconciliationNeeded: false,
+            lastAttemptAt: now,
           },
-        }),
-      );
-    if (operations.length > 0) await this.prisma.$transaction(operations);
+        });
+      }
+      return {
+        operationId,
+        keyVersion,
+        repositoryIds: input.repositoryIds,
+      };
+    });
+  }
+
+  async markRepositoryApplying(input: {
+    readonly operationId: string;
+    readonly repositoryId: string;
+  }): Promise<boolean> {
+    return this.prisma.$transaction(async (transaction) => {
+      const link = await transaction.providerApiKeyRepositoryLink.findFirst({
+        where: {
+          repositoryId: input.repositoryId,
+          operationId: input.operationId,
+        },
+        select: {
+          id: true,
+          operationId: true,
+          connection: { select: { latestOperationId: true } },
+        },
+      });
+      if (!link) return false;
+      if (
+        link.operationId !== input.operationId ||
+        link.connection.latestOperationId !== input.operationId
+      ) {
+        return false;
+      }
+      await transaction.providerApiKeyRepositoryLink.update({
+        where: { id: link.id },
+        data: {
+          status: "applying",
+          reconciliationNeeded: true,
+          lastAttemptAt: new Date(),
+        },
+      });
+      return true;
+    });
+  }
+
+  async recordRepositoryResult(input: {
+    readonly operationId: string;
+    readonly keyVersion: number;
+    readonly result: ProviderApiKeyRepositoryResult;
+  }): Promise<"recorded" | "superseded"> {
+    return this.prisma.$transaction(async (transaction) => {
+      const link = await transaction.providerApiKeyRepositoryLink.findFirst({
+        where: {
+          repositoryId: input.result.repositoryId,
+          operationId: input.operationId,
+        },
+        select: {
+          id: true,
+          operationId: true,
+          attemptedKeyVersion: true,
+          appliedKeyVersion: true,
+          appliedAt: true,
+          connection: { select: { latestOperationId: true, keyVersion: true } },
+        },
+      });
+      if (!link) return "superseded";
+      if (
+        link.operationId !== input.operationId ||
+        link.attemptedKeyVersion !== input.keyVersion ||
+        link.connection.latestOperationId !== input.operationId ||
+        link.connection.keyVersion !== input.keyVersion
+      ) {
+        return "superseded";
+      }
+      const applied = input.result.status === "applied";
+      const errorReason = input.result.errorReason ?? null;
+      await transaction.providerApiKeyRepositoryLink.update({
+        where: { id: link.id },
+        data: {
+          status: input.result.status,
+          appliedKeyVersion: applied
+            ? input.keyVersion
+            : link.appliedKeyVersion,
+          appliedAt: applied ? new Date() : link.appliedAt,
+          reconciliationNeeded: false,
+          lastErrorReason: errorReason,
+          lastErrorSummary: errorReason
+            ? sanitizeProviderApiKeyError(errorReason)
+            : null,
+        },
+      });
+      return "recorded";
+    });
+  }
+
+  async markRepositoryReconciliationNeeded(input: {
+    readonly operationId: string;
+    readonly repositoryId: string;
+    readonly errorReason: ProviderApiKeyErrorReason;
+  }): Promise<void> {
+    await this.prisma.providerApiKeyRepositoryLink.updateMany({
+      where: {
+        repositoryId: input.repositoryId,
+        operationId: input.operationId,
+        connection: { latestOperationId: input.operationId },
+      },
+      data: {
+        status: "reconciliation_needed",
+        reconciliationNeeded: true,
+        lastErrorReason: input.errorReason,
+        lastErrorSummary: sanitizeProviderApiKeyError(input.errorReason),
+      },
+    });
   }
 
   async findState(input: {
@@ -176,17 +373,16 @@ export class PrismaProviderApiKeyStore implements ProviderApiKeyStorePort {
     readonly providerType: ProviderApiKeyProvider;
   }): Promise<ProviderApiKeyState> {
     const connection = await this.prisma.providerApiKeyConnection.findUnique({
-      where: {
-        workspaceId_providerType: {
-          workspaceId: input.workspaceId,
-          providerType: input.providerType,
-        },
-      },
+      where: { workspaceId_providerType: input },
       select: {
+        keyVersion: true,
         repositoryLinks: {
           orderBy: { repository: { fullName: "asc" } },
           select: {
             status: true,
+            appliedKeyVersion: true,
+            attemptedKeyVersion: true,
+            reconciliationNeeded: true,
             lastErrorReason: true,
             appliedAt: true,
             repository: { select: { id: true, fullName: true } },
@@ -197,15 +393,28 @@ export class PrismaProviderApiKeyStore implements ProviderApiKeyStorePort {
     return {
       providerType: input.providerType,
       connected: connection !== null,
+      keyVersion: connection?.keyVersion ?? null,
       repositories: (connection?.repositoryLinks ?? []).map((link) => {
         const errorReason = parseErrorReason(link.lastErrorReason);
         return {
           repositoryId: link.repository.id,
           repositoryFullName: link.repository.fullName,
-          status: providerApiKeyRepositoryStatusSchema
-            .catch("pending")
-            .parse(link.status),
-          ...(errorReason ? { errorReason } : {}),
+          status: effectiveRepositoryStatus({
+            status: providerApiKeyRepositoryStatusSchema
+              .catch("pending")
+              .parse(link.status),
+            keyVersion: connection?.keyVersion ?? null,
+            appliedKeyVersion: link.appliedKeyVersion,
+            reconciliationNeeded: link.reconciliationNeeded,
+          }),
+          ...(errorReason
+            ? {
+                errorReason,
+                errorSummary: sanitizeProviderApiKeyError(errorReason),
+              }
+            : {}),
+          appliedKeyVersion: link.appliedKeyVersion,
+          attemptedKeyVersion: link.attemptedKeyVersion,
           appliedAt: link.appliedAt,
         };
       }),
@@ -225,16 +434,22 @@ export class ServerTokenProviderApiKeyCipher implements ProviderApiKeyStorageCip
   }
 }
 
-export function repositoryLinkValues(result: ProviderApiKeyRepositoryResult): {
+function effectiveRepositoryStatus(input: {
   readonly status: ProviderApiKeyRepositoryStatus;
-  readonly lastErrorReason: string | null;
-  readonly appliedAt: Date | null;
-} {
-  return {
-    status: result.status,
-    lastErrorReason: result.errorReason ?? null,
-    appliedAt: result.status === "applied" ? new Date() : null,
-  };
+  readonly keyVersion: number | null;
+  readonly appliedKeyVersion: number | null;
+  readonly reconciliationNeeded: boolean;
+}): ProviderApiKeyRepositoryStatus {
+  if (input.reconciliationNeeded) return "reconciliation_needed";
+  if (input.status === "applying") return "applying";
+  if (
+    input.appliedKeyVersion !== null &&
+    input.keyVersion !== null &&
+    input.appliedKeyVersion !== input.keyVersion
+  ) {
+    return "stale";
+  }
+  return input.status;
 }
 
 function parseErrorReason(
