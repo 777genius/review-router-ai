@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { OctokitCodexRotatingGitHubSecretGateway } from "../../../api/src/github/octokit-codex-rotating-github-secret-gateway.js";
+import { resolveReviewRouterPublicApiUrl } from "@reviewrouter/platform-config";
 import {
   decryptServerToken,
   encryptServerToken,
@@ -41,6 +42,7 @@ export function createProviderApiKeyServiceDependencies(input: {
     githubSecrets: new OctokitCodexRotatingGitHubSecretGateway({
       appId: input.githubAppId,
       privateKey: input.githubAppPrivateKey,
+      expectedApiUrl: resolveReviewRouterPublicApiUrl(input.env ?? process.env),
     }),
     classifyError: classifyProviderApiKeyError,
   };
