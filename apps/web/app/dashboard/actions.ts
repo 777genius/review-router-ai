@@ -115,6 +115,7 @@ import {
 import { createDashboardRateLimitPolicy } from "../../src/server/dashboard-rate-limits";
 import { refreshGitHubUserRepositoryAccess } from "../../src/server/github-user-repository-access";
 import { getPrisma } from "../../src/server/prisma";
+import { assertProviderApiKeyWorkspaceGranted } from "../../src/server/provider-api-keys";
 import { inspectSetupPullRequest } from "../../src/server/setup-pull-request-status";
 import {
   AppFirstWorkflowSetupGateway,
@@ -2688,6 +2689,7 @@ async function saveWorkspaceReviewConfigMutation(
       workspaceId,
     });
     const config = readReviewConfigurationForm(formData);
+    await assertMimoReviewConfigWorkspaceGranted(prisma, workspaceId, config);
     assertCodexProductionReviewConfigAllowed(config);
     assertCodexRotatingReviewConfigAllowed({
       config,
@@ -2788,6 +2790,7 @@ async function saveRepositoryReviewConfigMutation(
       resourceId: repositoryId,
     });
     const config = readReviewConfigurationForm(formData);
+    await assertMimoReviewConfigWorkspaceGranted(prisma, workspaceId, config);
     assertCodexProductionReviewConfigAllowed(config);
     assertCodexRotatingReviewConfigAllowed({
       config,
@@ -3521,7 +3524,7 @@ async function loadResolvedReviewRuntime(input: {
   readonly repositoryId: string;
 }): Promise<ResolvedReviewRuntimeEnv> {
   const configurations = new PrismaReviewConfigurationRepository(input.prisma);
-  return resolveReviewRuntimeEnv(
+  const runtime = await resolveReviewRuntimeEnv(
     {
       scope: "repository",
       workspaceId: input.workspaceId,
@@ -3529,6 +3532,22 @@ async function loadResolvedReviewRuntime(input: {
     },
     { configurations },
   );
+  await assertMimoReviewConfigWorkspaceGranted(
+    input.prisma,
+    input.workspaceId,
+    runtime.config,
+  );
+  return runtime;
+}
+
+async function assertMimoReviewConfigWorkspaceGranted(
+  prisma: PrismaClient,
+  workspaceId: string,
+  config: ReviewConfiguration,
+): Promise<void> {
+  if (config.providers.some((provider) => provider.kind === "codex-mimo")) {
+    await assertProviderApiKeyWorkspaceGranted(prisma, workspaceId);
+  }
 }
 
 function workflowReadinessProviderKind(

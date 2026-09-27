@@ -196,6 +196,9 @@ describe("dashboard setup PR recovery", () => {
       },
     };
     mocks.getPrisma.mockReturnValue({
+      providerApiKeyWorkspaceGrant: {
+        findUnique: vi.fn(async () => null),
+      },
       repositoryConnection: {
         findUnique: repositoryFindUnique,
         findFirst: transactionClient.repositoryConnection.findFirst,
@@ -248,6 +251,16 @@ describe("dashboard setup PR recovery", () => {
     await expect(
       confirmSetupPullRequestMergedClientAction(formData),
     ).resolves.toMatchObject({ params: { notice: "setup_pr_merged" } });
+    expect(workflowProvisioning.updateMany).toHaveBeenCalledTimes(1);
+
+    mocks.resolveReviewRuntimeEnv.mockResolvedValueOnce({
+      config: { providers: [{ kind: "codex-mimo" }] },
+    });
+    await expect(
+      confirmSetupPullRequestMergedClientAction(formData),
+    ).resolves.toMatchObject({
+      params: { error: "provider_key_workspace_grant_required" },
+    });
     expect(workflowProvisioning.updateMany).toHaveBeenCalledTimes(1);
   });
   it.each([

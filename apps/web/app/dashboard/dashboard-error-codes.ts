@@ -61,6 +61,7 @@ export function safeDashboardErrorCode(error: unknown): string {
       "setup_pr_wrong_base_branch",
       "repository_not_visible_to_github_app",
       "provider_secret_not_found",
+      "provider_key_workspace_grant_required",
       "provider_secret_not_available_to_repository",
       "provider_secret_check_permission_required",
       "organization_secret_scope_forbidden",

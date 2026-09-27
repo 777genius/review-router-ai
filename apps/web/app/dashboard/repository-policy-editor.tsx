@@ -967,6 +967,8 @@ function reviewConfigActionErrorText(error: string): string {
       return "The submitted form is invalid. Refresh the dashboard and try again.";
     case "entitlement_denied":
       return "This workspace plan does not allow that action. Check the plan status or feature flags.";
+    case "provider_key_workspace_grant_required":
+      return "MiMo Token Plan is not enabled for this workspace. Ask the ReviewRouter owner to grant access.";
     case "codex_rotating_not_enabled":
       return "Rotating Codex OAuth is not enabled for this ReviewRouter deployment.";
     case "codex_rotating_repository_scope_required":
