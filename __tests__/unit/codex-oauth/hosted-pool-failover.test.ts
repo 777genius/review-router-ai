@@ -467,10 +467,10 @@ describe("hosted pool replay-fenced failover artifact", () => {
   });
 
   it.each([
-    [401, "authentication_failed"],
-    [429, "quota_exhausted"],
+    [401, "ambiguous"],
+    [429, "ambiguous"],
   ] as const)(
-    "classifies ordinal-one %s as %s even if another relay was already admitted",
+    "fences ordinal-one %s as %s even if another relay was already admitted",
     async (status, reason) => {
       let releaseFirst!: () => void;
       let releaseSecond!: () => void;
