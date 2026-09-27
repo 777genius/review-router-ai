@@ -3534,6 +3534,9 @@ async function loadResolvedReviewRuntime(input: {
 function workflowReadinessProviderKind(
   config: ReviewConfiguration,
 ): ProviderKind | undefined {
+  if (config.providers.some((provider) => provider.kind === "codex-mimo")) {
+    return "codex-mimo";
+  }
   return config.providers.some((provider) => provider.kind === "claude")
     ? "claude"
     : undefined;
@@ -3782,6 +3785,7 @@ function readGitHubWorkflowBlob(data: unknown): {
 function codexRotatingWorkflowSecretInputs(config: ReviewConfiguration): {
   readonly codexRotatingClaudeCodeOAuthTokenSecret: boolean;
   readonly codexRotatingOpenRouterApiKeySecret: boolean;
+  readonly codexRotatingMimoTokenPlanApiKeySecret: boolean;
 } {
   return {
     codexRotatingClaudeCodeOAuthTokenSecret: config.providers.some(
@@ -3789,6 +3793,9 @@ function codexRotatingWorkflowSecretInputs(config: ReviewConfiguration): {
     ),
     codexRotatingOpenRouterApiKeySecret: config.providers.some(
       (provider) => provider.kind === "openrouter",
+    ),
+    codexRotatingMimoTokenPlanApiKeySecret: config.providers.some(
+      (provider) => provider.kind === "codex-mimo",
     ),
   };
 }

@@ -75,6 +75,7 @@ type ReviewConfigActionToast = {
 const providerAuthModeOrder = [
   "codex_subscription_oauth_rotating",
   "claude_code_oauth",
+  "mimo_token_plan_api_key",
   "openrouter_api_key",
 ] as const satisfies readonly ProviderAuthMode[];
 
@@ -96,6 +97,11 @@ const providerAuthOptionCopyByAuthMode = {
   codex_openai_api_key: {
     label: "Codex API key",
     description: "Uses OPENAI_API_KEY from GitHub Actions secrets.",
+  },
+  mimo_token_plan_api_key: {
+    label: "MiMo Token Plan",
+    description:
+      "Uses MIMO_TOKEN_PLAN_API_KEY through the public codex-mimo engine.",
   },
   claude_code_oauth: {
     label: "Claude Code subscription",
@@ -257,6 +263,14 @@ const secretCopyByAuthMode = {
       "Codex API-key mode uses OPENAI_API_KEY from GitHub Actions secrets.",
     commandSuffix: "",
     recovery: "Create an OpenAI API key, then store it as a GitHub secret.",
+  },
+  mimo_token_plan_api_key: {
+    label: "MiMo Token Plan",
+    description:
+      "MiMo Token Plan mode uses MIMO_TOKEN_PLAN_API_KEY from GitHub Actions secrets.",
+    commandSuffix: "--app actions",
+    recovery:
+      "Create a MiMo Token Plan API key, then enter it only at the GitHub CLI secret prompt.",
   },
   claude_code_oauth: {
     label: "Claude Code subscription",
@@ -1073,6 +1087,9 @@ export function ReviewConfigForm({
   const modelOptionsByProvider = useMemo(
     (): Record<ProviderKind, readonly ReviewModelOption[]> => ({
       codex: modelOptions.filter((option) => option.provider === "codex"),
+      "codex-mimo": modelOptions.filter(
+        (option) => option.provider === "codex-mimo",
+      ),
       claude: modelOptions.filter((option) => option.provider === "claude"),
       openrouter: modelOptions.filter(
         (option) => option.provider === "openrouter",

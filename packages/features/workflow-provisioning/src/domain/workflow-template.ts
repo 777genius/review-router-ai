@@ -69,7 +69,9 @@ export type ReviewRouterWorkflowUpsertFile = {
 export type WorkflowProviderRequirement =
   | "action_ref_supports_provider"
   | "secret_pass_through"
+  | "secret_fail_fast"
   | "cli_install_step"
+  | "public_engine_provider_path"
   | "trusted_reusable_workflow_ref"
   | "fork_pr_secret_skip";
 
@@ -107,6 +109,9 @@ const actionsCheckoutV6Commit = "d23441a48e516b6c34aea4fa41551a30e30af803";
 const actionsSetupNodeV6Commit = "249970729cb0ef3589644e2896645e5dc5ba9c38";
 const defaultCodexCliVersion = "0.144.0";
 const defaultCodexReviewModel = "gpt-5.6-sol";
+const mimoRuntimeProviderPrefix = "codex-mimo";
+const mimoTokenPlanApiKeySecretName = "MIMO_TOKEN_PLAN_API_KEY";
+const mimoTokenPlanApiKeyInputName = "mimo-token-plan-api-key";
 
 function discussionModeExpression(
   options: Pick<ReviewRouterWorkflowOptions, "discussionMode">,
@@ -121,6 +126,16 @@ export function renderReviewRouterWorkflow(
     throw new Error("conflict_review_explicit_workflow_unsupported");
   }
   const template = prepareWorkflowTemplate(options);
+  const providerSecretInputs = codexRotatingProviderSecretInputsForRuntimeEnv(
+    options.staticRuntimeEnv,
+  );
+  const mimoTokenPlanSelected =
+    providerSecretInputs.mimoTokenPlanApiKeySecret === true;
+  const codexCliSecretPresentExpression = `(env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.OPENROUTER_API_KEY_PRESENT == '1'${
+    mimoTokenPlanSelected
+      ? " || env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1'"
+      : ""
+  })`;
 
   return `name: ReviewRouter
 
@@ -150,7 +165,11 @@ jobs:
       CODEX_AUTH_JSON_PRESENT: \${{ secrets.CODEX_AUTH_JSON != '' && '1' || '0' }}
       OPENAI_API_KEY_PRESENT: \${{ secrets.OPENAI_API_KEY != '' && '1' || '0' }}
       OPENROUTER_API_KEY_PRESENT: \${{ secrets.OPENROUTER_API_KEY != '' && '1' || '0' }}
-      CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
+      CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}${
+        mimoTokenPlanSelected
+          ? `\n      MIMO_TOKEN_PLAN_API_KEY_PRESENT: \${{ secrets.${mimoTokenPlanApiKeySecretName} != '' && '1' || '0' }}`
+          : ""
+      }${reviewMemoryRuntimeEnvBlock}
     steps:
       - name: Checkout pull request code
         uses: actions/checkout@v6
@@ -164,15 +183,27 @@ jobs:
           echo "ReviewRouter skipped this fork pull request because secret-backed provider execution is disabled by default."
 
       - name: Setup Node.js for Codex CLI
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && (env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.OPENROUTER_API_KEY_PRESENT == '1') }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && ${codexCliSecretPresentExpression} }}
         uses: actions/setup-node@v6
         with:
           node-version: "24"
 
       - name: Install Codex CLI
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && (env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.OPENROUTER_API_KEY_PRESENT == '1') }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && ${codexCliSecretPresentExpression} }}
         shell: bash
         run: npm install -g @openai/codex@${defaultCodexCliVersion}
+${
+  mimoTokenPlanSelected
+    ? `
+      - name: Require MiMo Token Plan API key
+        if: \${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && env.MIMO_TOKEN_PLAN_API_KEY_PRESENT != '1' }}
+        shell: bash
+        run: |
+          echo "::error::MIMO_TOKEN_PLAN_API_KEY is missing. Store the key with \`gh secret set MIMO_TOKEN_PLAN_API_KEY --repo <owner>/<repo> --app actions\`; MiMo never falls back to Codex or OpenRouter."
+          exit 1
+`
+    : ""
+}
 
       - name: Install Claude Code CLI
         if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' }}
@@ -240,6 +271,11 @@ jobs:
 ${template.oidcStep}      - name: Run ReviewRouter
         if: \${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         uses: ${options.actionRef}
+${
+  mimoTokenPlanSelected
+    ? `        with:\n          ${mimoTokenPlanApiKeyInputName}: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}`
+    : ""
+}
         env:
           GITHUB_TOKEN: \${{ github.token }}
           PR_NUMBER: \${{ github.event.pull_request.number }}
@@ -531,6 +567,12 @@ ${actionsRerunAuthority ? "      actions: write\n" : ""}      contents: read
 export function renderReviewRouterReusableWorkflow(
   options: ReviewRouterWorkflowOptions,
 ): string {
+  if (
+    codexRotatingProviderSecretInputsForRuntimeEnv(options.staticRuntimeEnv)
+      .mimoTokenPlanApiKeySecret
+  ) {
+    throw new Error("mimo_provider_requires_explicit_workflow");
+  }
   const template = prepareReusableWorkflowTemplate(options);
   const conflictReviewFallbackEnabled =
     options.conflictReviewFallbackEnabled === true;
@@ -833,6 +875,46 @@ export function analyzeWorkflowProviderCompatibility(input: {
     }
   }
 
+  if (input.providerKind === "codex-mimo") {
+    if (!input.workflowYaml.includes(mimoTokenPlanApiKeySecretName)) {
+      missingRequirements.push("secret_pass_through");
+    }
+    if (
+      workflowStyle === "explicit" &&
+      (!input.workflowYaml.includes("Require MiMo Token Plan API key") ||
+        !input.workflowYaml.includes("MIMO_TOKEN_PLAN_API_KEY is missing"))
+    ) {
+      missingRequirements.push("secret_fail_fast");
+    }
+    if (!input.workflowYaml.includes(`${mimoRuntimeProviderPrefix}/`)) {
+      missingRequirements.push("public_engine_provider_path");
+    }
+    if (
+      workflowStyle === "explicit" &&
+      !input.workflowYaml.includes(
+        `${mimoTokenPlanApiKeyInputName}: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}`,
+      )
+    ) {
+      if (!missingRequirements.includes("secret_pass_through")) {
+        missingRequirements.push("secret_pass_through");
+      }
+    }
+    if (
+      workflowStyle === "explicit" &&
+      !input.workflowYaml.includes("MIMO_TOKEN_PLAN_API_KEY_PRESENT")
+    ) {
+      if (!missingRequirements.includes("secret_pass_through")) {
+        missingRequirements.push("secret_pass_through");
+      }
+    }
+    if (
+      workflowStyle === "explicit" &&
+      !input.workflowYaml.includes("Install Codex CLI")
+    ) {
+      missingRequirements.push("cli_install_step");
+    }
+  }
+
   if (
     workflowStyle === "explicit" &&
     !input.workflowYaml.includes("Skip fork pull requests")
@@ -871,6 +953,17 @@ export function getWorkflowProviderContentMarkerGroups(input: {
       return [
         [reusableReviewWorkflowPath, "OPENROUTER_API_KEY"],
         ["Install Codex CLI", "OPENROUTER_API_KEY", "Skip fork pull requests"],
+      ];
+    case "codex-mimo":
+      return [
+        [
+          "Install Codex CLI",
+          mimoTokenPlanApiKeySecretName,
+          `${mimoTokenPlanApiKeyInputName}:`,
+          `${mimoRuntimeProviderPrefix}/`,
+          "Require MiMo Token Plan API key",
+          "Skip fork pull requests",
+        ],
       ];
     case "codex":
       return [];
@@ -918,6 +1011,7 @@ export function getCodexRotatingWorkflowSetupContentMarkerGroups(input: {
   readonly providerInstanceId: string;
   readonly claudeCodeOAuthTokenSecret?: boolean | undefined;
   readonly openRouterApiKeySecret?: boolean | undefined;
+  readonly mimoTokenPlanApiKeySecret?: boolean | undefined;
   readonly forkAgenticSandboxEnabled?: boolean | undefined;
   readonly reviewActionV2Mode?: CodexRotatingReviewActionV2Mode | undefined;
   readonly workflowSchemaVersion?:
@@ -964,6 +1058,11 @@ export function getCodexRotatingWorkflowSetupContentMarkerGroups(input: {
     if (input.openRouterApiKeySecret === true) {
       markers.push("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}");
     }
+    if (input.mimoTokenPlanApiKeySecret === true) {
+      markers.push(
+        "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+      );
+    }
 
     return [markers];
   }
@@ -992,6 +1091,11 @@ export function getCodexRotatingWorkflowSetupContentMarkerGroups(input: {
   }
   if (input.openRouterApiKeySecret === true) {
     markers.push("openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}");
+  }
+  if (input.mimoTokenPlanApiKeySecret === true) {
+    markers.push(
+      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
   }
   if (input.forkAgenticSandboxEnabled === true) {
     markers.push(
@@ -1321,34 +1425,9 @@ export function renderReviewRouterWorkflowFiles(
                   options.codexRotatingActiveSecretNamespace,
                 ),
               })
-            : renderCodexRotatingAdvisoryWorkflow({
-                actionRef: options.actionRef,
-                apiUrl: options.apiUrl,
-                providerInstanceId: options.codexRotatingProviderInstanceId,
-                ...(options.codexRotatingActiveSecretNamespace
-                  ? {
-                      activeSecretNamespace:
-                        options.codexRotatingActiveSecretNamespace,
-                    }
-                  : {}),
-                ...(options.codexRotatingWorkflowSchemaVersion !== undefined
-                  ? {
-                      workflowSchemaVersion:
-                        options.codexRotatingWorkflowSchemaVersion,
-                    }
-                  : {}),
-                ...(options.codexRotatingReviewActionV2Mode
-                  ? {
-                      reviewActionV2Mode:
-                        options.codexRotatingReviewActionV2Mode,
-                    }
-                  : {}),
-                ...codexRotatingProviderSecretInputsForRuntimeEnv(
-                  options.staticRuntimeEnv,
-                ),
-                forkAgenticSandboxEnabled:
-                  options.forkAgenticSandboxEnabled === true,
-              }),
+            : renderCodexRotatingAdvisoryWorkflowWithProviderSecretInputs(
+                options,
+              ),
       },
       {
         path: defaultWorkflowPath,
@@ -1387,6 +1466,9 @@ export function renderReviewRouterWorkflowFiles(
                   options.codexRotatingWorkflowSchemaVersion,
               }
             : {}),
+          ...codexRotatingProviderSecretInputsForRuntimeEnv(
+            options.staticRuntimeEnv,
+          ),
         }),
       });
     }
@@ -1404,7 +1486,13 @@ export function renderReviewRouterWorkflowFiles(
     throw new Error("conflict_review_explicit_workflow_unsupported");
   }
 
-  if ((options.workflowStyle ?? "reusable") === "reusable") {
+  const workflowStyle = codexRotatingProviderSecretInputsForRuntimeEnv(
+    options.staticRuntimeEnv,
+  ).mimoTokenPlanApiKeySecret
+    ? "explicit"
+    : (options.workflowStyle ?? "reusable");
+
+  if (workflowStyle === "reusable") {
     return [
       {
         path: defaultWorkflowPath,
@@ -1437,11 +1525,12 @@ function requireIsolatedQualityNamespace(
   return namespace;
 }
 
-function codexRotatingProviderSecretInputsForRuntimeEnv(
+export function codexRotatingProviderSecretInputsForRuntimeEnv(
   runtimeEnv: Readonly<Record<string, string>> | undefined,
 ): {
   readonly claudeCodeOAuthTokenSecret: boolean;
   readonly openRouterApiKeySecret: boolean;
+  readonly mimoTokenPlanApiKeySecret: boolean;
 } {
   const providers = runtimeEnv?.REVIEW_PROVIDERS ?? "";
   return {
@@ -1451,7 +1540,39 @@ function codexRotatingProviderSecretInputsForRuntimeEnv(
     openRouterApiKeySecret: providers
       .split(",")
       .some((provider) => provider.trim().startsWith("openrouter/")),
+    mimoTokenPlanApiKeySecret: providers
+      .split(",")
+      .some((provider) =>
+        provider.trim().startsWith(`${mimoRuntimeProviderPrefix}/`),
+      ),
   };
+}
+
+function renderCodexRotatingAdvisoryWorkflowWithProviderSecretInputs(
+  options: ReviewRouterWorkflowOptions,
+): string {
+  const input: Parameters<typeof renderCodexRotatingAdvisoryWorkflow>[0] & {
+    readonly mimoTokenPlanApiKeySecret: boolean;
+  } = {
+    actionRef: options.actionRef,
+    apiUrl: options.apiUrl,
+    providerInstanceId: options.codexRotatingProviderInstanceId!,
+    ...(options.codexRotatingActiveSecretNamespace
+      ? { activeSecretNamespace: options.codexRotatingActiveSecretNamespace }
+      : {}),
+    ...(options.codexRotatingWorkflowSchemaVersion !== undefined
+      ? {
+          workflowSchemaVersion: options.codexRotatingWorkflowSchemaVersion,
+        }
+      : {}),
+    ...(options.codexRotatingReviewActionV2Mode
+      ? { reviewActionV2Mode: options.codexRotatingReviewActionV2Mode }
+      : {}),
+    ...codexRotatingProviderSecretInputsForRuntimeEnv(options.staticRuntimeEnv),
+    forkAgenticSandboxEnabled: options.forkAgenticSandboxEnabled === true,
+  };
+
+  return renderCodexRotatingAdvisoryWorkflow(input);
 }
 
 function prepareReusableWorkflowTemplate(

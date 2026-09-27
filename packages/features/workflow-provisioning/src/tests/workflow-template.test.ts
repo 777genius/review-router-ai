@@ -10,6 +10,7 @@ import {
 import {
   analyzeConflictReviewWorkflowCapability,
   analyzeWorkflowProviderCompatibility,
+  codexRotatingProviderSecretInputsForRuntimeEnv,
   defaultCodexRotatingWorkflowPath,
   defaultInteractionWorkflowPath,
   defaultRequiredWorkflowPath,
@@ -23,6 +24,7 @@ import {
   renderReviewRouterRequiredWorkflow,
   renderReviewRouterWorkflow,
   renderReviewRouterWorkflowFiles,
+  reusableReviewWorkflowPath,
   renderCodexRotatingAdvisoryWorkflow,
   renderCanonicalCodexRotatingInteractionWorkflowV1,
   renderCanonicalCodexRotatingInteractionWorkflowV2,
@@ -343,6 +345,86 @@ describe("renderReviewRouterWorkflow", () => {
     expect(scanCodexRotatingAdvisoryWorkflow(content)).toEqual({
       valid: true,
       errors: [],
+    });
+  });
+
+  it("wires the selected MiMo secret through rotating provider callers and readiness markers", () => {
+    expect(
+      codexRotatingProviderSecretInputsForRuntimeEnv({
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      }),
+    ).toEqual({
+      claudeCodeOAuthTokenSecret: false,
+      openRouterApiKeySecret: false,
+      mimoTokenPlanApiKeySecret: true,
+    });
+
+    const t0Markers = getCodexRotatingWorkflowSetupContentMarkerGroups({
+      providerInstanceId: "codex-rotating:123456",
+      mimoTokenPlanApiKeySecret: true,
+      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+      workflowSchemaVersion:
+        CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2,
+    });
+    expect(t0Markers[0]).toContain(
+      "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
+
+    const actionMarkers = getCodexRotatingWorkflowSetupContentMarkerGroups({
+      providerInstanceId: "codex-rotating:123456",
+      mimoTokenPlanApiKeySecret: true,
+    });
+    expect(actionMarkers[0]).toContain(
+      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
+  });
+
+  it("routes MiMo-only setup to the direct public Action with literal key forwarding and fork skip", () => {
+    const files = renderReviewRouterWorkflowFiles({
+      actionRef:
+        "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+      apiUrl: "https://reviewrouter.site",
+      runtimeConfigMode: "oidc",
+      workflowStyle: "reusable",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "mimo-token-plan-api",
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      },
+    });
+
+    expect(files.map((file) => file.path)).toEqual([
+      defaultWorkflowPath,
+      defaultInteractionWorkflowPath,
+    ]);
+    const workflow = workflowFileContent(files[0]);
+    expect(workflow).not.toContain(reusableReviewWorkflowPath);
+    expect(workflow).toContain('REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro"');
+    expect(workflow).toContain(
+      "MIMO_TOKEN_PLAN_API_KEY_PRESENT: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY != '' && '1' || '0' }}",
+    );
+    expect(workflow).toContain(
+      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
+    expect(workflow).toContain("Require MiMo Token Plan API key");
+    expect(workflow).toContain("MIMO_TOKEN_PLAN_API_KEY is missing.");
+    expect(workflow).toContain("MiMo never falls back to Codex or OpenRouter.");
+    expect(workflow).toContain(
+      "if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && env.MIMO_TOKEN_PLAN_API_KEY_PRESENT != '1' }}",
+    );
+    expect(workflow).toContain("Skip fork pull requests");
+    expect(workflow).toContain("Install Codex CLI");
+    expect(
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml: workflow,
+        providerKind: "codex-mimo",
+        workflowStyle: "explicit",
+        expectedActionRef:
+          "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+      }),
+    ).toEqual({
+      providerKind: "codex-mimo",
+      supported: true,
+      missingRequirements: [],
     });
   });
 
@@ -1136,6 +1218,35 @@ describe("renderReviewRouterWorkflow", () => {
     ).toMatchObject({
       supported: false,
       missingRequirements: ["cli_install_step"],
+    });
+  });
+
+  it("rejects a MiMo workflow without a clear missing-secret fail-fast gate", () => {
+    const workflow = renderReviewRouterWorkflow({
+      ...workflowOptions,
+      conflictReviewFallbackEnabled: false,
+      workflowStyle: "explicit",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "mimo-token-plan-api",
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      },
+    });
+    const workflowWithoutGate = workflow
+      .replace("Require MiMo Token Plan API key", "Check MiMo credential")
+      .replace(
+        "MIMO_TOKEN_PLAN_API_KEY is missing.",
+        "MiMo credential check completed.",
+      );
+
+    expect(
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml: workflowWithoutGate,
+        providerKind: "codex-mimo",
+        workflowStyle: "explicit",
+      }),
+    ).toMatchObject({
+      supported: false,
+      missingRequirements: ["secret_fail_fast"],
     });
   });
 

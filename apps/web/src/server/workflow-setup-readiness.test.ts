@@ -247,6 +247,32 @@ describe("workflow setup readiness", () => {
     ]);
   });
 
+  it("requires MiMo secret and public engine markers before skipping setup", async () => {
+    const probe = new CapturingWorkflowProbe({
+      status: "present",
+      expectedActionRefFound: true,
+      expectedContentMarkersFound: true,
+    });
+
+    await expect(
+      isWorkflowSetupAlreadyCurrent(
+        { ...readinessInput, providerKind: "codex-mimo" },
+        { workflowProbe: probe },
+      ),
+    ).resolves.toBe(true);
+
+    expect(probe.input?.expectedContentMarkerGroups).toEqual([
+      [
+        "Install Codex CLI",
+        "MIMO_TOKEN_PLAN_API_KEY",
+        "mimo-token-plan-api-key:",
+        "codex-mimo/",
+        "Require MiMo Token Plan API key",
+        "Skip fork pull requests",
+      ],
+    ]);
+  });
+
   it("requires conflict fallback markers before skipping setup when fallback rollout is enabled", async () => {
     const probe = new CapturingWorkflowProbe({
       status: "present",
