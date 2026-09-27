@@ -498,7 +498,7 @@ async function loadSnapshotWithinTransaction(
     }),
     tx.hostedCodexDeviceLogin.count({ where: { status: "pending" } }),
     tx.hostedCodexRelayRequest.count({
-      where: { status: { not: "succeeded" } },
+      where: { status: { notIn: ["succeeded", "failed"] } },
     }),
     tx.hostedCodexUpstreamEffectAttempt.count({
       where: { state: { notIn: ["succeeded", "failed_no_effect"] } },

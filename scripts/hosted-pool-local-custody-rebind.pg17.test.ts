@@ -800,6 +800,33 @@ describe.runIf(enabled)(
       expect(await readCommittedRebindReceipt(prisma!, admission)).toBeNull();
     }, 120_000);
 
+    it("treats a completed failed relay without an upstream attempt as terminal history", async () => {
+      const failedRequestId = `custody-failed-relay-${prefix}`;
+      await prisma!.hostedCodexRelayRequest.create({
+        data: {
+          id: failedRequestId,
+          grantId,
+          ordinal: 999,
+          idempotencyKeyHash: sha256(failedRequestId),
+          requestHash: sha256(`request-${failedRequestId}`),
+          status: "failed",
+          requestBytes: 1,
+          responseBytes: 0,
+          errorCode: "synthetic_no_dispatch",
+          completedAt: new Date(),
+        },
+      });
+      const snapshot = await loadLocalRebindSnapshot(prisma!);
+      expect(snapshot.authority.unresolvedRelayRequests).toBe(0);
+      expect(snapshot.authority.unresolvedUpstreamEffects).toBe(0);
+      expect(() => assertQuiescentAuthority(snapshot.authority)).not.toThrow();
+      expect(
+        await prisma!.hostedCodexUpstreamEffectAttempt.count({
+          where: { relayRequestId: failedRequestId },
+        }),
+      ).toBe(0);
+    }, 120_000);
+
     it("commits once under concurrency, supports lost-response readback, and preserves serving state", async () => {
       const originalVersions =
         await prisma!.hostedCodexCredentialVersion.findMany({
