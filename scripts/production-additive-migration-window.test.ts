@@ -89,7 +89,7 @@ describe("production additive migration window", () => {
   it("rejects drift, a failed migration, and altered migration bytes", () => {
     expect(() =>
       planProductionAdditiveMigrations({
-        catalog: [...catalog, "000110_unrelated"],
+        catalog: [...catalog, "000111_unrelated"],
         rows: [applied(catalog[0]), applied(anchor)],
         checksums,
       }),

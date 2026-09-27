@@ -14,8 +14,14 @@ const sourceRoots = [
 ];
 const runtimeSecretGateway =
   "apps/api/src/github/octokit-codex-rotating-github-secret-gateway.ts";
-const allowedOneShotTransport =
+const runtimeOneShotTransport =
   "apps/api/src/github/one-shot-github-secret-put.ts";
+const webProviderApiKeyOneShotTransport =
+  "apps/web/src/server/provider-api-key-github-gateway.ts";
+const auditedOneShotTransports = new Set([
+  runtimeOneShotTransport,
+  webProviderApiKeyOneShotTransport,
+]);
 const rotatingInstaller = "scripts/seed-codex-rotating-auth.sh";
 const rotatingReseedInstaller = "scripts/reseed-codex-rotating-auth.sh";
 const legacyInstaller = "scripts/seed-codex-auth.sh";
@@ -61,7 +67,7 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
     }
     if (
       source.includes("createOrUpdateRepoSecret") &&
-      path !== allowedOneShotTransport &&
+      path !== runtimeOneShotTransport &&
       !path.endsWith(".test.ts")
     ) {
       failures.push(
@@ -161,7 +167,7 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
       failures.push(`${path}: legacy fixed-name writer is not opt-in gated`);
     }
 
-    const isAuditedRuntimeWriter = path === allowedOneShotTransport;
+    const isAuditedRuntimeWriter = auditedOneShotTransports.has(path);
     const isSerializedSetupWriter = path === setupDispatcher;
     const providerPutCount = countProviderSecretPutSites(source);
     if (
@@ -173,10 +179,13 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
     ) {
       failures.push(`${path}: provider secret PUT outside audited adapter`);
     }
-    if (path === allowedOneShotTransport && providerPutCount !== 1) {
+    if (isAuditedRuntimeWriter && providerPutCount !== 1) {
       failures.push(
-        `${path}: runtime gateway must expose exactly one provider PUT`,
+        `${path}: audited one-shot gateway must expose exactly one provider PUT`,
       );
+    }
+    if (isAuditedRuntimeWriter) {
+      requireOneShotTransportAudit(path, source, failures);
     }
   }
   requireRuntimeWritebackAudit(checkoutRoot, failures);
@@ -188,7 +197,8 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
       rotatingInstaller,
       rotatingReseedInstaller,
       runtimeSecretGateway,
-      allowedOneShotTransport,
+      runtimeOneShotTransport,
+      webProviderApiKeyOneShotTransport,
       runtimeDispatcher,
       runtimeLedger,
       runtimeComposition,
@@ -196,6 +206,39 @@ export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
       setupLedger,
     ],
   };
+}
+
+function requireOneShotTransportAudit(path, source, failures) {
+  const requiredMarkers = [
+    "agent: testAgent ?? false",
+    "requestBytesMayHaveLeft",
+    'response.on("data"',
+    'response.once("end"',
+    "response.complete",
+    "request.end(body)",
+  ];
+  const requestConstructionCount =
+    source.match(/\brequest\s*=\s*dispatch\(/gu)?.length ?? 0;
+  const oneShotStart = source.indexOf("export async function put");
+  const oneShotEndCandidates = [
+    source.indexOf("function positiveId", oneShotStart),
+    source.indexOf("function isLoopback", oneShotStart),
+  ].filter((index) => index > oneShotStart);
+  const oneShotEnd = Math.min(...oneShotEndCandidates);
+  const oneShotSource =
+    oneShotStart >= 0 && Number.isFinite(oneShotEnd)
+      ? source.slice(oneShotStart, oneShotEnd)
+      : "";
+  if (
+    requiredMarkers.some((marker) => !oneShotSource.includes(marker)) ||
+    requestConstructionCount !== 1 ||
+    !oneShotSource ||
+    /(?:redirect|retry)\s*[:=]/u.test(oneShotSource)
+  ) {
+    failures.push(
+      `${path}: audited one-shot transport is missing pinned request invariants`,
+    );
+  }
 }
 
 function requireSetupWriteAudit(checkoutRoot, failures) {
@@ -250,14 +293,14 @@ function countProviderSecretPutSites(source) {
   const hasConstructedSecretPath =
     /["'`]repos["'`]/u.test(source) &&
     /["'`]actions["'`]/u.test(source) &&
-    /["'`]secrets["'`]/u.test(source) &&
-    !/["'`]public-key["'`]/u.test(source);
+    /["'`]secrets["'`]/u.test(source);
   return methodSites.filter((match) => {
     const start = Math.max(0, (match.index ?? 0) - 1_500);
     const end = Math.min(source.length, (match.index ?? 0) + 1_500);
     const window = source.slice(start, end);
     const literalPath = /actions\/secrets\/(?!public-key)/u.test(window);
-    const constructedPath = hasConstructedSecretPath;
+    const constructedPath =
+      hasConstructedSecretPath && !/["'`]public-key["'`]/u.test(window);
     return literalPath || constructedPath;
   }).length;
 }
