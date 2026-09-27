@@ -429,13 +429,11 @@ export async function startHostedCodexRelayProxy(input: {
               }
               throw writeError;
             }
-            if (upstream.status === 401 || upstream.status === 429) {
-              fenceFurtherResponses(
-                upstream.status === 401
-                  ? "authentication_failed"
-                  : "quota_exhausted",
-              );
-            } else if (responseCompletion !== "successful") {
+            // A relay 401 or 429 can mean an invalid or exhausted grant as
+            // well as an upstream account failure. The Action cannot prove
+            // that an earlier request on this grant had no effect, so a
+            // non-successful response must not trigger account fallback.
+            if (responseCompletion !== "successful") {
               fenceFurtherResponses("ambiguous");
             }
           } else {
