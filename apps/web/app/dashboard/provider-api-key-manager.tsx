@@ -32,6 +32,14 @@ const providerOptions = [
   { value: "openrouter", label: "OpenRouter" },
 ] as const;
 
+type ApplyProviderKeyOperation = {
+  readonly id: number;
+  readonly workspaceId: string;
+  readonly providerType: ProviderApiKeyProvider;
+  readonly apiKey?: string;
+  readonly repositoryIds: readonly string[];
+};
+
 export function ProviderApiKeyManager({
   workspaceId,
   disabled = false,
@@ -52,34 +60,63 @@ export function ProviderApiKeyManager({
   const [results, setResults] = useState<
     readonly ProviderApiKeyRepositoryResult[] | null
   >(null);
+  const [resultsScope, setResultsScope] = useState<string | null>(null);
+  const [pendingOperation, setPendingOperation] =
+    useState<ApplyProviderKeyOperation | null>(null);
   const initializedSelectionScopeRef = useRef<string | null>(null);
+  const nextOperationIdRef = useRef(0);
+  const pendingOperationRef = useRef<ApplyProviderKeyOperation | null>(null);
   const queryClient = useQueryClient();
-  const repositoryQueryKey = providerKeyRepositoryQueryKey(workspaceId);
-  const stateQueryKey = providerApiKeyStateQueryKey(workspaceId, providerType);
+  const scopedWorkspaceId = pendingOperation?.workspaceId ?? workspaceId;
+  const scopedProviderType = pendingOperation?.providerType ?? providerType;
+  const scopedOperationKey = `${scopedWorkspaceId}:${scopedProviderType}`;
+  const repositoryQueryKey = providerKeyRepositoryQueryKey(scopedWorkspaceId);
+  const stateQueryKey = providerApiKeyStateQueryKey(
+    scopedWorkspaceId,
+    scopedProviderType,
+  );
   const repositoriesQuery = useQuery({
     queryKey: repositoryQueryKey,
     enabled: open,
     staleTime: 60_000,
-    queryFn: () => fetchProviderKeyRepositories(workspaceId),
+    queryFn: () => fetchProviderKeyRepositories(scopedWorkspaceId),
   });
   const stateQuery = useQuery({
     queryKey: stateQueryKey,
     enabled: open,
     staleTime: 30_000,
-    queryFn: () => fetchProviderApiKeyState({ workspaceId, providerType }),
+    queryFn: () =>
+      fetchProviderApiKeyState({
+        workspaceId: scopedWorkspaceId,
+        providerType: scopedProviderType,
+      }),
   });
   const applyMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (operation: ApplyProviderKeyOperation) =>
       applyProviderApiKeyRequest({
-        workspaceId,
-        providerType,
-        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-        repositoryIds: [...selectedRepositoryIds],
+        workspaceId: operation.workspaceId,
+        providerType: operation.providerType,
+        ...(operation.apiKey ? { apiKey: operation.apiKey } : {}),
+        repositoryIds: operation.repositoryIds,
       }),
-    onSuccess: (data) => {
+    onSuccess: (data, operation) => {
+      if (pendingOperationRef.current?.id !== operation.id) return;
       setResults(data.results);
+      setResultsScope(`${operation.workspaceId}:${operation.providerType}`);
       setApiKey("");
-      void queryClient.invalidateQueries({ queryKey: stateQueryKey });
+      void queryClient.invalidateQueries({
+        queryKey: providerApiKeyStateQueryKey(
+          operation.workspaceId,
+          operation.providerType,
+        ),
+      });
+    },
+    onSettled: (_data, _error, operation) => {
+      if (!operation || pendingOperationRef.current?.id !== operation.id) {
+        return;
+      }
+      pendingOperationRef.current = null;
+      setPendingOperation(null);
     },
   });
 
@@ -87,19 +124,19 @@ export function ProviderApiKeyManager({
     initializedSelectionScopeRef.current = null;
     setApiKey("");
     setResults(null);
+    setResultsScope(null);
     setRepositoryFilter("");
     setSelectedRepositoryIds(new Set());
-  }, [providerType, workspaceId]);
+  }, [scopedProviderType, scopedWorkspaceId]);
 
   useEffect(() => {
-    const selectionScope = `${workspaceId}:${providerType}`;
     if (
       !stateQuery.data ||
-      initializedSelectionScopeRef.current === selectionScope
+      initializedSelectionScopeRef.current === scopedOperationKey
     ) {
       return;
     }
-    initializedSelectionScopeRef.current = selectionScope;
+    initializedSelectionScopeRef.current = scopedOperationKey;
     setSelectedRepositoryIds(
       new Set(
         stateQuery.data.repositories
@@ -110,7 +147,7 @@ export function ProviderApiKeyManager({
           .map((repository) => repository.repositoryId),
       ),
     );
-  }, [providerType, stateQuery.data, workspaceId]);
+  }, [scopedOperationKey, stateQuery.data]);
 
   const repositories = useMemo(
     () =>
@@ -126,11 +163,33 @@ export function ProviderApiKeyManager({
   const connectedRepositoryIds = new Set(
     stateQuery.data?.repositories.map((repository) => repository.repositoryId),
   );
+  const applyPending = applyMutation.isPending || pendingOperation !== null;
+  const applyErrorScope = applyMutation.variables
+    ? `${applyMutation.variables.workspaceId}:${applyMutation.variables.providerType}`
+    : null;
+
+  const beginApply = () => {
+    const operationId = nextOperationIdRef.current + 1;
+    nextOperationIdRef.current = operationId;
+    const operation: ApplyProviderKeyOperation = {
+      id: operationId,
+      workspaceId,
+      providerType,
+      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+      repositoryIds: [...selectedRepositoryIds],
+    };
+    pendingOperationRef.current = operation;
+    setPendingOperation(operation);
+    setResults(null);
+    setResultsScope(null);
+    applyMutation.mutate(operation);
+  };
 
   return (
     <DialogRoot
       open={open}
       onOpenChange={(nextOpen) => {
+        if (!nextOpen && applyPending) return;
         setOpen(nextOpen);
         if (!nextOpen) {
           setApiKey("");
@@ -159,6 +218,7 @@ export function ProviderApiKeyManager({
             render={
               <button
                 type="button"
+                disabled={applyPending}
                 className="absolute right-4 top-4 z-10 grid h-9 w-9 place-items-center rounded-full border border-cyan-200/15 text-cyan-100"
                 aria-label="Close provider key manager"
               />
@@ -179,7 +239,24 @@ export function ProviderApiKeyManager({
           </div>
 
           <div className="space-y-6 p-5 sm:p-6">
-            <fieldset>
+            {pendingOperation ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className="border-l-2 border-cyan-300/60 pl-3 text-sm text-cyan-100"
+              >
+                Applying {providerLabel(pendingOperation.providerType)} in{" "}
+                {pendingOperation.workspaceId} to{" "}
+                {pendingOperation.repositoryIds.length}{" "}
+                {pendingOperation.repositoryIds.length === 1
+                  ? "repository"
+                  : "repositories"}
+                . Workspace and provider scope are locked until this operation
+                settles.
+              </div>
+            ) : null}
+
+            <fieldset disabled={applyPending}>
               <legend className="text-sm font-semibold text-cyan-100">
                 Provider
               </legend>
@@ -187,17 +264,18 @@ export function ProviderApiKeyManager({
                 {providerOptions.map((option) => (
                   <label
                     key={option.value}
-                    className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-4 py-2 text-sm ${
+                    className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm ${
                       providerType === option.value
                         ? "border-cyan-300/50 bg-cyan-300/10 text-cyan-50"
                         : "border-cyan-200/10 text-slate-300"
-                    }`}
+                    } ${applyPending ? "cursor-default opacity-60" : "cursor-pointer"}`}
                   >
                     <input
                       type="radio"
                       name="providerType"
                       value={option.value}
                       checked={providerType === option.value}
+                      disabled={applyPending}
                       onChange={() => setProviderType(option.value)}
                     />
                     {option.label}
@@ -215,6 +293,7 @@ export function ProviderApiKeyManager({
               <input
                 type="password"
                 autoComplete="off"
+                disabled={applyPending}
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 placeholder={
@@ -246,6 +325,7 @@ export function ProviderApiKeyManager({
                   />
                   <input
                     value={repositoryFilter}
+                    disabled={applyPending}
                     onChange={(event) =>
                       setRepositoryFilter(event.target.value)
                     }
@@ -272,6 +352,7 @@ export function ProviderApiKeyManager({
                       <input
                         type="checkbox"
                         checked={selectedRepositoryIds.has(repository.id)}
+                        disabled={applyPending}
                         onChange={(event) => {
                           const next = new Set(selectedRepositoryIds);
                           if (event.target.checked) next.add(repository.id);
@@ -291,7 +372,13 @@ export function ProviderApiKeyManager({
               </div>
             </section>
 
-            {applyMutation.error ? (
+            {stateQuery.error ? (
+              <p role="alert" className="text-sm text-rose-200">
+                {providerKeyErrorMessage((stateQuery.error as Error).message)}
+              </p>
+            ) : null}
+
+            {applyMutation.error && applyErrorScope === scopedOperationKey ? (
               <p role="alert" className="text-sm text-rose-200">
                 {providerKeyErrorMessage(
                   (applyMutation.error as Error).message,
@@ -303,6 +390,7 @@ export function ProviderApiKeyManager({
               <Button
                 type="button"
                 variant="ghost"
+                disabled={applyPending}
                 onClick={() => {
                   setSelectedRepositoryIds(
                     new Set(
@@ -322,17 +410,17 @@ export function ProviderApiKeyManager({
                 variant="solid"
                 disabled={
                   selectedRepositoryIds.size === 0 ||
-                  applyMutation.isPending ||
+                  applyPending ||
                   (!apiKey.trim() && !stateQuery.data?.connected)
                 }
-                onClick={() => applyMutation.mutate()}
+                onClick={beginApply}
               >
                 <PlugZap aria-hidden="true" className="h-4 w-4" />
-                {applyMutation.isPending ? "Applying…" : "Apply"}
+                {applyPending ? "Applying…" : "Apply"}
               </Button>
             </div>
 
-            {results ? (
+            {results && resultsScope === scopedOperationKey ? (
               <section>
                 <h3 className="text-sm font-semibold text-cyan-100">
                   Batch results
@@ -374,6 +462,13 @@ export function ProviderApiKeyManager({
         </DialogPopup>
       </DialogPortal>
     </DialogRoot>
+  );
+}
+
+function providerLabel(providerType: ProviderApiKeyProvider): string {
+  return (
+    providerOptions.find((option) => option.value === providerType)?.label ??
+    providerType
   );
 }
 
@@ -424,7 +519,10 @@ function providerKeyErrorMessage(code: string): string {
     github_request_failed: "GitHub rejected the repository secret request.",
     persistence_failed:
       "GitHub accepted the update, but ReviewRouter needs to reconcile its saved status.",
+    provider_key_reconciliation_required:
+      "Resolve the saved reconciliation state before starting another provider key operation.",
     provider_key_apply_failed: "The batch request failed.",
+    provider_key_state_failed: "Provider key state could not be loaded.",
     provider_key_storage_not_configured:
       "Server-side key encryption is not configured.",
     github_app_id_not_configured:

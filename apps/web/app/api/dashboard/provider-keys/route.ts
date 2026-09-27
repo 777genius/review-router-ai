@@ -1,4 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log";
+import {
+  assertWorkspaceFeatureEntitlement,
+  PrismaEntitlementRepository,
+} from "@reviewrouter/features-entitlements";
 import {
   providerApiKeyProviderSchema,
   type ProviderApiKeyProvider,
@@ -28,11 +33,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    await assertDashboardWorkspaceAdminAllowed(workspaceId);
+    const actor = await assertDashboardWorkspaceAdminAllowed(workspaceId);
+    const prisma = getPrisma();
     if (providerType.data === "mimo") {
-      await assertProviderApiKeyWorkspaceGranted(getPrisma(), workspaceId);
+      await assertProviderApiKeyWorkspaceGranted(prisma, workspaceId);
     }
-    const state = await new PrismaProviderApiKeyStore(getPrisma()).findState({
+    await assertWorkspaceFeatureEntitlement(
+      {
+        workspaceId,
+        feature: "provider_key_management",
+        actor: actor.actor,
+      },
+      {
+        entitlements: new PrismaEntitlementRepository(prisma),
+        auditLog: new PrismaAuditLogRepository(prisma),
+      },
+    );
+    const state = await new PrismaProviderApiKeyStore(prisma).findState({
       workspaceId,
       providerType: providerType.data,
     });

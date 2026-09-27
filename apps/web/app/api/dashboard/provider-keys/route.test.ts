@@ -4,7 +4,17 @@ import { GET } from "./route";
 const mocks = vi.hoisted(() => ({
   assertDashboardWorkspaceAdminAllowed: vi.fn(),
   assertProviderApiKeyWorkspaceGranted: vi.fn(),
+  assertWorkspaceFeatureEntitlement: vi.fn(),
   providerApiKeyConnectionFindUnique: vi.fn(),
+}));
+
+vi.mock("@reviewrouter/features-audit-log", () => ({
+  PrismaAuditLogRepository: class PrismaAuditLogRepository {},
+}));
+
+vi.mock("@reviewrouter/features-entitlements", () => ({
+  assertWorkspaceFeatureEntitlement: mocks.assertWorkspaceFeatureEntitlement,
+  PrismaEntitlementRepository: class PrismaEntitlementRepository {},
 }));
 
 vi.mock("../../../../src/server/dashboard-mutations", () => ({
@@ -35,6 +45,7 @@ describe("GET /api/dashboard/provider-keys", () => {
       actor: "user:admin",
     });
     mocks.assertProviderApiKeyWorkspaceGranted.mockResolvedValue(undefined);
+    mocks.assertWorkspaceFeatureEntitlement.mockResolvedValue(undefined);
   });
 
   it("default-denies an admin workspace without an explicit provider-key grant", async () => {
@@ -53,6 +64,7 @@ describe("GET /api/dashboard/provider-keys", () => {
       error: "provider_key_workspace_grant_required",
     });
     expect(mocks.providerApiKeyConnectionFindUnique).not.toHaveBeenCalled();
+    expect(mocks.assertWorkspaceFeatureEntitlement).not.toHaveBeenCalled();
   });
 
   it("keeps OpenRouter available without a MiMo pool grant", async () => {
@@ -69,6 +81,38 @@ describe("GET /api/dashboard/provider-keys", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.assertProviderApiKeyWorkspaceGranted).not.toHaveBeenCalled();
+    expect(mocks.assertWorkspaceFeatureEntitlement).toHaveBeenCalledWith(
+      {
+        workspaceId: "workspace_1",
+        feature: "provider_key_management",
+        actor: "user:admin",
+      },
+      expect.objectContaining({
+        entitlements: expect.anything(),
+        auditLog: expect.anything(),
+      }),
+    );
+  });
+
+  it("enforces the paid provider-key entitlement before reading state", async () => {
+    mocks.assertWorkspaceFeatureEntitlement.mockRejectedValue(
+      new Error(
+        "entitlement_denied:provider_key_management:feature_not_enabled_for_plan",
+      ),
+    );
+
+    const response = await GET(
+      nextRequest(
+        "http://localhost/api/dashboard/provider-keys?workspace=workspace_1&providerType=openrouter",
+      ),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "entitlement_denied:provider_key_management:feature_not_enabled_for_plan",
+    });
+    expect(mocks.providerApiKeyConnectionFindUnique).not.toHaveBeenCalled();
   });
 
   it("returns saved repository state without exposing the encrypted or plaintext key", async () => {

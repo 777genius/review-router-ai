@@ -28,11 +28,15 @@ CREATE TABLE "ProviderApiKeyConnection" (
 CREATE UNIQUE INDEX "ProviderApiKeyConnection_workspaceId_providerType_key"
     ON "ProviderApiKeyConnection"("workspaceId", "providerType");
 
+CREATE UNIQUE INDEX "ProviderApiKeyConnection_id_workspaceId_key"
+    ON "ProviderApiKeyConnection"("id", "workspaceId");
+
 CREATE INDEX "ProviderApiKeyConnection_workspaceId_idx"
     ON "ProviderApiKeyConnection"("workspaceId");
 
 CREATE TABLE "ProviderApiKeyRepositoryLink" (
     "id" TEXT NOT NULL,
+    "workspaceId" TEXT NOT NULL,
     "providerApiKeyConnectionId" TEXT NOT NULL,
     "repositoryId" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'pending',
@@ -74,13 +78,15 @@ ALTER TABLE "ProviderApiKeyConnection"
     ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "ProviderApiKeyRepositoryLink"
-    ADD CONSTRAINT "ProviderApiKeyRepositoryLink_providerApiKeyConnectionId_fkey"
-    FOREIGN KEY ("providerApiKeyConnectionId") REFERENCES "ProviderApiKeyConnection"("id")
+    ADD CONSTRAINT "ProviderApiKeyRepositoryLink_connection_workspace_fkey"
+    FOREIGN KEY ("providerApiKeyConnectionId", "workspaceId")
+    REFERENCES "ProviderApiKeyConnection"("id", "workspaceId")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "ProviderApiKeyRepositoryLink"
-    ADD CONSTRAINT "ProviderApiKeyRepositoryLink_repositoryId_fkey"
-    FOREIGN KEY ("repositoryId") REFERENCES "RepositoryConnection"("id")
+    ADD CONSTRAINT "ProviderApiKeyRepositoryLink_repository_workspace_fkey"
+    FOREIGN KEY ("repositoryId", "workspaceId")
+    REFERENCES "RepositoryConnection"("id", "workspaceId")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
 DO $$

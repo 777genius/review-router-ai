@@ -254,6 +254,204 @@ describe("ProviderApiKeyManager", () => {
       repositoryIds: ["repo_1", "repo_2"],
     });
   });
+
+  it("locks provider scope and closing while showing the pending operation", async () => {
+    const apply = deferred<ReturnType<typeof response>>();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/repositories/search")) {
+        return response({
+          repositories: [
+            { id: "repo_1", fullName: "acme/one", provider: "github" },
+          ],
+        });
+      }
+      if (url.includes("/provider-keys?")) {
+        return response({
+          providerType: "mimo",
+          keyVersion: 1,
+          connected: true,
+          repositories: [
+            {
+              repositoryId: "repo_1",
+              repositoryFullName: "acme/one",
+              status: "applied",
+              appliedKeyVersion: 1,
+              attemptedKeyVersion: 1,
+              appliedAt: "2026-09-26T10:00:00.000Z",
+            },
+          ],
+        });
+      }
+      return apply.promise;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderManager("workspace_1");
+    fireEvent.click(
+      screen.getByRole("button", { name: /Connect MiMo \/ OpenRouter/i }),
+    );
+    await screen.findByRole("checkbox", { name: /acme\/one/i });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(
+      await screen.findByText(
+        /Applying MiMo Token Plan in workspace_1 to 1 repository/i,
+      ),
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("radio", {
+          name: /MiMo Token Plan/i,
+        }) as HTMLInputElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("radio", { name: /OpenRouter/i }) as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText(/MiMo Token Plan API key/i) as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+
+    const closeButton = screen.getByRole("button", {
+      name: "Close provider key manager",
+    });
+    expect((closeButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(closeButton);
+    expect(
+      screen.getByText(
+        /Applying MiMo Token Plan in workspace_1 to 1 repository/i,
+      ),
+    ).toBeTruthy();
+
+    apply.resolve(
+      response({
+        providerType: "mimo",
+        results: [
+          {
+            repositoryId: "repo_1",
+            repositoryFullName: "acme/one",
+            status: "applied",
+          },
+        ],
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Apply" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+  });
+
+  it("keeps an in-flight operation scoped and ignores late results after workspace changes", async () => {
+    const apply = deferred<ReturnType<typeof response>>();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/repositories/search")) {
+        return response({
+          repositories: [
+            { id: "repo_1", fullName: "acme/one", provider: "github" },
+          ],
+        });
+      }
+      if (url.includes("/provider-keys?")) {
+        return response({
+          providerType: "mimo",
+          keyVersion: 1,
+          connected: true,
+          repositories: [
+            {
+              repositoryId: "repo_1",
+              repositoryFullName: "acme/one",
+              status: "applied",
+              appliedKeyVersion: 1,
+              attemptedKeyVersion: 1,
+              appliedAt: "2026-09-26T10:00:00.000Z",
+            },
+          ],
+        });
+      }
+      return apply.promise;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { queryClient, rerender } = renderManager("workspace_1");
+    fireEvent.click(
+      screen.getByRole("button", { name: /Connect MiMo \/ OpenRouter/i }),
+    );
+    await screen.findByRole("checkbox", { name: /acme\/one/i });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    await screen.findByText(
+      /Applying MiMo Token Plan in workspace_1 to 1 repository/i,
+    );
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        {manager("workspace_2")}
+      </QueryClientProvider>,
+    );
+    expect(
+      screen.getByText(
+        /Applying MiMo Token Plan in workspace_1 to 1 repository/i,
+      ),
+    ).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("workspace=workspace_2"),
+      ),
+    ).toHaveLength(0);
+
+    apply.resolve(
+      response({
+        providerType: "mimo",
+        results: [
+          {
+            repositoryId: "repo_1",
+            repositoryFullName: "acme/one",
+            status: "applied",
+          },
+        ],
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/Applying MiMo Token Plan/i)).toBeNull(),
+    );
+    await waitFor(() => expect(screen.queryByText("Batch results")).toBeNull());
+  });
+
+  it("shows the server state-query error code as a useful message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/repositories/search")) {
+          return response({ repositories: [] });
+        }
+        return response(
+          {
+            error:
+              "entitlement_denied:provider_key_management:feature_not_enabled_for_plan",
+          },
+          false,
+          403,
+        );
+      }),
+    );
+
+    renderManager("workspace_1");
+    fireEvent.click(
+      screen.getByRole("button", { name: /Connect MiMo \/ OpenRouter/i }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Provider key management is available on paid plans.",
+      ),
+    ).toBeTruthy();
+  });
 });
 
 function renderManager(workspaceId: string) {
@@ -274,9 +472,20 @@ function manager(workspaceId: string) {
   return <ProviderApiKeyManager workspaceId={workspaceId} />;
 }
 
-function response(body: unknown) {
+function response(body: unknown, ok = true, status = 200) {
   return {
-    ok: true,
+    ok,
+    status,
     json: async () => body,
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

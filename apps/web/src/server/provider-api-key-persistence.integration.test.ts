@@ -21,11 +21,7 @@ type QueryResult = {
 async function applyProviderKeyFixtureMigrations(
   database: PGlite,
 ): Promise<void> {
-  for (const name of [
-    "000001_init",
-    "000022_gitlab_source_connections",
-    "000110_provider_api_key_workspace_management",
-  ]) {
+  for (const name of ["000001_init", "000022_gitlab_source_connections"]) {
     const migration = await readFile(
       resolve(
         process.cwd(),
@@ -37,6 +33,20 @@ async function applyProviderKeyFixtureMigrations(
     );
     await database.exec(migration);
   }
+  await database.exec(`
+    CREATE UNIQUE INDEX "RepositoryConnection_id_workspaceId_key"
+      ON "RepositoryConnection"("id", "workspaceId");
+  `);
+  const migration = await readFile(
+    resolve(
+      process.cwd(),
+      "packages/platform/db/prisma/migrations",
+      "000110_provider_api_key_workspace_management",
+      "migration.sql",
+    ),
+    "utf8",
+  );
+  await database.exec(migration);
 }
 
 describe("provider API key persistence", () => {
@@ -121,13 +131,40 @@ describe("provider API key persistence", () => {
           'connection_1', 'workspace_1', 'mimo', 'ciphertext-only', 1, 'operation_1', NOW()
         );
         INSERT INTO "ProviderApiKeyRepositoryLink" (
-          "id", "providerApiKeyConnectionId", "repositoryId", "status", "operationId",
+          "id", "workspaceId", "providerApiKeyConnectionId", "repositoryId", "status", "operationId",
           "attemptedKeyVersion", "appliedKeyVersion", "attemptCount", "appliedAt", "updatedAt"
         ) VALUES (
-          'link_1', 'connection_1', 'repo_1', 'applied', 'operation_1',
+          'link_1', 'workspace_1', 'connection_1', 'repo_1', 'applied', 'operation_1',
           1, 1, 1, NOW(), NOW()
         );
       `);
+
+      await expect(
+        database.query<QueryResult>(`
+          INSERT INTO "ProviderApiKeyRepositoryLink" (
+            "id", "workspaceId", "providerApiKeyConnectionId", "repositoryId",
+            "attemptedKeyVersion", "updatedAt"
+          ) VALUES (
+            'foreign_repository_link', 'workspace_1', 'connection_1', 'repo_2',
+            1, NOW()
+          );
+        `),
+      ).rejects.toThrow(
+        /ProviderApiKeyRepositoryLink_repository_workspace_fkey/,
+      );
+      await expect(
+        database.query<QueryResult>(`
+          INSERT INTO "ProviderApiKeyRepositoryLink" (
+            "id", "workspaceId", "providerApiKeyConnectionId", "repositoryId",
+            "attemptedKeyVersion", "updatedAt"
+          ) VALUES (
+            'foreign_connection_link', 'workspace_2', 'connection_1', 'repo_2',
+            1, NOW()
+          );
+        `),
+      ).rejects.toThrow(
+        /ProviderApiKeyRepositoryLink_connection_workspace_fkey/,
+      );
 
       await database.exec(`
         UPDATE "ProviderApiKeyConnection"
@@ -232,7 +269,8 @@ describe("provider API key persistence", () => {
       await applyProviderKeyFixtureMigrations(database);
       await database.exec(`
         INSERT INTO "Workspace" ("id", "slug", "name", "updatedAt") VALUES
-          ('workspace_adapter', 'workspace-adapter', 'Workspace Adapter', NOW());
+          ('workspace_adapter', 'workspace-adapter', 'Workspace Adapter', NOW()),
+          ('workspace_other', 'workspace-other', 'Workspace Other', NOW());
         INSERT INTO "GitHubInstallation" (
           "id", "workspaceId", "githubInstallationId", "accountLogin", "accountType",
           "repositorySelection", "updatedAt"
@@ -246,6 +284,10 @@ describe("provider API key persistence", () => {
         ) VALUES (
           'repo_adapter', 'workspace_adapter', 'external_adapter', 'installation_adapter', 302,
           'acme', 'one', 'acme/one', 'main', 'public', false, NOW()
+        ),
+        (
+          'repo_other', 'workspace_other', 'external_other', NULL, 402,
+          'other', 'two', 'other/two', 'main', 'public', false, NOW()
         );
       `);
 
@@ -312,6 +354,23 @@ describe("provider API key persistence", () => {
           repo: "one",
         },
       ]);
+
+      await expect(
+        store.prepareApply({
+          workspaceId: "workspace_adapter",
+          providerType: "mimo",
+          encryptedApiKey: "must-not-be-persisted",
+          repositoryIds: ["repo_other"],
+        }),
+      ).rejects.toThrow("repository_not_allowed");
+      expect(
+        await prisma.providerApiKeyConnection.count({
+          where: {
+            workspaceId: "workspace_adapter",
+            providerType: "mimo",
+          },
+        }),
+      ).toBe(0);
 
       const firstApply = await store.prepareApply({
         workspaceId: "workspace_adapter",
@@ -388,6 +447,7 @@ describe("provider API key persistence", () => {
       expect(failedRotationLink.status).toBe("failed");
       expect(failedRotationLink.appliedKeyVersion).toBe(1);
       expect(failedRotationLink.attemptedKeyVersion).toBe(2);
+      expect(failedRotationLink.reconciliationNeeded).toBe(false);
       expect(failedRotationLink.lastErrorReason).toBe("github_request_failed");
       expect(
         (
@@ -434,6 +494,34 @@ describe("provider API key persistence", () => {
         ).repositories[0]?.status,
       ).toBe("reconciliation_needed");
 
+      expect(
+        await store.recordRepositoryResult({
+          operationId: reconciliationApply.operationId,
+          keyVersion: reconciliationApply.keyVersion,
+          result: {
+            repositoryId: "repo_adapter",
+            repositoryFullName: "acme/one",
+            status: "reconciliation_needed",
+            errorReason: "persistence_failed",
+            keyVersion: reconciliationApply.keyVersion,
+          },
+        }),
+      ).toBe("recorded");
+      expect(
+        await prisma.providerApiKeyRepositoryLink.findUniqueOrThrow({
+          where: {
+            providerApiKeyConnectionId_repositoryId: {
+              providerApiKeyConnectionId: connectionId,
+              repositoryId: "repo_adapter",
+            },
+          },
+          select: { status: true, reconciliationNeeded: true },
+        }),
+      ).toEqual({
+        status: "reconciliation_needed",
+        reconciliationNeeded: true,
+      });
+
       await store.markRepositoryReconciliationNeeded({
         operationId: reconciliationApply.operationId,
         repositoryId: "repo_adapter",
@@ -452,6 +540,45 @@ describe("provider API key persistence", () => {
       ).toEqual({
         status: "reconciliation_needed",
         reconciliationNeeded: true,
+      });
+
+      const retry = await store.prepareApply({
+        workspaceId: "workspace_adapter",
+        providerType: "mimo",
+        repositoryIds: ["repo_adapter"],
+      });
+      expect(
+        await store.recordRepositoryResult({
+          operationId: reconciliationApply.operationId,
+          keyVersion: reconciliationApply.keyVersion,
+          result: {
+            repositoryId: "repo_adapter",
+            repositoryFullName: "acme/one",
+            status: "applied",
+            keyVersion: reconciliationApply.keyVersion,
+          },
+        }),
+      ).toBe("superseded");
+      expect(
+        await prisma.providerApiKeyRepositoryLink.findUniqueOrThrow({
+          where: {
+            providerApiKeyConnectionId_repositoryId: {
+              providerApiKeyConnectionId: connectionId,
+              repositoryId: "repo_adapter",
+            },
+          },
+          select: {
+            status: true,
+            operationId: true,
+            reconciliationNeeded: true,
+            lastErrorReason: true,
+          },
+        }),
+      ).toEqual({
+        status: "reconciliation_needed",
+        operationId: retry.operationId,
+        reconciliationNeeded: true,
+        lastErrorReason: "persistence_failed",
       });
     } finally {
       await prisma?.$disconnect();

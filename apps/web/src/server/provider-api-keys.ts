@@ -187,6 +187,20 @@ export class PrismaProviderApiKeyStore implements ProviderApiKeyStorePort {
     const operationId = randomUUID();
     const now = new Date();
     return this.prisma.$transaction(async (transaction) => {
+      const repositoryIds = [...new Set(input.repositoryIds)];
+      if (repositoryIds.length === 0) {
+        throw new Error("repository_not_allowed");
+      }
+      const repositories = await transaction.repositoryConnection.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          id: { in: repositoryIds },
+        },
+        select: { id: true },
+      });
+      if (repositories.length !== repositoryIds.length) {
+        throw new Error("repository_not_allowed");
+      }
       const connectionWhere = {
         workspaceId_providerType: {
           workspaceId: input.workspaceId,
@@ -223,7 +237,34 @@ export class PrismaProviderApiKeyStore implements ProviderApiKeyStorePort {
             where: connectionWhere,
             data: { latestOperationId: operationId },
           });
-      for (const repositoryId of input.repositoryIds) {
+      const existingLinks =
+        await transaction.providerApiKeyRepositoryLink.findMany({
+          where: {
+            repositoryId: { in: repositoryIds },
+            connection: {
+              workspaceId: input.workspaceId,
+              providerType: input.providerType,
+            },
+          },
+          select: {
+            repositoryId: true,
+            status: true,
+            reconciliationNeeded: true,
+          },
+        });
+      const existingLinkByRepositoryId = new Map<
+        string,
+        (typeof existingLinks)[number]
+      >();
+      for (const link of existingLinks) {
+        existingLinkByRepositoryId.set(link.repositoryId, link);
+      }
+      for (const repositoryId of repositoryIds) {
+        const existingLink = existingLinkByRepositoryId.get(repositoryId);
+        const preserveUnknownResult =
+          existingLink?.reconciliationNeeded === true ||
+          existingLink?.status === "applying" ||
+          existingLink?.status === "reconciliation_needed";
         await transaction.providerApiKeyRepositoryLink.upsert({
           where: {
             providerApiKeyConnectionId_repositoryId: {
@@ -232,16 +273,18 @@ export class PrismaProviderApiKeyStore implements ProviderApiKeyStorePort {
             },
           },
           update: {
-            status: "pending",
+            status: preserveUnknownResult ? "reconciliation_needed" : "pending",
             operationId,
             attemptedKeyVersion: keyVersion,
             attemptCount: { increment: 1 },
-            reconciliationNeeded: false,
-            lastErrorReason: null,
-            lastErrorSummary: null,
+            reconciliationNeeded: preserveUnknownResult,
+            ...(preserveUnknownResult
+              ? {}
+              : { lastErrorReason: null, lastErrorSummary: null }),
             lastAttemptAt: now,
           },
           create: {
+            workspaceId: input.workspaceId,
             providerApiKeyConnectionId: connection.id,
             repositoryId,
             status: "pending",
@@ -256,7 +299,7 @@ export class PrismaProviderApiKeyStore implements ProviderApiKeyStorePort {
       return {
         operationId,
         keyVersion,
-        repositoryIds: input.repositoryIds,
+        repositoryIds,
       };
     });
   }
@@ -313,6 +356,7 @@ export class PrismaProviderApiKeyStore implements ProviderApiKeyStorePort {
           attemptedKeyVersion: true,
           appliedKeyVersion: true,
           appliedAt: true,
+          reconciliationNeeded: true,
           connection: { select: { latestOperationId: true, keyVersion: true } },
         },
       });
@@ -327,6 +371,11 @@ export class PrismaProviderApiKeyStore implements ProviderApiKeyStorePort {
       }
       const applied = input.result.status === "applied";
       const errorReason = input.result.errorReason ?? null;
+      const reconciliationNeeded =
+        input.result.status === "reconciliation_needed" ||
+        (link.reconciliationNeeded &&
+          (input.result.status === "pending" ||
+            input.result.status === "applying"));
       await transaction.providerApiKeyRepositoryLink.update({
         where: { id: link.id },
         data: {
@@ -335,7 +384,7 @@ export class PrismaProviderApiKeyStore implements ProviderApiKeyStorePort {
             ? input.keyVersion
             : link.appliedKeyVersion,
           appliedAt: applied ? new Date() : link.appliedAt,
-          reconciliationNeeded: false,
+          reconciliationNeeded,
           lastErrorReason: errorReason,
           lastErrorSummary: errorReason
             ? sanitizeProviderApiKeyError(errorReason)

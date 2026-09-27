@@ -229,6 +229,7 @@ model ProviderApiKeyConnection {
   repositoryLinks ProviderApiKeyRepositoryLink[]
 
   @@unique([workspaceId, providerType])
+  @@unique([id, workspaceId])
   @@index([workspaceId])
 }
 
@@ -245,6 +246,7 @@ model ProviderApiKeyWorkspaceGrant {
 
 model ProviderApiKeyRepositoryLink {
   id                         String    @id @default(cuid())
+  workspaceId                String
   providerApiKeyConnectionId String
   repositoryId               String
   status                     String    @default("pending")
@@ -260,8 +262,8 @@ model ProviderApiKeyRepositoryLink {
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 
-  connection ProviderApiKeyConnection @relation(fields: [providerApiKeyConnectionId], references: [id], onDelete: Cascade)
-  repository RepositoryConnection     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  connection ProviderApiKeyConnection @relation(fields: [providerApiKeyConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, map: "ProviderApiKeyRepositoryLink_connection_workspace_fkey")
+  repository RepositoryConnection     @relation(fields: [repositoryId, workspaceId], references: [id, workspaceId], onDelete: Cascade, map: "ProviderApiKeyRepositoryLink_repository_workspace_fkey")
 
   @@unique([providerApiKeyConnectionId, repositoryId])
   @@index([repositoryId])

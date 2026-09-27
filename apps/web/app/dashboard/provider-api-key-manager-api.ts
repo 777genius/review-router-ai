@@ -45,7 +45,9 @@ export async function fetchProviderApiKeyState(input: {
   const response = await fetch(
     `/api/dashboard/provider-keys?workspace=${encodeURIComponent(input.workspaceId)}&providerType=${input.providerType}`,
   );
-  if (!response.ok) throw new Error("provider_key_state_failed");
+  if (!response.ok) {
+    throw new Error(await responseError(response, "provider_key_state_failed"));
+  }
   return response.json();
 }
 
@@ -68,4 +70,22 @@ export async function applyProviderApiKeyRequest(input: {
   const body = await response.json();
   if (!response.ok) throw new Error(body.error ?? "provider_key_apply_failed");
   return body;
+}
+
+async function responseError(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  try {
+    const body: unknown = await response.json();
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "error" in body &&
+      typeof body.error === "string"
+    ) {
+      return body.error;
+    }
+  } catch {}
+  return fallback;
 }
