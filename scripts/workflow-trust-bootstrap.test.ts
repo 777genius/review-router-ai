@@ -14,7 +14,7 @@ const authorityMigration = readFileSync(
   "utf8",
 );
 const additiveMigration = readFileSync(
-  ".github/workflows/production-additive-migrations-107-109.yml",
+  ".github/workflows/production-additive-migrations-105-109.yml",
   "utf8",
 );
 const sha = "13165687d30af3b9fbb043f0e294744de612a6a0";
@@ -119,7 +119,7 @@ const authorityMigrationFixture: Fixture = {
 const additiveMigrationEnvironment = {
   ...releaseEnvironment,
   EXPECTED_SHA: sha,
-  CONFIRMATION: "APPLY_ADDITIVE_107_109",
+  CONFIRMATION: "APPLY_ADDITIVE_105_109",
   REQUIRED_ENVIRONMENT: "production",
 };
 const additiveMigrationFixture: Fixture = {

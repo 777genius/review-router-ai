@@ -1,4 +1,4 @@
-name: Apply production additive migrations 107-109
+name: Apply production additive migrations 105-109
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       confirmation:
-        description: Type APPLY_ADDITIVE_107_109
+        description: Type APPLY_ADDITIVE_105_109
         required: true
         type: string
 
@@ -53,7 +53,7 @@ jobs:
           const repository = required("GITHUB_REPOSITORY");
           const sha = required("GITHUB_SHA").toLowerCase();
           const approvalMode = required("REVIEW_ROUTER_RELEASE_APPROVAL_MODE");
-          if (required("CONFIRMATION") !== "APPLY_ADDITIVE_107_109") fail("confirmation");
+          if (required("CONFIRMATION") !== "APPLY_ADDITIVE_105_109") fail("confirmation");
           if (!["solo_owner", "independent"].includes(approvalMode)) fail("approval_mode");
           if (required("GITHUB_EVENT_NAME") !== "workflow_dispatch") fail("event");
           if (required("GITHUB_REF") !== "refs/heads/main") fail("workflow_ref");
@@ -164,14 +164,6 @@ jobs:
             sleep 5
           done
 
-      - name: Verify target and pending migration window
-        shell: bash
-        env:
-          DATABASE_URL: ${{ secrets.REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL }}
-        run: |
-          set -euo pipefail
-          node scripts/production-additive-migration-window.mjs preflight | tee additive-migration-preflight.json
-
       - name: Bind existing coordinator owner session
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -183,7 +175,15 @@ jobs:
             sleep 5
           done
 
-      - name: Apply only the checked-in 107-109 SQL under schema owner
+      - name: Verify target and pending migration window
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATABASE_URL="$REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL" \
+            node scripts/production-additive-migration-window.mjs preflight \
+            | tee additive-migration-preflight.json
+
+      - name: Apply only the checked-in 105-109 SQL as database owner
         shell: bash
         run: |
           set -euo pipefail
@@ -193,11 +193,11 @@ jobs:
 
       - name: Verify exact postflight ledger
         shell: bash
-        env:
-          DATABASE_URL: ${{ secrets.REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL }}
         run: |
           set -euo pipefail
-          node scripts/production-additive-migration-window.mjs postflight | tee additive-migration-postflight.json
+          DATABASE_URL="$REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL" \
+            node scripts/production-additive-migration-window.mjs postflight \
+            | tee additive-migration-postflight.json
 
       - name: Restore production database network access
         if: always()
