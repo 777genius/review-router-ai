@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
-import { OctokitCodexRotatingGitHubSecretGateway } from "../../../api/src/github/octokit-codex-rotating-github-secret-gateway.js";
-import { resolveReviewRouterPublicApiUrl } from "@reviewrouter/platform-config";
+import { ProviderApiKeyGitHubGateway } from "./provider-api-key-github-gateway";
 import {
   decryptServerToken,
   encryptServerToken,
@@ -44,10 +43,9 @@ export function createProviderApiKeyServiceDependencies(input: {
       input.prisma,
     ),
     storageCipher: new ServerTokenProviderApiKeyCipher(input.env),
-    githubSecrets: new OctokitCodexRotatingGitHubSecretGateway({
+    githubSecrets: new ProviderApiKeyGitHubGateway({
       appId: input.githubAppId,
       privateKey: input.githubAppPrivateKey,
-      expectedApiUrl: resolveReviewRouterPublicApiUrl(input.env ?? process.env),
     }),
     classifyError: classifyProviderApiKeyError,
     lock: new PostgresLeaseLock(input.prisma),

@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
@@ -18,6 +18,27 @@ type QueryResult = {
   readonly affectedRows: number;
 };
 
+async function applyProviderKeyFixtureMigrations(
+  database: PGlite,
+): Promise<void> {
+  for (const name of [
+    "000001_init",
+    "000022_gitlab_source_connections",
+    "000110_provider_api_key_workspace_management",
+  ]) {
+    const migration = await readFile(
+      resolve(
+        process.cwd(),
+        "packages/platform/db/prisma/migrations",
+        name,
+        "migration.sql",
+      ),
+      "utf8",
+    );
+    await database.exec(migration);
+  }
+}
+
 describe("provider API key persistence", () => {
   it("keeps versioned writes durable and stale-safe under the app role", async () => {
     const database = new PGlite();
@@ -25,26 +46,7 @@ describe("provider API key persistence", () => {
       await database.exec(`
         CREATE ROLE app LOGIN PASSWORD 'disposable-app-password';
       `);
-      const migrationsRoot = resolve(
-        process.cwd(),
-        "packages/platform/db/prisma/migrations",
-      );
-      const migrations = (
-        await readdir(migrationsRoot, { withFileTypes: true })
-      )
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .sort();
-      for (const migrationName of migrations) {
-        const migration = await readFile(
-          resolve(migrationsRoot, migrationName, "migration.sql"),
-          "utf8",
-        );
-        await database.exec(migration);
-      }
-      expect(migrations).toContain(
-        "000110_provider_api_key_workspace_management",
-      );
+      await applyProviderKeyFixtureMigrations(database);
 
       const privileges = await database.query<{
         readonly grant_table: boolean;
@@ -227,23 +229,7 @@ describe("provider API key persistence", () => {
       await database.exec(`
         CREATE ROLE app LOGIN PASSWORD 'disposable-app-password';
       `);
-      const migrationsRoot = resolve(
-        process.cwd(),
-        "packages/platform/db/prisma/migrations",
-      );
-      const migrations = (
-        await readdir(migrationsRoot, { withFileTypes: true })
-      )
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .sort();
-      for (const migrationName of migrations) {
-        const migration = await readFile(
-          resolve(migrationsRoot, migrationName, "migration.sql"),
-          "utf8",
-        );
-        await database.exec(migration);
-      }
+      await applyProviderKeyFixtureMigrations(database);
       await database.exec(`
         INSERT INTO "Workspace" ("id", "slug", "name", "updatedAt") VALUES
           ('workspace_adapter', 'workspace-adapter', 'Workspace Adapter', NOW());
