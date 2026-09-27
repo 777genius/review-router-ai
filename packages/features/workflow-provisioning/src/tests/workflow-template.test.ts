@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
+import { buildProviderRuntimePlan } from "@reviewrouter/features-review-providers";
 import {
   areWorkflowDocumentsSemanticallyEqual,
   CodexRotatingReviewActionV2Mode,
@@ -47,6 +49,28 @@ const workflowOptions = {
     CODEX_MODEL: "gpt-5.5",
   },
 };
+
+type ParsedWorkflow = {
+  readonly jobs: Record<
+    string,
+    {
+      readonly steps: readonly (Record<string, unknown> & {
+        readonly name?: string;
+        readonly if?: string;
+        readonly run?: string;
+      })[];
+    }
+  >;
+};
+
+function parseWorkflowSteps(workflow: string) {
+  const parsed = parse(workflow) as ParsedWorkflow;
+  return parsed.jobs.review?.steps ?? [];
+}
+
+function workflowStep(workflow: string, name: string) {
+  return parseWorkflowSteps(workflow).find((step) => step.name === name);
+}
 
 function getWorkflowJobSection(workflow: string, jobId: string): string {
   const startMatch = new RegExp(`^ {2}${jobId}:\\s*$`, "m").exec(workflow);
@@ -428,6 +452,134 @@ describe("renderReviewRouterWorkflow", () => {
     });
   });
 
+  it("keeps stale Codex auth inert for a MiMo-only explicit workflow", () => {
+    const workflow = renderReviewRouterWorkflow({
+      ...workflowOptions,
+      conflictReviewFallbackEnabled: false,
+      workflowStyle: "explicit",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "mimo-token-plan-api",
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      },
+    });
+
+    expect(workflowStep(workflow, "Install Codex CLI")?.run).toContain(
+      "@openai/codex@0.147.0",
+    );
+    expect(
+      workflowStep(workflow, "Restore Codex subscription auth")?.if,
+    ).toContain("env.CODEX_AUTH_JSON_PRESENT == '1' && false");
+    expect(
+      workflowStep(workflow, "Require MiMo Token Plan API key")?.if,
+    ).toContain("env.MIMO_TOKEN_PLAN_API_KEY_PRESENT != '1'");
+    expect(workflow).toContain(
+      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
+  });
+
+  it("does not provision MiMo prerequisites for a Claude-only explicit workflow", () => {
+    const workflow = renderReviewRouterWorkflow({
+      ...workflowOptions,
+      conflictReviewFallbackEnabled: false,
+      workflowStyle: "explicit",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "claude-oauth",
+        REVIEW_PROVIDERS: "claude/sonnet",
+      },
+    });
+
+    expect(workflowStep(workflow, "Install Codex CLI")?.if).toContain(
+      "env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1' && false",
+    );
+    expect(
+      workflowStep(workflow, "Restore Codex subscription auth")?.if,
+    ).toContain("env.CODEX_AUTH_JSON_PRESENT == '1' && false");
+    expect(
+      workflowStep(workflow, "Require MiMo Token Plan API key"),
+    ).toBeUndefined();
+    expect(workflowStep(workflow, "Install Claude Code CLI")?.if).toContain(
+      "env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1'",
+    );
+    expect(workflow).not.toContain("mimo-token-plan-api-key:");
+  });
+
+  it("includes configured fallback and synthesis providers in runtime prerequisite selection", () => {
+    const fallbackRuntime = buildProviderRuntimePlan({
+      schemaVersion: 2,
+      providers: [
+        {
+          kind: "claude",
+          authMode: "claude_code_oauth",
+          model: "sonnet",
+          reasoningEffort: "high",
+          agenticContext: true,
+          fastMode: false,
+        },
+        {
+          kind: "codex-mimo",
+          authMode: "mimo_token_plan_api_key",
+          model: "mimo-v2.6-pro",
+          reasoningEffort: "high",
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+      execution: {
+        providerLimit: 2,
+        providerMaxParallel: 2,
+        inlineMinAgreement: 1,
+      },
+      blockingPolicy: { failOnSeverity: "major" },
+      limits: { inlineMaxComments: 20, targetTokensPerBatch: 60000 },
+    });
+
+    expect(fallbackRuntime.synthesisModel).toBe("claude/sonnet");
+    expect(
+      codexRotatingProviderSecretInputsForRuntimeEnv(
+        fallbackRuntime.runtimeEnv,
+      ),
+    ).toEqual({
+      claudeCodeOAuthTokenSecret: true,
+      openRouterApiKeySecret: false,
+      mimoTokenPlanApiKeySecret: true,
+    });
+
+    expect(
+      codexRotatingProviderSecretInputsForRuntimeEnv({
+        REVIEW_PROVIDERS: "claude/sonnet",
+        SYNTHESIS_MODEL: "codex-mimo/mimo-v2.6-pro",
+      }),
+    ).toEqual({
+      claudeCodeOAuthTokenSecret: true,
+      openRouterApiKeySecret: false,
+      mimoTokenPlanApiKeySecret: true,
+    });
+
+    expect(
+      codexRotatingProviderSecretInputsForRuntimeEnv({
+        REVIEW_PROVIDERS:
+          "codex/gpt-5.6-sol,claude/sonnet,openrouter/openai/gpt-5.3-codex",
+        SYNTHESIS_MODEL: "codex-mimo/mimo-v2.6-pro",
+      }),
+    ).toEqual({
+      claudeCodeOAuthTokenSecret: true,
+      openRouterApiKeySecret: true,
+      mimoTokenPlanApiKeySecret: true,
+    });
+  });
+
+  it("uses an explicitly selected auth mode when provider ids are not materialized", () => {
+    expect(
+      codexRotatingProviderSecretInputsForRuntimeEnv({
+        REVIEW_AUTH_MODE: "mimo-token-plan-api",
+      }),
+    ).toEqual({
+      claudeCodeOAuthTokenSecret: false,
+      openRouterApiKeySecret: false,
+      mimoTokenPlanApiKeySecret: true,
+    });
+  });
+
   it("adds fork agentic sandbox as an opt-in job inside the rotating Codex workflow", () => {
     const files = renderReviewRouterWorkflowFiles({
       actionRef:
@@ -739,7 +891,7 @@ describe("renderReviewRouterWorkflow", () => {
     expect(workflow).toContain("uses: 777genius/review-router@v1");
     expect(workflow).toContain("uses: actions/setup-node@v6");
     expect(workflow).toContain('node-version: "24"');
-    expect(workflow).toContain("npm install -g @openai/codex@0.144.0");
+    expect(workflow).toContain("npm install -g @openai/codex@0.147.0");
     expect(workflow).toContain("env.OPENROUTER_API_KEY_PRESENT == '1'");
     expect(workflow).toContain("github.event.pull_request.user.type != 'Bot'");
     expect(workflow).toContain(

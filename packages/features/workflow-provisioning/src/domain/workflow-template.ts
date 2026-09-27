@@ -108,6 +108,7 @@ const interactionJobGuardExpression =
 const actionsCheckoutV6Commit = "d23441a48e516b6c34aea4fa41551a30e30af803";
 const actionsSetupNodeV6Commit = "249970729cb0ef3589644e2896645e5dc5ba9c38";
 const defaultCodexCliVersion = "0.144.0";
+const explicitReviewCodexCliVersion = "0.147.0";
 const defaultCodexReviewModel = "gpt-5.6-sol";
 const mimoRuntimeProviderPrefix = "codex-mimo";
 const mimoTokenPlanApiKeySecretName = "MIMO_TOKEN_PLAN_API_KEY";
@@ -126,16 +127,23 @@ export function renderReviewRouterWorkflow(
     throw new Error("conflict_review_explicit_workflow_unsupported");
   }
   const template = prepareWorkflowTemplate(options);
-  const providerSecretInputs = codexRotatingProviderSecretInputsForRuntimeEnv(
+  const providerSelection = reviewRouterProviderSelectionForRuntimeEnv(
     options.staticRuntimeEnv,
   );
   const mimoTokenPlanSelected =
-    providerSecretInputs.mimoTokenPlanApiKeySecret === true;
-  const codexCliSecretPresentExpression = `(env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.OPENROUTER_API_KEY_PRESENT == '1'${
-    mimoTokenPlanSelected
-      ? " || env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1'"
-      : ""
-  })`;
+    providerSelection.mimoTokenPlanApiKeySecret === true;
+  const providerSelectionKnown = providerSelection.selectionKnown;
+  const codexCliSecretPresentExpression = providerSelectionKnown
+    ? `(${
+        providerSelection.codexCliWithoutSecret ? "true || " : ""
+      }env.CODEX_AUTH_JSON_PRESENT == '1' && ${providerSelection.codexSubscriptionAuth} || env.OPENAI_API_KEY_PRESENT == '1' && ${providerSelection.codexApiKey} || env.OPENROUTER_API_KEY_PRESENT == '1' && ${providerSelection.openRouterApiKeySecret} || env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1' && ${providerSelection.mimoTokenPlanApiKeySecret})`
+    : `(env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.OPENROUTER_API_KEY_PRESENT == '1')`;
+  const codexSubscriptionAuthCondition = providerSelectionKnown
+    ? String(providerSelection.codexSubscriptionAuth)
+    : "true";
+  const claudeCliCondition = providerSelectionKnown
+    ? String(providerSelection.claudeCli)
+    : "true";
 
   return `name: ReviewRouter
 
@@ -165,11 +173,8 @@ jobs:
       CODEX_AUTH_JSON_PRESENT: \${{ secrets.CODEX_AUTH_JSON != '' && '1' || '0' }}
       OPENAI_API_KEY_PRESENT: \${{ secrets.OPENAI_API_KEY != '' && '1' || '0' }}
       OPENROUTER_API_KEY_PRESENT: \${{ secrets.OPENROUTER_API_KEY != '' && '1' || '0' }}
-      CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}${
-        mimoTokenPlanSelected
-          ? `\n      MIMO_TOKEN_PLAN_API_KEY_PRESENT: \${{ secrets.${mimoTokenPlanApiKeySecretName} != '' && '1' || '0' }}`
-          : ""
-      }${reviewMemoryRuntimeEnvBlock}
+      CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}
+      MIMO_TOKEN_PLAN_API_KEY_PRESENT: \${{ secrets.${mimoTokenPlanApiKeySecretName} != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
     steps:
       - name: Checkout pull request code
         uses: actions/checkout@v6
@@ -191,7 +196,7 @@ jobs:
       - name: Install Codex CLI
         if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && ${codexCliSecretPresentExpression} }}
         shell: bash
-        run: npm install -g @openai/codex@${defaultCodexCliVersion}
+        run: npm install -g @openai/codex@${explicitReviewCodexCliVersion}
 ${
   mimoTokenPlanSelected
     ? `
@@ -206,7 +211,7 @@ ${
 }
 
       - name: Install Claude Code CLI
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' && ${claudeCliCondition} }}
         shell: bash
         run: |
           curl -fsSL https://claude.ai/install.sh | bash -s stable
@@ -214,7 +219,7 @@ ${
           "$HOME/.local/bin/claude" --version
 
       - name: Restore Codex subscription auth
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && env.CODEX_AUTH_JSON_PRESENT == '1' }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && env.CODEX_AUTH_JSON_PRESENT == '1' && ${codexSubscriptionAuthCondition} }}
         shell: bash
         env:
           CODEX_AUTH_JSON: \${{ secrets.CODEX_AUTH_JSON }}
@@ -1532,20 +1537,156 @@ export function codexRotatingProviderSecretInputsForRuntimeEnv(
   readonly openRouterApiKeySecret: boolean;
   readonly mimoTokenPlanApiKeySecret: boolean;
 } {
-  const providers = runtimeEnv?.REVIEW_PROVIDERS ?? "";
+  const selection = reviewRouterProviderSelectionForRuntimeEnv(runtimeEnv);
   return {
-    claudeCodeOAuthTokenSecret: providers
-      .split(",")
-      .some((provider) => provider.trim().startsWith("claude/")),
-    openRouterApiKeySecret: providers
-      .split(",")
-      .some((provider) => provider.trim().startsWith("openrouter/")),
-    mimoTokenPlanApiKeySecret: providers
-      .split(",")
-      .some((provider) =>
-        provider.trim().startsWith(`${mimoRuntimeProviderPrefix}/`),
-      ),
+    claudeCodeOAuthTokenSecret: selection.claudeCodeOAuthTokenSecret,
+    openRouterApiKeySecret: selection.openRouterApiKeySecret,
+    mimoTokenPlanApiKeySecret: selection.mimoTokenPlanApiKeySecret,
   };
+}
+
+type ReviewRouterProviderSelection = {
+  readonly claudeCodeOAuthTokenSecret: boolean;
+  readonly openRouterApiKeySecret: boolean;
+  readonly mimoTokenPlanApiKeySecret: boolean;
+  readonly codexCli: boolean;
+  readonly codexCliWithoutSecret: boolean;
+  readonly codexSubscriptionAuth: boolean;
+  readonly codexApiKey: boolean;
+  readonly claudeCli: boolean;
+  readonly selectionKnown: boolean;
+};
+
+function reviewRouterProviderSelectionForRuntimeEnv(
+  runtimeEnv: Readonly<Record<string, string>> | undefined,
+): ReviewRouterProviderSelection {
+  const providerIds = [
+    ...(runtimeEnv?.REVIEW_PROVIDERS ?? "").split(","),
+    runtimeEnv?.SYNTHESIS_MODEL ?? "",
+  ]
+    .map((provider) => provider.trim())
+    .filter(Boolean);
+  const providerPrefixes = new Set(
+    providerIds.map((provider) => provider.split("/", 1)[0] ?? provider),
+  );
+  const authMode = runtimeEnv?.REVIEW_AUTH_MODE?.trim() ?? "";
+  const authModeProvider = providerKindForRuntimeAuthMode(authMode);
+  const selectionKnown =
+    providerIds.length > 0 || authModeProvider !== undefined;
+
+  if (!selectionKnown) {
+    return {
+      claudeCodeOAuthTokenSecret: false,
+      openRouterApiKeySecret: false,
+      mimoTokenPlanApiKeySecret: false,
+      codexCli: false,
+      codexCliWithoutSecret: false,
+      codexSubscriptionAuth: false,
+      codexApiKey: false,
+      claudeCli: false,
+      selectionKnown: false,
+    };
+  }
+
+  const selectedKinds = new Set(
+    Array.from(providerPrefixes, providerKindForRuntimeProviderPrefix).filter(
+      (kind): kind is ProviderKind => kind !== undefined,
+    ),
+  );
+  if (authModeProvider) selectedKinds.add(authModeProvider);
+
+  const claudeCodeOAuthTokenSecret =
+    selectedKinds.has("claude") || authModeProvider === "claude";
+  const openRouterApiKeySecret =
+    selectedKinds.has("openrouter") || authModeProvider === "openrouter";
+  const mimoTokenPlanApiKeySecret =
+    selectedKinds.has("codex-mimo") || authModeProvider === "codex-mimo";
+  const codexSubscriptionAuth =
+    isCodexSubscriptionAuthMode(authMode) ||
+    (authMode === "" && selectedKinds.has("codex"));
+  const codexApiKey =
+    isOpenAIApiAuthMode(authMode) ||
+    (authMode === "" && selectedKinds.has("codex"));
+  const codexCliWithoutSecret = isCodexRotatingAuthMode(authMode);
+  const codexCli =
+    selectedKinds.has("codex") ||
+    selectedKinds.has("codex-mimo") ||
+    selectedKinds.has("openrouter") ||
+    codexSubscriptionAuth ||
+    codexApiKey;
+
+  return {
+    claudeCodeOAuthTokenSecret,
+    openRouterApiKeySecret,
+    mimoTokenPlanApiKeySecret,
+    codexCli,
+    codexCliWithoutSecret,
+    codexSubscriptionAuth,
+    codexApiKey,
+    claudeCli: claudeCodeOAuthTokenSecret,
+    selectionKnown: true,
+  };
+}
+
+function providerKindForRuntimeProviderPrefix(
+  prefix: string,
+): ProviderKind | undefined {
+  switch (prefix) {
+    case "codex":
+      return "codex";
+    case mimoRuntimeProviderPrefix:
+      return "codex-mimo";
+    case "claude":
+      return "claude";
+    case "openrouter":
+      return "openrouter";
+    default:
+      return undefined;
+  }
+}
+
+function providerKindForRuntimeAuthMode(
+  authMode: string,
+): ProviderKind | undefined {
+  switch (authMode) {
+    case "codex-oauth":
+    case "codex-oauth-rotating":
+    case "codex-oauth-hosted-pool":
+    case "openai-api":
+    case "codex_subscription_oauth":
+    case "codex_subscription_oauth_rotating":
+    case "codex_subscription_oauth_hosted_pool":
+    case "codex_openai_api_key":
+      return "codex";
+    case "mimo-token-plan-api":
+    case "mimo_token_plan_api_key":
+      return "codex-mimo";
+    case "claude-oauth":
+    case "claude_code_oauth":
+      return "claude";
+    case "openrouter-api":
+    case "openrouter_api_key":
+      return "openrouter";
+    default:
+      return undefined;
+  }
+}
+
+function isCodexSubscriptionAuthMode(authMode: string): boolean {
+  return ["codex-oauth", "codex_subscription_oauth"].includes(authMode);
+}
+
+function isCodexRotatingAuthMode(authMode: string): boolean {
+  return [
+    "codex-oauth-rotating",
+    "codex_subscription_oauth_rotating",
+    "codex-oauth-hosted-pool",
+    "codex_subscription_oauth_hosted_pool",
+  ].includes(authMode);
+}
+
+function isOpenAIApiAuthMode(authMode: string): boolean {
+  return ["openai-api", "codex_openai_api_key"].includes(authMode);
 }
 
 function renderCodexRotatingAdvisoryWorkflowWithProviderSecretInputs(
