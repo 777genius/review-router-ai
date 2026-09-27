@@ -24301,6 +24301,10 @@ function readActionInputs(env) {
     "claude-code-oauth-token"
   );
   const openRouterApiKey = optionalSecretInput(env, "openrouter-api-key");
+  const mimoTokenPlanApiKey = optionalSecretInput(
+    env,
+    "mimo-token-plan-api-key"
+  );
   const workflowSchemaVersion = Number(
     readInput(env, "workflow-schema-version") || "1"
   );
@@ -24325,7 +24329,8 @@ function readActionInputs(env) {
     reviewTimeoutMinutes: readReviewTimeoutMinutesInput(env),
     providerSecrets: {
       ...claudeCodeOAuthToken ? { claudeCodeOAuthToken } : {},
-      ...openRouterApiKey ? { openRouterApiKey } : {}
+      ...openRouterApiKey ? { openRouterApiKey } : {},
+      ...mimoTokenPlanApiKey ? { mimoTokenPlanApiKey } : {}
     },
     ...hostedBinding
   };
@@ -26112,6 +26117,10 @@ async function runReviewRuntimeWithinExecutionBudget(input) {
   await input.run();
 }
 async function runFullReviewRouterRuntime(input) {
+  assertProviderSecretInputsForRuntime({
+    runtimeEnv: input.runtimeEnv,
+    providerSecrets: input.inputs.providerSecrets
+  });
   const actionPath = resolveGitHubActionPath(input.env);
   const runtimePath = (0, import_node_path8.join)(actionPath, "dist", "index.js");
   await (0, import_promises6.access)(runtimePath, import_node_fs3.constants.R_OK);
@@ -26306,6 +26315,7 @@ function buildFullReviewRuntimeEnv(input) {
   };
 }
 function buildProviderSecretEnvForRuntime(input) {
+  assertProviderSecretInputsForRuntime(input);
   const env = {};
   if (runtimeProvidersInclude(input.runtimeEnv, "claude/") && input.providerSecrets.claudeCodeOAuthToken) {
     env.CLAUDE_CODE_OAUTH_TOKEN = input.providerSecrets.claudeCodeOAuthToken;
@@ -26313,7 +26323,15 @@ function buildProviderSecretEnvForRuntime(input) {
   if (runtimeProvidersInclude(input.runtimeEnv, "openrouter/") && input.providerSecrets.openRouterApiKey) {
     env.OPENROUTER_API_KEY = input.providerSecrets.openRouterApiKey;
   }
+  if (runtimeProvidersInclude(input.runtimeEnv, "codex-mimo/") && input.providerSecrets.mimoTokenPlanApiKey) {
+    env.MIMO_TOKEN_PLAN_API_KEY = input.providerSecrets.mimoTokenPlanApiKey;
+  }
   return env;
+}
+function assertProviderSecretInputsForRuntime(input) {
+  if (runtimeProvidersInclude(input.runtimeEnv, "codex-mimo/") && !input.providerSecrets.mimoTokenPlanApiKey) {
+    throw new Error("missing_mimo_token_plan_api_key");
+  }
 }
 async function ensureFullReviewRuntimeTools(input) {
   if (!runtimeProvidersInclude(input.runtimeEnv, "claude/")) {
@@ -26973,6 +26991,8 @@ function formatTopLevelActionErrorMessage(error51) {
       return "review_runtime_budget_exhausted_before_launch: ReviewRouter prework consumed the runtime budget; the review was not launched so cleanup can finish safely.";
     case "review_runtime_timeout":
       return "review_runtime_timeout: ReviewRouter stopped the review at its cleanup deadline; resumable progress remains available for the next run.";
+    case "missing_mimo_token_plan_api_key":
+      return "missing_mimo_token_plan_api_key: The mimo-token-plan-api-key Action input is required for codex-mimo/ reviews. Add secrets.MIMO_TOKEN_PLAN_API_KEY to the workflow input; ChatGPT and OpenRouter credentials are not substitutes.";
     default:
       return message;
   }
@@ -27031,8 +27051,11 @@ function clearActionProviderSecretEnv(env) {
   delete env.INPUT_CLAUDE_CODE_OAUTH_TOKEN;
   delete env["INPUT_OPENROUTER-API-KEY"];
   delete env.INPUT_OPENROUTER_API_KEY;
+  delete env["INPUT_MIMO-TOKEN-PLAN-API-KEY"];
+  delete env.INPUT_MIMO_TOKEN_PLAN_API_KEY;
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
   delete env.OPENROUTER_API_KEY;
+  delete env.MIMO_TOKEN_PLAN_API_KEY;
 }
 function maskProviderSecretInputs(io, providerSecrets) {
   if (providerSecrets.claudeCodeOAuthToken) {
@@ -27040,6 +27063,9 @@ function maskProviderSecretInputs(io, providerSecrets) {
   }
   if (providerSecrets.openRouterApiKey) {
     mask(io, providerSecrets.openRouterApiKey);
+  }
+  if (providerSecrets.mimoTokenPlanApiKey) {
+    mask(io, providerSecrets.mimoTokenPlanApiKey);
   }
 }
 function clearOidcRequestEnv2(env) {

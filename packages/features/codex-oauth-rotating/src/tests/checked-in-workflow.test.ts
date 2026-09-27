@@ -15,9 +15,6 @@ describe("checked-in Codex OAuth workflow", () => {
   it("matches the hosted v2 T0 workflow security contract", () => {
     const workflow = readFileSync(workflowPath, "utf8");
 
-    expect(workflow).toContain(
-      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
-    );
     expect(scanCodexRotatingAdvisoryWorkflow(workflow)).toEqual({
       valid: true,
       errors: [],

@@ -199,6 +199,7 @@ assertIncludes(
   bundle,
   "REVIEWROUTER_CONTROL_PLANE_URL",
   "action bundle must propagate the selected control plane URL to child runtimes",
+);
 assertIncludes(
   bundle,
   "mimo-token-plan-api-key",
