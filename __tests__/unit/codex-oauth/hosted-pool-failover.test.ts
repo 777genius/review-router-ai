@@ -103,7 +103,7 @@ describe("hosted pool replay-fenced failover artifact", () => {
   });
 
   it.each([401, 429] as const)(
-    "uses one real backup after a complete pre-effect %s relay response",
+    "does not request another grant after a %s relay response of uncertain origin",
     async (status) => {
       let grantCalls = 0;
       let relayCalls = 0;
@@ -148,9 +148,9 @@ describe("hosted pool replay-fenced failover artifact", () => {
             return "complete";
           },
         }),
-      ).resolves.toBe("complete");
-      expect(attempts).toEqual([1, 2]);
-      expect(grantCalls).toBe(2);
+      ).rejects.toThrow("hosted_pool_effect_ambiguous");
+      expect(attempts).toEqual([1]);
+      expect(grantCalls).toBe(1);
       expect(relayCalls).toBe(1);
     },
   );

@@ -22911,11 +22911,7 @@ async function startHostedCodexRelayProxy(input) {
               }
               throw writeError;
             }
-            if (upstream.status === 401 || upstream.status === 429) {
-              fenceFurtherResponses(
-                upstream.status === 401 ? "authentication_failed" : "quota_exhausted"
-              );
-            } else if (responseCompletion !== "successful") {
+            if (responseCompletion !== "successful") {
               fenceFurtherResponses("ambiguous");
             }
           } else {
