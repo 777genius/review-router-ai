@@ -25,6 +25,7 @@ export const codexRotatingRuntimeAuthMode = "codex-oauth-rotating";
 export const codexRotatingRefreshRuntimeMode = "codex-oauth-refresh";
 export const codexForkAgenticSandboxRuntimeMode = "fork-agentic-sandbox";
 export const codexRotatingSecretName = legacyCodexRotatingSecretName;
+export const mimoTokenPlanApiKeySecretName = "MIMO_TOKEN_PLAN_API_KEY";
 export const codexRotatingProtocolVersion = 2 as const;
 export const codexRotatingReviewDraftsVariableName =
   "REVIEW_ROUTER_REVIEW_DRAFTS";
@@ -563,6 +564,7 @@ export type CodexRotatingWorkflowOptions = {
   readonly providerInstanceId: string;
   readonly claudeCodeOAuthTokenSecret?: boolean;
   readonly openRouterApiKeySecret?: boolean;
+  readonly mimoTokenPlanApiKeySecret?: boolean;
   readonly forkAgenticSandboxEnabled?: boolean;
   readonly runnerLabel?: string;
   readonly timeoutMinutes?: number;
@@ -627,6 +629,17 @@ export function renderCodexRotatingAdvisoryWorkflow(
   const concurrencyGroup = renderCodexRotatingConcurrencyGroup(
     options.providerInstanceId,
   );
+  const providerSecretInputs = [
+    options.claudeCodeOAuthTokenSecret === true
+      ? "          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
+      : "",
+    options.openRouterApiKeySecret === true
+      ? "          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}\n"
+      : "",
+    options.mimoTokenPlanApiKeySecret === true
+      ? `          mimo-token-plan-api-key: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}\n`
+      : "",
+  ].join("");
   const reviewActionV2Mode =
     options.reviewActionV2Mode ?? CodexRotatingReviewActionV2Mode.Disabled;
   if (
@@ -730,7 +743,7 @@ export function renderCodexRotatingAdvisoryWorkflow(
           max-changed-lines: \${{ vars.${codexRotatingMaxChangedLinesVariableName} }}
           review-timeout-minutes: ${reviewActionTimeout}
           auth-json: \${{ secrets.${codexRotatingSecretName} }}
-${options.claudeCodeOAuthTokenSecret === true ? "          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n" : ""}${options.openRouterApiKeySecret === true ? "          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}\n" : ""}`;
+${providerSecretInputs}`;
   const triggers =
     reviewActionV2Mode === CodexRotatingReviewActionV2Mode.T0
       ? `  workflow_dispatch:
@@ -843,7 +856,7 @@ ${reviewJob}${
           workflow-schema-version: "${schemaVersion}"
           review-timeout-minutes: ${reviewActionTimeout}
           auth-json: \${{ secrets.${codexRotatingSecretName} }}
-${options.claudeCodeOAuthTokenSecret === true ? "          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n" : ""}${options.openRouterApiKeySecret === true ? "          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}\n" : ""}        env:
+${providerSecretInputs}        env:
           REVIEW_ROUTER_PR_WORKSPACE: \${{ github.workspace }}/safe-workspace
           REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN: \${{ secrets.REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN }}
 `
@@ -1103,6 +1116,7 @@ export function scanCodexRotatingAdvisoryWorkflow(
     codexRotatingSecretName,
     "CLAUDE_CODE_OAUTH_TOKEN",
     "OPENROUTER_API_KEY",
+    mimoTokenPlanApiKeySecretName,
     "REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN",
   ]);
   for (const secretName of secretReferences) {
@@ -1126,6 +1140,14 @@ export function scanCodexRotatingAdvisoryWorkflow(
     !workflow.includes("openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}")
   ) {
     errors.push("openrouter_secret_must_be_literal_input");
+  }
+  if (
+    workflow.includes("mimo-token-plan-api-key:") &&
+    !workflow.includes(
+      `mimo-token-plan-api-key: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}`,
+    )
+  ) {
+    errors.push("mimo_secret_must_be_literal_input");
   }
   for (const [pattern, code] of [
     [/\bmerge_group\s*:/, "merge_group_not_allowed"],

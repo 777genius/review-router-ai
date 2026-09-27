@@ -3918,6 +3918,10 @@ async function runFullReviewRouterRuntime(input: {
   readonly sessionBindingId?: string | undefined;
   readonly sessionBindingVersion?: number | undefined;
 }): Promise<void> {
+  assertProviderSecretInputsForRuntime({
+    runtimeEnv: input.runtimeEnv,
+    providerSecrets: input.inputs.providerSecrets,
+  });
   const actionPath = resolveGitHubActionPath(input.env);
   const runtimePath = join(actionPath, "dist", "index.js");
   await access(runtimePath, fsConstants.R_OK);
@@ -4188,6 +4192,7 @@ function buildProviderSecretEnvForRuntime(input: {
   readonly runtimeEnv: Readonly<Record<string, string>>;
   readonly providerSecrets: ProviderSecretInputs;
 }): Record<string, string> {
+  assertProviderSecretInputsForRuntime(input);
   const env: Record<string, string> = {};
   if (
     runtimeProvidersInclude(input.runtimeEnv, "claude/") &&
@@ -4208,6 +4213,18 @@ function buildProviderSecretEnvForRuntime(input: {
     env.MIMO_TOKEN_PLAN_API_KEY = input.providerSecrets.mimoTokenPlanApiKey;
   }
   return env;
+}
+
+function assertProviderSecretInputsForRuntime(input: {
+  readonly runtimeEnv: Readonly<Record<string, string>>;
+  readonly providerSecrets: ProviderSecretInputs;
+}): void {
+  if (
+    runtimeProvidersInclude(input.runtimeEnv, "codex-mimo/") &&
+    !input.providerSecrets.mimoTokenPlanApiKey
+  ) {
+    throw new Error("missing_mimo_token_plan_api_key");
+  }
 }
 
 async function ensureFullReviewRuntimeTools(input: {
@@ -5085,6 +5102,8 @@ export function formatTopLevelActionErrorMessage(error: unknown): string {
       return "review_runtime_budget_exhausted_before_launch: ReviewRouter prework consumed the runtime budget; the review was not launched so cleanup can finish safely.";
     case "review_runtime_timeout":
       return "review_runtime_timeout: ReviewRouter stopped the review at its cleanup deadline; resumable progress remains available for the next run.";
+    case "missing_mimo_token_plan_api_key":
+      return "missing_mimo_token_plan_api_key: The mimo-token-plan-api-key Action input is required for codex-mimo/ reviews. Add secrets.MIMO_TOKEN_PLAN_API_KEY to the workflow input; ChatGPT and OpenRouter credentials are not substitutes.";
     default:
       return message;
   }

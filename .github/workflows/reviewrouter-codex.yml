@@ -64,3 +64,4 @@ jobs:
           provider-instance-id: "codex-rotating:1228690265"
           workflow-schema-version: "1"
           auth-json: ${{ secrets.REVIEWROUTER_CODEX_AUTH_JSON }}
+          mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}

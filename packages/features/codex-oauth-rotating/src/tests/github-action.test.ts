@@ -385,9 +385,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     );
     expect(actionYml).toContain("claude-code-oauth-token:\n    description:");
     expect(actionYml).toContain("openrouter-api-key:\n    description:");
-    expect(actionYml).toContain(
-      "mimo-token-plan-api-key:\n    description:",
-    );
+    expect(actionYml).toContain("mimo-token-plan-api-key:\n    description:");
     expect(actionYml).not.toContain("codex-package-version");
     expect(actionYml).not.toContain("codex-binary");
     expect(actionYml).not.toMatch(/\bpre:/);
@@ -574,15 +572,56 @@ describe("Codex rotating GitHub Action runtime", () => {
       ...baseInput,
       runtimeEnv: { REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro" },
     });
-    expect(withMimoProvider.MIMO_TOKEN_PLAN_API_KEY).toBe(
-      "tp-provider-secret",
-    );
+    expect(withMimoProvider.MIMO_TOKEN_PLAN_API_KEY).toBe("tp-provider-secret");
 
     const withoutMimoProvider = buildFullReviewRuntimeEnv({
       ...baseInput,
       runtimeEnv: { REVIEW_PROVIDERS: "codex/gpt-5.5" },
     });
     expect(withoutMimoProvider.MIMO_TOKEN_PLAN_API_KEY).toBeUndefined();
+  });
+
+  it("fails before emitting provider env when codex-mimo lacks its explicit key", () => {
+    const input = {
+      sourceEnv: { PATH: "/usr/bin" },
+      inputs: {
+        mode: "codex-oauth-rotating",
+        apiUrl: "https://api.reviewrouter.site",
+        providerInstanceId: "codex-rotating:123456",
+        workflowSchemaVersion: 1,
+        reviewDrafts: false,
+        maxChangedLines: 0,
+        reviewTimeoutMinutes: 60,
+        providerSecrets: { openRouterApiKey: "sk-or-fallback" },
+      },
+      leaseId: "lease-123",
+      event: {
+        number: 118,
+        repository: "777genius/agent-teams-ai",
+        owner: "777genius",
+        repo: "agent-teams-ai",
+        headSha: "head-sha",
+        baseSha: "base-sha",
+      },
+      workspace: "/tmp/workspace",
+      tempHome: "/tmp/home",
+      tempCodexHome: "/tmp/codex-home",
+      codexBinDir: "/tmp/codex-bin",
+      commentToken: "comment-token",
+      runtimeConfigVersion: 7,
+      runtimeEnv: {
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      },
+    } as const;
+
+    expect(() => buildFullReviewRuntimeEnv(input)).toThrow(
+      "missing_mimo_token_plan_api_key",
+    );
+    expect(
+      formatTopLevelActionErrorMessage(
+        new Error("missing_mimo_token_plan_api_key"),
+      ),
+    ).toContain("ChatGPT and OpenRouter credentials are not substitutes");
   });
 
   it("reads an exact boolean draft review action input", () => {
@@ -2545,6 +2584,7 @@ describe("Codex rotating GitHub Action runtime", () => {
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_CLAUDE-CODE-OAUTH-TOKEN": "sk-ant-oat01-claude-input",
           "INPUT_OPENROUTER-API-KEY": "sk-or-input",
+          "INPUT_MIMO-TOKEN-PLAN-API-KEY": "tp-mimo-input",
           "INPUT_AUTH-JSON": JSON.stringify({
             auth_mode: "chatgpt",
             tokens: {
@@ -2659,7 +2699,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     }
   }, 60_000);
 
-  it("runs the local action E2E with only explicit hybrid provider secrets in child runtime env", async () => {
+  it("runs the local Action transport with MiMo and existing provider keys isolated and masked", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "reviewrouter-action-e2e-"));
     const binDir = join(tempDir, "bin");
     const eventPath = join(tempDir, "event.json");
@@ -2733,6 +2773,9 @@ describe("Codex rotating GitHub Action runtime", () => {
         "      configIncludesShellSnapshotDisabled: config.includes('shell_snapshot = false'),",
         "      configIncludesToken: config.includes('refreshed-access-token'),",
         "      inheritedOpenAi: process.env.OPENAI_API_KEY,",
+        "      mimoKey: process.env.MIMO_TOKEN_PLAN_API_KEY,",
+        "      openrouterKey: process.env.OPENROUTER_API_KEY,",
+        "      inheritedInputMimo: process.env['INPUT_MIMO-TOKEN-PLAN-API-KEY'] || process.env.INPUT_MIMO_TOKEN_PLAN_API_KEY,",
         "    }));",
         "    writeFileSync(args[outputIndex + 1], 'Review done without blockers. access_token: should-be-redacted');",
         "    process.exit(2);",
@@ -2821,6 +2864,9 @@ describe("Codex rotating GitHub Action runtime", () => {
         "  configIncludesShellSnapshotDisabled: config.includes('shell_snapshot = false'),",
         "  configIncludesToken: config.includes('refreshed-access-token'),",
         "  inheritedOpenAi: process.env.OPENAI_API_KEY,",
+        "  mimoKey: process.env.MIMO_TOKEN_PLAN_API_KEY,",
+        "  openrouterKey: process.env.OPENROUTER_API_KEY,",
+        "  inheritedInputMimo: process.env['INPUT_MIMO-TOKEN-PLAN-API-KEY'] || process.env.INPUT_MIMO_TOKEN_PLAN_API_KEY,",
         "  claudeToken: process.env.CLAUDE_CODE_OAUTH_TOKEN,",
         "  openrouterKey: process.env.OPENROUTER_API_KEY,",
         "  inheritedInputClaude: process.env['INPUT_CLAUDE-CODE-OAUTH-TOKEN'] || process.env.INPUT_CLAUDE_CODE_OAUTH_TOKEN,",
@@ -2918,7 +2964,7 @@ describe("Codex rotating GitHub Action runtime", () => {
           runtimeEnv: {
             REVIEW_AUTH_MODE: "codex-oauth-rotating",
             REVIEW_PROVIDERS:
-              "codex/gpt-5.5,claude/sonnet,openrouter/openai/gpt-5.3-codex",
+              "codex/gpt-5.5,codex-mimo/mimo-v2.6-pro,claude/sonnet,openrouter/openai/gpt-5.3-codex",
             REQUIRED_HEALTHY_PROVIDERS: "codex/gpt-5.5",
             SYNTHESIS_MODEL: "codex/gpt-5.5",
             PROVIDER_LIMIT: "3",
@@ -3065,6 +3111,7 @@ describe("Codex rotating GitHub Action runtime", () => {
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_CLAUDE-CODE-OAUTH-TOKEN": "sk-ant-oat01-claude-input",
           "INPUT_OPENROUTER-API-KEY": "sk-or-input",
+          "INPUT_MIMO-TOKEN-PLAN-API-KEY": "tp-mimo-input",
           "INPUT_AUTH-JSON": JSON.stringify({
             auth_mode: "chatgpt",
             tokens: {
@@ -3094,6 +3141,7 @@ describe("Codex rotating GitHub Action runtime", () => {
           OPENAI_API_KEY: "sk-runner-openai-key",
           CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-inherited",
           OPENROUTER_API_KEY: "sk-or-inherited",
+          MIMO_TOKEN_PLAN_API_KEY: "tp-mimo-inherited",
           REVIEW_ROUTER_USE_SUBSCRIPTION_RUNTIME_CODEX: "1",
           PATH: `${binDir}:${process.env.PATH ?? ""}`,
         },
@@ -3109,6 +3157,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(serializedRequests).not.toContain("refreshed-refresh-token");
       expect(serializedRequests).not.toContain("sk-ant-oat01-claude-input");
       expect(serializedRequests).not.toContain("sk-or-input");
+      expect(serializedRequests).not.toContain("tp-mimo-input");
       expect(
         invokedUrls.some(
           (url) =>
@@ -3197,7 +3246,7 @@ describe("Codex rotating GitHub Action runtime", () => {
         codexAgenticAudit: "rerun",
         failOnNoHealthyProviders: "true",
         providers:
-          "codex/gpt-5.5,claude/sonnet,openrouter/openai/gpt-5.3-codex",
+          "codex/gpt-5.5,codex-mimo/mimo-v2.6-pro,claude/sonnet,openrouter/openai/gpt-5.3-codex",
         runtimeMode: "static",
         commentTokenMode: "codex-oauth-rotating",
         commentTokenRefreshUrl:
@@ -3225,6 +3274,8 @@ describe("Codex rotating GitHub Action runtime", () => {
         snapshotRequired: "true",
       });
       expect(reviewEnv.inheritedOpenAi).toBeUndefined();
+      expect(reviewEnv.mimoKey).toBe("tp-mimo-input");
+      expect(reviewEnv.inheritedInputMimo).toBeUndefined();
       expect(reviewEnv.claudeToken).toBe("sk-ant-oat01-claude-input");
       expect(reviewEnv.openrouterKey).toBe("sk-or-input");
       expect(reviewEnv.inheritedInputClaude).toBeUndefined();
@@ -3251,6 +3302,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(childStderr).toContain("runtime stderr marker");
       expect(childStdout).toContain("::add-mask::sk-ant-oat01-claude-input");
       expect(childStdout).toContain("::add-mask::sk-or-input");
+      expect(childStdout).toContain("::add-mask::tp-mimo-input");
       expect(runtimeStdout).not.toContain("refreshed-refresh-token");
       expect(runtimeStdout).not.toContain("refreshed-access-token");
       expect(childStderr).not.toContain("refreshed-access-token");
