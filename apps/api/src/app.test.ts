@@ -1781,7 +1781,22 @@ describe("API app", () => {
     });
     expect(unsignedResponse.statusCode).toBe(401);
     expect(handledDeliveryIds).toEqual(["delivery-large-push"]);
-    expect(deliveries.deliveries.has("delivery-large-unsigned-push")).toBe(false);
+    expect(deliveries.deliveries.has("delivery-large-unsigned-push")).toBe(
+      false,
+    );
+
+    const oversizedResponse = await app.inject({
+      method: "POST",
+      url: "/webhooks/github",
+      payload: "x".repeat(25 * 1024 * 1024 + 1),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-oversized-push",
+        "x-github-event": "push",
+      },
+    });
+    expect(oversizedResponse.statusCode).toBe(413);
+    expect(deliveries.deliveries.has("delivery-oversized-push")).toBe(false);
   });
 
   it("rejects signed GitHub webhooks with invalid payload shape safely", async () => {
