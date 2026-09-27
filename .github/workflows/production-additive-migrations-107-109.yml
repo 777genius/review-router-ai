@@ -105,7 +105,7 @@ jobs:
       contents: read
     env:
       RENDER_POSTGRES_ID: dpg-da32ipmk1f9s73dttm90-a
-      RENDER_ALLOWLIST_BACKUP_PATH: ${{ runner.temp }}/rr-additive-migration-allowlist.json
+      RENDER_ALLOWLIST_BACKUP_PATH: /tmp/rr-additive-migration-allowlist.json
     steps:
       - name: Recheck exact protected main before checkout
         shell: bash
