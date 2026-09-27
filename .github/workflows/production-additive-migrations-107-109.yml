@@ -1,0 +1,224 @@
+name: Apply production additive migrations 107-109
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact protected main commit with successful release gates
+        required: true
+        type: string
+      confirmation:
+        description: Type APPLY_ADDITIVE_107_109
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: reviewrouter-pg17-maintenance-migration
+  cancel-in-progress: false
+
+jobs:
+  trust-bootstrap:
+    name: Verify protected main and production environment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      trusted_sha: ${{ steps.trust.outputs.trusted_sha }}
+    steps:
+      - name: Establish immutable trust before repository execution
+        id: trust
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          REQUIRED_ENVIRONMENT: production
+          REVIEW_ROUTER_RELEASE_APPROVAL_MODE: ${{ vars.REVIEW_ROUTER_RELEASE_APPROVAL_MODE }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          // trust-bootstrap-node:start
+          const { appendFileSync } = await import("node:fs");
+          const required = (name) => {
+            const value = process.env[name];
+            if (!value) throw new Error(`additive_migration_trust_missing:${name}`);
+            return value;
+          };
+          const fail = (reason) => {
+            throw new Error(`additive_migration_trust_rejected:${reason}`);
+          };
+          const repository = required("GITHUB_REPOSITORY");
+          const sha = required("GITHUB_SHA").toLowerCase();
+          const approvalMode = required("REVIEW_ROUTER_RELEASE_APPROVAL_MODE");
+          if (required("CONFIRMATION") !== "APPLY_ADDITIVE_107_109") fail("confirmation");
+          if (!["solo_owner", "independent"].includes(approvalMode)) fail("approval_mode");
+          if (required("GITHUB_EVENT_NAME") !== "workflow_dispatch") fail("event");
+          if (required("GITHUB_REF") !== "refs/heads/main") fail("workflow_ref");
+          if (!/^[a-f0-9]{40}$/.test(sha) || required("EXPECTED_SHA").toLowerCase() !== sha)
+            fail("dispatch_sha");
+          const headers = {
+            Authorization: `Bearer ${required("GH_TOKEN")}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          };
+          const get = async (path) => {
+            const response = await fetch(`https://api.github.com${path}`, { headers });
+            if (!response.ok) fail(`github_api_${response.status}`);
+            return response.json();
+          };
+          const branch = await get(`/repos/${repository}/branches/main`);
+          if (branch.protected !== true || branch.commit?.sha?.toLowerCase() !== sha)
+            fail("stale_or_unprotected_main");
+          const environment = await get(
+            `/repos/${repository}/environments/${encodeURIComponent(required("REQUIRED_ENVIRONMENT"))}`,
+          );
+          const reviewers = environment.protection_rules?.find(
+            (rule) => rule?.type === "required_reviewers",
+          );
+          const branchPolicy = environment.protection_rules?.find(
+            (rule) => rule?.type === "branch_policy",
+          );
+          if (
+            !Array.isArray(reviewers?.reviewers) ||
+            reviewers.reviewers.length < 1 ||
+            typeof reviewers.prevent_self_review !== "boolean" ||
+            (approvalMode === "independent" && reviewers.prevent_self_review !== true) ||
+            !branchPolicy ||
+            environment.deployment_branch_policy?.protected_branches !== true ||
+            environment.deployment_branch_policy?.custom_branch_policies !== false
+          ) fail("environment_unprotected");
+          appendFileSync(required("GITHUB_OUTPUT"), `trusted_sha=${sha}\n`, "utf8");
+          // trust-bootstrap-node:end
+          NODE
+
+  apply:
+    name: Apply exact additive migration window
+    needs: trust-bootstrap
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    env:
+      RENDER_POSTGRES_ID: dpg-da32ipmk1f9s73dttm90-a
+      RENDER_ALLOWLIST_BACKUP_PATH: ${{ runner.temp }}/rr-additive-migration-allowlist.json
+    steps:
+      - name: Recheck exact protected main before checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRUSTED_SHA: ${{ needs.trust-bootstrap.outputs.trusted_sha }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const response = await fetch(
+            `https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/branches/main`,
+            { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: "application/vnd.github+json" } },
+          );
+          if (!response.ok) throw new Error(`additive_migration_main_read_${response.status}`);
+          const branch = await response.json();
+          if (branch.protected !== true || branch.commit?.sha !== process.env.TRUSTED_SHA)
+            throw new Error("additive_migration_main_changed");
+          NODE
+
+      - name: Checkout exact release candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          ref: ${{ needs.trust-bootstrap.outputs.trusted_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install pinned dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+
+      - name: Require exact release-gate evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-gate-evidence.mjs verify
+
+      - name: Open access for this runner IP only
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: node scripts/production-migration-db-access.mjs open
+
+      - name: Wait for database firewall propagation
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if node scripts/production-additive-migration-window.mjs reachability; then exit 0; fi
+            if [[ "$attempt" == 6 ]]; then exit 1; fi
+            sleep 5
+          done
+
+      - name: Verify target and pending migration window
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          node scripts/production-additive-migration-window.mjs preflight | tee additive-migration-preflight.json
+
+      - name: Bind existing coordinator owner session
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if node scripts/ensure-migration-role-privilege.mjs; then exit 0; fi
+            if [[ "$attempt" == 6 ]]; then exit 1; fi
+            sleep 5
+          done
+
+      - name: Apply only the checked-in 107-109 SQL under schema owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATABASE_URL="$REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL" \
+            node scripts/production-additive-migration-window.mjs apply \
+            | tee additive-migration-apply.json
+
+      - name: Verify exact postflight ledger
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          node scripts/production-additive-migration-window.mjs postflight | tee additive-migration-postflight.json
+
+      - name: Restore production database network access
+        if: always()
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if node scripts/production-migration-db-access.mjs restore; then exit 0; fi
+            if [[ "$attempt" == 6 ]]; then exit 1; fi
+            sleep 5
+          done
+
+      - name: Upload exact migration evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: production-additive-migrations-${{ needs.trust-bootstrap.outputs.trusted_sha }}
+          path: |
+            additive-migration-preflight.json
+            additive-migration-apply.json
+            additive-migration-postflight.json
+          if-no-files-found: error
+          retention-days: 90
