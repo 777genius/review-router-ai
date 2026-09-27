@@ -115,7 +115,7 @@ describe("canonical release migration transition", () => {
       "000110_provider_api_key_workspace_management",
     ]);
     expect(manifest(full)).toBe(
-      "sha256:6c71d93e31dc5499b798912f808705e91072bbd2c91dca7b977c53819785a694",
+      "sha256:d4e309a83e36089dae1bfaa94c707eaa81ef5ff7e0d3d3831763c26331e1ad5c",
     );
     const historical = readRenderHistorical96CheckoutInventory();
     expect(historical).toHaveLength(96);

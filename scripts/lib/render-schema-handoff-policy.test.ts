@@ -671,13 +671,13 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "750038a865bced544ae9cca42060112a6479c05163c3dc05c41f504c993147ef",
     );
     expect(migration110.checksum).toBe(
-      "40933ab026715cb85614829c5ecdad8013087b37e7fd7c73c595608ef75c07de",
+      "d69beaa182fd49ad231bb86b2af4b9d53af3c54cab3a12fa3ca910e7a4379208",
     );
     expect(manifest(checkout108)).toBe(
       "sha256:1d97937b91028e91b3987eee05057fbe915b7f2354cf2464c8fb507f1086590f",
     );
     expect(manifest(checkout109)).toBe(
-      "sha256:6c71d93e31dc5499b798912f808705e91072bbd2c91dca7b977c53819785a694",
+      "sha256:d4e309a83e36089dae1bfaa94c707eaa81ef5ff7e0d3d3831763c26331e1ad5c",
     );
     expect(checkout109.map((row) => row.migrationName)).toEqual(
       canonicalPrismaMigrationNames,
