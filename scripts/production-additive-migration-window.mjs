@@ -31,6 +31,11 @@ export function assertTargetDatabase(databaseUrl, observedDatabase) {
   }
 }
 
+export function assertMigrationSessionUser(sessionUser) {
+  if (sessionUser !== "reviewrouter")
+    throw new Error("production_migration_role_mismatch");
+}
+
 export function planProductionAdditiveMigrations({
   catalog,
   rows,
@@ -124,12 +129,7 @@ async function inspect(client, databaseUrl, local, phase) {
   ) {
     throw new Error("production_migration_postgres_version_unsupported");
   }
-  if (
-    identity.rows[0]?.session_user !==
-    (phase === "apply" ? "reviewrouter" : "reviewrouter_release_migration")
-  ) {
-    throw new Error("production_migration_role_mismatch");
-  }
+  assertMigrationSessionUser(identity.rows[0]?.session_user);
   const ledger = await client.query(
     'SELECT migration_name, checksum, finished_at, rolled_back_at FROM public."_prisma_migrations" ORDER BY migration_name, started_at',
   );

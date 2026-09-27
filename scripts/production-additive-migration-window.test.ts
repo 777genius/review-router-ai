@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   anchor,
+  assertMigrationSessionUser,
   assertTargetDatabase,
   planProductionAdditiveMigrations,
   stripMigrationTransaction,
@@ -17,6 +18,13 @@ const applied = (name: string) => ({
 });
 
 describe("production additive migration window", () => {
+  it("requires the verified database owner for every ledger phase", () => {
+    expect(() => assertMigrationSessionUser("reviewrouter")).not.toThrow();
+    expect(() =>
+      assertMigrationSessionUser("reviewrouter_release_migration"),
+    ).toThrow("production_migration_role_mismatch");
+  });
+
   it("admits only the exact production database", () => {
     expect(() =>
       assertTargetDatabase(
