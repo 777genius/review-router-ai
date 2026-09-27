@@ -8,7 +8,7 @@ import {
   targetMigrations,
 } from "./production-additive-migration-window.mjs";
 
-const catalog = ["000105_prior", anchor, ...targetMigrations];
+const catalog = ["000103_prior", anchor, ...targetMigrations];
 const checksums = new Map(catalog.map((name) => [name, `${name}-sha`]));
 const applied = (name: string) => ({
   migration_name: name,
@@ -22,6 +22,12 @@ describe("production additive migration window", () => {
     expect(() => assertMigrationSessionUser("reviewrouter")).not.toThrow();
     expect(() =>
       assertMigrationSessionUser("reviewrouter_release_migration"),
+    ).toThrow("production_migration_role_mismatch");
+    expect(() =>
+      assertMigrationSessionUser(
+        "reviewrouter",
+        "reviewrouter_release_schema_owner",
+      ),
     ).toThrow("production_migration_role_mismatch");
   });
 
@@ -41,6 +47,19 @@ describe("production additive migration window", () => {
   });
 
   it("permits a contiguous migration prefix and proves postflight completion", () => {
+    expect(
+      planProductionAdditiveMigrations({
+        catalog,
+        rows: [applied(catalog[0]), applied(anchor)],
+        checksums,
+      }).pending,
+    ).toEqual([
+      "000105_sdk_growth_publication_effect",
+      "000106_sdk_growth_finalized_report_logical_identity",
+      "000107_hosted_v4_relay_turn_contract",
+      "000108_sdk_growth_verifier_assignment",
+      "000109_sdk_growth_verifier_assignment_lock",
+    ]);
     const rows = [
       applied(catalog[0]),
       applied(anchor),

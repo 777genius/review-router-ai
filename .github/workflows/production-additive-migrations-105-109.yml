@@ -1,4 +1,4 @@
-name: Apply production additive migrations 107-109
+name: Apply production additive migrations 105-109
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       confirmation:
-        description: Type APPLY_ADDITIVE_107_109
+        description: Type APPLY_ADDITIVE_105_109
         required: true
         type: string
 
@@ -53,7 +53,7 @@ jobs:
           const repository = required("GITHUB_REPOSITORY");
           const sha = required("GITHUB_SHA").toLowerCase();
           const approvalMode = required("REVIEW_ROUTER_RELEASE_APPROVAL_MODE");
-          if (required("CONFIRMATION") !== "APPLY_ADDITIVE_107_109") fail("confirmation");
+          if (required("CONFIRMATION") !== "APPLY_ADDITIVE_105_109") fail("confirmation");
           if (!["solo_owner", "independent"].includes(approvalMode)) fail("approval_mode");
           if (required("GITHUB_EVENT_NAME") !== "workflow_dispatch") fail("event");
           if (required("GITHUB_REF") !== "refs/heads/main") fail("workflow_ref");
@@ -183,7 +183,7 @@ jobs:
             node scripts/production-additive-migration-window.mjs preflight \
             | tee additive-migration-preflight.json
 
-      - name: Apply only the checked-in 107-109 SQL under schema owner
+      - name: Apply only the checked-in 105-109 SQL as database owner
         shell: bash
         run: |
           set -euo pipefail
