@@ -411,6 +411,11 @@ export class EnvCredentialKeyring implements CredentialKeyringPort {
     if (!key) throw new Error("credential_kek_unavailable");
     return key;
   }
+
+  /** Offline tools can erase imported KEKs as soon as re-enveloping completes. */
+  destroy(): void {
+    for (const key of this.keys.values()) key.fill(0);
+  }
 }
 
 export function stableAccountFingerprint(input: {
