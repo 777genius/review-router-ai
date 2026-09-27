@@ -86,8 +86,8 @@ export function HostedPoolSettingsPanel({
           ChatGPT accounts for reviews
         </h3>
         <p className="mt-3 text-sm leading-6 text-slate-400">
-          Hosted session custody is not enabled for this workspace plan.
-          Repository-owned GitHub secrets remain unchanged.
+          This workspace is not active. Hosted account management is available
+          when the workspace is active.
         </p>
       </section>
     );
@@ -232,7 +232,8 @@ function HostedPoolAuthJsonFallback({
       <p className="mt-3 text-xs leading-5 text-slate-500">
         Run <span className="font-mono">codex login</span> locally, then upload{" "}
         <span className="font-mono">~/.codex/auth.json</span>. We encrypt the
-        file before it is stored. Sessions never go to the browser.
+        file before it is stored. Stored sessions are never returned to the
+        browser.
       </p>
       <DashboardActionForm
         action={importAccount}
