@@ -262,9 +262,11 @@ export function assertHostedCodexProductionReadiness(
       throw new Error("hosted_codex_aws_kms_region_mismatch");
     }
   }
+  const databaseResourceIdentity =
+    input.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY?.trim() ?? "";
   if (
-    !/^render:postgres:dpg-[a-z0-9-]{8,}$/u.test(
-      input.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY?.trim() ?? "",
+    !/^(?:render:postgres:dpg-[a-z0-9-]{8,}|hetzner:postgres:[a-f0-9]{32}:[1-9][0-9]{17,19})$/u.test(
+      databaseResourceIdentity,
     )
   ) {
     throw new Error("hosted_codex_database_resource_identity_invalid");
