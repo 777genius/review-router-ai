@@ -5,14 +5,15 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
-export const anchor = "000106_sdk_growth_finalized_report_logical_identity";
+export const anchor = "000104_hosted_pool_request_scoped_failover";
 export const targetMigrations = Object.freeze([
+  "000105_sdk_growth_publication_effect",
+  "000106_sdk_growth_finalized_report_logical_identity",
   "000107_hosted_v4_relay_turn_contract",
   "000108_sdk_growth_verifier_assignment",
   "000109_sdk_growth_verifier_assignment_lock",
   "000110_provider_api_key_workspace_management",
 ]);
-const schemaOwner = "reviewrouter_release_schema_owner";
 const migrationDirectory = resolve("packages/platform/db/prisma/migrations");
 const expectedDatabase = "review_router_dimy";
 const expectedHost =
@@ -30,6 +31,14 @@ export function assertTargetDatabase(databaseUrl, observedDatabase) {
   ) {
     throw new Error("production_migration_database_identity_mismatch");
   }
+}
+
+export function assertMigrationSessionUser(
+  sessionUser,
+  currentUser = sessionUser,
+) {
+  if (sessionUser !== "reviewrouter" || currentUser !== "reviewrouter")
+    throw new Error("production_migration_role_mismatch");
 }
 
 export function planProductionAdditiveMigrations({
@@ -116,7 +125,7 @@ async function localCatalog() {
 
 async function inspect(client, databaseUrl, local, phase) {
   const identity = await client.query(
-    "SELECT current_database() AS database_name, current_setting('server_version_num') AS server_version_num, session_user AS session_user",
+    "SELECT current_database() AS database_name, current_setting('server_version_num') AS server_version_num, session_user AS session_user, current_user AS current_user",
   );
   assertTargetDatabase(databaseUrl, identity.rows[0]?.database_name);
   if (
@@ -125,12 +134,10 @@ async function inspect(client, databaseUrl, local, phase) {
   ) {
     throw new Error("production_migration_postgres_version_unsupported");
   }
-  if (
-    identity.rows[0]?.session_user !==
-    (phase === "apply" ? "reviewrouter" : "reviewrouter_release_migration")
-  ) {
-    throw new Error("production_migration_role_mismatch");
-  }
+  assertMigrationSessionUser(
+    identity.rows[0]?.session_user,
+    identity.rows[0]?.current_user,
+  );
   const ledger = await client.query(
     'SELECT migration_name, checksum, finished_at, rolled_back_at FROM public."_prisma_migrations" ORDER BY migration_name, started_at',
   );
@@ -147,20 +154,9 @@ async function apply(client, databaseUrl, local) {
   try {
     await client.query("SET LOCAL lock_timeout = '5000ms'");
     await client.query("SET LOCAL statement_timeout = '120000ms'");
+    await client.query("SET LOCAL search_path = public, pg_catalog");
     await client.query("SELECT pg_advisory_xact_lock(1381126735, 109)");
     const before = await inspect(client, databaseUrl, local, "apply");
-    const membership = await client.query(
-      `SELECT count(*)::integer AS total,
-         count(*) FILTER (WHERE admin_option AND NOT inherit_option
-           AND NOT set_option AND grantor <> current_user::regrole)::integer AS canonical
-       FROM pg_catalog.pg_auth_members
-       WHERE roleid = $1::regrole AND member = current_user::regrole`,
-      [schemaOwner],
-    );
-    if (membership.rows[0]?.total !== 1 || membership.rows[0]?.canonical !== 1)
-      throw new Error("production_migration_schema_owner_authority_missing");
-    await client.query(`GRANT ${schemaOwner} TO reviewrouter
-      WITH ADMIN FALSE, INHERIT TRUE, SET TRUE GRANTED BY reviewrouter`);
     for (const name of before.pending) {
       const checksum = local.checksums.get(name);
       await client.query(
@@ -169,10 +165,7 @@ async function apply(client, databaseUrl, local) {
          VALUES ($1, $2, NULL, $3, NULL, NULL, clock_timestamp(), 0)`,
         [randomUUID(), checksum, name],
       );
-      await client.query(`SET LOCAL ROLE ${schemaOwner}`);
-      await client.query("SET LOCAL search_path = public, pg_catalog");
       await client.query(local.sources.get(name));
-      await client.query("RESET ROLE");
       const result = await client.query(
         `UPDATE public."_prisma_migrations"
          SET finished_at = clock_timestamp(), applied_steps_count = 1
@@ -183,9 +176,6 @@ async function apply(client, databaseUrl, local) {
       if (result.rowCount !== 1)
         throw new Error("production_migration_ledger_update_mismatch");
     }
-    await client.query(
-      `REVOKE ${schemaOwner} FROM reviewrouter GRANTED BY reviewrouter RESTRICT`,
-    );
     const after = await inspect(client, databaseUrl, local, "apply");
     if (after.pending.length !== 0)
       throw new Error("production_migration_postflight_incomplete");
