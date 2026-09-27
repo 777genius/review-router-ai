@@ -34,7 +34,7 @@ function fixture() {
   const sourceIncarnation = "source-incarnation-001";
   const targetResourceIdentity = "target-resource-identity-002";
   const targetIncarnation = "target-incarnation-002";
-  const targetPhysicalGeneration = "target-physical-generation-002";
+  const targetPhysicalGeneration = "12345678901234567890";
   const targetRecoveryWitnessHash = "b".repeat(64);
   const provisioningEvidence = provisioner.document({
     resourceIdentity: targetResourceIdentity,
@@ -54,6 +54,7 @@ function fixture() {
   const payload = {
     operation: OPERATION, nonce: "synthetic_nonce_1234567890123456",
     toolSourceSha: PINNED_SOURCE_SHA,
+    toolCommitSha: "d".repeat(40),
     toolSha256: sha256(readFileSync(new URL("./hosted-pool-local-custody-rebind.ts", import.meta.url))),
     finalArchiveHash: archive,
     sourceResourceIdentity, sourceIncarnation, targetResourceIdentity,
@@ -103,6 +104,7 @@ describe("offline custody admission", () => {
     }],
     ["expiration", (f: ReturnType<typeof fixture>) => ({ ...f.input, now: new Date("2026-09-28T00:00:00.000Z") })],
     ["tool SHA", (f: ReturnType<typeof fixture>) => ({ ...f.input, manifest: f.authority.document({ ...f.payload, toolSourceSha: "0".repeat(40) }) })],
+    ["tool commit", (f: ReturnType<typeof fixture>) => ({ ...f.input, manifest: f.authority.document({ ...f.payload, toolCommitSha: "not-a-commit" }) })],
     ["tool bytes", (f: ReturnType<typeof fixture>) => ({ ...f.input, manifest: f.authority.document({ ...f.payload, toolSha256: "0".repeat(64) }) })],
   ] as const)("rejects a conflicting %s", (_name, mutate) => {
     const f = fixture();

@@ -36,6 +36,7 @@ const targetIncarnation = "synthetic-target-incarnation";
 const keyId = "synthetic-local-kek";
 const targetRecoveryWitness = Buffer.alloc(32, 41).toString("base64url");
 const targetRecoveryWitnessHash = sha256(targetRecoveryWitness);
+let targetPhysicalGeneration: string;
 const keyringJson = JSON.stringify({ [keyId]: Buffer.alloc(32, 23).toString("base64") });
 const pepper = Buffer.alloc(32, 31);
 const env = {
@@ -76,11 +77,11 @@ const manifestSigner = signer();
 const provisioningSigner = signer();
 const fenceSigner = signer();
 
-function syntheticAdmission(overrides: { inventoryHash?: string; inventoryCount?: number } = {}) {
+function syntheticAdmission(overrides: { inventoryHash?: string; inventoryCount?: number; physicalGeneration?: string } = {}) {
   const finalArchiveHash = "c".repeat(64);
   const provisioningEvidence = provisioningSigner.document({
     resourceIdentity: targetIdentity, incarnation: targetIncarnation,
-    physicalGeneration: "synthetic-physical-generation",
+    physicalGeneration: overrides.physicalGeneration ?? targetPhysicalGeneration,
     recoveryWitnessHash: targetRecoveryWitnessHash, sourceArchiveHash: finalArchiveHash,
     targetOfflineState: "isolated",
     observedAt: new Date(Date.now() - 60_000).toISOString(),
@@ -94,11 +95,11 @@ function syntheticAdmission(overrides: { inventoryHash?: string; inventoryCount?
   });
   const manifest = manifestSigner.document({
     operation: OPERATION, nonce: "synthetic_nonce_1234567890123456",
-    toolSourceSha: PINNED_SOURCE_SHA, finalArchiveHash,
+    toolSourceSha: PINNED_SOURCE_SHA, toolCommitSha: "d".repeat(40), finalArchiveHash,
     toolSha256: sha256(readFileSync(new URL("./hosted-pool-local-custody-rebind.ts", import.meta.url))),
     sourceResourceIdentity: sourceIdentity, sourceIncarnation,
     targetResourceIdentity: targetIdentity, targetIncarnation,
-    targetPhysicalGeneration: "synthetic-physical-generation",
+    targetPhysicalGeneration: overrides.physicalGeneration ?? targetPhysicalGeneration,
     targetRecoveryWitnessHash,
     inventoryHash: overrides.inventoryHash ?? expectedInventoryHash,
     inventoryCount: overrides.inventoryCount ?? 3,
@@ -136,8 +137,20 @@ beforeAll(async () => {
     "SELECT current_setting('server_version_num') AS version");
   if (!version[0] || Number(version[0].version) < 170000 || Number(version[0].version) >= 180000)
     throw new Error("custody_test_pg17_required");
+  const system = await prisma.$queryRawUnsafe<{ system_identifier: string }[]>(
+    "SELECT system_identifier::text AS system_identifier FROM pg_catalog.pg_control_system()");
+  targetPhysicalGeneration = system[0]!.system_identifier;
+  await setGenerationBinding({ version: 1, systemIdentifier: targetPhysicalGeneration,
+    recoveryWitnessSha256: targetRecoveryWitnessHash });
   if (await prisma.hostedCodexAccount.count() !== 0)
     throw new Error("custody_test_database_not_empty");
+  if (!await prisma.hostedCodexRuntimeGate.findUnique({ where: { id: "global" } })) {
+    await prisma.hostedCodexRuntimeGate.create({ data: {
+      id: "global", status: "closed", authzEpoch: 1n, revision: 1n,
+      reasonCode: "synthetic_fixture_closed", changedAt: new Date(),
+      changedByHash: sha256("synthetic-fixture"),
+    } });
+  }
   await prisma.workspace.create({ data: { id: workspace, slug: `custody-${prefix}`, name: "Synthetic custody fixture" } });
   await new PrismaHostedPoolRepository(prisma).insertDefault(
     createDefaultHostedAccountPool({ id: pool, workspaceId: workspace, now: new Date() }));
@@ -239,12 +252,48 @@ beforeAll(async () => {
   admission = syntheticAdmission();
 }, 120_000);
 
+async function setGenerationBinding(binding: unknown): Promise<void> {
+  const ddl = await prisma!.$queryRawUnsafe<{ sql: string }[]>(
+    "SELECT pg_catalog.format('COMMENT ON DATABASE %I IS %L', current_database(), $1::text) AS sql",
+    binding === null ? null : JSON.stringify(binding));
+  await prisma!.$executeRawUnsafe(ddl[0]!.sql);
+}
+
 afterAll(async () => {
   network?.mockRestore();
   await prisma?.$disconnect();
 }, 120_000);
 
 describe.runIf(enabled)("offline local_test custody rebind on disposable PG17", () => {
+  it("rejects a different physical cluster or invalid connected generation binding", async () => {
+    const before = await prisma!.hostedCodexCredentialEnvelopeRevision.count();
+    const other = targetPhysicalGeneration === "12345678901234567890"
+      ? "12345678901234567891" : "12345678901234567890";
+    const wrong = syntheticAdmission({ physicalGeneration: other });
+    await expect(readCommittedRebindReceipt(prisma!, wrong))
+      .rejects.toThrow("custody_target_generation_mismatch");
+    await expect(applyLocalCustodyRebind({ prisma: prisma!, admission: wrong, env }))
+      .rejects.toThrow("custody_target_generation_mismatch");
+    await setGenerationBinding(null);
+    try {
+      await expect(readCommittedRebindReceipt(prisma!, admission))
+        .rejects.toThrow("custody_target_generation_binding_invalid");
+    } finally {
+      await setGenerationBinding({ version: 1, systemIdentifier: targetPhysicalGeneration,
+        recoveryWitnessSha256: targetRecoveryWitnessHash });
+    }
+    await setGenerationBinding({ version: 1, systemIdentifier: targetPhysicalGeneration,
+      recoveryWitnessSha256: "0".repeat(64) });
+    await expect(readCommittedRebindReceipt(prisma!, admission))
+      .rejects.toThrow("custody_target_generation_mismatch");
+    await setGenerationBinding({ version: 1, systemIdentifier: other,
+      recoveryWitnessSha256: targetRecoveryWitnessHash });
+    await expect(readCommittedRebindReceipt(prisma!, admission))
+      .rejects.toThrow("custody_target_generation_mismatch");
+    await setGenerationBinding({ version: 1, systemIdentifier: targetPhysicalGeneration,
+      recoveryWitnessSha256: targetRecoveryWitnessHash });
+    expect(await prisma!.hostedCodexCredentialEnvelopeRevision.count()).toBe(before);
+  }, 120_000);
   it("refuses an open target runtime gate before any key or revision write", async () => {
     const snapshot = await loadLocalRebindSnapshot(prisma!);
     expect(snapshot.authority.unsafeRuntimeGate).toBe(1);
@@ -366,6 +415,12 @@ describe.runIf(enabled)("offline local_test custody rebind on disposable PG17", 
     expect(attempts.filter((result) => result.status === "fulfilled" && result.value.status === "applied")).toHaveLength(1);
     const receipt = await readCommittedRebindReceipt(prisma!, admission);
     expect(receipt).toMatchObject({ status: "already_applied", revisionCount: 3 });
+    await setGenerationBinding({ version: 1, systemIdentifier: targetPhysicalGeneration,
+      recoveryWitnessSha256: "0".repeat(64) });
+    await expect(readCommittedRebindReceipt(prisma!, admission))
+      .rejects.toThrow("custody_target_generation_mismatch");
+    await setGenerationBinding({ version: 1, systemIdentifier: targetPhysicalGeneration,
+      recoveryWitnessSha256: targetRecoveryWitnessHash });
     await expect(applyLocalCustodyRebind({ prisma: prisma!, admission,
       env: { ...env, REVIEW_ROUTER_HOSTED_CODEX_KEK_KEYRING_JSON: undefined,
         REVIEW_ROUTER_HOSTED_CODEX_FINGERPRINT_PEPPER: undefined } }))

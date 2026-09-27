@@ -40,17 +40,28 @@ export function assertDisposableDatabaseUrl(value: string | undefined, nodeEnv: 
   return value;
 }
 
-function assertPinnedCheckout(): void {
+export function assertPinnedCheckout(expectedCommitSha: string): void {
+  if (!/^[a-f0-9]{40}$/u.test(expectedCommitSha))
+    throw new Error("custody_tool_commit_invalid");
+  const cwd = resolve(fileURLToPath(import.meta.url), "..", "..");
   let head: string;
+  let dirty: string;
   try {
     head = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: resolve(fileURLToPath(import.meta.url), "..", ".."),
+      cwd,
       encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
     }).trim();
+    dirty = execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+      cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    execFileSync("git", ["merge-base", "--is-ancestor", PINNED_SOURCE_SHA, "HEAD"], {
+      cwd, stdio: ["ignore", "ignore", "ignore"],
+    });
   } catch {
     throw new Error("custody_pinned_checkout_unverifiable");
   }
-  if (head !== PINNED_SOURCE_SHA) throw new Error("custody_pinned_checkout_mismatch");
+  if (head !== expectedCommitSha || dirty)
+    throw new Error("custody_pinned_checkout_mismatch");
 }
 
 type SignedDocument = {
@@ -139,6 +150,7 @@ export type ValidatedAdmission = {
   readonly targetResourceIdentity: string;
   readonly targetIncarnation: string;
   readonly targetPhysicalGeneration: string;
+  readonly toolCommitSha: string;
   readonly targetRecoveryWitnessHash: string;
   readonly finalArchiveHash: string;
   readonly nonce: string;
@@ -163,6 +175,39 @@ function assertTargetRuntime(admission: ValidatedAdmission, env: Readonly<Record
       env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_INCARNATION?.trim() !== admission.targetIncarnation ||
       sha256(witness) !== admission.targetRecoveryWitnessHash)
     throw new Error("custody_target_runtime_witness_mismatch");
+}
+
+/** Bind the signed target to the connected cluster, not just caller-supplied env. */
+export async function assertConnectedTargetGeneration(
+  tx: Prisma.TransactionClient,
+  admission: ValidatedAdmission,
+): Promise<void> {
+  assertValidatedAdmission(admission);
+  let rows: { system_identifier: string; binding: string | null; server_version_num: string }[];
+  try {
+    rows = await tx.$queryRawUnsafe(`
+      SELECT system.system_identifier::text AS system_identifier,
+             pg_catalog.shobj_description(db.oid, 'pg_database') AS binding,
+             current_setting('server_version_num') AS server_version_num
+      FROM pg_catalog.pg_control_system() AS system
+      JOIN pg_catalog.pg_database AS db ON db.datname = current_database()`);
+  } catch {
+    throw new Error("custody_target_generation_unverifiable");
+  }
+  if (rows.length !== 1 || Number(rows[0]?.server_version_num) < 170000 ||
+      Number(rows[0]?.server_version_num) >= 180000)
+    throw new Error("custody_target_generation_unverifiable");
+  let binding: Record<string, unknown>;
+  try {
+    binding = object(JSON.parse(rows[0]!.binding ?? "null"));
+    exactKeys(binding, ["version", "systemIdentifier", "recoveryWitnessSha256"]);
+  } catch {
+    throw new Error("custody_target_generation_binding_invalid");
+  }
+  if (binding.version !== 1 || binding.systemIdentifier !== rows[0]!.system_identifier ||
+      rows[0]!.system_identifier !== admission.targetPhysicalGeneration ||
+      binding.recoveryWitnessSha256 !== admission.targetRecoveryWitnessHash)
+    throw new Error("custody_target_generation_mismatch");
 }
 
 export type LocalCustodyInventoryRow = {
@@ -377,12 +422,13 @@ export function validateAdmission(input: {
   const manifest = verifySignedDocument(input.manifest, input.manifestPublicKeyPem).payload;
   const provision = verifySignedDocument(input.provisioningEvidence, input.provisioningPublicKeyPem).payload;
   const fence = verifySignedDocument(input.writerFenceEvidence, input.fencePublicKeyPem).payload;
-  exactKeys(manifest, ["operation", "nonce", "toolSourceSha", "toolSha256", "finalArchiveHash", "sourceResourceIdentity", "sourceIncarnation", "targetResourceIdentity", "targetIncarnation", "targetPhysicalGeneration", "targetRecoveryWitnessHash", "inventoryHash", "inventoryCount", "writerFenceEvidenceHash", "expiresAt"]);
+  exactKeys(manifest, ["operation", "nonce", "toolSourceSha", "toolCommitSha", "toolSha256", "finalArchiveHash", "sourceResourceIdentity", "sourceIncarnation", "targetResourceIdentity", "targetIncarnation", "targetPhysicalGeneration", "targetRecoveryWitnessHash", "inventoryHash", "inventoryCount", "writerFenceEvidenceHash", "expiresAt"]);
   exactKeys(provision, ["resourceIdentity", "incarnation", "physicalGeneration", "recoveryWitnessHash", "sourceArchiveHash", "targetOfflineState", "observedAt", "expiresAt"]);
   exactKeys(fence, ["sourceResourceIdentity", "sourceIncarnation", "finalArchiveHash", "writerFenceState", "fencedAt", "validUntil"]);
   if (manifest.operation !== OPERATION || manifest.toolSourceSha !== PINNED_SOURCE_SHA)
     throw new Error("custody_operation_or_source_mismatch");
   const toolSha256 = string(manifest.toolSha256, "tool_sha256", hex);
+  const toolCommitSha = string(manifest.toolCommitSha, "tool_commit", /^[a-f0-9]{40}$/u);
   if (toolSha256 !== sha256(readFileSync(fileURLToPath(import.meta.url))))
     throw new Error("custody_tool_sha256_mismatch");
   const nonce = string(manifest.nonce, "nonce", noncePattern);
@@ -391,7 +437,7 @@ export function validateAdmission(input: {
   const sourceIncarnation = string(manifest.sourceIncarnation, "source_incarnation", opaque);
   const targetResourceIdentity = string(manifest.targetResourceIdentity, "target_identity", opaque);
   const targetIncarnation = string(manifest.targetIncarnation, "target_incarnation", opaque);
-  const targetPhysicalGeneration = string(manifest.targetPhysicalGeneration, "physical_generation", opaque);
+  const targetPhysicalGeneration = string(manifest.targetPhysicalGeneration, "physical_generation", /^[1-9][0-9]{15,24}$/u);
   const targetRecoveryWitnessHash = string(manifest.targetRecoveryWitnessHash, "recovery_witness_hash", hex);
   const inventoryHash = string(manifest.inventoryHash, "inventory_hash", hex);
   if (!Number.isSafeInteger(manifest.inventoryCount) || (manifest.inventoryCount as number) < 1)
@@ -433,7 +479,7 @@ export function validateAdmission(input: {
   const admitted: ValidatedAdmission = {
     digest: sha256(canonicalJson(manifest)), inventoryHash, inventoryCount, sourceResourceIdentity,
     sourceIncarnation, targetResourceIdentity, targetIncarnation,
-    targetPhysicalGeneration, targetRecoveryWitnessHash, finalArchiveHash, nonce, expiresAt,
+    targetPhysicalGeneration, toolCommitSha, targetRecoveryWitnessHash, finalArchiveHash, nonce, expiresAt,
   };
   admittedManifests.add(admitted);
   return admitted;
@@ -502,6 +548,9 @@ export async function applyLocalCustodyRebind(input: {
   const keyrings = new Map<string, InstanceType<typeof EnvCredentialKeyring>>();
   try {
     return await input.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe<{ locked: boolean }[]>(
+        "SELECT pg_advisory_xact_lock(1381126735, 1195529550) IS NULL AS locked");
+      await assertConnectedTargetGeneration(tx, input.admission);
       await tx.$queryRawUnsafe<{ locked: boolean }[]>(
         "SELECT pg_advisory_xact_lock(440, 17017) IS NULL AS locked");
       const snapshot = await loadSnapshotWithinTransaction(tx);
@@ -700,6 +749,7 @@ export async function readCommittedRebindReceipt(
   assertValidatedAdmission(admission);
   return prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
+    await assertConnectedTargetGeneration(tx, admission);
     const accounts = await tx.hostedCodexAccount.findMany({
       where: { activeGeneration: { not: null } },
       include: { credentialVersions: { include: { envelopeRevisions: true } } },
@@ -842,7 +892,7 @@ async function main() {
     expectedManifestKeyHash: process.env.REVIEW_ROUTER_CUSTODY_MANIFEST_AUTHORITY_SHA256,
     expectedProvisioningKeyHash: process.env.REVIEW_ROUTER_CUSTODY_PROVISIONING_AUTHORITY_SHA256,
     expectedFenceKeyHash: process.env.REVIEW_ROUTER_CUSTODY_FENCE_AUTHORITY_SHA256 });
-  assertPinnedCheckout();
+  assertPinnedCheckout(admitted.toolCommitSha);
   if (await hashFile(resolve(archivePath)) !== admitted.finalArchiveHash)
     throw new Error("custody_final_archive_hash_mismatch");
   assertTargetRuntime(admitted, process.env);
