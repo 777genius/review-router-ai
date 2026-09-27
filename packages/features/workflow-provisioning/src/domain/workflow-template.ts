@@ -112,7 +112,6 @@ const explicitReviewCodexCliVersion = "0.147.0";
 const defaultCodexReviewModel = "gpt-5.6-sol";
 const mimoRuntimeProviderPrefix = "codex-mimo";
 const mimoTokenPlanApiKeySecretName = "MIMO_TOKEN_PLAN_API_KEY";
-const mimoTokenPlanApiKeyInputName = "mimo-token-plan-api-key";
 
 function discussionModeExpression(
   options: Pick<ReviewRouterWorkflowOptions, "discussionMode">,
@@ -127,6 +126,10 @@ export function renderReviewRouterWorkflow(
     throw new Error("conflict_review_explicit_workflow_unsupported");
   }
   const template = prepareWorkflowTemplate(options);
+  const runtimeRepository = options.actionRef.slice(
+    0,
+    options.actionRef.lastIndexOf("@"),
+  );
   const providerSelection = reviewRouterProviderSelectionForRuntimeEnv(
     options.staticRuntimeEnv,
   );
@@ -179,6 +182,15 @@ jobs:
       - name: Checkout pull request code
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
+
+      - name: Checkout ReviewRouter runtime
+        if: \${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/checkout@v6
+        with:
+          repository: ${runtimeRepository}
+          ref: ${template.actionVersion}
+          path: .reviewrouter-runtime
           persist-credentials: false
 
       - name: Skip fork pull requests
@@ -275,12 +287,8 @@ ${
 
 ${template.oidcStep}      - name: Run ReviewRouter
         if: \${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: ${options.actionRef}
-${
-  mimoTokenPlanSelected
-    ? `        with:\n          ${mimoTokenPlanApiKeyInputName}: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}`
-    : ""
-}
+        shell: bash
+        run: node .reviewrouter-runtime/dist/index.js
         env:
           GITHUB_TOKEN: \${{ github.token }}
           PR_NUMBER: \${{ github.event.pull_request.number }}
@@ -289,6 +297,7 @@ ${
           OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}
+${mimoTokenPlanSelected ? `          MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}\n` : ""}
 `;
 }
 
@@ -572,12 +581,9 @@ ${actionsRerunAuthority ? "      actions: write\n" : ""}      contents: read
 export function renderReviewRouterReusableWorkflow(
   options: ReviewRouterWorkflowOptions,
 ): string {
-  if (
-    codexRotatingProviderSecretInputsForRuntimeEnv(options.staticRuntimeEnv)
-      .mimoTokenPlanApiKeySecret
-  ) {
-    throw new Error("mimo_provider_requires_explicit_workflow");
-  }
+  const mimoTokenPlanSelected = codexRotatingProviderSecretInputsForRuntimeEnv(
+    options.staticRuntimeEnv,
+  ).mimoTokenPlanApiKeySecret;
   const template = prepareReusableWorkflowTemplate(options);
   const conflictReviewFallbackEnabled =
     options.conflictReviewFallbackEnabled === true;
@@ -635,6 +641,10 @@ ${template.staticRuntimeEnvJsonBlock}
       CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
       OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}${
+        mimoTokenPlanSelected
+          ? `\n      MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}`
+          : ""
+      }${
         conflictReviewFallbackEnabled
           ? `
 
@@ -851,7 +861,18 @@ export function analyzeWorkflowProviderCompatibility(input: {
 
   if (
     input.expectedActionRef &&
-    !input.workflowYaml.includes(input.expectedActionRef)
+    !input.workflowYaml.includes(input.expectedActionRef) &&
+    !(
+      input.workflowYaml.includes(
+        `repository: ${input.expectedActionRef.slice(0, input.expectedActionRef.lastIndexOf("@"))}`,
+      ) &&
+      input.workflowYaml.includes(
+        `ref: ${extractActionVersion(input.expectedActionRef)}`,
+      )
+    ) &&
+    !input.workflowYaml.includes(
+      `uses: ${input.expectedActionRef.slice(0, input.expectedActionRef.lastIndexOf("@"))}/${reusableReviewWorkflowPath}@${extractActionVersion(input.expectedActionRef)}`,
+    )
   ) {
     missingRequirements.push("action_ref_supports_provider");
   }
@@ -897,7 +918,7 @@ export function analyzeWorkflowProviderCompatibility(input: {
     if (
       workflowStyle === "explicit" &&
       !input.workflowYaml.includes(
-        `${mimoTokenPlanApiKeyInputName}: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}`,
+        `${mimoTokenPlanApiKeySecretName}: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}`,
       )
     ) {
       if (!missingRequirements.includes("secret_pass_through")) {
@@ -907,6 +928,16 @@ export function analyzeWorkflowProviderCompatibility(input: {
     if (
       workflowStyle === "explicit" &&
       !input.workflowYaml.includes("MIMO_TOKEN_PLAN_API_KEY_PRESENT")
+    ) {
+      if (!missingRequirements.includes("secret_pass_through")) {
+        missingRequirements.push("secret_pass_through");
+      }
+    }
+    if (
+      workflowStyle === "reusable" &&
+      !input.workflowYaml.includes(
+        `${mimoTokenPlanApiKeySecretName}: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}`,
+      )
     ) {
       if (!missingRequirements.includes("secret_pass_through")) {
         missingRequirements.push("secret_pass_through");
@@ -962,9 +993,13 @@ export function getWorkflowProviderContentMarkerGroups(input: {
     case "codex-mimo":
       return [
         [
+          reusableReviewWorkflowPath,
+          mimoTokenPlanApiKeySecretName,
+          `${mimoRuntimeProviderPrefix}/`,
+        ],
+        [
           "Install Codex CLI",
           mimoTokenPlanApiKeySecretName,
-          `${mimoTokenPlanApiKeyInputName}:`,
           `${mimoRuntimeProviderPrefix}/`,
           "Require MiMo Token Plan API key",
           "Skip fork pull requests",
@@ -1491,11 +1526,7 @@ export function renderReviewRouterWorkflowFiles(
     throw new Error("conflict_review_explicit_workflow_unsupported");
   }
 
-  const workflowStyle = codexRotatingProviderSecretInputsForRuntimeEnv(
-    options.staticRuntimeEnv,
-  ).mimoTokenPlanApiKeySecret
-    ? "explicit"
-    : (options.workflowStyle ?? "reusable");
+  const workflowStyle = options.workflowStyle ?? "reusable";
 
   if (workflowStyle === "reusable") {
     return [

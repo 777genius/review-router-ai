@@ -403,7 +403,7 @@ describe("renderReviewRouterWorkflow", () => {
     );
   });
 
-  it("routes MiMo-only setup to the direct public Action with literal key forwarding and fork skip", () => {
+  it("routes MiMo-only setup through the pinned reusable runtime with scoped key forwarding", () => {
     const files = renderReviewRouterWorkflowFiles({
       actionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
@@ -421,27 +421,22 @@ describe("renderReviewRouterWorkflow", () => {
       defaultInteractionWorkflowPath,
     ]);
     const workflow = workflowFileContent(files[0]);
-    expect(workflow).not.toContain(reusableReviewWorkflowPath);
-    expect(workflow).toContain('REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro"');
+    expect(workflow).toContain(reusableReviewWorkflowPath);
     expect(workflow).toContain(
-      "MIMO_TOKEN_PLAN_API_KEY_PRESENT: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY != '' && '1' || '0' }}",
+      '"REVIEW_PROVIDERS": "codex-mimo/mimo-v2.6-pro"',
     );
     expect(workflow).toContain(
-      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+      "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
     );
-    expect(workflow).toContain("Require MiMo Token Plan API key");
-    expect(workflow).toContain("MIMO_TOKEN_PLAN_API_KEY is missing.");
-    expect(workflow).toContain("MiMo never falls back to Codex or OpenRouter.");
-    expect(workflow).toContain(
-      "if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && env.MIMO_TOKEN_PLAN_API_KEY_PRESENT != '1' }}",
+    expect(workflow).not.toContain("mimo-token-plan-api-key:");
+    expect(workflow).not.toContain(
+      "OPENROUTER_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
     );
-    expect(workflow).toContain("Skip fork pull requests");
-    expect(workflow).toContain("Install Codex CLI");
     expect(
       analyzeWorkflowProviderCompatibility({
         workflowYaml: workflow,
         providerKind: "codex-mimo",
-        workflowStyle: "explicit",
+        workflowStyle: "reusable",
         expectedActionRef:
           "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
       }),
@@ -449,6 +444,19 @@ describe("renderReviewRouterWorkflow", () => {
       providerKind: "codex-mimo",
       supported: true,
       missingRequirements: [],
+    });
+    expect(
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml: workflow.replace(
+          "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+          "",
+        ),
+        providerKind: "codex-mimo",
+        workflowStyle: "reusable",
+      }),
+    ).toMatchObject({
+      supported: false,
+      missingRequirements: ["secret_pass_through"],
     });
   });
 
@@ -473,8 +481,9 @@ describe("renderReviewRouterWorkflow", () => {
       workflowStep(workflow, "Require MiMo Token Plan API key")?.if,
     ).toContain("env.MIMO_TOKEN_PLAN_API_KEY_PRESENT != '1'");
     expect(workflow).toContain(
-      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+      "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
     );
+    expect(workflow).toContain("run: node .reviewrouter-runtime/dist/index.js");
   });
 
   it("does not provision MiMo prerequisites for a Claude-only explicit workflow", () => {
@@ -500,7 +509,9 @@ describe("renderReviewRouterWorkflow", () => {
     expect(workflowStep(workflow, "Install Claude Code CLI")?.if).toContain(
       "env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1'",
     );
-    expect(workflow).not.toContain("mimo-token-plan-api-key:");
+    expect(workflow).not.toContain(
+      "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
   });
 
   it("includes configured fallback and synthesis providers in runtime prerequisite selection", () => {
@@ -888,7 +899,9 @@ describe("renderReviewRouterWorkflow", () => {
     expect(workflow).toContain(
       "github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false",
     );
-    expect(workflow).toContain("uses: 777genius/review-router@v1");
+    expect(workflow).toContain("repository: 777genius/review-router");
+    expect(workflow).toContain("ref: v1");
+    expect(workflow).toContain("run: node .reviewrouter-runtime/dist/index.js");
     expect(workflow).toContain("uses: actions/setup-node@v6");
     expect(workflow).toContain('node-version: "24"');
     expect(workflow).toContain("npm install -g @openai/codex@0.147.0");
@@ -1218,7 +1231,11 @@ describe("renderReviewRouterWorkflow", () => {
     const workflow = files[0];
     const workflowContent =
       workflow && workflow.operation !== "delete" ? workflow.content : "";
-    expect(workflowContent).toContain("uses: 777genius/review-router@v1");
+    expect(workflowContent).toContain("repository: 777genius/review-router");
+    expect(workflowContent).toContain("ref: v1");
+    expect(workflowContent).toContain(
+      "run: node .reviewrouter-runtime/dist/index.js",
+    );
     expect(workflowContent).toContain("actions/setup-node@v6");
     expect(workflowContent).not.toContain(
       ".github/workflows/reviewrouter-reusable.yml",
