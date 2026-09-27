@@ -1,5 +1,6 @@
 import { createPublicKey, generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createPrismaClient } from "../packages/platform/db/src/index.js";
 import {
@@ -37,6 +38,10 @@ const keyId = "synthetic-local-kek";
 const targetRecoveryWitness = Buffer.alloc(32, 41).toString("base64url");
 const targetRecoveryWitnessHash = sha256(targetRecoveryWitness);
 let targetPhysicalGeneration: string;
+let targetDatabaseName: string;
+let targetDatabaseOid: string;
+let siblingPrisma: ReturnType<typeof createPrismaClient> | undefined;
+const siblingDatabaseName = `reviewrouter_custody_rebind_sibling_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
 const keyringJson = JSON.stringify({ [keyId]: Buffer.alloc(32, 23).toString("base64") });
 const pepper = Buffer.alloc(32, 31);
 const env = {
@@ -77,11 +82,14 @@ const manifestSigner = signer();
 const provisioningSigner = signer();
 const fenceSigner = signer();
 
-function syntheticAdmission(overrides: { inventoryHash?: string; inventoryCount?: number; physicalGeneration?: string } = {}) {
+function syntheticAdmission(overrides: { inventoryHash?: string; inventoryCount?: number;
+  physicalGeneration?: string; databaseName?: string; databaseOid?: string } = {}) {
   const finalArchiveHash = "c".repeat(64);
   const provisioningEvidence = provisioningSigner.document({
     resourceIdentity: targetIdentity, incarnation: targetIncarnation,
     physicalGeneration: overrides.physicalGeneration ?? targetPhysicalGeneration,
+    databaseName: overrides.databaseName ?? targetDatabaseName,
+    databaseOid: overrides.databaseOid ?? targetDatabaseOid,
     recoveryWitnessHash: targetRecoveryWitnessHash, sourceArchiveHash: finalArchiveHash,
     targetOfflineState: "isolated",
     observedAt: new Date(Date.now() - 60_000).toISOString(),
@@ -100,6 +108,8 @@ function syntheticAdmission(overrides: { inventoryHash?: string; inventoryCount?
     sourceResourceIdentity: sourceIdentity, sourceIncarnation,
     targetResourceIdentity: targetIdentity, targetIncarnation,
     targetPhysicalGeneration: overrides.physicalGeneration ?? targetPhysicalGeneration,
+    targetDatabaseName: overrides.databaseName ?? targetDatabaseName,
+    targetDatabaseOid: overrides.databaseOid ?? targetDatabaseOid,
     targetRecoveryWitnessHash,
     inventoryHash: overrides.inventoryHash ?? expectedInventoryHash,
     inventoryCount: overrides.inventoryCount ?? 3,
@@ -140,6 +150,10 @@ beforeAll(async () => {
   const system = await prisma.$queryRawUnsafe<{ system_identifier: string }[]>(
     "SELECT system_identifier::text AS system_identifier FROM pg_catalog.pg_control_system()");
   targetPhysicalGeneration = system[0]!.system_identifier;
+  const database = await prisma.$queryRawUnsafe<{ datname: string; oid: string }[]>(
+    "SELECT datname, oid::text AS oid FROM pg_catalog.pg_database WHERE datname = current_database()");
+  targetDatabaseName = database[0]!.datname;
+  targetDatabaseOid = database[0]!.oid;
   await setGenerationBinding({ version: 1, systemIdentifier: targetPhysicalGeneration,
     recoveryWitnessSha256: targetRecoveryWitnessHash });
   if (await prisma.hostedCodexAccount.count() !== 0)
@@ -250,18 +264,44 @@ beforeAll(async () => {
   const rows = [...snapshot.rows].sort((a, b) => a.accountId < b.accountId ? -1 : a.accountId > b.accountId ? 1 : 0);
   expectedInventoryHash = sha256(canonicalJson(rows));
   admission = syntheticAdmission();
+  await prisma.$disconnect();
+  const admin = new Client({ connectionString: new URL("/postgres", databaseUrl).toString() });
+  try {
+    await admin.connect();
+    await admin.query(`CREATE DATABASE "${siblingDatabaseName}" TEMPLATE "${targetDatabaseName}"`);
+  } finally {
+    await admin.end();
+    await prisma.$connect();
+  }
+  const siblingUrl = new URL(databaseUrl);
+  siblingUrl.pathname = `/${siblingDatabaseName}`;
+  siblingPrisma = createPrismaClient({ databaseUrl: siblingUrl.toString(), poolMax: 1 });
+  await setGenerationBinding({ version: 1, systemIdentifier: targetPhysicalGeneration,
+    recoveryWitnessSha256: targetRecoveryWitnessHash }, siblingPrisma);
 }, 120_000);
 
-async function setGenerationBinding(binding: unknown): Promise<void> {
-  const ddl = await prisma!.$queryRawUnsafe<{ sql: string }[]>(
+async function setGenerationBinding(
+  binding: unknown, target: ReturnType<typeof createPrismaClient> = prisma!,
+): Promise<void> {
+  const ddl = await target.$queryRawUnsafe<{ sql: string }[]>(
     "SELECT pg_catalog.format('COMMENT ON DATABASE %I IS %L', current_database(), $1::text) AS sql",
     binding === null ? null : JSON.stringify(binding));
-  await prisma!.$executeRawUnsafe(ddl[0]!.sql);
+  await target.$executeRawUnsafe(ddl[0]!.sql);
 }
 
 afterAll(async () => {
   network?.mockRestore();
+  await siblingPrisma?.$disconnect();
   await prisma?.$disconnect();
+  if (siblingPrisma && databaseUrl) {
+    const admin = new Client({ connectionString: new URL("/postgres", databaseUrl).toString() });
+    try {
+      await admin.connect();
+      await admin.query(`DROP DATABASE "${siblingDatabaseName}" WITH (FORCE)`);
+    } finally {
+      await admin.end();
+    }
+  }
 }, 120_000);
 
 describe.runIf(enabled)("offline local_test custody rebind on disposable PG17", () => {
@@ -293,6 +333,16 @@ describe.runIf(enabled)("offline local_test custody rebind on disposable PG17", 
     await setGenerationBinding({ version: 1, systemIdentifier: targetPhysicalGeneration,
       recoveryWitnessSha256: targetRecoveryWitnessHash });
     expect(await prisma!.hostedCodexCredentialEnvelopeRevision.count()).toBe(before);
+  }, 120_000);
+
+  it("rejects a sibling database with identical inventory and copied witness", async () => {
+    const before = await siblingPrisma!.hostedCodexCredentialEnvelopeRevision.count();
+    expect(before).toBe(3);
+    await expect(readCommittedRebindReceipt(siblingPrisma!, admission))
+      .rejects.toThrow("custody_target_generation_mismatch");
+    await expect(applyLocalCustodyRebind({ prisma: siblingPrisma!, admission, env }))
+      .rejects.toThrow("custody_target_generation_mismatch");
+    expect(await siblingPrisma!.hostedCodexCredentialEnvelopeRevision.count()).toBe(before);
   }, 120_000);
   it("refuses an open target runtime gate before any key or revision write", async () => {
     const snapshot = await loadLocalRebindSnapshot(prisma!);

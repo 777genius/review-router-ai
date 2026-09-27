@@ -35,11 +35,14 @@ function fixture() {
   const targetResourceIdentity = "target-resource-identity-002";
   const targetIncarnation = "target-incarnation-002";
   const targetPhysicalGeneration = "12345678901234567890";
+  const targetDatabaseName = "reviewrouter_custody_rebind_fixture";
+  const targetDatabaseOid = "12345";
   const targetRecoveryWitnessHash = "b".repeat(64);
   const provisioningEvidence = provisioner.document({
     resourceIdentity: targetResourceIdentity,
     incarnation: targetIncarnation,
     physicalGeneration: targetPhysicalGeneration,
+    databaseName: targetDatabaseName, databaseOid: targetDatabaseOid,
     recoveryWitnessHash: targetRecoveryWitnessHash,
     sourceArchiveHash: archive,
     targetOfflineState: "isolated",
@@ -58,7 +61,8 @@ function fixture() {
     toolSha256: sha256(readFileSync(new URL("./hosted-pool-local-custody-rebind.ts", import.meta.url))),
     finalArchiveHash: archive,
     sourceResourceIdentity, sourceIncarnation, targetResourceIdentity,
-    targetIncarnation, targetPhysicalGeneration, targetRecoveryWitnessHash,
+    targetIncarnation, targetPhysicalGeneration, targetDatabaseName, targetDatabaseOid,
+    targetRecoveryWitnessHash,
     inventoryHash: "c".repeat(64),
     inventoryCount: 3,
     writerFenceEvidenceHash: sha256(canonicalJson(writerFenceEvidence.payload)),

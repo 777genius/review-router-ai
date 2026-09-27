@@ -150,6 +150,8 @@ export type ValidatedAdmission = {
   readonly targetResourceIdentity: string;
   readonly targetIncarnation: string;
   readonly targetPhysicalGeneration: string;
+  readonly targetDatabaseName: string;
+  readonly targetDatabaseOid: string;
   readonly toolCommitSha: string;
   readonly targetRecoveryWitnessHash: string;
   readonly finalArchiveHash: string;
@@ -183,10 +185,12 @@ export async function assertConnectedTargetGeneration(
   admission: ValidatedAdmission,
 ): Promise<void> {
   assertValidatedAdmission(admission);
-  let rows: { system_identifier: string; binding: string | null; server_version_num: string }[];
+  let rows: { system_identifier: string; database_name: string; database_oid: string;
+    binding: string | null; server_version_num: string }[];
   try {
     rows = await tx.$queryRawUnsafe(`
       SELECT system.system_identifier::text AS system_identifier,
+             db.datname AS database_name, db.oid::text AS database_oid,
              pg_catalog.shobj_description(db.oid, 'pg_database') AS binding,
              current_setting('server_version_num') AS server_version_num
       FROM pg_catalog.pg_control_system() AS system
@@ -206,6 +210,8 @@ export async function assertConnectedTargetGeneration(
   }
   if (binding.version !== 1 || binding.systemIdentifier !== rows[0]!.system_identifier ||
       rows[0]!.system_identifier !== admission.targetPhysicalGeneration ||
+      rows[0]!.database_name !== admission.targetDatabaseName ||
+      rows[0]!.database_oid !== admission.targetDatabaseOid ||
       binding.recoveryWitnessSha256 !== admission.targetRecoveryWitnessHash)
     throw new Error("custody_target_generation_mismatch");
 }
@@ -422,8 +428,8 @@ export function validateAdmission(input: {
   const manifest = verifySignedDocument(input.manifest, input.manifestPublicKeyPem).payload;
   const provision = verifySignedDocument(input.provisioningEvidence, input.provisioningPublicKeyPem).payload;
   const fence = verifySignedDocument(input.writerFenceEvidence, input.fencePublicKeyPem).payload;
-  exactKeys(manifest, ["operation", "nonce", "toolSourceSha", "toolCommitSha", "toolSha256", "finalArchiveHash", "sourceResourceIdentity", "sourceIncarnation", "targetResourceIdentity", "targetIncarnation", "targetPhysicalGeneration", "targetRecoveryWitnessHash", "inventoryHash", "inventoryCount", "writerFenceEvidenceHash", "expiresAt"]);
-  exactKeys(provision, ["resourceIdentity", "incarnation", "physicalGeneration", "recoveryWitnessHash", "sourceArchiveHash", "targetOfflineState", "observedAt", "expiresAt"]);
+  exactKeys(manifest, ["operation", "nonce", "toolSourceSha", "toolCommitSha", "toolSha256", "finalArchiveHash", "sourceResourceIdentity", "sourceIncarnation", "targetResourceIdentity", "targetIncarnation", "targetPhysicalGeneration", "targetDatabaseName", "targetDatabaseOid", "targetRecoveryWitnessHash", "inventoryHash", "inventoryCount", "writerFenceEvidenceHash", "expiresAt"]);
+  exactKeys(provision, ["resourceIdentity", "incarnation", "physicalGeneration", "databaseName", "databaseOid", "recoveryWitnessHash", "sourceArchiveHash", "targetOfflineState", "observedAt", "expiresAt"]);
   exactKeys(fence, ["sourceResourceIdentity", "sourceIncarnation", "finalArchiveHash", "writerFenceState", "fencedAt", "validUntil"]);
   if (manifest.operation !== OPERATION || manifest.toolSourceSha !== PINNED_SOURCE_SHA)
     throw new Error("custody_operation_or_source_mismatch");
@@ -438,6 +444,8 @@ export function validateAdmission(input: {
   const targetResourceIdentity = string(manifest.targetResourceIdentity, "target_identity", opaque);
   const targetIncarnation = string(manifest.targetIncarnation, "target_incarnation", opaque);
   const targetPhysicalGeneration = string(manifest.targetPhysicalGeneration, "physical_generation", /^[1-9][0-9]{15,24}$/u);
+  const targetDatabaseName = string(manifest.targetDatabaseName, "database_name", /^[A-Za-z_][A-Za-z0-9_]{0,62}$/u);
+  const targetDatabaseOid = string(manifest.targetDatabaseOid, "database_oid", /^[1-9][0-9]{0,9}$/u);
   const targetRecoveryWitnessHash = string(manifest.targetRecoveryWitnessHash, "recovery_witness_hash", hex);
   const inventoryHash = string(manifest.inventoryHash, "inventory_hash", hex);
   if (!Number.isSafeInteger(manifest.inventoryCount) || (manifest.inventoryCount as number) < 1)
@@ -461,6 +469,7 @@ export function validateAdmission(input: {
     throw new Error("custody_source_target_not_distinct");
   if (provision.resourceIdentity !== targetResourceIdentity || provision.incarnation !== targetIncarnation ||
       provision.physicalGeneration !== targetPhysicalGeneration || provision.recoveryWitnessHash !== targetRecoveryWitnessHash ||
+      provision.databaseName !== targetDatabaseName || provision.databaseOid !== targetDatabaseOid ||
       provision.sourceArchiveHash !== finalArchiveHash || provision.targetOfflineState !== "isolated")
     throw new Error("custody_independent_provisioning_mismatch");
   if (fence.sourceResourceIdentity !== sourceResourceIdentity || fence.sourceIncarnation !== sourceIncarnation ||
@@ -479,7 +488,8 @@ export function validateAdmission(input: {
   const admitted: ValidatedAdmission = {
     digest: sha256(canonicalJson(manifest)), inventoryHash, inventoryCount, sourceResourceIdentity,
     sourceIncarnation, targetResourceIdentity, targetIncarnation,
-    targetPhysicalGeneration, toolCommitSha, targetRecoveryWitnessHash, finalArchiveHash, nonce, expiresAt,
+    targetPhysicalGeneration, targetDatabaseName, targetDatabaseOid, toolCommitSha,
+    targetRecoveryWitnessHash, finalArchiveHash, nonce, expiresAt,
   };
   admittedManifests.add(admitted);
   return admitted;
