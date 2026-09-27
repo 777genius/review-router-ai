@@ -151,7 +151,8 @@ vi.mock("@reviewrouter/features-entitlements", () => ({
   PrismaEntitlementRepository: class {
     findWorkspaceEntitlement = fixtures.spies.entitlement;
   },
-  freeBetaEntitlement: () => ({ flags: { hosted_codex_pool: false } }),
+  freeBetaEntitlement: () => ({ flags: { hosted_codex_pool: true } }),
+  evaluateFeatureEntitlement: () => ({ allowed: true }),
 }));
 vi.mock("@reviewrouter/features-review-config", () => ({
   PrismaReviewConfigurationRepository: fixtures.EmptyStore,

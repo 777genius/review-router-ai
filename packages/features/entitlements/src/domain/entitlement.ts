@@ -63,7 +63,7 @@ export const freeBetaEntitlement = (
     audit_log: true,
     advanced_org_policies: false,
     cloud_review_execution: false,
-    hosted_codex_pool: false,
+    hosted_codex_pool: true,
     compliance_exports: false,
   },
 });
@@ -86,6 +86,11 @@ export function evaluateFeatureEntitlement(input: {
   | { readonly allowed: false; readonly reason: string } {
   if (input.entitlement.status !== "active") {
     return { allowed: false, reason: "workspace_entitlement_not_active" };
+  }
+  // Hosted pool access is part of every active workspace. The persisted beta-era plan
+  // bit is retained for compatibility but no longer limits this feature.
+  if (input.feature === "hosted_codex_pool") {
+    return { allowed: true };
   }
   if (input.entitlement.flags[input.feature] !== true) {
     return { allowed: false, reason: "feature_not_enabled_for_plan" };

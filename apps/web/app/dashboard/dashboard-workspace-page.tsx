@@ -14,6 +14,7 @@ import {
   PrismaRepositoryHealthRepository,
 } from "@reviewrouter/features-repo-health";
 import {
+  evaluateFeatureEntitlement,
   freeBetaEntitlement,
   PrismaEntitlementRepository,
 } from "@reviewrouter/features-entitlements";
@@ -508,7 +509,10 @@ export async function loadDashboardSectionData(
           : [],
         featureEnabled:
           (needsReadiness || section === "setup") && isHostedCodexPoolEnabled(),
-        entitled: entitlement.flags.hosted_codex_pool,
+        entitled: evaluateFeatureEntitlement({
+          entitlement,
+          feature: "hosted_codex_pool",
+        }).allowed,
         queries: new PrismaHostedPoolQuery(prisma),
       }),
       needsConfig
@@ -2212,7 +2216,11 @@ function DashboardSectionHeader({
             {meta.title}
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            {meta.description}
+            {selectedSection === "setup" && hostedPool.gate !== "enabled"
+              ? hostedPool.gate === "feature_disabled"
+                ? "Hosted ChatGPT account enrollment is paused on this deployment."
+                : "Activate this workspace to manage hosted ChatGPT accounts."
+              : meta.description}
           </p>
           {selectedSection === "repositories" ? (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -2246,7 +2254,7 @@ function DashboardSectionHeader({
                 <Badge tone="neutral">
                   {hostedPool.gate === "feature_disabled"
                     ? "Not enabled"
-                    : "Not included"}
+                    : "Unavailable"}
                 </Badge>
               )
             ) : selectedSection === "diagnostics" ? (
