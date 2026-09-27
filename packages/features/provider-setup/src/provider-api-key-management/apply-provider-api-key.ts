@@ -1,5 +1,6 @@
 import { encryptApiKeyForGitHubSecret } from "@reviewrouter/features-codex-oauth-rotating";
 import {
+  isProviderApiKeySecretPutOutcomeUnknownError,
   providerApiKeySecretName,
   type ProviderApiKeyErrorReason,
   type ProviderApiKeyProvider,
@@ -62,8 +63,12 @@ export async function applyProviderApiKey(
           workspaceId,
           repositoryIds: candidateRepositoryIds,
         });
+      const candidateRepositoryIdSet = new Set(candidateRepositoryIds);
+      const allowedTargets = targets.filter((target) =>
+        candidateRepositoryIdSet.has(target.repositoryId),
+      );
       const targetByRepositoryId = new Map(
-        targets.map((target) => [target.repositoryId, target] as const),
+        allowedTargets.map((target) => [target.repositoryId, target] as const),
       );
       const deniedResults = candidateRepositoryIds
         .filter((repositoryId) => !targetByRepositoryId.has(repositoryId))
@@ -76,7 +81,9 @@ export async function applyProviderApiKey(
             errorSummary: sanitizeProviderApiKeyError("repository_not_allowed"),
           }),
         );
-      const allowedRepositoryIds = targets.map((target) => target.repositoryId);
+      const allowedRepositoryIds = allowedTargets.map(
+        (target) => target.repositoryId,
+      );
       if (allowedRepositoryIds.length === 0) {
         return { providerType, results: deniedResults };
       }
@@ -106,6 +113,44 @@ export async function applyProviderApiKey(
         ...(encryptedApiKey ? { encryptedApiKey } : {}),
         repositoryIds: allowedRepositoryIds,
       });
+      const recordResult = async (
+        result: ProviderApiKeyRepositoryResult,
+      ): Promise<ProviderApiKeyRepositoryResult> => {
+        try {
+          const recorded =
+            await dependencies.providerApiKeys.recordRepositoryResult({
+              operationId: session.operationId,
+              keyVersion: session.keyVersion,
+              result,
+            });
+          return recorded === "recorded"
+            ? result
+            : {
+                repositoryId: result.repositoryId,
+                repositoryFullName: result.repositoryFullName,
+                status: "stale",
+                keyVersion: session.keyVersion,
+              };
+        } catch {
+          try {
+            await dependencies.providerApiKeys.markRepositoryReconciliationNeeded(
+              {
+                operationId: session.operationId,
+                repositoryId: result.repositoryId,
+                errorReason: "persistence_failed",
+              },
+            );
+          } catch {}
+          return {
+            repositoryId: result.repositoryId,
+            repositoryFullName: result.repositoryFullName,
+            status: "reconciliation_needed",
+            errorReason: "persistence_failed",
+            errorSummary: sanitizeProviderApiKeyError("persistence_failed"),
+            keyVersion: session.keyVersion,
+          };
+        }
+      };
       const results = await mapWithConcurrency(
         session.repositoryIds,
         5,
@@ -122,11 +167,23 @@ export async function applyProviderApiKey(
               ),
             };
           }
-          const applying =
-            await dependencies.providerApiKeys.markRepositoryApplying({
-              operationId: session.operationId,
+          let applying = false;
+          try {
+            applying =
+              await dependencies.providerApiKeys.markRepositoryApplying({
+                operationId: session.operationId,
+                repositoryId,
+              });
+          } catch {
+            return recordResult({
               repositoryId,
+              repositoryFullName: target.repositoryFullName,
+              status: "reconciliation_needed",
+              errorReason: "persistence_failed",
+              errorSummary: sanitizeProviderApiKeyError("persistence_failed"),
+              keyVersion: session.keyVersion,
             });
+          }
           if (!applying) {
             return {
               repositoryId,
@@ -171,47 +228,16 @@ export async function applyProviderApiKey(
             result = {
               repositoryId,
               repositoryFullName: target.repositoryFullName,
-              status: "failed",
+              status: isProviderApiKeySecretPutOutcomeUnknownError(error)
+                ? "reconciliation_needed"
+                : "failed",
               errorReason,
               errorSummary: sanitizeProviderApiKeyError(errorReason),
               keyVersion: session.keyVersion,
             };
           }
 
-          try {
-            const recorded =
-              await dependencies.providerApiKeys.recordRepositoryResult({
-                operationId: session.operationId,
-                keyVersion: session.keyVersion,
-                result,
-              });
-            return recorded === "recorded"
-              ? result
-              : {
-                  repositoryId,
-                  repositoryFullName: target.repositoryFullName,
-                  status: "stale",
-                  keyVersion: session.keyVersion,
-                };
-          } catch {
-            try {
-              await dependencies.providerApiKeys.markRepositoryReconciliationNeeded(
-                {
-                  operationId: session.operationId,
-                  repositoryId,
-                  errorReason: "persistence_failed",
-                },
-              );
-            } catch {}
-            return {
-              repositoryId,
-              repositoryFullName: target.repositoryFullName,
-              status: "reconciliation_needed",
-              errorReason: "persistence_failed",
-              errorSummary: sanitizeProviderApiKeyError("persistence_failed"),
-              keyVersion: session.keyVersion,
-            };
-          }
+          return recordResult(result);
         },
       );
       return { providerType, results: [...deniedResults, ...results] };

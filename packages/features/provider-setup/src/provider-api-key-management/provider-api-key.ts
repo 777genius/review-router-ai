@@ -42,6 +42,53 @@ export type ProviderApiKeyRepositoryResult = {
   readonly keyVersion?: number;
 };
 
+export type ProviderApiKeySecretPutUncertainReason =
+  | "response_incomplete"
+  | "timeout"
+  | "transport_unknown";
+
+export class ProviderApiKeySecretPutPreDispatchError extends Error {
+  readonly outcome = "pre_dispatch_failure" as const;
+
+  constructor(cause?: unknown) {
+    super("provider_api_key_secret_put_pre_dispatch_failed", { cause });
+    this.name = "ProviderApiKeySecretPutPreDispatchError";
+  }
+}
+
+export class ProviderApiKeySecretPutOutcomeUnknownError extends Error {
+  readonly outcome = "transport_unknown" as const;
+  readonly reason: ProviderApiKeySecretPutUncertainReason;
+
+  constructor(reason: ProviderApiKeySecretPutUncertainReason, cause?: unknown) {
+    super(`provider_api_key_secret_put_${reason}`, { cause });
+    this.name = "ProviderApiKeySecretPutOutcomeUnknownError";
+    this.reason = reason;
+  }
+}
+
+export class ProviderApiKeyGitHubHttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number) {
+    super(`github_secret_put_http_${status}`);
+    this.name = "ProviderApiKeyGitHubHttpError";
+    this.status = status;
+  }
+}
+
+export function isProviderApiKeySecretPutOutcomeUnknownError(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof ProviderApiKeySecretPutOutcomeUnknownError ||
+    (typeof error === "object" &&
+      error !== null &&
+      "outcome" in error &&
+      error.outcome === "transport_unknown")
+  );
+}
+
 export type ProviderApiKeyState = {
   readonly providerType: ProviderApiKeyProvider;
   readonly connected: boolean;

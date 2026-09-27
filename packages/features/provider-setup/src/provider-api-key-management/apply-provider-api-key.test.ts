@@ -3,6 +3,11 @@ import {
   applyProviderApiKey,
   classifyProviderApiKeyError,
 } from "./apply-provider-api-key";
+import {
+  ProviderApiKeyGitHubHttpError,
+  ProviderApiKeySecretPutOutcomeUnknownError,
+  ProviderApiKeySecretPutPreDispatchError,
+} from "./provider-api-key";
 import type {
   ProviderApiKeyGitHubSecretGatewayPort,
   ProviderApiKeyRepositoryPort,
@@ -117,6 +122,88 @@ describe("applyProviderApiKey", () => {
     ]);
   });
 
+  it("contains a repository applying persistence failure to one result", async () => {
+    const providerApiKeys = store();
+    vi.mocked(providerApiKeys.markRepositoryApplying)
+      .mockRejectedValueOnce(new Error("database_unavailable"))
+      .mockResolvedValueOnce(true);
+    const githubSecrets = gateway();
+
+    const result = await applyProviderApiKey(
+      {
+        workspaceId: "workspace_1",
+        providerType: "mimo",
+        apiKey,
+        repositoryIds: ["repo_1", "repo_2"],
+      },
+      dependencies({ githubSecrets, providerApiKeys }),
+    );
+
+    expect(result.results).toMatchObject([
+      {
+        repositoryId: "repo_1",
+        status: "reconciliation_needed",
+        errorReason: "persistence_failed",
+      },
+      {
+        repositoryId: "repo_2",
+        status: "applied",
+      },
+    ]);
+    expect(githubSecrets.putEncryptedRepositorySecret).toHaveBeenCalledTimes(1);
+    expect(providerApiKeys.recordRepositoryResult).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["response_incomplete", "transport_unknown"] as const)(
+    "returns reconciliation_needed for %s transport outcomes",
+    async (reason) => {
+      const githubSecrets = gateway();
+      githubSecrets.putEncryptedRepositorySecret.mockRejectedValueOnce(
+        new ProviderApiKeySecretPutOutcomeUnknownError(reason),
+      );
+
+      const result = await applyProviderApiKey(
+        {
+          workspaceId: "workspace_1",
+          providerType: "mimo",
+          apiKey,
+          repositoryIds: ["repo_1"],
+        },
+        dependencies({ githubSecrets }),
+      );
+
+      expect(result.results[0]).toMatchObject({
+        status: "reconciliation_needed",
+        errorReason: "github_request_failed",
+      });
+      expect(githubSecrets.putEncryptedRepositorySecret).toHaveBeenCalledTimes(
+        1,
+      );
+    },
+  );
+
+  it("keeps definite pre-dispatch failures in the failed state", async () => {
+    const githubSecrets = gateway();
+    githubSecrets.putEncryptedRepositorySecret.mockRejectedValueOnce(
+      new ProviderApiKeySecretPutPreDispatchError(),
+    );
+
+    const result = await applyProviderApiKey(
+      {
+        workspaceId: "workspace_1",
+        providerType: "mimo",
+        apiKey,
+        repositoryIds: ["repo_1"],
+      },
+      dependencies({ githubSecrets }),
+    );
+
+    expect(result.results[0]).toMatchObject({
+      status: "failed",
+      errorReason: "github_request_failed",
+    });
+  });
+
   it("classifies GitHub rate limits for each affected repository", async () => {
     const githubSecrets = gateway();
     githubSecrets.getRepositoryActionsPublicKey.mockRejectedValue(
@@ -149,6 +236,19 @@ describe("applyProviderApiKey", () => {
   it("classifies rate-limit status before generic GitHub errors", () => {
     expect(classifyProviderApiKeyError({ status: 429 })).toBe("rate_limited");
   });
+
+  it.each([
+    [403, "insufficient_permissions"],
+    [404, "repository_not_found"],
+    [429, "rate_limited"],
+  ] as const)(
+    "classifies structured provider HTTP status %s",
+    (status, errorReason) => {
+      expect(
+        classifyProviderApiKeyError(new ProviderApiKeyGitHubHttpError(status)),
+      ).toBe(errorReason);
+    },
+  );
 });
 
 function dependencies(overrides?: {
