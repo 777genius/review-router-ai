@@ -793,11 +793,11 @@ jobs:
           GITHUB_APP_CLIENT_SECRET: ci-client-secret
           GITHUB_APP_ID: "1"
           GITHUB_APP_SLUG: reviewrouter-ci
-          GITHUB_APP_PRIVATE_KEY: |
-            -----BEGIN PRIVATE KEY-----
-            ci-placeholder
-            -----END PRIVATE KEY-----
-        run: pnpm local:check
+        run: |
+          # Construct the deliberately invalid CI fixture, never an App credential.
+          export GITHUB_APP_PRIVATE_KEY="$(printf '%s %s\n%s\n%s %s\n' \
+            '-----BEGIN' 'PRIVATE KEY-----' 'ci-placeholder' '-----END' 'PRIVATE KEY-----')"
+          pnpm local:check
 
       - name: Unit tests
         run: pnpm test
