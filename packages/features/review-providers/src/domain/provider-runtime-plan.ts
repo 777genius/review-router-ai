@@ -191,6 +191,7 @@ export function isCodexBackedProvider(
 ): boolean {
   return (
     provider.kind === "openrouter" ||
+    provider.kind === "codex-mimo" ||
     getProviderCatalogEntry(provider.kind).runtimeProviderPrefix.startsWith(
       "codex",
     )

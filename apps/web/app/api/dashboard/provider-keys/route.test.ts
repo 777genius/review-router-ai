@@ -48,10 +48,11 @@ describe("GET /api/dashboard/provider-keys", () => {
     mocks.assertWorkspaceFeatureEntitlement.mockResolvedValue(undefined);
   });
 
-  it("default-denies an admin workspace without an explicit provider-key grant", async () => {
+  it("reads MiMo connection state without an operator grant", async () => {
     mocks.assertProviderApiKeyWorkspaceGranted.mockRejectedValue(
       new Error("provider_key_workspace_grant_required"),
     );
+    mocks.providerApiKeyConnectionFindUnique.mockResolvedValue(null);
 
     const response = await GET(
       nextRequest(
@@ -59,15 +60,18 @@ describe("GET /api/dashboard/provider-keys", () => {
       ),
     );
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      error: "provider_key_workspace_grant_required",
+      providerType: "mimo",
+      connected: false,
+      keyVersion: null,
+      repositories: [],
     });
-    expect(mocks.providerApiKeyConnectionFindUnique).not.toHaveBeenCalled();
-    expect(mocks.assertWorkspaceFeatureEntitlement).not.toHaveBeenCalled();
+    expect(mocks.assertProviderApiKeyWorkspaceGranted).not.toHaveBeenCalled();
+    expect(mocks.assertWorkspaceFeatureEntitlement).toHaveBeenCalledOnce();
   });
 
-  it("keeps OpenRouter available without a MiMo pool grant", async () => {
+  it("keeps OpenRouter available without an operator grant", async () => {
     mocks.assertProviderApiKeyWorkspaceGranted.mockRejectedValue(
       new Error("provider_key_workspace_grant_required"),
     );
@@ -94,6 +98,26 @@ describe("GET /api/dashboard/provider-keys", () => {
     );
   });
 
+  it.each([
+    ["dashboard_admin_requires_sign_in", 401],
+    ["workspace_admin_forbidden", 403],
+  ] as const)("rejects %s before reading state", async (error, status) => {
+    mocks.assertDashboardWorkspaceAdminAllowed.mockRejectedValue(
+      new Error(error),
+    );
+
+    const response = await GET(
+      nextRequest(
+        "http://localhost/api/dashboard/provider-keys?workspace=workspace_1&providerType=mimo",
+      ),
+    );
+
+    expect(response.status).toBe(status);
+    await expect(response.json()).resolves.toEqual({ error });
+    expect(mocks.providerApiKeyConnectionFindUnique).not.toHaveBeenCalled();
+    expect(mocks.assertWorkspaceFeatureEntitlement).not.toHaveBeenCalled();
+  });
+
   it("enforces the paid provider-key entitlement before reading state", async () => {
     mocks.assertWorkspaceFeatureEntitlement.mockRejectedValue(
       new Error(
@@ -116,6 +140,9 @@ describe("GET /api/dashboard/provider-keys", () => {
   });
 
   it("returns saved repository state without exposing the encrypted or plaintext key", async () => {
+    mocks.assertProviderApiKeyWorkspaceGranted.mockRejectedValue(
+      new Error("provider_key_workspace_grant_required"),
+    );
     mocks.providerApiKeyConnectionFindUnique.mockResolvedValue({
       keyVersion: 1,
       repositoryLinks: [

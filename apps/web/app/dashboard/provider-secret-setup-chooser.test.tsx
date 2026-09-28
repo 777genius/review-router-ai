@@ -41,6 +41,21 @@ function pageText(): string {
 }
 
 describe("ProviderSecretSetupChooser", () => {
+  it("selects MiMo and shows an interactive repository command without a key field", () => {
+    renderProviderSecretSetupChooser();
+
+    fireEvent.click(
+      screen.getByTestId("provider-choice-mimo-token-plan-api-key"),
+    );
+
+    expect(pageText()).toContain("codex-mimo/mimo-v2.6-pro");
+    expect(pageText()).toContain(
+      "gh secret set MIMO_TOKEN_PLAN_API_KEY --repo 777genius/plugin-kit-ai-starter-claude-python --app actions",
+    );
+    expect(document.querySelector('input[type="password"]')).toBeNull();
+    expect(document.querySelector('input[name*="key" i]')).toBeNull();
+  });
+
   it("shows a loading state while provider setup verification is pending", async () => {
     const pendingResponse = deferredProviderSetupResponse();
     mockProviderSetupFetch().mockReturnValueOnce(pendingResponse.promise);
@@ -869,6 +884,10 @@ function renderProviderSecretSetupChooser(input?: {
         "CLAUDE_CODE_OAUTH_TOKEN",
         organizationLogin,
       )}
+      mimoTokenPlanApiKeyGuidance={guidance(
+        "MIMO_TOKEN_PLAN_API_KEY",
+        organizationLogin,
+      )}
       openRouterApiKeyGuidance={guidance(
         "OPENROUTER_API_KEY",
         organizationLogin,
@@ -894,6 +913,7 @@ function renderProviderSecretSetupDialog(): void {
         codexOAuth: guidance("CODEX_AUTH_JSON"),
         codexApiKey: guidance("OPENAI_API_KEY"),
         claudeCodeOAuth: guidance("CLAUDE_CODE_OAUTH_TOKEN"),
+        mimoTokenPlanApiKey: guidance("MIMO_TOKEN_PLAN_API_KEY"),
         openRouterApiKey: guidance("OPENROUTER_API_KEY"),
       }}
       triggerLabel="Enable review"
@@ -981,7 +1001,7 @@ function guidance(
     scope: "repository" as const,
     title: "Repository secret",
     description: `Stores ${secretName} directly in this repository.`,
-    command: `gh secret set ${secretName} --repo 777genius/plugin-kit-ai-starter-claude-python`,
+    command: `gh secret set ${secretName} --repo 777genius/plugin-kit-ai-starter-claude-python${secretName === "MIMO_TOKEN_PLAN_API_KEY" ? " --app actions" : ""}`,
     storesSecretIn: "github_repository_secret" as const,
     targetLabel:
       "777genius/plugin-kit-ai-starter-claude-python repository secret",
@@ -998,9 +1018,11 @@ function guidance(
         ? "codex_oauth"
         : secretName === "OPENAI_API_KEY"
           ? "openai_api_key"
-          : secretName === "CLAUDE_CODE_OAUTH_TOKEN"
-            ? "claude_code_oauth"
-            : "openrouter_api_key",
+          : secretName === "MIMO_TOKEN_PLAN_API_KEY"
+            ? "mimo_token_plan_api_key"
+            : secretName === "CLAUDE_CODE_OAUTH_TOKEN"
+              ? "claude_code_oauth"
+              : "openrouter_api_key",
     recommendedScope: organizationLogin
       ? "organization_selected_repositories"
       : "repository",

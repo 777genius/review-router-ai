@@ -93,6 +93,15 @@ export const claudeModelOptions: readonly ReviewModelOption[] = [
   },
 ];
 
+export const mimoModelOptions: readonly ReviewModelOption[] = [
+  {
+    value: "mimo-v2.6-pro",
+    label: "mimo-v2.6-pro",
+    provider: "codex-mimo",
+    description: "MiMo Token Plan public engine model.",
+  },
+];
+
 export function listStaticReviewModelOptions(): readonly ReviewModelOption[] {
-  return [...codexModelOptions, ...claudeModelOptions];
+  return [...codexModelOptions, ...mimoModelOptions, ...claudeModelOptions];
 }

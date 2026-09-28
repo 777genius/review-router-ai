@@ -232,9 +232,9 @@ export function ProviderApiKeyManager({
               Connect MiMo / OpenRouter
             </DialogTitle>
             <DialogDescription className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-              Apply one provider key to explicitly selected GitHub repositories.
-              ReviewRouter encrypts the saved key and never returns it to the
-              browser.
+              Apply your own provider key to explicitly selected GitHub
+              repositories. ReviewRouter encrypts the saved key and never
+              returns it to the browser.
             </DialogDescription>
           </div>
 
@@ -500,12 +500,12 @@ function ProviderKeyResultBadge({
 function providerKeyErrorMessage(code: string): string {
   const messages: Record<string, string> = {
     "entitlement_denied:provider_key_management:feature_not_enabled_for_plan":
-      "Provider key management is available on paid plans.",
+      "Provider key management is unavailable for this workspace plan.",
+    "entitlement_denied:provider_key_management:workspace_entitlement_not_active":
+      "Provider key management requires an active workspace plan.",
     workspace_admin_forbidden: "Workspace admin access is required.",
     stored_api_key_unavailable:
       "Enter a new API key; no saved key is available.",
-    provider_key_workspace_grant_required:
-      "Workspace access to stored provider keys has not been granted.",
     repository_not_allowed: "Repository is not allowed for this workspace.",
     repository_not_found:
       "Repository was not found or is not in this workspace.",

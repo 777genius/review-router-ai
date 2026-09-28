@@ -7,10 +7,7 @@ import {
 import { providerApiKeyProviderSchema } from "@reviewrouter/features-provider-setup";
 import { assertDashboardWorkspaceAdminAllowed } from "../../../../src/server/dashboard-mutations";
 import { getPrisma } from "../../../../src/server/prisma";
-import {
-  assertProviderApiKeyWorkspaceGranted,
-  PrismaProviderApiKeyStore,
-} from "../../../../src/server/provider-api-keys";
+import { PrismaProviderApiKeyStore } from "../../../../src/server/provider-api-keys";
 
 export const dynamic = "force-dynamic";
 
@@ -32,9 +29,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const actor = await assertDashboardWorkspaceAdminAllowed(workspaceId);
     const prisma = getPrisma();
-    if (providerType.data === "mimo") {
-      await assertProviderApiKeyWorkspaceGranted(prisma, workspaceId);
-    }
     await assertWorkspaceFeatureEntitlement(
       {
         workspaceId,
@@ -72,7 +66,6 @@ function dashboardProviderKeyErrorCode(error: unknown): string {
     case "dashboard_admin_requires_sign_in":
     case "dashboard_admin_forbidden":
     case "workspace_admin_forbidden":
-    case "provider_key_workspace_grant_required":
       return error.message;
     default:
       return "provider_key_request_failed";
@@ -88,7 +81,6 @@ function providerKeyErrorStatus(error: unknown): number {
       return 401;
     case "dashboard_admin_forbidden":
     case "workspace_admin_forbidden":
-    case "provider_key_workspace_grant_required":
       return 403;
     case "dashboard_auth_misconfigured":
       return 503;
