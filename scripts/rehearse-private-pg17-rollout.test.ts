@@ -1272,15 +1272,15 @@ describe("disposable dual-version rehearsal", () => {
 
     const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
     const previousCheckout = migrationNames.filter(
-      (name) => name !== "000110_historical_unknown_scope_barrier",
+      (name) => name !== "000111_hosted_v4_fenced_dispatch",
     );
-    expect(previousCheckout).toHaveLength(108);
+    expect(previousCheckout).toHaveLength(109);
     expect(() =>
       resolvePreReleaseMigrationExclusions(previousCheckout),
     ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
-    expect(migrationNames).toHaveLength(109);
+    expect(migrationNames).toHaveLength(110);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:1a5470960ccf766827bb58fc0a270553f002802e0019225adb4a0dfcf2b591af",
+      "sha256:8e8ba2d70adbe0533a9fa5fc391ca9c40c15dc644d52e80b6d5ed0e3406530a3",
     );
 
     expect(exclusions).toEqual([
@@ -1317,6 +1317,7 @@ describe("disposable dual-version rehearsal", () => {
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
+      "000111_hosted_v4_fenced_dispatch",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1366,7 +1367,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000107_hosted_v4_relay_turn_contract" &&
             name !== "000108_sdk_growth_verifier_assignment" &&
             name !== "000109_sdk_growth_verifier_assignment_lock" &&
-            name !== "000110_historical_unknown_scope_barrier",
+            name !== "000110_historical_unknown_scope_barrier" &&
+            name !== "000111_hosted_v4_fenced_dispatch",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1389,7 +1391,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000107_hosted_v4_relay_turn_contract" &&
             name !== "000108_sdk_growth_verifier_assignment" &&
             name !== "000109_sdk_growth_verifier_assignment_lock" &&
-            name !== "000110_historical_unknown_scope_barrier",
+            name !== "000110_historical_unknown_scope_barrier" &&
+            name !== "000111_hosted_v4_fenced_dispatch",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1418,6 +1421,12 @@ describe("disposable dual-version rehearsal", () => {
       names.map((name) => (name === exactTail ? "000108_unknown" : name)),
       [...names, "000109_future_migration"],
       [...names, "000111_future_migration"],
+      names.filter((name) => name !== "000111_hosted_v4_fenced_dispatch"),
+      names.map((name) =>
+        name === "000111_hosted_v4_fenced_dispatch"
+          ? "000111_relabelled"
+          : name,
+      ),
       names.map((name) =>
         name === "000110_historical_unknown_scope_barrier"
           ? "000110_relabelled"
@@ -1444,6 +1453,7 @@ describe("disposable dual-version rehearsal", () => {
     "000108_sdk_growth_verifier_assignment",
     "000109_sdk_growth_verifier_assignment_lock",
     "000110_historical_unknown_scope_barrier",
+    "000111_hosted_v4_fenced_dispatch",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1483,7 +1493,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000107_hosted_v4_relay_turn_contract" &&
                 name !== "000108_sdk_growth_verifier_assignment" &&
                 name !== "000109_sdk_growth_verifier_assignment_lock" &&
-                name !== "000110_historical_unknown_scope_barrier",
+                name !== "000110_historical_unknown_scope_barrier" &&
+                name !== "000111_hosted_v4_fenced_dispatch",
               "000102_sdk_growth_current_authority",
             ),
           ),
