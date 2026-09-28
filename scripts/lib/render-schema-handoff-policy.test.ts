@@ -699,7 +699,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
   it("admits only exact SQL110 after the immutable 108-directory checkout", () => {
     expect(checkout108).toHaveLength(108);
     expect(migration110.checksum).toBe(
-      "e7c4ed306a2ce1ddecc285ce02ff1cd88d80d4f8a1b815ec2b4cb4d23fab88e2",
+      "aa9cd8a8e34e9909dcc22c5a7dd94cc4121821db93330c0a54bb48b0aaf61a79",
     );
     expect(checkout109).toHaveLength(109);
     expect(
@@ -710,7 +710,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
             .join(","),
         )
         .digest("hex"),
-    ).toBe("fdf3605957ee7063ed38da94825828e703792110069826a915f6a9e0d50500af");
+    ).toBe("1a5470960ccf766827bb58fc0a270553f002802e0019225adb4a0dfcf2b591af");
     expect(partitionRenderSchemaHandoffCheckout(checkout108)).toEqual(catalog);
     expect(partitionRenderSchemaHandoffCheckout(checkout109)).toEqual(catalog);
     expect(() => assertRenderSchemaHandoffCatalog(checkout109)).toThrow(

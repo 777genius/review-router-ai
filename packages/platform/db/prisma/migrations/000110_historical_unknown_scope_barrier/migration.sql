@@ -2,6 +2,57 @@ BEGIN;
 SET LOCAL lock_timeout = '15s';
 SET LOCAL statement_timeout = '5min';
 
+-- A stock standalone chain has no SaaS release roles. Only its trusted
+-- migration administrator may establish the inert owner needed by the two
+-- gate helpers. An existing role must already be safe; never repair one here.
+DO $historical_owner$
+DECLARE owner_role pg_catalog.pg_roles%ROWTYPE;
+BEGIN
+  SELECT * INTO owner_role FROM pg_catalog.pg_roles
+    WHERE rolname = 'reviewrouter_release_schema_owner';
+  IF NOT FOUND THEN
+    IF current_user <> session_user OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_roles
+      WHERE rolname = current_user AND rolsuper
+    ) THEN
+      RAISE EXCEPTION 'hosted_historical_owner_bootstrap_requires_administrator'
+        USING ERRCODE = '42501';
+    END IF;
+    PERFORM pg_catalog.set_config('createrole_self_grant', '', true);
+    CREATE ROLE reviewrouter_release_schema_owner NOLOGIN NOSUPERUSER
+      NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS
+      CONNECTION LIMIT -1;
+    IF EXISTS (
+      SELECT 1 FROM pg_catalog.pg_auth_members edge
+      WHERE edge.roleid = 'reviewrouter_release_schema_owner'::regrole
+         OR edge.member = 'reviewrouter_release_schema_owner'::regrole
+         OR edge.grantor = 'reviewrouter_release_schema_owner'::regrole
+    ) THEN
+      RAISE EXCEPTION 'hosted_historical_owner_bootstrap_membership'
+        USING ERRCODE = '42501';
+    END IF;
+    -- Needed to resolve the definer's qualified public objects before a
+    -- later managed handoff makes this role the owner of public itself.
+    GRANT USAGE ON SCHEMA public TO reviewrouter_release_schema_owner;
+  ELSE
+    -- A preexisting owner must already resolve the qualified gate tables.
+    IF owner_role.rolcanlogin OR owner_role.rolsuper OR owner_role.rolcreatedb
+       OR owner_role.rolcreaterole OR owner_role.rolreplication
+       OR owner_role.rolbypassrls OR owner_role.rolconnlimit <> -1
+       OR owner_role.rolvaliduntil IS NOT NULL
+       OR NOT pg_catalog.has_schema_privilege(
+         'reviewrouter_release_schema_owner', 'public', 'USAGE')
+       OR EXISTS (
+         SELECT 1 FROM pg_catalog.pg_auth_members edge
+         WHERE edge.roleid = owner_role.oid OR edge.member = owner_role.oid
+            OR edge.grantor = owner_role.oid
+       ) THEN
+      RAISE EXCEPTION 'hosted_historical_owner_unsafe_existing_role'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+END $historical_owner$;
+
 -- Installed inert. Only the offline migration owner may populate these tables,
 -- and only while the runtime gate is closed. The API cannot self-clear a deny.
 CREATE TABLE public."HostedHistoricalScopePolicy" (
@@ -205,7 +256,20 @@ BEGIN
     FROM public."HostedCodexRuntimeGate" gate
     WHERE gate."id" = 'global' FOR SHARE;
 END $$;
-ALTER FUNCTION public.hosted_historical_lock_runtime_gate() OWNER TO reviewrouter_release_schema_owner;
+DO $historical_owner_handoff$
+DECLARE temporary_create boolean := false;
+BEGIN
+  IF NOT pg_catalog.has_schema_privilege(
+    'reviewrouter_release_schema_owner', 'public', 'CREATE') THEN
+    GRANT CREATE ON SCHEMA public TO reviewrouter_release_schema_owner;
+    temporary_create := true;
+  END IF;
+  ALTER FUNCTION public.hosted_historical_lock_runtime_gate()
+    OWNER TO reviewrouter_release_schema_owner;
+  IF temporary_create THEN
+    REVOKE CREATE ON SCHEMA public FROM reviewrouter_release_schema_owner;
+  END IF;
+END $historical_owner_handoff$;
 
 -- Raw 000110 plus administrative ACL convergence must work without relying on
 -- a later whole-catalog ownership handoff. These grants are to the non-login
@@ -269,7 +333,20 @@ BEGIN
   PERFORM public.hosted_historical_assert_grant(NEW);
   RETURN NEW;
 END $$;
-ALTER FUNCTION public.hosted_historical_grant_guard() OWNER TO reviewrouter_release_schema_owner;
+DO $historical_owner_handoff$
+DECLARE temporary_create boolean := false;
+BEGIN
+  IF NOT pg_catalog.has_schema_privilege(
+    'reviewrouter_release_schema_owner', 'public', 'CREATE') THEN
+    GRANT CREATE ON SCHEMA public TO reviewrouter_release_schema_owner;
+    temporary_create := true;
+  END IF;
+  ALTER FUNCTION public.hosted_historical_grant_guard()
+    OWNER TO reviewrouter_release_schema_owner;
+  IF temporary_create THEN
+    REVOKE CREATE ON SCHEMA public FROM reviewrouter_release_schema_owner;
+  END IF;
+END $historical_owner_handoff$;
 CREATE TRIGGER hosted_historical_grant_insert BEFORE INSERT OR UPDATE ON public."HostedCodexInvocationGrant"
   FOR EACH ROW EXECUTE FUNCTION public.hosted_historical_grant_guard();
 
