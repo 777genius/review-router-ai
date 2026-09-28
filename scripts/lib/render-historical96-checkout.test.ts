@@ -33,8 +33,14 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full109 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(109);
+  // CI 36453651163 left the direct historical96 reader rejecting the now
+  // admitted 110-directory checkout at count; the old reader fails here.
+  it("validates the full110 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(110);
+    expect(full[109]?.migrationName).toBe("000111_hosted_v4_fenced_dispatch");
+    expect(full[109]?.checksum).toBe(
+      "869cc817d2654e6239d23f1c2ce7461c37da09af66b06900afd8eace6de7f0d5",
+    );
     expect(full[108]?.migrationName).toBe(
       "000110_historical_unknown_scope_barrier",
     );
@@ -89,9 +95,10 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: checkout106 },
     { checkout: checkout107 },
     { checkout: checkout108 },
+    { checkout: full.slice(0, 109) },
     { checkout: full },
   ])(
-    "accepts a complete validated checkout through 000110 (%#)",
+    "accepts a complete validated historical checkout prefix (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);
@@ -123,11 +130,24 @@ describe("trusted historical96 checkout reader", () => {
     ["duplicate extension", [...full, full[96]!]],
     [
       "relabelled 110",
-      [...full.slice(0, 108), { ...full[108]!, migrationName: "000110_relabelled" }],
+      [
+        ...full.slice(0, 108),
+        { ...full[108]!, migrationName: "000110_relabelled" },
+      ],
     ],
     [
       "unknown 111",
-      [...full, { migrationName: "000111_unknown", checksum: "a".repeat(64) }],
+      [
+        ...full.slice(0, 109),
+        { migrationName: "000111_unknown", checksum: "a".repeat(64) },
+      ],
+    ],
+    [
+      "relabelled 111",
+      [
+        ...full.slice(0, 109),
+        { ...full[109]!, migrationName: "000111_relabelled" },
+      ],
     ],
     [
       "future replacement",
@@ -156,7 +176,9 @@ describe("trusted historical96 checkout reader", () => {
     },
   );
 
-  it.each([96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108])(
+  // A checksum drift in SQL111 must still be rejected by source admission;
+  // the old test range never exercised the new checkout-only tail.
+  it.each([96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {
       reader.mockImplementationOnce(() => {
