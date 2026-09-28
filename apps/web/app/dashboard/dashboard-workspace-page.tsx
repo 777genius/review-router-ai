@@ -2665,7 +2665,9 @@ function RepositoryTable({
     >
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-200/10 px-4 py-3 lg:px-6">
         <div>
-          <p className="text-sm font-semibold text-cyan-100">Provider API keys</p>
+          <p className="text-sm font-semibold text-cyan-100">
+            Provider API keys
+          </p>
           <p className="mt-1 text-xs leading-5 text-slate-500">
             Apply a MiMo or OpenRouter key to selected repositories.
           </p>
