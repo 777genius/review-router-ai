@@ -107,6 +107,8 @@ const sdkGrowthVerifierAssignmentMigrations = Object.freeze([
   "000108_sdk_growth_verifier_assignment",
   "000109_sdk_growth_verifier_assignment_lock",
 ]);
+const historicalUnknownScopeBarrierMigration =
+  "000110_historical_unknown_scope_barrier";
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -180,6 +182,8 @@ try {
       addMigration(rehearsalDirectory, migrationName);
       runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     }
+    addMigration(rehearsalDirectory, historicalUnknownScopeBarrierMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
 
     const migrationCount = await countAppliedMigrations(migrationDatabaseUrl);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
@@ -759,6 +763,7 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           requestScopedFailoverMigration.name,
           v4RelayTurnMigration,
           ...sdkGrowthVerifierAssignmentMigrations,
+          historicalUnknownScopeBarrierMigration,
         ]
       : []),
   ]);
