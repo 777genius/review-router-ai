@@ -9,7 +9,6 @@ export enum ContextProviderKind {
 export enum ContextLeaseAuthorityKind {
   StandardExecution = "standard_execution",
   InvestigationShadow = "investigation_shadow",
-  InvestigationRelay = "investigation_relay",
 }
 
 export enum GatewaySessionState {

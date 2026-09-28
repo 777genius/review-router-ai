@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
-import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
-import { registerReviewInvestigationV2Routes } from "@reviewrouter/features-action-control-plane/v2";
 import {
   ContextCriticDecision,
   InvestigationTurnProviderKind,
@@ -36,9 +34,6 @@ import {
   ReviewActionV2ProtocolErrorCode,
   ReviewInvestigationMutationResultStatus,
   ReviewInvestigationLeaseResultStatus,
-  ReviewInvestigationLeaseAuthorityPurpose,
-  ReviewInvestigationRelayGrantResultStatus,
-  ReviewInvestigationRelayStatusState,
   ReviewInvestigationPublishedAbortReason,
   ReviewActionV2OperationId,
   ReviewInvestigationPublishedRuntimeProfile,
@@ -49,8 +44,6 @@ import {
   type ReviewActionV2RequestMap,
   type ReviewInvestigationConcludeRequest,
   type ReviewInvestigationLeaseAcquireRequest,
-  type ReviewInvestigationRelayGrantRequest,
-  type ReviewInvestigationRelayStatusRequest,
   type ReviewInvestigationLeaseReleaseRequest,
   type ReviewInvestigationLeaseRenewRequest,
   type ReviewInvestigationOpenV2Request,
@@ -99,131 +92,6 @@ const investigationLeaseHandlerStubs = {
 } as const;
 
 describe("Review Action v2 investigation composition", () => {
-  it("reconstructs relay status with only current run authority while new admission is disabled", async () => {
-    const aggregate = activeInvestigation();
-    const readStatus = vi.fn().mockResolvedValue({
-      logicalTurnKey: sha("turn"), state: "terminal_unknown",
-      grantId: "grant-1", requestId: "request-1", effectId: "effect-1",
-      ordinal: 1, requestHash: sha("bounded-body"), acceptedAttestationId: null,
-    });
-    const routes = composeReviewActionV2InvestigationRoutes({
-      enabled: true,
-      runtime: { readServerTime: async () => now, createRequestId: () => "request-generated" },
-      handlers: {
-        ...investigationLeaseHandlerStubs,
-        authorizations: authorizationResolver(),
-        authorizationQueries: {} as never,
-        executionQueries: {} as never,
-        investigations: { restore: { snapshot: vi.fn().mockResolvedValue(aggregate) } } as never,
-        capabilities: {} as never,
-        digest,
-        now: () => now,
-        rollout: allowingRollout,
-        terminalShadowEvidence: { execute: vi.fn() } as never,
-        crossRevisionReplayEnabled: false,
-        replayPreparation: vi.fn() as never,
-        relayTurnStatus: { readStatus },
-      },
-    });
-    const request: ReviewInvestigationRelayStatusRequest = {
-      ...envelope("relay-status"),
-      authorizationToken: "authorization-token",
-      authorizationId: authorization.authorizationId,
-      investigationId: aggregate.investigationId,
-      turnId: aggregate.activeTurn!.turnId,
-    };
-    await expect(routes.relayStatus!.execute(request)).resolves.toMatchObject({
-      statusCode: 200,
-      result: {
-        status: ReviewInvestigationRelayStatusState.TerminalUnknown,
-        grantId: "grant-1", requestId: "request-1", effectId: "effect-1",
-        requestHash: sha("bounded-body"),
-        dispatchBlockedPrerequisite: "pinned_codex_transport_output_token_limit_unqualified",
-      },
-    });
-    expect(readStatus).toHaveBeenCalledOnce();
-    await expect(routes.relayStatus!.execute({ ...request, authorizationId: "other" }))
-      .rejects.toMatchObject({ statusCode: 412 });
-    expect(readStatus).toHaveBeenCalledOnce();
-  });
-  it("keeps the negotiated grant route closed with an explicit prerequisite", async () => {
-    const original = activeInvestigation();
-    const aggregate = {
-      ...original,
-      activeTurn: {
-        ...original.activeTurn!,
-        turnBudgetCanonicalJson: "{}",
-        turnBudgetHash: sha("{}"),
-      },
-    } as ReviewInvestigation;
-    const snapshot = vi.fn().mockResolvedValue(aggregate);
-    const routes = composeReviewActionV2InvestigationRoutes({
-      enabled: true,
-      runtime: { readServerTime: async () => now, createRequestId: () => "request-generated" },
-      handlers: {
-        ...investigationLeaseHandlerStubs,
-        authorizations: authorizationResolver(),
-        authorizationQueries: {} as never,
-        executionQueries: {} as never,
-        investigations: { restore: { snapshot } } as never,
-        capabilities: {} as never,
-        digest,
-        now: () => now,
-        rollout: allowingRollout,
-        terminalShadowEvidence: { execute: vi.fn() } as never,
-        crossRevisionReplayEnabled: false,
-        replayPreparation: vi.fn() as never,
-      },
-    });
-    const request = await withBodyHash(ReviewActionV2OperationId.ReviewInvestigationRelayGrant, {
-      ...envelope("relay-grant"),
-      authorizationToken: "authorization-token",
-      idempotencyKey: "relay-grant-1",
-      requestBodyHash: sha("placeholder"),
-      authorizationId: authorization.authorizationId,
-      investigationId: aggregate.investigationId,
-      turnId: aggregate.activeTurn!.turnId,
-      investigationLeaseCapability: "relay-investigation-capability",
-      invocationLeaseCapability: "provider-invocation-capability",
-    } satisfies ReviewInvestigationRelayGrantRequest);
-    await expect(routes.relayGrant!.execute(request)).resolves.toMatchObject({
-      statusCode: 200,
-      result: {
-        status: ReviewInvestigationRelayGrantResultStatus.Rejected,
-        grantResponse: null,
-        blockedPrerequisite: "pinned_codex_transport_output_token_limit_unqualified",
-      },
-    });
-    const app = Fastify();
-    try {
-      await registerReviewInvestigationV2Routes(app, routes);
-      const wire = await app.inject({
-        method: "POST", url: "/api/action/v2/review-investigations/relay-grants",
-        payload: request,
-      });
-      expect(wire.statusCode).toBe(200);
-      expect(wire.json()).toMatchObject({
-        protocolVersion: "2",
-        result: { status: "rejected", grantResponse: null,
-          blockedPrerequisite: "pinned_codex_transport_output_token_limit_unqualified" },
-      });
-    } finally {
-      await app.close();
-    }
-    await expect(routes.relayGrant!.execute({ ...request, turnId: "other" }))
-      .rejects.toMatchObject({ statusCode: 400 });
-    const otherTurn = await withBodyHash(ReviewActionV2OperationId.ReviewInvestigationRelayGrant,
-      { ...request, turnId: "other" });
-    await expect(routes.relayGrant!.execute(otherTurn))
-      .rejects.toMatchObject({ statusCode: 412 });
-    const otherAuthorization = await withBodyHash(
-      ReviewActionV2OperationId.ReviewInvestigationRelayGrant,
-      { ...request, authorizationId: "other" },
-    );
-    await expect(routes.relayGrant!.execute(otherAuthorization))
-      .rejects.toMatchObject({ statusCode: 412 });
-    expect(snapshot).toHaveBeenCalledTimes(3);
-  });
   it("keeps the shadow certificate digest preimage identical to the investigation issuer", () => {
     const certificate = concludedInvestigation().certificate!;
     const { certificateHash, ...candidate } = certificate;
@@ -450,20 +318,6 @@ describe("Review Action v2 investigation composition", () => {
       }),
     );
     expect(issue).toHaveBeenCalledOnce();
-    const relayRequest = await withBodyHash(
-      ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire,
-      {
-        ...request,
-        requestId: "investigation-relay-lease-acquire",
-        idempotencyKey: "investigation-relay-lease-acquire",
-        leasePurpose: ReviewInvestigationLeaseAuthorityPurpose.RelayTurn,
-      },
-    );
-    await expect(routes.acquireLease!.execute(relayRequest)).rejects.toMatchObject({
-      statusCode: 403,
-      issues: ["review_hosted_relay_extension_not_authorized"],
-    });
-    expect(acquire).toHaveBeenCalledOnce();
   });
 
   it("rejects an expired lease generation for renew, release, and turn abort", async () => {
@@ -471,7 +325,6 @@ describe("Review Action v2 investigation composition", () => {
     const aggregate = activeInvestigation();
     const lease = investigationLeaseFixture(aggregate, ownerIdHash);
     const authority = {
-      purpose: lease.purpose,
       capabilityId: lease.leaseCapabilityId,
       authorizationId: lease.authorizationId,
       mutationEpoch: lease.mutationEpoch,
@@ -637,7 +490,6 @@ describe("Review Action v2 investigation composition", () => {
       const before = structuredClone(aggregate);
       const lease = investigationLeaseFixture(aggregate, ownerIdHash);
       const authority = {
-        purpose: lease.purpose,
         capabilityId: lease.leaseCapabilityId,
         authorizationId: lease.authorizationId,
         mutationEpoch: lease.mutationEpoch,

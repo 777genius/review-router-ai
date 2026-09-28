@@ -9,9 +9,7 @@ import {
   ReviewInvestigationLeaseState,
   type ReviewInvestigationLease,
   type ReviewInvestigationLeaseTransitionResult,
-  ReviewInvestigationLeasePurpose,
 } from "../../domain/investigation-lease";
-import { verifyRelayTurnBudget } from "../../domain/relay-turn-budget";
 import type { InvestigationClockPort } from "../ports/clock-port";
 import type { InvestigationDigestPort } from "../ports/digest-port";
 import type { InvestigationExecutionAuthorityPort } from "../ports/execution-authority-port";
@@ -27,7 +25,6 @@ import {
 } from "./investigation-use-case-support";
 
 export type AcquireInvestigationLeaseCommand = Readonly<{
-  purpose?: ReviewInvestigationLeasePurpose;
   investigationId: string;
   expectedVersion: number;
   turnId: string;
@@ -78,12 +75,6 @@ export class AcquireInvestigationLease {
     ) {
       throw new Error("investigation_lease_binding_stale");
     }
-    if (
-      command.purpose === ReviewInvestigationLeasePurpose.RelayTurn &&
-      (turn.turnBudgetCanonicalJson === null || turn.turnBudgetHash === null)
-    ) {
-      throw new Error("investigation_relay_turn_budget_missing");
-    }
     await requireCurrentExecution({ authority: this.authority, investigation });
     if (
       (await computeInvestigationManifestKey(
@@ -100,15 +91,6 @@ export class AcquireInvestigationLease {
     if (turnExpiresAt <= now) {
       throw new Error("investigation_turn_expired");
     }
-    if (command.purpose === ReviewInvestigationLeasePurpose.RelayTurn) {
-      await verifyRelayTurnBudget({
-        canonicalJson: turn.turnBudgetCanonicalJson!,
-        hash: turn.turnBudgetHash!,
-        digestUtf8: (value) => this.digest.digestUtf8(value),
-        now,
-        turnExpiresAt,
-      });
-    }
     const expiresAt = new Date(
       Math.min(
         now.getTime() + command.initialLeaseDurationMs,
@@ -116,7 +98,6 @@ export class AcquireInvestigationLease {
       ),
     );
     return this.leases.acquireLease({
-      purpose: command.purpose ?? ReviewInvestigationLeasePurpose.ShadowTurn,
       leaseId: command.leaseId,
       workspaceId: investigation.scope.workspaceId,
       repositoryConnectionId: investigation.scope.repositoryConnectionId,

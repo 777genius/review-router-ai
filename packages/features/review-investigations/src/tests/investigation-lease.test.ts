@@ -4,7 +4,6 @@ import {
   releaseReviewInvestigationLease,
   renewReviewInvestigationLease,
   ReviewInvestigationLeaseProtectedOperation,
-  ReviewInvestigationLeasePurpose,
   ReviewInvestigationLeaseState,
   ReviewInvestigationLeaseTransitionStatus,
   assertReviewInvestigationLeaseAllows,
@@ -27,21 +26,6 @@ describe("review investigation lease", () => {
       expect(() =>
         assertReviewInvestigationLeaseAllows(lease, operation),
       ).not.toThrow();
-    }
-  });
-
-  it("retains relay_turn as a distinct protected lease purpose", () => {
-    const shadow = activeLease();
-    const relay = createReviewInvestigationLease({
-      ...shadow,
-      leaseId: "relay-lease-1",
-      leaseCapabilityId: "relay-capability-1",
-      purpose: ReviewInvestigationLeasePurpose.RelayTurn,
-    });
-    expect(relay.purpose).toBe(ReviewInvestigationLeasePurpose.RelayTurn);
-    expect(shadow.purpose).toBe(ReviewInvestigationLeasePurpose.ShadowTurn);
-    for (const operation of Object.values(ReviewInvestigationLeaseProtectedOperation)) {
-      expect(() => assertReviewInvestigationLeaseAllows(relay, operation)).not.toThrow();
     }
   });
 

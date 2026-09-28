@@ -295,14 +295,6 @@ export class PrismaInvestigationStore
           WHERE investigation."state" = 'turn_leased'::"ReviewInvestigationStateV1"
             AND turn."state" = 'leased'::"ReviewInvestigationTurnStateV1"
             AND turn."expiresAt" <= ${effectiveCutoff}
-            AND NOT EXISTS (
-              SELECT 1 FROM "HostedCodexV4RelayTurn" AS relay_turn
-              JOIN "HostedCodexInvocationGrant" AS relay_grant
-                ON relay_grant."v4TurnKey" = relay_turn."logicalTurnKey"
-               AND relay_grant."authorityKind" = 'v4_relay_turn'
-              WHERE relay_turn."investigationId" = investigation."investigationId"
-                AND relay_turn."turnId" = turn."turnId"
-            )
           ORDER BY turn."expiresAt" ASC, investigation."investigationId" ASC
           LIMIT ${input.limit}
           FOR UPDATE OF investigation SKIP LOCKED
@@ -1408,8 +1400,6 @@ async function persistTransition(
           state: PrismaTurnState.leased,
           leasedAtVersion: BigInt(turn.leasedAtVersion),
           dossierDigest: turn.dossierDigest,
-          turnBudgetCanonicalJson: turn.turnBudgetCanonicalJson ?? null,
-          turnBudgetHash: turn.turnBudgetHash ?? null,
           obligationIds: [...turn.obligationIds],
           semanticTurnOrdinal: turn.semanticTurnOrdinal,
           criticCycleOrdinal: turn.criticCycleOrdinal,
@@ -2186,8 +2176,6 @@ function toTurn(record: PrismaTurnRecord): InvestigationTurn {
     purpose: fromPrismaTurnPurpose(record.purpose),
     leasedAtVersion: safeNumber(record.leasedAtVersion, "turn_leased_version"),
     dossierDigest: record.dossierDigest,
-    turnBudgetCanonicalJson: record.turnBudgetCanonicalJson,
-    turnBudgetHash: record.turnBudgetHash,
     obligationIds,
     semanticTurnOrdinal: record.semanticTurnOrdinal,
     criticCycleOrdinal: record.criticCycleOrdinal,
@@ -3145,7 +3133,7 @@ function toInvestigationLeaseCreate(
 ) {
   return {
     leaseId: lease.leaseId,
-    purpose: leasePurposeToPrisma[lease.purpose ?? ReviewInvestigationLeasePurpose.ShadowTurn],
+    purpose: PrismaLeasePurpose.shadow_turn,
     workspaceId: lease.workspaceId,
     repositoryConnectionId: lease.repositoryConnectionId,
     scmRepositoryIdentityId: lease.scmRepositoryIdentityId,
@@ -3310,7 +3298,6 @@ const leasePurposeToPrisma: Readonly<
   Record<ReviewInvestigationLeasePurpose, PrismaLeasePurpose>
 > = {
   [ReviewInvestigationLeasePurpose.ShadowTurn]: PrismaLeasePurpose.shadow_turn,
-  [ReviewInvestigationLeasePurpose.RelayTurn]: PrismaLeasePurpose.relay_turn,
 };
 const leaseStateToPrisma: Readonly<
   Record<ReviewInvestigationLeaseState, PrismaLeaseState>

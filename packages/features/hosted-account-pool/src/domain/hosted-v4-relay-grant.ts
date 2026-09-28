@@ -5,48 +5,6 @@ const id = z.string().trim().min(1).max(256);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
 const positive = z.number().int().positive();
-const canaryLimits = Object.freeze({
-  maxRequests: 1,
-  maxRequestBytes: 1_000_000,
-  maxResponseBytes: 8_000_000,
-  maxOutputTokens: 4_096,
-  maxGatewayOperations: 128,
-  maxOutputFindings: 32,
-  maxOutputProposals: 64,
-});
-
-export const hostedV4RelayCanaryPolicyVersion = "hosted-v4-disposable-eight-v1";
-export const hostedV4RelayCanaryAccountRequestAllocation = 8;
-
-/** Finite, server-owned allocation bound to the selected account and runtime config. */
-export function hostedV4RelayCanaryPolicyFingerprint(input: {
-  accountId: string;
-  runtimeConfigVersion: number;
-  model: string;
-  maxRequests: number;
-  maxRequestBytes: number;
-  maxResponseBytes: number;
-  maxOutputTokens: number;
-}): string {
-  if (!Number.isSafeInteger(input.runtimeConfigVersion) || input.runtimeConfigVersion < 1 ||
-      !Number.isSafeInteger(input.maxRequests) || input.maxRequests < 1 ||
-      !Number.isSafeInteger(input.maxRequestBytes) || input.maxRequestBytes < 1 ||
-      !Number.isSafeInteger(input.maxResponseBytes) || input.maxResponseBytes < 1 ||
-      !Number.isSafeInteger(input.maxOutputTokens) || input.maxOutputTokens < 1) {
-    throw new Error("hosted_v4_relay_policy_facts_invalid");
-  }
-  return createHash("sha256").update(JSON.stringify({
-    version: hostedV4RelayCanaryPolicyVersion,
-    accountRequestAllocation: hostedV4RelayCanaryAccountRequestAllocation,
-    accountId: id.parse(input.accountId),
-    runtimeConfigVersion: input.runtimeConfigVersion,
-    model: id.parse(input.model),
-    maxRequests: input.maxRequests,
-    maxRequestBytes: input.maxRequestBytes,
-    maxResponseBytes: input.maxResponseBytes,
-    maxOutputTokens: input.maxOutputTokens,
-  })).digest("hex");
-}
 
 /** Immutable server-resolved facts. IDs supplied by a caller are lookup hints only. */
 export const hostedV4RelayScopeSchema = z
@@ -90,10 +48,7 @@ export const hostedV4RelayScopeSchema = z
     investigationId: id,
     investigationVersion: z.bigint().positive(),
     turnId: id,
-    turnBudgetCanonicalJson: z.string().min(2).max(2_048),
-    turnBudgetHash: hash,
-    turnPurpose: z.enum(["discovery", "critic"]),
-    planningInputDossierDigest: hash,
+    turnPurpose: id,
     dossierDigest: hash,
     investigationManifestHash: hash,
     executionId: id,
@@ -117,9 +72,6 @@ export const hostedV4RelayScopeSchema = z
         capabilityId: id,
         ownerIdHash: hash,
         fencingToken: z.bigint().positive(),
-        purpose: z.literal("provider_execution"),
-        attemptId: id.nullable(),
-        providerInvocationKey: id,
         expiresAt: z.date(),
       })
       .strict(),
@@ -154,46 +106,6 @@ export function defineHostedV4RelayGrant(input: {
   maxOutputTokens: number;
 }): HostedV4RelayGrantContract {
   const scope = hostedV4RelayScopeSchema.parse(input.scope);
-  let budget: Record<string, unknown>;
-  try {
-    const parsed: unknown = JSON.parse(scope.turnBudgetCanonicalJson);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("invalid");
-    }
-    budget = parsed as Record<string, unknown>;
-  } catch {
-    throw new Error("hosted_v4_relay_turn_budget_invalid");
-  }
-  if (
-    Object.keys(budget).sort().join(",") !==
-      "deadline,maxGatewayOperations,maxOutputFindings,maxOutputProposals,maxOutputTokens,maxRequestBytes,maxRequests,maxResponseBytes,version" ||
-    budget.version !== 1 ||
-    JSON.stringify(Object.fromEntries(Object.entries(budget).sort(([a], [b]) => a.localeCompare(b)))) !== scope.turnBudgetCanonicalJson ||
-    createHash("sha256").update(scope.turnBudgetCanonicalJson).digest("hex") !== scope.turnBudgetHash ||
-    budget.maxRequests !== input.maxRequests ||
-    budget.maxRequestBytes !== input.maxRequestBytes ||
-    budget.maxResponseBytes !== input.maxResponseBytes ||
-    budget.maxOutputTokens !== input.maxOutputTokens ||
-    !Number.isSafeInteger(budget.maxGatewayOperations) ||
-    (budget.maxGatewayOperations as number) < 1 ||
-    !Number.isSafeInteger(budget.maxOutputFindings) ||
-    (budget.maxOutputFindings as number) < 1 ||
-    !Number.isSafeInteger(budget.maxOutputProposals) ||
-    (budget.maxOutputProposals as number) < 1 ||
-    typeof budget.deadline !== "string" ||
-    !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(budget.deadline) ||
-    !Number.isFinite(Date.parse(budget.deadline)) ||
-    new Date(budget.deadline).toISOString() !== budget.deadline ||
-    Date.parse(budget.deadline) > scope.turnExpiresAt.getTime()
-  ) {
-    throw new Error("hosted_v4_relay_turn_budget_mismatch");
-  }
-  for (const [field, ceiling] of Object.entries(canaryLimits)) {
-    const value = budget[field];
-    if (!Number.isSafeInteger(value) || (value as number) < 1 || (value as number) > ceiling) {
-      throw new Error("hosted_v4_relay_turn_budget_limit_invalid");
-    }
-  }
   const expiresAt = new Date(
     Math.min(
       scope.authorizationExpiresAt.getTime(),
@@ -201,7 +113,6 @@ export function defineHostedV4RelayGrant(input: {
       scope.investigationLease.expiresAt.getTime(),
       scope.invocationLease.expiresAt.getTime(),
       scope.policyExpiresAt.getTime(),
-      Date.parse(budget.deadline as string),
     ),
   );
   if (expiresAt <= input.now) throw new Error("hosted_v4_relay_scope_expired");
@@ -222,7 +133,7 @@ export function defineHostedV4RelayGrant(input: {
   }
   return {
     kind: "v4_relay_turn",
-    logicalTurnKey: hostedV4LogicalTurnKey(scope.investigationId, scope.turnId),
+    logicalTurnKey: digest([scope.investigationId, scope.turnId]),
     scopeHash: digest([canonicalScope(scope)]),
     scope,
     expiresAt,
@@ -234,39 +145,14 @@ export function defineHostedV4RelayGrant(input: {
   };
 }
 
-export function hostedV4LogicalTurnKey(investigationId: string, turnId: string): string {
-  return digest([id.parse(investigationId), id.parse(turnId)]);
-}
-
 /** Every mutable authority fact must be re-resolved before admission and dispatch. */
 export function assertHostedV4RelayScopeCurrent(
   saved: HostedV4RelayGrantContract,
   current: HostedV4RelayScope,
   now: Date,
 ): void {
-  if (
-    current.authorizationExpiresAt <= now ||
-    current.investigationLease.expiresAt <= now ||
-    current.invocationLease.expiresAt <= now
-  ) {
-    throw new Error("hosted_v4_relay_scope_stale");
-  }
-  // Live renewal extends ownership only. It never rewrites issue-time grant
-  // scope, bearer expiry or the unique logical-turn reservation.
-  const comparable = {
-    ...current,
-    authorizationExpiresAt: saved.scope.authorizationExpiresAt,
-    investigationLease: {
-      ...current.investigationLease,
-      expiresAt: saved.scope.investigationLease.expiresAt,
-    },
-    invocationLease: {
-      ...current.invocationLease,
-      expiresAt: saved.scope.invocationLease.expiresAt,
-    },
-  };
   const resolved = defineHostedV4RelayGrant({
-    scope: comparable,
+    scope: current,
     now,
     maxRequests: saved.maxRequests,
     maxRequestBytes: saved.maxRequestBytes,

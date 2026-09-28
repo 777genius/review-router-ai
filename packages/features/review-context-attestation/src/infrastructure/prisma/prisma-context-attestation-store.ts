@@ -788,8 +788,6 @@ function toPrismaLeaseAuthorityKind(
       return PrismaLeaseAuthorityKind.standard_execution;
     case ContextLeaseAuthorityKind.InvestigationShadow:
       return PrismaLeaseAuthorityKind.investigation_shadow;
-    case ContextLeaseAuthorityKind.InvestigationRelay:
-      return PrismaLeaseAuthorityKind.investigation_relay;
   }
 }
 
@@ -801,8 +799,6 @@ function fromPrismaLeaseAuthorityKind(
       return ContextLeaseAuthorityKind.StandardExecution;
     case PrismaLeaseAuthorityKind.investigation_shadow:
       return ContextLeaseAuthorityKind.InvestigationShadow;
-    case PrismaLeaseAuthorityKind.investigation_relay:
-      return ContextLeaseAuthorityKind.InvestigationRelay;
   }
 }
 

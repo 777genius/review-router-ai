@@ -11,7 +11,6 @@ import { ReviewInvestigationTurnPurpose } from "./review-investigation-types";
 
 export enum ReviewInvestigationLeasePurpose {
   ShadowTurn = "shadow_turn",
-  RelayTurn = "relay_turn",
 }
 
 export enum ReviewInvestigationLeaseState {
@@ -76,7 +75,7 @@ export type CreateReviewInvestigationLeaseInput = Omit<
   | "lastReleaseRequestHash"
   | "state"
   | "renewedAt"
-> & { readonly purpose?: ReviewInvestigationLeasePurpose };
+>;
 
 export enum ReviewInvestigationLeaseReplayStatus {
   Proceed = "proceed",
@@ -104,7 +103,7 @@ export function createReviewInvestigationLease(
 ): ReviewInvestigationLease {
   const lease: ReviewInvestigationLease = Object.freeze({
     ...input,
-    purpose: input.purpose ?? ReviewInvestigationLeasePurpose.ShadowTurn,
+    purpose: ReviewInvestigationLeasePurpose.ShadowTurn,
     lastRenewRequestIdHash: null,
     lastRenewRequestHash: null,
     lastReleaseRequestIdHash: null,
@@ -276,10 +275,7 @@ export function assertReviewInvestigationLeaseAllows(
     operation,
     "operation",
   );
-  if (
-    lease.purpose !== ReviewInvestigationLeasePurpose.ShadowTurn &&
-    lease.purpose !== ReviewInvestigationLeasePurpose.RelayTurn
-  ) {
+  if (lease.purpose !== ReviewInvestigationLeasePurpose.ShadowTurn) {
     throw new ReviewInvestigationDomainError("lease_operation_forbidden");
   }
 }
@@ -427,7 +423,7 @@ export function leaseBindingKey(
     | "investigationManifestCanonicalJson"
     | "investigationManifestHash"
     | "acquireRequestIdHash"
-  > & { readonly purpose?: ReviewInvestigationLeasePurpose },
+  >,
 ): string {
   return canonicalJson({
     workspaceId: lease.workspaceId,
@@ -449,7 +445,6 @@ export function leaseBindingKey(
       lease.investigationManifestCanonicalJson,
     investigationManifestHash: lease.investigationManifestHash,
     acquireRequestIdHash: lease.acquireRequestIdHash,
-    purpose: lease.purpose ?? ReviewInvestigationLeasePurpose.ShadowTurn,
   });
 }
 

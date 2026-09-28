@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   ContextLeaseAuthorityKind,
   ContextGatewayV4OperationKind,
@@ -10,9 +10,7 @@ import {
 import {
   InvestigationOperationKind,
   InvestigationOperationRevision,
-  ReviewInvestigationLeasePurpose,
 } from "@reviewrouter/features-review-investigations";
-import { hostedV4LogicalTurnKey } from "@reviewrouter/features-hosted-account-pool";
 import { ProductionInvestigationTurnEvidence } from "./review-action-v2-investigation-composition.js";
 
 const hash = (character: string) => character.repeat(64);
@@ -91,52 +89,6 @@ describe("ProductionInvestigationTurnEvidence", () => {
         terminalOutcomeHash: hash("c"),
       }),
     ).resolves.toBeNull();
-  });
-
-  it("rejects an accepted relay attestation after its paid effect becomes unknown", async () => {
-    const relayAttestation = {
-      ...(acceptedAttestation(manifest()) as object),
-      sourceLeaseAuthorityKind: ContextLeaseAuthorityKind.InvestigationRelay,
-    };
-    const relaySession = {
-      ...(acceptedSession() as object),
-      sourceLeaseAuthorityKind: ContextLeaseAuthorityKind.InvestigationRelay,
-    };
-    const readStatus = vi.fn().mockResolvedValue({
-      state: "terminal_unknown", grantId: "grant-1", requestId: "request-1",
-      effectId: "effect-1", requestHash: hash("d"),
-    });
-    const evidence = new ProductionInvestigationTurnEvidence(
-      {
-        findAcceptedAttestation: async () => relayAttestation,
-        findSession: async () => relaySession,
-      } as never,
-      () => new Date("2026-08-03T10:00:00.000Z"),
-      { findLease: async () => ({
-        leaseId: "lease-1", purpose: ReviewInvestigationLeasePurpose.RelayTurn,
-        investigationId: "investigation-1", turnId: "turn-1",
-      }) } as never,
-      { readStatus },
-    );
-    const command = {
-      acceptedAttestationId: "attestation-1",
-      acceptedAttestationHash: hash("a"),
-      sourceExecutionId: "execution-1", sourceWorkSlotId: "slot-1",
-      sourceReviewRevisionHash: hash("b"), attemptId: "attempt-1",
-      sourceLeaseId: "lease-1", sourceFencingToken: "1",
-      actualModel: "gpt-test", terminalOutcomeHash: hash("c"),
-    };
-    await expect(evidence.verify(command)).resolves.toBeNull();
-    expect(readStatus).toHaveBeenCalledWith(
-      hostedV4LogicalTurnKey("investigation-1", "turn-1"),
-    );
-    readStatus.mockResolvedValue({
-      state: "succeeded", grantId: "grant-1", requestId: "request-1",
-      effectId: "effect-1", requestHash: hash("d"),
-    });
-    await expect(evidence.verify(command)).resolves.toMatchObject({
-      actualProviderKind: "codex",
-    });
   });
 });
 

@@ -3,10 +3,6 @@ export const reviewContextAttestationActionContractFragment = Object.freeze({
   boundedContext: "review_context_attestation",
   publishedEnums: Object.freeze([
     Object.freeze({
-      typeName: "ReviewInvestigationContextLeaseAuthorityKind",
-      values: Object.freeze(["investigation_shadow", "investigation_relay"]),
-    }),
-    Object.freeze({
       typeName: "ReviewContextGatewayOpenResultStatus",
       values: Object.freeze(["opened", "idempotent", "denied", "conflict"]),
     }),
@@ -136,7 +132,6 @@ export const reviewContextAttestationActionContractFragment = Object.freeze({
       requestFields: Object.freeze([
         Object.freeze({ name: "attemptId", type: "identifier" }),
         Object.freeze({ name: "sourceLeaseId", type: "identifier" }),
-        Object.freeze({ name: "sourceLeaseAuthorityKind", type: "optional_enum", enumTypeName: "ReviewInvestigationContextLeaseAuthorityKind" }),
         Object.freeze({ name: "fencingToken", type: "decimal" }),
         Object.freeze({ name: "sourceExecutionId", type: "identifier" }),
         Object.freeze({ name: "sourceWorkSlotId", type: "identifier" }),
@@ -176,7 +171,6 @@ export const reviewContextAttestationActionContractFragment = Object.freeze({
         Object.freeze({ name: "sealCapability", type: "token" }),
         Object.freeze({ name: "attemptId", type: "identifier" }),
         Object.freeze({ name: "sourceLeaseId", type: "identifier" }),
-        Object.freeze({ name: "sourceLeaseAuthorityKind", type: "optional_enum", enumTypeName: "ReviewInvestigationContextLeaseAuthorityKind" }),
         Object.freeze({ name: "fencingToken", type: "decimal" }),
         Object.freeze({ name: "providerSucceeded", type: "boolean" }),
         Object.freeze({ name: "schemaValidated", type: "boolean" }),

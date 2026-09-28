@@ -9,7 +9,6 @@ export * from "./domain/investigation-policy";
 export * from "./domain/investigation-critic-policy";
 export * from "./domain/investigation-token-usage";
 export * from "./domain/investigation-turn";
-export * from "./domain/relay-turn-budget";
 export * from "./domain/investigation-turn-observation";
 export * from "./domain/investigation-certificate";
 export * from "./domain/replay-evidence-checkpoint";

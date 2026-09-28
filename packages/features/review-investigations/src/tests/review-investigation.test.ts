@@ -1811,29 +1811,6 @@ describe("review investigation in-memory vertical slice", () => {
     });
   });
 
-  it("keeps sweeping when a reserved v4 request fences an expired turn", async () => {
-    const harness = createHarness();
-    const opened = await harness.open.execute(openCommand("v4-fenced-expiry"));
-    const planned = await planDiscovery(harness, opened);
-    harness.clock.advance(60_000);
-    vi.spyOn(harness.store, "commit").mockRejectedValue(
-      new Error("Prisma constraint: review_investigation_v4_request_unresolved"),
-    );
-    const reconcile = new ReconcileExpiredActiveTurn(
-      harness.store, harness.authority, harness.digest, harness.clock,
-    );
-    await expect(reconcile.execute(planned.investigationId)).rejects.toThrow(
-      "review_investigation_v4_request_unresolved",
-    );
-    await expect(reconcile.sweep({
-      expiresAtOrBefore: harness.clock.now().toISOString(), limit: 10,
-    })).resolves.toBe(0);
-    await expect(harness.store.findById(planned.investigationId)).resolves.toMatchObject({
-      state: ReviewInvestigationState.TurnLeased,
-      activeTurn: { turnId: planned.turn!.turnId },
-    });
-  });
-
   it("drains a superseded result without producing a current projection", async () => {
     const harness = createHarness();
     const opened = await harness.open.execute(openCommand("drain-open"));

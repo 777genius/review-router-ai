@@ -117,11 +117,10 @@ export class ReconcileExpiredActiveTurn {
       } catch (error) {
         if (
           !(error instanceof Error) ||
-          (![
+          ![
             "investigation_concurrency_conflict",
             "investigation_lease_fencing_stale",
-          ].includes(error.message) &&
-            !error.message.includes("review_investigation_v4_request_unresolved"))
+          ].includes(error.message)
         ) {
           throw error;
         }

@@ -77,10 +77,6 @@ export async function generateReviewActionV2Protocol(input = {}) {
     prettyJson(published.extensionSchema),
     { parser: "json" },
   );
-  const generatedHostedRelayExtensionSchema = await format(
-    prettyJson(published.relayExtensionSchema),
-    { parser: "json" },
-  );
   const generatedPublishedFixtures = await format(
     prettyJson(published.fixtures),
     { parser: "json" },
@@ -103,10 +99,6 @@ export async function generateReviewActionV2Protocol(input = {}) {
     [
       "generated/review-investigation-extension-v1.schema.json",
       generatedInvestigationExtensionSchema,
-    ],
-    [
-      "generated/review-hosted-relay-extension-v1.schema.json",
-      generatedHostedRelayExtensionSchema,
     ],
     [
       "generated/fixtures/review-action-v2.golden.json",
@@ -135,11 +127,11 @@ export async function generateReviewActionV2Protocol(input = {}) {
   }
   for (const operationDescriptor of publishedContract.operations) {
     const operationSchemaSource =
-      published.relayExtensionSchema.$defs[`${operationDescriptor.operationId}_request`] !== undefined
-        ? published.relayExtensionSchema
-        : published.extensionSchema.$defs[`${operationDescriptor.operationId}_request`] !== undefined
-          ? published.extensionSchema
-          : published.schema;
+      published.extensionSchema.$defs[
+        `${operationDescriptor.operationId}_request`
+      ] === undefined
+        ? published.schema
+        : published.extensionSchema;
     const requestDefinition =
       operationSchemaSource.$defs[`${operationDescriptor.operationId}_request`];
     const responseDefinition =
@@ -453,15 +445,6 @@ function createManifest(
           "review_investigation_replay_v2",
           "review_investigation_context_gateway_open",
           "review_investigation_context_gateway_seal",
-        ],
-      },
-      {
-        extensionId: "review-investigation-hosted-relay.v1",
-        schemaDigest: published.relayExtensionSchemaDigest,
-        canonicalizerDigest: published.relayExtensionCanonicalizerDigest,
-        operationIds: [
-          "review_investigation_relay_grant",
-          "review_investigation_relay_status",
         ],
       },
     ],
@@ -790,7 +773,6 @@ export async function loadCompiledContractSources() {
     transportContract: actionControlPlane.reviewActionV2TransportContract,
     publishedContracts: [
       investigationOperations.reviewInvestigationRolloutAuthorizationPublishedContract,
-      investigationOperations.reviewHostedRelayExtensionPrerequisitePublishedContract,
     ],
     semanticFragments: [
       runControl.reviewRunControlActionContractFragment,
