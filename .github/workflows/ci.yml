@@ -307,8 +307,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     env:
-      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci_test?schema=public
-      REVIEW_ROUTER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci_test?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
+      REVIEW_ROUTER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
 
     services:
       postgres:
@@ -317,6 +317,17 @@ jobs:
           POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres-app-test:
+        image: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5433:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s
@@ -377,8 +388,19 @@ jobs:
           PGPASSWORD: postgres
         run: |
           psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci'
-          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci_test'
           psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_provider_scope_ci_test'
+          psql -h 127.0.0.1 -p 5433 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci_test'
+
+      # Application suites need the stock, role-free schema. Keep it in its own
+      # cluster because the combined rehearsal provisions release roles globally.
+      - name: Apply ordinary test database migrations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN ('reviewrouter_release_migration', 'reviewrouter_release_schema_owner')")" = 0
+          DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
 
       - name: Rotating Codex PostgreSQL 17 combined migration rehearsal (no skips)
         env:
@@ -391,40 +413,18 @@ jobs:
       - name: Apply dev database migrations
         run: pnpm db:migrate:deploy
 
-      # Main reached 110 with no release pair. Both later databases share its
-      # cluster roles; reject dirty target catalogs before creating the login.
+      # Dev reached 110 without a release pair. The provider fixture shares its
+      # cluster; reject its dirty catalog before creating the restricted login.
       - name: Complete disposable CI release-role catalog
         env:
           PGPASSWORD: postgres
         run: |
           set -o pipefail
-          for database in review_router_ci_test review_router_provider_scope_ci_test; do
+          for database in review_router_provider_scope_ci_test; do
             node --input-type=module -e 'import { disposableFreshDatabasePreflightSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
               psql -XqAt -h 127.0.0.1 -U postgres -d "$database" -v ON_ERROR_STOP=1
           done
           node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci
-
-      - name: Apply ordinary test database through 000086
-        run: |
-          BEFORE87_CONFIG=$(node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs catalog "$RUNNER_TEMP")
-          DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @reviewrouter/platform-db exec prisma migrate deploy --config "$BEFORE87_CONFIG"
-
-      - name: Hand off exact ordinary test database owners before 000087
-        env:
-          PGPASSWORD: postgres
-        run: |
-          set -o pipefail
-          node --input-type=module -e 'import { disposableBefore87HandoffSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
-            psql -XqAt -h 127.0.0.1 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1
-
-      - name: Complete ordinary test database through 000110 and verify
-        env:
-          PGPASSWORD: postgres
-        run: |
-          set -o pipefail
-          DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
-          node --input-type=module -e 'import { disposableFullChainVerificationSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
-            psql -XqAt -h 127.0.0.1 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1
 
       - name: SDK authority and outbox PostgreSQL contracts (zero skips)
         env:
