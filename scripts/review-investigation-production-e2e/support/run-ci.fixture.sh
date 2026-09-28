@@ -97,6 +97,13 @@ REVIEW_ROUTER_ITEM11_DATABASE_URL="$(node -e '
   url.search = "";
   process.stdout.write(url.href);
 ' "$item11_database")"
+# The CI cluster already has the release role pair. A fresh database must first
+# reach 000086 under its creator, then hand off the exact schema/table ownership
+# before 000087. The ordinary full-chain deploy fails closed on this boundary.
+before87_config="$(node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs catalog "${RUNNER_TEMP:-${TMPDIR:-/tmp}}")"
+DATABASE_URL="$REVIEW_ROUTER_ITEM11_DATABASE_URL" pnpm --filter @reviewrouter/platform-db exec prisma migrate deploy --config "$before87_config"
+node --input-type=module -e 'import { disposableBefore87HandoffSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+  psql -XqAt -d "$item11_database" -v ON_ERROR_STOP=1
 DATABASE_URL="$REVIEW_ROUTER_ITEM11_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
 psql -d "$item11_database" -v ON_ERROR_STOP=1 -v run_id="$REVIEW_ROUTER_ITEM11_RUN_ID" <<'SQL'
 CREATE TABLE item11_fixture_owner (
