@@ -88,8 +88,11 @@ describe("POST /api/dashboard/provider-keys/apply", () => {
       githubSecrets: mocks.githubSecrets,
       classifyError: () => "github_request_failed",
       lock: {
-        withLock: (_key: string, _ttlMs: number, run: () => Promise<unknown>) =>
-          run(),
+        withLock: (
+          _key: string,
+          _ttlMs: number,
+          run: (lease: { isOwned(): Promise<boolean> }) => Promise<unknown>,
+        ) => run({ isOwned: async () => true }),
       },
     });
   });
