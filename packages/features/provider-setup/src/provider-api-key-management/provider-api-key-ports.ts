@@ -18,6 +18,7 @@ export type ProviderApiKeyApplySession = {
   readonly operationId: string;
   readonly keyVersion: number;
   readonly repositoryIds: readonly string[];
+  readonly blockedRepositoryIds?: readonly string[];
 };
 
 export interface ProviderApiKeyRepositoryPort {
@@ -63,7 +64,11 @@ export interface ProviderApiKeyStorePort {
 }
 
 export interface ProviderApiKeyLockPort {
-  withLock<T>(key: string, ttlMs: number, run: () => Promise<T>): Promise<T>;
+  withLock<T>(
+    key: string,
+    ttlMs: number,
+    run: (lease: { isOwned(): Promise<boolean> }) => Promise<T>,
+  ): Promise<T>;
 }
 
 export interface ProviderApiKeyStorageCipherPort {
