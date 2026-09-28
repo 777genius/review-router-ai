@@ -463,7 +463,8 @@ async function main(): Promise<void> {
       process.argv.slice(2),
     );
     assertProviderApiKeyWorkspaceAccessConfirmed(request);
-    const { createPrismaClient } = await import("@reviewrouter/platform-db");
+    const { createPrismaClient } =
+      await import("../packages/platform/db/src/index");
     const prisma = createPrismaClient({ poolMax: 1 });
     database = prisma;
     const result = await executeProviderApiKeyWorkspaceAccess(
