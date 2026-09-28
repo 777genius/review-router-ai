@@ -19,11 +19,13 @@ node) if [[ "$1" == --test ]]; then exit 0; fi; exec '${process.execPath}' "$@" 
 pnpm) if [[ "$*" == *vitest* ]]; then
   "$REAL_NODE" -e 'require("node:fs").writeFileSync(process.env.TEST_DIR + "/invocation", JSON.stringify({args:process.argv.slice(1), gate:process.env.REVIEW_ROUTER_ITEM11_E2E, url:process.env.REVIEW_ROUTER_ITEM11_DATABASE_URL, runId:process.env.REVIEW_ROUTER_ITEM11_RUN_ID}))' -- "$@"
 fi
+if [[ "$*" == *"prisma migrate deploy --config"* ]]; then echo before87 >> "$TEST_DIR/stages"; fi
+if [[ "$*" == *"db:migrate:deploy"* ]]; then echo full >> "$TEST_DIR/stages"; fi
 if [[ "$*" == *vitest* && "$MODE" == live ]]; then touch "$REVIEW_ROUTER_ITEM11_CHILD_PROOF_DIR/pending"; exit 1; fi ;;
 psql) if [[ "$*" == *pg_database* ]]; then
   if [[ "$MODE" == lookup_failed ]]; then exit 1; fi
   if [[ "$MODE" == existing ]]; then echo foreign; elif [[ -f "$TEST_DIR/created" ]]; then echo owned; fi
-else cat >/dev/null; fi ;;
+else sql="$(cat)"; if [[ "$sql" == *disposable_before87_handoff_invalid* ]]; then echo handoff >> "$TEST_DIR/stages"; fi; fi ;;
 createdb) echo "$PGHOST:$PGPORT:$PGUSER" > "$TEST_DIR/connection"; if [[ "$MODE" == absent ]]; then exit 1; fi; touch "$TEST_DIR/created"; if [[ "$MODE" == uncertain ]]; then exit 1; fi ;;
 dropdb) echo "$*" > "$TEST_DIR/dropped" ;;
 esac
@@ -70,6 +72,7 @@ esac
       connection: read("connection"),
       dropped: read("dropped"),
       invocation: JSON.parse(read("invocation") ?? "null"),
+      stages: read("stages"),
     };
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -79,6 +82,7 @@ test("runner honors supplied loopback connection and drops only new name without
   const r = run("success");
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.connection, "127.0.0.1:6543:assigned\n");
+  assert.equal(r.stages, "before87\nhandoff\nfull\n");
   assert.match(r.dropped, /^item11_test_[a-f0-9]{32}\n$/);
 });
 test("runner retains database when child close is unproven", () => {
