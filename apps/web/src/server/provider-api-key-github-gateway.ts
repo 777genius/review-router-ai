@@ -41,8 +41,17 @@ export class ProviderApiKeyGitHubGateway implements ProviderApiKeyGitHubSecretGa
         signal: AbortSignal.timeout(15_000),
       },
     );
-    if (!response.ok)
-      throw new Error(`github_public_key_http_${response.status}`);
+    if (!response.ok) {
+      throw Object.assign(new ProviderApiKeyGitHubHttpError(response.status), {
+        response: {
+          status: response.status,
+          headers: {
+            "x-ratelimit-remaining":
+              response.headers.get("x-ratelimit-remaining") ?? undefined,
+          },
+        },
+      });
+    }
     const body: unknown = await response.json();
     if (
       !body ||
@@ -182,7 +191,6 @@ export async function putProviderApiKeySecretExactlyOnce(
     let settled = false;
     let timedOut = false;
     let requestBytesMayHaveLeft = false;
-    let timeout: NodeJS.Timeout | undefined;
     const settle = (
       outcome:
         | Readonly<{ status: "resolved"; statusCode: number }>
@@ -190,7 +198,7 @@ export async function putProviderApiKeySecretExactlyOnce(
     ) => {
       if (settled) return;
       settled = true;
-      if (timeout) clearTimeout(timeout);
+      clearTimeout(timeout);
       if (outcome.status === "resolved") {
         resolve({ status: outcome.statusCode });
       } else {
@@ -279,7 +287,7 @@ export async function putProviderApiKeySecretExactlyOnce(
           : new ProviderApiKeySecretPutPreDispatchError(cause),
       }),
     );
-    timeout = setTimeout(() => {
+    const timeout = setTimeout(() => {
       timedOut = true;
       request.destroy(
         new ProviderApiKeySecretPutOutcomeUnknownError("timeout"),

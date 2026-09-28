@@ -1,10 +1,63 @@
 import { Duplex } from "node:stream";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  ProviderApiKeySecretPutOutcomeUnknownError,
+  classifyProviderApiKeyError,
   ProviderApiKeySecretPutPreDispatchError,
 } from "@reviewrouter/features-provider-setup";
-import { putProviderApiKeySecretExactlyOnce } from "./provider-api-key-github-gateway";
+import {
+  ProviderApiKeyGitHubGateway,
+  putProviderApiKeySecretExactlyOnce,
+} from "./provider-api-key-github-gateway";
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("provider API key GitHub public-key response", () => {
+  it.each([
+    { status: 404, rateLimitRemaining: null, reason: "repository_not_found" },
+    {
+      status: 403,
+      rateLimitRemaining: null,
+      reason: "insufficient_permissions",
+    },
+    { status: 403, rateLimitRemaining: "0", reason: "rate_limited" },
+    { status: 429, rateLimitRemaining: "0", reason: "rate_limited" },
+  ])("classifies GitHub HTTP $status as $reason", async (input) => {
+    const gateway = Object.create(
+      ProviderApiKeyGitHubGateway.prototype,
+    ) as ProviderApiKeyGitHubGateway;
+    Object.assign(gateway, { repositoryToken: async () => "test-token" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(null, {
+            status: input.status,
+            ...(input.rateLimitRemaining !== null
+              ? {
+                  headers: {
+                    "x-ratelimit-remaining": input.rateLimitRemaining,
+                  },
+                }
+              : {}),
+          }),
+      ),
+    );
+
+    const error = await gateway
+      .getRepositoryActionsPublicKey({
+        githubInstallationId: "1",
+        githubRepositoryId: "2",
+        owner: "acme",
+        repo: "one",
+      })
+      .then(
+        () => null,
+        (failure: unknown) => failure,
+      );
+    expect(error).toMatchObject({ status: input.status });
+    expect(classifyProviderApiKeyError(error)).toBe(input.reason);
+  });
+});
 
 type ProtocolFault = "redirect" | "response_incomplete" | "transport_unknown";
 

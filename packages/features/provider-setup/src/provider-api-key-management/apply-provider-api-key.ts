@@ -140,7 +140,9 @@ export async function applyProviderApiKey(
                 errorReason: "persistence_failed",
               },
             );
-          } catch {}
+          } catch {
+            // Preserve the reconciliation result if the fallback marker also fails.
+          }
           return {
             repositoryId: result.repositoryId,
             repositoryFullName: result.repositoryFullName,
@@ -167,7 +169,7 @@ export async function applyProviderApiKey(
               ),
             };
           }
-          let applying = false;
+          let applying: boolean;
           try {
             applying =
               await dependencies.providerApiKeys.markRepositoryApplying({

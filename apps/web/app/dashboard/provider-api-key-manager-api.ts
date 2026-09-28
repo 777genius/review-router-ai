@@ -86,6 +86,8 @@ async function responseError(
     ) {
       return body.error;
     }
-  } catch {}
+  } catch {
+    // A non-JSON response uses the stable fallback error code.
+  }
   return fallback;
 }

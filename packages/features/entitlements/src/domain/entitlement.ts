@@ -66,7 +66,7 @@ export const freeBetaEntitlement = (
     cloud_review_execution: false,
     hosted_codex_pool: true,
     compliance_exports: false,
-    provider_key_management: false,
+    provider_key_management: true,
   },
 });
 
@@ -89,9 +89,13 @@ export function evaluateFeatureEntitlement(input: {
   if (input.entitlement.status !== "active") {
     return { allowed: false, reason: "workspace_entitlement_not_active" };
   }
-  // Hosted pool access is part of every active workspace. The persisted beta-era plan
-  // bit is retained for compatibility but no longer limits this feature.
-  if (input.feature === "hosted_codex_pool") {
+  // Existing workspace records may retain old false bits. Provider-key management
+  // is available to active workspaces; MiMo is separately guarded by an explicit
+  // workspace grant before its key can be stored or applied.
+  if (
+    input.feature === "hosted_codex_pool" ||
+    input.feature === "provider_key_management"
+  ) {
     return { allowed: true };
   }
   if (input.entitlement.flags[input.feature] !== true) {
