@@ -298,10 +298,18 @@ function assertProviderFixtureContract(
     line.includes("disposableFreshDatabasePreflightSql as sql") &&
     line.includes("disposable-release-role-fixture.mjs"),
   );
+  const preflightDatabases = provision
+    .find((line) => line.startsWith("for database in "))
+    ?.match(/^for database in (.+); do$/u)?.[1]
+    ?.split(" ")
+    .sort();
   if (
     freshPreflightIndex < 0 ||
     !provision[freshPreflightIndex + 1]?.includes('psql -XqAt -h 127.0.0.1 -U postgres -d "$database" -v ON_ERROR_STOP=1') ||
-    !provision.includes("for database in review_router_provider_scope_ci_test; do") ||
+    JSON.stringify(preflightDatabases) !== JSON.stringify([
+      "review_router_provider_scope_ci_test",
+      "rr_v4_444_disposable_ci",
+    ].sort()) ||
     !provision.includes("node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci")
   ) {
     throw new Error("provider fixture must verify the fresh catalog before role creation");
