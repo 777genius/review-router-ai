@@ -1,4 +1,5 @@
 import type { RepositoryReleaseSelector } from "./review-action-v2-repository-release-selection";
+import { parseInvestigationAuthorizationDescriptor } from "@reviewrouter/features-hosted-account-pool/v4-relay-descriptor";
 import {
   buildActionOidcReplayNonceKey,
   validateOidcClaimsAgainstRepository,
@@ -93,6 +94,12 @@ export type ReviewInvestigationAuthorizationCapability = Readonly<{
   readonly extensionSchemaDigest: string;
   readonly policyHash: string;
   readonly providerCapabilities: readonly ReviewInvestigationAuthorizationProviderCapabilities[];
+  readonly hostedRelayExtension?: Readonly<{
+    capability: "hosted_relay_turn_v1";
+    extensionCanonicalizerDigest: string;
+    extensionId: string;
+    extensionSchemaDigest: string;
+  }>;
 }>;
 
 type LegacyReviewInvestigationAuthorizationCapability = Readonly<{
@@ -609,16 +616,7 @@ function bindInvestigationCapabilityToAuthorization(
   if (capability === null || capability === undefined) return null;
   if (
     !isRecord(capability) ||
-    !hasExactKeys(capability, [
-      "authorizationDescriptorVersion",
-      "capability",
-      "coverageProfileHash",
-      "extensionCanonicalizerDigest",
-      "extensionId",
-      "extensionSchemaDigest",
-      "policyHash",
-      "providerCapabilities",
-    ])
+    parseInvestigationAuthorizationDescriptor(capability) === null
   ) {
     return null;
   }
@@ -652,6 +650,9 @@ function bindInvestigationCapabilityToAuthorization(
     extensionSchemaDigest: capability.extensionSchemaDigest,
     policyHash: capability.policyHash,
     providerCapabilities: Object.freeze(boundRows),
+    ...(capability.hostedRelayExtension === undefined ? {} : {
+      hostedRelayExtension: Object.freeze({ ...capability.hostedRelayExtension }),
+    }),
   });
 }
 

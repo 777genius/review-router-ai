@@ -41,11 +41,17 @@ export const reviewInvestigationExtensionV1OperationOrder = Object.freeze([
   "review_investigation_context_gateway_open",
   "review_investigation_context_gateway_seal",
 ]);
+export const reviewHostedRelayExtensionV1OperationOrder = Object.freeze([
+  "review_investigation_relay_grant",
+  "review_investigation_relay_status",
+]);
 
 export const reviewActionV2OperationOrder = Object.freeze([
   ...reviewActionV2BaseOperationOrder.slice(0, 10),
   "review_investigation_open_v2",
-  ...reviewActionV2BaseOperationOrder.slice(10, 12),
+  ...reviewActionV2BaseOperationOrder.slice(10, 11),
+  ...reviewHostedRelayExtensionV1OperationOrder,
+  ...reviewActionV2BaseOperationOrder.slice(11, 12),
   "review_investigation_lease_acquire",
   "review_investigation_lease_renew",
   "review_investigation_lease_release",
@@ -59,6 +65,8 @@ export const reviewActionV2OperationOrder = Object.freeze([
 
 export const reviewInvestigationExtensionV1Id =
   "review-investigation-shadow.v1";
+export const reviewHostedRelayExtensionV1Id =
+  "review-investigation-hosted-relay.v1";
 
 export const reviewActionV2CallerAuthorities = Object.freeze([
   "fresh_scm_oidc",
@@ -83,9 +91,12 @@ const fieldTypes = new Set([
   "identifier_array",
   "non_negative_integer",
   "nullable_canonical_json",
+  "optional_canonical_json",
   "nullable_decimal",
   "nullable_enum",
+  "optional_enum",
   "nullable_hash",
+  "nullable_hosted_v4_relay_grant",
   "nullable_identifier",
   "nullable_non_negative_integer",
   "nullable_positive_integer",
@@ -273,6 +284,11 @@ export function createPublishedProtocolArtifacts(contract, canonicalJson) {
     reviewInvestigationExtensionV1OperationOrder,
     `${contract.schemaId}/extensions/${reviewInvestigationExtensionV1Id}`,
   );
+  const relayExtensionContract = selectProtocolOperations(
+    contract,
+    reviewHostedRelayExtensionV1OperationOrder,
+    `${contract.schemaId}/extensions/${reviewHostedRelayExtensionV1Id}`,
+  );
   const schema = createPublishedSchema(baseContract);
   const schemaDigest = sha256(canonicalJson(schema));
   const extensionSchema = createPublishedSchema(extensionContract);
@@ -283,6 +299,12 @@ export function createPublishedProtocolArtifacts(contract, canonicalJson) {
       schema: extensionSchema,
     }),
   );
+  const relayExtensionSchema = createPublishedSchema(relayExtensionContract);
+  const relayExtensionSchemaDigest = sha256(canonicalJson({
+    baseSchemaDigest: schemaDigest,
+    extensionId: reviewHostedRelayExtensionV1Id,
+    schema: relayExtensionSchema,
+  }));
   const fixtures = createPublishedFixtures(contract, schemaDigest);
   const canonicalizerFixtures = Object.fromEntries(
     contract.canonicalizers.map((descriptor) => [
@@ -320,6 +342,16 @@ export function createPublishedProtocolArtifacts(contract, canonicalJson) {
   const extensionCanonicalizerDigest = sha256(
     canonicalJson(extensionCanonicalizerDescriptor),
   );
+  const relayExtensionCanonicalizerDigest = sha256(canonicalJson({
+    baseCanonicalizerDigest: canonicalizerDigest,
+    canonicalizerVersion: 1,
+    extensionId: reviewHostedRelayExtensionV1Id,
+    operations: relayExtensionContract.operations.map((operation) => ({
+      operationId: operation.operationId,
+      fields: operation.requestFields.map((field) => field.name),
+      naturalIdempotencyPreimage: operation.naturalIdempotencyPreimage,
+    })),
+  }));
   const canonicalizerGoldenFixtureDigest = sha256(
     canonicalJson(canonicalizerFixtures),
   );
@@ -328,11 +360,14 @@ export function createPublishedProtocolArtifacts(contract, canonicalJson) {
     schemaDigest,
     extensionSchema,
     extensionSchemaDigest,
+    relayExtensionSchema,
+    relayExtensionSchemaDigest,
     fixtures,
     canonicalizerFixtures,
     goldenFixtureDigest,
     canonicalizerDigest,
     extensionCanonicalizerDigest,
+    relayExtensionCanonicalizerDigest,
     canonicalizerGoldenFixtureDigest,
     canonicalizerDescriptor,
     extensionCanonicalizerDescriptor,
@@ -557,6 +592,16 @@ export const reviewInvestigationExtensionV1 = ${JSON.stringify(
     null,
     2,
   )} as const;
+export const reviewHostedRelayExtensionV1 = ${JSON.stringify(
+    {
+      extensionId: reviewHostedRelayExtensionV1Id,
+      schemaDigest: artifacts.relayExtensionSchemaDigest,
+      canonicalizerDigest: artifacts.relayExtensionCanonicalizerDigest,
+      operationIds: reviewHostedRelayExtensionV1OperationOrder,
+    },
+    null,
+    2,
+  )} as const;
 
 export enum ReviewActionV2OperationId {
 ${contract.operations.map((operation) => `  ${enumMember(operation.operationId)} = ${JSON.stringify(operation.operationId)},`).join("\n")}
@@ -773,7 +818,7 @@ export function canonicalizeReviewActionV2Request<Operation extends ReviewAction
   if (!parsed.ok) throw new Error(\`review_action_v2_request_invalid:\${parsed.issues.join(",")}\`);
   const descriptor = reviewActionV2Operations.find((item) => item.operationId === operationId);
   if (!descriptor) throw new Error("review_action_v2_operation_unknown");
-  const body = Object.fromEntries(descriptor.requestFields.map((field) => [field.name, (request as Record<string, unknown>)[field.name]]));
+  const body = Object.fromEntries(descriptor.requestFields.filter((field) => (request as Record<string, unknown>)[field.name] !== undefined).map((field) => [field.name, (request as Record<string, unknown>)[field.name]]));
   return canonicalJson(body);
 }
 
@@ -848,9 +893,10 @@ function toRetryClass(value: string): ReviewActionV2RetryClass {
 }
 
 function validateField(name: string, type: string, value: unknown, issues: string[], enumValues?: readonly string[]): void {
+  if (type.startsWith("optional_") && value === undefined) return;
   const nullable = type.startsWith("nullable_");
   if (nullable && value === null) return;
-  const base = nullable ? type.slice("nullable_".length) : type;
+  const base = nullable ? type.slice("nullable_".length) : type.replace(/^optional_/u, "");
   let valid = false;
   if (base === "boolean") valid = typeof value === "boolean";
   else if (base === "hash") valid = typeof value === "string" && digestPattern.test(value);
@@ -935,7 +981,7 @@ function generatedOperationDescriptorsSource(operations, enums) {
     errorCodes: operation.errorCodes,
     requestFields: operation.requestFields.map((field) => ({
       ...field,
-      ...(field.type.replace(/^nullable_/u, "") === "enum"
+      ...(field.type.replace(/^(nullable_|optional_)/u, "") === "enum"
         ? {
             enumValues: enums.find(
               (descriptor) => descriptor.typeName === field.enumTypeName,
@@ -985,11 +1031,15 @@ function generatedOperationTypes(operation) {
     ...operation.requestFields,
   ];
   const requestBody = requestFields
-    .map((field) => `  readonly ${field.name}: ${fieldTsType(field)};`)
+    .map((field) => `  readonly ${field.name}${field.type.startsWith("optional_") ? "?" : ""}: ${fieldTsType(field)};`)
     .join("\n");
   const resultBody = operation.resultFields
     .map((field) => `  readonly ${field.name}?: ${fieldTsType(field)};`)
     .join("\n");
+  if (operation.operationId === "review_investigation_relay_grant") {
+    const grantType = fieldTsType({ type: "hosted_v4_relay_grant" });
+    return `export type ${operation.requestTypeName} = ReviewActionV2RequestEnvelope & {\n${requestBody}\n};\n\nexport type ${operation.resultTypeName} =\n  | { readonly status: ${operation.resultStatusEnum}.Issued | ${operation.resultStatusEnum}.Restored; readonly grantResponse: ${grantType}; readonly blockedPrerequisite: null }\n  | { readonly status: ${operation.resultStatusEnum}.Rejected | ${operation.resultStatusEnum}.Conflict | ${operation.resultStatusEnum}.Busy | ${operation.resultStatusEnum}.RecoveryRequired; readonly grantResponse: null; readonly blockedPrerequisite: string | null };`;
+  }
   return `export type ${operation.requestTypeName} = ReviewActionV2RequestEnvelope & {\n${requestBody}\n};\n\nexport type ${operation.resultTypeName} = {\n  readonly status: ${operation.resultStatusEnum};\n${resultBody}\n};`;
 }
 
@@ -1044,7 +1094,7 @@ function requestSchema(contract, operation) {
       "protocolVersion",
       "schemaDigest",
       "requestId",
-      ...fields.map((field) => field.name),
+      ...fields.filter((field) => !field.type.startsWith("optional_")).map((field) => field.name),
     ],
     properties: {
       protocolVersion: { const: contract.protocolVersion },
@@ -1127,6 +1177,24 @@ function successResponseSchema(contract, operation) {
             ]),
           ),
         },
+        ...(operation.operationId === "review_investigation_relay_grant"
+          ? { allOf: [{
+              if: { required: ["status"], properties: {
+                status: { enum: ["issued", "restored"] },
+              } },
+              then: {
+                required: ["grantResponse", "blockedPrerequisite"],
+                properties: {
+                  grantResponse: fieldJsonSchema("hosted_v4_relay_grant", contract),
+                  blockedPrerequisite: { type: "null" },
+                },
+              },
+              else: {
+                required: ["grantResponse", "blockedPrerequisite"],
+                properties: { grantResponse: { type: "null" } },
+              },
+            }] }
+          : {}),
       },
     },
   };
@@ -1244,7 +1312,7 @@ function fieldJsonSchema(fieldOrType, contract) {
     typeof fieldOrType === "string" ? { type: fieldOrType } : fieldOrType;
   const type = field.type;
   const nullable = type.startsWith("nullable_");
-  const base = nullable ? type.slice("nullable_".length) : type;
+  const base = nullable ? type.slice("nullable_".length) : type.replace(/^optional_/u, "");
   let schema;
   if (base === "boolean") schema = { type: "boolean" };
   else if (base === "hash")
@@ -1285,6 +1353,31 @@ function fieldJsonSchema(fieldOrType, contract) {
       minLength: 1,
       maxLength: contract.envelope.capabilityTokenMaxBytes,
       pattern: "^\\S+$",
+    };
+  else if (base === "hosted_v4_relay_grant")
+    schema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["protocolVersion", "grant", "grantId", "relayUrl", "grantExpiresAt", "policy"],
+      properties: {
+        protocolVersion: { const: 4 },
+        grant: fieldJsonSchema("token", contract),
+        grantId: fieldJsonSchema("identifier", contract),
+        relayUrl: { const: "/api/hosted/v4/codex/responses" },
+        grantExpiresAt: fieldJsonSchema("timestamp", contract),
+        policy: {
+          type: "object",
+          additionalProperties: false,
+          required: ["maxRequests", "maxConcurrentRequests", "maxRequestBytes", "maxResponseBytes", "maxOutputTokens"],
+          properties: {
+            maxRequests: { const: 1 },
+            maxConcurrentRequests: { const: 1 },
+            maxRequestBytes: { type: "integer", minimum: 1, maximum: 1_000_000 },
+            maxResponseBytes: { type: "integer", minimum: 1, maximum: 8_000_000 },
+            maxOutputTokens: { type: "integer", minimum: 1, maximum: 4_096 },
+          },
+        },
+      },
     };
   else if (base === "string")
     schema = { type: "string", minLength: 1, maxLength: 1024 };
@@ -1351,7 +1444,7 @@ function fieldTsType(fieldOrType) {
     typeof fieldOrType === "string" ? { type: fieldOrType } : fieldOrType;
   const type = field.type;
   const nullable = type.startsWith("nullable_");
-  const base = nullable ? type.slice("nullable_".length) : type;
+  const base = nullable ? type.slice("nullable_".length) : type.replace(/^optional_/u, "");
   let result;
   if (["positive_integer", "non_negative_integer"].includes(base))
     result = "number";
@@ -1362,6 +1455,8 @@ function fieldTsType(fieldOrType) {
   else if (base === "protocol_offers")
     result =
       "readonly { readonly protocolVersion: string; readonly schemaDigest: string }[]";
+  else if (base === "hosted_v4_relay_grant")
+    result = "Readonly<{ protocolVersion: 4; grant: string; grantId: string; relayUrl: '/api/hosted/v4/codex/responses'; grantExpiresAt: string; policy: Readonly<{ maxRequests: number; maxConcurrentRequests: number; maxRequestBytes: number; maxResponseBytes: number; maxOutputTokens: number }> }>";
   else result = "string";
   return nullable ? `${result} | null` : result;
 }
@@ -1498,6 +1593,7 @@ function sampleValue(fieldOrType, name, index, contract) {
     typeof fieldOrType === "string" ? { type: fieldOrType } : fieldOrType;
   const type = field.type;
   const nullable = type.startsWith("nullable_");
+  if (type.startsWith("optional_")) return undefined;
   if (nullable) return null;
   if (type === "boolean") return true;
   if (type === "hash") return sampleHash(index + name.length);
@@ -1774,7 +1870,7 @@ function assertFields(fields, label, enumsByName) {
     if (!fieldTypes.has(field.type)) {
       throw new Error(`protocol_assembly_field_type_undeclared:${field.type}`);
     }
-    const baseType = field.type.replace(/^nullable_/u, "");
+    const baseType = field.type.replace(/^(nullable_|optional_)/u, "");
     if (baseType === "enum") {
       if (
         typeof field.enumTypeName !== "string" ||

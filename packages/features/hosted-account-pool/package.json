@@ -8,6 +8,11 @@
       "types": "./src/index.ts",
       "production": "./dist/index.js",
       "default": "./src/index.ts"
+    },
+    "./v4-relay-descriptor": {
+      "types": "./src/domain/hosted-v4-relay-descriptor.ts",
+      "production": "./dist/domain/hosted-v4-relay-descriptor.js",
+      "default": "./src/domain/hosted-v4-relay-descriptor.ts"
     }
   },
   "dependencies": {

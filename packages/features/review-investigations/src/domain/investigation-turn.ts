@@ -39,6 +39,8 @@ export type InvestigationTurn = Readonly<{
   criticCycleOrdinal: number;
   leasedAt: string;
   expiresAt: string;
+  turnBudgetCanonicalJson?: string | null;
+  turnBudgetHash?: string | null;
 }>;
 
 export function assertInvestigationTurnObligationEnvelope(
@@ -198,5 +200,11 @@ export function turnCanonicalValue(turn: InvestigationTurn): CanonicalValue {
     criticCycleOrdinal: turn.criticCycleOrdinal,
     leasedAt: turn.leasedAt,
     expiresAt: turn.expiresAt,
+    ...(turn.turnBudgetCanonicalJson && turn.turnBudgetHash
+      ? {
+          turnBudgetCanonicalJson: turn.turnBudgetCanonicalJson,
+          turnBudgetHash: turn.turnBudgetHash,
+        }
+      : {}),
   };
 }

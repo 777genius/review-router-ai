@@ -61,6 +61,18 @@ export type HostedV4RelayGrantResponse = {
   >;
 };
 
+export type HostedV4RelayGrantIssueResult =
+  | Readonly<{
+      status: "issued" | "restored";
+      grantResponse: HostedV4RelayGrantResponse;
+      blockedPrerequisite: null;
+    }>
+  | Readonly<{
+      status: "rejected" | "conflict" | "busy" | "recovery_required";
+      grantResponse: null;
+      blockedPrerequisite: string | null;
+    }>;
+
 export interface HostedV4RelayGrantIssuerPort {
   /** Resolve v2 authorization and both distinct lease capabilities server-side. */
   issue(input: {
@@ -70,7 +82,7 @@ export interface HostedV4RelayGrantIssuerPort {
     readonly investigationId: string;
     readonly turnId: string;
     readonly idempotencyKey: string;
-  }): Promise<HostedV4RelayGrantResponse>;
+  }): Promise<HostedV4RelayGrantIssueResult>;
 }
 
 export interface HostedV4RelayAuthorizationPort {

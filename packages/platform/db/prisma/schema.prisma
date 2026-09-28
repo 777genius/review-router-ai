@@ -2224,6 +2224,8 @@ model ReviewInvestigationTurn {
   state                 ReviewInvestigationTurnStateV1
   leasedAtVersion       BigInt
   dossierDigest         String
+  turnBudgetCanonicalJson String?                         @db.Text
+  turnBudgetHash         String?
   obligationIds         Json
   semanticTurnOrdinal   Int
   criticCycleOrdinal    Int
@@ -3281,6 +3283,7 @@ enum ReviewInvestigationTurnStateV1 {
 
 enum ReviewInvestigationLeasePurposeV1 {
   shadow_turn
+  relay_turn
 }
 
 enum ReviewInvestigationLeaseStateV1 {
@@ -3312,6 +3315,7 @@ enum ReviewContextGatewaySessionStateV1 {
 enum ReviewContextLeaseAuthorityKindV1 {
   standard_execution
   investigation_shadow
+  investigation_relay
 }
 
 enum ReviewTrustDomainV2 {

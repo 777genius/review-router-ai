@@ -9601,6 +9601,10 @@
         "turnBudgetHash": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
+        },
+        "turnBudgetCanonicalJson": {
+          "type": "string",
+          "minLength": 2
         }
       }
     },

@@ -1,4 +1,5 @@
 import { canonicalJson } from "../../domain/canonicalization";
+import { verifyRelayTurnBudget } from "../../domain/relay-turn-budget";
 import { planInvestigationTurn } from "../../domain/review-investigation";
 import {
   investigationTurnMaximumObligations,
@@ -36,6 +37,8 @@ export type PlanNextInvestigationTurnCommand = Readonly<{
   expectedVersion: number;
   leaseDurationMs: number;
   maxObligationsForTurn: number;
+  turnBudgetCanonicalJson?: string;
+  turnBudgetHash?: string;
 }>;
 
 export class PlanNextInvestigationTurn {
@@ -86,6 +89,19 @@ export class PlanNextInvestigationTurn {
       throw new Error("turn_obligation_limit_invalid");
     }
     const now = this.clock.now();
+    if ((command.turnBudgetCanonicalJson === undefined) !== (command.turnBudgetHash === undefined)) {
+      throw new Error("relay_turn_budget_pair_required");
+    }
+    const turnExpiresAt = new Date(now.getTime() + command.leaseDurationMs);
+    if (command.turnBudgetCanonicalJson !== undefined && command.turnBudgetHash !== undefined) {
+      await verifyRelayTurnBudget({
+        canonicalJson: command.turnBudgetCanonicalJson,
+        hash: command.turnBudgetHash,
+        digestUtf8: (value) => this.digest.digestUtf8(value),
+        now,
+        turnExpiresAt,
+      });
+    }
     if (
       current.nextEligibleAt !== null &&
       new Date(current.nextEligibleAt).getTime() > now.getTime()
@@ -132,6 +148,12 @@ export class PlanNextInvestigationTurn {
       expiresAt: new Date(
         now.getTime() + command.leaseDurationMs,
       ).toISOString(),
+      ...(command.turnBudgetCanonicalJson === undefined
+        ? {}
+        : {
+            turnBudgetCanonicalJson: command.turnBudgetCanonicalJson,
+            turnBudgetHash: command.turnBudgetHash,
+          }),
     };
     let next = planInvestigationTurn({ investigation: current, turn });
     next = await withCurrentDossierDigest(this.digest, next);

@@ -15,6 +15,7 @@ import {
   reviewActionV2PublishedSchemaDigest,
   reviewActionV2CanonicalizerDigest,
   reviewInvestigationExtensionV1,
+  reviewHostedRelayExtensionV1,
   reviewActionV2SchemaDigest,
   reviewRunAuthorizeNegotiationGoldenFixture,
   ReviewActionV2CallerAuthority,
@@ -64,6 +65,29 @@ describe("generated Review Action v2 negotiation contract", () => {
         true,
       );
     }
+  });
+
+  it("binds an issued v4 grant to the exact relay URL and finite policy", async () => {
+    const schema = JSON.parse(await readFile(new URL(
+      "../generated/schemas/review_investigation_relay_grant.schema.json",
+      import.meta.url,
+    ), "utf8")) as { readonly oneOf: readonly unknown[] };
+    const response = schema.oneOf[1] as { readonly oneOf: readonly unknown[] };
+    expect(response.oneOf[0]).toMatchObject({ properties: { result: {
+      allOf: [{
+        if: { properties: { status: { enum: ["issued", "restored"] } } },
+        then: { required: ["grantResponse", "blockedPrerequisite"],
+          properties: { grantResponse: { properties: {
+            protocolVersion: { const: 4 },
+            relayUrl: { const: "/api/hosted/v4/codex/responses" },
+            policy: { properties: { maxRequests: { const: 1 },
+              maxConcurrentRequests: { const: 1 },
+              maxOutputTokens: { maximum: 4_096 } } },
+          } } },
+        },
+        else: { properties: { grantResponse: { type: "null" } } },
+      }],
+    } } });
   });
 
   it("keeps the generated schema digest and golden fixtures byte-consistent", async () => {
@@ -169,10 +193,19 @@ describe("generated Review Action v2 negotiation contract", () => {
       ),
     ) as { readonly $defs: Readonly<Record<string, unknown>> };
 
-    expect(reviewActionV2Operations).toHaveLength(36);
-    expect(Object.keys(reviewActionV2GoldenFixtures)).toHaveLength(36);
+    const relayExtensionSchema = JSON.parse(
+      await readFile(new URL("../generated/review-hosted-relay-extension-v1.schema.json", import.meta.url), "utf8"),
+    ) as { readonly $defs: Readonly<Record<string, unknown>> };
+    expect(reviewActionV2Operations).toHaveLength(38);
+    expect(Object.keys(reviewActionV2GoldenFixtures)).toHaveLength(38);
     expect(Object.keys(schema.$defs)).toHaveLength(58);
     expect(Object.keys(extensionSchema.$defs)).toHaveLength(14);
+    expect(Object.keys(relayExtensionSchema.$defs)).toHaveLength(4);
+    expect(sha256(canonicalJson({
+      baseSchemaDigest: reviewActionV2PublishedSchemaDigest,
+      extensionId: reviewHostedRelayExtensionV1.extensionId,
+      schema: relayExtensionSchema,
+    }))).toBe(reviewHostedRelayExtensionV1.schemaDigest);
     expect(sha256(canonicalJson(schema))).toBe(
       reviewActionV2PublishedSchemaDigest,
     );
@@ -186,10 +219,10 @@ describe("generated Review Action v2 negotiation contract", () => {
       ),
     ).toBe(reviewInvestigationExtensionV1.schemaDigest);
     expect(reviewActionV2PublishedSchemaDigest).toBe(
-      "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+      "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
     );
     expect(reviewActionV2CanonicalizerDigest).toBe(
-      "95a43332ccff5c8ccf8f6f9cb67d901d5efd3e91522c047c48f83b65c70cb03a",
+      "8ec0f934f5b17ffb554dc29f81f3bdfbe0d65d1fea12aa52f3b655fb16ddbcca",
     );
 
     for (const operation of reviewActionV2Operations) {
@@ -447,6 +480,8 @@ describe("generated Review Action v2 negotiation contract", () => {
       ReviewActionV2OperationId.ReviewInvestigationOpen,
       ReviewActionV2OperationId.ReviewInvestigationOpenV2,
       ReviewActionV2OperationId.ReviewInvestigationRestore,
+      ReviewActionV2OperationId.ReviewInvestigationRelayGrant,
+      ReviewActionV2OperationId.ReviewInvestigationRelayStatus,
       ReviewActionV2OperationId.ReviewInvestigationTurnPlan,
       ReviewActionV2OperationId.ReviewInvestigationTurnCommit,
       ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire,

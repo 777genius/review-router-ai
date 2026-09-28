@@ -5,6 +5,7 @@ import {
 } from "@reviewrouter/platform-signed-capabilities";
 import {
   createReviewInvestigationLease,
+  ReviewInvestigationLeasePurpose,
   ReviewInvestigationTurnPurpose,
 } from "@reviewrouter/features-review-investigations";
 import { ReviewActionV2ExecutionEvidenceCapabilityAdapter } from "./review-action-v2-execution-evidence-capabilities.js";
@@ -40,6 +41,26 @@ describe("ReviewActionV2InvestigationLeaseCapabilityAdapter", () => {
     await expect(
       standard.verifyPublicationPermit(token, now),
     ).rejects.toThrow();
+  });
+
+  it("separates relay and shadow capability audiences and roles", async () => {
+    const { adapter, standard } = fixture();
+    const relay = createReviewInvestigationLease({
+      ...shadowLease(),
+      purpose: ReviewInvestigationLeasePurpose.RelayTurn,
+    });
+    const relayToken = await adapter.issue(relay, hash("scope"));
+    const shadowToken = await adapter.issue(shadowLease(), hash("scope"));
+    const now = new Date("2026-08-05T10:00:30.000Z");
+
+    await expect(adapter.verify(relayToken, now)).rejects.toThrow();
+    await expect(adapter.verifyRelay(shadowToken, now)).rejects.toThrow();
+    await expect(standard.verifyLease(relayToken, now)).rejects.toThrow();
+    await expect(adapter.verifyRelay(relayToken, now)).resolves.toMatchObject({
+      purpose: ReviewInvestigationLeasePurpose.RelayTurn,
+      leaseId: relay.leaseId,
+      fencingToken: relay.fencingToken,
+    });
   });
 });
 
