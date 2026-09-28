@@ -101,7 +101,9 @@ export class PostgresProviderApiKeyLock implements ProviderApiKeyLockPort {
     } finally {
       await this.prisma.$executeRaw`
         DELETE FROM "DistributedLock" WHERE "key" = ${key} AND "owner" = ${owner}
-      `;
+      `.catch(() => {
+        // Preserve the operation outcome; the lease still expires by TTL.
+      });
     }
   }
 }

@@ -609,6 +609,42 @@ describe("provider API key persistence", () => {
         },
         data: { status: "failed", reconciliationNeeded: false },
       });
+      // Cleanup failure must neither mask success nor replace the operation error.
+      const cleanupFailure = new Error("disposable_release_failure");
+      const failingReleasePrisma = new Proxy(prisma, {
+        get(target, property) {
+          if (property === "$executeRaw") {
+            return () => Promise.reject(cleanupFailure);
+          }
+          const value = Reflect.get(target, property);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const failingReleaseLock = new PostgresProviderApiKeyLock(
+        failingReleasePrisma,
+      );
+      const completedResult = { status: "applied" };
+      await expect(
+        failingReleaseLock.withLock(
+          "disposable-cleanup-success",
+          5000,
+          async (lease) => {
+            expect(await lease.isOwned()).toBe(true);
+            return completedResult;
+          },
+        ),
+      ).resolves.toBe(completedResult);
+      const operationFailure = new Error("disposable_operation_failure");
+      await expect(
+        failingReleaseLock.withLock(
+          "disposable-cleanup-failure",
+          5000,
+          async () => {
+            throw operationFailure;
+          },
+        ),
+      ).rejects.toBe(operationFailure);
+
       const lock = new PostgresProviderApiKeyLock(prisma);
       const oldGetStarted = deferred<void>();
       const releaseOldGet = deferred<void>();
