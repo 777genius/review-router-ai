@@ -1470,6 +1470,68 @@ model HostedCodexRuntimeGate {
   @@index([status, authzEpoch, revision], map: "HostedCodexRuntimeGate_authority_idx")
 }
 
+// Offline verified-set projection for the bounded v1 historical unknown cohort.
+// Runtime roles have read access only; no generated client is emitted here.
+model HostedHistoricalScopePolicy {
+  id                       String @id
+  mode                     String
+  databaseResourceIdentity String
+  databaseIncarnation      String
+  receiptDigest            String
+  archiveDigest            String
+  expectedCount            Int
+  expectedSetDigest        String
+}
+
+model HostedHistoricalUnknownScope {
+  id                            String @id
+  githubRepositoryId            BigInt
+  pullRequestNumber             Int
+  headSha                       String
+  providerFamily                String
+  sourceWorkspaceId             String
+  sourceRepositoryConnectionId  String
+  sourceScmRepositoryIdentityId String
+  sourceBaseSha                 String
+  sourceMergeBaseSha            String
+  sourceReviewRevisionHash      String
+  sourceProviderInstanceId      String
+  sourceRunId                   String
+  sourceRunAttempt              String
+  sourceWorkflowRef             String
+  sourceBindingId               String
+  sourceBindingRevision         BigInt
+  sourceRuntimeAuthzEpoch       BigInt?
+  sourceDatabaseIncarnation     String?
+  sourceRelayId                 String @unique
+  sourceAttemptId               String? @unique
+  cohort                        String
+  receiptDigest                 String
+  aliases                       HostedHistoricalScopeAlias[]
+
+  @@index([githubRepositoryId, pullRequestNumber, headSha, providerFamily], map: "HostedHistoricalUnknownScope_match_idx")
+}
+
+model HostedHistoricalScopeAlias {
+  scopeId String
+  kind    String
+  value   String
+  scope   HostedHistoricalUnknownScope @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+
+  @@id([scopeId, kind, value])
+  @@index([kind, value], map: "HostedHistoricalScopeAlias_lookup_idx")
+}
+
+model HostedHistoricalScopeComplete {
+  id                       String @id
+  databaseResourceIdentity String
+  databaseIncarnation      String
+  receiptDigest            String
+  archiveDigest            String
+  memberCount              Int
+  setDigest                String
+}
+
 model HostedCodexCommentTokenMint {
   id                      String                             @id
   purpose                 HostedCodexCommentTokenMintPurpose
@@ -1793,6 +1855,9 @@ model HostedCodexInvocationGrant {
   backupAccountId           String?
   reviewRequestId           String
   providerInvocationKey     String
+  historicalGithubRepositoryId BigInt?
+  historicalPullRequestNumber  Int?
+  historicalHeadSha            String?
   runId                     String
   runAttempt                Int
   model                     String

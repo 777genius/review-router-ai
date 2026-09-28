@@ -30,6 +30,7 @@ import {
   PrismaHostedPoolBindingRepository,
   PrismaHostedPoolRepository,
   PrismaInvocationGrantRepository,
+  PrismaHostedHistoricalScopeBarrier,
 } from "@reviewrouter/features-hosted-account-pool";
 import {
   assertExactHostedPoolCallerWorkflow,
@@ -121,6 +122,7 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       readonly bindings: HostedPoolBindingRepositoryPort;
       readonly accounts: HostedAccountRepositoryPort;
       readonly grants: InvocationGrantRepositoryPort;
+      readonly historicalScopes?: Pick<PrismaHostedHistoricalScopeBarrier, "assertAdmissionAllowed" | "assertGrantAllowed">;
       readonly grantCapabilities: InvocationGrantCapabilityPort;
       readonly refreshCapabilities: CommentTokenRefreshCapabilityPort;
       readonly commentTokens: Pick<
@@ -212,6 +214,15 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       ]),
     );
     const grantId = invocationGrantId(`hosted-grant-${invocationIdentity}`);
+    await this.dependencies.historicalScopes?.assertAdmissionAllowed({
+      workspaceId: admission.workspaceId,
+      repositoryConnectionId: admission.repositoryId,
+      reviewRequestId: admission.reviewRequestId,
+      grantId,
+      invocationId: invocationIdentity,
+      providerInvocationKey: admission.providerInvocationKey,
+      runId: claims.run_id,
+    });
     const existing = await this.dependencies.grants.findByInvocationId(
       invocationId(invocationIdentity),
     );
@@ -233,6 +244,7 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       authzEpoch: admission.authzEpoch,
     };
     if (existing) {
+      await this.dependencies.historicalScopes?.assertGrantAllowed(existing.id);
       assertRetryMatches(existing, admission, authority, now);
       const [grantCapability, refreshCapability] = await Promise.all([
         this.dependencies.grantCapabilities.issue({
@@ -386,9 +398,20 @@ export function createProductionHostedCodexGrantIssuer(input: {
   readonly relayUrl: string;
   readonly workflowSources: HostedWorkflowSourceReaderPort;
   readonly commentTokens: Pick<HostedCodexCommentTokenIssuer, "issueInitial">;
+  readonly historicalScopes?: PrismaHostedHistoricalScopeBarrier;
   readonly clock?: Clock;
 }): HostedCodexGrantIssuer {
   const clock = input.clock ?? new SystemClock();
+  const resourceIdentity = input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY?.trim();
+  const incarnation = input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_INCARNATION?.trim();
+  if (!resourceIdentity || resourceIdentity.length < 16 || !incarnation) {
+    throw new Error("hosted_historical_destination_identity_missing");
+  }
+  const historicalScopes = input.historicalScopes ?? new PrismaHostedHistoricalScopeBarrier(input.prisma, {
+    required: input.env.REVIEW_ROUTER_HOSTED_HISTORICAL_SCOPE_DESTINATION_REQUIRED === "1",
+    resourceIdentity,
+    incarnation,
+  });
   const grants = new PrismaInvocationGrantRepository(input.prisma);
   const capabilityKey = readCapabilityKey(input.env);
   const grantCapabilities = new HmacHostedCodexCapabilityIssuer(
@@ -416,6 +439,7 @@ export function createProductionHostedCodexGrantIssuer(input: {
     bindings: new PrismaHostedPoolBindingRepository(input.prisma),
     accounts: new PrismaHostedAccountRepository(input.prisma),
     grants,
+    historicalScopes,
     grantCapabilities,
     refreshCapabilities: {
       issue: (scope) => refreshCapabilityIssuer.issue(scope),
@@ -483,7 +507,7 @@ export function createProductionHostedCodexGrantIssuer(input: {
   });
 }
 
-class HmacHostedCodexCapabilityIssuer implements InvocationGrantCapabilityPort {
+export class HmacHostedCodexCapabilityIssuer implements InvocationGrantCapabilityPort {
   constructor(
     private readonly key: Buffer,
     private readonly namespace: string,
