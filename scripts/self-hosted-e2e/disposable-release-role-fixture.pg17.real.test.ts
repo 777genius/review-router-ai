@@ -35,19 +35,22 @@ const boundarySql = readFileSync(new URL(
   let setupError: unknown;
   let ownedVolumes: string[] = [];
   const scrub = (s: string) => s.replaceAll(password, "[redacted]");
-  function command(binary: string, args: string[], input?: string, env?: NodeJS.ProcessEnv) {
+  function command(binary: string, args: string[], input?: string, env?: NodeJS.ProcessEnv,
+    timeout = 600_000) {
     const result = spawnSync(binary, args, {
       input, encoding: "utf8", cwd: process.cwd(),
-      env: env ?? process.env, timeout: 600_000, maxBuffer: 16 * 1024 * 1024,
+      env: env ?? process.env, timeout, maxBuffer: 16 * 1024 * 1024,
     });
-    return { status: result.status, output: scrub(`${result.stdout ?? ""}${result.stderr ?? ""}`) };
+    return { status: result.status,
+      output: scrub(`${result.stdout ?? ""}${result.stderr ?? ""}${result.error?.message ?? ""}`) };
   }
   function checked(binary: string, args: string[], input?: string, env?: NodeJS.ProcessEnv) {
     const result = command(binary, args, input, env);
     if (result.status !== 0) throw new Error(`${binary}:${args[0]}:${result.output}`);
     return result.output.trim();
   }
-  const docker = (args: string[], input?: string) => command("docker", ["--host", "unix:///var/run/docker.sock", ...args], input);
+  const docker = (args: string[], input?: string, timeout?: number) =>
+    command("docker", ["--host", "unix:///var/run/docker.sock", ...args], input, undefined, timeout);
   const dockerChecked = (args: string[], input?: string) => checked("docker", ["--host", "unix:///var/run/docker.sock", ...args], input);
   function exactContainerNames() {
     return dockerChecked(["ps", "-a", "--no-trunc", "--filter", `name=^/${name}$`, "--format", "{{.Names}}"])
@@ -163,11 +166,27 @@ const boundarySql = readFileSync(new URL(
       const match = mapped.match(/^127\.0\.0\.1:(\d+)$/u);
       if (!match) throw new Error("disposable_pg17_loopback_port_invalid");
       port = match[1]!;
-      for (let i = 0; i < 90; i++) {
-        if (docker(["exec", name, "pg_isready", "-U", "postgres", "-d", "postgres"]).status === 0) break;
-        await new Promise((resolve) => setTimeout(resolve, 500));
+      let finalServerReady = false;
+      let lastReadinessFailure = "";
+      const readinessDeadline = Date.now() + 45_000;
+      for (let i = 0; i < 90 && Date.now() < readinessDeadline; i++) {
+        // initdb's temporary postmaster accepts socket connections, but only
+        // the final server accepts TCP connections on loopback.
+        const result = docker(["exec", name, "psql", "-XqAtw", "-v", "ON_ERROR_STOP=1",
+          "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres",
+          "-c", "SHOW server_version_num;"], undefined,
+        Math.min(2_000, Math.max(1, readinessDeadline - Date.now())));
+        if (result.status === 0) {
+          expect(result.output.trim()).toBe("170010");
+          finalServerReady = true;
+          break;
+        }
+        lastReadinessFailure = `status=${result.status}:${result.output.trim()}`;
+        if (i < 89) await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(500, Math.max(0, readinessDeadline - Date.now()))));
       }
-      expect(query("postgres", "SHOW server_version_num;")).toBe("170010");
+      if (!finalServerReady)
+        throw new Error(`disposable_pg17_final_server_not_ready:${lastReadinessFailure}`);
     } catch (error) { setupError = error; throw error; }
   }, 90_000);
   afterAll(() => {
