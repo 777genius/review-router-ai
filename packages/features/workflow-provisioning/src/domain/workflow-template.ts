@@ -296,8 +296,7 @@ ${template.oidcStep}      - name: Run ReviewRouter
           CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
           OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}
-${mimoTokenPlanSelected ? `          MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}\n` : ""}
+          OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}${mimoTokenPlanSelected ? `\n          MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}` : ""}
 `;
 }
 
@@ -1396,6 +1395,37 @@ function getJobSection(workflowYaml: string, jobId: string): string | null {
   return workflowYaml.slice(start, end);
 }
 
+export function workflowChecksOutReviewRouterRuntime(
+  workflowYaml: string,
+  actionRef: string,
+): boolean {
+  const atIndex = actionRef.lastIndexOf("@");
+  if (atIndex < 1) return false;
+  const repository = actionRef.slice(0, atIndex);
+  const ref = actionRef.slice(atIndex + 1);
+  const reviewJob = getJobSection(workflowYaml, "review");
+  if (!reviewJob) return false;
+  const steps = reviewJob.split(/^ {6}- /m).slice(1);
+  const checkoutIndex = steps.findIndex(
+    (step) =>
+      /^ {8}uses: actions\/checkout@\S+$/m.test(step) &&
+      new RegExp(`^ {10}repository: ${escapeRegExp(repository)}$`, "m").test(
+        step,
+      ) &&
+      new RegExp(`^ {10}ref: ${escapeRegExp(ref)}$`, "m").test(step) &&
+      /^ {10}path: \.reviewrouter-runtime$/m.test(step) &&
+      /^ {10}persist-credentials: false$/m.test(step),
+  );
+  return (
+    checkoutIndex >= 0 &&
+    steps.some(
+      (step, index) =>
+        index > checkoutIndex &&
+        /^ {8}run: node \.reviewrouter-runtime\/dist\/index\.js$/m.test(step),
+    )
+  );
+}
+
 function getJobNestedSection(
   jobSection: string,
   nestedMarker: string,
@@ -1761,7 +1791,7 @@ function prepareReusableWorkflowTemplate(
   ) {
     throw new Error("invalid_conflict_review_reusable_workflow_runtime_ref");
   }
-  const staticRuntimeEnv = options.staticRuntimeEnv ?? {};
+  const staticRuntimeEnv = withProviderKeyBudget(options.staticRuntimeEnv);
   for (const [key, value] of Object.entries(staticRuntimeEnv)) {
     assertSafeEnvKey(key);
     if (typeof value !== "string") {
@@ -1794,7 +1824,9 @@ function prepareWorkflowTemplate(options: ReviewRouterWorkflowOptions): {
   assertSafeActionRef(options.actionRef);
   assertSafeApiUrl(options.apiUrl);
   const actionVersion = extractActionVersion(options.actionRef);
-  const staticRuntimeEnv = Object.entries(options.staticRuntimeEnv ?? {})
+  const staticRuntimeEnv = Object.entries(
+    withProviderKeyBudget(options.staticRuntimeEnv),
+  )
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => {
       assertSafeEnvKey(key);
@@ -1825,6 +1857,20 @@ function prepareWorkflowTemplate(options: ReviewRouterWorkflowOptions): {
     oidcStep,
     staticRuntimeEnvBlock,
   };
+}
+
+function withProviderKeyBudget(
+  runtimeEnv: Readonly<Record<string, string>> | undefined,
+): Readonly<Record<string, string>> {
+  const env = runtimeEnv ?? {};
+  const selection = reviewRouterProviderSelectionForRuntimeEnv(env);
+  if (
+    env.BUDGET_MAX_USD !== undefined ||
+    (!selection.openRouterApiKeySecret && !selection.mimoTokenPlanApiKeySecret)
+  ) {
+    return env;
+  }
+  return { ...env, BUDGET_MAX_USD: "1" };
 }
 
 function assertSafeActionRef(actionRef: string): void {

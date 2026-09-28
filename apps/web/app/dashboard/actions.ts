@@ -85,6 +85,7 @@ import {
   readCanonicalIsolatedQualityWorkflowSourceMetadata,
   readCanonicalHostedPoolWorkflowMetadata,
   workflowDocumentSemanticSha256,
+  workflowChecksOutReviewRouterRuntime,
   WorkflowSourceTrust,
   type ReviewRouterWorkflowStyle,
 } from "@reviewrouter/features-workflow-provisioning";
@@ -1846,9 +1847,12 @@ async function confirmSetupPullRequestMergedMutation(
                                     /^-?\s*uses:\s*["']?([^"'\s#]+)["']?/,
                                   )?.[1],
                             );
-                          const explicit = refs.includes(
-                            input.expectedActionRef,
-                          );
+                          const explicit =
+                            refs.includes(input.expectedActionRef) ||
+                            workflowChecksOutReviewRouterRuntime(
+                              workflow,
+                              input.expectedActionRef,
+                            );
                           const reusable = refs.includes(
                             input.expectedActionRef.replace(
                               "@",

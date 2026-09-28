@@ -33,6 +33,7 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderCodexRotatingInteractionWorkflow,
   scanCodexRotatingAdvisoryWorkflow,
+  workflowChecksOutReviewRouterRuntime,
 } from "../domain/workflow-template";
 import {
   renderCodexRotatingAdvisoryWorkflow as renderExportedCodexRotatingAdvisoryWorkflow,
@@ -86,6 +87,65 @@ function getWorkflowJobSection(workflow: string, jobId: string): string {
 }
 
 describe("renderReviewRouterWorkflow", () => {
+  it("recognizes the pinned checkout and execution in a generated explicit review job", () => {
+    const actionRef =
+      "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
+    const workflow = renderReviewRouterWorkflow({
+      actionRef,
+      apiUrl: "https://reviewrouter.site",
+      runtimeConfigMode: "static",
+    });
+    expect(workflowChecksOutReviewRouterRuntime(workflow, actionRef)).toBe(
+      true,
+    );
+    for (const invalidWorkflow of [
+      workflow.replace(
+        "ref: 0123456789abcdef0123456789abcdef01234567",
+        "ref: main",
+      ),
+      workflow.replace(
+        "run: node .reviewrouter-runtime/dist/index.js",
+        "run: echo skipped",
+      ),
+      workflow.replace("path: .reviewrouter-runtime", "path: other-runtime"),
+      workflow.replace("  review:", "  unrelated:"),
+      workflow.replace("          repository:", "          # repository:"),
+    ]) {
+      expect(
+        workflowChecksOutReviewRouterRuntime(invalidWorkflow, actionRef),
+      ).toBe(false);
+    }
+  });
+
+  it.each(["openrouter-api", "mimo-token-plan-api"])(
+    "gives %s generated workflows a bounded paid-provider budget",
+    (authMode) => {
+      const options = {
+        actionRef:
+          "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+        apiUrl: "https://reviewrouter.site",
+        runtimeConfigMode: "static" as const,
+        staticRuntimeEnv: { REVIEW_AUTH_MODE: authMode },
+      };
+
+      expect(renderReviewRouterWorkflow(options)).toContain(
+        'BUDGET_MAX_USD: "1"',
+      );
+      expect(renderReviewRouterReusableWorkflow(options)).toContain(
+        '"BUDGET_MAX_USD": "1"',
+      );
+      expect(
+        renderReviewRouterWorkflow({
+          ...options,
+          staticRuntimeEnv: {
+            ...options.staticRuntimeEnv,
+            BUDGET_MAX_USD: "0.25",
+          },
+        }),
+      ).toContain('BUDGET_MAX_USD: "0.25"');
+    },
+  );
+
   it("exports a dedicated advisory-only rotating Codex OAuth workflow", () => {
     const workflow = renderExportedCodexRotatingAdvisoryWorkflow({
       actionRef:

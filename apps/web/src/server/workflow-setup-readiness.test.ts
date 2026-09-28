@@ -263,9 +263,13 @@ describe("workflow setup readiness", () => {
 
     expect(probe.input?.expectedContentMarkerGroups).toEqual([
       [
+        ".github/workflows/reviewrouter-reusable.yml",
+        "MIMO_TOKEN_PLAN_API_KEY",
+        "codex-mimo/",
+      ],
+      [
         "Install Codex CLI",
         "MIMO_TOKEN_PLAN_API_KEY",
-        "mimo-token-plan-api-key:",
         "codex-mimo/",
         "Require MiMo Token Plan API key",
         "Skip fork pull requests",
