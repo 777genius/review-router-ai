@@ -434,7 +434,7 @@ describe("ProviderApiKeyManager", () => {
         return response(
           {
             error:
-              "entitlement_denied:provider_key_management:feature_not_enabled_for_plan",
+              "entitlement_denied:provider_key_management:workspace_entitlement_not_active",
           },
           false,
           403,
@@ -449,7 +449,7 @@ describe("ProviderApiKeyManager", () => {
 
     expect(
       await screen.findByText(
-        "Provider key management is available on paid plans.",
+        "Provider key management requires an active workspace plan.",
       ),
     ).toBeTruthy();
   });

@@ -270,7 +270,7 @@ const secretCopyByAuthMode = {
       "MiMo Token Plan mode uses MIMO_TOKEN_PLAN_API_KEY from GitHub Actions secrets.",
     commandSuffix: "--app actions",
     recovery:
-      "Create a MiMo Token Plan API key, then enter it only at the GitHub CLI secret prompt.",
+      "Create your MiMo Token Plan API key, then connect it in the provider key manager or set MIMO_TOKEN_PLAN_API_KEY as a GitHub Actions secret.",
   },
   claude_code_oauth: {
     label: "Claude Code subscription",
@@ -967,8 +967,6 @@ function reviewConfigActionErrorText(error: string): string {
       return "The submitted form is invalid. Refresh the dashboard and try again.";
     case "entitlement_denied":
       return "This workspace plan does not allow that action. Check the plan status or feature flags.";
-    case "provider_key_workspace_grant_required":
-      return "MiMo Token Plan is not enabled for this workspace. Ask the ReviewRouter owner to grant access.";
     case "codex_rotating_not_enabled":
       return "Rotating Codex OAuth is not enabled for this ReviewRouter deployment.";
     case "codex_rotating_repository_scope_required":

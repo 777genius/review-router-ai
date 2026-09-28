@@ -97,29 +97,27 @@ describe("POST /api/dashboard/provider-keys/apply", () => {
     });
   });
 
-  it("default-denies key storage before service or GitHub dependencies are used", async () => {
+  it("applies a customer's MiMo key without an operator workspace grant", async () => {
     mocks.assertProviderApiKeyWorkspaceGranted.mockRejectedValue(
       new Error("provider_key_workspace_grant_required"),
     );
 
     const response = await POST(request());
 
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({
-      error: "provider_key_workspace_grant_required",
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      providerType: "mimo",
+      results: [{ repositoryId: "repo_1", status: "applied" }],
     });
-    expect(
-      mocks.createProviderApiKeyServiceDependencies,
-    ).not.toHaveBeenCalled();
-    expect(
-      mocks.githubSecrets.getRepositoryActionsPublicKey,
-    ).not.toHaveBeenCalled();
+    expect(mocks.assertProviderApiKeyWorkspaceGranted).not.toHaveBeenCalled();
     expect(
       mocks.githubSecrets.putEncryptedRepositorySecret,
-    ).not.toHaveBeenCalled();
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ secretName: "MIMO_TOKEN_PLAN_API_KEY" }),
+    );
   });
 
-  it("keeps OpenRouter batch apply independent of the MiMo pool grant", async () => {
+  it("keeps OpenRouter batch apply independent of an operator grant", async () => {
     mocks.assertProviderApiKeyWorkspaceGranted.mockRejectedValue(
       new Error("provider_key_workspace_grant_required"),
     );
@@ -133,6 +131,26 @@ describe("POST /api/dashboard/provider-keys/apply", () => {
     ).toHaveBeenCalledWith(
       expect.objectContaining({ secretName: "OPENROUTER_API_KEY" }),
     );
+  });
+
+  it.each([
+    ["dashboard_admin_requires_sign_in", 401],
+    ["workspace_admin_forbidden", 403],
+  ] as const)("rejects %s before storing a key", async (error, status) => {
+    mocks.assertDashboardWorkspaceAdminAllowed.mockRejectedValue(
+      new Error(error),
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(status);
+    await expect(response.json()).resolves.toEqual({ error });
+    expect(
+      mocks.createProviderApiKeyServiceDependencies,
+    ).not.toHaveBeenCalled();
+    expect(
+      mocks.githubSecrets.putEncryptedRepositorySecret,
+    ).not.toHaveBeenCalled();
   });
 
   it("rejects the batch before GitHub work when entitlement is denied", async () => {
@@ -152,6 +170,89 @@ describe("POST /api/dashboard/provider-keys/apply", () => {
     expect(
       mocks.createProviderApiKeyServiceDependencies,
     ).not.toHaveBeenCalled();
+    expect(
+      mocks.githubSecrets.putEncryptedRepositorySecret,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("rejects an inactive workspace entitlement before storing a key", async () => {
+    mocks.assertWorkspaceFeatureEntitlement.mockRejectedValue(
+      new Error(
+        "entitlement_denied:provider_key_management:workspace_entitlement_not_active",
+      ),
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(403);
+    expect(
+      mocks.createProviderApiKeyServiceDependencies,
+    ).not.toHaveBeenCalled();
+    expect(
+      mocks.githubSecrets.putEncryptedRepositorySecret,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("reuses a saved MiMo key without an operator grant", async () => {
+    mocks.assertProviderApiKeyWorkspaceGranted.mockRejectedValue(
+      new Error("provider_key_workspace_grant_required"),
+    );
+    const dependencies = mocks.createProviderApiKeyServiceDependencies();
+    dependencies.providerApiKeys.findEncryptedApiKey.mockResolvedValue(
+      "encrypted:saved-key",
+    );
+    mocks.createProviderApiKeyServiceDependencies.mockClear();
+
+    const response = await POST(
+      new Request("http://localhost/api/dashboard/provider-keys/apply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: "workspace_1",
+          providerType: "mimo",
+          repositoryIds: ["repo_1"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.assertProviderApiKeyWorkspaceGranted).not.toHaveBeenCalled();
+    expect(
+      dependencies.providerApiKeys.findEncryptedApiKey,
+    ).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      providerType: "mimo",
+    });
+    expect(dependencies.providerApiKeys.prepareApply).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      providerType: "mimo",
+      repositoryIds: ["repo_1"],
+    });
+    expect(
+      mocks.githubSecrets.putEncryptedRepositorySecret,
+    ).toHaveBeenCalledOnce();
+  });
+
+  it("does not write a key for a repository outside the workspace", async () => {
+    const dependencies = mocks.createProviderApiKeyServiceDependencies();
+    dependencies.providerApiKeyRepositories.findRepositoryTargets.mockResolvedValue(
+      [],
+    );
+    mocks.createProviderApiKeyServiceDependencies.mockClear();
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      results: [
+        {
+          repositoryId: "repo_1",
+          status: "denied",
+          errorReason: "repository_not_allowed",
+        },
+      ],
+    });
+    expect(dependencies.providerApiKeys.prepareApply).not.toHaveBeenCalled();
     expect(
       mocks.githubSecrets.putEncryptedRepositorySecret,
     ).not.toHaveBeenCalled();

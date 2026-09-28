@@ -387,6 +387,7 @@ describe("provider API key persistence", () => {
         encryptedApiKey: "storage-cipher-v1",
         repositoryIds: ["repo_adapter"],
       });
+      expect(await workspaceGrants.isGranted("workspace_adapter")).toBe(false);
       expect(
         await store.markRepositoryApplying({
           operationId: firstApply.operationId,
