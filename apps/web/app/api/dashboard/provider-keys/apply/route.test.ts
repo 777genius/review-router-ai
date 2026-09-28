@@ -125,7 +125,9 @@ describe("POST /api/dashboard/provider-keys/apply", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.assertProviderApiKeyWorkspaceGranted).not.toHaveBeenCalled();
-    expect(mocks.githubSecrets.putEncryptedRepositorySecret).toHaveBeenCalledWith(
+    expect(
+      mocks.githubSecrets.putEncryptedRepositorySecret,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({ secretName: "OPENROUTER_API_KEY" }),
     );
   });
@@ -150,6 +152,19 @@ describe("POST /api/dashboard/provider-keys/apply", () => {
     expect(
       mocks.githubSecrets.putEncryptedRepositorySecret,
     ).not.toHaveBeenCalled();
+  });
+
+  it("reports missing provider-key storage configuration as unavailable", async () => {
+    mocks.createProviderApiKeyServiceDependencies.mockImplementationOnce(() => {
+      throw new Error("missing_env:REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY");
+    });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "provider_key_storage_not_configured",
+    });
   });
 
   it("returns the per-repository success status for a full batch", async () => {

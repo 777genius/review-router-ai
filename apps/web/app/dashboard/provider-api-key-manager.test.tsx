@@ -154,6 +154,7 @@ describe("ProviderApiKeyManager", () => {
   it("prefills saved repositories, applies the key, and renders per-repo results", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
+        void init;
         const url = String(input);
         if (url.includes("/repositories/search")) {
           return {

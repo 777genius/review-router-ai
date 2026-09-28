@@ -52,7 +52,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     const prisma = getPrisma();
     if (parsed.data.providerType === "mimo") {
-      await assertProviderApiKeyWorkspaceGranted(prisma, parsed.data.workspaceId);
+      await assertProviderApiKeyWorkspaceGranted(
+        prisma,
+        parsed.data.workspaceId,
+      );
     }
     await assertWorkspaceFeatureEntitlement(
       {
@@ -135,6 +138,7 @@ function applyProviderApiKeyErrorStatus(error: unknown): number {
     case "github_app_id_not_configured":
     case "github_app_private_key_not_configured":
     case "missing_env:GITHUB_APP_PRIVATE_KEY":
+    case "missing_env:REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY":
     case "dashboard_auth_misconfigured":
     case "provider_key_storage_not_configured":
       return 503;

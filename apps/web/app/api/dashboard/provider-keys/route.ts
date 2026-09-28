@@ -4,10 +4,7 @@ import {
   assertWorkspaceFeatureEntitlement,
   PrismaEntitlementRepository,
 } from "@reviewrouter/features-entitlements";
-import {
-  providerApiKeyProviderSchema,
-  type ProviderApiKeyProvider,
-} from "@reviewrouter/features-provider-setup";
+import { providerApiKeyProviderSchema } from "@reviewrouter/features-provider-setup";
 import { assertDashboardWorkspaceAdminAllowed } from "../../../../src/server/dashboard-mutations";
 import { getPrisma } from "../../../../src/server/prisma";
 import {
