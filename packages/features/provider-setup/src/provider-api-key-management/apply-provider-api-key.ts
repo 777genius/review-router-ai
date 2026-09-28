@@ -49,7 +49,7 @@ export async function applyProviderApiKey(
   return dependencies.lock.withLock(
     `provider-api-key:${workspaceId}:${providerType}`,
     15 * 60 * 1000,
-    async () => {
+    async (lease) => {
       const connectedRepositoryIds =
         await dependencies.providerApiKeys.findConnectedRepositoryIds({
           workspaceId,
@@ -169,32 +169,6 @@ export async function applyProviderApiKey(
               ),
             };
           }
-          let applying: boolean;
-          try {
-            applying =
-              await dependencies.providerApiKeys.markRepositoryApplying({
-                operationId: session.operationId,
-                repositoryId,
-              });
-          } catch {
-            return recordResult({
-              repositoryId,
-              repositoryFullName: target.repositoryFullName,
-              status: "reconciliation_needed",
-              errorReason: "persistence_failed",
-              errorSummary: sanitizeProviderApiKeyError("persistence_failed"),
-              keyVersion: session.keyVersion,
-            });
-          }
-          if (!applying) {
-            return {
-              repositoryId,
-              repositoryFullName: target.repositoryFullName,
-              status: "stale",
-              keyVersion: session.keyVersion,
-            };
-          }
-
           let result: ProviderApiKeyRepositoryResult;
           try {
             const publicKey =
@@ -209,6 +183,41 @@ export async function applyProviderApiKey(
               githubPublicKeyBase64: publicKey.key,
               githubKeyId: publicKey.keyId,
             });
+            // The public-key GET may outlive the lease. No PUT may start until
+            // both the lease and the durable operation fence are checked.
+            if (!(await lease.isOwned())) {
+              return recordResult({
+                repositoryId,
+                repositoryFullName: target.repositoryFullName,
+                status: "stale",
+                keyVersion: session.keyVersion,
+              });
+            }
+            let applying: boolean;
+            try {
+              applying =
+                await dependencies.providerApiKeys.markRepositoryApplying({
+                  operationId: session.operationId,
+                  repositoryId,
+                });
+            } catch {
+              return recordResult({
+                repositoryId,
+                repositoryFullName: target.repositoryFullName,
+                status: "failed",
+                errorReason: "persistence_failed",
+                errorSummary: sanitizeProviderApiKeyError("persistence_failed"),
+                keyVersion: session.keyVersion,
+              });
+            }
+            if (!applying || !(await lease.isOwned())) {
+              return recordResult({
+                repositoryId,
+                repositoryFullName: target.repositoryFullName,
+                status: "stale",
+                keyVersion: session.keyVersion,
+              });
+            }
             await dependencies.githubSecrets.putEncryptedRepositorySecret({
               githubInstallationId: target.githubInstallationId,
               githubRepositoryId: target.githubRepositoryId,
@@ -242,7 +251,22 @@ export async function applyProviderApiKey(
           return recordResult(result);
         },
       );
-      return { providerType, results: [...deniedResults, ...results] };
+      const blockedResults = (session.blockedRepositoryIds ?? []).map(
+        (repositoryId): ProviderApiKeyRepositoryResult => ({
+          repositoryId,
+          repositoryFullName:
+            targetByRepositoryId.get(repositoryId)?.repositoryFullName ??
+            repositoryId,
+          status: "reconciliation_needed",
+          errorReason: "persistence_failed",
+          errorSummary: sanitizeProviderApiKeyError("persistence_failed"),
+          keyVersion: session.keyVersion,
+        }),
+      );
+      return {
+        providerType,
+        results: [...deniedResults, ...results, ...blockedResults],
+      };
     },
   );
 }

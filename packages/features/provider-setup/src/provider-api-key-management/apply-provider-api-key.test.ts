@@ -122,7 +122,7 @@ describe("applyProviderApiKey", () => {
     ]);
   });
 
-  it("contains a repository applying persistence failure to one result", async () => {
+  it("contains a pre-PUT persistence failure to one result", async () => {
     const providerApiKeys = store();
     vi.mocked(providerApiKeys.markRepositoryApplying)
       .mockRejectedValueOnce(new Error("database_unavailable"))
@@ -142,7 +142,7 @@ describe("applyProviderApiKey", () => {
     expect(result.results).toMatchObject([
       {
         repositoryId: "repo_1",
-        status: "reconciliation_needed",
+        status: "failed",
         errorReason: "persistence_failed",
       },
       {
@@ -261,7 +261,11 @@ function dependencies(overrides?: {
   githubSecrets: ProviderApiKeyGitHubSecretGatewayPort;
   classifyError: typeof classifyProviderApiKeyError;
   lock: {
-    withLock<T>(key: string, ttlMs: number, run: () => Promise<T>): Promise<T>;
+    withLock<T>(
+      key: string,
+      ttlMs: number,
+      run: (lease: { isOwned(): Promise<boolean> }) => Promise<T>,
+    ): Promise<T>;
   };
 } {
   return {
@@ -293,7 +297,7 @@ function dependencies(overrides?: {
     githubSecrets: overrides?.githubSecrets ?? gateway(),
     classifyError: classifyProviderApiKeyError,
     lock: {
-      withLock: (_key, _ttlMs, run) => run(),
+      withLock: (_key, _ttlMs, run) => run({ isOwned: async () => true }),
     },
   };
 }

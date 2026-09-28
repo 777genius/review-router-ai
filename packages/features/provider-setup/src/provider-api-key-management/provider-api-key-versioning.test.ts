@@ -420,9 +420,9 @@ class SerializedLock {
   async withLock<T>(
     _key: string,
     _ttlMs: number,
-    run: () => Promise<T>,
+    run: (lease: { isOwned(): Promise<boolean> }) => Promise<T>,
   ): Promise<T> {
-    const result = this.tail.then(run);
+    const result = this.tail.then(() => run({ isOwned: async () => true }));
     this.tail = result.catch(() => undefined);
     return result;
   }

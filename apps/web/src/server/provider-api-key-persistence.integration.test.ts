@@ -2,7 +2,11 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+  applyProviderApiKey,
+  classifyProviderApiKeyError,
+} from "@reviewrouter/features-provider-setup";
 import {
   createPrismaClient,
   type PrismaClient,
@@ -11,6 +15,7 @@ import {
   PrismaProviderApiKeyRepository,
   PrismaProviderApiKeyStore,
   PrismaProviderApiKeyWorkspaceGrantStore,
+  PostgresProviderApiKeyLock,
 } from "./provider-api-keys";
 
 type QueryResult = {
@@ -21,7 +26,11 @@ type QueryResult = {
 async function applyProviderKeyFixtureMigrations(
   database: PGlite,
 ): Promise<void> {
-  for (const name of ["000001_init", "000022_gitlab_source_connections"]) {
+  for (const name of [
+    "000001_init",
+    "000003_distributed_locks",
+    "000022_gitlab_source_connections",
+  ]) {
     const migration = await readFile(
       resolve(
         process.cwd(),
@@ -548,6 +557,14 @@ describe("provider API key persistence", () => {
         repositoryIds: ["repo_adapter"],
       });
       expect(
+        await store.markRepositoryApplying({
+          operationId: retry.operationId,
+          repositoryId: "repo_adapter",
+        }),
+      ).toBe(false);
+      expect(retry.repositoryIds).toEqual([]);
+      expect(retry.blockedRepositoryIds).toEqual(["repo_adapter"]);
+      expect(
         await store.recordRepositoryResult({
           operationId: reconciliationApply.operationId,
           keyVersion: reconciliationApply.keyVersion,
@@ -576,10 +593,106 @@ describe("provider API key persistence", () => {
         }),
       ).toEqual({
         status: "reconciliation_needed",
-        operationId: retry.operationId,
+        operationId: reconciliationApply.operationId,
         reconciliationNeeded: true,
         lastErrorReason: "persistence_failed",
       });
+
+      // A real lease can expire while GET is suspended. The newer rotation
+      // may apply, but the old operation must fail its dispatch fence.
+      await prisma.providerApiKeyRepositoryLink.update({
+        where: {
+          providerApiKeyConnectionId_repositoryId: {
+            providerApiKeyConnectionId: connectionId,
+            repositoryId: "repo_adapter",
+          },
+        },
+        data: { status: "failed", reconciliationNeeded: false },
+      });
+      const lock = new PostgresProviderApiKeyLock(prisma);
+      const oldGetStarted = deferred<void>();
+      const releaseOldGet = deferred<void>();
+      const oldPutStarted = deferred<void>();
+      const releaseOldPut = deferred<void>();
+      let holdGet = true;
+      let holdPut = false;
+      const put = vi.fn(async () => {
+        if (holdPut) {
+          holdPut = false;
+          oldPutStarted.resolve();
+          await releaseOldPut.promise;
+        }
+      });
+      const dependencies = {
+        providerApiKeys: store,
+        providerApiKeyRepositories: repositories,
+        storageCipher: {
+          encrypt: (value: string) => `cipher:${value}`,
+          decrypt: (value: string) => value.replace("cipher:", ""),
+        },
+        githubSecrets: {
+          getRepositoryActionsPublicKey: async () => {
+            if (holdGet) {
+              holdGet = false;
+              oldGetStarted.resolve();
+              await releaseOldGet.promise;
+            }
+            return {
+              keyId: "test-key",
+              key: Buffer.from("0123456789abcdef0123456789abcdef").toString(
+                "base64",
+              ),
+            };
+          },
+          putEncryptedRepositorySecret: put,
+        },
+        classifyError: classifyProviderApiKeyError,
+        lock,
+      };
+      const rotate = (apiKey: string) =>
+        applyProviderApiKey(
+          {
+            workspaceId: "workspace_adapter",
+            providerType: "mimo",
+            apiKey,
+            repositoryIds: ["repo_adapter"],
+          },
+          dependencies,
+        );
+      const oldGet = rotate("old-get-key");
+      await Promise.race([oldGetStarted.promise, oldGet]);
+      await prisma.distributedLock.updateMany({
+        where: { key: "provider-api-key:workspace_adapter:mimo" },
+        data: { expiresAt: new Date(0) },
+      });
+      const newer = await rotate("newer-key");
+      expect(newer.results[0]?.status).toBe("applied");
+      releaseOldGet.resolve();
+      expect((await oldGet).results[0]?.status).toBe("stale");
+      expect(put).toHaveBeenCalledTimes(1);
+
+      // Once PUT has started, expiry cannot make a later key appear applied:
+      // the durable applying marker quarantines this repository.
+      holdPut = true;
+      const inFlight = rotate("in-flight-key");
+      await Promise.race([oldPutStarted.promise, inFlight]);
+      await prisma.distributedLock.updateMany({
+        where: { key: "provider-api-key:workspace_adapter:mimo" },
+        data: { expiresAt: new Date(0) },
+      });
+      const blocked = await rotate("blocked-key");
+      expect(blocked.results[0]?.status).toBe("reconciliation_needed");
+      expect(put).toHaveBeenCalledTimes(2);
+      releaseOldPut.resolve();
+      await inFlight;
+      expect(
+        (
+          await store.findState({
+            workspaceId: "workspace_adapter",
+            providerType: "mimo",
+          })
+        ).repositories[0]?.status,
+      ).toBe("reconciliation_needed");
     } finally {
       await prisma?.$disconnect();
       await socketServer?.stop();
@@ -587,3 +700,11 @@ describe("provider API key persistence", () => {
     }
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
