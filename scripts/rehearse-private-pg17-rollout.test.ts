@@ -1299,6 +1299,7 @@ describe("disposable dual-version rehearsal", () => {
       "000107_hosted_v4_relay_turn_contract",
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
+      "000110_provider_api_key_workspace_management",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1347,7 +1348,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000106_sdk_growth_finalized_report_logical_identity" &&
             name !== "000107_hosted_v4_relay_turn_contract" &&
             name !== "000108_sdk_growth_verifier_assignment" &&
-            name !== "000109_sdk_growth_verifier_assignment_lock",
+            name !== "000109_sdk_growth_verifier_assignment_lock" &&
+            name !== "000110_provider_api_key_workspace_management",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1369,7 +1371,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000106_sdk_growth_finalized_report_logical_identity" &&
             name !== "000107_hosted_v4_relay_turn_contract" &&
             name !== "000108_sdk_growth_verifier_assignment" &&
-            name !== "000109_sdk_growth_verifier_assignment_lock",
+            name !== "000109_sdk_growth_verifier_assignment_lock" &&
+            name !== "000110_provider_api_key_workspace_management",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1391,12 +1394,12 @@ describe("disposable dual-version rehearsal", () => {
   });
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
-    const exactTail = "000109_sdk_growth_verifier_assignment_lock";
+    const exactTail = "000110_provider_api_key_workspace_management";
     for (const candidate of [
       names.filter((name) => name !== exactTail),
       [...names, exactTail],
       names.map((name) => (name === exactTail ? "000108_unknown" : name)),
-      [...names, "000109_future_migration"],
+      [...names, "000110_future_migration"],
     ]) {
       expect(() => resolvePreReleaseMigrationExclusions(candidate)).toThrow(
         "private_pg17_rehearsal_migration_boundary_unclassified",
@@ -1417,6 +1420,7 @@ describe("disposable dual-version rehearsal", () => {
     "000107_hosted_v4_relay_turn_contract",
     "000108_sdk_growth_verifier_assignment",
     "000109_sdk_growth_verifier_assignment_lock",
+    "000110_provider_api_key_workspace_management",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1455,7 +1459,8 @@ describe("disposable dual-version rehearsal", () => {
                   "000106_sdk_growth_finalized_report_logical_identity" &&
                 name !== "000107_hosted_v4_relay_turn_contract" &&
                 name !== "000108_sdk_growth_verifier_assignment" &&
-                name !== "000109_sdk_growth_verifier_assignment_lock",
+                name !== "000109_sdk_growth_verifier_assignment_lock" &&
+                name !== "000110_provider_api_key_workspace_management",
               "000102_sdk_growth_current_authority",
             ),
           ),

@@ -12,7 +12,11 @@ import { checkCodexSecretWriteBoundary } from "./check-codex-secret-write-bounda
 
 describe("Codex rotating secret write boundary", () => {
   it("accepts the checked-in audited adapters", () => {
-    expect(checkCodexSecretWriteBoundary()).toMatchObject({ status: "pass" });
+    const result = checkCodexSecretWriteBoundary();
+    expect(result).toMatchObject({ status: "pass" });
+    expect(result.auditedAdapters).toContain(
+      "apps/web/src/server/provider-api-key-github-gateway.ts",
+    );
   });
 
   it("accepts hardened flags on continued reseed curl commands", () => {
@@ -74,6 +78,64 @@ describe("Codex rotating secret write boundary", () => {
     mkdirSync(join(file, ".."), { recursive: true });
     writeFileSync(file, source);
     expect(() => checkCodexSecretWriteBoundary(root)).toThrow();
+  });
+
+  it.each([
+    [
+      "unaudited copy of the web one-shot writer",
+      "apps/web/src/server/provider-api-key-github-gateway-copy.ts",
+      1,
+    ],
+    [
+      "second PUT inside the exact audited web path",
+      "apps/web/src/server/provider-api-key-github-gateway.ts",
+      2,
+    ],
+  ])(
+    "rejects provider writes outside exact audited adapter content: %s",
+    (_, relativePath, putCount) => {
+      const root = mkdtempSync(
+        join(tmpdir(), "rr-provider-key-write-boundary-"),
+      );
+      const source = readFileSync(
+        join(
+          process.cwd(),
+          "apps/web/src/server/provider-api-key-github-gateway.ts",
+        ),
+        "utf8",
+      );
+      const target = join(root, relativePath);
+      mkdirSync(join(target, ".."), { recursive: true });
+      const extraPut = 'request("PUT /repos/x/y/actions/secrets/SECRET");\n';
+      writeFileSync(target, putCount === 1 ? source : `${source}\n${extraPut}`);
+
+      expect(() => checkCodexSecretWriteBoundary(root)).toThrow(
+        putCount === 1
+          ? "provider secret PUT outside audited adapter"
+          : "audited one-shot gateway must expose exactly one provider PUT",
+      );
+    },
+  );
+
+  it("rejects an ambient-agent mutation in the audited web one-shot path", () => {
+    const root = mkdtempSync(join(tmpdir(), "rr-provider-key-agent-boundary-"));
+    const target = join(
+      root,
+      "apps/web/src/server/provider-api-key-github-gateway.ts",
+    );
+    mkdirSync(join(target, ".."), { recursive: true });
+    const source = readFileSync(
+      join(
+        process.cwd(),
+        "apps/web/src/server/provider-api-key-github-gateway.ts",
+      ),
+      "utf8",
+    ).replace("agent: testAgent ?? false", "agent: undefined");
+    writeFileSync(target, source);
+
+    expect(() => checkCodexSecretWriteBoundary(root)).toThrow(
+      "audited one-shot transport is missing pinned request invariants",
+    );
   });
 
   it.each([

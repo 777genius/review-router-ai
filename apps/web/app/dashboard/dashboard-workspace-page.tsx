@@ -131,6 +131,7 @@ import {
   type DashboardSection,
 } from "./dashboard-section";
 import { ProviderSecretSetupDialog } from "./provider-secret-setup-dialog";
+import { ProviderApiKeyManager } from "./provider-api-key-manager";
 import {
   RepositoryLiveSearch,
   type RepositorySearchFilter,
@@ -2662,6 +2663,25 @@ function RepositoryTable({
       data-repository-table
       className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
     >
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-200/10 px-4 py-3 lg:px-6">
+        <div>
+          <p className="text-sm font-semibold text-cyan-100">
+            Provider API keys
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Apply a MiMo or OpenRouter key to selected repositories.
+          </p>
+        </div>
+        <ProviderApiKeyManager
+          workspaceId={workspace.id}
+          disabled={!mutationsEnabled || directConfigRepositoryIds !== null}
+          disabledReason={
+            directConfigRepositoryIds !== null
+              ? "Workspace admin access is required to manage provider keys."
+              : "Dashboard mutations are unavailable."
+          }
+        />
+      </div>
       <RepositoryLiveSearch
         key={workspaceKey}
         workspaceKey={workspaceKey}

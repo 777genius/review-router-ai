@@ -18,15 +18,16 @@ const checkoutOnlyMigrations = Object.freeze([
   "000107_hosted_v4_relay_turn_contract",
   "000108_sdk_growth_verifier_assignment",
   "000109_sdk_growth_verifier_assignment_lock",
+  "000110_provider_api_key_workspace_management",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
 export function readRenderHistorical96CheckoutInventory() {
   const checkout = readRenderManagedCheckoutInventory();
   if (
-    ![96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108].includes(
-      checkout.length,
-    )
+    ![
+      96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109,
+    ].includes(checkout.length)
   )
     throw new Error("render_historical96_checkout_rejected:count");
   const historical = checkout.filter(

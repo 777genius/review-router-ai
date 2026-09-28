@@ -33,8 +33,14 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full108 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(108);
+  it("validates the full109 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(109);
+    expect(manifest(full)).toBe(
+      "sha256:d4e309a83e36089dae1bfaa94c707eaa81ef5ff7e0d3d3831763c26331e1ad5c",
+    );
+    expect(full[108]?.migrationName).toBe(
+      "000110_provider_api_key_workspace_management",
+    );
     expect(full[107]?.migrationName).toBe(
       "000109_sdk_growth_verifier_assignment_lock",
     );

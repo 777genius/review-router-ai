@@ -181,6 +181,11 @@ const checkoutExtensions = Object.freeze([
     checksum:
       "750038a865bced544ae9cca42060112a6479c05163c3dc05c41f504c993147ef",
   }),
+  Object.freeze({
+    migrationName: "000110_provider_api_key_workspace_management",
+    checksum:
+      "d69beaa182fd49ad231bb86b2af4b9d53af3c54cab3a12fa3ca910e7a4379208",
+  }),
 ]);
 
 export function partitionRenderSchemaHandoffCheckout(catalog) {
@@ -208,7 +213,9 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     }
   }
   if (
-    ![0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].includes(extensions)
+    ![0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17].includes(
+      extensions,
+    )
   )
     fail("checkout_extension");
   if (
@@ -293,6 +300,12 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     extensions === 16 &&
     manifest(catalog) !==
       "sha256:1d97937b91028e91b3987eee05057fbe915b7f2354cf2464c8fb507f1086590f"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 17 &&
+    manifest(catalog) !==
+      "sha256:d4e309a83e36089dae1bfaa94c707eaa81ef5ff7e0d3d3831763c26331e1ad5c"
   )
     fail("checkout_manifest");
   assertRenderSchemaHandoffCatalog(managed);

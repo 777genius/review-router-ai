@@ -107,6 +107,8 @@ const sdkGrowthVerifierAssignmentMigrations = Object.freeze([
   "000108_sdk_growth_verifier_assignment",
   "000109_sdk_growth_verifier_assignment_lock",
 ]);
+const providerApiKeyWorkspaceMigration =
+  "000110_provider_api_key_workspace_management";
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -176,7 +178,10 @@ try {
     );
     addMigration(rehearsalDirectory, v4RelayTurnMigration);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
-    for (const migrationName of sdkGrowthVerifierAssignmentMigrations) {
+    for (const migrationName of [
+      ...sdkGrowthVerifierAssignmentMigrations,
+      providerApiKeyWorkspaceMigration,
+    ]) {
       addMigration(rehearsalDirectory, migrationName);
       runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     }
@@ -759,6 +764,7 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           requestScopedFailoverMigration.name,
           v4RelayTurnMigration,
           ...sdkGrowthVerifierAssignmentMigrations,
+          providerApiKeyWorkspaceMigration,
         ]
       : []),
   ]);

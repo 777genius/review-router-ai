@@ -69,11 +69,12 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     ]);
   });
 
-  it("applies hosted-v4 before both SDK verifier migrations in the staged PG17 rehearsal", () => {
+  it("applies hosted-v4 before the SDK verifier and provider-key tails in the staged PG17 rehearsal", () => {
     for (const migration of [
       "000107_hosted_v4_relay_turn_contract",
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
+      "000110_provider_api_key_workspace_management",
     ])
       expect(source.match(new RegExp(migration, "gu"))).toHaveLength(1);
     const preparation = section(
@@ -87,7 +88,7 @@ describe("hosted pool PostgreSQL migration ordering", () => {
       "const migrationCount =",
     );
     expect(stagedTail).toMatch(
-      /addMigration\(rehearsalDirectory, v4RelayTurnMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*for \(const migrationName of sdkGrowthVerifierAssignmentMigrations\) \{\s*addMigration\(rehearsalDirectory, migrationName\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*\}/u,
+      /addMigration\(rehearsalDirectory, v4RelayTurnMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*for \(const migrationName of \[\s*\.\.\.sdkGrowthVerifierAssignmentMigrations,\s*providerApiKeyWorkspaceMigration,\s*\]\) \{\s*addMigration\(rehearsalDirectory, migrationName\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*\}/u,
     );
   });
 

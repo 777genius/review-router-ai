@@ -36,6 +36,8 @@ model Workspace {
   reviewExecutionCheckpoints   ReviewExecutionCheckpoint[]
   hostedCodexPools             HostedCodexPool[]
   hostedCodexDeviceLogins      HostedCodexDeviceLogin[]
+  providerApiKeyConnections    ProviderApiKeyConnection[]
+  providerApiKeyGrants         ProviderApiKeyWorkspaceGrant[]
 }
 
 model User {
@@ -201,6 +203,7 @@ model RepositoryConnection {
   reviewSnapshots              ReviewSnapshot[]
   reviewExecutionCheckpoints   ReviewExecutionCheckpoint[]
   hostedCodexBindings          HostedCodexRepositoryBinding[]
+  providerApiKeyLinks          ProviderApiKeyRepositoryLink[]
 
   @@unique([provider, externalRepositoryId, sourceBaseUrl])
   @@unique([workspaceId, provider, fullName, sourceBaseUrl])
@@ -210,6 +213,62 @@ model RepositoryConnection {
   @@index([gitlabInstallationId])
   @@index([workspaceId, setupStatus])
   @@index([workspaceId, provider, sourceBaseUrl, selected, fullName])
+}
+
+model ProviderApiKeyConnection {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  providerType      String
+  encryptedApiKey   String
+  keyVersion        Int
+  latestOperationId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace       Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repositoryLinks ProviderApiKeyRepositoryLink[]
+
+  @@unique([workspaceId, providerType])
+  @@unique([id, workspaceId])
+  @@index([workspaceId])
+}
+
+model ProviderApiKeyWorkspaceGrant {
+  id          String   @id @default(cuid())
+  workspaceId String   @unique
+  grantedBy   String?
+  grantReason String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model ProviderApiKeyRepositoryLink {
+  id                         String    @id @default(cuid())
+  workspaceId                String
+  providerApiKeyConnectionId String
+  repositoryId               String
+  status                     String    @default("pending")
+  operationId                String?
+  attemptedKeyVersion        Int
+  appliedKeyVersion          Int?
+  attemptCount               Int       @default(0)
+  reconciliationNeeded       Boolean   @default(false)
+  lastErrorReason            String?
+  lastErrorSummary           String?
+  lastAttemptAt              DateTime?
+  appliedAt                  DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  connection ProviderApiKeyConnection @relation(fields: [providerApiKeyConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, map: "ProviderApiKeyRepositoryLink_connection_workspace_fkey")
+  repository RepositoryConnection     @relation(fields: [repositoryId, workspaceId], references: [id, workspaceId], onDelete: Cascade, map: "ProviderApiKeyRepositoryLink_repository_workspace_fkey")
+
+  @@unique([providerApiKeyConnectionId, repositoryId])
+  @@index([repositoryId])
+  @@index([providerApiKeyConnectionId, status])
+  @@index([providerApiKeyConnectionId, appliedKeyVersion], map: "ProviderApiKeyRepositoryLink_appliedKeyVersion_idx")
 }
 
 model RepositoryPermissionCache {

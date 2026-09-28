@@ -124,6 +124,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       fullName: true,
       owner: true,
       name: true,
+      provider: true,
       defaultBranch: true,
       visibility: true,
       setupStatus: true,
@@ -296,6 +297,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   return NextResponse.json({
     repositoryIds,
+    repositories: repositories
+      .filter((repository) => repositoryIds.includes(repository.id))
+      .map((repository) => ({
+        id: repository.id,
+        fullName: repository.fullName,
+        provider: repository.provider,
+      })),
     total: repositories.length,
     query,
     filter,
