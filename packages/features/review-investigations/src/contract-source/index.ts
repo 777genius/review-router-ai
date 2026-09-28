@@ -95,6 +95,23 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
       ]),
     }),
     Object.freeze({
+      typeName: "ReviewInvestigationLeaseAuthorityPurpose",
+      values: Object.freeze(["shadow_turn", "relay_turn"]),
+    }),
+    Object.freeze({
+      typeName: "ReviewInvestigationRelayGrantResultStatus",
+      values: Object.freeze([
+        "issued", "restored", "rejected", "conflict", "busy", "recovery_required",
+      ]),
+    }),
+    Object.freeze({
+      typeName: "ReviewInvestigationRelayStatusState",
+      values: Object.freeze([
+        "missing", "prepared", "dispatching", "response_started",
+        "succeeded", "failed_no_effect", "failed_classified", "terminal_unknown",
+      ]),
+    }),
+    Object.freeze({
       typeName: "ReviewInvestigationReplayPrepareResultStatus",
       values: Object.freeze(["prepared", "missing", "rejected"]),
     }),
@@ -253,6 +270,54 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
       resultFields: commonResultFields,
     }),
     Object.freeze({
+      operationId: "review_investigation_relay_grant",
+      requestTypeName: "ReviewInvestigationRelayGrantRequest",
+      resultTypeName: "ReviewInvestigationRelayGrantResult",
+      callerAuthority: "run_authorization",
+      mutability: "command",
+      naturalIdempotencyPreimage: Object.freeze([
+        "investigation_id", "turn_id", "idempotency_key",
+      ]),
+      semanticRetryClass: "same_request",
+      requestFields: Object.freeze([
+        Object.freeze({ name: "authorizationId", type: "identifier" }),
+        Object.freeze({ name: "investigationId", type: "identifier" }),
+        Object.freeze({ name: "turnId", type: "identifier" }),
+        Object.freeze({ name: "investigationLeaseCapability", type: "token" }),
+        Object.freeze({ name: "invocationLeaseCapability", type: "token" }),
+      ]),
+      resultStatusEnum: "ReviewInvestigationRelayGrantResultStatus",
+      resultFields: Object.freeze([
+        Object.freeze({ name: "grantResponse", type: "nullable_hosted_v4_relay_grant" }),
+        Object.freeze({ name: "blockedPrerequisite", type: "nullable_identifier" }),
+      ]),
+    }),
+    Object.freeze({
+      operationId: "review_investigation_relay_status",
+      requestTypeName: "ReviewInvestigationRelayStatusRequest",
+      resultTypeName: "ReviewInvestigationRelayStatusResult",
+      callerAuthority: "run_authorization",
+      mutability: "read",
+      naturalIdempotencyPreimage: Object.freeze(["investigation_id", "turn_id"]),
+      semanticRetryClass: "read_only",
+      requestFields: Object.freeze([
+        Object.freeze({ name: "authorizationId", type: "identifier" }),
+        Object.freeze({ name: "investigationId", type: "identifier" }),
+        Object.freeze({ name: "turnId", type: "identifier" }),
+      ]),
+      resultStatusEnum: "ReviewInvestigationRelayStatusState",
+      resultFields: Object.freeze([
+        Object.freeze({ name: "logicalTurnKey", type: "hash" }),
+        Object.freeze({ name: "grantId", type: "nullable_identifier" }),
+        Object.freeze({ name: "requestId", type: "nullable_identifier" }),
+        Object.freeze({ name: "effectId", type: "nullable_identifier" }),
+        Object.freeze({ name: "ordinal", type: "nullable_positive_integer" }),
+        Object.freeze({ name: "requestHash", type: "nullable_hash" }),
+        Object.freeze({ name: "acceptedAttestationId", type: "nullable_identifier" }),
+        Object.freeze({ name: "dispatchBlockedPrerequisite", type: "nullable_identifier" }),
+      ]),
+    }),
+    Object.freeze({
       operationId: "review_investigation_turn_plan",
       requestTypeName: "ReviewInvestigationTurnPlanRequest",
       resultTypeName: "ReviewInvestigationTurnPlanResult",
@@ -275,6 +340,7 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
           type: "positive_integer",
         }),
         Object.freeze({ name: "turnBudgetHash", type: "hash" }),
+        Object.freeze({ name: "turnBudgetCanonicalJson", type: "optional_canonical_json" }),
       ]),
       resultStatusEnum: "ReviewInvestigationMutationResultStatus",
       resultFields: Object.freeze([
@@ -343,6 +409,11 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
         Object.freeze({ name: "expectedVersion", type: "decimal" }),
         Object.freeze({ name: "turnId", type: "identifier" }),
         Object.freeze({ name: "turnCapability", type: "token" }),
+        Object.freeze({
+          name: "leasePurpose",
+          type: "optional_enum",
+          enumTypeName: "ReviewInvestigationLeaseAuthorityPurpose",
+        }),
         Object.freeze({ name: "providerStrategyId", type: "identifier" }),
         Object.freeze({
           name: "investigationManifestCanonicalJson",

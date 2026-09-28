@@ -356,6 +356,22 @@ export const reviewActionV2TransportContract = Object.freeze({
             commonReadErrors,
           ],
           [
+            "review_investigation_relay_grant",
+            "/api/action/v2/review-investigations/relay-grants",
+            10_000,
+            65_536,
+            [200, 201],
+            commonCommandErrors,
+          ],
+          [
+            "review_investigation_relay_status",
+            "/api/action/v2/review-investigations/relay-status",
+            5_000,
+            32_768,
+            [200],
+            commonReadErrors,
+          ],
+          [
             "review_investigation_turn_plan",
             "/api/action/v2/review-investigations/turns/plan",
             10_000,

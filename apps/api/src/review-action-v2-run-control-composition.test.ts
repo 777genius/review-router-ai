@@ -45,6 +45,7 @@ import {
   canonicalizeReviewActionV2Request,
   reviewActionV2GoldenFixtures,
   reviewActionV2PublishedSchemaDigest,
+  reviewHostedRelayExtensionV1,
   reviewInvestigationExtensionV1,
   ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
@@ -60,6 +61,7 @@ import {
   type ReviewActionV2ResolvedRevision,
   type ReviewActionV2RunControlHandlerDependencies,
 } from "./review-action-v2-run-control-composition.js";
+import { hasAuthorizedHostedRelayExtension } from "./hosted-v4-relay-authority.js";
 
 const actionSha = "a".repeat(40);
 const runtimeSha = "b".repeat(40);
@@ -805,6 +807,12 @@ describe("Review Action v2 run-control composition", () => {
         reviewInvestigationExtensionV1.canonicalizerDigest,
       extensionId: reviewInvestigationExtensionV1.extensionId,
       extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
+      hostedRelayExtension: {
+        capability: "hosted_relay_turn_v1" as const,
+        extensionCanonicalizerDigest: reviewHostedRelayExtensionV1.canonicalizerDigest,
+        extensionId: reviewHostedRelayExtensionV1.extensionId,
+        extensionSchemaDigest: reviewHostedRelayExtensionV1.schemaDigest,
+      },
       providerCapabilities: [
         {
           providerKind: "codex" as const,
@@ -823,6 +831,12 @@ describe("Review Action v2 run-control composition", () => {
       createReviewActionV2RunControlHandlers(selectedDependencies);
     const first = await handlers.authorize!.execute(authorizeRequest());
     expect(first.statusCode).toBe(201);
+    const combinedAuthorization = {
+      providerVoteLanes: facts.providerVoteLanes,
+      reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson(descriptor),
+    };
+    expect(hasAuthorizedCodexInvestigationRecording(combinedAuthorization)).toBe(true);
+    expect(hasAuthorizedHostedRelayExtension(combinedAuthorization)).toBe(true);
     expect(
       JSON.parse(first.result.authorizationFactsCanonicalJson!)
         .reviewInvestigation,

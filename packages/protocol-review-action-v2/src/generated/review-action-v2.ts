@@ -3,15 +3,15 @@ import { ReviewActionV2RetryClass } from "./review-action-v2-negotiation.js";
 
 export const reviewActionV2PublishedProtocolVersion = "2" as const;
 export const reviewActionV2PublishedSchemaDigest =
-  "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3" as const;
+  "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603" as const;
 export const reviewActionV2CanonicalizerDigest =
-  "95a43332ccff5c8ccf8f6f9cb67d901d5efd3e91522c047c48f83b65c70cb03a" as const;
+  "8ec0f934f5b17ffb554dc29f81f3bdfbe0d65d1fea12aa52f3b655fb16ddbcca" as const;
 export const reviewInvestigationExtensionV1 = {
   extensionId: "review-investigation-shadow.v1",
   schemaDigest:
-    "9ab22a39cc983b88ae50576ece6a777d72d904d09654d3f4c51a20fc13c29003",
+    "3c4a09e8eb3a5517fa4bd1ad8e6cc938fc8ac3be836094a293d307b28094ffbe",
   canonicalizerDigest:
-    "20dc769dd28947fe6ee0c7770199fbb6c5cd490a7d7f71785159da99d793ff77",
+    "8cc4abc4dbb48d4965b295a4b739a9f964131bd5cb007468f5b33bb2c0cf43c1",
   operationIds: [
     "review_investigation_open_v2",
     "review_investigation_lease_acquire",
@@ -20,6 +20,17 @@ export const reviewInvestigationExtensionV1 = {
     "review_investigation_replay_v2",
     "review_investigation_context_gateway_open",
     "review_investigation_context_gateway_seal",
+  ],
+} as const;
+export const reviewHostedRelayExtensionV1 = {
+  extensionId: "review-investigation-hosted-relay.v1",
+  schemaDigest:
+    "4e2054b90deeab24922bf882e9b76cde6b8887c61c7d9b7eef719fd7e1821897",
+  canonicalizerDigest:
+    "132d11183f5ba42f821baf9e689c9982817acda75cdd5daa5e6c007b106a394a",
+  operationIds: [
+    "review_investigation_relay_grant",
+    "review_investigation_relay_status",
   ],
 } as const;
 
@@ -36,6 +47,8 @@ export enum ReviewActionV2OperationId {
   ReviewInvestigationOpen = "review_investigation_open",
   ReviewInvestigationOpenV2 = "review_investigation_open_v2",
   ReviewInvestigationRestore = "review_investigation_restore",
+  ReviewInvestigationRelayGrant = "review_investigation_relay_grant",
+  ReviewInvestigationRelayStatus = "review_investigation_relay_status",
   ReviewInvestigationTurnPlan = "review_investigation_turn_plan",
   ReviewInvestigationLeaseAcquire = "review_investigation_lease_acquire",
   ReviewInvestigationLeaseRenew = "review_investigation_lease_renew",
@@ -176,6 +189,31 @@ export enum ReviewInvestigationLeaseResultStatus {
   Missing = "missing",
 }
 
+export enum ReviewInvestigationLeaseAuthorityPurpose {
+  ShadowTurn = "shadow_turn",
+  RelayTurn = "relay_turn",
+}
+
+export enum ReviewInvestigationRelayGrantResultStatus {
+  Issued = "issued",
+  Restored = "restored",
+  Rejected = "rejected",
+  Conflict = "conflict",
+  Busy = "busy",
+  RecoveryRequired = "recovery_required",
+}
+
+export enum ReviewInvestigationRelayStatusState {
+  Missing = "missing",
+  Prepared = "prepared",
+  Dispatching = "dispatching",
+  ResponseStarted = "response_started",
+  Succeeded = "succeeded",
+  FailedNoEffect = "failed_no_effect",
+  FailedClassified = "failed_classified",
+  TerminalUnknown = "terminal_unknown",
+}
+
 export enum ReviewInvestigationReplayPrepareResultStatus {
   Prepared = "prepared",
   Missing = "missing",
@@ -226,6 +264,11 @@ export enum ReviewInvestigationPublishedConclusion {
   VerifiedClean = "verified_clean",
   Findings = "findings",
   Inconclusive = "inconclusive",
+}
+
+export enum ReviewInvestigationContextLeaseAuthorityKind {
+  InvestigationShadow = "investigation_shadow",
+  InvestigationRelay = "investigation_relay",
 }
 
 export enum ReviewContextGatewayOpenResultStatus {
@@ -316,6 +359,17 @@ export const reviewInvestigationRolloutAuthorizationV3Contract = {
     requiresCanonicalizerDigest: true,
     requiresSchemaDigest: true,
   },
+} as const;
+
+export const reviewHostedRelayExtensionPrerequisiteV1Contract = {
+  extensionId: "review-investigation-hosted-relay.v1",
+  enabledByDefault: false,
+  admissionFlag: "REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED",
+  disposableCohortFlag: "REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID",
+  requiresCanonicalizerDigest: true,
+  requiresSchemaDigest: true,
+  paidDispatchBlockedPrerequisite:
+    "pinned_codex_transport_output_token_limit_unqualified",
 } as const;
 
 export type ReviewActionV2RequestEnvelope = {
@@ -647,6 +701,69 @@ export type ReviewInvestigationRestoreResult = {
   readonly investigationConclusion?: ReviewInvestigationPublishedConclusion | null;
 };
 
+export type ReviewInvestigationRelayGrantRequest =
+  ReviewActionV2RequestEnvelope & {
+    readonly authorizationToken: string;
+    readonly idempotencyKey: string;
+    readonly requestBodyHash: string;
+    readonly authorizationId: string;
+    readonly investigationId: string;
+    readonly turnId: string;
+    readonly investigationLeaseCapability: string;
+    readonly invocationLeaseCapability: string;
+  };
+
+export type ReviewInvestigationRelayGrantResult =
+  | {
+      readonly status:
+        | ReviewInvestigationRelayGrantResultStatus.Issued
+        | ReviewInvestigationRelayGrantResultStatus.Restored;
+      readonly grantResponse: Readonly<{
+        protocolVersion: 4;
+        grant: string;
+        grantId: string;
+        relayUrl: "/api/hosted/v4/codex/responses";
+        grantExpiresAt: string;
+        policy: Readonly<{
+          maxRequests: number;
+          maxConcurrentRequests: number;
+          maxRequestBytes: number;
+          maxResponseBytes: number;
+          maxOutputTokens: number;
+        }>;
+      }>;
+      readonly blockedPrerequisite: null;
+    }
+  | {
+      readonly status:
+        | ReviewInvestigationRelayGrantResultStatus.Rejected
+        | ReviewInvestigationRelayGrantResultStatus.Conflict
+        | ReviewInvestigationRelayGrantResultStatus.Busy
+        | ReviewInvestigationRelayGrantResultStatus.RecoveryRequired;
+      readonly grantResponse: null;
+      readonly blockedPrerequisite: string | null;
+    };
+
+export type ReviewInvestigationRelayStatusRequest =
+  ReviewActionV2RequestEnvelope & {
+    readonly authorizationToken: string;
+    readonly authorizationId: string;
+    readonly investigationId: string;
+    readonly turnId: string;
+  };
+
+export type ReviewInvestigationRelayStatusResult = {
+  readonly status: ReviewInvestigationRelayStatusState;
+  readonly logicalTurnKey?: string;
+  readonly grantId?: string | null;
+  readonly requestId?: string | null;
+  readonly effectId?: string | null;
+  readonly ordinal?: number | null;
+  readonly requestHash?: string | null;
+  readonly acceptedAttestationId?: string | null;
+  readonly dispatchBlockedPrerequisite?: string | null;
+};
+
 export type ReviewInvestigationTurnPlanRequest =
   ReviewActionV2RequestEnvelope & {
     readonly authorizationToken: string;
@@ -658,6 +775,7 @@ export type ReviewInvestigationTurnPlanRequest =
     readonly leaseDurationMs: number;
     readonly maxObligationsForTurn: number;
     readonly turnBudgetHash: string;
+    readonly turnBudgetCanonicalJson?: string;
   };
 
 export type ReviewInvestigationTurnPlanResult = {
@@ -691,6 +809,7 @@ export type ReviewInvestigationLeaseAcquireRequest =
     readonly expectedVersion: string;
     readonly turnId: string;
     readonly turnCapability: string;
+    readonly leasePurpose?: ReviewInvestigationLeaseAuthorityPurpose;
     readonly providerStrategyId: string;
     readonly investigationManifestCanonicalJson: string;
     readonly investigationManifestHash: string;
@@ -1086,6 +1205,7 @@ export type ReviewInvestigationContextGatewayOpenRequest =
     readonly requestBodyHash: string;
     readonly attemptId: string;
     readonly sourceLeaseId: string;
+    readonly sourceLeaseAuthorityKind?: ReviewInvestigationContextLeaseAuthorityKind;
     readonly fencingToken: string;
     readonly sourceExecutionId: string;
     readonly sourceWorkSlotId: string;
@@ -1115,6 +1235,7 @@ export type ReviewInvestigationContextGatewaySealRequest =
     readonly sealCapability: string;
     readonly attemptId: string;
     readonly sourceLeaseId: string;
+    readonly sourceLeaseAuthorityKind?: ReviewInvestigationContextLeaseAuthorityKind;
     readonly fencingToken: string;
     readonly providerSucceeded: boolean;
     readonly schemaValidated: boolean;
@@ -1301,6 +1422,8 @@ export type ReviewActionV2RequestMap = {
   [ReviewActionV2OperationId.ReviewInvestigationOpen]: ReviewInvestigationOpenRequest;
   [ReviewActionV2OperationId.ReviewInvestigationOpenV2]: ReviewInvestigationOpenV2Request;
   [ReviewActionV2OperationId.ReviewInvestigationRestore]: ReviewInvestigationRestoreRequest;
+  [ReviewActionV2OperationId.ReviewInvestigationRelayGrant]: ReviewInvestigationRelayGrantRequest;
+  [ReviewActionV2OperationId.ReviewInvestigationRelayStatus]: ReviewInvestigationRelayStatusRequest;
   [ReviewActionV2OperationId.ReviewInvestigationTurnPlan]: ReviewInvestigationTurnPlanRequest;
   [ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire]: ReviewInvestigationLeaseAcquireRequest;
   [ReviewActionV2OperationId.ReviewInvestigationLeaseRenew]: ReviewInvestigationLeaseRenewRequest;
@@ -1340,6 +1463,8 @@ export type ReviewActionV2ResultMap = {
   [ReviewActionV2OperationId.ReviewInvestigationOpen]: ReviewInvestigationOpenResult;
   [ReviewActionV2OperationId.ReviewInvestigationOpenV2]: ReviewInvestigationOpenV2Result;
   [ReviewActionV2OperationId.ReviewInvestigationRestore]: ReviewInvestigationRestoreResult;
+  [ReviewActionV2OperationId.ReviewInvestigationRelayGrant]: ReviewInvestigationRelayGrantResult;
+  [ReviewActionV2OperationId.ReviewInvestigationRelayStatus]: ReviewInvestigationRelayStatusResult;
   [ReviewActionV2OperationId.ReviewInvestigationTurnPlan]: ReviewInvestigationTurnPlanResult;
   [ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire]: ReviewInvestigationLeaseAcquireResult;
   [ReviewActionV2OperationId.ReviewInvestigationLeaseRenew]: ReviewInvestigationLeaseRenewResult;
@@ -2232,6 +2357,120 @@ export const reviewActionV2Operations = [
     resultStatuses: ["found", "missing", "not_restorable"],
   },
   {
+    operationId: "review_investigation_relay_grant",
+    boundedContext: "review_investigations",
+    method: "POST",
+    path: "/api/action/v2/review-investigations/relay-grants",
+    callerAuthority: ReviewActionV2CallerAuthority.RunAuthorization,
+    mutability: "command",
+    naturalIdempotencyPreimage: [
+      "investigation_id",
+      "turn_id",
+      "idempotency_key",
+    ],
+    semanticRetryClass: "same_request",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 10000,
+    bodyLimitBytes: 65536,
+    successStatuses: [200, 201],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "idempotency_conflict",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "invariant_violation",
+      "capacity_limited",
+      "ambiguous_outcome",
+    ],
+    requestFields: [
+      {
+        name: "authorizationId",
+        type: "identifier",
+      },
+      {
+        name: "investigationId",
+        type: "identifier",
+      },
+      {
+        name: "turnId",
+        type: "identifier",
+      },
+      {
+        name: "investigationLeaseCapability",
+        type: "token",
+      },
+      {
+        name: "invocationLeaseCapability",
+        type: "token",
+      },
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: [
+      "issued",
+      "restored",
+      "rejected",
+      "conflict",
+      "busy",
+      "recovery_required",
+    ],
+  },
+  {
+    operationId: "review_investigation_relay_status",
+    boundedContext: "review_investigations",
+    method: "POST",
+    path: "/api/action/v2/review-investigations/relay-status",
+    callerAuthority: ReviewActionV2CallerAuthority.RunAuthorization,
+    mutability: "read",
+    naturalIdempotencyPreimage: ["investigation_id", "turn_id"],
+    semanticRetryClass: "read_only",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 5000,
+    bodyLimitBytes: 32768,
+    successStatuses: [200],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "capacity_limited",
+      "service_unavailable",
+    ],
+    requestFields: [
+      {
+        name: "authorizationId",
+        type: "identifier",
+      },
+      {
+        name: "investigationId",
+        type: "identifier",
+      },
+      {
+        name: "turnId",
+        type: "identifier",
+      },
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: [
+      "missing",
+      "prepared",
+      "dispatching",
+      "response_started",
+      "succeeded",
+      "failed_no_effect",
+      "failed_classified",
+      "terminal_unknown",
+    ],
+  },
+  {
     operationId: "review_investigation_turn_plan",
     boundedContext: "review_investigations",
     method: "POST",
@@ -2287,6 +2526,10 @@ export const reviewActionV2Operations = [
       {
         name: "turnBudgetHash",
         type: "hash",
+      },
+      {
+        name: "turnBudgetCanonicalJson",
+        type: "optional_canonical_json",
       },
     ],
     allOrNoneRequestFieldGroups: [],
@@ -2349,6 +2592,12 @@ export const reviewActionV2Operations = [
       {
         name: "turnCapability",
         type: "token",
+      },
+      {
+        name: "leasePurpose",
+        type: "optional_enum",
+        enumTypeName: "ReviewInvestigationLeaseAuthorityPurpose",
+        enumValues: ["shadow_turn", "relay_turn"],
       },
       {
         name: "providerStrategyId",
@@ -3573,6 +3822,12 @@ export const reviewActionV2Operations = [
         type: "identifier",
       },
       {
+        name: "sourceLeaseAuthorityKind",
+        type: "optional_enum",
+        enumTypeName: "ReviewInvestigationContextLeaseAuthorityKind",
+        enumValues: ["investigation_shadow", "investigation_relay"],
+      },
+      {
         name: "fencingToken",
         type: "decimal",
       },
@@ -3659,6 +3914,12 @@ export const reviewActionV2Operations = [
       {
         name: "sourceLeaseId",
         type: "identifier",
+      },
+      {
+        name: "sourceLeaseAuthorityKind",
+        type: "optional_enum",
+        enumTypeName: "ReviewInvestigationContextLeaseAuthorityKind",
+        enumValues: ["investigation_shadow", "investigation_relay"],
       },
       {
         name: "fencingToken",
@@ -4142,21 +4403,21 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_01",
       oidcToken: "fixture.header.payload.signature",
       supportedProtocols: [
         {
           protocolVersion: "2",
           schemaDigest:
-            "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+            "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
         },
       ],
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_01",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4168,7 +4429,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_02",
       authorizationToken: "fixture.header.payload.signature",
       idempotencyKey: "idem_fixture_2",
@@ -4182,7 +4443,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_02",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4194,7 +4455,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_03",
       authorizationToken: "fixture.header.payload.signature",
       authorizationId: "authorizationId_fixture",
@@ -4204,7 +4465,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_03",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4216,7 +4477,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_04",
       authorizationToken: "fixture.header.payload.signature",
       idempotencyKey: "idem_fixture_4",
@@ -4239,7 +4500,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_04",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4251,7 +4512,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_05",
       authorizationToken: "fixture.header.payload.signature",
       idempotencyKey: "idem_fixture_5",
@@ -4265,7 +4526,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_05",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4277,7 +4538,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_06",
       authorizationToken: "fixture.header.payload.signature",
       idempotencyKey: "idem_fixture_6",
@@ -4294,7 +4555,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_06",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4306,7 +4567,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_07",
       authorizationToken: "fixture.header.payload.signature",
       leaseCapability: "fixture.header.payload.signature",
@@ -4329,7 +4590,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_07",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4341,7 +4602,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_08",
       authorizationToken: "fixture.header.payload.signature",
       idempotencyKey: "idem_fixture_8",
@@ -4377,7 +4638,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_08",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4389,7 +4650,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_09",
       authorizationToken: "fixture.header.payload.signature",
       idempotencyKey: "idem_fixture_9",
@@ -4413,7 +4674,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_09",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4425,7 +4686,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_10",
       authorizationToken: "fixture.header.payload.signature",
       idempotencyKey: "idem_fixture_10",
@@ -4456,7 +4717,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_10",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4468,7 +4729,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_11",
       authorizationToken: "fixture.header.payload.signature",
       idempotencyKey: "idem_fixture_11",
@@ -4502,7 +4763,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_11",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4514,7 +4775,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_12",
       authorizationToken: "fixture.header.payload.signature",
       authorizationId: "authorizationId_fixture",
@@ -4525,7 +4786,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_12",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -4533,30 +4794,79 @@ export const reviewActionV2GoldenFixtures = {
       },
     },
   },
-  review_investigation_turn_plan: {
+  review_investigation_relay_grant: {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_13",
       authorizationToken: "fixture.header.payload.signature",
       idempotencyKey: "idem_fixture_13",
       requestBodyHash:
         "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      authorizationId: "authorizationId_fixture",
       investigationId: "investigationId_fixture",
-      expectedVersion: "13",
-      dossierDigest:
-        "9999999999999999999999999999999999999999999999999999999999999999",
-      leaseDurationMs: 13,
-      maxObligationsForTurn: 13,
-      turnBudgetHash:
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      turnId: "turnId_fixture",
+      investigationLeaseCapability: "fixture.header.payload.signature",
+      invocationLeaseCapability: "fixture.header.payload.signature",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_13",
+      serverTime: "2026-01-01T00:00:00.000Z",
+      result: {
+        status: "issued",
+      },
+    },
+  },
+  review_investigation_relay_status: {
+    request: {
+      protocolVersion: "2",
+      schemaDigest:
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_14",
+      authorizationToken: "fixture.header.payload.signature",
+      authorizationId: "authorizationId_fixture",
+      investigationId: "investigationId_fixture",
+      turnId: "turnId_fixture",
+    },
+    response: {
+      protocolVersion: "2",
+      schemaDigest:
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_14",
+      serverTime: "2026-01-01T00:00:00.000Z",
+      result: {
+        status: "missing",
+      },
+    },
+  },
+  review_investigation_turn_plan: {
+    request: {
+      protocolVersion: "2",
+      schemaDigest:
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_15",
+      authorizationToken: "fixture.header.payload.signature",
+      idempotencyKey: "idem_fixture_15",
+      requestBodyHash:
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      investigationId: "investigationId_fixture",
+      expectedVersion: "15",
+      dossierDigest:
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      leaseDurationMs: 15,
+      maxObligationsForTurn: 15,
+      turnBudgetHash:
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    },
+    response: {
+      protocolVersion: "2",
+      schemaDigest:
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_15",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "applied",
@@ -4567,29 +4877,29 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_14",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_16",
       authorizationToken: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_14",
+      idempotencyKey: "idem_fixture_16",
       requestBodyHash:
-        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "0000000000000000000000000000000000000000000000000000000000000000",
       investigationId: "investigationId_fixture",
-      expectedVersion: "14",
+      expectedVersion: "16",
       turnId: "turnId_fixture",
       turnCapability: "fixture.header.payload.signature",
       providerStrategyId: "providerStrategyId_fixture",
       investigationManifestCanonicalJson: '{"fixture":true}',
       investigationManifestHash:
-        "6666666666666666666666666666666666666666666666666666666666666666",
+        "8888888888888888888888888888888888888888888888888888888888888888",
       acquireRequestId: "acquireRequestId_fixture",
       ownerIdHash:
-        "8888888888888888888888888888888888888888888888888888888888888888",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_14",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_16",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "acquired",
@@ -4600,23 +4910,23 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_15",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_17",
       leaseCapability: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_15",
+      idempotencyKey: "idem_fixture_17",
       requestBodyHash:
-        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "1111111111111111111111111111111111111111111111111111111111111111",
       leaseId: "leaseId_fixture",
       ownerIdHash:
-        "9999999999999999999999999999999999999999999999999999999999999999",
-      fencingToken: "15",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      fencingToken: "17",
       renewRequestId: "renewRequestId_fixture",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_15",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_17",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "acquired",
@@ -4627,23 +4937,23 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_16",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_18",
       leaseCapability: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_16",
+      idempotencyKey: "idem_fixture_18",
       requestBodyHash:
-        "0000000000000000000000000000000000000000000000000000000000000000",
+        "2222222222222222222222222222222222222222222222222222222222222222",
       leaseId: "leaseId_fixture",
       ownerIdHash:
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      fencingToken: "16",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      fencingToken: "18",
       releaseRequestId: "releaseRequestId_fixture",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_16",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_18",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "acquired",
@@ -4654,31 +4964,31 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_17",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_19",
       authorizationToken: "fixture.header.payload.signature",
       leaseCapability: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_17",
+      idempotencyKey: "idem_fixture_19",
       requestBodyHash:
-        "1111111111111111111111111111111111111111111111111111111111111111",
+        "3333333333333333333333333333333333333333333333333333333333333333",
       investigationId: "investigationId_fixture",
-      expectedVersion: "17",
+      expectedVersion: "19",
       turnId: "turnId_fixture",
       turnCapability: "fixture.header.payload.signature",
       sourceLeaseId: "sourceLeaseId_fixture",
-      fencingToken: "17",
+      fencingToken: "19",
       acceptedAttestationId: "acceptedAttestationId_fixture",
       acceptedAttestationHash:
-        "7777777777777777777777777777777777777777777777777777777777777777",
+        "9999999999999999999999999999999999999999999999999999999999999999",
       turnObservationCanonicalJson: '{"fixture":true}',
       turnObservationHash:
-        "3333333333333333333333333333333333333333333333333333333333333333",
+        "5555555555555555555555555555555555555555555555555555555555555555",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_17",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_19",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "applied",
@@ -4689,27 +4999,27 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_18",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_20",
       authorizationToken: "fixture.header.payload.signature",
       leaseCapability: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_18",
+      idempotencyKey: "idem_fixture_20",
       requestBodyHash:
-        "2222222222222222222222222222222222222222222222222222222222222222",
+        "4444444444444444444444444444444444444444444444444444444444444444",
       investigationId: "investigationId_fixture",
-      expectedVersion: "18",
+      expectedVersion: "20",
       turnId: "turnId_fixture",
       turnCapability: "fixture.header.payload.signature",
       sourceLeaseId: "sourceLeaseId_fixture",
-      fencingToken: "18",
+      fencingToken: "20",
       abortReason: "capacity_unavailable",
       nextEligibleAt: null,
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_18",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_20",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "applied",
@@ -4720,28 +5030,28 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_19",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_21",
       authorizationToken: "fixture.header.payload.signature",
       authorizationId: "authorizationId_fixture",
       targetExecutionId: "targetExecutionId_fixture",
       targetWorkSlotId: "targetWorkSlotId_fixture",
       targetReviewRevisionHash:
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       stableReviewUnitKey: "stableReviewUnitKey_fixture",
       providerVoteLaneId: "providerVoteLaneId_fixture",
       providerManifestCanonicalJson: '{"fixture":true}',
       providerManifestHash:
-        "6666666666666666666666666666666666666666666666666666666666666666",
+        "8888888888888888888888888888888888888888888888888888888888888888",
       coverageContractCanonicalJson: '{"fixture":true}',
       coverageContractHash:
-        "6666666666666666666666666666666666666666666666666666666666666666",
+        "8888888888888888888888888888888888888888888888888888888888888888",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_19",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_21",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "prepared",
@@ -4752,16 +5062,16 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_20",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_22",
       authorizationToken: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_20",
+      idempotencyKey: "idem_fixture_22",
       requestBodyHash:
-        "4444444444444444444444444444444444444444444444444444444444444444",
+        "6666666666666666666666666666666666666666666666666666666666666666",
       authorizationId: "authorizationId_fixture",
       sourceInvestigationId: "sourceInvestigationId_fixture",
       sourceCertificateHash:
-        "8888888888888888888888888888888888888888888888888888888888888888",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       targetExecutionId: "targetExecutionId_fixture",
       targetWorkSlotId: "targetWorkSlotId_fixture",
       stableReviewUnitKey: "stableReviewUnitKey_fixture",
@@ -4770,31 +5080,31 @@ export const reviewActionV2GoldenFixtures = {
       runtimeProfile: "gateway_attested_agent_v1",
       coverageContractCanonicalJson: '{"fixture":true}',
       coverageContractHash:
-        "7777777777777777777777777777777777777777777777777777777777777777",
+        "9999999999999999999999999999999999999999999999999999999999999999",
       investigationPolicyCanonicalJson: '{"fixture":true}',
       investigationPolicyHash:
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       seedObligationsCanonicalJson: '{"fixture":true}',
       seedObligationsHash:
-        "6666666666666666666666666666666666666666666666666666666666666666",
+        "8888888888888888888888888888888888888888888888888888888888888888",
       initialReceiptsCanonicalJson: '{"fixture":true}',
       initialReceiptsHash:
-        "6666666666666666666666666666666666666666666666666666666666666666",
+        "8888888888888888888888888888888888888888888888888888888888888888",
       targetScopeCanonicalJson: '{"fixture":true}',
       targetScopeHash:
-        "2222222222222222222222222222222222222222222222222222222222222222",
+        "4444444444444444444444444444444444444444444444444444444444444444",
       targetRevisionCanonicalJson: '{"fixture":true}',
       targetRevisionHash:
-        "5555555555555555555555555555555555555555555555555555555555555555",
+        "7777777777777777777777777777777777777777777777777777777777777777",
       replayProofsCanonicalJson: '{"fixture":true}',
       replayProofsHash:
-        "3333333333333333333333333333333333333333333333333333333333333333",
+        "5555555555555555555555555555555555555555555555555555555555555555",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_20",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_22",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "applied",
@@ -4805,16 +5115,16 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_21",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_23",
       authorizationToken: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_21",
+      idempotencyKey: "idem_fixture_23",
       requestBodyHash:
-        "5555555555555555555555555555555555555555555555555555555555555555",
+        "7777777777777777777777777777777777777777777777777777777777777777",
       authorizationId: "authorizationId_fixture",
       sourceInvestigationId: "sourceInvestigationId_fixture",
       sourceCertificateHash:
-        "9999999999999999999999999999999999999999999999999999999999999999",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       targetExecutionId: "targetExecutionId_fixture",
       targetWorkSlotId: "targetWorkSlotId_fixture",
       stableReviewUnitKey: "stableReviewUnitKey_fixture",
@@ -4822,35 +5132,35 @@ export const reviewActionV2GoldenFixtures = {
       providerStrategyId: "providerStrategyId_fixture",
       investigationManifestCanonicalJson: '{"fixture":true}',
       investigationManifestHash:
-        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       runtimeProfile: "gateway_attested_agent_v1",
       coverageContractCanonicalJson: '{"fixture":true}',
       coverageContractHash:
-        "8888888888888888888888888888888888888888888888888888888888888888",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       investigationPolicyCanonicalJson: '{"fixture":true}',
       investigationPolicyHash:
-        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       seedObligationsCanonicalJson: '{"fixture":true}',
       seedObligationsHash:
-        "7777777777777777777777777777777777777777777777777777777777777777",
+        "9999999999999999999999999999999999999999999999999999999999999999",
       initialReceiptsCanonicalJson: '{"fixture":true}',
       initialReceiptsHash:
-        "7777777777777777777777777777777777777777777777777777777777777777",
+        "9999999999999999999999999999999999999999999999999999999999999999",
       targetScopeCanonicalJson: '{"fixture":true}',
       targetScopeHash:
-        "3333333333333333333333333333333333333333333333333333333333333333",
+        "5555555555555555555555555555555555555555555555555555555555555555",
       targetRevisionCanonicalJson: '{"fixture":true}',
       targetRevisionHash:
-        "6666666666666666666666666666666666666666666666666666666666666666",
+        "8888888888888888888888888888888888888888888888888888888888888888",
       replayProofsCanonicalJson: '{"fixture":true}',
       replayProofsHash:
-        "4444444444444444444444444444444444444444444444444444444444444444",
+        "6666666666666666666666666666666666666666666666666666666666666666",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_21",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_23",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "applied",
@@ -4861,23 +5171,23 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_22",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_24",
       authorizationToken: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_22",
+      idempotencyKey: "idem_fixture_24",
       requestBodyHash:
-        "6666666666666666666666666666666666666666666666666666666666666666",
+        "8888888888888888888888888888888888888888888888888888888888888888",
       investigationId: "investigationId_fixture",
-      expectedVersion: "22",
+      expectedVersion: "24",
       dossierDigest:
-        "2222222222222222222222222222222222222222222222222222222222222222",
-      certificateTtlMs: 22,
+        "4444444444444444444444444444444444444444444444444444444444444444",
+      certificateTtlMs: 24,
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_22",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_24",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "applied",
@@ -4888,31 +5198,31 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_23",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_25",
       authorizationToken: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_23",
+      idempotencyKey: "idem_fixture_25",
       requestBodyHash:
-        "7777777777777777777777777777777777777777777777777777777777777777",
+        "9999999999999999999999999999999999999999999999999999999999999999",
       executionId: "executionId_fixture",
       workSlotId: "workSlotId_fixture",
       purpose: "purpose_fixture",
       manifestCanonicalJson: '{"fixture":true}',
       manifestKey:
-        "1111111111111111111111111111111111111111111111111111111111111111",
+        "3333333333333333333333333333333333333333333333333333333333333333",
       providerVoteIdentityHash:
-        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "0000000000000000000000000000000000000000000000000000000000000000",
       providerInvocationKey:
-        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       acquireRequestId: "acquireRequestId_fixture",
       ownerIdHash:
-        "1111111111111111111111111111111111111111111111111111111111111111",
+        "3333333333333333333333333333333333333333333333333333333333333333",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_23",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_25",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "acquired",
@@ -4923,23 +5233,23 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_24",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_26",
       leaseCapability: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_24",
+      idempotencyKey: "idem_fixture_26",
       requestBodyHash:
-        "8888888888888888888888888888888888888888888888888888888888888888",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       leaseId: "leaseId_fixture",
       ownerIdHash:
-        "2222222222222222222222222222222222222222222222222222222222222222",
-      fencingToken: "24",
+        "4444444444444444444444444444444444444444444444444444444444444444",
+      fencingToken: "26",
       renewRequestId: "renewRequestId_fixture",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_24",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_26",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "acquired",
@@ -4950,23 +5260,23 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_25",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_27",
       leaseCapability: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_25",
+      idempotencyKey: "idem_fixture_27",
       requestBodyHash:
-        "9999999999999999999999999999999999999999999999999999999999999999",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       leaseId: "leaseId_fixture",
       ownerIdHash:
-        "3333333333333333333333333333333333333333333333333333333333333333",
-      fencingToken: "25",
+        "5555555555555555555555555555555555555555555555555555555555555555",
+      fencingToken: "27",
       releaseRequestId: "releaseRequestId_fixture",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_25",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_27",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "acquired",
@@ -4977,83 +5287,7 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_26",
-      authorizationToken: "fixture.header.payload.signature",
-      leaseCapability: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_26",
-      requestBodyHash:
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      attemptId: "attemptId_fixture",
-      sourceLeaseId: "sourceLeaseId_fixture",
-      fencingToken: "26",
-      sourceExecutionId: "sourceExecutionId_fixture",
-      sourceWorkSlotId: "sourceWorkSlotId_fixture",
-      sourceReviewRevisionHash:
-        "1111111111111111111111111111111111111111111111111111111111111111",
-      checkoutTreeOid: "8888888888888888888888888888888888888888",
-      gatewayPolicyVersion: "gatewayPolicyVersion_fixture",
-      gatewayBinaryHash:
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      confinementEvidenceHash:
-        "0000000000000000000000000000000000000000000000000000000000000000",
-    },
-    response: {
-      protocolVersion: "2",
-      schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_26",
-      serverTime: "2026-01-01T00:00:00.000Z",
-      result: {
-        status: "opened",
-      },
-    },
-  },
-  review_context_gateway_seal: {
-    request: {
-      protocolVersion: "2",
-      schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_27",
-      authorizationToken: "fixture.header.payload.signature",
-      leaseCapability: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_27",
-      requestBodyHash:
-        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      sessionId: "sessionId_fixture",
-      sealCapability: "fixture.header.payload.signature",
-      attemptId: "attemptId_fixture",
-      sourceLeaseId: "sourceLeaseId_fixture",
-      fencingToken: "27",
-      providerSucceeded: true,
-      schemaValidated: true,
-      fullyConsumed: true,
-      actualModel: "actualModel_fixture",
-      terminalOutcomeHash:
-        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      transcriptCanonicalJson: '{"fixture":true}',
-      transcriptHash:
-        "8888888888888888888888888888888888888888888888888888888888888888",
-      replayMaterialCanonicalJson: '{"fixture":true}',
-      replayMaterialHash:
-        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    },
-    response: {
-      protocolVersion: "2",
-      schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_27",
-      serverTime: "2026-01-01T00:00:00.000Z",
-      result: {
-        status: "accepted",
-      },
-    },
-  },
-  review_investigation_context_gateway_open: {
-    request: {
-      protocolVersion: "2",
-      schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_28",
       authorizationToken: "fixture.header.payload.signature",
       leaseCapability: "fixture.header.payload.signature",
@@ -5077,7 +5311,7 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_28",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
@@ -5085,11 +5319,11 @@ export const reviewActionV2GoldenFixtures = {
       },
     },
   },
-  review_investigation_context_gateway_seal: {
+  review_context_gateway_seal: {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_29",
       authorizationToken: "fixture.header.payload.signature",
       leaseCapability: "fixture.header.payload.signature",
@@ -5117,8 +5351,84 @@ export const reviewActionV2GoldenFixtures = {
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
       requestId: "rr_fixture_29",
+      serverTime: "2026-01-01T00:00:00.000Z",
+      result: {
+        status: "accepted",
+      },
+    },
+  },
+  review_investigation_context_gateway_open: {
+    request: {
+      protocolVersion: "2",
+      schemaDigest:
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_30",
+      authorizationToken: "fixture.header.payload.signature",
+      leaseCapability: "fixture.header.payload.signature",
+      idempotencyKey: "idem_fixture_30",
+      requestBodyHash:
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      attemptId: "attemptId_fixture",
+      sourceLeaseId: "sourceLeaseId_fixture",
+      fencingToken: "30",
+      sourceExecutionId: "sourceExecutionId_fixture",
+      sourceWorkSlotId: "sourceWorkSlotId_fixture",
+      sourceReviewRevisionHash:
+        "5555555555555555555555555555555555555555555555555555555555555555",
+      checkoutTreeOid: "cccccccccccccccccccccccccccccccccccccccc",
+      gatewayPolicyVersion: "gatewayPolicyVersion_fixture",
+      gatewayBinaryHash:
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      confinementEvidenceHash:
+        "4444444444444444444444444444444444444444444444444444444444444444",
+    },
+    response: {
+      protocolVersion: "2",
+      schemaDigest:
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_30",
+      serverTime: "2026-01-01T00:00:00.000Z",
+      result: {
+        status: "opened",
+      },
+    },
+  },
+  review_investigation_context_gateway_seal: {
+    request: {
+      protocolVersion: "2",
+      schemaDigest:
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_31",
+      authorizationToken: "fixture.header.payload.signature",
+      leaseCapability: "fixture.header.payload.signature",
+      idempotencyKey: "idem_fixture_31",
+      requestBodyHash:
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      sessionId: "sessionId_fixture",
+      sealCapability: "fixture.header.payload.signature",
+      attemptId: "attemptId_fixture",
+      sourceLeaseId: "sourceLeaseId_fixture",
+      fencingToken: "31",
+      providerSucceeded: true,
+      schemaValidated: true,
+      fullyConsumed: true,
+      actualModel: "actualModel_fixture",
+      terminalOutcomeHash:
+        "1111111111111111111111111111111111111111111111111111111111111111",
+      transcriptCanonicalJson: '{"fixture":true}',
+      transcriptHash:
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      replayMaterialCanonicalJson: '{"fixture":true}',
+      replayMaterialHash:
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    },
+    response: {
+      protocolVersion: "2",
+      schemaDigest:
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_31",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "accepted",
@@ -5129,26 +5439,26 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_30",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_32",
       authorizationToken: "fixture.header.payload.signature",
       executionId: "executionId_fixture",
       workSlotId: "workSlotId_fixture",
       planHash:
-        "5555555555555555555555555555555555555555555555555555555555555555",
+        "7777777777777777777777777777777777777777777777777777777777777777",
       manifestCanonicalJson: '{"fixture":true}',
       manifestKey:
-        "8888888888888888888888888888888888888888888888888888888888888888",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       providerInvocationKey:
-        "2222222222222222222222222222222222222222222222222222222222222222",
+        "4444444444444444444444444444444444444444444444444444444444444444",
       providerVoteIdentityHash:
-        "5555555555555555555555555555555555555555555555555555555555555555",
+        "7777777777777777777777777777777777777777777777777777777777777777",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_30",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_32",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "hit",
@@ -5159,30 +5469,30 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_31",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_33",
       authorizationToken: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_31",
+      idempotencyKey: "idem_fixture_33",
       requestBodyHash:
-        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "1111111111111111111111111111111111111111111111111111111111111111",
       executionId: "executionId_fixture",
       workSlotId: "workSlotId_fixture",
       attestationId: "attestationId_fixture",
       attestationHash:
-        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       targetReviewRevisionHash:
-        "6666666666666666666666666666666666666666666666666666666666666666",
-      targetCheckoutTreeOid: "3333333333333333333333333333333333333333",
+        "8888888888888888888888888888888888888888888888888888888888888888",
+      targetCheckoutTreeOid: "5555555555555555555555555555555555555555",
       replayCapability: "fixture.header.payload.signature",
       replayResultCanonicalJson: '{"fixture":true}',
       replayResultHash:
-        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "0000000000000000000000000000000000000000000000000000000000000000",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_31",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_33",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "accepted",
@@ -5193,30 +5503,30 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_32",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_34",
       authorizationToken: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_32",
+      idempotencyKey: "idem_fixture_34",
       requestBodyHash:
-        "0000000000000000000000000000000000000000000000000000000000000000",
+        "2222222222222222222222222222222222222222222222222222222222222222",
       executionId: "executionId_fixture",
       workSlotId: "workSlotId_fixture",
       attestationId: "attestationId_fixture",
       attestationHash:
-        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "0000000000000000000000000000000000000000000000000000000000000000",
       targetReviewRevisionHash:
-        "7777777777777777777777777777777777777777777777777777777777777777",
-      targetCheckoutTreeOid: "4444444444444444444444444444444444444444",
+        "9999999999999999999999999999999999999999999999999999999999999999",
+      targetCheckoutTreeOid: "6666666666666666666666666666666666666666",
       replayCapability: "fixture.header.payload.signature",
       replayResultCanonicalJson: '{"fixture":true}',
       replayResultHash:
-        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "1111111111111111111111111111111111111111111111111111111111111111",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_32",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_34",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "accepted",
@@ -5227,18 +5537,18 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_33",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_35",
       authorizationToken: "fixture.header.payload.signature",
       leaseCapability: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_33",
+      idempotencyKey: "idem_fixture_35",
       requestBodyHash:
-        "1111111111111111111111111111111111111111111111111111111111111111",
+        "3333333333333333333333333333333333333333333333333333333333333333",
       attemptId: "attemptId_fixture",
       sourceLeaseId: "sourceLeaseId_fixture",
       ownerIdHash:
-        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      fencingToken: "33",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      fencingToken: "35",
       completionStatus: "completionStatus_fixture",
       schemaValidated: true,
       fullyConsumed: true,
@@ -5249,15 +5559,15 @@ export const reviewActionV2GoldenFixtures = {
       investigationCertificateHash: null,
       payloadCanonicalJson: '{"fixture":true}',
       payloadHash:
-        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       qualityFlags: ["qualityFlags_fixture"],
-      transportAttemptCount: 33,
+      transportAttemptCount: 35,
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_33",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_35",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "accepted",
@@ -5268,17 +5578,17 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_34",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_36",
       authorizationToken: "fixture.header.payload.signature",
       reviewRevisionHash:
-        "3333333333333333333333333333333333333333333333333333333333333333",
+        "5555555555555555555555555555555555555555555555555555555555555555",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_34",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_36",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "found",
@@ -5289,22 +5599,22 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_35",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_37",
       authorizationToken: "fixture.header.payload.signature",
-      idempotencyKey: "idem_fixture_35",
+      idempotencyKey: "idem_fixture_37",
       requestBodyHash:
-        "3333333333333333333333333333333333333333333333333333333333333333",
+        "5555555555555555555555555555555555555555555555555555555555555555",
       publicationPermit: "fixture.header.payload.signature",
       projectionHash:
-        "0000000000000000000000000000000000000000000000000000000000000000",
+        "2222222222222222222222222222222222222222222222222222222222222222",
       operationsCanonicalJson: '{"fixture":true}',
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_35",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_37",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "accepted",
@@ -5315,16 +5625,16 @@ export const reviewActionV2GoldenFixtures = {
     request: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_36",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_38",
       authorizationToken: "fixture.header.payload.signature",
       publicationAttemptId: "publicationAttemptId_fixture",
     },
     response: {
       protocolVersion: "2",
       schemaDigest:
-        "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
-      requestId: "rr_fixture_36",
+        "94eb4851532b00e0cb950ea038c02d57735fef271f7841b936cfe718a4de7603",
+      requestId: "rr_fixture_38",
       serverTime: "2026-01-01T00:00:00.000Z",
       result: {
         status: "pending",
@@ -5536,10 +5846,15 @@ export function canonicalizeReviewActionV2Request<
   );
   if (!descriptor) throw new Error("review_action_v2_operation_unknown");
   const body = Object.fromEntries(
-    descriptor.requestFields.map((field) => [
-      field.name,
-      (request as Record<string, unknown>)[field.name],
-    ]),
+    descriptor.requestFields
+      .filter(
+        (field) =>
+          (request as Record<string, unknown>)[field.name] !== undefined,
+      )
+      .map((field) => [
+        field.name,
+        (request as Record<string, unknown>)[field.name],
+      ]),
   );
   return canonicalJson(body);
 }
@@ -5731,9 +6046,12 @@ function validateField(
   issues: string[],
   enumValues?: readonly string[],
 ): void {
+  if (type.startsWith("optional_") && value === undefined) return;
   const nullable = type.startsWith("nullable_");
   if (nullable && value === null) return;
-  const base = nullable ? type.slice("nullable_".length) : type;
+  const base = nullable
+    ? type.slice("nullable_".length)
+    : type.replace(/^optional_/u, "");
   let valid = false;
   if (base === "boolean") valid = typeof value === "boolean";
   else if (base === "hash")

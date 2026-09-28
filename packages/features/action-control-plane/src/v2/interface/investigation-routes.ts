@@ -11,6 +11,8 @@ export type RegisterReviewInvestigationV2RoutesDependencies =
     readonly open?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationOpen>;
     readonly openV2?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationOpenV2>;
     readonly restore?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationRestore>;
+    readonly relayGrant?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationRelayGrant>;
+    readonly relayStatus?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationRelayStatus>;
     readonly planTurn?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationTurnPlan>;
     readonly acquireLease?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire>;
     readonly renewLease?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationLeaseRenew>;
@@ -62,6 +64,18 @@ export async function registerReviewInvestigationV2Routes(
     ReviewActionV2OperationId.ReviewInvestigationRestore,
     dependencies,
     dependencies.restore,
+  );
+  registerReviewActionV2Operation(
+    app,
+    ReviewActionV2OperationId.ReviewInvestigationRelayGrant,
+    dependencies,
+    dependencies.relayGrant,
+  );
+  registerReviewActionV2Operation(
+    app,
+    ReviewActionV2OperationId.ReviewInvestigationRelayStatus,
+    dependencies,
+    dependencies.relayStatus,
   );
   registerReviewActionV2Operation(
     app,

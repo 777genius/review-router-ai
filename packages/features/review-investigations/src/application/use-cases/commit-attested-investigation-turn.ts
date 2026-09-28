@@ -57,6 +57,7 @@ import {
   restoreCommandOrThrow,
 } from "./investigation-use-case-support";
 import type { ResolveInvestigationSearchQueryPrivateMaterial } from "./resolve-investigation-search-query-private-material";
+import { verifyRelayTurnBudget } from "../../domain/relay-turn-budget";
 
 export type CommitAttestedInvestigationTurnCommand = Readonly<{
   commandId: string;
@@ -154,6 +155,21 @@ export class CommitAttestedInvestigationTurn {
       verified.actualProviderKind !== command.observation.actualProviderKind
     ) {
       throw new Error("investigation_turn_attestation_invalid");
+    }
+    if (typeof current.activeTurn.turnBudgetCanonicalJson === "string" &&
+        typeof current.activeTurn.turnBudgetHash === "string") {
+      const budget = await verifyRelayTurnBudget({
+        canonicalJson: current.activeTurn.turnBudgetCanonicalJson,
+        hash: current.activeTurn.turnBudgetHash,
+        digestUtf8: (value) => this.digest.digestUtf8(value),
+        now: new Date(),
+        turnExpiresAt: new Date(current.activeTurn.expiresAt),
+      });
+      if (command.observation.findings.length > budget.maxOutputFindings ||
+          command.observation.obligationProposals.length > budget.maxOutputProposals ||
+          verified.operations.length > budget.maxGatewayOperations) {
+        throw new Error("investigation_relay_turn_budget_exceeded");
+      }
     }
     const operationEvidence = createVerifiedOperationEvidenceIndex(
       verified.operations,

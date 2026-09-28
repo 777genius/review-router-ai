@@ -1,9 +1,13 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { HostedV4AuthorityBridge } from "@reviewrouter/features-hosted-account-pool";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
   composeHostedV4RelayAuthority,
+  hasAuthorizedHostedRelayExtension,
   hostedV4RelayLeaseRequirements,
+  hostedV4PaidDispatchBlockedPrerequisite,
+  isHostedV4DisposableRelayCohort,
 } from "./hosted-v4-relay-authority";
 
 const now = new Date("2026-09-24T12:00:00.000Z");
@@ -46,6 +50,17 @@ const authority = {
 };
 
 function fixture(nowFn: () => Date = () => now) {
+  const turnBudgetCanonicalJson = JSON.stringify({
+    deadline: "2026-09-24T12:04:00.000Z",
+    maxGatewayOperations: 16,
+    maxOutputFindings: 8,
+    maxOutputProposals: 8,
+    maxOutputTokens: 100,
+    maxRequestBytes: 1_000,
+    maxRequests: 1,
+    maxResponseBytes: 2_000,
+    version: 1,
+  });
   const bridge = {
     resolveRelayAuthority: vi.fn().mockResolvedValue(authority),
   };
@@ -64,7 +79,7 @@ function fixture(nowFn: () => Date = () => now) {
     state: "turn_leased",
     activeTurnId: "turn-1",
     version: 3n,
-    dossierDigest: "d".repeat(64),
+    dossierDigest: "e".repeat(64),
   };
   const turn = {
     turnId: "turn-1",
@@ -73,6 +88,8 @@ function fixture(nowFn: () => Date = () => now) {
     leasedAtVersion: 3n,
     dossierDigest: "d".repeat(64),
     expiresAt: new Date("2026-09-24T12:05:00.000Z"),
+    turnBudgetCanonicalJson,
+    turnBudgetHash: createHash("sha256").update(turnBudgetCanonicalJson).digest("hex"),
   };
   const binding = {
     id: "binding-1",
@@ -129,6 +146,22 @@ function fixture(nowFn: () => Date = () => now) {
 }
 
 describe("private v4 relay prelease authority", () => {
+  it("separates the planning input from the current leased dossier", async () => {
+    const f = fixture();
+    const resolved = await f.composed.resolver.resolve(hints);
+    expect(resolved.planningInputDossierDigest).toBe(f.turn.dossierDigest);
+    expect(resolved.currentDossierDigest).toBe(f.investigation.dossierDigest);
+    expect(resolved.planningInputDossierDigest).not.toBe(resolved.currentDossierDigest);
+  });
+
+  it("rejects shadow-only authorization even for a selected cohort", () => {
+    expect(hasAuthorizedHostedRelayExtension({
+      reviewInvestigationAuthorizationDescriptorCanonicalJson: JSON.stringify({
+        authorizationDescriptorVersion: 3,
+        capability: "review_investigation_v1",
+      }),
+    })).toBe(false);
+  });
   // Regression: trusting a caller ID or v1 token would reach DB reads.
   it("requires bridge verification before any lookup and stays default off", async () => {
     const f = fixture();
@@ -143,13 +176,24 @@ describe("private v4 relay prelease authority", () => {
     ).rejects.toThrow("hosted_v4_authority_denied");
     expect(f.prisma.reviewInvestigation.findUnique).not.toHaveBeenCalled();
     expect(f.composed.enabled).toBe(false);
-    expect(Object.keys(f.composed)).toEqual(["enabled", "resolver"]);
+    expect(Object.keys(f.composed)).toEqual(["enabled", "blockedPrerequisite", "resolver"]);
+    expect(f.composed.blockedPrerequisite).toBe(hostedV4PaidDispatchBlockedPrerequisite);
     expect(hostedV4RelayLeaseRequirements).toMatchObject({
       purpose: "relay_turn",
       acceptsShadowTurn: false,
       requiresVerifiedInvestigationLease: true,
       requiresVerifiedInvocationLease: true,
     });
+  });
+
+  it("requires exact flag and exact disposable repository cohort", () => {
+    const selected = (env: Record<string, string | undefined>, githubRepositoryId: string) =>
+      isHostedV4DisposableRelayCohort({ env, githubRepositoryId });
+    expect(selected({}, "123")).toBe(false);
+    expect(selected({ REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED: "true", REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID: "123" }, "123")).toBe(false);
+    expect(selected({ REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED: "1", REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID: "0123" }, "123")).toBe(false);
+    expect(selected({ REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED: "1", REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID: "123" }, "456")).toBe(false);
+    expect(selected({ REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED: "1", REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID: "123" }, "123")).toBe(true);
   });
 
   // Regression: trusting a saved investigation would admit a moved head or release.
@@ -170,6 +214,12 @@ describe("private v4 relay prelease authority", () => {
       "turn",
       (f: ReturnType<typeof fixture>) => {
         f.turn.state = "committed";
+      },
+    ],
+    [
+      "budget",
+      (f: ReturnType<typeof fixture>) => {
+        f.turn.turnBudgetHash = "a".repeat(64);
       },
     ],
     [
