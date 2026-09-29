@@ -2186,8 +2186,13 @@ function toTurn(record: PrismaTurnRecord): InvestigationTurn {
     purpose: fromPrismaTurnPurpose(record.purpose),
     leasedAtVersion: safeNumber(record.leasedAtVersion, "turn_leased_version"),
     dossierDigest: record.dossierDigest,
-    turnBudgetCanonicalJson: record.turnBudgetCanonicalJson,
-    turnBudgetHash: record.turnBudgetHash,
+    ...(record.turnBudgetCanonicalJson !== null ||
+    record.turnBudgetHash !== null
+      ? {
+          turnBudgetCanonicalJson: record.turnBudgetCanonicalJson,
+          turnBudgetHash: record.turnBudgetHash,
+        }
+      : {}),
     obligationIds,
     semanticTurnOrdinal: record.semanticTurnOrdinal,
     criticCycleOrdinal: record.criticCycleOrdinal,
@@ -3145,7 +3150,10 @@ function toInvestigationLeaseCreate(
 ) {
   return {
     leaseId: lease.leaseId,
-    purpose: leasePurposeToPrisma[lease.purpose ?? ReviewInvestigationLeasePurpose.ShadowTurn],
+    purpose:
+      leasePurposeToPrisma[
+        lease.purpose ?? ReviewInvestigationLeasePurpose.ShadowTurn
+      ],
     workspaceId: lease.workspaceId,
     repositoryConnectionId: lease.repositoryConnectionId,
     scmRepositoryIdentityId: lease.scmRepositoryIdentityId,

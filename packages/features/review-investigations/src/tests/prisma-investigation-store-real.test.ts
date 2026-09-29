@@ -144,6 +144,79 @@ async function createLeaseHarness(): Promise<InvestigationLeaseStoreContractHarn
 }
 
 describeDatabase("PrismaInvestigationStore PostgreSQL invariants", () => {
+  it("preserves legacy turn shape and relay budget across a database read", async () => {
+    const suffix = randomUUID();
+    const seed = await withValidTestDossierDigest(
+      createInvestigationStoreContractSeed(`turn-shape-${suffix}`),
+    );
+    const harness = await createHarness(seed);
+    try {
+      const store = harness.store as PrismaInvestigationStore;
+      await open(store, seed, `turn-shape-open-${suffix}`);
+      const legacy = planned(seed, `turn-shape-${suffix}`);
+      await plan(store, legacy, `turn-shape-plan-${suffix}`);
+
+      const restarted = (await harness.restart()) as PrismaInvestigationStore;
+      const restoredLegacy = await restarted.findById(seed.investigationId);
+      expect(restoredLegacy?.activeTurn).toEqual(legacy.activeTurn);
+      expect(
+        Object.hasOwn(restoredLegacy!.activeTurn!, "turnBudgetCanonicalJson"),
+      ).toBe(false);
+      expect(Object.hasOwn(restoredLegacy!.activeTurn!, "turnBudgetHash")).toBe(
+        false,
+      );
+    } finally {
+      await harness.dispose();
+    }
+
+    const relaySeed = await withValidTestDossierDigest(
+      createInvestigationStoreContractSeed(`relay-turn-shape-${suffix}`),
+    );
+    const relayHarness = await createHarness(relaySeed);
+    try {
+      const store = relayHarness.store as PrismaInvestigationStore;
+      await open(store, relaySeed, `relay-turn-shape-open-${suffix}`);
+      const budgetCanonicalJson = canonicalJson({
+        deadline: "2026-08-02T10:01:30.000Z",
+        maxGatewayOperations: 1,
+        maxOutputFindings: 1,
+        maxOutputProposals: 1,
+        maxOutputTokens: 100,
+        maxRequestBytes: 1_000,
+        maxRequests: 1,
+        maxResponseBytes: 2_000,
+        version: 1,
+      });
+      const budgetHash = createHash("sha256")
+        .update(budgetCanonicalJson)
+        .digest("hex");
+      const relay = planned(relaySeed, `relay-turn-shape-${suffix}`);
+      await plan(
+        store,
+        {
+          ...relay,
+          activeTurn: {
+            ...relay.activeTurn!,
+            turnBudgetCanonicalJson: budgetCanonicalJson,
+            turnBudgetHash: budgetHash,
+          },
+        },
+        `relay-turn-shape-plan-${suffix}`,
+      );
+      const restarted =
+        (await relayHarness.restart()) as PrismaInvestigationStore;
+      const restoredBudget = await restarted.findById(
+        relaySeed.investigationId,
+      );
+      expect(restoredBudget?.activeTurn).toMatchObject({
+        turnBudgetCanonicalJson: budgetCanonicalJson,
+        turnBudgetHash: budgetHash,
+      });
+    } finally {
+      await relayHarness.dispose();
+    }
+  });
+
   it("persists exactly one adoption receipt and rejects transactionally superseded execution", async () => {
     const seed = createInvestigationStoreContractSeed(
       `adopt-db-${randomUUID()}`,
