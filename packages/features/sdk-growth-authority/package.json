@@ -29,6 +29,11 @@
       "production": "./dist/infrastructure/prisma/prisma-current-authority.js",
       "default": "./src/infrastructure/prisma/prisma-current-authority.ts"
     },
+    "./infrastructure/operator-credential": {
+      "types": "./src/infrastructure/prisma/prisma-operator-credential.ts",
+      "production": "./dist/infrastructure/prisma/prisma-operator-credential.js",
+      "default": "./src/infrastructure/prisma/prisma-operator-credential.ts"
+    },
     "./infrastructure/publication": {
       "types": "./src/infrastructure/prisma/prisma-publication-effect.ts",
       "production": "./dist/infrastructure/prisma/prisma-publication-effect.js",

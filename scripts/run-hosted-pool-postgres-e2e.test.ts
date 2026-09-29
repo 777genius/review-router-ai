@@ -86,6 +86,7 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     expect(preparation).toContain("...sdkGrowthVerifierAssignmentMigrations");
     expect(preparation).toContain("historicalUnknownScopeBarrierMigration");
     expect(preparation).toContain("sdkGrowthSourceBindingMigration");
+    expect(preparation).toContain("sdkGrowthOperatorCredentialMigration");
     const stagedTail = section(
       "addMigration(rehearsalDirectory, v4RelayTurnMigration)",
       "const migrationCount =",

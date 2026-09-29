@@ -3918,6 +3918,26 @@ model SdkGrowthCurrentAuthority {
   bindings SdkGrowthBindingVersion[]
 }
 
+// Dormant G1 operator identity. Only a verifier is durable; later authority
+// mutations must lock and recheck credential generation and disabled state.
+model SdkGrowthOperatorCredential {
+  credentialId       String   @id @db.VarChar(64)
+  generation         BigInt
+  verifierSha256     String   @db.VarChar(64)
+  disabled           Boolean  @default(true)
+  expiresAtMs        BigInt
+  tenantId           String   @db.VarChar(256)
+  repositoryId       String   @db.VarChar(256)
+  pullRequest        BigInt
+  githubRepositoryId String   @db.VarChar(256)
+  installationId     String   @db.VarChar(256)
+  issuer             String   @db.VarChar(256)
+  subject            String   @db.VarChar(256)
+  allowedOperations  String[]
+
+  @@index([tenantId, repositoryId, pullRequest], map: "SdkGrowthOperatorCredential_scope_idx")
+}
+
 model SdkGrowthBindingVersion {
   scopeKey String
   epoch    BigInt

@@ -64,5 +64,5 @@ Ingestion inspects the entire source graph through property descriptors before
 reading material fields, rejecting accessors, symbols, hidden properties, sparse
 arrays, custom prototypes and non-cloneable proxies. It detaches the graph before
 validating provenance and domain contracts or awaiting any database operation.
-Checkout policy admits SQL102 only with its pinned bytes and complete predecessor
+Checkout policy admits SQL112 only with its pinned bytes and complete predecessor
 manifest; historical96 and managed92 projections remain unchanged.
