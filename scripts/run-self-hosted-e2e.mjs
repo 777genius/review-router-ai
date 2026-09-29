@@ -27,6 +27,7 @@ let investigationReleaseFixture;
 let composeTouched = false;
 let testDatabaseCreationAttempted = false;
 let failedBeforeCleanup = false;
+let cleanupFailure;
 let ports;
 let secrets;
 let testEnv;
@@ -147,9 +148,11 @@ try {
   if (cleanupFailures.length) {
     const diagnostic = `disposable_cleanup_unproved:${cleanupFailures.join(",")}`;
     if (failedBeforeCleanup) console.error(diagnostic);
-    else throw new Error(diagnostic);
+    else cleanupFailure = new Error(diagnostic);
   }
 }
+
+if (cleanupFailure) throw cleanupFailure;
 
 console.log("Self-hosted E2E passed.");
 console.log(`control-plane-commit=${controlPlaneCommit}`);
