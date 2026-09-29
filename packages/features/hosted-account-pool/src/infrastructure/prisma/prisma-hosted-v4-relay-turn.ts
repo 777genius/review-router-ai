@@ -127,32 +127,29 @@ export class PrismaHostedV4RelayTurn implements HostedV4RelayTurnPort {
                 existing.expiresAt <= now))) {
             return { status: "recovery_required", grantId } as const;
           }
-          const [authorization, invocationLease, requestedIntents, candidates] =
-            await Promise.all([
-              tx.reviewRunAuthorization.findUnique({
-                where: { authorizationId: contract.scope.authorizationId },
-              }),
-              tx.reviewInvocationLeaseV2.findUnique({
-                where: { leaseId: contract.scope.invocationLease.leaseId },
-              }),
-              tx.reviewRequestedIntent.findMany({
-                where: {
-                  authorizationId: contract.scope.authorizationId,
-                  executionId: contract.scope.executionId,
-                },
-              }),
-              tx.hostedCodexAccount.findMany({
-                where: {
-                  workspaceId: contract.scope.workspaceId,
-                  poolId: contract.scope.poolId,
-                  state: "healthy",
-                },
-                orderBy: [{ priority: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-                include: { credentialVersions: {
-                  select: { generation: true, credentialExpiresAt: true },
-                } },
-              }),
-            ]);
+          const authorization = await tx.reviewRunAuthorization.findUnique({
+            where: { authorizationId: contract.scope.authorizationId },
+          });
+          const invocationLease = await tx.reviewInvocationLeaseV2.findUnique({
+            where: { leaseId: contract.scope.invocationLease.leaseId },
+          });
+          const requestedIntents = await tx.reviewRequestedIntent.findMany({
+            where: {
+              authorizationId: contract.scope.authorizationId,
+              executionId: contract.scope.executionId,
+            },
+          });
+          const candidates = await tx.hostedCodexAccount.findMany({
+            where: {
+              workspaceId: contract.scope.workspaceId,
+              poolId: contract.scope.poolId,
+              state: "healthy",
+            },
+            orderBy: [{ priority: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+            include: { credentialVersions: {
+              select: { generation: true, credentialExpiresAt: true },
+            } },
+          });
           const selected = candidates.find((candidate) =>
             candidate.activeGeneration !== null &&
             candidate.credentialVersions.some((credential) =>
@@ -787,52 +784,62 @@ async function assertPreparedReservationAuthority(
   // revocation committed after that snapshot, PostgreSQL raises 40001 here;
   // the outer reservation retries with a new transaction and snapshot.
   await lockCurrentProducerRelease(tx, scope.producerReleaseId);
-  const [authorization, release, execution, slot, investigation, turn, investigationLease,
-    invocationLease, repository, scmIdentity, binding, runtimeGate, account, credential,
-    repositoryConfig, workspaceConfig] = await Promise.all([
-    tx.reviewRunAuthorization.findUnique({ where: { authorizationId: scope.authorizationId } }),
-    tx.producerRelease.findUnique({ where: { producerReleaseId: scope.producerReleaseId } }),
-    tx.reviewExecutionV2.findUnique({ where: { executionId: scope.executionId } }),
-    tx.reviewExecutionWorkSlotV2.findUnique({
-      where: { executionId_workSlotId: { executionId: scope.executionId, workSlotId: scope.workSlotId } },
-    }),
-    tx.reviewInvestigation.findUnique({ where: { investigationId: scope.investigationId } }),
-    tx.reviewInvestigationTurn.findUnique({ where: { turnId: scope.turnId } }),
-    tx.reviewInvestigationLease.findUnique({ where: { leaseId: scope.investigationLease.leaseId } }),
-    tx.reviewInvocationLeaseV2.findUnique({ where: { leaseId: scope.invocationLease.leaseId } }),
-    tx.repositoryConnection.findUnique({
-      where: { id: scope.repositoryConnectionId }, include: { installation: true },
-    }),
-    tx.scmRepositoryIdentity.findUnique({
-      where: { scmRepositoryIdentityId: scope.scmRepositoryIdentityId },
-    }),
-    tx.hostedCodexRepositoryBinding.findUnique({
-      where: { id: scope.repositoryBindingId }, include: { pool: true },
-    }),
-    tx.$queryRaw<Array<{ status: string; authzEpoch: bigint }>>(Prisma.sql`
-      SELECT * FROM public.hosted_historical_lock_runtime_gate()
-    `),
-    tx.hostedCodexAccount.findUnique({ where: { id: input.accountId } }),
-    tx.hostedCodexCredentialVersion.findUnique({
-      where: { accountId_generation: {
-        accountId: input.accountId, generation: input.credentialGeneration,
-      } },
-      select: { workspaceId: true, poolId: true, credentialExpiresAt: true },
-    }),
-    ...[`repo:${scope.repositoryConnectionId}`, "workspace:default"].map(
-      (targetKey) => tx.reviewConfiguration.findUnique({
-        where: { workspaceId_targetKey: { workspaceId: scope.workspaceId, targetKey } },
-        select: { versions: { orderBy: { version: "desc" }, take: 1,
-          select: { version: true, providerKind: true, providerAuthMode: true,
-            model: true, providerLimit: true, providerMaxParallel: true,
-            investigationRecordingEnabled: true,
-            providers: { select: { providerKind: true, providerAuthMode: true,
-              model: true } },
-          },
-        } },
-      }),
-    ),
-  ]);
+  const authorization = await tx.reviewRunAuthorization.findUnique({
+    where: { authorizationId: scope.authorizationId },
+  });
+  const release = await tx.producerRelease.findUnique({
+    where: { producerReleaseId: scope.producerReleaseId },
+  });
+  const execution = await tx.reviewExecutionV2.findUnique({
+    where: { executionId: scope.executionId },
+  });
+  const slot = await tx.reviewExecutionWorkSlotV2.findUnique({
+    where: { executionId_workSlotId: { executionId: scope.executionId, workSlotId: scope.workSlotId } },
+  });
+  const investigation = await tx.reviewInvestigation.findUnique({
+    where: { investigationId: scope.investigationId },
+  });
+  const turn = await tx.reviewInvestigationTurn.findUnique({
+    where: { turnId: scope.turnId },
+  });
+  const investigationLease = await tx.reviewInvestigationLease.findUnique({
+    where: { leaseId: scope.investigationLease.leaseId },
+  });
+  const invocationLease = await tx.reviewInvocationLeaseV2.findUnique({
+    where: { leaseId: scope.invocationLease.leaseId },
+  });
+  const repository = await tx.repositoryConnection.findUnique({
+    where: { id: scope.repositoryConnectionId }, include: { installation: true },
+  });
+  const scmIdentity = await tx.scmRepositoryIdentity.findUnique({
+    where: { scmRepositoryIdentityId: scope.scmRepositoryIdentityId },
+  });
+  const binding = await tx.hostedCodexRepositoryBinding.findUnique({
+    where: { id: scope.repositoryBindingId }, include: { pool: true },
+  });
+  const runtimeGate = await tx.$queryRaw<Array<{ status: string; authzEpoch: bigint }>>(Prisma.sql`
+    SELECT * FROM public.hosted_historical_lock_runtime_gate()
+  `);
+  const account = await tx.hostedCodexAccount.findUnique({ where: { id: input.accountId } });
+  const credential = await tx.hostedCodexCredentialVersion.findUnique({
+    where: { accountId_generation: {
+      accountId: input.accountId, generation: input.credentialGeneration,
+    } },
+    select: { workspaceId: true, poolId: true, credentialExpiresAt: true },
+  });
+  const readConfig = (targetKey: string) => tx.reviewConfiguration.findUnique({
+    where: { workspaceId_targetKey: { workspaceId: scope.workspaceId, targetKey } },
+    select: { versions: { orderBy: { version: "desc" }, take: 1,
+      select: { version: true, providerKind: true, providerAuthMode: true,
+        model: true, providerLimit: true, providerMaxParallel: true,
+        investigationRecordingEnabled: true,
+        providers: { select: { providerKind: true, providerAuthMode: true,
+          model: true } },
+      },
+    } },
+  });
+  const repositoryConfig = await readConfig(`repo:${scope.repositoryConnectionId}`);
+  const workspaceConfig = await readConfig("workspace:default");
   const runtimeConfig = repositoryConfig?.versions[0] ?? workspaceConfig?.versions[0];
   const configuredProviders = runtimeConfig?.providers.length
     ? runtimeConfig.providers
