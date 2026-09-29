@@ -26,7 +26,9 @@ export class PrismaHostedHistoricalScopeBarrier {
     `;
     if (catalog[0]?.installed !== true) {
       if (!this.destination.required) return false;
-      throw new HostedHistoricalScopeDeniedError("hosted_historical_policy_schema_missing");
+      throw new HostedHistoricalScopeDeniedError(
+        "hosted_historical_policy_schema_missing",
+      );
     }
     const rows = await this.prisma.$queryRaw<
       Array<{ databaseResourceIdentity: string; databaseIncarnation: string }>
@@ -50,7 +52,9 @@ export class PrismaHostedHistoricalScopeBarrier {
       SELECT public.hosted_historical_assert_ready() AS "ready"
     `;
     if (ready[0]?.ready !== true) {
-      throw new HostedHistoricalScopeDeniedError("hosted_historical_marker_not_ready");
+      throw new HostedHistoricalScopeDeniedError(
+        "hosted_historical_marker_not_ready",
+      );
     }
     return true;
   }

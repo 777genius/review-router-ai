@@ -30,7 +30,10 @@ import {
   type HostedCodexUpstreamEffectLease,
 } from "../prisma/prisma-hosted-codex-upstream-effect-ledger.js";
 import { normalizeExpiredHostedAccountCooldownWithCas } from "../prisma/prisma-hosted-account-cooldown.js";
-import { HostedHistoricalScopeDeniedError, type PrismaHostedHistoricalScopeBarrier } from "../prisma/prisma-hosted-historical-scope-barrier.js";
+import {
+  HostedHistoricalScopeDeniedError,
+  type PrismaHostedHistoricalScopeBarrier,
+} from "../prisma/prisma-hosted-historical-scope-barrier.js";
 import type { HostedCodexSessionRuntime } from "../runtime/hosted-codex-session-runtime.js";
 import {
   noHostedCodexCanaryFaultPlan,
@@ -46,7 +49,10 @@ export class PrismaHostedCodexRelayAuthorization implements HostedCodexRelayAuth
   constructor(
     private readonly prisma: PrismaClient,
     private readonly failoverEnabled = false,
-    private readonly historicalScopes?: Pick<PrismaHostedHistoricalScopeBarrier, "assertGrantAllowed">,
+    private readonly historicalScopes?: Pick<
+      PrismaHostedHistoricalScopeBarrier,
+      "assertGrantAllowed"
+    >,
   ) {
     this.ledger = new PrismaInvocationGrantRepository(prisma);
   }
@@ -230,7 +236,10 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
         | "assertLiveAuthority"
       >;
       readonly faultPlans?: HostedCodexCanaryFaultPlanPort;
-      readonly historicalScopes?: Pick<PrismaHostedHistoricalScopeBarrier, "assertGrantAllowed">;
+      readonly historicalScopes?: Pick<
+        PrismaHostedHistoricalScopeBarrier,
+        "assertGrantAllowed"
+      >;
     } = { failoverEnabled: false },
   ) {
     this.failoverEnabled = options.failoverEnabled;
@@ -255,7 +264,9 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
   }
 
   private readonly faultPlans: HostedCodexCanaryFaultPlanPort;
-  private readonly historicalScopes: Pick<PrismaHostedHistoricalScopeBarrier, "assertGrantAllowed"> | undefined;
+  private readonly historicalScopes:
+    | Pick<PrismaHostedHistoricalScopeBarrier, "assertGrantAllowed">
+    | undefined;
 
   async open(input: Parameters<HostedCodexStreamingRelayPort["open"]>[0]) {
     try {
@@ -340,7 +351,9 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
     let streamHeartbeat: EffectHeartbeat | undefined;
     let generationRetryCount = 0;
     while (true) {
-      await this.historicalScopes?.assertGrantAllowed(input.authorization.grantId);
+      await this.historicalScopes?.assertGrantAllowed(
+        input.authorization.grantId,
+      );
       await this.effects.assertLiveAuthority({
         grantId: input.authorization.grantId,
         accountId,

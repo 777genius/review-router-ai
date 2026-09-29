@@ -7,7 +7,9 @@ describe("historical scope authenticated pool fixture", () => {
     // clearing the only barrier timer strands siblings inside their callbacks.
     const originalError = new Error("identity_query_rejected");
     let rejectQuery!: (error: Error) => void;
-    const failingQuery = new Promise<never>((_resolve, reject) => { rejectQuery = reject; });
+    const failingQuery = new Promise<never>((_resolve, reject) => {
+      rejectQuery = reject;
+    });
     let waiting = 0;
     let active = 0;
     const completed: number[] = [];

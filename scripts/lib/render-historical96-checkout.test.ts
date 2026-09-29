@@ -123,7 +123,10 @@ describe("trusted historical96 checkout reader", () => {
     ["duplicate extension", [...full, full[96]!]],
     [
       "relabelled 110",
-      [...full.slice(0, 108), { ...full[108]!, migrationName: "000110_relabelled" }],
+      [
+        ...full.slice(0, 108),
+        { ...full[108]!, migrationName: "000110_relabelled" },
+      ],
     ],
     [
       "unknown 111",

@@ -372,11 +372,16 @@ describe("release authority database installation", () => {
       const boundary = sql.indexOf(statement);
       expect(boundary).toBeGreaterThan(-1);
       const effective = new Map<string, string>();
-      for (const match of sql.slice(0, boundary).matchAll(
-        /^SET LOCAL (lock_timeout|statement_timeout) = '([^']+)';$/gmu,
-      ))
+      for (const match of sql
+        .slice(0, boundary)
+        .matchAll(
+          /^SET LOCAL (lock_timeout|statement_timeout) = '([^']+)';$/gmu,
+        ))
         effective.set(match[1]!, match[2]!);
-      return [effective.get("lock_timeout"), effective.get("statement_timeout")];
+      return [
+        effective.get("lock_timeout"),
+        effective.get("statement_timeout"),
+      ];
     };
     const fresh = releaseAuthorityMigrationBundle("fresh-install");
     expect(settingsAt(fresh, "CREATE SCHEMA release_authority;")).toEqual([

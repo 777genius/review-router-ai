@@ -122,7 +122,10 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       readonly bindings: HostedPoolBindingRepositoryPort;
       readonly accounts: HostedAccountRepositoryPort;
       readonly grants: InvocationGrantRepositoryPort;
-      readonly historicalScopes?: Pick<PrismaHostedHistoricalScopeBarrier, "assertAdmissionAllowed" | "assertGrantAllowed">;
+      readonly historicalScopes?: Pick<
+        PrismaHostedHistoricalScopeBarrier,
+        "assertAdmissionAllowed" | "assertGrantAllowed"
+      >;
       readonly grantCapabilities: InvocationGrantCapabilityPort;
       readonly refreshCapabilities: CommentTokenRefreshCapabilityPort;
       readonly commentTokens: Pick<
@@ -402,16 +405,22 @@ export function createProductionHostedCodexGrantIssuer(input: {
   readonly clock?: Clock;
 }): HostedCodexGrantIssuer {
   const clock = input.clock ?? new SystemClock();
-  const resourceIdentity = input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY?.trim();
-  const incarnation = input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_INCARNATION?.trim();
+  const resourceIdentity =
+    input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY?.trim();
+  const incarnation =
+    input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_INCARNATION?.trim();
   if (!resourceIdentity || resourceIdentity.length < 16 || !incarnation) {
     throw new Error("hosted_historical_destination_identity_missing");
   }
-  const historicalScopes = input.historicalScopes ?? new PrismaHostedHistoricalScopeBarrier(input.prisma, {
-    required: input.env.REVIEW_ROUTER_HOSTED_HISTORICAL_SCOPE_DESTINATION_REQUIRED === "1",
-    resourceIdentity,
-    incarnation,
-  });
+  const historicalScopes =
+    input.historicalScopes ??
+    new PrismaHostedHistoricalScopeBarrier(input.prisma, {
+      required:
+        input.env.REVIEW_ROUTER_HOSTED_HISTORICAL_SCOPE_DESTINATION_REQUIRED ===
+        "1",
+      resourceIdentity,
+      incarnation,
+    });
   const grants = new PrismaInvocationGrantRepository(input.prisma);
   const capabilityKey = readCapabilityKey(input.env);
   const grantCapabilities = new HmacHostedCodexCapabilityIssuer(

@@ -101,13 +101,19 @@ test("runner honors supplied loopback connection and drops only new name without
   const r = run("success");
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.connection, "127.0.0.1:6543:assigned\n");
-  assert.equal(r.stages, "fresh\ncreate_role\npair_preflight\nbefore87\nhandoff\nfull\ndrop_db\ndrop_role\n");
+  assert.equal(
+    r.stages,
+    "fresh\ncreate_role\npair_preflight\nbefore87\nhandoff\nfull\ndrop_db\ndrop_role\n",
+  );
   assert.match(r.dropped, /^item11_test_[a-f0-9]{32}\n$/);
 });
 test("item11 rejects a partial release pair before migration and removes only its created role", () => {
   const r = run("pair_preflight_failed");
   assert.equal(r.status, 1);
-  assert.equal(r.stages, "fresh\ncreate_role\npair_preflight\ndrop_db\ndrop_role\n");
+  assert.equal(
+    r.stages,
+    "fresh\ncreate_role\npair_preflight\ndrop_db\ndrop_role\n",
+  );
   assert.match(r.dropped, /^item11_test_[a-f0-9]{32}\n$/);
   assert.equal(r.invocation, null);
 });
@@ -115,13 +121,19 @@ test("failed role cleanup reports retained role after exact database deletion", 
   const r = run("role_cleanup_failed");
   assert.equal(r.status, 1);
   assert.match(r.stderr, /item11_release_role_cleanup_failed_retained/);
-  assert.equal(r.stages, "fresh\ncreate_role\npair_preflight\nbefore87\nhandoff\nfull\ndrop_db\ndrop_role\n");
+  assert.equal(
+    r.stages,
+    "fresh\ncreate_role\npair_preflight\nbefore87\nhandoff\nfull\ndrop_db\ndrop_role\n",
+  );
 });
 test("failed role creation never authorizes role deletion", () => {
   const r = run("role_create_failed");
   assert.equal(r.status, 1);
   assert.equal(r.stages, "fresh\ncreate_role\ndrop_db\n");
-  assert.match(r.stderr, /item11_release_role_create_outcome_uncertain_retained/);
+  assert.match(
+    r.stderr,
+    /item11_release_role_create_outcome_uncertain_retained/,
+  );
 });
 test("runner retains database when child close is unproven", () => {
   const r = run("live");
