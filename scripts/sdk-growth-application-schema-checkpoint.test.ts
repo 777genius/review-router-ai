@@ -315,6 +315,7 @@ describe("SDK growth application-schema checkpoint", () => {
     "000109_sdk_growth_verifier_assignment_lock",
     "000111_sdk_growth_source_binding",
     "000112_sdk_growth_operator_credential",
+    "000113_sdk_growth_approval_ledger",
   ])(
     "rejects an already-applied later checkout row %s at the 000106 checkpoint",
     (migrationName) => {
@@ -705,6 +706,7 @@ describePg17("SDK growth separate disposable PG17 migration rehearsal", () => {
         "000109_sdk_growth_verifier_assignment_lock",
         "000111_sdk_growth_source_binding",
         "000112_sdk_growth_operator_credential",
+        "000113_sdk_growth_approval_ledger",
       ])
         rmSync(join(prismaRoot, "migrations", migrationName), {
           recursive: true,

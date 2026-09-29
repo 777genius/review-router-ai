@@ -3915,7 +3915,30 @@ model SdkGrowthAuthorityRecord {
 model SdkGrowthCurrentAuthority {
   scopeKey String                    @id
   epoch    BigInt
+  lastWriteXid BigInt?
   bindings SdkGrowthBindingVersion[]
+}
+
+// Append-only G1 administrative facts, written with an authority epoch advance.
+model SdkGrowthApprovalFact {
+  scopeKey             String
+  epoch                BigInt
+  action               String
+  approvalEpoch        BigInt?
+  proposalReference    String?   @db.VarChar(256)
+  credentialId         String    @db.VarChar(64)
+  credentialGeneration BigInt
+  bindingDigest        String    @db.VarChar(71)
+  decisionDigest       String    @db.VarChar(71)
+  record               Json?
+  recordedAt           DateTime  @default(now()) @db.Timestamptz(6)
+  owner                SdkGrowthOwnerVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  credential           SdkGrowthOperatorCredential @relation(fields: [credentialId], references: [credentialId], onDelete: Restrict, onUpdate: NoAction)
+  approval             SdkGrowthApprovalFact? @relation("SdkGrowthApprovalRevocations", fields: [scopeKey, approvalEpoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  revocations          SdkGrowthApprovalFact[] @relation("SdkGrowthApprovalRevocations")
+
+  @@id([scopeKey, epoch])
+  @@index([scopeKey, epoch(sort: Desc)], map: "SdkGrowthApprovalFact_latest_idx")
 }
 
 // Dormant G1 operator identity. Only a verifier is durable; later authority
@@ -3934,6 +3957,7 @@ model SdkGrowthOperatorCredential {
   issuer             String   @db.VarChar(256)
   subject            String   @db.VarChar(256)
   allowedOperations  String[]
+  approvalFacts      SdkGrowthApprovalFact[]
 
   @@index([tenantId, repositoryId, pullRequest], map: "SdkGrowthOperatorCredential_scope_idx")
 }
@@ -3957,6 +3981,7 @@ model SdkGrowthOwnerVersion {
   verifierActive     Boolean
   reason             String
   binding            SdkGrowthBindingVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  approvalFact       SdkGrowthApprovalFact?
 
   @@id([scopeKey, epoch])
 }
