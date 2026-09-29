@@ -366,7 +366,8 @@ export class PrismaG1ApprovalLedgerSource implements TrustedAuthoritySourcePort 
   ): Promise<TrustedAuthorityRecord | null> {
     const scope = storageScope(input.scope);
     const rows = await this.prisma.$queryRaw`
-      SELECT f."action", COALESCE(f."record", original."record") AS "record"
+      SELECT f."action", f."v3ManifestId", original."v3ManifestId" AS "originalV3ManifestId",
+             COALESCE(f."record", original."record") AS "record"
       FROM "SdkGrowthCurrentAuthority" current
       JOIN "SdkGrowthApprovalFact" f
         ON f."scopeKey" = current."scopeKey" AND f."epoch" = current."epoch"
@@ -376,10 +377,13 @@ export class PrismaG1ApprovalLedgerSource implements TrustedAuthoritySourcePort 
     const row = rows[0] as
       | {
           action: "approve" | "revoke";
+          v3ManifestId: string | null;
+          originalV3ManifestId: string | null;
           record: unknown;
         }
       | undefined;
     if (!row) return null;
+    if (row.v3ManifestId || row.originalV3ManifestId) return null;
     const original = validateTrustedAuthorityRecord(row.record, scope);
     if (
       input.principal.tenantId !== scope.tenantId ||

@@ -14,6 +14,14 @@ import {
   PrismaG1ApprovalLedgerSource,
 } from "../infrastructure/prisma/prisma-approval-ledger.js";
 import { PrismaAuthorityProvisioning } from "../infrastructure/prisma/prisma-current-authority.js";
+import { PrismaG1V3ApprovedManifestCommand } from "../infrastructure/prisma/prisma-v3-approved-manifest.js";
+import {
+  proposal as v3Proposal,
+  source as v3Source,
+  sri as v3Sri,
+  toolId as v3ToolId,
+  wire as v3Wire,
+} from "./v3-approved-manifest.fixture.js";
 import type { TrustedAuthorityRecord } from "../application/ports.js";
 
 const url = process.env.SDK_GROWTH_TEST_DATABASE_URL;
@@ -111,8 +119,11 @@ describe.skipIf(!url)("G1 approval ledger / disposable PostgreSQL", () => {
     for (const migration of [
       "000101_sdk_growth_authority",
       "000102_sdk_growth_current_authority",
+      "000108_sdk_growth_verifier_assignment",
       "000112_sdk_growth_operator_credential",
       "000113_sdk_growth_approval_ledger",
+      "000114_sdk_growth_v3_tool_artifact",
+      "000115_sdk_growth_v3_approved_manifest",
     ]) {
       if (migration === "000113_sdk_growth_approval_ledger")
         await setup.query(`INSERT INTO "SdkGrowthCurrentAuthority" ("scopeKey", "epoch")
@@ -226,6 +237,242 @@ describe.skipIf(!url)("G1 approval ledger / disposable PostgreSQL", () => {
     await expect(database.$executeRaw`
       UPDATE "SdkGrowthApprovalFact" SET "action" = 'approve'
       WHERE "scopeKey" = ${scopeKey} AND "epoch" = 3`).rejects.toThrow();
+  });
+
+  it("atomically installs and revokes a v3 manifest while the v1 reader fails closed", async () => {
+    const database = db!;
+    const v3Scope = { ...scope, pullRequest: 47 };
+    const v3Key = JSON.stringify([v3Scope.tenantId, v3Scope.repositoryId, 47]);
+    const v3CredentialId = "test_v3_owner_01";
+    const v3Token = `g1.${v3CredentialId}.${Buffer.alloc(32, 47).toString("base64url")}`;
+    const fixture = v3Proposal(47);
+    await database.$executeRaw`
+      INSERT INTO "SdkGrowthV3ToolArtifact" (
+        "artifactId", "packageName", "packageVersion", "sourceCommit", "sourceTree",
+        "installedDistributionDigest", "provenanceKind", "archive", "archiveByteLength",
+        "archiveSha256", "archiveSha512Sri"
+      ) VALUES (
+        ${v3ToolId}, '@agent-teams/engineering-foundation', '1.6.1',
+        ${v3Source.commit}, ${v3Source.tree}, ${digest}, 'source-built-fixture',
+        ${Buffer.from("test-fixture")}, 12, ${digest}, ${v3Sri}
+      )`;
+    await database.$executeRaw`
+      INSERT INTO "SdkGrowthOperatorCredential" (
+        "credentialId", "generation", "verifierSha256", "disabled", "expiresAtMs",
+        "tenantId", "repositoryId", "pullRequest", "githubRepositoryId",
+        "installationId", "issuer", "subject", "allowedOperations"
+      ) VALUES (
+        ${v3CredentialId}, 1, ${hashG1OperatorCredential(v3Token).verifierSha256},
+        FALSE, ${BigInt(Date.now() + 3_600_000)}, ${scope.tenantId},
+        ${scope.repositoryId}, 47, '123', '456', ${principal.issuer},
+        ${principal.subject}, ARRAY['provision','owner-replacement','owner-revocation']::text[]
+      )`;
+    const writer = new PrismaG1V3ApprovedManifestCommand(
+      database,
+      new G1OperatorCredentialAuthenticator(
+        new PrismaG1OperatorCredentialReader(database),
+      ),
+      {
+        load: async () => ({
+          manifestWire: v3Wire(fixture.manifest),
+          requestWire: fixture.requestWire,
+        }),
+      },
+      // This test covers database atomicity. A separate packed EF test must prove decoder provenance.
+      {
+        validate: async () => ({
+          decodedRequest: fixture.request,
+          validationEvidenceWire: fixture.validationEvidenceWire,
+        }),
+      },
+    );
+    expect(
+      await writer.approve(v3Token, v3Scope, 0n, "v3-proposal", "provision"),
+    ).toBe(1n);
+    const fact = await database.$queryRaw<
+      Array<{ epoch: bigint; v3ManifestId: string; record: unknown }>
+    >`
+      SELECT "epoch", "v3ManifestId", "record" FROM "SdkGrowthApprovalFact"
+      WHERE "scopeKey" = ${v3Key}`;
+    expect(fact).toHaveLength(1);
+    expect(fact[0]).toMatchObject({ epoch: 1n, record: null });
+    expect(fact[0]?.v3ManifestId).toMatch(/^[a-f0-9]{64}$/);
+    const legacy = new PrismaG1ApprovalLedgerSource(database);
+    expect(
+      await legacy.load({
+        principal,
+        scope: v3Scope,
+        change: "owner-revocation",
+      }),
+    ).toBeNull();
+    expect(await writer.revoke(v3Token, v3Scope, 1n)).toBe(2n);
+    expect(
+      await database.$queryRaw<Array<{ epoch: bigint; action: string }>>`
+      SELECT "epoch", "action" FROM "SdkGrowthApprovalFact"
+      WHERE "scopeKey" = ${v3Key} ORDER BY "epoch"`,
+    ).toEqual([
+      { epoch: 1n, action: "approve" },
+      { epoch: 2n, action: "revoke" },
+    ]);
+    await expect(
+      writer.approve(v3Token, v3Scope, 2n, "v3-proposal", "owner-replacement"),
+    ).rejects.toMatchObject({ code: "conflict" });
+
+    const orphanScopeKey = JSON.stringify([
+      scope.tenantId,
+      scope.repositoryId,
+      48,
+    ]);
+    const orphan = v3Proposal(48);
+    const orphanWire = v3Wire(orphan.manifest);
+    await expect(
+      database.$transaction(async (tx) => {
+        await tx.$executeRaw`
+        INSERT INTO "SdkGrowthCurrentAuthority" ("scopeKey", "epoch")
+        VALUES (${orphanScopeKey}, 0)`;
+        await tx.$executeRaw`
+        INSERT INTO "SdkGrowthBindingVersion" ("scopeKey", "epoch", "binding")
+        VALUES (${orphanScopeKey}, 1, ${JSON.stringify(orphan.request.binding)}::jsonb)`;
+        await tx.$executeRaw`
+        INSERT INTO "SdkGrowthOwnerVersion" (
+          "scopeKey", "epoch", "evidence", "provenance", "installationActive", "verifierActive", "reason"
+        ) VALUES (
+          ${orphanScopeKey}, 1, ${JSON.stringify(orphan.manifest.approval)}::jsonb,
+          ${JSON.stringify(orphan.manifest.provenance)}::jsonb, TRUE, TRUE, 'provision'
+        )`;
+        await tx.$executeRaw`
+        UPDATE "SdkGrowthCurrentAuthority" SET "epoch" = 1 WHERE "scopeKey" = ${orphanScopeKey}`;
+        await tx.$executeRaw`
+        INSERT INTO "SdkGrowthV3ApprovedManifest" (
+          "manifestId", "scopeKey", "epoch", "manifestWire", "manifestByteLength", "manifestSha256",
+          "requestWire", "requestByteLength", "requestWireSha256", "validationEvidenceWire",
+          "validationEvidenceByteLength", "validationEvidenceSha256", "toolArtifactId"
+        ) VALUES (
+          ${"c".repeat(64)}, ${orphanScopeKey}, 1, ${orphanWire}, ${orphanWire.byteLength},
+          ${orphan.manifest.requestWireSha256}, ${orphan.requestWire}, ${orphan.requestWire.byteLength},
+          ${orphan.manifest.requestWireSha256}, ${orphan.validationEvidenceWire},
+          ${orphan.validationEvidenceWire.byteLength}, ${orphan.manifest.validationEvidenceSha256},
+          ${v3ToolId}
+        )`;
+      }),
+    ).rejects.toThrow("v3 manifest requires same-transaction approval");
+    expect(
+      await database.$queryRaw<Array<{ epoch: bigint }>>`
+      SELECT "epoch" FROM "SdkGrowthCurrentAuthority" WHERE "scopeKey" = ${orphanScopeKey}`,
+    ).toEqual([]);
+
+    const stagedKey = JSON.stringify([scope.tenantId, scope.repositoryId, 50]);
+    const staged = v3Proposal(50);
+    await database.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        INSERT INTO "SdkGrowthCurrentAuthority" ("scopeKey", "epoch") VALUES (${stagedKey}, 0)`;
+      await tx.$executeRaw`
+        INSERT INTO "SdkGrowthBindingVersion" ("scopeKey", "epoch", "binding")
+        VALUES (${stagedKey}, 1, ${JSON.stringify(staged.request.binding)}::jsonb)`;
+      await tx.$executeRaw`
+        INSERT INTO "SdkGrowthOwnerVersion" (
+          "scopeKey", "epoch", "evidence", "provenance", "installationActive", "verifierActive", "reason"
+        ) VALUES (
+          ${stagedKey}, 1, ${JSON.stringify(staged.manifest.approval)}::jsonb,
+          ${JSON.stringify(staged.manifest.provenance)}::jsonb, TRUE, TRUE, 'provision'
+        )`;
+    });
+    const stagedWire = v3Wire(staged.manifest);
+    const stagedManifestId = "d".repeat(64);
+    await expect(
+      database.$transaction(async (tx) => {
+        await tx.$executeRaw`
+        UPDATE "SdkGrowthCurrentAuthority" SET "epoch" = 1 WHERE "scopeKey" = ${stagedKey}`;
+        await tx.$executeRaw`
+        INSERT INTO "SdkGrowthV3ApprovedManifest" (
+          "manifestId", "scopeKey", "epoch", "manifestWire", "manifestByteLength", "manifestSha256",
+          "requestWire", "requestByteLength", "requestWireSha256", "validationEvidenceWire",
+          "validationEvidenceByteLength", "validationEvidenceSha256", "toolArtifactId"
+        ) VALUES (
+          ${stagedManifestId}, ${stagedKey}, 1, ${stagedWire}, ${stagedWire.byteLength},
+          ${digest}, ${staged.requestWire}, ${staged.requestWire.byteLength},
+          ${staged.manifest.requestWireSha256}, ${staged.validationEvidenceWire},
+          ${staged.validationEvidenceWire.byteLength}, ${staged.manifest.validationEvidenceSha256},
+          ${v3ToolId}
+        )`;
+        await tx.$executeRaw`
+        INSERT INTO "SdkGrowthApprovalFact" (
+          "scopeKey", "epoch", "action", "proposalReference", "credentialId", "credentialGeneration",
+          "bindingDigest", "decisionDigest", "v3ManifestId"
+        ) VALUES (
+          ${stagedKey}, 1, 'approve', 'staged-proposal', ${v3CredentialId}, 1,
+          ${digest}, ${digest}, ${stagedManifestId}
+        )`;
+      }),
+    ).rejects.toThrow("v3 approval manifest does not match authority version");
+    expect(
+      await database.$queryRaw<Array<{ epoch: bigint }>>`
+      SELECT "epoch" FROM "SdkGrowthCurrentAuthority" WHERE "scopeKey" = ${stagedKey}`,
+    ).toEqual([{ epoch: 0n }]);
+
+    const rotatedScope = { ...scope, pullRequest: 49 };
+    const rotatedKey = JSON.stringify([scope.tenantId, scope.repositoryId, 49]);
+    const rotatedId = "test_v3_rotate_01";
+    const rotatedToken = `g1.${rotatedId}.${Buffer.alloc(32, 49).toString("base64url")}`;
+    const rotatedFixture = v3Proposal(49);
+    await database.$executeRaw`
+      INSERT INTO "SdkGrowthOperatorCredential" (
+        "credentialId", "generation", "verifierSha256", "disabled", "expiresAtMs",
+        "tenantId", "repositoryId", "pullRequest", "githubRepositoryId",
+        "installationId", "issuer", "subject", "allowedOperations"
+      ) VALUES (
+        ${rotatedId}, 1, ${hashG1OperatorCredential(rotatedToken).verifierSha256},
+        FALSE, ${BigInt(Date.now() + 3_600_000)}, ${scope.tenantId},
+        ${scope.repositoryId}, 49, '123', '456', ${principal.issuer},
+        ${principal.subject}, ARRAY['provision']::text[]
+      )`;
+    let entered!: () => void;
+    let resume!: () => void;
+    const loading = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const proceed = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const rotatedWriter = new PrismaG1V3ApprovedManifestCommand(
+      database,
+      new G1OperatorCredentialAuthenticator(
+        new PrismaG1OperatorCredentialReader(database),
+      ),
+      {
+        load: async () => {
+          entered();
+          await proceed;
+          return {
+            manifestWire: v3Wire(rotatedFixture.manifest),
+            requestWire: rotatedFixture.requestWire,
+          };
+        },
+      },
+      {
+        validate: async () => ({
+          decodedRequest: rotatedFixture.request,
+          validationEvidenceWire: rotatedFixture.validationEvidenceWire,
+        }),
+      },
+    );
+    const pending = rotatedWriter.approve(
+      rotatedToken,
+      rotatedScope,
+      0n,
+      "v3-rotated",
+      "provision",
+    );
+    await loading;
+    await database.$executeRaw`
+      UPDATE "SdkGrowthOperatorCredential" SET "generation" = 2, "disabled" = TRUE
+      WHERE "credentialId" = ${rotatedId}`;
+    resume();
+    await expect(pending).rejects.toMatchObject({ code: "owner-evidence" });
+    expect(
+      await database.$queryRaw<Array<{ epoch: bigint }>>`
+      SELECT "epoch" FROM "SdkGrowthApprovalFact" WHERE "scopeKey" = ${rotatedKey}`,
+    ).toEqual([]);
   });
 
   it("rejects rotation after authentication and rolls back both fact and epoch", async () => {

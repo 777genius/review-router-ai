@@ -3931,14 +3931,39 @@ model SdkGrowthApprovalFact {
   bindingDigest        String    @db.VarChar(71)
   decisionDigest       String    @db.VarChar(71)
   record               Json?
+  v3ManifestId         String?   @db.VarChar(64)
   recordedAt           DateTime  @default(now()) @db.Timestamptz(6)
   owner                SdkGrowthOwnerVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
   credential           SdkGrowthOperatorCredential @relation(fields: [credentialId], references: [credentialId], onDelete: Restrict, onUpdate: NoAction)
   approval             SdkGrowthApprovalFact? @relation("SdkGrowthApprovalRevocations", fields: [scopeKey, approvalEpoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
   revocations          SdkGrowthApprovalFact[] @relation("SdkGrowthApprovalRevocations")
+  v3Manifest           SdkGrowthV3ApprovedManifest? @relation(fields: [v3ManifestId], references: [manifestId], onDelete: Restrict, onUpdate: NoAction)
 
   @@id([scopeKey, epoch])
   @@index([scopeKey, epoch(sort: Desc)], map: "SdkGrowthApprovalFact_latest_idx")
+}
+
+model SdkGrowthV3ApprovedManifest {
+  manifestId                   String   @id @db.VarChar(64)
+  scopeKey                     String
+  epoch                        BigInt
+  manifestVersion              Int      @default(1)
+  manifestWire                 Bytes
+  manifestByteLength           Int
+  manifestSha256               String   @db.VarChar(71)
+  requestWire                  Bytes
+  requestByteLength            Int
+  requestWireSha256            String   @db.VarChar(71)
+  validationEvidenceWire       Bytes
+  validationEvidenceByteLength Int
+  validationEvidenceSha256     String   @db.VarChar(71)
+  toolArtifactId               String   @db.VarChar(64)
+  recordedAt                   DateTime @default(now()) @db.Timestamptz(6)
+  owner                        SdkGrowthOwnerVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  toolArtifact                 SdkGrowthV3ToolArtifact @relation(fields: [toolArtifactId], references: [artifactId], onDelete: Restrict, onUpdate: NoAction)
+  approvalFacts                SdkGrowthApprovalFact[]
+
+  @@unique([scopeKey, epoch])
 }
 
 // Dormant G1 operator identity. Only a verifier is durable; later authority
@@ -3966,6 +3991,7 @@ model SdkGrowthBindingVersion {
   scopeKey String
   epoch    BigInt
   binding  Json
+  lastWriteXid BigInt?
   current  SdkGrowthCurrentAuthority @relation(fields: [scopeKey], references: [scopeKey], onDelete: Restrict, onUpdate: NoAction)
   owner    SdkGrowthOwnerVersion?
 
@@ -3980,8 +4006,10 @@ model SdkGrowthOwnerVersion {
   installationActive Boolean
   verifierActive     Boolean
   reason             String
+  lastWriteXid       BigInt?
   binding            SdkGrowthBindingVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
   approvalFact       SdkGrowthApprovalFact?
+  v3Manifest         SdkGrowthV3ApprovedManifest?
 
   @@id([scopeKey, epoch])
 }
@@ -4081,6 +4109,7 @@ model SdkGrowthV3ToolArtifact {
   archiveSha512Sri            String   @db.VarChar(128)
   recordedAt                  DateTime @default(now()) @db.Timestamptz(6)
   assignments                 SdkGrowthVerifierAssignment[]
+  manifests                   SdkGrowthV3ApprovedManifest[]
 }
 
 model SdkGrowthVerifierEvidence {
