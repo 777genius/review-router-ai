@@ -8,33 +8,56 @@ import { fileURLToPath } from "node:url";
 // Only the disposable CI and self-hosted construction path uses this contract.
 // PostgreSQL roles survive database creation. The first database reaches 110
 // without the pair; subsequent databases see both roles from migration 1.
-export const disposableBefore87 = "000087_codex_oauth_v4_v5_workflow_reattestation";
+export const disposableBefore87 =
+  "000087_codex_oauth_v4_v5_workflow_reattestation";
 
 export function writeDisposableMigrationCatalog(phase, parent = tmpdir()) {
   if (!["before87", "pre79", "through79"].includes(phase))
     throw new Error("disposable_migration_catalog_phase_invalid");
-  const upper = phase === "before87" ? disposableBefore87 : phase === "pre79" ? "000079_" : "000080_";
-  const source = fileURLToPath(new URL("../../packages/platform/db/prisma/", import.meta.url));
+  const upper =
+    phase === "before87"
+      ? disposableBefore87
+      : phase === "pre79"
+        ? "000079_"
+        : "000080_";
+  const source = fileURLToPath(
+    new URL("../../packages/platform/db/prisma/", import.meta.url),
+  );
   const root = mkdtempSync(join(parent, `rr-disposable-${phase}-`));
   const target = join(root, "prisma");
-  cpSync(source, target, { recursive: true, filter: (path) => {
-    const name = path.slice(source.length).replaceAll("\\", "/");
-    const migration = name.match(/^migrations\/(\d{6}_[a-z0-9_]+)/u)?.[1];
-    return !migration || migration < upper;
-  }});
+  cpSync(source, target, {
+    recursive: true,
+    filter: (path) => {
+      const name = path.slice(source.length).replaceAll("\\", "/");
+      const migration = name.match(/^migrations\/(\d{6}_[a-z0-9_]+)/u)?.[1];
+      return !migration || migration < upper;
+    },
+  });
   const names = readdirSync(join(target, "migrations"))
-    .filter((name) => /^\d{6}_[a-z0-9_]+$/u.test(name)).sort();
-  if (names.some((name) => name >= upper) ||
-      (phase === "before87" && (!names.includes("000079_hosted_codex_output_limits") ||
-        !names.includes("000079_remove_account_wide_provider_lane_serialization") ||
+    .filter((name) => /^\d{6}_[a-z0-9_]+$/u.test(name))
+    .sort();
+  if (
+    names.some((name) => name >= upper) ||
+    (phase === "before87" &&
+      (!names.includes("000079_hosted_codex_output_limits") ||
+        !names.includes(
+          "000079_remove_account_wide_provider_lane_serialization",
+        ) ||
         !names.includes("000086_comment_token_custody_r18_remediation"))) ||
-      (phase === "pre79" && names.some((name) => name.startsWith("000079_"))) ||
-      (phase === "through79" && (!names.includes("000079_hosted_codex_output_limits") ||
-        !names.includes("000079_remove_account_wide_provider_lane_serialization")))) {
+    (phase === "pre79" && names.some((name) => name.startsWith("000079_"))) ||
+    (phase === "through79" &&
+      (!names.includes("000079_hosted_codex_output_limits") ||
+        !names.includes(
+          "000079_remove_account_wide_provider_lane_serialization",
+        )))
+  ) {
     throw new Error("disposable_migration_catalog_boundary_invalid");
   }
   const config = join(root, `${phase}.config.mjs`);
-  writeFileSync(config, `export default { schema: ${JSON.stringify(join(target, "schema.prisma"))}, migrations: { path: ${JSON.stringify(join(target, "migrations"))} }, datasource: { url: process.env.DATABASE_URL } };\n`);
+  writeFileSync(
+    config,
+    `export default { schema: ${JSON.stringify(join(target, "schema.prisma"))}, migrations: { path: ${JSON.stringify(join(target, "migrations"))} }, datasource: { url: process.env.DATABASE_URL } };\n`,
+  );
   return config;
 }
 
@@ -470,8 +493,8 @@ END $verify$;\n`;
 // regression provisions all five restricted identities and adds this gate.
 // Missing names must fail before the effective-ACL loops can become empty.
 export function disposableRuntimeIdentityVerificationSql(phase) {
-  if (!['full110', 'provider79'].includes(phase))
-    throw new Error('disposable_runtime_identity_phase_invalid');
+  if (!["full110", "provider79"].includes(phase))
+    throw new Error("disposable_runtime_identity_phase_invalid");
   return `DO $runtime$
 BEGIN
   IF ${adminGuard}
@@ -495,8 +518,12 @@ END $runtime$;\n`;
 
 export function disposableRuntimeQualifiedVerificationSql(phase) {
   const identity = disposableRuntimeIdentityVerificationSql(phase);
-  return identity + (phase === 'full110'
-    ? disposableFullChainVerificationSql : disposableProvider79VerificationSql);
+  return (
+    identity +
+    (phase === "full110"
+      ? disposableFullChainVerificationSql
+      : disposableProvider79VerificationSql)
+  );
 }
 
 // The provider fixture deliberately stops at 79. Its canonical owner needs
@@ -665,16 +692,36 @@ END $item11_cleanup$;\n`;
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if (process.argv[2] === "catalog") {
-    process.stdout.write(writeDisposableMigrationCatalog("before87", process.argv[3]) + "\n");
+    process.stdout.write(
+      writeDisposableMigrationCatalog("before87", process.argv[3]) + "\n",
+    );
   } else if (process.argv[2] === "provision-ci") {
     const password = randomBytes(36).toString("base64url");
-    const result = spawnSync("psql", ["-XqAt", "-h", "127.0.0.1", "-U", "postgres",
-      "-d", "postgres", "-v", "ON_ERROR_STOP=1"], {
-      input: disposableReleaseMigrationRoleSql(password), encoding: "utf8",
-      env: process.env,
-    });
-    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.replaceAll(password, "[redacted]");
+    const result = spawnSync(
+      "psql",
+      [
+        "-XqAt",
+        "-h",
+        "127.0.0.1",
+        "-U",
+        "postgres",
+        "-d",
+        "postgres",
+        "-v",
+        "ON_ERROR_STOP=1",
+      ],
+      {
+        input: disposableReleaseMigrationRoleSql(password),
+        encoding: "utf8",
+        env: process.env,
+      },
+    );
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.replaceAll(
+      password,
+      "[redacted]",
+    );
     if (output) process.stderr.write(output);
-    if (result.status !== 0) throw new Error("disposable_ci_role_provision_failed");
+    if (result.status !== 0)
+      throw new Error("disposable_ci_role_provision_failed");
   }
 }

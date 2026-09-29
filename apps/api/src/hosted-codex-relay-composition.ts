@@ -181,11 +181,16 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
     privateKey: input.githubAppPrivateKey,
   });
   const ledger = new PrismaInvocationGrantRepository(input.prisma);
-  const historicalScopes = new PrismaHostedHistoricalScopeBarrier(input.prisma, {
-    required: input.env.REVIEW_ROUTER_HOSTED_HISTORICAL_SCOPE_DESTINATION_REQUIRED === "1",
-    resourceIdentity: databaseResourceIdentity,
-    incarnation: databaseIncarnation,
-  });
+  const historicalScopes = new PrismaHostedHistoricalScopeBarrier(
+    input.prisma,
+    {
+      required:
+        input.env.REVIEW_ROUTER_HOSTED_HISTORICAL_SCOPE_DESTINATION_REQUIRED ===
+        "1",
+      resourceIdentity: databaseResourceIdentity,
+      incarnation: databaseIncarnation,
+    },
+  );
   const stopEffectSweeper = startHostedCodexEffectSweeper(
     new PrismaHostedCodexUpstreamEffectLedger(input.prisma),
   );

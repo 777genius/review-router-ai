@@ -177,7 +177,9 @@ try {
       "Applying Prisma migrations through the release owner handoff...",
     );
     psql(disposableFreshDatabasePreflightSql, smokeUrl.toString());
-    catalogDirectory = mkdtempSync(join(tmpdir(), "rr-migration-smoke-catalog-"));
+    catalogDirectory = mkdtempSync(
+      join(tmpdir(), "rr-migration-smoke-catalog-"),
+    );
     const catalogConfig = writeDisposableMigrationCatalog(
       "before87",
       catalogDirectory,
@@ -447,7 +449,6 @@ export default {
   ) {
     fail("Dispatch migration preflight did not roll back atomically");
   }
-
 } catch (error) {
   failure = error;
 } finally {
@@ -473,7 +474,8 @@ export default {
 }
 if (failure) {
   const safeMessage =
-    failure instanceof MigrationSmokeFailure || isSanitizedDiagnosticError(failure)
+    failure instanceof MigrationSmokeFailure ||
+    isSanitizedDiagnosticError(failure)
       ? failure.message
       : failure?.message === "migration_smoke_database_cleanup_failed" ||
           failure?.message === "migration_smoke_cleanup_incomplete"

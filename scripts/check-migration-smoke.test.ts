@@ -33,8 +33,7 @@ function runSmoke(
   fixtureDirectories.push(directory);
   const log = join(directory, "calls.jsonl");
   const invariant =
-    options.invariant ??
-    invariantPrefix + (roleCount === 2 ? "0|5" : "1|0");
+    options.invariant ?? invariantPrefix + (roleCount === 2 ? "0|5" : "1|0");
   const rollbackInvariant =
     options.rollbackInvariant ??
     "pending_dispatch,dispatching,awaiting_authorization,dispatched,superseded|4|0|0|1";
@@ -133,14 +132,17 @@ describe("migration smoke release owner handoff", () => {
       ),
     );
     const fullDeploy = calls.findIndex(
-      (call) => call.binary === "pnpm" && call.args.includes("db:migrate:deploy"),
+      (call) =>
+        call.binary === "pnpm" && call.args.includes("db:migrate:deploy"),
     );
     expect(before87 < handoff && handoff < fullDeploy).toBe(true);
     expect(
       calls.some((call) =>
         call.args
           .join(" ")
-          .includes("000034_review_request_dispatch_reconciliation/migration.sql"),
+          .includes(
+            "000034_review_request_dispatch_reconciliation/migration.sql",
+          ),
       ),
     ).toBe(true);
     expect(
@@ -160,7 +162,9 @@ describe("migration smoke release owner handoff", () => {
   it("rejects an incomplete cluster role pair and still drops the smoke database", () => {
     const { result, calls } = runSmoke(1);
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("migration_smoke_release_role_catalog_incomplete");
+    expect(result.stderr).toContain(
+      "migration_smoke_release_role_catalog_incomplete",
+    );
     expect(calls.filter((call) => call.binary === "pnpm")).toHaveLength(0);
     expect(
       calls.some((call) => call.sql.startsWith("DROP DATABASE IF EXISTS")),

@@ -209,11 +209,15 @@ function assertMigrationCatalogContract(run: unknown): void {
   }
   const executable = commentFreeExecutableSource(nodeSources[0] as string);
   if (
-    !executable.includes('import { writeDisposableMigrationCatalog } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"') ||
+    !executable.includes(
+      'import { writeDisposableMigrationCatalog } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"',
+    ) ||
     !executable.includes('["pre79", "pre-000079"]') ||
     !executable.includes('["through79", "through-000079"]') ||
-    !executable.includes('writeDisposableMigrationCatalog(phase, root)') ||
-    !executable.includes('writeFileSync(join(root, `${label}.config-path`), `${config}\\n`)')
+    !executable.includes("writeDisposableMigrationCatalog(phase, root)") ||
+    !executable.includes(
+      "writeFileSync(join(root, `${label}.config-path`), `${config}\\n`)",
+    )
   ) {
     throw new Error("provider catalogs must use the imported bounded fixture");
   }
@@ -224,10 +228,12 @@ function assertProviderFixtureContract(
   suiteSource: string,
 ): void {
   const workflow = parse(workflowSource) as {
-    jobs?: { quality?: {
-      env?: Record<string, string>;
-      services?: Record<string, { ports?: string[] }>;
-    } };
+    jobs?: {
+      quality?: {
+        env?: Record<string, string>;
+        services?: Record<string, { ports?: string[] }>;
+      };
+    };
   };
   const quality = workflow.jobs?.quality;
   const steps = qualitySteps(workflowSource);
@@ -294,9 +300,10 @@ function assertProviderFixtureContract(
   }
 
   const provision = runLines("Complete disposable CI release-role catalog");
-  const freshPreflightIndex = provision.findIndex((line) =>
-    line.includes("disposableFreshDatabasePreflightSql as sql") &&
-    line.includes("disposable-release-role-fixture.mjs"),
+  const freshPreflightIndex = provision.findIndex(
+    (line) =>
+      line.includes("disposableFreshDatabasePreflightSql as sql") &&
+      line.includes("disposable-release-role-fixture.mjs"),
   );
   const preflightDatabases = provision
     .find((line) => line.startsWith("for database in "))
@@ -305,39 +312,77 @@ function assertProviderFixtureContract(
     .sort();
   if (
     freshPreflightIndex < 0 ||
-    !provision[freshPreflightIndex + 1]?.includes('psql -XqAt -h 127.0.0.1 -U postgres -d "$database" -v ON_ERROR_STOP=1') ||
-    JSON.stringify(preflightDatabases) !== JSON.stringify([
-      "review_router_provider_scope_ci_test",
-      "rr_v4_444_disposable_ci",
-    ].sort()) ||
-    !provision.includes("node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci")
+    !provision[freshPreflightIndex + 1]?.includes(
+      'psql -XqAt -h 127.0.0.1 -U postgres -d "$database" -v ON_ERROR_STOP=1',
+    ) ||
+    JSON.stringify(preflightDatabases) !==
+      JSON.stringify(
+        ["review_router_provider_scope_ci_test", "rr_v4_444_disposable_ci"].sort(),
+      ) ||
+    !provision.includes(
+      "node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci",
+    )
   ) {
-    throw new Error("provider fixture must verify the fresh catalog before role creation");
+    throw new Error(
+      "provider fixture must verify the fresh catalog before role creation",
+    );
   }
 
-  const handoff = runLines("Apply provider-scope database through 000079 and hand off relations");
-  for (const importedSql of ["disposableProvider79HandoffSql", "disposableProvider79VerificationSql"]) {
-    const importedIndex = handoff.findIndex((line) =>
-      line.includes(`${importedSql} as sql`) && line.includes("disposable-release-role-fixture.mjs"),
+  const handoff = runLines(
+    "Apply provider-scope database through 000079 and hand off relations",
+  );
+  for (const importedSql of [
+    "disposableProvider79HandoffSql",
+    "disposableProvider79VerificationSql",
+  ]) {
+    const importedIndex = handoff.findIndex(
+      (line) =>
+        line.includes(`${importedSql} as sql`) &&
+        line.includes("disposable-release-role-fixture.mjs"),
     );
-    if (importedIndex < 0 ||
-      !handoff[importedIndex + 1]?.includes("psql -XqAt -h 127.0.0.1 -U postgres -d review_router_provider_scope_ci_test -v ON_ERROR_STOP=1")) {
+    if (
+      importedIndex < 0 ||
+      !handoff[importedIndex + 1]?.includes(
+        "psql -XqAt -h 127.0.0.1 -U postgres -d review_router_provider_scope_ci_test -v ON_ERROR_STOP=1",
+      )
+    ) {
       throw new Error(`provider fixture is missing ${importedSql}`);
     }
   }
 
-  const appUrl = "postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public";
+  const appUrl =
+    "postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public";
   if (
     quality?.env?.TEST_DATABASE_URL !== appUrl ||
     quality.env.REVIEW_ROUTER_TEST_DATABASE_URL !== appUrl ||
     !quality.services?.postgres?.ports?.includes("5432:5432") ||
     !quality.services?.["postgres-app-test"]?.ports?.includes("5433:5432") ||
-    !runLines("Create CI databases").includes("psql -h 127.0.0.1 -p 5433 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci_test'") ||
-    !runLines("Apply ordinary test database migrations").some((line) => line.includes("-p 5433") && line.includes("reviewrouter_release_migration") && line.includes("reviewrouter_release_schema_owner") && line.endsWith("= 0")) ||
-    !runLines("Apply ordinary test database migrations").some((line) => line.includes("codex_oauth_provider_identity_guard") && line.includes("proowner") && line.includes("postgres") && line.endsWith("= 1")) ||
-    !runLines("Apply ordinary test database migrations").some((line) => line.includes("rolname='reviewrouter_release_migration'") && line.endsWith("= 0"))
+    !runLines("Create CI databases").includes(
+      "psql -h 127.0.0.1 -p 5433 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci_test'",
+    ) ||
+    !runLines("Apply ordinary test database migrations").some(
+      (line) =>
+        line.includes("-p 5433") &&
+        line.includes("reviewrouter_release_migration") &&
+        line.includes("reviewrouter_release_schema_owner") &&
+        line.endsWith("= 0"),
+    ) ||
+    !runLines("Apply ordinary test database migrations").some(
+      (line) =>
+        line.includes("codex_oauth_provider_identity_guard") &&
+        line.includes("proowner") &&
+        line.includes("postgres") &&
+        line.endsWith("= 1"),
+    ) ||
+    !runLines("Apply ordinary test database migrations").some(
+      (line) =>
+        line.includes("rolname='reviewrouter_release_migration'") &&
+        line.endsWith("= 0"),
+    )
   ) {
-    throw new Error("ordinary test database must migrate role-free in its own cluster");
+    throw new Error(
+      "ordinary test database must migrate role-free in its own cluster",
+    );
   }
 
   const providerTest = step("Provider-scope real database tests");
@@ -367,7 +412,13 @@ function assertProviderFixtureContract(
   if (teardown.if !== "always()") {
     throw new Error("provider fixture teardown must run always");
   }
-  if (!executableShellLines(teardown.run).some((line) => line.includes("DROP DATABASE IF EXISTS review_router_provider_scope_ci_test"))) {
+  if (
+    !executableShellLines(teardown.run).some((line) =>
+      line.includes(
+        "DROP DATABASE IF EXISTS review_router_provider_scope_ci_test",
+      ),
+    )
+  ) {
     throw new Error("provider teardown must drop the disposable database");
   }
   if (!runLines("Migration smoke test").includes("pnpm db:migrate:smoke")) {
@@ -519,36 +570,56 @@ describe("provider scope concurrency rollout control", () => {
   // Each mutation breaks a separate CI boundary: app DB isolation, bounded
   // provider migration, restricted fixture authority, or cleanup.
   it.each([
-    ["ordinary migration removed",
+    [
+      "ordinary migration removed",
       '          DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy',
-      '          # DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy'],
-    ["ordinary database redirected into the role-bearing cluster",
+      '          # DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy',
+    ],
+    [
+      "ordinary database redirected into the role-bearing cluster",
       "127.0.0.1:5433/review_router_ci_test?schema=public",
-      "127.0.0.1:5432/review_router_ci_test?schema=public"],
-    ["provider pre-79 catalog removed",
+      "127.0.0.1:5432/review_router_ci_test?schema=public",
+    ],
+    [
+      "provider pre-79 catalog removed",
       PRE_PROVIDER_SCOPE_PRISMA_CONFIG,
-      '--config "$RUNNER_TEMP/provider-scope-migrations/unbounded.config.mjs"'],
-    ["provider through-79 catalog removed",
+      '--config "$RUNNER_TEMP/provider-scope-migrations/unbounded.config.mjs"',
+    ],
+    [
+      "provider through-79 catalog removed",
       THROUGH_PROVIDER_SCOPE_PRISMA_CONFIG,
-      '--config "$RUNNER_TEMP/provider-scope-migrations/unbounded.config.mjs"'],
-    ["fixture role provisioning removed",
+      '--config "$RUNNER_TEMP/provider-scope-migrations/unbounded.config.mjs"',
+    ],
+    [
+      "fixture role provisioning removed",
       "node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci",
-      "echo roles-ready"],
-    ["provider handoff removed",
+      "echo roles-ready",
+    ],
+    [
+      "provider handoff removed",
       "disposableProvider79HandoffSql as sql",
-      "disposableProvider79HandoffRemoved as sql"],
-    ["provider authority verification removed",
+      "disposableProvider79HandoffRemoved as sql",
+    ],
+    [
+      "provider authority verification removed",
       "disposableProvider79VerificationSql as sql",
-      "disposableProvider79VerificationRemoved as sql"],
-    ["provider teardown guard removed",
+      "disposableProvider79VerificationRemoved as sql",
+    ],
+    [
+      "provider teardown guard removed",
       "      - name: Tear down provider-scope database\n        if: always()",
-      "      - name: Tear down provider-scope database"],
-    ["provider database cleanup removed",
+      "      - name: Tear down provider-scope database",
+    ],
+    [
+      "provider database cleanup removed",
       "DROP DATABASE IF EXISTS review_router_provider_scope_ci_test;",
-      "SELECT 1;"],
-    ["broad inline grant added",
+      "SELECT 1;",
+    ],
+    [
+      "broad inline grant added",
       "      - name: Provider-scope real database tests",
-      "      - name: Broad authority\n        run: psql -c 'GRANT ALL ON ALL TABLES IN SCHEMA public TO reviewrouter_release_migration;'\n\n      - name: Provider-scope real database tests"],
+      "      - name: Broad authority\n        run: psql -c 'GRANT ALL ON ALL TABLES IN SCHEMA public TO reviewrouter_release_migration;'\n\n      - name: Provider-scope real database tests",
+    ],
   ])("rejects %s", (_label, before, after) => {
     expectRejectedMutation(qualityGatesWorkflow, before, after, (mutated) =>
       assertProviderFixtureContract(mutated, realProviderScopeSuite),
@@ -566,15 +637,18 @@ describe("provider scope concurrency rollout control", () => {
         "      - name: Apply dev database migrations",
         `${app ?? ""}\n\n      - name: Apply dev database migrations`,
       );
-    expect(() => assertProviderFixtureContract(mutated, realProviderScopeSuite)).toThrow();
+    expect(() =>
+      assertProviderFixtureContract(mutated, realProviderScopeSuite),
+    ).toThrow();
   });
 
   it("rejects replacement of the imported catalog implementation", () => {
     expectRejectedMutation(
       qualityGatesWorkflow,
-      'writeDisposableMigrationCatalog(phase, root)',
+      "writeDisposableMigrationCatalog(phase, root)",
       'writeDisposableMigrationCatalog("full", root)',
-      (mutated) => assertProviderFixtureContract(mutated, realProviderScopeSuite),
+      (mutated) =>
+        assertProviderFixtureContract(mutated, realProviderScopeSuite),
     );
   });
 
@@ -584,13 +658,17 @@ describe("provider scope concurrency rollout control", () => {
       const migrationNames = (phase: "pre79" | "through79") => {
         const config = writeDisposableMigrationCatalog(phase, root);
         const prismaRoot = join(config, "..", "prisma", "migrations");
-        return readdirSync(prismaRoot).filter((name) => /^\d{6}_[a-z0-9_]+$/u.test(name));
+        return readdirSync(prismaRoot).filter((name) =>
+          /^\d{6}_[a-z0-9_]+$/u.test(name),
+        );
       };
       const pre = migrationNames("pre79");
       const through = migrationNames("through79");
       expect(pre.some((name) => name >= "000079_")).toBe(false);
       expect(through).toContain("000079_hosted_codex_output_limits");
-      expect(through).toContain("000079_remove_account_wide_provider_lane_serialization");
+      expect(through).toContain(
+        "000079_remove_account_wide_provider_lane_serialization",
+      );
       expect(through.some((name) => name >= "000080_")).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });

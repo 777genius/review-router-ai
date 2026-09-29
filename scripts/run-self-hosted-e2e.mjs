@@ -27,6 +27,7 @@ let investigationReleaseFixture;
 let composeTouched = false;
 let testDatabaseCreationAttempted = false;
 let failedBeforeCleanup = false;
+let cleanupFailure;
 let ports;
 let secrets;
 let testEnv;
@@ -35,7 +36,10 @@ let controlPlaneCommit;
 try {
   investigationReleaseFixture = JSON.parse(
     readFileSync(
-      join(repoRoot, "scripts/self-hosted-e2e/review-investigation-release.fixture.json"),
+      join(
+        repoRoot,
+        "scripts/self-hosted-e2e/review-investigation-release.fixture.json",
+      ),
       "utf8",
     ),
   );
@@ -83,18 +87,39 @@ try {
     testEnv.POSTGRES_USER,
     testDatabase,
   ]);
-  runDisposableDatabaseSql(disposableFreshDatabasePreflightSql, "disposable_fresh_database_preflight");
+  runDisposableDatabaseSql(
+    disposableFreshDatabasePreflightSql,
+    "disposable_fresh_database_preflight",
+  );
   provisionDisposableReleaseMigrationRole();
   runComposeWithSanitizedOutput([
-    "exec", "-T", "-e", `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
-    "worker", "sh", "-lc", containerMigrationCommand(true),
+    "exec",
+    "-T",
+    "-e",
+    `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
+    "worker",
+    "sh",
+    "-lc",
+    containerMigrationCommand(true),
   ]);
-  runDisposableDatabaseSql(disposableBefore87HandoffSql, "disposable_before87_handoff");
+  runDisposableDatabaseSql(
+    disposableBefore87HandoffSql,
+    "disposable_before87_handoff",
+  );
   runComposeWithSanitizedOutput([
-    "exec", "-T", "-e", `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
-    "worker", "sh", "-lc", containerMigrationCommand(false),
+    "exec",
+    "-T",
+    "-e",
+    `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
+    "worker",
+    "sh",
+    "-lc",
+    containerMigrationCommand(false),
   ]);
-  runDisposableDatabaseSql(disposableFullChainVerificationSql, "disposable_full_chain_verification");
+  runDisposableDatabaseSql(
+    disposableFullChainVerificationSql,
+    "disposable_full_chain_verification",
+  );
 
   runCompose([
     "exec",
@@ -112,8 +137,11 @@ try {
 } catch (error) {
   failedBeforeCleanup = true;
   if (composeTouched) {
-    try { printSafeDiagnostics(); }
-    catch { console.error("disposable_failure_diagnostics_unavailable"); }
+    try {
+      printSafeDiagnostics();
+    } catch {
+      console.error("disposable_failure_diagnostics_unavailable");
+    }
   }
   throw error;
 } finally {
@@ -121,16 +149,30 @@ try {
   if (testDatabaseCreationAttempted) {
     try {
       const dropped = runCompose(
-        ["exec", "-T", "postgres", "dropdb", "--if-exists", "--force",
-          "-U", testEnv.POSTGRES_USER, testDatabase],
+        [
+          "exec",
+          "-T",
+          "postgres",
+          "dropdb",
+          "--if-exists",
+          "--force",
+          "-U",
+          testEnv.POSTGRES_USER,
+          testDatabase,
+        ],
         { allowFailure: true },
       );
       if (dropped.status !== 0) cleanupFailures.push("database_drop");
       else {
-        try { assertDisposableTestDatabaseAbsent(); }
-        catch { cleanupFailures.push("database_absence"); }
+        try {
+          assertDisposableTestDatabaseAbsent();
+        } catch {
+          cleanupFailures.push("database_absence");
+        }
       }
-    } catch { cleanupFailures.push("database_drop_exception"); }
+    } catch {
+      cleanupFailures.push("database_drop_exception");
+    }
   }
   if (composeTouched) {
     try {
@@ -138,18 +180,28 @@ try {
         allowFailure: true,
       });
       if (down.status !== 0) cleanupFailures.push("compose_down");
-    } catch { cleanupFailures.push("compose_down_exception"); }
-    try { assertDisposableComposeResourcesAbsent(); }
-    catch { cleanupFailures.push("compose_absence"); }
+    } catch {
+      cleanupFailures.push("compose_down_exception");
+    }
+    try {
+      assertDisposableComposeResourcesAbsent();
+    } catch {
+      cleanupFailures.push("compose_absence");
+    }
   }
-  try { rmSync(tempDirectory, { force: true, recursive: true }); }
-  catch { cleanupFailures.push("temporary_directory_removal"); }
+  try {
+    rmSync(tempDirectory, { force: true, recursive: true });
+  } catch {
+    cleanupFailures.push("temporary_directory_removal");
+  }
   if (cleanupFailures.length) {
     const diagnostic = `disposable_cleanup_unproved:${cleanupFailures.join(",")}`;
     if (failedBeforeCleanup) console.error(diagnostic);
-    else throw new Error(diagnostic);
+    else cleanupFailure = new Error(diagnostic);
   }
 }
+
+if (cleanupFailure) throw cleanupFailure;
 
 console.log("Self-hosted E2E passed.");
 console.log(`control-plane-commit=${controlPlaneCommit}`);
@@ -524,21 +576,47 @@ function provisionDisposableReleaseMigrationRole() {
 
 function runDisposableDatabaseSql(sql, label) {
   runComposeWithInput(
-    ["exec", "-T", "postgres", "psql", "-XqAt", "-v", "ON_ERROR_STOP=1",
-      "-U", testEnv.POSTGRES_USER, "-d", testDatabase],
+    [
+      "exec",
+      "-T",
+      "postgres",
+      "psql",
+      "-XqAt",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-U",
+      testEnv.POSTGRES_USER,
+      "-d",
+      testDatabase,
+    ],
     sql,
     label,
   );
 }
 
 function assertDisposableTestDatabaseAbsent() {
-  const result = spawnSync("docker", composeArguments([
-    "exec", "-T", "postgres", "psql", "-XqAt", "-v", "ON_ERROR_STOP=1",
-    "-U", testEnv.POSTGRES_USER, "-d", "postgres",
-  ]), {
-    cwd: repoRoot, env: testEnv, encoding: "utf8",
-    input: `SELECT count(*) FROM pg_catalog.pg_database WHERE datname='${testDatabase}';\n`,
-  });
+  const result = spawnSync(
+    "docker",
+    composeArguments([
+      "exec",
+      "-T",
+      "postgres",
+      "psql",
+      "-XqAt",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-U",
+      testEnv.POSTGRES_USER,
+      "-d",
+      "postgres",
+    ]),
+    {
+      cwd: repoRoot,
+      env: testEnv,
+      encoding: "utf8",
+      input: `SELECT count(*) FROM pg_catalog.pg_database WHERE datname='${testDatabase}';\n`,
+    },
+  );
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
   assertCredentialMaterialAbsent(output, "disposable_database_cleanup");
   if (result.status !== 0 || result.stdout?.trim() !== "0")
@@ -549,11 +627,21 @@ function assertDisposableComposeResourcesAbsent() {
   for (const resource of ["ps", "volume", "network"]) {
     const args = resource === "ps" ? ["ps", "-a"] : [resource, "ls"];
     const format = resource === "volume" ? "{{.Name}}" : "{{.ID}}";
-    const result = spawnSync("docker", [...args,
-      "--filter", `label=com.docker.compose.project=${projectName}`,
-      "--format", format], {
-      cwd: repoRoot, env: testEnv, encoding: "utf8",
-    });
+    const result = spawnSync(
+      "docker",
+      [
+        ...args,
+        "--filter",
+        `label=com.docker.compose.project=${projectName}`,
+        "--format",
+        format,
+      ],
+      {
+        cwd: repoRoot,
+        env: testEnv,
+        encoding: "utf8",
+      },
+    );
     if (result.status !== 0 || result.stdout?.trim())
       throw new Error(`disposable_compose_${resource}_cleanup_unproved`);
   }
