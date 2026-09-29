@@ -106,6 +106,7 @@ const v4RelayTurnMigration = "000107_hosted_v4_relay_turn_contract";
 const sdkGrowthVerifierAssignmentMigrations = Object.freeze([
   "000108_sdk_growth_verifier_assignment",
   "000109_sdk_growth_verifier_assignment_lock",
+  "000110_sdk_growth_source_binding",
 ]);
 
 const codexOAuthV5Migrations = [

@@ -69,11 +69,12 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     ]);
   });
 
-  it("applies hosted-v4 before both SDK verifier migrations in the staged PG17 rehearsal", () => {
+  it("applies hosted-v4 before SDK verifier migrations in the staged PG17 rehearsal", () => {
     for (const migration of [
       "000107_hosted_v4_relay_turn_contract",
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
+      "000110_sdk_growth_source_binding",
     ])
       expect(source.match(new RegExp(migration, "gu"))).toHaveLength(1);
     const preparation = section(
