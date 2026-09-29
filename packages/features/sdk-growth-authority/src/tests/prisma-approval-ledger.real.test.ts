@@ -286,9 +286,16 @@ describe.skipIf(!url)("G1 approval ledger / disposable PostgreSQL", () => {
         }),
       },
     );
+    const concurrentApprovals = await Promise.allSettled([
+      writer.approve(v3Token, v3Scope, 0n, "v3-proposal", "provision"),
+      writer.approve(v3Token, v3Scope, 0n, "v3-proposal", "provision"),
+    ]);
     expect(
-      await writer.approve(v3Token, v3Scope, 0n, "v3-proposal", "provision"),
-    ).toBe(1n);
+      concurrentApprovals.filter((result) => result.status === "fulfilled"),
+    ).toEqual([{ status: "fulfilled", value: 1n }]);
+    expect(
+      concurrentApprovals.filter((result) => result.status === "rejected"),
+    ).toMatchObject([{ reason: { code: "conflict" } }]);
     const fact = await database.$queryRaw<
       Array<{ epoch: bigint; v3ManifestId: string; record: unknown }>
     >`
@@ -305,7 +312,16 @@ describe.skipIf(!url)("G1 approval ledger / disposable PostgreSQL", () => {
         change: "owner-revocation",
       }),
     ).toBeNull();
-    expect(await writer.revoke(v3Token, v3Scope, 1n)).toBe(2n);
+    const concurrentRevocations = await Promise.allSettled([
+      writer.revoke(v3Token, v3Scope, 1n),
+      writer.revoke(v3Token, v3Scope, 1n),
+    ]);
+    expect(
+      concurrentRevocations.filter((result) => result.status === "fulfilled"),
+    ).toEqual([{ status: "fulfilled", value: 2n }]);
+    expect(
+      concurrentRevocations.filter((result) => result.status === "rejected"),
+    ).toMatchObject([{ reason: { code: "conflict" } }]);
     expect(
       await database.$queryRaw<Array<{ epoch: bigint; action: string }>>`
       SELECT "epoch", "action" FROM "SdkGrowthApprovalFact"
@@ -469,6 +485,70 @@ describe.skipIf(!url)("G1 approval ledger / disposable PostgreSQL", () => {
       WHERE "credentialId" = ${rotatedId}`;
     resume();
     await expect(pending).rejects.toMatchObject({ code: "owner-evidence" });
+    expect(
+      await database.$queryRaw<Array<{ epoch: bigint }>>`
+      SELECT "epoch" FROM "SdkGrowthApprovalFact" WHERE "scopeKey" = ${rotatedKey}`,
+    ).toEqual([]);
+
+    const expiresAtMs = Date.now() + 5_000;
+    await database.$executeRaw`
+      UPDATE "SdkGrowthOperatorCredential"
+      SET "generation" = 3, "disabled" = FALSE,
+          "expiresAtMs" = ${BigInt(expiresAtMs)}
+      WHERE "credentialId" = ${rotatedId}`;
+    let lockHeld!: () => void;
+    let releaseLock!: () => void;
+    let proposalLoaded!: () => void;
+    const held = new Promise<void>((resolve) => {
+      lockHeld = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const loaded = new Promise<void>((resolve) => {
+      proposalLoaded = resolve;
+    });
+    const blocker = database.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${rotatedKey}, 0))`;
+      lockHeld();
+      await release;
+    });
+    await held;
+    const expiryWriter = new PrismaG1V3ApprovedManifestCommand(
+      database,
+      new G1OperatorCredentialAuthenticator(
+        new PrismaG1OperatorCredentialReader(database),
+      ),
+      {
+        load: async () => {
+          proposalLoaded();
+          return {
+            manifestWire: v3Wire(rotatedFixture.manifest),
+            requestWire: rotatedFixture.requestWire,
+          };
+        },
+      },
+      {
+        validate: async () => ({
+          decodedRequest: rotatedFixture.request,
+          validationEvidenceWire: rotatedFixture.validationEvidenceWire,
+        }),
+      },
+    );
+    const expired = expiryWriter.approve(
+      rotatedToken,
+      rotatedScope,
+      0n,
+      "v3-expired",
+      "provision",
+    );
+    await loaded;
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.max(0, expiresAtMs - Date.now() + 100)),
+    );
+    releaseLock();
+    await blocker;
+    await expect(expired).rejects.toMatchObject({ code: "owner-evidence" });
     expect(
       await database.$queryRaw<Array<{ epoch: bigint }>>`
       SELECT "epoch" FROM "SdkGrowthApprovalFact" WHERE "scopeKey" = ${rotatedKey}`,
