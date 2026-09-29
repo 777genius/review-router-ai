@@ -112,6 +112,8 @@ import {
   type ReviewContextGatewaySealRequest,
   type ReviewInvestigationContextGatewayOpenRequest,
   type ReviewInvestigationContextGatewaySealRequest,
+  type ReviewInvestigationRelayContextGatewayOpenRequest,
+  type ReviewInvestigationRelayContextGatewaySealRequest,
   type ReviewContextReceiptReplayCommitRequest,
   type ReviewContextReplayCommitRequest,
 } from "@reviewrouter/protocol-review-action-v2";
@@ -361,7 +363,7 @@ export function composeReviewActionV2ContextAttestationRoutes(input: {
       (request: ReviewInvestigationContextGatewayOpenRequest) =>
         openGateway(
           request,
-          investigationGatewayAuthorityKind(request.sourceLeaseAuthorityKind),
+          ContextLeaseAuthorityKind.InvestigationShadow,
           ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen,
           handlers,
         ),
@@ -370,10 +372,44 @@ export function composeReviewActionV2ContextAttestationRoutes(input: {
       (request: ReviewInvestigationContextGatewaySealRequest) =>
         sealGateway(
           request,
-          investigationGatewayAuthorityKind(request.sourceLeaseAuthorityKind),
+          ContextLeaseAuthorityKind.InvestigationShadow,
           ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal,
           handlers,
         ),
+    ),
+    openRelayGateway: enabled(
+      (request: ReviewInvestigationRelayContextGatewayOpenRequest) => {
+        if (request.sourceLeaseAuthorityKind !== "investigation_relay") {
+          throw failure(
+            400,
+            ReviewActionV2ProtocolErrorCode.InvalidRequest,
+            "relay_gateway_authority_kind_invalid",
+          );
+        }
+        return openGateway(
+          request,
+          ContextLeaseAuthorityKind.InvestigationRelay,
+          ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewayOpen,
+          handlers,
+        );
+      },
+    ),
+    sealRelayGateway: enabled(
+      (request: ReviewInvestigationRelayContextGatewaySealRequest) => {
+        if (request.sourceLeaseAuthorityKind !== "investigation_relay") {
+          throw failure(
+            400,
+            ReviewActionV2ProtocolErrorCode.InvalidRequest,
+            "relay_gateway_authority_kind_invalid",
+          );
+        }
+        return sealGateway(
+          request,
+          ContextLeaseAuthorityKind.InvestigationRelay,
+          ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewaySeal,
+          handlers,
+        );
+      },
     ),
     commitReplay: enabled((request: ReviewContextReplayCommitRequest) =>
       commitReplay(request, handlers),
@@ -383,14 +419,6 @@ export function composeReviewActionV2ContextAttestationRoutes(input: {
         commitReceiptReplay(request, handlers),
     ),
   };
-}
-
-function investigationGatewayAuthorityKind(
-  source: "investigation_shadow" | "investigation_relay" | undefined,
-): ContextLeaseAuthorityKind {
-  return source === "investigation_relay"
-    ? ContextLeaseAuthorityKind.InvestigationRelay
-    : ContextLeaseAuthorityKind.InvestigationShadow;
 }
 
 export function createReviewActionV2ContextReplayCoordinator(
@@ -473,7 +501,8 @@ async function openGateway(
   authorityKind: ContextLeaseAuthorityKind,
   operationId:
     | ReviewActionV2OperationId.ReviewContextGatewayOpen
-    | ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen,
+    | ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen
+    | ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewayOpen,
   d: ReviewActionV2ContextAttestationHandlerDependencies,
 ) {
   await assertBodyHash(operationId, request, d.digest);
@@ -662,7 +691,8 @@ async function sealGateway(
   authorityKind: ContextLeaseAuthorityKind,
   operationId:
     | ReviewActionV2OperationId.ReviewContextGatewaySeal
-    | ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal,
+    | ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal
+    | ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewaySeal,
   d: ReviewActionV2ContextAttestationHandlerDependencies,
 ) {
   await assertBodyHash(operationId, request, d.digest);

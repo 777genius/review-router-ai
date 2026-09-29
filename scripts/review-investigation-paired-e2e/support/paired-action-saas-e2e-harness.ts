@@ -30,10 +30,6 @@ import {
   createPrismaClient,
   type PrismaClient,
 } from "../../../packages/platform/db/src/index.js";
-import {
-  reviewActionV2CanonicalizerDigest,
-  reviewActionV2PublishedSchemaDigest,
-} from "../../../packages/protocol-review-action-v2/src/index.js";
 import { createApiApp } from "../../../apps/api/src/app.js";
 import {
   composeReviewActionV2ProductionRoutes,
@@ -67,6 +63,7 @@ import { assertDisposableDatabaseUrl } from "../../review-action-v2-production-e
 import { resetReviewInvestigationProductionE2EDatabase } from "../../review-investigation-production-e2e/support/review-investigation-production-e2e-harness.js";
 // @ts-expect-error The shared release parser is intentionally ESM JavaScript.
 import { parseContextGatewayReleaseMetadata } from "../../lib/review-action-v2-release-manifests.mjs";
+import { readActionProtocolIdentity } from "./action-protocol-identity.js";
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -654,6 +651,8 @@ export async function assertExactActionReleaseWorktree(
 }
 
 async function readActionRelease(actionSourceDir: string, actionRef: string) {
+  const { schemaDigest, canonicalizerDigest } =
+    await readActionProtocolIdentity(actionSourceDir);
   const metadataPath = path.join(
     actionSourceDir,
     "dist/context-gateway.release.json",
@@ -696,8 +695,8 @@ async function readActionRelease(actionSourceDir: string, actionRef: string) {
     reviewInvestigationCoverageProfileHash:
       metadata.reviewInvestigationCoverageProfileHash,
     reviewInvestigationPolicyHash: metadata.reviewInvestigationPolicyHash,
-    schemaDigest: reviewActionV2PublishedSchemaDigest,
-    canonicalizerDigest: reviewActionV2CanonicalizerDigest,
+    schemaDigest,
+    canonicalizerDigest,
   });
   const serialized = canonicalJson(manifest);
   return Object.freeze({

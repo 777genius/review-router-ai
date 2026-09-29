@@ -462,6 +462,10 @@ function createManifest(
         operationIds: [
           "review_investigation_relay_grant",
           "review_investigation_relay_status",
+          "review_investigation_relay_turn_plan",
+          "review_investigation_relay_lease_acquire",
+          "review_investigation_relay_context_gateway_open",
+          "review_investigation_relay_context_gateway_seal",
         ],
       },
     ],

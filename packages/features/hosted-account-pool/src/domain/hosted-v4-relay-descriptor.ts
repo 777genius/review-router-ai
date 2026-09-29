@@ -3,13 +3,13 @@
 export const hostedV4DescriptorExtensionIdentities = Object.freeze({
   shadow: Object.freeze({
     extensionId: "review-investigation-shadow.v1",
-    schemaDigest: "3c4a09e8eb3a5517fa4bd1ad8e6cc938fc8ac3be836094a293d307b28094ffbe",
-    canonicalizerDigest: "8cc4abc4dbb48d4965b295a4b739a9f964131bd5cb007468f5b33bb2c0cf43c1",
+    schemaDigest: "9ab22a39cc983b88ae50576ece6a777d72d904d09654d3f4c51a20fc13c29003",
+    canonicalizerDigest: "20dc769dd28947fe6ee0c7770199fbb6c5cd490a7d7f71785159da99d793ff77",
   }),
   relay: Object.freeze({
     extensionId: "review-investigation-hosted-relay.v1",
-    schemaDigest: "4e2054b90deeab24922bf882e9b76cde6b8887c61c7d9b7eef719fd7e1821897",
-    canonicalizerDigest: "132d11183f5ba42f821baf9e689c9982817acda75cdd5daa5e6c007b106a394a",
+    schemaDigest: "a3a84ea23a3e6ab72e6c455cd0e5f192f05ad1ec97f8456cbda4ff47e793ab11",
+    canonicalizerDigest: "8ab48c59e135e5f20bb79b1b37e507ae3f529958b9ec90dd6f735ad6d7077e62",
   }),
 });
 

@@ -12,6 +12,8 @@ export type RegisterReviewContextAttestationV2RoutesDependencies =
     readonly sealGateway?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewContextGatewaySeal>;
     readonly openInvestigationGateway?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen>;
     readonly sealInvestigationGateway?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal>;
+    readonly openRelayGateway?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewayOpen>;
+    readonly sealRelayGateway?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewaySeal>;
     readonly commitReplay?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewContextReplayCommit>;
     readonly commitReceiptReplay?: ReviewActionV2EnabledHandler<ReviewActionV2OperationId.ReviewContextReceiptReplayCommit>;
   };
@@ -20,6 +22,18 @@ export async function registerReviewContextAttestationV2Routes(
   app: FastifyInstance,
   dependencies: RegisterReviewContextAttestationV2RoutesDependencies,
 ): Promise<void> {
+  registerReviewActionV2Operation(
+    app,
+    ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewayOpen,
+    dependencies,
+    dependencies.openRelayGateway,
+  );
+  registerReviewActionV2Operation(
+    app,
+    ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewaySeal,
+    dependencies,
+    dependencies.sealRelayGateway,
+  );
   registerReviewActionV2Operation(
     app,
     ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen,

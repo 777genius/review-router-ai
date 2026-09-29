@@ -44,13 +44,17 @@ export const reviewInvestigationExtensionV1OperationOrder = Object.freeze([
 export const reviewHostedRelayExtensionV1OperationOrder = Object.freeze([
   "review_investigation_relay_grant",
   "review_investigation_relay_status",
+  "review_investigation_relay_turn_plan",
+  "review_investigation_relay_lease_acquire",
+  "review_investigation_relay_context_gateway_open",
+  "review_investigation_relay_context_gateway_seal",
 ]);
 
 export const reviewActionV2OperationOrder = Object.freeze([
   ...reviewActionV2BaseOperationOrder.slice(0, 10),
   "review_investigation_open_v2",
   ...reviewActionV2BaseOperationOrder.slice(10, 11),
-  ...reviewHostedRelayExtensionV1OperationOrder,
+  ...reviewHostedRelayExtensionV1OperationOrder.slice(0, 2),
   ...reviewActionV2BaseOperationOrder.slice(11, 12),
   "review_investigation_lease_acquire",
   "review_investigation_lease_renew",
@@ -61,6 +65,7 @@ export const reviewActionV2OperationOrder = Object.freeze([
   "review_investigation_context_gateway_open",
   "review_investigation_context_gateway_seal",
   ...reviewActionV2BaseOperationOrder.slice(22),
+  ...reviewHostedRelayExtensionV1OperationOrder.slice(2),
 ]);
 
 export const reviewInvestigationExtensionV1Id =

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_lease_acquire",
-  "title": "review_investigation_lease_acquire request and response",
+  "$id": "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_relay_context_gateway_seal",
+  "title": "review_investigation_relay_context_gateway_seal request and response",
   "oneOf": [
     {
       "type": "object",
@@ -11,17 +11,24 @@
         "schemaDigest",
         "requestId",
         "authorizationToken",
+        "leaseCapability",
         "idempotencyKey",
         "requestBodyHash",
-        "investigationId",
-        "expectedVersion",
-        "turnId",
-        "turnCapability",
-        "providerStrategyId",
-        "investigationManifestCanonicalJson",
-        "investigationManifestHash",
-        "acquireRequestId",
-        "ownerIdHash"
+        "sessionId",
+        "sealCapability",
+        "attemptId",
+        "sourceLeaseId",
+        "sourceLeaseAuthorityKind",
+        "fencingToken",
+        "providerSucceeded",
+        "schemaValidated",
+        "fullyConsumed",
+        "actualModel",
+        "terminalOutcomeHash",
+        "transcriptCanonicalJson",
+        "transcriptHash",
+        "replayMaterialCanonicalJson",
+        "replayMaterialHash"
       ],
       "properties": {
         "protocolVersion": {
@@ -43,6 +50,12 @@
           "maxLength": 32768,
           "pattern": "^\\S+$"
         },
+        "leaseCapability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768,
+          "pattern": "^\\S+$"
+        },
         "idempotencyKey": {
           "type": "string",
           "minLength": 1,
@@ -53,49 +66,68 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
-        "investigationId": {
+        "sessionId": {
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
         },
-        "expectedVersion": {
-          "type": "string",
-          "pattern": "^(0|[1-9][0-9]*)$"
-        },
-        "turnId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
-        },
-        "turnCapability": {
+        "sealCapability": {
           "type": "string",
           "minLength": 1,
           "maxLength": 32768,
           "pattern": "^\\S+$"
         },
-        "providerStrategyId": {
+        "attemptId": {
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
         },
-        "investigationManifestCanonicalJson": {
+        "sourceLeaseId": {
           "type": "string",
-          "minLength": 2
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
         },
-        "investigationManifestHash": {
+        "sourceLeaseAuthorityKind": {
+          "enum": ["investigation_relay"]
+        },
+        "fencingToken": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "providerSucceeded": {
+          "type": "boolean"
+        },
+        "schemaValidated": {
+          "type": "boolean"
+        },
+        "fullyConsumed": {
+          "type": "boolean"
+        },
+        "actualModel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "terminalOutcomeHash": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
-        "acquireRequestId": {
+        "transcriptCanonicalJson": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+          "minLength": 2
         },
-        "ownerIdHash": {
+        "transcriptHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "replayMaterialCanonicalJson": {
+          "type": "string",
+          "minLength": 2
+        },
+        "replayMaterialHash": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         }
@@ -136,21 +168,9 @@
               "required": ["status"],
               "properties": {
                 "status": {
-                  "enum": [
-                    "acquired",
-                    "restored",
-                    "applied",
-                    "busy",
-                    "binding_stale",
-                    "stale_fence",
-                    "expired",
-                    "invalid_deadline",
-                    "idempotency_conflict",
-                    "rejected",
-                    "missing"
-                  ]
+                  "enum": ["accepted", "idempotent", "denied", "conflict"]
                 },
-                "leaseId": {
+                "attestationId": {
                   "anyOf": [
                     {
                       "type": "string",
@@ -163,72 +183,11 @@
                     }
                   ]
                 },
-                "attemptId": {
+                "attestationHash": {
                   "anyOf": [
                     {
                       "type": "string",
-                      "minLength": 1,
-                      "maxLength": 256,
-                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "leaseCapability": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 32768,
-                      "pattern": "^\\S+$"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "fencingToken": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "pattern": "^(0|[1-9][0-9]*)$"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "expiresAt": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "date-time"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "resultReportUntil": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "date-time"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "rejectionReason": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 256,
-                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                      "pattern": "^[a-f0-9]{64}$"
                     },
                     {
                       "type": "null"
@@ -798,64 +757,6 @@
                 },
                 "retryClass": {
                   "const": "never"
-                },
-                "details": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["issues"],
-                  "properties": {
-                    "issues": {
-                      "type": "array",
-                      "maxItems": 8,
-                      "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          "properties": {
-            "protocolVersion": {
-              "const": "2"
-            },
-            "schemaDigest": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{64}$"
-            },
-            "requestId": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128
-            },
-            "serverTime": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "error": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["errorCode", "retryClass", "details"],
-              "properties": {
-                "errorCode": {
-                  "const": "capacity_limited"
-                },
-                "retryClass": {
-                  "const": "same_request"
                 },
                 "details": {
                   "type": "object",

@@ -563,6 +563,38 @@ export const reviewActionV2TransportContract = Object.freeze({
             [200, 202],
             commonReadErrors,
           ],
+          [
+            "review_investigation_relay_turn_plan",
+            "/api/action/v2/review-investigations/relay/turns/plan",
+            10_000,
+            65_536,
+            [200, 201, 202],
+            commonCommandErrors,
+          ],
+          [
+            "review_investigation_relay_lease_acquire",
+            "/api/action/v2/review-investigations/relay/leases/acquire",
+            10_000,
+            262_144,
+            [200, 201],
+            commonCommandErrors,
+          ],
+          [
+            "review_investigation_relay_context_gateway_open",
+            "/api/action/v2/review-investigations/relay/context-gateway/open",
+            10_000,
+            65_536,
+            [200, 201],
+            contextGatewayOpenErrors,
+          ],
+          [
+            "review_investigation_relay_context_gateway_seal",
+            "/api/action/v2/review-investigations/relay/context-gateway/seal",
+            15_000,
+            4_194_304,
+            [200, 201],
+            contextAttestationCommitErrors,
+          ],
         ] as const
       ).map(
         ([

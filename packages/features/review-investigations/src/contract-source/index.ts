@@ -55,7 +55,7 @@ const commonResultFields = Object.freeze([
   }),
 ]);
 
-export const reviewInvestigationsActionContractFragment = Object.freeze({
+const reviewInvestigationsActionContractFragmentBase = Object.freeze({
   fragmentVersion: 1,
   boundedContext: "review_investigations",
   publishedEnums: Object.freeze([
@@ -97,6 +97,10 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
     Object.freeze({
       typeName: "ReviewInvestigationLeaseAuthorityPurpose",
       values: Object.freeze(["shadow_turn", "relay_turn"]),
+    }),
+    Object.freeze({
+      typeName: "ReviewInvestigationRelayLeasePurpose",
+      values: Object.freeze(["relay_turn"]),
     }),
     Object.freeze({
       typeName: "ReviewInvestigationRelayGrantResultStatus",
@@ -340,7 +344,6 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
           type: "positive_integer",
         }),
         Object.freeze({ name: "turnBudgetHash", type: "hash" }),
-        Object.freeze({ name: "turnBudgetCanonicalJson", type: "optional_canonical_json" }),
       ]),
       resultStatusEnum: "ReviewInvestigationMutationResultStatus",
       resultFields: Object.freeze([
@@ -409,11 +412,6 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
         Object.freeze({ name: "expectedVersion", type: "decimal" }),
         Object.freeze({ name: "turnId", type: "identifier" }),
         Object.freeze({ name: "turnCapability", type: "token" }),
-        Object.freeze({
-          name: "leasePurpose",
-          type: "optional_enum",
-          enumTypeName: "ReviewInvestigationLeaseAuthorityPurpose",
-        }),
         Object.freeze({ name: "providerStrategyId", type: "identifier" }),
         Object.freeze({
           name: "investigationManifestCanonicalJson",
@@ -731,6 +729,50 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
       ]),
       resultStatusEnum: "ReviewInvestigationMutationResultStatus",
       resultFields: Object.freeze([...commonResultFields]),
+    }),
+  ]),
+});
+
+// Relay additions are versioned separately from the published base and shadow wires.
+const relayBaseOperations = reviewInvestigationsActionContractFragmentBase.operations;
+const relayTurnPlanBase = relayBaseOperations.find(
+  (operation) => operation.operationId === "review_investigation_turn_plan",
+);
+const relayLeaseAcquireBase = relayBaseOperations.find(
+  (operation) => operation.operationId === "review_investigation_lease_acquire",
+);
+if (!relayTurnPlanBase || !relayLeaseAcquireBase) {
+  throw new Error("relay_contract_base_operation_missing");
+}
+
+export const reviewInvestigationsActionContractFragment = Object.freeze({
+  ...reviewInvestigationsActionContractFragmentBase,
+  operations: Object.freeze([
+    ...relayBaseOperations,
+    Object.freeze({
+      ...relayTurnPlanBase,
+      operationId: "review_investigation_relay_turn_plan",
+      requestTypeName: "ReviewInvestigationRelayTurnPlanRequest",
+      resultTypeName: "ReviewInvestigationRelayTurnPlanResult",
+      requestFields: Object.freeze([
+        ...relayTurnPlanBase.requestFields,
+        Object.freeze({ name: "turnBudgetCanonicalJson", type: "canonical_json" }),
+      ]),
+    }),
+    Object.freeze({
+      ...relayLeaseAcquireBase,
+      operationId: "review_investigation_relay_lease_acquire",
+      requestTypeName: "ReviewInvestigationRelayLeaseAcquireRequest",
+      resultTypeName: "ReviewInvestigationRelayLeaseAcquireResult",
+      requestFields: Object.freeze([
+        ...relayLeaseAcquireBase.requestFields.slice(0, 4),
+        Object.freeze({
+          name: "leasePurpose",
+          type: "enum",
+          enumTypeName: "ReviewInvestigationRelayLeasePurpose",
+        }),
+        ...relayLeaseAcquireBase.requestFields.slice(4),
+      ]),
     }),
   ]),
 });

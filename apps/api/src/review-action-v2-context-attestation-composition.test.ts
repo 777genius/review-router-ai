@@ -67,7 +67,7 @@ import {
   ReviewActionV2OperationId,
   ReviewContextGatewayOpenResultStatus,
   ReviewContextGatewaySealResultStatus,
-  ReviewInvestigationContextLeaseAuthorityKind,
+  ReviewInvestigationRelayContextLeaseAuthorityKind,
   ReviewContextReplayCommitResultStatus,
   canonicalizeReviewContextConfinementEvidence,
   canonicalizeReviewInvestigationContextConfinementEvidence,
@@ -84,6 +84,8 @@ import {
   type ReviewContextGatewaySealRequest,
   type ReviewInvestigationContextGatewayOpenRequest,
   type ReviewInvestigationContextGatewaySealRequest,
+  type ReviewInvestigationRelayContextGatewayOpenRequest,
+  type ReviewInvestigationRelayContextGatewaySealRequest,
   type ReviewContextReplayCommitRequest,
 } from "@reviewrouter/protocol-review-action-v2";
 import { ReviewActionV2ExecutionEvidenceCapabilityAdapter } from "./review-action-v2-execution-evidence-capabilities.js";
@@ -292,12 +294,12 @@ describe("Review Action v2 context attestation composition", () => {
       leasePurpose: ReviewInvestigationLeasePurpose.RelayTurn,
       relayGatewayAllowed: false,
     });
-    await expect(disabled.routes.openInvestigationGateway!.execute(disabled.openRequest))
+    await expect(disabled.routes.openRelayGateway!.execute(disabled.openRequest as ReviewInvestigationRelayContextGatewayOpenRequest))
       .rejects.toMatchObject({ statusCode: 403, issues: ["context_relay_gateway_disabled"] });
     const relay = await createShadowFixture({
       leasePurpose: ReviewInvestigationLeasePurpose.RelayTurn,
     });
-    const opened = await relay.routes.openInvestigationGateway!.execute(relay.openRequest);
+    const opened = await relay.routes.openRelayGateway!.execute(relay.openRequest as ReviewInvestigationRelayContextGatewayOpenRequest);
     expect(opened.result.status).toBe(ReviewContextGatewayOpenResultStatus.Opened);
     expect(opened.result.expiresAt).toBe(new Date(now.getTime() + 50_000).toISOString());
     await expect(relay.dependencies.store.findSession(required(opened.result.sessionId)))
@@ -306,12 +308,13 @@ describe("Review Action v2 context attestation composition", () => {
         expiresAtMs: now.getTime() + 50_000,
       });
 
+    const { sourceLeaseAuthorityKind: _relayKind, ...shadowWire } =
+      relay.openRequest as ReviewInvestigationRelayContextGatewayOpenRequest;
     await expect(relay.routes.openInvestigationGateway!.execute(
       await withBodyHash(ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen, {
-        ...relay.openRequest,
+        ...shadowWire,
         requestId: "relay-as-shadow",
         idempotencyKey: "relay-as-shadow",
-        sourceLeaseAuthorityKind: ReviewInvestigationContextLeaseAuthorityKind.InvestigationShadow,
       }),
     )).rejects.toMatchObject({
       statusCode: 401,
@@ -331,7 +334,7 @@ describe("Review Action v2 context attestation composition", () => {
       transcriptCanonicalJson: canonicalContextGatewayV4Manifest(manifest),
       replayMaterialCanonicalJson: stableJson({ materialVersion: 1, sourceDependencies: [] }),
     });
-    await expect(relay.routes.sealInvestigationGateway!.execute(seal))
+    await expect(relay.routes.sealRelayGateway!.execute(seal as ReviewInvestigationRelayContextGatewaySealRequest))
       .rejects.toMatchObject({ statusCode: 412, issues: ["context_relay_effect_unavailable"] });
 
     const resumed = composeReviewActionV2ContextAttestationRoutes({
@@ -348,7 +351,7 @@ describe("Review Action v2 context attestation composition", () => {
         },
       },
     });
-    await expect(resumed.sealInvestigationGateway!.execute(seal))
+    await expect(resumed.sealRelayGateway!.execute(seal as ReviewInvestigationRelayContextGatewaySealRequest))
       .resolves.toMatchObject({ result: { status: ReviewContextGatewaySealResultStatus.Accepted } });
   });
 
@@ -357,7 +360,7 @@ describe("Review Action v2 context attestation composition", () => {
       leasePurpose: ReviewInvestigationLeasePurpose.RelayTurn,
       relayBudgetDeadlineMs: 0,
     });
-    await expect(relay.routes.openInvestigationGateway!.execute(relay.openRequest))
+    await expect(relay.routes.openRelayGateway!.execute(relay.openRequest as ReviewInvestigationRelayContextGatewayOpenRequest))
       .rejects.toMatchObject({
         statusCode: 412,
         issues: ["context_relay_budget_stale"],
@@ -369,7 +372,7 @@ describe("Review Action v2 context attestation composition", () => {
       leasePurpose: ReviewInvestigationLeasePurpose.RelayTurn,
       relayMaxGatewayOperations: 1,
     });
-    const opened = await relay.routes.openInvestigationGateway!.execute(relay.openRequest);
+    const opened = await relay.routes.openRelayGateway!.execute(relay.openRequest as ReviewInvestigationRelayContextGatewayOpenRequest);
     const sessionId = required(opened.result.sessionId);
     const manifest = sourceV4Manifest({
       sessionId,
@@ -397,7 +400,7 @@ describe("Review Action v2 context attestation composition", () => {
         }) },
       },
     });
-    await expect(resumed.sealInvestigationGateway!.execute(seal))
+    await expect(resumed.sealRelayGateway!.execute(seal as ReviewInvestigationRelayContextGatewaySealRequest))
       .rejects.toMatchObject({
         statusCode: 412,
         issues: ["context_relay_gateway_operations_exceeded"],
@@ -1428,7 +1431,9 @@ async function createShadowFixture(
     }),
   );
   const openRequest = await withBodyHash(
-    ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen,
+    lease.purpose === ReviewInvestigationLeasePurpose.RelayTurn
+      ? ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewayOpen
+      : ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen,
     {
       ...fixture.openRequest,
       requestId: "shadow-gateway-open",
@@ -1437,11 +1442,11 @@ async function createShadowFixture(
       attemptId: lease.attemptId,
       sourceLeaseId: lease.leaseId,
       ...(lease.purpose === ReviewInvestigationLeasePurpose.RelayTurn
-        ? { sourceLeaseAuthorityKind: ReviewInvestigationContextLeaseAuthorityKind.InvestigationRelay }
+        ? { sourceLeaseAuthorityKind: ReviewInvestigationRelayContextLeaseAuthorityKind.InvestigationRelay }
         : {}),
       fencingToken: lease.fencingToken.toString(10),
       confinementEvidenceHash,
-    } satisfies ReviewInvestigationContextGatewayOpenRequest,
+    } satisfies ReviewInvestigationContextGatewayOpenRequest | ReviewInvestigationRelayContextGatewayOpenRequest,
   );
   return {
     ...fixture,
@@ -1720,7 +1725,9 @@ async function createShadowSealRequest(input: {
   fullyConsumed?: boolean;
 }) {
   return withBodyHash(
-    ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal,
+    input.fixture.lease.purpose === ReviewInvestigationLeasePurpose.RelayTurn
+      ? ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewaySeal
+      : ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal,
     {
       ...envelope("investigation-gateway-seal"),
       authorizationToken: "authorization-token",
@@ -1732,7 +1739,7 @@ async function createShadowSealRequest(input: {
       attemptId: input.fixture.lease.attemptId,
       sourceLeaseId: input.fixture.lease.leaseId,
       ...(input.fixture.lease.purpose === ReviewInvestigationLeasePurpose.RelayTurn
-        ? { sourceLeaseAuthorityKind: ReviewInvestigationContextLeaseAuthorityKind.InvestigationRelay }
+        ? { sourceLeaseAuthorityKind: ReviewInvestigationRelayContextLeaseAuthorityKind.InvestigationRelay }
         : {}),
       fencingToken: input.fixture.lease.fencingToken.toString(10),
       providerSucceeded: input.providerSucceeded ?? true,
@@ -1744,7 +1751,7 @@ async function createShadowSealRequest(input: {
       transcriptHash: sha(input.transcriptCanonicalJson),
       replayMaterialCanonicalJson: input.replayMaterialCanonicalJson,
       replayMaterialHash: sha(input.replayMaterialCanonicalJson),
-    } satisfies ReviewInvestigationContextGatewaySealRequest,
+    } satisfies ReviewInvestigationContextGatewaySealRequest | ReviewInvestigationRelayContextGatewaySealRequest,
   );
 }
 

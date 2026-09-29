@@ -36,13 +36,14 @@ import {
   ReviewActionV2ProtocolErrorCode,
   ReviewInvestigationMutationResultStatus,
   ReviewInvestigationLeaseResultStatus,
-  ReviewInvestigationLeaseAuthorityPurpose,
+  ReviewInvestigationRelayLeasePurpose,
   ReviewInvestigationRelayGrantResultStatus,
   ReviewInvestigationRelayStatusState,
   ReviewInvestigationPublishedAbortReason,
   ReviewActionV2OperationId,
   ReviewInvestigationPublishedRuntimeProfile,
   canonicalizeReviewActionV2Request,
+  reviewActionV2GoldenFixtures,
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
   reviewInvestigationExtensionV1,
@@ -99,6 +100,42 @@ const investigationLeaseHandlerStubs = {
 } as const;
 
 describe("Review Action v2 investigation composition", () => {
+  it("keeps legacy shadow admission strict and relay operations closed without an enabled handler", async () => {
+    const app = Fastify();
+    try {
+      await registerReviewInvestigationV2Routes(app, {
+        readServerTime: async () => now,
+        createRequestId: () => "generated-request",
+      });
+      const legacy =
+        reviewActionV2GoldenFixtures.review_investigation_lease_acquire.request;
+      const accepted = await app.inject({
+        method: "POST",
+        url: "/api/action/v2/review-investigations/leases/acquire",
+        payload: legacy,
+      });
+      expect(accepted.statusCode).toBe(403);
+      const widened = await app.inject({
+        method: "POST",
+        url: "/api/action/v2/review-investigations/leases/acquire",
+        payload: { ...legacy, leasePurpose: "relay_turn" },
+      });
+      expect(widened.statusCode).toBe(400);
+      expect(widened.json().error.details.issues).toContain(
+        "unknown_field:leasePurpose",
+      );
+      const relay = await app.inject({
+        method: "POST",
+        url: "/api/action/v2/review-investigations/relay/leases/acquire",
+        payload:
+          reviewActionV2GoldenFixtures.review_investigation_relay_lease_acquire
+            .request,
+      });
+      expect(relay.statusCode).toBe(403);
+    } finally {
+      await app.close();
+    }
+  });
   it("reconstructs relay status with only current run authority while new admission is disabled", async () => {
     const aggregate = activeInvestigation();
     const readStatus = vi.fn().mockResolvedValue({
@@ -142,6 +179,24 @@ describe("Review Action v2 investigation composition", () => {
       },
     });
     expect(readStatus).toHaveBeenCalledOnce();
+    const relayPlan = await withBodyHash(
+      ReviewActionV2OperationId.ReviewInvestigationRelayTurnPlan,
+      {
+        ...envelope("relay-plan-without-extension"),
+        authorizationToken: "authorization-token",
+        idempotencyKey: "relay-plan-without-extension",
+        requestBodyHash: sha("placeholder"),
+        investigationId: aggregate.investigationId,
+        expectedVersion: String(aggregate.version),
+        dossierDigest: aggregate.dossierDigest,
+        leaseDurationMs: 60_000,
+        maxObligationsForTurn: 1,
+        turnBudgetHash: sha("{}"),
+        turnBudgetCanonicalJson: "{}",
+      },
+    );
+    await expect(routes.relayPlanTurn!.execute(relayPlan))
+      .rejects.toMatchObject({ statusCode: 403 });
     await expect(routes.relayStatus!.execute({ ...request, authorizationId: "other" }))
       .rejects.toMatchObject({ statusCode: 412 });
     expect(readStatus).toHaveBeenCalledOnce();
@@ -451,15 +506,15 @@ describe("Review Action v2 investigation composition", () => {
     );
     expect(issue).toHaveBeenCalledOnce();
     const relayRequest = await withBodyHash(
-      ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire,
+      ReviewActionV2OperationId.ReviewInvestigationRelayLeaseAcquire,
       {
         ...request,
         requestId: "investigation-relay-lease-acquire",
         idempotencyKey: "investigation-relay-lease-acquire",
-        leasePurpose: ReviewInvestigationLeaseAuthorityPurpose.RelayTurn,
+        leasePurpose: ReviewInvestigationRelayLeasePurpose.RelayTurn,
       },
     );
-    await expect(routes.acquireLease!.execute(relayRequest)).rejects.toMatchObject({
+    await expect(routes.relayAcquireLease!.execute(relayRequest)).rejects.toMatchObject({
       statusCode: 403,
       issues: ["review_hosted_relay_extension_not_authorized"],
     });

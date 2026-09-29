@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_lease_acquire",
-  "title": "review_investigation_lease_acquire request and response",
+  "$id": "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_relay_context_gateway_open",
+  "title": "review_investigation_relay_context_gateway_open request and response",
   "oneOf": [
     {
       "type": "object",
@@ -11,17 +11,20 @@
         "schemaDigest",
         "requestId",
         "authorizationToken",
+        "leaseCapability",
         "idempotencyKey",
         "requestBodyHash",
-        "investigationId",
-        "expectedVersion",
-        "turnId",
-        "turnCapability",
-        "providerStrategyId",
-        "investigationManifestCanonicalJson",
-        "investigationManifestHash",
-        "acquireRequestId",
-        "ownerIdHash"
+        "attemptId",
+        "sourceLeaseId",
+        "sourceLeaseAuthorityKind",
+        "fencingToken",
+        "sourceExecutionId",
+        "sourceWorkSlotId",
+        "sourceReviewRevisionHash",
+        "checkoutTreeOid",
+        "gatewayPolicyVersion",
+        "gatewayBinaryHash",
+        "confinementEvidenceHash"
       ],
       "properties": {
         "protocolVersion": {
@@ -43,6 +46,12 @@
           "maxLength": 32768,
           "pattern": "^\\S+$"
         },
+        "leaseCapability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768,
+          "pattern": "^\\S+$"
+        },
         "idempotencyKey": {
           "type": "string",
           "minLength": 1,
@@ -53,49 +62,56 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
-        "investigationId": {
+        "attemptId": {
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
         },
-        "expectedVersion": {
+        "sourceLeaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        "sourceLeaseAuthorityKind": {
+          "enum": ["investigation_relay"]
+        },
+        "fencingToken": {
           "type": "string",
           "pattern": "^(0|[1-9][0-9]*)$"
         },
-        "turnId": {
+        "sourceExecutionId": {
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
         },
-        "turnCapability": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 32768,
-          "pattern": "^\\S+$"
-        },
-        "providerStrategyId": {
+        "sourceWorkSlotId": {
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
         },
-        "investigationManifestCanonicalJson": {
-          "type": "string",
-          "minLength": 2
-        },
-        "investigationManifestHash": {
+        "sourceReviewRevisionHash": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
-        "acquireRequestId": {
+        "checkoutTreeOid": {
+          "type": "string",
+          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+        },
+        "gatewayPolicyVersion": {
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
         },
-        "ownerIdHash": {
+        "gatewayBinaryHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "confinementEvidenceHash": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         }
@@ -136,21 +152,9 @@
               "required": ["status"],
               "properties": {
                 "status": {
-                  "enum": [
-                    "acquired",
-                    "restored",
-                    "applied",
-                    "busy",
-                    "binding_stale",
-                    "stale_fence",
-                    "expired",
-                    "invalid_deadline",
-                    "idempotency_conflict",
-                    "rejected",
-                    "missing"
-                  ]
+                  "enum": ["opened", "idempotent", "denied", "conflict"]
                 },
-                "leaseId": {
+                "sessionId": {
                   "anyOf": [
                     {
                       "type": "string",
@@ -163,20 +167,18 @@
                     }
                   ]
                 },
-                "attemptId": {
+                "eventChainSeedHash": {
                   "anyOf": [
                     {
                       "type": "string",
-                      "minLength": 1,
-                      "maxLength": 256,
-                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                      "pattern": "^[a-f0-9]{64}$"
                     },
                     {
                       "type": "null"
                     }
                   ]
                 },
-                "leaseCapability": {
+                "gatewaySessionSecret": {
                   "anyOf": [
                     {
                       "type": "string",
@@ -189,11 +191,13 @@
                     }
                   ]
                 },
-                "fencingToken": {
+                "sealCapability": {
                   "anyOf": [
                     {
                       "type": "string",
-                      "pattern": "^(0|[1-9][0-9]*)$"
+                      "minLength": 1,
+                      "maxLength": 32768,
+                      "pattern": "^\\S+$"
                     },
                     {
                       "type": "null"
@@ -205,30 +209,6 @@
                     {
                       "type": "string",
                       "format": "date-time"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "resultReportUntil": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "date-time"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "rejectionReason": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 256,
-                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
                     },
                     {
                       "type": "null"

@@ -149,6 +149,8 @@ import {
   type ReviewInvestigationRestoreRequest,
   type ReviewInvestigationRelayGrantRequest,
   type ReviewInvestigationRelayStatusRequest,
+  type ReviewInvestigationRelayTurnPlanRequest,
+  type ReviewInvestigationRelayLeaseAcquireRequest,
   type ReviewInvestigationReplayRequest,
   type ReviewInvestigationReplayV2Request,
   type ReviewInvestigationReplayPrepareRequest,
@@ -464,10 +466,33 @@ export function composeReviewActionV2InvestigationRoutes(input: {
       relayStatus(request, d),
     ),
     planTurn: enabled((request: ReviewInvestigationTurnPlanRequest) =>
-      planTurn(request, d),
+      planTurn(
+        request,
+        ReviewActionV2OperationId.ReviewInvestigationTurnPlan,
+        d,
+      ),
+    ),
+    relayPlanTurn: enabled((request: ReviewInvestigationRelayTurnPlanRequest) =>
+      planTurn(
+        request,
+        ReviewActionV2OperationId.ReviewInvestigationRelayTurnPlan,
+        d,
+      ),
     ),
     acquireLease: enabled((request: ReviewInvestigationLeaseAcquireRequest) =>
-      acquireInvestigationLease(request, d),
+      acquireInvestigationLease(
+        request,
+        ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire,
+        d,
+      ),
+    ),
+    relayAcquireLease: enabled(
+      (request: ReviewInvestigationRelayLeaseAcquireRequest) =>
+        acquireInvestigationLease(
+          request,
+          ReviewActionV2OperationId.ReviewInvestigationRelayLeaseAcquire,
+          d,
+        ),
     ),
     renewLease: enabled((request: ReviewInvestigationLeaseRenewRequest) =>
       renewInvestigationLease(request, d),
@@ -1257,11 +1282,16 @@ const relayStatusState = {
 >;
 
 async function planTurn(
-  request: ReviewInvestigationTurnPlanRequest,
+  request:
+    | ReviewInvestigationTurnPlanRequest
+    | ReviewInvestigationRelayTurnPlanRequest,
+  operationId:
+    | ReviewActionV2OperationId.ReviewInvestigationTurnPlan
+    | ReviewActionV2OperationId.ReviewInvestigationRelayTurnPlan,
   d: ReviewActionV2InvestigationHandlerDependencies,
 ) {
   await assertBodyHash(
-    ReviewActionV2OperationId.ReviewInvestigationTurnPlan,
+    operationId,
     request,
     d,
   );
@@ -1269,6 +1299,20 @@ async function planTurn(
     request.authorizationToken,
     d,
   );
+  if (
+    operationId === ReviewActionV2OperationId.ReviewInvestigationRelayTurnPlan &&
+    !hasAuthorizedHostedRelayExtension(authorization)
+  ) {
+    throw failure(
+      403,
+      ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
+      "review_hosted_relay_extension_not_authorized",
+    );
+  }
+  const turnBudgetCanonicalJson =
+    "turnBudgetCanonicalJson" in request
+      ? request.turnBudgetCanonicalJson
+      : undefined;
   const aggregate = await requireAggregate(
     request.investigationId,
     authorization,
@@ -1293,7 +1337,7 @@ async function planTurn(
     ? await restoreActiveTurn(
         aggregate,
         expectedVersion,
-        request.turnBudgetCanonicalJson,
+        turnBudgetCanonicalJson,
         request.turnBudgetHash,
         d,
       )
@@ -1303,10 +1347,10 @@ async function planTurn(
         expectedVersion,
         leaseDurationMs: request.leaseDurationMs,
         maxObligationsForTurn: request.maxObligationsForTurn,
-        ...(request.turnBudgetCanonicalJson === undefined
+        ...(turnBudgetCanonicalJson === undefined
           ? {}
           : {
-              turnBudgetCanonicalJson: request.turnBudgetCanonicalJson,
+              turnBudgetCanonicalJson,
               turnBudgetHash: request.turnBudgetHash,
             }),
       });
@@ -1381,11 +1425,16 @@ async function restoreActiveTurn(
 }
 
 async function acquireInvestigationLease(
-  request: ReviewInvestigationLeaseAcquireRequest,
+  request:
+    | ReviewInvestigationLeaseAcquireRequest
+    | ReviewInvestigationRelayLeaseAcquireRequest,
+  operationId:
+    | ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire
+    | ReviewActionV2OperationId.ReviewInvestigationRelayLeaseAcquire,
   d: ReviewActionV2InvestigationHandlerDependencies,
 ) {
   await assertBodyHash(
-    ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire,
+    operationId,
     request,
     d,
   );
@@ -1393,7 +1442,20 @@ async function acquireInvestigationLease(
     request.authorizationToken,
     d,
   );
-  if (request.leasePurpose === "relay_turn") {
+  const relayLease =
+    operationId === ReviewActionV2OperationId.ReviewInvestigationRelayLeaseAcquire;
+  if (
+    relayLease &&
+    (request as ReviewInvestigationRelayLeaseAcquireRequest).leasePurpose !==
+      "relay_turn"
+  ) {
+    throw failure(
+      400,
+      ReviewActionV2ProtocolErrorCode.InvalidRequest,
+      "relay_lease_purpose_invalid",
+    );
+  }
+  if (relayLease) {
     if (!hasAuthorizedHostedRelayExtension(authorization)) {
       throw failure(403, ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
         "review_hosted_relay_extension_not_authorized");
@@ -1416,7 +1478,7 @@ async function acquireInvestigationLease(
     authorization,
     d,
   );
-  if (request.leasePurpose !== "relay_turn") {
+  if (!relayLease) {
     assertInvestigationExtensionAuthorized(
       authorization,
       providerKind,
@@ -1433,7 +1495,7 @@ async function acquireInvestigationLease(
   }
   const turnAuthority = await verifyTurnCapability(request.turnCapability, d);
   requireTurnAuthority(turnAuthority, request, aggregate, authorization);
-  const purpose = request.leasePurpose === "relay_turn"
+  const purpose = relayLease
     ? ReviewInvestigationLeasePurpose.RelayTurn
     : ReviewInvestigationLeasePurpose.ShadowTurn;
   if (purpose === ReviewInvestigationLeasePurpose.RelayTurn) {

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_lease_acquire",
-  "title": "review_investigation_lease_acquire request and response",
+  "$id": "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_relay_lease_acquire",
+  "title": "review_investigation_relay_lease_acquire request and response",
   "oneOf": [
     {
       "type": "object",
@@ -17,6 +17,7 @@
         "expectedVersion",
         "turnId",
         "turnCapability",
+        "leasePurpose",
         "providerStrategyId",
         "investigationManifestCanonicalJson",
         "investigationManifestHash",
@@ -74,6 +75,9 @@
           "minLength": 1,
           "maxLength": 32768,
           "pattern": "^\\S+$"
+        },
+        "leasePurpose": {
+          "enum": ["relay_turn"]
         },
         "providerStrategyId": {
           "type": "string",
