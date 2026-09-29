@@ -41,7 +41,7 @@ describe.skipIf(!url)("G1 operator credential / disposable PostgreSQL", () => {
     await setup.query(
       readFileSync(
         new URL(
-          "../../../../platform/db/prisma/migrations/000110_sdk_growth_operator_credential/migration.sql",
+          "../../../../platform/db/prisma/migrations/000112_sdk_growth_operator_credential/migration.sql",
           import.meta.url,
         ),
         "utf8",

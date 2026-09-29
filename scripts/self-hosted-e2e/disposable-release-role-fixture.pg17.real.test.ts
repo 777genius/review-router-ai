@@ -439,7 +439,7 @@ const boundarySql = readFileSync(
         );
     });
 
-    it("runs main 110, diagnoses owner-only 79, then completes fresh 110 with exact canonical handoff", async () => {
+    it("runs main full checkout, diagnoses owner-only 79, then completes fresh full checkout with exact canonical handoff", async () => {
       const pre79 = writeDisposableMigrationCatalog("pre79", files);
       const through79 = writeDisposableMigrationCatalog("through79", files);
       const before87 = writeDisposableMigrationCatalog("before87", files);
@@ -665,7 +665,7 @@ const boundarySql = readFileSync(
       assertStockLedger("rr_role_test", stockMigrationNames);
       query(
         "rr_role_test",
-        disposableRuntimeQualifiedVerificationSql("full110"),
+        disposableRuntimeQualifiedVerificationSql("full111"),
       );
       rejectDirty(
         "rr_role_test",
@@ -862,8 +862,8 @@ const boundarySql = readFileSync(
           "rr_role_test",
           `ALTER ROLE ${role} RENAME TO ${role}_missing;`,
           `pg_catalog.to_regrole('${role}') IS NULL`,
-          disposableRuntimeQualifiedVerificationSql("full110"),
-          "disposable_full110_runtime_identity_invalid",
+          disposableRuntimeQualifiedVerificationSql("full111"),
+          "disposable_full111_runtime_identity_invalid",
         );
       }
       for (const [routine, condition] of [

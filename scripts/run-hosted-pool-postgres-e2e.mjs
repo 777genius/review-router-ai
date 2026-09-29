@@ -110,6 +110,8 @@ const sdkGrowthVerifierAssignmentMigrations = Object.freeze([
 const historicalUnknownScopeBarrierMigration =
   "000110_historical_unknown_scope_barrier";
 const sdkGrowthSourceBindingMigration = "000111_sdk_growth_source_binding";
+const sdkGrowthOperatorCredentialMigration =
+  "000112_sdk_growth_operator_credential";
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -768,6 +770,7 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           ...sdkGrowthVerifierAssignmentMigrations,
           historicalUnknownScopeBarrierMigration,
           sdkGrowthSourceBindingMigration,
+          sdkGrowthOperatorCredentialMigration,
         ]
       : []),
   ]);

@@ -34,8 +34,11 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full110 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(110);
+  it("validates the full111 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(111);
+    expect(full[110]?.migrationName).toBe(
+      "000112_sdk_growth_operator_credential",
+    );
     expect(full[109]?.migrationName).toBe("000111_sdk_growth_source_binding");
     expect(full[108]?.migrationName).toBe(
       "000110_historical_unknown_scope_barrier",
@@ -92,9 +95,10 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: checkout107 },
     { checkout: checkout108 },
     { checkout: checkout109 },
+    { checkout: full.slice(0, 110) },
     { checkout: full },
   ])(
-    "accepts a complete validated checkout through 000111 (%#)",
+    "accepts a complete validated checkout through 000112 (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);
@@ -132,8 +136,8 @@ describe("trusted historical96 checkout reader", () => {
       ],
     ],
     [
-      "unknown 111",
-      [...full, { migrationName: "000111_unknown", checksum: "a".repeat(64) }],
+      "unknown future extension",
+      [...full, { migrationName: "000113_unknown", checksum: "a".repeat(64) }],
     ],
     [
       "future replacement",
@@ -162,7 +166,9 @@ describe("trusted historical96 checkout reader", () => {
     },
   );
 
-  it.each([96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108])(
+  it.each([
+    96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
+  ])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {
       reader.mockImplementationOnce(() => {

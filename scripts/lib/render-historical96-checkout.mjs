@@ -20,6 +20,7 @@ const checkoutOnlyMigrations = Object.freeze([
   "000109_sdk_growth_verifier_assignment_lock",
   "000110_historical_unknown_scope_barrier",
   "000111_sdk_growth_source_binding",
+  "000112_sdk_growth_operator_credential",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
@@ -28,6 +29,7 @@ export function readRenderHistorical96CheckoutInventory() {
   if (
     ![
       96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
+      111,
     ].includes(checkout.length)
   )
     throw new Error("render_historical96_checkout_rejected:count");

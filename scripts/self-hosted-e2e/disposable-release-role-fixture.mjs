@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Only the disposable CI and self-hosted construction path uses this contract.
-// PostgreSQL roles survive database creation. The first database reaches 110
+// PostgreSQL roles survive database creation. The first database reaches the full checkout
 // without the pair; subsequent databases see both roles from migration 1.
 export const disposableBefore87 =
   "000087_codex_oauth_v4_v5_workflow_reattestation";
@@ -493,7 +493,7 @@ END $verify$;\n`;
 // regression provisions all five restricted identities and adds this gate.
 // Missing names must fail before the effective-ACL loops can become empty.
 export function disposableRuntimeIdentityVerificationSql(phase) {
-  if (!["full110", "provider79"].includes(phase))
+  if (!["full111", "provider79"].includes(phase))
     throw new Error("disposable_runtime_identity_phase_invalid");
   return `DO $runtime$
 BEGIN
@@ -520,7 +520,7 @@ export function disposableRuntimeQualifiedVerificationSql(phase) {
   const identity = disposableRuntimeIdentityVerificationSql(phase);
   return (
     identity +
-    (phase === "full110"
+    (phase === "full111"
       ? disposableFullChainVerificationSql
       : disposableProvider79VerificationSql)
   );
