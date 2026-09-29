@@ -148,26 +148,46 @@ describe("generated Review Action v2 negotiation contract", () => {
   });
 
   it("binds an issued v4 grant to the exact relay URL and finite policy", async () => {
-    const schema = JSON.parse(await readFile(new URL(
-      "../generated/schemas/review_investigation_relay_grant.schema.json",
-      import.meta.url,
-    ), "utf8")) as { readonly oneOf: readonly unknown[] };
+    const schema = JSON.parse(
+      await readFile(
+        new URL(
+          "../generated/schemas/review_investigation_relay_grant.schema.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as { readonly oneOf: readonly unknown[] };
     const response = schema.oneOf[1] as { readonly oneOf: readonly unknown[] };
-    expect(response.oneOf[0]).toMatchObject({ properties: { result: {
-      allOf: [{
-        if: { properties: { status: { enum: ["issued", "restored"] } } },
-        then: { required: ["grantResponse", "blockedPrerequisite"],
-          properties: { grantResponse: { properties: {
-            protocolVersion: { const: 4 },
-            relayUrl: { const: "/api/hosted/v4/codex/responses" },
-            policy: { properties: { maxRequests: { const: 1 },
-              maxConcurrentRequests: { const: 1 },
-              maxOutputTokens: { maximum: 4_096 } } },
-          } } },
+    expect(response.oneOf[0]).toMatchObject({
+      properties: {
+        result: {
+          allOf: [
+            {
+              if: { properties: { status: { enum: ["issued", "restored"] } } },
+              then: {
+                required: ["grantResponse", "blockedPrerequisite"],
+                properties: {
+                  grantResponse: {
+                    properties: {
+                      protocolVersion: { const: 4 },
+                      relayUrl: { const: "/api/hosted/v4/codex/responses" },
+                      policy: {
+                        properties: {
+                          maxRequests: { const: 1 },
+                          maxConcurrentRequests: { const: 1 },
+                          maxOutputTokens: { maximum: 4_096 },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              else: { properties: { grantResponse: { type: "null" } } },
+            },
+          ],
         },
-        else: { properties: { grantResponse: { type: "null" } } },
-      }],
-    } } });
+      },
+    });
   });
 
   it("keeps the generated schema digest and golden fixtures byte-consistent", async () => {

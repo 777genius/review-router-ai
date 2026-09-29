@@ -1817,18 +1817,28 @@ describe("review investigation in-memory vertical slice", () => {
     const planned = await planDiscovery(harness, opened);
     harness.clock.advance(60_000);
     vi.spyOn(harness.store, "commit").mockRejectedValue(
-      new Error("Prisma constraint: review_investigation_v4_request_unresolved"),
+      new Error(
+        "Prisma constraint: review_investigation_v4_request_unresolved",
+      ),
     );
     const reconcile = new ReconcileExpiredActiveTurn(
-      harness.store, harness.authority, harness.digest, harness.clock,
+      harness.store,
+      harness.authority,
+      harness.digest,
+      harness.clock,
     );
     await expect(reconcile.execute(planned.investigationId)).rejects.toThrow(
       "review_investigation_v4_request_unresolved",
     );
-    await expect(reconcile.sweep({
-      expiresAtOrBefore: harness.clock.now().toISOString(), limit: 10,
-    })).resolves.toBe(0);
-    await expect(harness.store.findById(planned.investigationId)).resolves.toMatchObject({
+    await expect(
+      reconcile.sweep({
+        expiresAtOrBefore: harness.clock.now().toISOString(),
+        limit: 10,
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      harness.store.findById(planned.investigationId),
+    ).resolves.toMatchObject({
       state: ReviewInvestigationState.TurnLeased,
       activeTurn: { turnId: planned.turn!.turnId },
     });

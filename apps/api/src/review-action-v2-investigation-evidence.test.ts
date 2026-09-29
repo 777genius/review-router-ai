@@ -103,8 +103,11 @@ describe("ProductionInvestigationTurnEvidence", () => {
       sourceLeaseAuthorityKind: ContextLeaseAuthorityKind.InvestigationRelay,
     };
     const readStatus = vi.fn().mockResolvedValue({
-      state: "terminal_unknown", grantId: "grant-1", requestId: "request-1",
-      effectId: "effect-1", requestHash: hash("d"),
+      state: "terminal_unknown",
+      grantId: "grant-1",
+      requestId: "request-1",
+      effectId: "effect-1",
+      requestHash: hash("d"),
     });
     const evidence = new ProductionInvestigationTurnEvidence(
       {
@@ -112,27 +115,38 @@ describe("ProductionInvestigationTurnEvidence", () => {
         findSession: async () => relaySession,
       } as never,
       () => new Date("2026-08-03T10:00:00.000Z"),
-      { findLease: async () => ({
-        leaseId: "lease-1", purpose: ReviewInvestigationLeasePurpose.RelayTurn,
-        investigationId: "investigation-1", turnId: "turn-1",
-      }) } as never,
+      {
+        findLease: async () => ({
+          leaseId: "lease-1",
+          purpose: ReviewInvestigationLeasePurpose.RelayTurn,
+          investigationId: "investigation-1",
+          turnId: "turn-1",
+        }),
+      } as never,
       { readStatus },
     );
     const command = {
       acceptedAttestationId: "attestation-1",
       acceptedAttestationHash: hash("a"),
-      sourceExecutionId: "execution-1", sourceWorkSlotId: "slot-1",
-      sourceReviewRevisionHash: hash("b"), attemptId: "attempt-1",
-      sourceLeaseId: "lease-1", sourceFencingToken: "1",
-      actualModel: "gpt-test", terminalOutcomeHash: hash("c"),
+      sourceExecutionId: "execution-1",
+      sourceWorkSlotId: "slot-1",
+      sourceReviewRevisionHash: hash("b"),
+      attemptId: "attempt-1",
+      sourceLeaseId: "lease-1",
+      sourceFencingToken: "1",
+      actualModel: "gpt-test",
+      terminalOutcomeHash: hash("c"),
     };
     await expect(evidence.verify(command)).resolves.toBeNull();
     expect(readStatus).toHaveBeenCalledWith(
       hostedV4LogicalTurnKey("investigation-1", "turn-1"),
     );
     readStatus.mockResolvedValue({
-      state: "succeeded", grantId: "grant-1", requestId: "request-1",
-      effectId: "effect-1", requestHash: hash("d"),
+      state: "succeeded",
+      grantId: "grant-1",
+      requestId: "request-1",
+      effectId: "effect-1",
+      requestHash: hash("d"),
     });
     await expect(evidence.verify(command)).resolves.toMatchObject({
       actualProviderKind: "codex",

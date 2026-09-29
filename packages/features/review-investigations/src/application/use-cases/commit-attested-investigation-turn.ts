@@ -156,8 +156,10 @@ export class CommitAttestedInvestigationTurn {
     ) {
       throw new Error("investigation_turn_attestation_invalid");
     }
-    if (typeof current.activeTurn.turnBudgetCanonicalJson === "string" &&
-        typeof current.activeTurn.turnBudgetHash === "string") {
+    if (
+      typeof current.activeTurn.turnBudgetCanonicalJson === "string" &&
+      typeof current.activeTurn.turnBudgetHash === "string"
+    ) {
       const budget = await verifyRelayTurnBudget({
         canonicalJson: current.activeTurn.turnBudgetCanonicalJson,
         hash: current.activeTurn.turnBudgetHash,
@@ -165,9 +167,12 @@ export class CommitAttestedInvestigationTurn {
         now: new Date(),
         turnExpiresAt: new Date(current.activeTurn.expiresAt),
       });
-      if (command.observation.findings.length > budget.maxOutputFindings ||
-          command.observation.obligationProposals.length > budget.maxOutputProposals ||
-          verified.operations.length > budget.maxGatewayOperations) {
+      if (
+        command.observation.findings.length > budget.maxOutputFindings ||
+        command.observation.obligationProposals.length >
+          budget.maxOutputProposals ||
+        verified.operations.length > budget.maxGatewayOperations
+      ) {
         throw new Error("investigation_relay_turn_budget_exceeded");
       }
     }

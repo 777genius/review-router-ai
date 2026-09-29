@@ -305,11 +305,13 @@ export function createPublishedProtocolArtifacts(contract, canonicalJson) {
     }),
   );
   const relayExtensionSchema = createPublishedSchema(relayExtensionContract);
-  const relayExtensionSchemaDigest = sha256(canonicalJson({
-    baseSchemaDigest: schemaDigest,
-    extensionId: reviewHostedRelayExtensionV1Id,
-    schema: relayExtensionSchema,
-  }));
+  const relayExtensionSchemaDigest = sha256(
+    canonicalJson({
+      baseSchemaDigest: schemaDigest,
+      extensionId: reviewHostedRelayExtensionV1Id,
+      schema: relayExtensionSchema,
+    }),
+  );
   const fixtures = createPublishedFixtures(contract, schemaDigest);
   const canonicalizerFixtures = Object.fromEntries(
     contract.canonicalizers.map((descriptor) => [
@@ -347,16 +349,18 @@ export function createPublishedProtocolArtifacts(contract, canonicalJson) {
   const extensionCanonicalizerDigest = sha256(
     canonicalJson(extensionCanonicalizerDescriptor),
   );
-  const relayExtensionCanonicalizerDigest = sha256(canonicalJson({
-    baseCanonicalizerDigest: canonicalizerDigest,
-    canonicalizerVersion: 1,
-    extensionId: reviewHostedRelayExtensionV1Id,
-    operations: relayExtensionContract.operations.map((operation) => ({
-      operationId: operation.operationId,
-      fields: operation.requestFields.map((field) => field.name),
-      naturalIdempotencyPreimage: operation.naturalIdempotencyPreimage,
-    })),
-  }));
+  const relayExtensionCanonicalizerDigest = sha256(
+    canonicalJson({
+      baseCanonicalizerDigest: canonicalizerDigest,
+      canonicalizerVersion: 1,
+      extensionId: reviewHostedRelayExtensionV1Id,
+      operations: relayExtensionContract.operations.map((operation) => ({
+        operationId: operation.operationId,
+        fields: operation.requestFields.map((field) => field.name),
+        naturalIdempotencyPreimage: operation.naturalIdempotencyPreimage,
+      })),
+    }),
+  );
   const canonicalizerGoldenFixtureDigest = sha256(
     canonicalJson(canonicalizerFixtures),
   );
@@ -1036,7 +1040,10 @@ function generatedOperationTypes(operation) {
     ...operation.requestFields,
   ];
   const requestBody = requestFields
-    .map((field) => `  readonly ${field.name}${field.type.startsWith("optional_") ? "?" : ""}: ${fieldTsType(field)};`)
+    .map(
+      (field) =>
+        `  readonly ${field.name}${field.type.startsWith("optional_") ? "?" : ""}: ${fieldTsType(field)};`,
+    )
     .join("\n");
   const resultBody = operation.resultFields
     .map((field) => `  readonly ${field.name}?: ${fieldTsType(field)};`)
@@ -1099,7 +1106,9 @@ function requestSchema(contract, operation) {
       "protocolVersion",
       "schemaDigest",
       "requestId",
-      ...fields.filter((field) => !field.type.startsWith("optional_")).map((field) => field.name),
+      ...fields
+        .filter((field) => !field.type.startsWith("optional_"))
+        .map((field) => field.name),
     ],
     properties: {
       protocolVersion: { const: contract.protocolVersion },
@@ -1183,22 +1192,32 @@ function successResponseSchema(contract, operation) {
           ),
         },
         ...(operation.operationId === "review_investigation_relay_grant"
-          ? { allOf: [{
-              if: { required: ["status"], properties: {
-                status: { enum: ["issued", "restored"] },
-              } },
-              then: {
-                required: ["grantResponse", "blockedPrerequisite"],
-                properties: {
-                  grantResponse: fieldJsonSchema("hosted_v4_relay_grant", contract),
-                  blockedPrerequisite: { type: "null" },
+          ? {
+              allOf: [
+                {
+                  if: {
+                    required: ["status"],
+                    properties: {
+                      status: { enum: ["issued", "restored"] },
+                    },
+                  },
+                  then: {
+                    required: ["grantResponse", "blockedPrerequisite"],
+                    properties: {
+                      grantResponse: fieldJsonSchema(
+                        "hosted_v4_relay_grant",
+                        contract,
+                      ),
+                      blockedPrerequisite: { type: "null" },
+                    },
+                  },
+                  else: {
+                    required: ["grantResponse", "blockedPrerequisite"],
+                    properties: { grantResponse: { type: "null" } },
+                  },
                 },
-              },
-              else: {
-                required: ["grantResponse", "blockedPrerequisite"],
-                properties: { grantResponse: { type: "null" } },
-              },
-            }] }
+              ],
+            }
           : {}),
       },
     },
@@ -1317,7 +1336,9 @@ function fieldJsonSchema(fieldOrType, contract) {
     typeof fieldOrType === "string" ? { type: fieldOrType } : fieldOrType;
   const type = field.type;
   const nullable = type.startsWith("nullable_");
-  const base = nullable ? type.slice("nullable_".length) : type.replace(/^optional_/u, "");
+  const base = nullable
+    ? type.slice("nullable_".length)
+    : type.replace(/^optional_/u, "");
   let schema;
   if (base === "boolean") schema = { type: "boolean" };
   else if (base === "hash")
@@ -1363,7 +1384,14 @@ function fieldJsonSchema(fieldOrType, contract) {
     schema = {
       type: "object",
       additionalProperties: false,
-      required: ["protocolVersion", "grant", "grantId", "relayUrl", "grantExpiresAt", "policy"],
+      required: [
+        "protocolVersion",
+        "grant",
+        "grantId",
+        "relayUrl",
+        "grantExpiresAt",
+        "policy",
+      ],
       properties: {
         protocolVersion: { const: 4 },
         grant: fieldJsonSchema("token", contract),
@@ -1373,12 +1401,26 @@ function fieldJsonSchema(fieldOrType, contract) {
         policy: {
           type: "object",
           additionalProperties: false,
-          required: ["maxRequests", "maxConcurrentRequests", "maxRequestBytes", "maxResponseBytes", "maxOutputTokens"],
+          required: [
+            "maxRequests",
+            "maxConcurrentRequests",
+            "maxRequestBytes",
+            "maxResponseBytes",
+            "maxOutputTokens",
+          ],
           properties: {
             maxRequests: { const: 1 },
             maxConcurrentRequests: { const: 1 },
-            maxRequestBytes: { type: "integer", minimum: 1, maximum: 1_000_000 },
-            maxResponseBytes: { type: "integer", minimum: 1, maximum: 8_000_000 },
+            maxRequestBytes: {
+              type: "integer",
+              minimum: 1,
+              maximum: 1_000_000,
+            },
+            maxResponseBytes: {
+              type: "integer",
+              minimum: 1,
+              maximum: 8_000_000,
+            },
             maxOutputTokens: { type: "integer", minimum: 1, maximum: 4_096 },
           },
         },
@@ -1449,7 +1491,9 @@ function fieldTsType(fieldOrType) {
     typeof fieldOrType === "string" ? { type: fieldOrType } : fieldOrType;
   const type = field.type;
   const nullable = type.startsWith("nullable_");
-  const base = nullable ? type.slice("nullable_".length) : type.replace(/^optional_/u, "");
+  const base = nullable
+    ? type.slice("nullable_".length)
+    : type.replace(/^optional_/u, "");
   let result;
   if (["positive_integer", "non_negative_integer"].includes(base))
     result = "number";
@@ -1461,7 +1505,8 @@ function fieldTsType(fieldOrType) {
     result =
       "readonly { readonly protocolVersion: string; readonly schemaDigest: string }[]";
   else if (base === "hosted_v4_relay_grant")
-    result = "Readonly<{ protocolVersion: 4; grant: string; grantId: string; relayUrl: '/api/hosted/v4/codex/responses'; grantExpiresAt: string; policy: Readonly<{ maxRequests: number; maxConcurrentRequests: number; maxRequestBytes: number; maxResponseBytes: number; maxOutputTokens: number }> }>";
+    result =
+      "Readonly<{ protocolVersion: 4; grant: string; grantId: string; relayUrl: '/api/hosted/v4/codex/responses'; grantExpiresAt: string; policy: Readonly<{ maxRequests: number; maxConcurrentRequests: number; maxRequestBytes: number; maxResponseBytes: number; maxOutputTokens: number }> }>";
   else result = "string";
   return nullable ? `${result} | null` : result;
 }

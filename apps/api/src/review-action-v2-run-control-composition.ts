@@ -650,9 +650,13 @@ function bindInvestigationCapabilityToAuthorization(
     extensionSchemaDigest: capability.extensionSchemaDigest,
     policyHash: capability.policyHash,
     providerCapabilities: Object.freeze(boundRows),
-    ...(capability.hostedRelayExtension === undefined ? {} : {
-      hostedRelayExtension: Object.freeze({ ...capability.hostedRelayExtension }),
-    }),
+    ...(capability.hostedRelayExtension === undefined
+      ? {}
+      : {
+          hostedRelayExtension: Object.freeze({
+            ...capability.hostedRelayExtension,
+          }),
+        }),
   });
 }
 

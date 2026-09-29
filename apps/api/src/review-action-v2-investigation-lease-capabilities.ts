@@ -90,8 +90,12 @@ export class ReviewActionV2InvestigationLeaseCapabilityAdapter implements Review
     const relay = lease.purpose === ReviewInvestigationLeasePurpose.RelayTurn;
     const signed = await this.codec.sign({
       capabilityId: lease.leaseCapabilityId,
-      kind: relay ? CapabilityKind.InvestigationRelayLease : CapabilityKind.InvestigationShadowLease,
-      audience: relay ? CapabilityAudience.ReviewInvestigationRelayLease : CapabilityAudience.ReviewInvestigationShadowLease,
+      kind: relay
+        ? CapabilityKind.InvestigationRelayLease
+        : CapabilityKind.InvestigationShadowLease,
+      audience: relay
+        ? CapabilityAudience.ReviewInvestigationRelayLease
+        : CapabilityAudience.ReviewInvestigationShadowLease,
       issuer: this.issuer,
       subject: lease.leaseId,
       issuedAt: new Date(lease.renewedAt),
@@ -126,14 +130,22 @@ export class ReviewActionV2InvestigationLeaseCapabilityAdapter implements Review
     token: string,
     now: Date,
   ): Promise<VerifiedReviewActionV2InvestigationLeaseCapability> {
-    return this.verifyForPurpose(token, now, ReviewInvestigationLeasePurpose.ShadowTurn);
+    return this.verifyForPurpose(
+      token,
+      now,
+      ReviewInvestigationLeasePurpose.ShadowTurn,
+    );
   }
 
   async verifyRelay(
     token: string,
     now: Date,
   ): Promise<VerifiedReviewActionV2InvestigationLeaseCapability> {
-    return this.verifyForPurpose(token, now, ReviewInvestigationLeasePurpose.RelayTurn);
+    return this.verifyForPurpose(
+      token,
+      now,
+      ReviewInvestigationLeasePurpose.RelayTurn,
+    );
   }
 
   private async verifyForPurpose(
@@ -145,8 +157,12 @@ export class ReviewActionV2InvestigationLeaseCapabilityAdapter implements Review
     const claims = await this.codec.verify({
       token,
       expectedIssuer: this.issuer,
-      expectedAudience: relay ? CapabilityAudience.ReviewInvestigationRelayLease : CapabilityAudience.ReviewInvestigationShadowLease,
-      expectedKind: relay ? CapabilityKind.InvestigationRelayLease : CapabilityKind.InvestigationShadowLease,
+      expectedAudience: relay
+        ? CapabilityAudience.ReviewInvestigationRelayLease
+        : CapabilityAudience.ReviewInvestigationShadowLease,
+      expectedKind: relay
+        ? CapabilityKind.InvestigationRelayLease
+        : CapabilityKind.InvestigationShadowLease,
       now,
     });
     const payload = exactPayload(claims.payload, [
@@ -170,7 +186,8 @@ export class ReviewActionV2InvestigationLeaseCapabilityAdapter implements Review
       "fencing_token",
     ]);
     if (
-      text(field(payload, "role")) !== (relay ? relayLeaseRole : investigationLeaseRole) ||
+      text(field(payload, "role")) !==
+        (relay ? relayLeaseRole : investigationLeaseRole) ||
       claims.subject !== text(field(payload, "lease_id")) ||
       claims.ownershipExpiresAt === null
     ) {

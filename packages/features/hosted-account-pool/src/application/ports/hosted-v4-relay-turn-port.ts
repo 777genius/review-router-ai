@@ -55,8 +55,12 @@ export type HostedV4GrantReservationInput = Readonly<{
 
 /** Persistence only. These checks do not resolve live authorization or leases. */
 export interface HostedV4RelayTurnPort {
-  reserveGrant(input: HostedV4GrantReservationInput): Promise<HostedV4GrantReservation>;
-  reservePreparedRequest(input: HostedV4PreparedRequestInput): Promise<HostedV4PreparedRequest>;
+  reserveGrant(
+    input: HostedV4GrantReservationInput,
+  ): Promise<HostedV4GrantReservation>;
+  reservePreparedRequest(
+    input: HostedV4PreparedRequestInput,
+  ): Promise<HostedV4PreparedRequest>;
   reserve(contract: HostedV4RelayGrantContract): Promise<void>;
   assertOpen(contract: HostedV4RelayGrantContract): Promise<void>;
   markTerminalUnknown(logicalTurnKey: string, at: Date): Promise<void>;

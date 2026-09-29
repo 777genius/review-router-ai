@@ -62,8 +62,15 @@ import {
   type ReviewInvestigationReadModel,
   type InvestigationEvidenceReceipt,
 } from "@reviewrouter/features-review-investigations";
-import { hostedV4LogicalTurnKey, type HostedV4RelayTurnPort, type HostedV4RelayGrantIssuerPort } from "@reviewrouter/features-hosted-account-pool";
-import { hasAuthorizedHostedRelayExtension, hostedV4PaidDispatchBlockedPrerequisite } from "./hosted-v4-relay-authority.js";
+import {
+  hostedV4LogicalTurnKey,
+  type HostedV4RelayTurnPort,
+  type HostedV4RelayGrantIssuerPort,
+} from "@reviewrouter/features-hosted-account-pool";
+import {
+  hasAuthorizedHostedRelayExtension,
+  hostedV4PaidDispatchBlockedPrerequisite,
+} from "./hosted-v4-relay-authority.js";
 import {
   InvestigationShadowEvidenceConclusion,
   InvestigationShadowEvidenceCriticDecision,
@@ -589,24 +596,35 @@ export class ProductionInvestigationTurnEvidence implements InvestigationTurnEvi
     const actualProviderKind = trustedInvestigationProviderKind(
       session?.providerKind ?? null,
     );
-    const relayLease = session?.sourceLeaseAuthorityKind === ContextLeaseAuthorityKind.InvestigationRelay
-      ? await this.leases?.findLease(input.sourceLeaseId)
-      : null;
-    const relayStatus = relayLease && this.relayTurns
-      ? await this.relayTurns.readStatus(
-          hostedV4LogicalTurnKey(relayLease.investigationId, relayLease.turnId),
-        )
-      : null;
+    const relayLease =
+      session?.sourceLeaseAuthorityKind ===
+      ContextLeaseAuthorityKind.InvestigationRelay
+        ? await this.leases?.findLease(input.sourceLeaseId)
+        : null;
+    const relayStatus =
+      relayLease && this.relayTurns
+        ? await this.relayTurns.readStatus(
+            hostedV4LogicalTurnKey(
+              relayLease.investigationId,
+              relayLease.turnId,
+            ),
+          )
+        : null;
     if (
       !session ||
-      (session.sourceLeaseAuthorityKind !== ContextLeaseAuthorityKind.InvestigationShadow &&
-        session.sourceLeaseAuthorityKind !== ContextLeaseAuthorityKind.InvestigationRelay) ||
-      (session.sourceLeaseAuthorityKind === ContextLeaseAuthorityKind.InvestigationRelay &&
+      (session.sourceLeaseAuthorityKind !==
+        ContextLeaseAuthorityKind.InvestigationShadow &&
+        session.sourceLeaseAuthorityKind !==
+          ContextLeaseAuthorityKind.InvestigationRelay) ||
+      (session.sourceLeaseAuthorityKind ===
+        ContextLeaseAuthorityKind.InvestigationRelay &&
         (relayLease?.purpose !== ReviewInvestigationLeasePurpose.RelayTurn ||
           relayLease.leaseId !== input.sourceLeaseId ||
           relayStatus?.state !== "succeeded" ||
-          !relayStatus.grantId || !relayStatus.requestId ||
-          !relayStatus.effectId || !relayStatus.requestHash)) ||
+          !relayStatus.grantId ||
+          !relayStatus.requestId ||
+          !relayStatus.effectId ||
+          !relayStatus.requestHash)) ||
       session.state !== GatewaySessionState.Accepted ||
       actualProviderKind === null ||
       session.sessionId !== attestation.sessionId ||
@@ -616,7 +634,8 @@ export class ProductionInvestigationTurnEvidence implements InvestigationTurnEvi
         attestation.sourceReviewRevisionHash ||
       session.attemptId !== attestation.attemptId ||
       session.sourceLeaseId !== attestation.sourceLeaseId ||
-      session.sourceLeaseAuthorityKind !== attestation.sourceLeaseAuthorityKind ||
+      session.sourceLeaseAuthorityKind !==
+        attestation.sourceLeaseAuthorityKind ||
       session.sourceFencingToken !== attestation.sourceFencingToken ||
       attestation.attestationHash !== input.acceptedAttestationHash ||
       attestation.reuseExpiresAtMs <= this.now().getTime() ||
@@ -1178,16 +1197,35 @@ async function relayGrant(
   request: ReviewInvestigationRelayGrantRequest,
   d: ReviewActionV2InvestigationHandlerDependencies,
 ) {
-  await assertBodyHash(ReviewActionV2OperationId.ReviewInvestigationRelayGrant, request, d);
-  const authorization = await requireAuthorization(request.authorizationToken, d);
-  requireEqual(authorization.authorizationId, request.authorizationId,
-    "authorization_id_mismatch");
-  const investigation = await requireAggregate(request.investigationId, authorization, d);
-  if (investigation.activeTurn?.turnId !== request.turnId ||
-      !investigation.activeTurn.turnBudgetCanonicalJson ||
-      !investigation.activeTurn.turnBudgetHash) {
-    throw failure(412, ReviewActionV2ProtocolErrorCode.StalePrecondition,
-      "review_investigation_relay_turn_stale");
+  await assertBodyHash(
+    ReviewActionV2OperationId.ReviewInvestigationRelayGrant,
+    request,
+    d,
+  );
+  const authorization = await requireAuthorization(
+    request.authorizationToken,
+    d,
+  );
+  requireEqual(
+    authorization.authorizationId,
+    request.authorizationId,
+    "authorization_id_mismatch",
+  );
+  const investigation = await requireAggregate(
+    request.investigationId,
+    authorization,
+    d,
+  );
+  if (
+    investigation.activeTurn?.turnId !== request.turnId ||
+    !investigation.activeTurn.turnBudgetCanonicalJson ||
+    !investigation.activeTurn.turnBudgetHash
+  ) {
+    throw failure(
+      412,
+      ReviewActionV2ProtocolErrorCode.StalePrecondition,
+      "review_investigation_relay_turn_stale",
+    );
   }
   if (!d.relayGrantIssuer) {
     return {
@@ -1211,9 +1249,10 @@ async function relayGrant(
     return {
       statusCode: result.status === "issued" ? (201 as const) : (200 as const),
       result: {
-        status: result.status === "issued"
-          ? ReviewInvestigationRelayGrantResultStatus.Issued
-          : ReviewInvestigationRelayGrantResultStatus.Restored,
+        status:
+          result.status === "issued"
+            ? ReviewInvestigationRelayGrantResultStatus.Issued
+            : ReviewInvestigationRelayGrantResultStatus.Restored,
         grantResponse: result.grantResponse,
         blockedPrerequisite: null,
       } as const,
@@ -1240,13 +1279,22 @@ async function relayStatus(
   request: ReviewInvestigationRelayStatusRequest,
   d: ReviewActionV2InvestigationHandlerDependencies,
 ) {
-  const authorization = await requireAuthorization(request.authorizationToken, d);
-  requireEqual(authorization.authorizationId, request.authorizationId,
-    "authorization_id_mismatch");
+  const authorization = await requireAuthorization(
+    request.authorizationToken,
+    d,
+  );
+  requireEqual(
+    authorization.authorizationId,
+    request.authorizationId,
+    "authorization_id_mismatch",
+  );
   await requireAggregate(request.investigationId, authorization, d);
   if (!d.relayTurnStatus) {
-    throw failure(503, ReviewActionV2ProtocolErrorCode.ServiceUnavailable,
-      "review_investigation_relay_status_unavailable");
+    throw failure(
+      503,
+      ReviewActionV2ProtocolErrorCode.ServiceUnavailable,
+      "review_investigation_relay_status_unavailable",
+    );
   }
   const status = await d.relayTurnStatus.readStatus(
     hostedV4LogicalTurnKey(request.investigationId, request.turnId),
@@ -1290,17 +1338,14 @@ async function planTurn(
     | ReviewActionV2OperationId.ReviewInvestigationRelayTurnPlan,
   d: ReviewActionV2InvestigationHandlerDependencies,
 ) {
-  await assertBodyHash(
-    operationId,
-    request,
-    d,
-  );
+  await assertBodyHash(operationId, request, d);
   const authorization = await requireAuthorization(
     request.authorizationToken,
     d,
   );
   if (
-    operationId === ReviewActionV2OperationId.ReviewInvestigationRelayTurnPlan &&
+    operationId ===
+      ReviewActionV2OperationId.ReviewInvestigationRelayTurnPlan &&
     !hasAuthorizedHostedRelayExtension(authorization)
   ) {
     throw failure(
@@ -1433,17 +1478,14 @@ async function acquireInvestigationLease(
     | ReviewActionV2OperationId.ReviewInvestigationRelayLeaseAcquire,
   d: ReviewActionV2InvestigationHandlerDependencies,
 ) {
-  await assertBodyHash(
-    operationId,
-    request,
-    d,
-  );
+  await assertBodyHash(operationId, request, d);
   const authorization = await requireAuthorization(
     request.authorizationToken,
     d,
   );
   const relayLease =
-    operationId === ReviewActionV2OperationId.ReviewInvestigationRelayLeaseAcquire;
+    operationId ===
+    ReviewActionV2OperationId.ReviewInvestigationRelayLeaseAcquire;
   if (
     relayLease &&
     (request as ReviewInvestigationRelayLeaseAcquireRequest).leasePurpose !==
@@ -1457,8 +1499,11 @@ async function acquireInvestigationLease(
   }
   if (relayLease) {
     if (!hasAuthorizedHostedRelayExtension(authorization)) {
-      throw failure(403, ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
-        "review_hosted_relay_extension_not_authorized");
+      throw failure(
+        403,
+        ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
+        "review_hosted_relay_extension_not_authorized",
+      );
     }
   } else {
     assertInvestigationExtensionAuthorized(authorization);
@@ -1486,11 +1531,18 @@ async function acquireInvestigationLease(
     );
   } else {
     const authorizedProvider = extensionProvider(providerKind);
-    if (authorizedProvider === null || !hasAuthorizedHostedRelayExtension(
-      authorization, { providerKind: authorizedProvider, capability: requiredCapability },
-    )) {
-      throw failure(403, ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
-        "review_hosted_relay_extension_not_authorized");
+    if (
+      authorizedProvider === null ||
+      !hasAuthorizedHostedRelayExtension(authorization, {
+        providerKind: authorizedProvider,
+        capability: requiredCapability,
+      })
+    ) {
+      throw failure(
+        403,
+        ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
+        "review_hosted_relay_extension_not_authorized",
+      );
     }
   }
   const turnAuthority = await verifyTurnCapability(request.turnCapability, d);
@@ -1500,12 +1552,18 @@ async function acquireInvestigationLease(
     : ReviewInvestigationLeasePurpose.ShadowTurn;
   if (purpose === ReviewInvestigationLeasePurpose.RelayTurn) {
     if (!hasAuthorizedHostedRelayExtension(authorization)) {
-      throw failure(403, ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
-        "review_hosted_relay_extension_not_authorized");
+      throw failure(
+        403,
+        ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
+        "review_hosted_relay_extension_not_authorized",
+      );
     }
     if (!d.relayLeaseAdmission) {
-      throw failure(403, ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
-        "review_investigation_relay_lease_disabled");
+      throw failure(
+        403,
+        ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
+        "review_investigation_relay_lease_disabled",
+      );
     }
     await d.relayLeaseAdmission({ authorization, investigation: aggregate });
   }
@@ -2756,8 +2814,13 @@ async function verifyInvestigationLeaseCapability(
   } catch {
     if (d.investigationLeaseCapabilities.verifyRelay) {
       try {
-        return await d.investigationLeaseCapabilities.verifyRelay(token, d.now());
-      } catch { /* Distinct signed audience and kind both failed. */ }
+        return await d.investigationLeaseCapabilities.verifyRelay(
+          token,
+          d.now(),
+        );
+      } catch {
+        /* Distinct signed audience and kind both failed. */
+      }
     }
     throw failure(
       401,

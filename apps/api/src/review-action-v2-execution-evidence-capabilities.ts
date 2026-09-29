@@ -120,7 +120,9 @@ export type ReviewActionV2ContextGatewaySealAuthority = Readonly<{
 
 export type ReviewActionV2InvestigationContextGatewaySealAuthority =
   ReviewActionV2ContextGatewaySealAuthority &
-    Readonly<{ sourceLeaseAuthorityKind: "investigation_shadow" | "investigation_relay" }>;
+    Readonly<{
+      sourceLeaseAuthorityKind: "investigation_shadow" | "investigation_relay";
+    }>;
 
 export type ReviewActionV2ContextReplayAuthority = Readonly<{
   capabilityId?: string;
@@ -552,9 +554,10 @@ export class ReviewActionV2ExecutionEvidenceCapabilityAdapter {
         ownershipExpiresAt: authority.expiresAt,
         expiresAt: authority.expiresAt,
         payload: {
-          role: authority.sourceLeaseAuthorityKind === "investigation_relay"
-            ? investigationRelayContextGatewaySealRole
-            : investigationContextGatewaySealRole,
+          role:
+            authority.sourceLeaseAuthorityKind === "investigation_relay"
+              ? investigationRelayContextGatewaySealRole
+              : investigationContextGatewaySealRole,
           authorization_id: authority.authorizationId,
           mutation_epoch: authority.mutationEpoch.toString(10),
           scope_hash: authority.scopeHash,
@@ -605,10 +608,13 @@ export class ReviewActionV2ExecutionEvidenceCapabilityAdapter {
       "confinement_evidence_hash",
     ]);
     if (
-      string(payload.role) !== (string(payload.source_lease_authority_kind) === "investigation_relay"
-        ? investigationRelayContextGatewaySealRole
-        : investigationContextGatewaySealRole) ||
-      !["investigation_shadow", "investigation_relay"].includes(string(payload.source_lease_authority_kind)) ||
+      string(payload.role) !==
+        (string(payload.source_lease_authority_kind) === "investigation_relay"
+          ? investigationRelayContextGatewaySealRole
+          : investigationContextGatewaySealRole) ||
+      !["investigation_shadow", "investigation_relay"].includes(
+        string(payload.source_lease_authority_kind),
+      ) ||
       claims.subject !== string(payload.session_id) ||
       claims.ownershipExpiresAt === null
     ) {
@@ -624,7 +630,9 @@ export class ReviewActionV2ExecutionEvidenceCapabilityAdapter {
       sessionId: string(payload.session_id),
       sourceExecutionId: string(payload.source_execution_id),
       sourceWorkSlotId: string(payload.source_work_slot_id),
-      sourceLeaseAuthorityKind: string(payload.source_lease_authority_kind) as "investigation_shadow" | "investigation_relay",
+      sourceLeaseAuthorityKind: string(payload.source_lease_authority_kind) as
+        | "investigation_shadow"
+        | "investigation_relay",
       attemptId: string(payload.attempt_id),
       sourceLeaseId: string(payload.source_lease_id),
       sourceFencingToken: unsignedBigInt(payload.source_fencing_token).toString(

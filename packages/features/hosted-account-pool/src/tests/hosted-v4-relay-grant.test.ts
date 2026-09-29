@@ -1,6 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   reviewHostedRelayExtensionV1,
   reviewInvestigationExtensionV1,
@@ -29,7 +37,10 @@ import {
 import { PrismaInvestigationStore } from "../../../review-investigations/src/infrastructure/prisma/prisma-investigation-store";
 import { NodeSha256InvestigationDigest } from "../../../review-investigations/src/infrastructure/node/node-sha256-digest";
 import { createInvestigationStoreContractSeed } from "../../../review-investigations/src/testing/investigation-store-contract";
-import { cleanup, seedExecution } from "../../../review-investigations/src/testing/prisma-investigation-store-harness";
+import {
+  cleanup,
+  seedExecution,
+} from "../../../review-investigations/src/testing/prisma-investigation-store-harness";
 import {
   CurrentInvestigationExecutionAuthority,
   FixedInvestigationClock,
@@ -91,15 +102,21 @@ function scope(): HostedV4RelayScope {
     runtimeAuthzEpoch: 1n,
     model: "codex",
     policyFingerprint: hostedV4RelayCanaryPolicyFingerprint({
-      accountId: "account", runtimeConfigVersion: 7, model: "codex",
-      maxRequests: 1, maxRequestBytes: 1_000,
-      maxResponseBytes: 2_000, maxOutputTokens: 100,
+      accountId: "account",
+      runtimeConfigVersion: 7,
+      model: "codex",
+      maxRequests: 1,
+      maxRequestBytes: 1_000,
+      maxResponseBytes: 2_000,
+      maxOutputTokens: 100,
     }),
     investigationId: randomUUID(),
     investigationVersion: 1n,
     turnId: randomUUID(),
     turnBudgetCanonicalJson,
-    turnBudgetHash: createHash("sha256").update(turnBudgetCanonicalJson).digest("hex"),
+    turnBudgetHash: createHash("sha256")
+      .update(turnBudgetCanonicalJson)
+      .digest("hex"),
     turnPurpose: "discovery",
     planningInputDossierDigest: "c".repeat(64),
     dossierDigest: digest,
@@ -162,45 +179,63 @@ describe("hosted v4 relay turn contract", () => {
       authorizationDescriptorVersion: 3,
       capability: "review_investigation_v1",
       coverageProfileHash: digest,
-      extensionCanonicalizerDigest: reviewInvestigationExtensionV1.canonicalizerDigest,
+      extensionCanonicalizerDigest:
+        reviewInvestigationExtensionV1.canonicalizerDigest,
       extensionId: reviewInvestigationExtensionV1.extensionId,
       extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
       policyHash: digest,
-      providerCapabilities: [{ providerKind: "codex", capabilities: ["recording"] }],
+      providerCapabilities: [
+        { providerKind: "codex", capabilities: ["recording"] },
+      ],
       hostedRelayExtension: {
         capability: "hosted_relay_turn_v1",
-        extensionCanonicalizerDigest: reviewHostedRelayExtensionV1.canonicalizerDigest,
+        extensionCanonicalizerDigest:
+          reviewHostedRelayExtensionV1.canonicalizerDigest,
         extensionId: reviewHostedRelayExtensionV1.extensionId,
         extensionSchemaDigest: reviewHostedRelayExtensionV1.schemaDigest,
       },
     };
-    expect(parseInvestigationAuthorizationDescriptorJson(canonicalJson(descriptor)))
-      .not.toBeNull();
-    expect(parseInvestigationAuthorizationDescriptorJson(JSON.stringify(descriptor)))
-      .toBeNull();
+    expect(
+      parseInvestigationAuthorizationDescriptorJson(canonicalJson(descriptor)),
+    ).not.toBeNull();
+    expect(
+      parseInvestigationAuthorizationDescriptorJson(JSON.stringify(descriptor)),
+    ).toBeNull();
   });
   it("creates no turn without both exact disposable admission flags", async () => {
     const tx = {
       $queryRaw: vi.fn(async (query: Prisma.Sql) =>
         query.strings.join("").includes('"ProducerRelease"')
-          ? [{ producerReleaseId: saved.scope.producerReleaseId, state: "registered" }]
-          : [{ now }]),
+          ? [
+              {
+                producerReleaseId: saved.scope.producerReleaseId,
+                state: "registered",
+              },
+            ]
+          : [{ now }],
+      ),
       hostedCodexV4RelayTurn: { findUnique: vi.fn().mockResolvedValue(null) },
       $executeRaw: vi.fn(),
     };
-    const transaction = vi.fn(async (callback: (value: typeof tx) => Promise<unknown>) =>
-      callback(tx));
+    const transaction = vi.fn(
+      async (callback: (value: typeof tx) => Promise<unknown>) => callback(tx),
+    );
     const store = new PrismaHostedV4RelayTurn({
       $transaction: transaction,
     } as unknown as PrismaClient);
     const saved = contract(scope());
     const input = {
-      contract: saved, capabilityTokenHash: digest,
-      accountId: "account", credentialGeneration: 1n,
+      contract: saved,
+      capabilityTokenHash: digest,
+      accountId: "account",
+      credentialGeneration: 1n,
       runtimeConfigVersion: 7,
     };
     vi.stubEnv("REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED", "true");
-    vi.stubEnv("REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID", saved.scope.githubRepositoryId);
+    vi.stubEnv(
+      "REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID",
+      saved.scope.githubRepositoryId,
+    );
     await expect(store.reserveGrant(input)).rejects.toThrow(
       "hosted_v4_relay_admission_disabled",
     );
@@ -212,9 +247,9 @@ describe("hosted v4 relay turn contract", () => {
     expect(transaction).toHaveBeenCalledTimes(2);
     expect(tx.$executeRaw).not.toHaveBeenCalled();
     const forged = contract({ ...saved.scope, policyFingerprint: digest });
-    await expect(store.reserveGrant({ ...input, contract: forged })).rejects.toThrow(
-      "hosted_v4_relay_grant_facts_invalid",
-    );
+    await expect(
+      store.reserveGrant({ ...input, contract: forged }),
+    ).rejects.toThrow("hosted_v4_relay_grant_facts_invalid");
     expect(transaction).toHaveBeenCalledTimes(2);
   });
 
@@ -226,7 +261,8 @@ describe("hosted v4 relay turn contract", () => {
         { code: "P2010", clientVersion: "7.8.0", meta: { code: "40001" } },
       ),
       Object.assign(new Error("raw query failed"), {
-        code: "P2010", meta: { code: "40001" },
+        code: "P2010",
+        meta: { code: "40001" },
       }),
       new Prisma.PrismaClientKnownRequestError(
         "Invalid `prisma.$queryRaw()` invocation:\n\nRaw query failed. Code: `40001`. Message: `ERROR: could not serialize access due to concurrent update`",
@@ -234,7 +270,13 @@ describe("hosted v4 relay turn contract", () => {
       ),
       new Prisma.PrismaClientKnownRequestError(
         "Raw query failed. Code: `40001`. Message: `could not serialize access due to concurrent update`",
-        { code: "P2010", clientVersion: "7.8.0", meta: { message: "could not serialize access due to concurrent update" } },
+        {
+          code: "P2010",
+          clientVersion: "7.8.0",
+          meta: {
+            message: "could not serialize access due to concurrent update",
+          },
+        },
       ),
       new Prisma.PrismaClientKnownRequestError(
         "Invalid `prisma.$queryRaw()` invocation:\n\nRaw query failed. Code: `40001`. Message: `could not serialize access due to read/write dependencies among transactions`",
@@ -242,25 +284,37 @@ describe("hosted v4 relay turn contract", () => {
       ),
     ]) {
       const tx = {
-        $queryRaw: vi.fn()
+        $queryRaw: vi
+          .fn()
           .mockResolvedValueOnce([{ now }])
-          .mockResolvedValueOnce([{
-            producerReleaseId: saved.scope.producerReleaseId, state: "revoked",
-          }]),
+          .mockResolvedValueOnce([
+            {
+              producerReleaseId: saved.scope.producerReleaseId,
+              state: "revoked",
+            },
+          ]),
         hostedCodexV4RelayTurn: { findUnique: vi.fn().mockResolvedValue(null) },
         $executeRaw: vi.fn(),
         hostedCodexInvocationGrant: { create: vi.fn() },
       };
-      const transaction = vi.fn()
+      const transaction = vi
+        .fn()
         .mockRejectedValueOnce(serializationFailure)
-        .mockImplementationOnce((callback: (value: typeof tx) => Promise<unknown>) => callback(tx));
+        .mockImplementationOnce(
+          (callback: (value: typeof tx) => Promise<unknown>) => callback(tx),
+        );
       const store = new PrismaHostedV4RelayTurn({
         $transaction: transaction,
       } as unknown as PrismaClient);
-      await expect(store.reserveGrant({
-        contract: saved, capabilityTokenHash: digest, accountId: "account",
-        credentialGeneration: 1n, runtimeConfigVersion: 7,
-      })).rejects.toThrow("hosted_v4_relay_reservation_authority_stale");
+      await expect(
+        store.reserveGrant({
+          contract: saved,
+          capabilityTokenHash: digest,
+          accountId: "account",
+          credentialGeneration: 1n,
+          runtimeConfigVersion: 7,
+        }),
+      ).rejects.toThrow("hosted_v4_relay_reservation_authority_stale");
       expect(transaction).toHaveBeenCalledTimes(2);
       expect(tx.$executeRaw).not.toHaveBeenCalled();
       expect(tx.hostedCodexInvocationGrant.create).not.toHaveBeenCalled();
@@ -271,7 +325,8 @@ describe("hosted v4 relay turn contract", () => {
     const saved = contract(scope());
     for (const failure of [
       Object.assign(new Error("raw query failed"), {
-        code: "P2010", meta: { code: "23505" },
+        code: "P2010",
+        meta: { code: "23505" },
       }),
       new Prisma.PrismaClientKnownRequestError(
         "Raw query failed. Code: `40001`. Message: `could not serialize access due to concurrent update`",
@@ -279,7 +334,13 @@ describe("hosted v4 relay turn contract", () => {
       ),
       new Prisma.PrismaClientKnownRequestError(
         "Raw query failed. Code: `23505`. Message: `could not serialize access due to concurrent update`",
-        { code: "P2010", clientVersion: "7.8.0", meta: { message: "could not serialize access due to concurrent update" } },
+        {
+          code: "P2010",
+          clientVersion: "7.8.0",
+          meta: {
+            message: "could not serialize access due to concurrent update",
+          },
+        },
       ),
       new Prisma.PrismaClientKnownRequestError(
         "Invalid `prisma.$queryRaw()` invocation:\n\nRaw query failed. Code: `23505`. Message: `ERROR: duplicate key value violates unique constraint; could not serialize access due to concurrent update`",
@@ -294,10 +355,15 @@ describe("hosted v4 relay turn contract", () => {
       const store = new PrismaHostedV4RelayTurn({
         $transaction: transaction,
       } as unknown as PrismaClient);
-      await expect(store.reserveGrant({
-        contract: saved, capabilityTokenHash: digest, accountId: "account",
-        credentialGeneration: 1n, runtimeConfigVersion: 7,
-      })).rejects.toBe(failure);
+      await expect(
+        store.reserveGrant({
+          contract: saved,
+          capabilityTokenHash: digest,
+          accountId: "account",
+          credentialGeneration: 1n,
+          runtimeConfigVersion: 7,
+        }),
+      ).rejects.toBe(failure);
       expect(transaction).toHaveBeenCalledTimes(1);
     }
   });
@@ -306,23 +372,40 @@ describe("hosted v4 relay turn contract", () => {
     const saved = contract(scope());
     const failure = new Prisma.PrismaClientKnownRequestError(
       "Invalid `prisma.$queryRaw()` invocation:\n\nRaw query failed. Code: `40001`. Message: `ERROR: could not serialize access due to concurrent update`",
-      { code: "P2010", clientVersion: "7.8.0", meta: { message: "could not serialize access due to concurrent update" } },
+      {
+        code: "P2010",
+        clientVersion: "7.8.0",
+        meta: {
+          message: "could not serialize access due to concurrent update",
+        },
+      },
     );
     for (const operation of ["grant", "request"] as const) {
       const transaction = vi.fn().mockRejectedValue(failure);
       const store = new PrismaHostedV4RelayTurn({
         $transaction: transaction,
       } as unknown as PrismaClient);
-      const result = operation === "grant"
-        ? store.reserveGrant({
-          contract: saved, capabilityTokenHash: digest, accountId: "account",
-          credentialGeneration: 1n, runtimeConfigVersion: 7,
-        })
-        : store.reservePreparedRequest({
-          contract: saved, grantId: "grant", idempotencyKey: "one", ordinal: 1,
-          body: new TextEncoder().encode('{"model":"codex","max_output_tokens":100}'),
-          accountId: "account", credentialGeneration: 1n, ownerIdHash: digest,
-        });
+      const result =
+        operation === "grant"
+          ? store.reserveGrant({
+              contract: saved,
+              capabilityTokenHash: digest,
+              accountId: "account",
+              credentialGeneration: 1n,
+              runtimeConfigVersion: 7,
+            })
+          : store.reservePreparedRequest({
+              contract: saved,
+              grantId: "grant",
+              idempotencyKey: "one",
+              ordinal: 1,
+              body: new TextEncoder().encode(
+                '{"model":"codex","max_output_tokens":100}',
+              ),
+              accountId: "account",
+              credentialGeneration: 1n,
+              ownerIdHash: digest,
+            });
       await expect(result).rejects.toBe(failure);
       expect(transaction).toHaveBeenCalledTimes(3);
     }
@@ -332,81 +415,129 @@ describe("hosted v4 relay turn contract", () => {
     const saved = contract(scope());
     const s = saved.scope;
     vi.stubEnv("REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED", "1");
-    vi.stubEnv("REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID", s.githubRepositoryId);
+    vi.stubEnv(
+      "REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID",
+      s.githubRepositoryId,
+    );
     const authorization = {
-      authorizationId: s.authorizationId, state: "active", expiresAt: later(10),
-      mutationEpoch: s.mutationEpoch, workspaceId: s.workspaceId,
+      authorizationId: s.authorizationId,
+      state: "active",
+      expiresAt: later(10),
+      mutationEpoch: s.mutationEpoch,
+      workspaceId: s.workspaceId,
       repositoryConnectionId: s.repositoryConnectionId,
       scmRepositoryIdentityId: s.scmRepositoryIdentityId,
-      pullRequestNumber: s.pullRequestNumber, baseSha: s.baseSha,
-      mergeBaseSha: s.mergeBaseSha, headSha: s.headSha,
-      reviewRevisionHash: s.reviewRevisionHash, producerReleaseId: s.producerReleaseId,
-      trustDomain: s.trustDomain, selectedProtocolVersion: s.protocolVersion,
-      schemaDigest: s.schemaDigest, protocolLimitsProfileId: s.protocolLimitsProfileId,
-      sourceRunId: "run-1", sourceRunAttempt: "1",
+      pullRequestNumber: s.pullRequestNumber,
+      baseSha: s.baseSha,
+      mergeBaseSha: s.mergeBaseSha,
+      headSha: s.headSha,
+      reviewRevisionHash: s.reviewRevisionHash,
+      producerReleaseId: s.producerReleaseId,
+      trustDomain: s.trustDomain,
+      selectedProtocolVersion: s.protocolVersion,
+      schemaDigest: s.schemaDigest,
+      protocolLimitsProfileId: s.protocolLimitsProfileId,
+      sourceRunId: "run-1",
+      sourceRunAttempt: "1",
       reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson({
         authorizationDescriptorVersion: 3,
         capability: "review_investigation_v1",
         coverageProfileHash: digest,
-        extensionCanonicalizerDigest: reviewInvestigationExtensionV1.canonicalizerDigest,
+        extensionCanonicalizerDigest:
+          reviewInvestigationExtensionV1.canonicalizerDigest,
         extensionId: "review-investigation-shadow.v1",
         extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
         hostedRelayExtension: {
           capability: "hosted_relay_turn_v1",
-          extensionCanonicalizerDigest: reviewHostedRelayExtensionV1.canonicalizerDigest,
+          extensionCanonicalizerDigest:
+            reviewHostedRelayExtensionV1.canonicalizerDigest,
           extensionId: "review-investigation-hosted-relay.v1",
           extensionSchemaDigest: reviewHostedRelayExtensionV1.schemaDigest,
         },
         policyHash: digest,
-        providerCapabilities: [{ providerKind: "codex", capabilities: ["recording"] }],
+        providerCapabilities: [
+          { providerKind: "codex", capabilities: ["recording"] },
+        ],
       }),
     };
     const execution = {
-      executionId: s.executionId, state: "running", authorizationId: s.authorizationId,
-      mutationEpoch: s.mutationEpoch, reviewRevisionHash: s.reviewRevisionHash,
-      producerReleaseId: s.producerReleaseId, workspaceId: s.workspaceId,
+      executionId: s.executionId,
+      state: "running",
+      authorizationId: s.authorizationId,
+      mutationEpoch: s.mutationEpoch,
+      reviewRevisionHash: s.reviewRevisionHash,
+      producerReleaseId: s.producerReleaseId,
+      workspaceId: s.workspaceId,
       repositoryConnectionId: s.repositoryConnectionId,
       scmRepositoryIdentityId: s.scmRepositoryIdentityId,
-      pullRequestNumber: s.pullRequestNumber, baseSha: s.baseSha,
-      mergeBaseSha: s.mergeBaseSha, headSha: s.headSha,
-      sourceRunId: "run-1", sourceRunAttempt: "1", generation: 1n,
+      pullRequestNumber: s.pullRequestNumber,
+      baseSha: s.baseSha,
+      mergeBaseSha: s.mergeBaseSha,
+      headSha: s.headSha,
+      sourceRunId: "run-1",
+      sourceRunAttempt: "1",
+      generation: 1n,
       protocolLimitsProfileId: s.protocolLimitsProfileId,
     };
     const investigation = {
-      investigationId: s.investigationId, state: "turn_leased",
+      investigationId: s.investigationId,
+      state: "turn_leased",
       runtimeProfile: "gateway_attested_agent_v1",
-      workspaceId: s.workspaceId, repositoryConnectionId: s.repositoryConnectionId,
-      scmRepositoryIdentityId: s.scmRepositoryIdentityId,
-      pullRequestNumber: s.pullRequestNumber, baseSha: s.baseSha,
-      mergeBaseSha: s.mergeBaseSha, headSha: s.headSha,
-      reviewRevisionHash: s.reviewRevisionHash, producerReleaseId: s.producerReleaseId,
-      providerVoteLaneId: s.providerVoteLaneId, providerStrategyId: s.providerStrategyId,
-      investigationManifestHash: s.investigationManifestHash,
-      activeTurnId: s.turnId, version: s.investigationVersion,
-      dossierDigest: s.dossierDigest, executionId: s.executionId, workSlotId: s.workSlotId,
-    };
-    const leaseBase = {
-      authorizationId: s.authorizationId, workspaceId: s.workspaceId,
+      workspaceId: s.workspaceId,
       repositoryConnectionId: s.repositoryConnectionId,
       scmRepositoryIdentityId: s.scmRepositoryIdentityId,
-      pullRequestNumber: s.pullRequestNumber, mutationEpoch: s.mutationEpoch,
-      executionId: s.executionId, workSlotId: s.workSlotId,
-      baseSha: s.baseSha, mergeBaseSha: s.mergeBaseSha, headSha: s.headSha,
-      reviewRevisionHash: s.reviewRevisionHash, state: "active", expiresAt: later(5),
+      pullRequestNumber: s.pullRequestNumber,
+      baseSha: s.baseSha,
+      mergeBaseSha: s.mergeBaseSha,
+      headSha: s.headSha,
+      reviewRevisionHash: s.reviewRevisionHash,
+      producerReleaseId: s.producerReleaseId,
+      providerVoteLaneId: s.providerVoteLaneId,
+      providerStrategyId: s.providerStrategyId,
+      investigationManifestHash: s.investigationManifestHash,
+      activeTurnId: s.turnId,
+      version: s.investigationVersion,
+      dossierDigest: s.dossierDigest,
+      executionId: s.executionId,
+      workSlotId: s.workSlotId,
+    };
+    const leaseBase = {
+      authorizationId: s.authorizationId,
+      workspaceId: s.workspaceId,
+      repositoryConnectionId: s.repositoryConnectionId,
+      scmRepositoryIdentityId: s.scmRepositoryIdentityId,
+      pullRequestNumber: s.pullRequestNumber,
+      mutationEpoch: s.mutationEpoch,
+      executionId: s.executionId,
+      workSlotId: s.workSlotId,
+      baseSha: s.baseSha,
+      mergeBaseSha: s.mergeBaseSha,
+      headSha: s.headSha,
+      reviewRevisionHash: s.reviewRevisionHash,
+      state: "active",
+      expiresAt: later(5),
     };
     const investigationLease = {
-      ...leaseBase, leaseId: s.investigationLease.leaseId, purpose: "relay_turn",
-      investigationVersion: s.investigationVersion, turnPurpose: s.turnPurpose,
-      providerVoteLaneId: s.providerVoteLaneId, providerStrategyId: s.providerStrategyId,
-      investigationManifestHash: s.investigationManifestHash, attemptId: s.attemptId,
-      investigationId: s.investigationId, turnId: s.turnId,
+      ...leaseBase,
+      leaseId: s.investigationLease.leaseId,
+      purpose: "relay_turn",
+      investigationVersion: s.investigationVersion,
+      turnPurpose: s.turnPurpose,
+      providerVoteLaneId: s.providerVoteLaneId,
+      providerStrategyId: s.providerStrategyId,
+      investigationManifestHash: s.investigationManifestHash,
+      attemptId: s.attemptId,
+      investigationId: s.investigationId,
+      turnId: s.turnId,
       leaseCapabilityId: s.investigationLease.capabilityId,
       ownerIdHash: s.investigationLease.ownerIdHash,
       fencingToken: s.investigationLease.fencingToken,
     };
     const invocationLease = {
-      ...leaseBase, leaseId: s.invocationLease.leaseId,
-      purpose: "provider_execution", executionGeneration: 1n,
+      ...leaseBase,
+      leaseId: s.invocationLease.leaseId,
+      purpose: "provider_execution",
+      executionGeneration: 1n,
       producerReleaseId: s.producerReleaseId,
       expiresAt: s.invocationLease.expiresAt,
       leaseCapabilityId: s.invocationLease.capabilityId,
@@ -416,30 +547,45 @@ describe("hosted v4 relay turn contract", () => {
       providerInvocationKey: s.invocationLease.providerInvocationKey,
     };
     const scopeRow = {
-      scopeHash: saved.scopeHash, scopeCanonical: JSON.stringify(s, (_key, value) =>
-        typeof value === "bigint" ? value.toString() : value),
-      state: "open", expiresAt: saved.expiresAt,
-      maxRequests: saved.maxRequests, maxRequestBytes: saved.maxRequestBytes,
-      maxResponseBytes: saved.maxResponseBytes, maxOutputTokens: saved.maxOutputTokens,
+      scopeHash: saved.scopeHash,
+      scopeCanonical: JSON.stringify(s, (_key, value) =>
+        typeof value === "bigint" ? value.toString() : value,
+      ),
+      state: "open",
+      expiresAt: saved.expiresAt,
+      maxRequests: saved.maxRequests,
+      maxRequestBytes: saved.maxRequestBytes,
+      maxResponseBytes: saved.maxResponseBytes,
+      maxOutputTokens: saved.maxOutputTokens,
     };
     const createGrant = vi.fn().mockResolvedValue({});
-    const createRequest = vi.fn().mockImplementation(async ({ data }: { data: { id: string } }) => data);
-    const createEffect = vi.fn().mockImplementation(async ({ data }: { data: { id: string } }) => data);
+    const createRequest = vi
+      .fn()
+      .mockImplementation(async ({ data }: { data: { id: string } }) => data);
+    const createEffect = vi
+      .fn()
+      .mockImplementation(async ({ data }: { data: { id: string } }) => data);
     const tx = {
-      $queryRaw: vi.fn()
+      $queryRaw: vi
+        .fn()
         .mockResolvedValueOnce([{ now }])
-        .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+        .mockResolvedValueOnce([
+          { producerReleaseId: s.producerReleaseId, state: "registered" },
+        ])
         .mockResolvedValueOnce([scopeRow])
         .mockResolvedValueOnce([scopeRow])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ id: "account" }])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-        .mockResolvedValueOnce([{
-          activeExecutionId: s.executionId, preparedExecutionId: null,
-          lastAllocatedGeneration: execution.generation,
-          currentReviewRevisionHash: s.reviewRevisionHash,
-        }])
+        .mockResolvedValueOnce([
+          {
+            activeExecutionId: s.executionId,
+            preparedExecutionId: null,
+            lastAllocatedGeneration: execution.generation,
+            currentReviewRevisionHash: s.reviewRevisionHash,
+          },
+        ])
         .mockResolvedValueOnce([]),
       $executeRaw: vi.fn().mockResolvedValue(1),
       hostedCodexV4RelayTurn: { findUnique: vi.fn().mockResolvedValue(null) },
@@ -449,85 +595,167 @@ describe("hosted v4 relay turn contract", () => {
         create: createGrant,
       },
       hostedCodexRelayRequest: {
-        findFirst: vi.fn().mockResolvedValue(null), create: createRequest,
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: createRequest,
       },
       hostedCodexUpstreamEffectAttempt: {
-        findFirst: vi.fn().mockResolvedValue(null), create: createEffect,
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: createEffect,
       },
-      reviewRunAuthorization: { findUnique: vi.fn().mockResolvedValue(authorization) },
-      producerRelease: { findUnique: vi.fn().mockResolvedValue({
-        state: "registered", schemaDigest: s.schemaDigest,
-        protocolLimitsProfileId: s.protocolLimitsProfileId,
-        wrapperEntrypointDigest: s.actionIdentityHash,
-        runtimeEntrypointDigest: s.runtimeIdentityHash,
-        contextGatewayEntrypointDigest: s.gatewayIdentityHash,
-      }) },
-      reviewExecutionV2: { findUnique: vi.fn().mockResolvedValue(execution) },
-      reviewExecutionWorkSlotV2: { findUnique: vi.fn().mockResolvedValue({
-        state: "leased", activeLeaseId: s.invocationLease.leaseId,
-      }) },
-      reviewInvestigation: { findUnique: vi.fn().mockResolvedValue(investigation) },
-      reviewInvestigationTurn: { findUnique: vi.fn().mockResolvedValue({
-        investigationId: s.investigationId, state: "leased", purpose: s.turnPurpose,
-        leasedAtVersion: s.investigationVersion, dossierDigest: s.planningInputDossierDigest,
-        expiresAt: later(8), turnBudgetCanonicalJson: s.turnBudgetCanonicalJson,
-        turnBudgetHash: s.turnBudgetHash,
-      }) },
-      reviewInvestigationLease: { findUnique: vi.fn().mockResolvedValue(investigationLease) },
-      reviewInvocationLeaseV2: { findUnique: vi.fn().mockResolvedValue(invocationLease) },
-      reviewRequestedIntent: { findMany: vi.fn().mockResolvedValue([{
-        requestId: "requested-intent-1", admissionState: "admitted", state: "dispatched",
-        workspaceId: s.workspaceId, repositoryConnectionId: s.repositoryConnectionId,
-        scmRepositoryIdentityId: s.scmRepositoryIdentityId,
-        pullRequestNumber: s.pullRequestNumber, reviewRevisionHash: s.reviewRevisionHash,
-        headSha: s.headSha, sourceRunId: "run-1", sourceRunAttempt: "1",
-      }]) },
-      hostedCodexAccount: {
-        findMany: vi.fn().mockResolvedValue([{
-          id: "account", activeGeneration: 1n,
-          credentialVersions: [{ generation: 1n, credentialExpiresAt: null }],
-        }]),
+      reviewRunAuthorization: {
+        findUnique: vi.fn().mockResolvedValue(authorization),
+      },
+      producerRelease: {
         findUnique: vi.fn().mockResolvedValue({
-          id: "account", state: "healthy", workspaceId: s.workspaceId,
-          poolId: s.poolId, activeGeneration: 1n,
+          state: "registered",
+          schemaDigest: s.schemaDigest,
+          protocolLimitsProfileId: s.protocolLimitsProfileId,
+          wrapperEntrypointDigest: s.actionIdentityHash,
+          runtimeEntrypointDigest: s.runtimeIdentityHash,
+          contextGatewayEntrypointDigest: s.gatewayIdentityHash,
         }),
       },
-      hostedCodexCredentialVersion: { findUnique: vi.fn().mockResolvedValue({
-        workspaceId: s.workspaceId, poolId: s.poolId, credentialExpiresAt: null,
-      }) },
-      hostedCodexRepositoryBinding: { findUnique: vi.fn().mockResolvedValue({
-        status: "active", revision: BigInt(s.bindingRevision), poolId: s.poolId,
-        workspaceId: s.workspaceId, repositoryConnectionId: s.repositoryConnectionId,
-        pool: { status: "active", authzEpoch: s.poolAuthzEpoch },
-      }) },
-      repositoryConnection: { findUnique: vi.fn().mockResolvedValue({
-        id: s.repositoryConnectionId, workspaceId: s.workspaceId,
-        scmRepositoryIdentityId: s.scmRepositoryIdentityId,
-        provider: "github", selected: true, archived: false,
-        githubRepositoryId: BigInt(s.githubRepositoryId),
-        installation: { status: "active", workspaceId: s.workspaceId,
-          githubInstallationId: BigInt(s.githubInstallationId) },
-      }) },
-      scmRepositoryIdentity: { findUnique: vi.fn().mockResolvedValue({
-        provider: "github", currentWorkspaceId: s.workspaceId,
-        currentRepositoryConnectionId: s.repositoryConnectionId,
-        externalRepositoryId: s.githubRepositoryId,
-      }) },
-      reviewConfiguration: { findUnique: vi.fn().mockImplementation(async (query: {
-        where: { workspaceId_targetKey: { targetKey: string } };
-      }) => query.where.workspaceId_targetKey.targetKey.startsWith("repo:")
-        ? { versions: [{ version: 7, providerKind: "codex",
-            providerAuthMode: "codex_subscription_oauth_hosted_pool",
-            model: s.model, providerLimit: 1, providerMaxParallel: 1,
-            investigationRecordingEnabled: true, providers: [] }] }
-        : null) },
+      reviewExecutionV2: { findUnique: vi.fn().mockResolvedValue(execution) },
+      reviewExecutionWorkSlotV2: {
+        findUnique: vi.fn().mockResolvedValue({
+          state: "leased",
+          activeLeaseId: s.invocationLease.leaseId,
+        }),
+      },
+      reviewInvestigation: {
+        findUnique: vi.fn().mockResolvedValue(investigation),
+      },
+      reviewInvestigationTurn: {
+        findUnique: vi.fn().mockResolvedValue({
+          investigationId: s.investigationId,
+          state: "leased",
+          purpose: s.turnPurpose,
+          leasedAtVersion: s.investigationVersion,
+          dossierDigest: s.planningInputDossierDigest,
+          expiresAt: later(8),
+          turnBudgetCanonicalJson: s.turnBudgetCanonicalJson,
+          turnBudgetHash: s.turnBudgetHash,
+        }),
+      },
+      reviewInvestigationLease: {
+        findUnique: vi.fn().mockResolvedValue(investigationLease),
+      },
+      reviewInvocationLeaseV2: {
+        findUnique: vi.fn().mockResolvedValue(invocationLease),
+      },
+      reviewRequestedIntent: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            requestId: "requested-intent-1",
+            admissionState: "admitted",
+            state: "dispatched",
+            workspaceId: s.workspaceId,
+            repositoryConnectionId: s.repositoryConnectionId,
+            scmRepositoryIdentityId: s.scmRepositoryIdentityId,
+            pullRequestNumber: s.pullRequestNumber,
+            reviewRevisionHash: s.reviewRevisionHash,
+            headSha: s.headSha,
+            sourceRunId: "run-1",
+            sourceRunAttempt: "1",
+          },
+        ]),
+      },
+      hostedCodexAccount: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: "account",
+            activeGeneration: 1n,
+            credentialVersions: [{ generation: 1n, credentialExpiresAt: null }],
+          },
+        ]),
+        findUnique: vi.fn().mockResolvedValue({
+          id: "account",
+          state: "healthy",
+          workspaceId: s.workspaceId,
+          poolId: s.poolId,
+          activeGeneration: 1n,
+        }),
+      },
+      hostedCodexCredentialVersion: {
+        findUnique: vi.fn().mockResolvedValue({
+          workspaceId: s.workspaceId,
+          poolId: s.poolId,
+          credentialExpiresAt: null,
+        }),
+      },
+      hostedCodexRepositoryBinding: {
+        findUnique: vi.fn().mockResolvedValue({
+          status: "active",
+          revision: BigInt(s.bindingRevision),
+          poolId: s.poolId,
+          workspaceId: s.workspaceId,
+          repositoryConnectionId: s.repositoryConnectionId,
+          pool: { status: "active", authzEpoch: s.poolAuthzEpoch },
+        }),
+      },
+      repositoryConnection: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: s.repositoryConnectionId,
+          workspaceId: s.workspaceId,
+          scmRepositoryIdentityId: s.scmRepositoryIdentityId,
+          provider: "github",
+          selected: true,
+          archived: false,
+          githubRepositoryId: BigInt(s.githubRepositoryId),
+          installation: {
+            status: "active",
+            workspaceId: s.workspaceId,
+            githubInstallationId: BigInt(s.githubInstallationId),
+          },
+        }),
+      },
+      scmRepositoryIdentity: {
+        findUnique: vi.fn().mockResolvedValue({
+          provider: "github",
+          currentWorkspaceId: s.workspaceId,
+          currentRepositoryConnectionId: s.repositoryConnectionId,
+          externalRepositoryId: s.githubRepositoryId,
+        }),
+      },
+      reviewConfiguration: {
+        findUnique: vi
+          .fn()
+          .mockImplementation(
+            async (query: {
+              where: { workspaceId_targetKey: { targetKey: string } };
+            }) =>
+              query.where.workspaceId_targetKey.targetKey.startsWith("repo:")
+                ? {
+                    versions: [
+                      {
+                        version: 7,
+                        providerKind: "codex",
+                        providerAuthMode:
+                          "codex_subscription_oauth_hosted_pool",
+                        model: s.model,
+                        providerLimit: 1,
+                        providerMaxParallel: 1,
+                        investigationRecordingEnabled: true,
+                        providers: [],
+                      },
+                    ],
+                  }
+                : null,
+          ),
+      },
     };
-    const transaction = vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
-      callback(tx));
-    const store = new PrismaHostedV4RelayTurn({ $transaction: transaction } as unknown as PrismaClient);
+    const transaction = vi.fn(
+      async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+    );
+    const store = new PrismaHostedV4RelayTurn({
+      $transaction: transaction,
+    } as unknown as PrismaClient);
     const grantInput = {
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
+      contract: saved,
+      capabilityTokenHash: digest,
+      accountId: "account",
+      credentialGeneration: 1n,
+      runtimeConfigVersion: 7,
     };
     await expect(store.reserveGrant(grantInput)).rejects.toThrow(
       "hosted_v4_relay_reservation_authority_stale",
@@ -535,44 +763,72 @@ describe("hosted v4 relay turn contract", () => {
     expect(createGrant).not.toHaveBeenCalled();
     transaction.mockClear();
     tx.$executeRaw.mockClear();
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "issued", grantId: `v4-grant-${saved.logicalTurnKey}` });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({
+      status: "issued",
+      grantId: `v4-grant-${saved.logicalTurnKey}`,
+    });
     expect(transaction).toHaveBeenCalledOnce();
     expect(tx.$executeRaw).toHaveBeenCalledOnce();
     const fundedTurnQuery = tx.$queryRaw.mock.calls[6]?.[0] as Prisma.Sql;
     expect(fundedTurnQuery.strings.join("")).toContain('i."executionId"');
-    expect(fundedTurnQuery.strings.join("")).toContain('g."providerInvocationKey"');
+    expect(fundedTurnQuery.strings.join("")).toContain(
+      'g."providerInvocationKey"',
+    );
     const grantReleaseFence = tx.$queryRaw.mock.calls[1]?.[0] as Prisma.Sql;
     expect(grantReleaseFence.strings.join("")).toContain('"ProducerRelease"');
     expect(grantReleaseFence.strings.join("")).toContain("FOR SHARE");
-    expect(createGrant).toHaveBeenCalledWith({ data: expect.objectContaining({
-      authorityKind: "v4_relay_turn", v4TurnKey: saved.logicalTurnKey,
-      v4ScopeHash: saved.scopeHash, backupAccountId: null,
-      policyVersion: "hosted-v4-disposable-eight-v1",
-      reviewRequestId: "requested-intent-1", providerInvocationKey: "provider-invocation-1",
-      maxRequests: 1,
-    }) });
+    expect(createGrant).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        authorityKind: "v4_relay_turn",
+        v4TurnKey: saved.logicalTurnKey,
+        v4ScopeHash: saved.scopeHash,
+        backupAccountId: null,
+        policyVersion: "hosted-v4-disposable-eight-v1",
+        reviewRequestId: "requested-intent-1",
+        providerInvocationKey: "provider-invocation-1",
+        maxRequests: 1,
+      }),
+    });
     const grantData = createGrant.mock.calls[0]![0].data;
     const issuedGrant = {
-      ...grantData, status: "issued", requestCount: 0, inFlight: 0,
+      ...grantData,
+      status: "issued",
+      requestCount: 0,
+      inFlight: 0,
     };
     tx.hostedCodexInvocationGrant.findUnique.mockResolvedValue(issuedGrant);
     const boundedBody = new TextEncoder().encode(
@@ -580,119 +836,192 @@ describe("hosted v4 relay turn contract", () => {
     );
     const bodyHash = createHash("sha256").update(boundedBody).digest("hex");
     const requestInput = {
-      contract: saved, grantId: grantData.id, idempotencyKey: "one",
-      ordinal: 1 as const, body: boundedBody, accountId: "account",
-      credentialGeneration: 1n, ownerIdHash: digest,
+      contract: saved,
+      grantId: grantData.id,
+      idempotencyKey: "one",
+      ordinal: 1 as const,
+      body: boundedBody,
+      accountId: "account",
+      credentialGeneration: 1n,
+      ownerIdHash: digest,
     };
     // A stale plain release read must never be enough to debit a request.
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
       .mockResolvedValueOnce([]);
     await expect(store.reservePreparedRequest(requestInput)).rejects.toThrow(
       "hosted_v4_relay_reservation_authority_stale",
     );
     expect(createRequest).not.toHaveBeenCalled();
     expect(createEffect).not.toHaveBeenCalled();
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
     const prepared = await store.reservePreparedRequest(requestInput);
     expect(prepared).toMatchObject({
-      status: "prepared", grantId: grantData.id, ordinal: 1, requestHash: bodyHash,
+      status: "prepared",
+      grantId: grantData.id,
+      ordinal: 1,
+      requestHash: bodyHash,
     });
     const requestReleaseFence = tx.$queryRaw.mock.calls[1]?.[0] as Prisma.Sql;
     expect(requestReleaseFence.strings.join("")).toContain('"ProducerRelease"');
     expect(requestReleaseFence.strings.join("")).toContain("FOR SHARE");
-    expect(createRequest).toHaveBeenCalledWith({ data: expect.objectContaining({
-      grantId: grantData.id, requestHash: bodyHash,
-      requestBytes: boundedBody.byteLength, status: "received",
-    }) });
-    expect(createEffect).toHaveBeenCalledWith({ data: expect.objectContaining({
-      grantId: grantData.id, relayRequestId: prepared.requestId,
-      requestHash: bodyHash, state: "prepared", accountId: "account",
-      credentialGeneration: 1n,
-    }) });
+    expect(createRequest).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        grantId: grantData.id,
+        requestHash: bodyHash,
+        requestBytes: boundedBody.byteLength,
+        status: "received",
+      }),
+    });
+    expect(createEffect).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        grantId: grantData.id,
+        relayRequestId: prepared.requestId,
+        requestHash: bodyHash,
+        state: "prepared",
+        accountId: "account",
+        credentialGeneration: 1n,
+      }),
+    });
     const savedRequest = createRequest.mock.results[0]!.value;
     const savedEffect = createEffect.mock.results[0]!.value;
     tx.hostedCodexInvocationGrant.findUnique.mockResolvedValue({
-      ...issuedGrant, status: "exhausted", requestCount: 1, inFlight: 1,
+      ...issuedGrant,
+      status: "exhausted",
+      requestCount: 1,
+      inFlight: 1,
     });
     tx.hostedCodexRelayRequest.findFirst.mockResolvedValue({
-      ...await savedRequest, status: "received",
+      ...(await savedRequest),
+      status: "received",
     });
-    tx.hostedCodexUpstreamEffectAttempt.findFirst.mockResolvedValue(await savedEffect);
-    tx.$queryRaw.mockReset()
+    tx.hostedCodexUpstreamEffectAttempt.findFirst.mockResolvedValue(
+      await savedEffect,
+    );
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reservePreparedRequest(requestInput)).resolves.toMatchObject({
-      status: "restored", requestId: prepared.requestId,
-      effectId: prepared.effectId, requestHash: bodyHash,
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reservePreparedRequest(requestInput),
+    ).resolves.toMatchObject({
+      status: "restored",
+      requestId: prepared.requestId,
+      effectId: prepared.effectId,
+      requestHash: bodyHash,
     });
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow]);
-    await expect(store.reservePreparedRequest({
-      ...requestInput,
-      body: new TextEncoder().encode(JSON.stringify({
-        model: s.model, max_output_tokens: 99,
-      })),
-    })).rejects.toThrow("hosted_v4_relay_request_conflict");
+    await expect(
+      store.reservePreparedRequest({
+        ...requestInput,
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            model: s.model,
+            max_output_tokens: 99,
+          }),
+        ),
+      }),
+    ).rejects.toThrow("hosted_v4_relay_request_conflict");
     expect(createRequest).toHaveBeenCalledOnce();
     expect(createEffect).toHaveBeenCalledOnce();
     const driftedRequestDescriptor = JSON.parse(
       authorization.reviewInvestigationAuthorizationDescriptorCanonicalJson,
     ) as Record<string, unknown>;
-    (driftedRequestDescriptor.hostedRelayExtension as Record<string, unknown>)
-      .extensionSchemaDigest = "0".repeat(64);
+    (
+      driftedRequestDescriptor.hostedRelayExtension as Record<string, unknown>
+    ).extensionSchemaDigest = "0".repeat(64);
     tx.reviewRunAuthorization.findUnique.mockResolvedValue({
       ...authorization,
-      reviewInvestigationAuthorizationDescriptorCanonicalJson:
-        canonicalJson(driftedRequestDescriptor),
+      reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson(
+        driftedRequestDescriptor,
+      ),
     });
     tx.hostedCodexInvocationGrant.findUnique.mockResolvedValue(issuedGrant);
     tx.hostedCodexRelayRequest.findFirst.mockResolvedValue(null);
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
     await expect(store.reservePreparedRequest(requestInput)).rejects.toThrow(
       "hosted_v4_relay_reservation_authority_stale",
     );
@@ -700,22 +1029,31 @@ describe("hosted v4 relay turn contract", () => {
     expect(createEffect).toHaveBeenCalledOnce();
     tx.reviewRunAuthorization.findUnique.mockResolvedValue({
       ...authorization,
-      reviewInvestigationAuthorizationDescriptorCanonicalJson:
-        ` ${authorization.reviewInvestigationAuthorizationDescriptorCanonicalJson}`,
+      reviewInvestigationAuthorizationDescriptorCanonicalJson: ` ${authorization.reviewInvestigationAuthorizationDescriptorCanonicalJson}`,
     });
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
     await expect(store.reservePreparedRequest(requestInput)).rejects.toThrow(
       "hosted_v4_relay_reservation_authority_stale",
     );
@@ -726,53 +1064,84 @@ describe("hosted v4 relay turn contract", () => {
     tx.hostedCodexInvocationGrant.findUnique.mockResolvedValue({
       ...issuedGrant,
     });
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
     tx.$executeRaw.mockClear();
     createGrant.mockClear();
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "restored", grantId: grantData.id });
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "restored", grantId: grantData.id });
     expect(tx.$executeRaw).not.toHaveBeenCalled();
     expect(createGrant).not.toHaveBeenCalled();
     // A committed grant ACK can be lost before the run is revoked. The same
     // saved identity remains discoverable, but no bearer is reissued.
     tx.reviewRunAuthorization.findUnique.mockResolvedValue({
-      ...authorization, state: "revoked",
+      ...authorization,
+      state: "revoked",
     });
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
     expect(tx.$executeRaw).not.toHaveBeenCalled();
     tx.reviewRunAuthorization.findUnique.mockResolvedValue(authorization);
@@ -788,171 +1157,278 @@ describe("hosted v4 relay turn contract", () => {
       ["relay", "extensionCanonicalizerDigest"],
     ] as const) {
       const drifted = structuredClone(validDescriptor);
-      const target = extension === "relay"
-        ? drifted.hostedRelayExtension as Record<string, unknown>
-        : drifted;
+      const target =
+        extension === "relay"
+          ? (drifted.hostedRelayExtension as Record<string, unknown>)
+          : drifted;
       target[field] = "0".repeat(64);
       tx.reviewRunAuthorization.findUnique.mockResolvedValue({
         ...authorization,
-        reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson(drifted),
+        reviewInvestigationAuthorizationDescriptorCanonicalJson:
+          canonicalJson(drifted),
       });
-      tx.$queryRaw.mockReset()
+      tx.$queryRaw
+        .mockReset()
         .mockResolvedValueOnce([{ now }])
-        .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+        .mockResolvedValueOnce([
+          { producerReleaseId: s.producerReleaseId, state: "registered" },
+        ])
         .mockResolvedValueOnce([scopeRow])
         .mockResolvedValueOnce([{ id: grantData.id }])
         .mockResolvedValueOnce([{ id: "account" }])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-        .mockResolvedValueOnce([{
-          activeExecutionId: s.executionId, preparedExecutionId: null,
-          lastAllocatedGeneration: execution.generation,
-          currentReviewRevisionHash: s.reviewRevisionHash,
-        }])
-        .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-      await expect(store.reserveGrant({
-        contract: saved, capabilityTokenHash: digest, accountId: "account",
-        credentialGeneration: 1n, runtimeConfigVersion: 7,
-      })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+        .mockResolvedValueOnce([
+          {
+            activeExecutionId: s.executionId,
+            preparedExecutionId: null,
+            lastAllocatedGeneration: execution.generation,
+            currentReviewRevisionHash: s.reviewRevisionHash,
+          },
+        ])
+        .mockResolvedValueOnce([
+          { producerReleaseId: s.producerReleaseId, state: "registered" },
+        ])
+        .mockResolvedValueOnce([
+          { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+        ]);
+      await expect(
+        store.reserveGrant({
+          contract: saved,
+          capabilityTokenHash: digest,
+          accountId: "account",
+          credentialGeneration: 1n,
+          runtimeConfigVersion: 7,
+        }),
+      ).resolves.toEqual({
+        status: "recovery_required",
+        grantId: grantData.id,
+      });
       expect(createGrant).not.toHaveBeenCalled();
       expect(tx.$executeRaw).not.toHaveBeenCalled();
     }
     const invalidDependencies = structuredClone(validDescriptor);
-    invalidDependencies.providerCapabilities = [{
-      providerKind: "codex", capabilities: ["context_critic", "recording"],
-    }];
+    invalidDependencies.providerCapabilities = [
+      {
+        providerKind: "codex",
+        capabilities: ["context_critic", "recording"],
+      },
+    ];
     tx.reviewRunAuthorization.findUnique.mockResolvedValue({
       ...authorization,
-      reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson(invalidDependencies),
+      reviewInvestigationAuthorizationDescriptorCanonicalJson:
+        canonicalJson(invalidDependencies),
     });
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
     expect(tx.$executeRaw).not.toHaveBeenCalled();
     tx.reviewRunAuthorization.findUnique.mockResolvedValue(authorization);
     // Saved authorization, leases and execution still agree; current
     // repository authority alone has closed. No replacement grant is issued.
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "paused", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: "superseding-execution", preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation + 1n,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: "superseding-execution",
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation + 1n,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
     tx.reviewRunAuthorization.findUnique.mockResolvedValue({
       ...authorization,
       reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson({
-        authorizationDescriptorVersion: 3, capability: "review_investigation_v1",
+        authorizationDescriptorVersion: 3,
+        capability: "review_investigation_v1",
         coverageProfileHash: digest,
-        extensionCanonicalizerDigest: reviewInvestigationExtensionV1.canonicalizerDigest,
+        extensionCanonicalizerDigest:
+          reviewInvestigationExtensionV1.canonicalizerDigest,
         extensionId: reviewInvestigationExtensionV1.extensionId,
         extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
         policyHash: digest,
-        providerCapabilities: [{ providerKind: "codex", capabilities: ["recording"] }],
+        providerCapabilities: [
+          { providerKind: "codex", capabilities: ["recording"] },
+        ],
       }),
     });
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
     tx.reviewRunAuthorization.findUnique.mockResolvedValue(authorization);
     tx.reviewInvestigationTurn.findUnique.mockResolvedValue({
-      investigationId: s.investigationId, state: "leased", purpose: s.turnPurpose,
+      investigationId: s.investigationId,
+      state: "leased",
+      purpose: s.turnPurpose,
       leasedAtVersion: s.investigationVersion,
       dossierDigest: s.planningInputDossierDigest,
       expiresAt: later(9),
       turnBudgetCanonicalJson: s.turnBudgetCanonicalJson,
       turnBudgetHash: s.turnBudgetHash,
     });
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
     tx.reviewInvestigationTurn.findUnique.mockResolvedValue({
-      investigationId: s.investigationId, state: "leased", purpose: s.turnPurpose,
+      investigationId: s.investigationId,
+      state: "leased",
+      purpose: s.turnPurpose,
       leasedAtVersion: s.investigationVersion,
       dossierDigest: s.planningInputDossierDigest,
       expiresAt: later(8),
@@ -960,183 +1436,315 @@ describe("hosted v4 relay turn contract", () => {
       turnBudgetHash: s.turnBudgetHash,
     });
     vi.stubEnv("REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED", "0");
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
     vi.stubEnv("REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED", "1");
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: "b".repeat(64), accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).rejects.toThrow("hosted_v4_relay_grant_conflict");
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: "b".repeat(64),
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).rejects.toThrow("hosted_v4_relay_grant_conflict");
     expect(createGrant).not.toHaveBeenCalled();
     // Restoring a bearer after a moved lease revision must recheck the saved
     // turn, even when the grant ID and token hash still match.
     tx.reviewInvestigationLease.findUnique.mockResolvedValue({
-      ...investigationLease, headSha: "c".repeat(40),
+      ...investigationLease,
+      headSha: "c".repeat(40),
     });
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
-    tx.reviewInvestigationLease.findUnique.mockResolvedValue(investigationLease);
+    tx.reviewInvestigationLease.findUnique.mockResolvedValue(
+      investigationLease,
+    );
     tx.repositoryConnection.findUnique.mockResolvedValue({
-      id: s.repositoryConnectionId, workspaceId: s.workspaceId,
+      id: s.repositoryConnectionId,
+      workspaceId: s.workspaceId,
       scmRepositoryIdentityId: s.scmRepositoryIdentityId,
-      provider: "github", selected: false, archived: false,
+      provider: "github",
+      selected: false,
+      archived: false,
       githubRepositoryId: BigInt(s.githubRepositoryId),
-      installation: { status: "active", workspaceId: s.workspaceId,
-        githubInstallationId: BigInt(s.githubInstallationId) },
+      installation: {
+        status: "active",
+        workspaceId: s.workspaceId,
+        githubInstallationId: BigInt(s.githubInstallationId),
+      },
     });
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
     tx.repositoryConnection.findUnique.mockResolvedValue({
-      id: s.repositoryConnectionId, workspaceId: s.workspaceId,
+      id: s.repositoryConnectionId,
+      workspaceId: s.workspaceId,
       scmRepositoryIdentityId: s.scmRepositoryIdentityId,
-      provider: "github", selected: true, archived: false,
+      provider: "github",
+      selected: true,
+      archived: false,
       githubRepositoryId: BigInt(s.githubRepositoryId),
-      installation: { status: "active", workspaceId: s.workspaceId,
-        githubInstallationId: BigInt(s.githubInstallationId) },
+      installation: {
+        status: "active",
+        workspaceId: s.workspaceId,
+        githubInstallationId: BigInt(s.githubInstallationId),
+      },
     });
     tx.reviewInvocationLeaseV2.findUnique.mockResolvedValue({
-      ...invocationLease, attemptId: "different-invocation-attempt",
+      ...invocationLease,
+      attemptId: "different-invocation-attempt",
     });
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
     tx.reviewInvocationLeaseV2.findUnique.mockResolvedValue(invocationLease);
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([{ id: "other-funded-grant" }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
-    tx.reviewConfiguration.findUnique.mockResolvedValue({ versions: [{
-      version: 8, providerKind: "codex",
-      providerAuthMode: "codex_subscription_oauth_hosted_pool",
-      model: s.model, providerLimit: 1, providerMaxParallel: 1,
-      investigationRecordingEnabled: true, providers: [],
-    }] });
-    tx.$queryRaw.mockReset()
+    tx.reviewConfiguration.findUnique.mockResolvedValue({
+      versions: [
+        {
+          version: 8,
+          providerKind: "codex",
+          providerAuthMode: "codex_subscription_oauth_hosted_pool",
+          model: s.model,
+          providerLimit: 1,
+          providerMaxParallel: 1,
+          investigationRecordingEnabled: true,
+          providers: [],
+        },
+      ],
+    });
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
-    tx.reviewConfiguration.findUnique.mockResolvedValue({ versions: [{
-      version: 7, providerKind: "codex",
-      providerAuthMode: "codex_subscription_oauth_hosted_pool",
-      model: s.model, providerLimit: 1, providerMaxParallel: 1,
-      investigationRecordingEnabled: true, providers: [],
-    }] });
+    tx.reviewConfiguration.findUnique.mockResolvedValue({
+      versions: [
+        {
+          version: 7,
+          providerKind: "codex",
+          providerAuthMode: "codex_subscription_oauth_hosted_pool",
+          model: s.model,
+          providerLimit: 1,
+          providerMaxParallel: 1,
+          investigationRecordingEnabled: true,
+          providers: [],
+        },
+      ],
+    });
     tx.producerRelease.findUnique.mockResolvedValue({
-      state: "registered", schemaDigest: s.schemaDigest,
+      state: "registered",
+      schemaDigest: s.schemaDigest,
       protocolLimitsProfileId: s.protocolLimitsProfileId,
       wrapperEntrypointDigest: s.actionIdentityHash,
       runtimeEntrypointDigest: "c".repeat(64),
       contextGatewayEntrypointDigest: s.gatewayIdentityHash,
     });
-    tx.$queryRaw.mockReset()
+    tx.$queryRaw
+      .mockReset()
       .mockResolvedValueOnce([{ now }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
       .mockResolvedValueOnce([scopeRow])
       .mockResolvedValueOnce([{ id: grantData.id }])
       .mockResolvedValueOnce([{ id: "account" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ mode: "v2_active", epoch: s.mutationEpoch }])
-      .mockResolvedValueOnce([{
-        activeExecutionId: s.executionId, preparedExecutionId: null,
-        lastAllocatedGeneration: execution.generation,
-        currentReviewRevisionHash: s.reviewRevisionHash,
-      }])
-      .mockResolvedValueOnce([{ producerReleaseId: s.producerReleaseId, state: "registered" }])
-      .mockResolvedValueOnce([{ status: "active", authzEpoch: s.runtimeAuthzEpoch }]);
-    await expect(store.reserveGrant({
-      contract: saved, capabilityTokenHash: digest, accountId: "account",
-      credentialGeneration: 1n, runtimeConfigVersion: 7,
-    })).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
+      .mockResolvedValueOnce([
+        {
+          activeExecutionId: s.executionId,
+          preparedExecutionId: null,
+          lastAllocatedGeneration: execution.generation,
+          currentReviewRevisionHash: s.reviewRevisionHash,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { producerReleaseId: s.producerReleaseId, state: "registered" },
+      ])
+      .mockResolvedValueOnce([
+        { status: "active", authzEpoch: s.runtimeAuthzEpoch },
+      ]);
+    await expect(
+      store.reserveGrant({
+        contract: saved,
+        capabilityTokenHash: digest,
+        accountId: "account",
+        credentialGeneration: 1n,
+        runtimeConfigVersion: 7,
+      }),
+    ).resolves.toEqual({ status: "recovery_required", grantId: grantData.id });
     expect(createGrant).not.toHaveBeenCalled();
   });
 
@@ -1156,16 +1764,28 @@ describe("hosted v4 relay turn contract", () => {
       ownerIdHash: digest,
     };
     for (const [body, error] of [
-      [{ model: saved.scope.model }, "hosted_v4_relay_request_output_limit_invalid"],
-      [{ model: saved.scope.model, max_output_tokens: saved.maxOutputTokens + 1 },
-        "hosted_v4_relay_request_output_limit_invalid"],
-      [{ model: "other", max_output_tokens: saved.maxOutputTokens },
-        "hosted_v4_relay_request_model_invalid"],
+      [
+        { model: saved.scope.model },
+        "hosted_v4_relay_request_output_limit_invalid",
+      ],
+      [
+        {
+          model: saved.scope.model,
+          max_output_tokens: saved.maxOutputTokens + 1,
+        },
+        "hosted_v4_relay_request_output_limit_invalid",
+      ],
+      [
+        { model: "other", max_output_tokens: saved.maxOutputTokens },
+        "hosted_v4_relay_request_model_invalid",
+      ],
     ] as const) {
-      await expect(store.reservePreparedRequest({
-        ...base,
-        body: new TextEncoder().encode(JSON.stringify(body)),
-      })).rejects.toThrow(error);
+      await expect(
+        store.reservePreparedRequest({
+          ...base,
+          body: new TextEncoder().encode(JSON.stringify(body)),
+        }),
+      ).rejects.toThrow(error);
     }
     expect(transaction).not.toHaveBeenCalled();
   });
@@ -1175,35 +1795,67 @@ describe("hosted v4 relay turn contract", () => {
     const scopeRow = {
       scopeHash: saved.scopeHash,
       scopeCanonical: JSON.stringify(saved.scope, (_key, value) =>
-        typeof value === "bigint" ? value.toString() : value),
-      state: "open", expiresAt: saved.expiresAt,
-      maxRequests: saved.maxRequests, maxRequestBytes: saved.maxRequestBytes,
-      maxResponseBytes: saved.maxResponseBytes, maxOutputTokens: saved.maxOutputTokens,
+        typeof value === "bigint" ? value.toString() : value,
+      ),
+      state: "open",
+      expiresAt: saved.expiresAt,
+      maxRequests: saved.maxRequests,
+      maxRequestBytes: saved.maxRequestBytes,
+      maxResponseBytes: saved.maxResponseBytes,
+      maxOutputTokens: saved.maxOutputTokens,
     };
     const createRequest = vi.fn();
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValueOnce([{ now }])
-        .mockResolvedValueOnce([{ producerReleaseId: saved.scope.producerReleaseId, state: "registered" }])
-        .mockResolvedValueOnce([scopeRow]).mockResolvedValueOnce([scopeRow]),
-      hostedCodexInvocationGrant: { findUnique: vi.fn().mockResolvedValue({
-        id: "grant", authorityKind: "v4_relay_turn",
-        v4TurnKey: saved.logicalTurnKey, v4ScopeHash: saved.scopeHash,
-        backupAccountId: null, activeAccountId: "account", primaryAccountId: "account",
-        maxRequests: saved.maxRequests, maxRequestBytes: saved.maxRequestBytes,
-        maxResponseBytes: saved.maxResponseBytes, maxOutputTokens: saved.maxOutputTokens,
-      }) },
-      hostedCodexRelayRequest: { findFirst: vi.fn().mockResolvedValue(null),
-        create: createRequest },
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ now }])
+        .mockResolvedValueOnce([
+          {
+            producerReleaseId: saved.scope.producerReleaseId,
+            state: "registered",
+          },
+        ])
+        .mockResolvedValueOnce([scopeRow])
+        .mockResolvedValueOnce([scopeRow]),
+      hostedCodexInvocationGrant: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: "grant",
+          authorityKind: "v4_relay_turn",
+          v4TurnKey: saved.logicalTurnKey,
+          v4ScopeHash: saved.scopeHash,
+          backupAccountId: null,
+          activeAccountId: "account",
+          primaryAccountId: "account",
+          maxRequests: saved.maxRequests,
+          maxRequestBytes: saved.maxRequestBytes,
+          maxResponseBytes: saved.maxResponseBytes,
+          maxOutputTokens: saved.maxOutputTokens,
+        }),
+      },
+      hostedCodexRelayRequest: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: createRequest,
+      },
     };
     const store = new PrismaHostedV4RelayTurn({
-      $transaction: async (callback: (value: typeof tx) => Promise<unknown>) => callback(tx),
+      $transaction: async (callback: (value: typeof tx) => Promise<unknown>) =>
+        callback(tx),
     } as unknown as PrismaClient);
     vi.stubEnv("REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED", "0");
-    await expect(store.reservePreparedRequest({
-      contract: saved, grantId: "grant", idempotencyKey: "request", ordinal: 1,
-      body: new TextEncoder().encode('{"model":"codex","max_output_tokens":100}'),
-      accountId: "account", credentialGeneration: 1n, ownerIdHash: digest,
-    })).rejects.toThrow("hosted_v4_relay_admission_disabled");
+    await expect(
+      store.reservePreparedRequest({
+        contract: saved,
+        grantId: "grant",
+        idempotencyKey: "request",
+        ordinal: 1,
+        body: new TextEncoder().encode(
+          '{"model":"codex","max_output_tokens":100}',
+        ),
+        accountId: "account",
+        credentialGeneration: 1n,
+        ownerIdHash: digest,
+      }),
+    ).rejects.toThrow("hosted_v4_relay_admission_disabled");
     expect(createRequest).not.toHaveBeenCalled();
   });
 
@@ -1305,32 +1957,48 @@ describe("hosted v4 relay turn contract", () => {
     const current = scope();
     const turnBudgetCanonicalJson = JSON.stringify({
       ...JSON.parse(current.turnBudgetCanonicalJson),
-      deadline: new Date(current.turnExpiresAt.getTime() + 60_000).toISOString(),
+      deadline: new Date(
+        current.turnExpiresAt.getTime() + 60_000,
+      ).toISOString(),
     });
-    expect(() => contract({
-      ...current,
-      turnBudgetCanonicalJson,
-      turnBudgetHash: createHash("sha256").update(turnBudgetCanonicalJson).digest("hex"),
-    })).toThrow("hosted_v4_relay_turn_budget_mismatch");
+    expect(() =>
+      contract({
+        ...current,
+        turnBudgetCanonicalJson,
+        turnBudgetHash: createHash("sha256")
+          .update(turnBudgetCanonicalJson)
+          .digest("hex"),
+      }),
+    ).toThrow("hosted_v4_relay_turn_budget_mismatch");
   });
 
   it("rejects a forged turn purpose before a relay turn can be reserved", () => {
-    expect(() => contract({ ...scope(), turnPurpose: "investigate" } as unknown as HostedV4RelayScope))
-      .toThrow();
+    expect(() =>
+      contract({
+        ...scope(),
+        turnPurpose: "investigate",
+      } as unknown as HostedV4RelayScope),
+    ).toThrow();
   });
 
   it("retries a serialization race to restore the same reserved request", async () => {
     const saved = contract(scope());
     const restored = {
-      status: "restored", grantId: "grant", requestId: "request",
-      effectId: "effect", ordinal: 1, requestHash: digest,
+      status: "restored",
+      grantId: "grant",
+      requestId: "request",
+      effectId: "effect",
+      ordinal: 1,
+      requestHash: digest,
     } as const;
     for (const serializationFailure of [
-      new Prisma.PrismaClientKnownRequestError(
-        "serialization failure", { code: "P2034", clientVersion: "7.8.0" },
-      ),
+      new Prisma.PrismaClientKnownRequestError("serialization failure", {
+        code: "P2034",
+        clientVersion: "7.8.0",
+      }),
       Object.assign(new Error("raw query failed"), {
-        code: "P2010", meta: { code: "40001" },
+        code: "P2010",
+        meta: { code: "40001" },
       }),
       new Prisma.PrismaClientKnownRequestError(
         "Invalid `prisma.$queryRaw()` invocation:\n\nRaw query failed. Code: `40001`. Message: `ERROR: could not serialize access due to concurrent update`",
@@ -1338,25 +2006,40 @@ describe("hosted v4 relay turn contract", () => {
       ),
       new Prisma.PrismaClientKnownRequestError(
         "Raw query failed. Code: `40001`. Message: `could not serialize access due to concurrent update`",
-        { code: "P2010", clientVersion: "7.8.0", meta: { message: "could not serialize access due to concurrent update" } },
+        {
+          code: "P2010",
+          clientVersion: "7.8.0",
+          meta: {
+            message: "could not serialize access due to concurrent update",
+          },
+        },
       ),
       new Prisma.PrismaClientKnownRequestError(
         "Invalid `prisma.$queryRaw()` invocation:\n\nRaw query failed. Code: `40001`. Message: `could not serialize access due to read/write dependencies among transactions`",
         { code: "P2010", clientVersion: "7.8.0" },
       ),
     ]) {
-      const transaction = vi.fn()
+      const transaction = vi
+        .fn()
         .mockRejectedValueOnce(serializationFailure)
         .mockResolvedValueOnce(restored);
       const store = new PrismaHostedV4RelayTurn({
         $transaction: transaction,
       } as unknown as PrismaClient);
-      await expect(store.reservePreparedRequest({
-        contract: saved, grantId: "grant", idempotencyKey: "one", ordinal: 1,
-        body: new TextEncoder().encode('{"model":"codex","max_output_tokens":100}'),
-        accountId: "account", credentialGeneration: 1n,
-        ownerIdHash: digest,
-      })).resolves.toEqual(restored);
+      await expect(
+        store.reservePreparedRequest({
+          contract: saved,
+          grantId: "grant",
+          idempotencyKey: "one",
+          ordinal: 1,
+          body: new TextEncoder().encode(
+            '{"model":"codex","max_output_tokens":100}',
+          ),
+          accountId: "account",
+          credentialGeneration: 1n,
+          ownerIdHash: digest,
+        }),
+      ).resolves.toEqual(restored);
       expect(transaction).toHaveBeenCalledTimes(2);
     }
   });
@@ -1365,25 +2048,47 @@ describe("hosted v4 relay turn contract", () => {
     const effectUpdate = vi.fn();
     const requestUpdate = vi.fn();
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValueOnce([{ state: "open" }])
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ state: "open" }])
         .mockResolvedValueOnce([{ now: new Date() }]),
-      hostedCodexInvocationGrant: { findUnique: vi.fn().mockResolvedValue({
-        id: "grant", authorityKind: "v4_relay_turn", status: "exhausted",
-        requestCount: 1, inFlight: 1,
-      }) },
-      hostedCodexRelayRequest: { findFirst: vi.fn().mockResolvedValue({
-        id: "request", ordinal: 1, status: "received",
-      }), updateMany: requestUpdate },
-      hostedCodexUpstreamEffectAttempt: { findFirst: vi.fn().mockResolvedValue({
-        id: "effect", attemptOrdinal: 1, state: "dispatching",
-        dispatchStartedAt: new Date(), responseStartedAt: null,
-        completedAt: null, leaseExpiresAt: new Date(0),
-      }), updateMany: effectUpdate },
+      hostedCodexInvocationGrant: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: "grant",
+          authorityKind: "v4_relay_turn",
+          status: "exhausted",
+          requestCount: 1,
+          inFlight: 1,
+        }),
+      },
+      hostedCodexRelayRequest: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "request",
+          ordinal: 1,
+          status: "received",
+        }),
+        updateMany: requestUpdate,
+      },
+      hostedCodexUpstreamEffectAttempt: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "effect",
+          attemptOrdinal: 1,
+          state: "dispatching",
+          dispatchStartedAt: new Date(),
+          responseStartedAt: null,
+          completedAt: null,
+          leaseExpiresAt: new Date(0),
+        }),
+        updateMany: effectUpdate,
+      },
     };
     const store = new PrismaHostedV4RelayTurn({
-      $transaction: async (callback: (value: typeof tx) => Promise<unknown>) => callback(tx),
+      $transaction: async (callback: (value: typeof tx) => Promise<unknown>) =>
+        callback(tx),
     } as unknown as PrismaClient);
-    await expect(store.reconcileExpiredPrepared(digest)).resolves.toBe("recovery_required");
+    await expect(store.reconcileExpiredPrepared(digest)).resolves.toBe(
+      "recovery_required",
+    );
     expect(effectUpdate).not.toHaveBeenCalled();
     expect(requestUpdate).not.toHaveBeenCalled();
   });
@@ -1401,40 +2106,71 @@ describe("hosted v4 relay turn contract", () => {
       return { count: 1 };
     });
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValueOnce([{ state: "open" }])
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ state: "open" }])
         .mockResolvedValueOnce([{ now: new Date() }]),
-      hostedCodexInvocationGrant: { findUnique: vi.fn().mockResolvedValue({
-        id: "grant", authorityKind: "v4_relay_turn", status: "revoked",
-        requestCount: 1, inFlight: 1,
-      }) },
-      hostedCodexRelayRequest: { findFirst: vi.fn().mockImplementation(async () => ({
-        id: "request", ordinal: 1, status: requestState,
-      })), updateMany: requestUpdate },
-      hostedCodexUpstreamEffectAttempt: { findFirst: vi.fn().mockImplementation(async () => ({
-        id: "effect", attemptOrdinal: 1, state: effectState, fenceEpoch: 1n,
-        dispatchStartedAt: null, responseStartedAt: null, completedAt: null,
-        leaseExpiresAt: expiredAt,
-      })), updateMany: effectUpdate },
+      hostedCodexInvocationGrant: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: "grant",
+          authorityKind: "v4_relay_turn",
+          status: "revoked",
+          requestCount: 1,
+          inFlight: 1,
+        }),
+      },
+      hostedCodexRelayRequest: {
+        findFirst: vi.fn().mockImplementation(async () => ({
+          id: "request",
+          ordinal: 1,
+          status: requestState,
+        })),
+        updateMany: requestUpdate,
+      },
+      hostedCodexUpstreamEffectAttempt: {
+        findFirst: vi.fn().mockImplementation(async () => ({
+          id: "effect",
+          attemptOrdinal: 1,
+          state: effectState,
+          fenceEpoch: 1n,
+          dispatchStartedAt: null,
+          responseStartedAt: null,
+          completedAt: null,
+          leaseExpiresAt: expiredAt,
+        })),
+        updateMany: effectUpdate,
+      },
     };
     const store = new PrismaHostedV4RelayTurn({
-      $transaction: async (callback: (value: typeof tx) => Promise<unknown>) => callback(tx),
+      $transaction: async (callback: (value: typeof tx) => Promise<unknown>) =>
+        callback(tx),
     } as unknown as PrismaClient);
-    await expect(store.reconcileExpiredPrepared(digest)).resolves.toBe("failed_no_effect");
+    await expect(store.reconcileExpiredPrepared(digest)).resolves.toBe(
+      "failed_no_effect",
+    );
     expect(effectUpdate).toHaveBeenCalledWith({
-      where: { id: "effect", state: "prepared", fenceEpoch: 1n,
-        dispatchStartedAt: null },
+      where: {
+        id: "effect",
+        state: "prepared",
+        fenceEpoch: 1n,
+        dispatchStartedAt: null,
+      },
       data: expect.objectContaining({
-        state: "failed_no_effect", errorCode: "prepared_effect_expired_no_dispatch",
+        state: "failed_no_effect",
+        errorCode: "prepared_effect_expired_no_dispatch",
       }),
     });
     expect(requestUpdate).toHaveBeenCalledWith({
       where: { id: "request", status: "received" },
       data: expect.objectContaining({
-        status: "failed", errorCode: "prepared_effect_expired_no_dispatch",
+        status: "failed",
+        errorCode: "prepared_effect_expired_no_dispatch",
       }),
     });
     tx.$queryRaw.mockReset().mockResolvedValueOnce([{ state: "open" }]);
-    await expect(store.reconcileExpiredPrepared(digest)).resolves.toBe("recovery_required");
+    await expect(store.reconcileExpiredPrepared(digest)).resolves.toBe(
+      "recovery_required",
+    );
     expect(effectUpdate).toHaveBeenCalledOnce();
     expect(requestUpdate).toHaveBeenCalledOnce();
   });
@@ -1449,7 +2185,9 @@ const safeDisposableUrl = disposableUrl?.includes("rr_v4_444_disposable")
 describe("hosted v4 relay turn persistence", () => {
   beforeAll(() => {
     if (!safeDisposableUrl) {
-      throw new Error("REVIEW_ROUTER_V4_RELAY_DISPOSABLE_DATABASE_URL with rr_v4_444_disposable is required for v4 PG qualification");
+      throw new Error(
+        "REVIEW_ROUTER_V4_RELAY_DISPOSABLE_DATABASE_URL with rr_v4_444_disposable is required for v4 PG qualification",
+      );
     }
   });
   let client: Awaited<ReturnType<typeof openDisposableClient>> | undefined;
@@ -1482,98 +2220,156 @@ describe("hosted v4 relay turn persistence", () => {
         try {
           // Stock release FKs require the registered profile rows. Seed all
           // three real tables so the revoker exercises its production path.
-          await client.reviewProtocolLimitsV2.create({ data: {
-            protocolLimitsProfileId,
-            limitsDigest: createHash("sha256").update(protocolLimitsProfileId).digest("hex"),
-            maxWorkSlots: 1, maxAttemptsPerSlot: 1,
-            maxObservationBytes: 1, maxObservationFindings: 1,
-            maxProjectionBytes: 1, maxProjectionFindings: 1,
-            maxPublicationOperations: 1, maxPublicationChunks: 1,
-            maxPublicationBodyBytes: 1, maxRequestBatchSize: 1,
-            maxLeaseDurationMs: 1, maxResultReportDurationMs: 1,
-            maxReconciliationDurationMs: 1, registeredAt,
-          } });
-          await client.reviewOperationalSloProfileV2.create({ data: {
-            operationalSloProfileId,
-            sloDigest: createHash("sha256").update(operationalSloProfileId).digest("hex"),
-            integrationEventDeliveryMs: 1, outboxClaimAgeMs: 1,
-            missingCompletionProcessMs: 1, dueCompletionProcessMs: 1,
-            publicationReconciliationMs: 1, v1DrainMs: 1,
-            admissionMs: 1, pruningBacklogAgeMs: 1,
-            ownerRefs: ["disposable-v4-release-race"],
-            runbookRefs: ["disposable-v4-release-race"], registeredAt,
-          } });
-          await client.producerRelease.create({ data: {
-            producerReleaseId, distributionKind: "hosted_composite",
-            actionCommitSha: gitSha, runtimeCommitSha: gitSha,
-            wrapperEntrypointDigest: digest, runtimeEntrypointDigest: digest,
-            contextGatewayPolicyVersion: "v4-test",
-            contextGatewayEntrypointDigest: digest,
-            schemaDigest: digest, capabilityProfile: "exact_revision_v2",
-            protocolLimitsProfileId, operationalSloProfileId, registeredAt,
-          } });
+          await client.reviewProtocolLimitsV2.create({
+            data: {
+              protocolLimitsProfileId,
+              limitsDigest: createHash("sha256")
+                .update(protocolLimitsProfileId)
+                .digest("hex"),
+              maxWorkSlots: 1,
+              maxAttemptsPerSlot: 1,
+              maxObservationBytes: 1,
+              maxObservationFindings: 1,
+              maxProjectionBytes: 1,
+              maxProjectionFindings: 1,
+              maxPublicationOperations: 1,
+              maxPublicationChunks: 1,
+              maxPublicationBodyBytes: 1,
+              maxRequestBatchSize: 1,
+              maxLeaseDurationMs: 1,
+              maxResultReportDurationMs: 1,
+              maxReconciliationDurationMs: 1,
+              registeredAt,
+            },
+          });
+          await client.reviewOperationalSloProfileV2.create({
+            data: {
+              operationalSloProfileId,
+              sloDigest: createHash("sha256")
+                .update(operationalSloProfileId)
+                .digest("hex"),
+              integrationEventDeliveryMs: 1,
+              outboxClaimAgeMs: 1,
+              missingCompletionProcessMs: 1,
+              dueCompletionProcessMs: 1,
+              publicationReconciliationMs: 1,
+              v1DrainMs: 1,
+              admissionMs: 1,
+              pruningBacklogAgeMs: 1,
+              ownerRefs: ["disposable-v4-release-race"],
+              runbookRefs: ["disposable-v4-release-race"],
+              registeredAt,
+            },
+          });
+          await client.producerRelease.create({
+            data: {
+              producerReleaseId,
+              distributionKind: "hosted_composite",
+              actionCommitSha: gitSha,
+              runtimeCommitSha: gitSha,
+              wrapperEntrypointDigest: digest,
+              runtimeEntrypointDigest: digest,
+              contextGatewayPolicyVersion: "v4-test",
+              contextGatewayEntrypointDigest: digest,
+              schemaDigest: digest,
+              capabilityProfile: "exact_revision_v2",
+              protocolLimitsProfileId,
+              operationalSloProfileId,
+              registeredAt,
+            },
+          });
           if (stage === "prepared") {
             await new PrismaHostedV4RelayTurn(client).reserve(saved);
           }
-          await client.$transaction(async (tx) => {
-            expect(await lockCurrentProducerRelease(tx, producerReleaseId)).toBe(true);
-          }, { isolationLevel: "Serializable" });
+          await client.$transaction(
+            async (tx) => {
+              expect(
+                await lockCurrentProducerRelease(tx, producerReleaseId),
+              ).toBe(true);
+            },
+            { isolationLevel: "Serializable" },
+          );
           vi.stubEnv("REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED", "1");
-          vi.stubEnv("REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID",
-            saved.scope.githubRepositoryId);
+          vi.stubEnv(
+            "REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID",
+            saved.scope.githubRepositoryId,
+          );
 
           let signalSnapshot!: () => void;
-          const snapshotTaken = new Promise<void>((resolve) => { signalSnapshot = resolve; });
+          const snapshotTaken = new Promise<void>((resolve) => {
+            signalSnapshot = resolve;
+          });
           let resume!: () => void;
-          const revocationCommitted = new Promise<void>((resolve) => { resume = resolve; });
+          const revocationCommitted = new Promise<void>((resolve) => {
+            resume = resolve;
+          });
           let paused = false;
           let transactionAttempts = 0;
           const pausingClient = {
             $transaction: (
               callback: (tx: Prisma.TransactionClient) => Promise<unknown>,
               options: { isolationLevel?: Prisma.TransactionIsolationLevel },
-            ) => client!.$transaction(async (tx) => {
-              transactionAttempts += 1;
-              const wrapped = new Proxy(tx, {
-                get(target, property) {
-                  if (property !== "$queryRaw") return Reflect.get(target, property);
-                  return async (query: Prisma.Sql) => {
-                    const result = await tx.$queryRaw(query);
-                    if (!paused && query.strings.join("").includes("clock_timestamp()")) {
-                      expect((await tx.producerRelease.findUniqueOrThrow({
-                        where: { producerReleaseId },
-                      })).state).toBe("registered");
-                      paused = true;
-                      signalSnapshot();
-                      await revocationCommitted;
-                    }
-                    return result;
-                  };
-                },
-              });
-              return callback(wrapped);
-            }, options),
+            ) =>
+              client!.$transaction(async (tx) => {
+                transactionAttempts += 1;
+                const wrapped = new Proxy(tx, {
+                  get(target, property) {
+                    if (property !== "$queryRaw")
+                      return Reflect.get(target, property);
+                    return async (query: Prisma.Sql) => {
+                      const result = await tx.$queryRaw(query);
+                      if (
+                        !paused &&
+                        query.strings.join("").includes("clock_timestamp()")
+                      ) {
+                        expect(
+                          (
+                            await tx.producerRelease.findUniqueOrThrow({
+                              where: { producerReleaseId },
+                            })
+                          ).state,
+                        ).toBe("registered");
+                        paused = true;
+                        signalSnapshot();
+                        await revocationCommitted;
+                      }
+                      return result;
+                    };
+                  },
+                });
+                return callback(wrapped);
+              }, options),
           } as unknown as PrismaClient;
           const store = new PrismaHostedV4RelayTurn(pausingClient);
-          const reservation = stage === "grant"
-            ? store.reserveGrant({
-                contract: saved, capabilityTokenHash: digest,
-                accountId: "account", credentialGeneration: 1n,
-                runtimeConfigVersion: 7,
-              })
-            : store.reservePreparedRequest({
-                contract: saved, grantId, ordinal: 1,
-                idempotencyKey: "release-race",
-                body: new TextEncoder().encode(
-                  '{"model":"codex","max_output_tokens":100}',
-                ),
-                accountId: "account", credentialGeneration: 1n,
-                ownerIdHash: digest,
-              });
+          const reservation =
+            stage === "grant"
+              ? store.reserveGrant({
+                  contract: saved,
+                  capabilityTokenHash: digest,
+                  accountId: "account",
+                  credentialGeneration: 1n,
+                  runtimeConfigVersion: 7,
+                })
+              : store.reservePreparedRequest({
+                  contract: saved,
+                  grantId,
+                  ordinal: 1,
+                  idempotencyKey: "release-race",
+                  body: new TextEncoder().encode(
+                    '{"model":"codex","max_output_tokens":100}',
+                  ),
+                  accountId: "account",
+                  credentialGeneration: 1n,
+                  ownerIdHash: digest,
+                });
           await snapshotTaken;
           try {
-            const result = await new PrismaProducerReleaseRepository(revokerClient)
-              .revokeProducerRelease({ producerReleaseId, revokedAt: new Date() });
+            const result = await new PrismaProducerReleaseRepository(
+              revokerClient,
+            ).revokeProducerRelease({
+              producerReleaseId,
+              revokedAt: new Date(),
+            });
             expect(result.status).toBe("revoked");
           } finally {
             resume();
@@ -1583,26 +2379,40 @@ describe("hosted v4 relay turn persistence", () => {
           );
           expect(paused).toBe(true);
           expect(transactionAttempts).toBe(2);
-          expect((await client.producerRelease.findUniqueOrThrow({
-            where: { producerReleaseId },
-          })).state).toBe("revoked");
-          expect(await client.hostedCodexInvocationGrant.count({
-            where: { v4TurnKey: saved.logicalTurnKey },
-          })).toBe(0);
-          expect(await client.hostedCodexRelayRequest.count({
-            where: { grantId },
-          })).toBe(0);
-          expect(await client.hostedCodexUpstreamEffectAttempt.count({
-            where: { grantId },
-          })).toBe(0);
-          expect(await client.hostedCodexV4RelayTurn.count({
-            where: { logicalTurnKey: saved.logicalTurnKey },
-          })).toBe(stage === "prepared" ? 1 : 0);
+          expect(
+            (
+              await client.producerRelease.findUniqueOrThrow({
+                where: { producerReleaseId },
+              })
+            ).state,
+          ).toBe("revoked");
+          expect(
+            await client.hostedCodexInvocationGrant.count({
+              where: { v4TurnKey: saved.logicalTurnKey },
+            }),
+          ).toBe(0);
+          expect(
+            await client.hostedCodexRelayRequest.count({
+              where: { grantId },
+            }),
+          ).toBe(0);
+          expect(
+            await client.hostedCodexUpstreamEffectAttempt.count({
+              where: { grantId },
+            }),
+          ).toBe(0);
+          expect(
+            await client.hostedCodexV4RelayTurn.count({
+              where: { logicalTurnKey: saved.logicalTurnKey },
+            }),
+          ).toBe(stage === "prepared" ? 1 : 0);
         } finally {
           await client.hostedCodexV4RelayTurn.deleteMany({
             where: { logicalTurnKey: saved.logicalTurnKey },
           });
-          await client.producerRelease.deleteMany({ where: { producerReleaseId } });
+          await client.producerRelease.deleteMany({
+            where: { producerReleaseId },
+          });
           await client.reviewOperationalSloProfileV2.deleteMany({
             where: { operationalSloProfileId },
           });
@@ -1647,7 +2457,9 @@ describe("hosted v4 relay turn persistence", () => {
         investigation: seed,
         expectedVersion: null,
         commandId: `${suffix}-open`,
-        commandHash: createHash("sha256").update(`${suffix}-open`).digest("hex"),
+        commandHash: createHash("sha256")
+          .update(`${suffix}-open`)
+          .digest("hex"),
         transition: { kind: InvestigationStoreTransitionKind.Opened },
       });
       await new PlanNextInvestigationTurn(
@@ -1675,10 +2487,12 @@ describe("hosted v4 relay turn persistence", () => {
       expect(turn.leasedAtVersion).toBe(investigation.version);
       expect(turn.turnBudgetCanonicalJson).toBe(budgetCanonicalJson);
       expect(turn.turnBudgetHash).toBe(budgetHash);
-      await expect(client.reviewInvestigationTurn.update({
-        where: { turnId: turn.turnId },
-        data: { turnBudgetHash: "c".repeat(64) },
-      })).rejects.toThrow();
+      await expect(
+        client.reviewInvestigationTurn.update({
+          where: { turnId: turn.turnId },
+          data: { turnBudgetHash: "c".repeat(64) },
+        }),
+      ).rejects.toThrow();
     } finally {
       await cleanup(client, seed);
     }
@@ -1703,19 +2517,21 @@ describe("hosted v4 relay turn persistence", () => {
           ('v1', 'grant', 'v1_comment', 1, '${digest}', NULL, 2, 'received', CURRENT_TIMESTAMP)
       `);
     });
-    await expect(client.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`
+    await expect(
+      client.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`
         CREATE TEMP TABLE rr_v4_received_hash_probe
           (LIKE public."HostedCodexRelayRequest" INCLUDING DEFAULTS INCLUDING CONSTRAINTS)
           ON COMMIT DROP
       `);
-      await tx.$executeRawUnsafe(`
+        await tx.$executeRawUnsafe(`
         INSERT INTO rr_v4_received_hash_probe
           ("id", "grantId", "authorityKind", "ordinal", "idempotencyKeyHash",
            "requestHash", "requestBytes", "status", "updatedAt")
         VALUES ('v1', 'grant', 'v1_comment', 1, '${digest}', '${digest}', 2, 'received', CURRENT_TIMESTAMP)
       `);
-    })).rejects.toThrow();
+      }),
+    ).rejects.toThrow();
   });
 
   // Regression: terminal_unknown on one grant could be escaped by reissue.

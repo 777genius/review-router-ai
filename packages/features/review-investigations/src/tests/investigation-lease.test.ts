@@ -40,8 +40,12 @@ describe("review investigation lease", () => {
     });
     expect(relay.purpose).toBe(ReviewInvestigationLeasePurpose.RelayTurn);
     expect(shadow.purpose).toBe(ReviewInvestigationLeasePurpose.ShadowTurn);
-    for (const operation of Object.values(ReviewInvestigationLeaseProtectedOperation)) {
-      expect(() => assertReviewInvestigationLeaseAllows(relay, operation)).not.toThrow();
+    for (const operation of Object.values(
+      ReviewInvestigationLeaseProtectedOperation,
+    )) {
+      expect(() =>
+        assertReviewInvestigationLeaseAllows(relay, operation),
+      ).not.toThrow();
     }
   });
 

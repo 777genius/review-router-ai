@@ -20,8 +20,12 @@ export function hasAuthorizedReviewInvestigationExtension(
     authorization.reviewInvestigationAuthorizationDescriptorCanonicalJson,
   );
   if (descriptor === null) return false;
-  return requirement === undefined || descriptor.providerCapabilities.some(
-    (row) => row.providerKind === requirement.providerKind &&
-      row.capabilities.includes(requirement.capability),
+  return (
+    requirement === undefined ||
+    descriptor.providerCapabilities.some(
+      (row) =>
+        row.providerKind === requirement.providerKind &&
+        row.capabilities.includes(requirement.capability),
+    )
   );
 }

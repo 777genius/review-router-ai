@@ -28,24 +28,35 @@ export function hostedV4RelayCanaryPolicyFingerprint(input: {
   maxResponseBytes: number;
   maxOutputTokens: number;
 }): string {
-  if (!Number.isSafeInteger(input.runtimeConfigVersion) || input.runtimeConfigVersion < 1 ||
-      !Number.isSafeInteger(input.maxRequests) || input.maxRequests < 1 ||
-      !Number.isSafeInteger(input.maxRequestBytes) || input.maxRequestBytes < 1 ||
-      !Number.isSafeInteger(input.maxResponseBytes) || input.maxResponseBytes < 1 ||
-      !Number.isSafeInteger(input.maxOutputTokens) || input.maxOutputTokens < 1) {
+  if (
+    !Number.isSafeInteger(input.runtimeConfigVersion) ||
+    input.runtimeConfigVersion < 1 ||
+    !Number.isSafeInteger(input.maxRequests) ||
+    input.maxRequests < 1 ||
+    !Number.isSafeInteger(input.maxRequestBytes) ||
+    input.maxRequestBytes < 1 ||
+    !Number.isSafeInteger(input.maxResponseBytes) ||
+    input.maxResponseBytes < 1 ||
+    !Number.isSafeInteger(input.maxOutputTokens) ||
+    input.maxOutputTokens < 1
+  ) {
     throw new Error("hosted_v4_relay_policy_facts_invalid");
   }
-  return createHash("sha256").update(JSON.stringify({
-    version: hostedV4RelayCanaryPolicyVersion,
-    accountRequestAllocation: hostedV4RelayCanaryAccountRequestAllocation,
-    accountId: id.parse(input.accountId),
-    runtimeConfigVersion: input.runtimeConfigVersion,
-    model: id.parse(input.model),
-    maxRequests: input.maxRequests,
-    maxRequestBytes: input.maxRequestBytes,
-    maxResponseBytes: input.maxResponseBytes,
-    maxOutputTokens: input.maxOutputTokens,
-  })).digest("hex");
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        version: hostedV4RelayCanaryPolicyVersion,
+        accountRequestAllocation: hostedV4RelayCanaryAccountRequestAllocation,
+        accountId: id.parse(input.accountId),
+        runtimeConfigVersion: input.runtimeConfigVersion,
+        model: id.parse(input.model),
+        maxRequests: input.maxRequests,
+        maxRequestBytes: input.maxRequestBytes,
+        maxResponseBytes: input.maxResponseBytes,
+        maxOutputTokens: input.maxOutputTokens,
+      }),
+    )
+    .digest("hex");
 }
 
 /** Immutable server-resolved facts. IDs supplied by a caller are lookup hints only. */
@@ -168,8 +179,13 @@ export function defineHostedV4RelayGrant(input: {
     Object.keys(budget).sort().join(",") !==
       "deadline,maxGatewayOperations,maxOutputFindings,maxOutputProposals,maxOutputTokens,maxRequestBytes,maxRequests,maxResponseBytes,version" ||
     budget.version !== 1 ||
-    JSON.stringify(Object.fromEntries(Object.entries(budget).sort(([a], [b]) => a.localeCompare(b)))) !== scope.turnBudgetCanonicalJson ||
-    createHash("sha256").update(scope.turnBudgetCanonicalJson).digest("hex") !== scope.turnBudgetHash ||
+    JSON.stringify(
+      Object.fromEntries(
+        Object.entries(budget).sort(([a], [b]) => a.localeCompare(b)),
+      ),
+    ) !== scope.turnBudgetCanonicalJson ||
+    createHash("sha256").update(scope.turnBudgetCanonicalJson).digest("hex") !==
+      scope.turnBudgetHash ||
     budget.maxRequests !== input.maxRequests ||
     budget.maxRequestBytes !== input.maxRequestBytes ||
     budget.maxResponseBytes !== input.maxResponseBytes ||
@@ -190,7 +206,11 @@ export function defineHostedV4RelayGrant(input: {
   }
   for (const [field, ceiling] of Object.entries(canaryLimits)) {
     const value = budget[field];
-    if (!Number.isSafeInteger(value) || (value as number) < 1 || (value as number) > ceiling) {
+    if (
+      !Number.isSafeInteger(value) ||
+      (value as number) < 1 ||
+      (value as number) > ceiling
+    ) {
       throw new Error("hosted_v4_relay_turn_budget_limit_invalid");
     }
   }
@@ -234,7 +254,10 @@ export function defineHostedV4RelayGrant(input: {
   };
 }
 
-export function hostedV4LogicalTurnKey(investigationId: string, turnId: string): string {
+export function hostedV4LogicalTurnKey(
+  investigationId: string,
+  turnId: string,
+): string {
   return digest([id.parse(investigationId), id.parse(turnId)]);
 }
 

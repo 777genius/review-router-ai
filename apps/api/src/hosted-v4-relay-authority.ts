@@ -3,18 +3,26 @@ import type { HostedV4AuthorityBridge } from "@reviewrouter/features-hosted-acco
 import { verifyRelayTurnBudget } from "@reviewrouter/features-review-investigations";
 import { createHash } from "node:crypto";
 import { parseInvestigationAuthorizationDescriptorJson } from "@reviewrouter/features-hosted-account-pool/v4-relay-descriptor";
-import { hasAuthorizedReviewInvestigationExtension, type ReviewInvestigationExtensionRequirement } from "./review-action-v2-investigation-extension-admission.js";
+import {
+  hasAuthorizedReviewInvestigationExtension,
+  type ReviewInvestigationExtensionRequirement,
+} from "./review-action-v2-investigation-extension-admission.js";
 
 /** The relay bit must be in the saved server authorization descriptor. A
  * recording-only descriptor cannot become paid authority via a request flag. */
-export function hasAuthorizedHostedRelayExtension(authorization: {
-  reviewInvestigationAuthorizationDescriptorCanonicalJson: string | null;
-}, requirement?: ReviewInvestigationExtensionRequirement): boolean {
+export function hasAuthorizedHostedRelayExtension(
+  authorization: {
+    reviewInvestigationAuthorizationDescriptorCanonicalJson: string | null;
+  },
+  requirement?: ReviewInvestigationExtensionRequirement,
+): boolean {
   const descriptor = parseInvestigationAuthorizationDescriptorJson(
     authorization.reviewInvestigationAuthorizationDescriptorCanonicalJson,
   );
-  return descriptor?.hostedRelayExtension !== undefined &&
-    hasAuthorizedReviewInvestigationExtension(authorization, requirement);
+  return (
+    descriptor?.hostedRelayExtension !== undefined &&
+    hasAuthorizedReviewInvestigationExtension(authorization, requirement)
+  );
 }
 
 /** A checked snapshot for a future relay lease admission, never a grant. */
@@ -124,7 +132,8 @@ export class PrismaHostedV4RelayAuthorityResolver {
       await verifyRelayTurnBudget({
         canonicalJson: turn.turnBudgetCanonicalJson,
         hash: turn.turnBudgetHash,
-        digestUtf8: async (value) => createHash("sha256").update(value).digest("hex"),
+        digestUtf8: async (value) =>
+          createHash("sha256").update(value).digest("hex"),
         now,
         turnExpiresAt: turn.expiresAt,
       });
@@ -132,23 +141,26 @@ export class PrismaHostedV4RelayAuthorityResolver {
       throw denied();
     }
 
-    const account = [...binding.pool.accounts].sort((left, right) =>
-      left.priority - right.priority ||
-      left.createdAt.getTime() - right.createdAt.getTime() ||
-      left.id.localeCompare(right.id)
-    ).find(
-      (candidate) =>
-        candidate.workspaceId === authorization.workspaceId &&
-        candidate.poolId === binding.poolId &&
-        candidate.state === "healthy" &&
-        candidate.activeGeneration !== null &&
-        candidate.credentialVersions.some(
-          (credential) =>
-            credential.generation === candidate.activeGeneration &&
-            (credential.credentialExpiresAt === null ||
-              credential.credentialExpiresAt > now),
-        ),
-    );
+    const account = [...binding.pool.accounts]
+      .sort(
+        (left, right) =>
+          left.priority - right.priority ||
+          left.createdAt.getTime() - right.createdAt.getTime() ||
+          left.id.localeCompare(right.id),
+      )
+      .find(
+        (candidate) =>
+          candidate.workspaceId === authorization.workspaceId &&
+          candidate.poolId === binding.poolId &&
+          candidate.state === "healthy" &&
+          candidate.activeGeneration !== null &&
+          candidate.credentialVersions.some(
+            (credential) =>
+              credential.generation === candidate.activeGeneration &&
+              (credential.credentialExpiresAt === null ||
+                credential.credentialExpiresAt > now),
+          ),
+      );
     if (!account) throw denied();
 
     // Recheck the mutable authorization, SCM and binding after DB reads. This
@@ -310,21 +322,35 @@ export async function isHostedV4RelayAdmissionCurrent(input: {
   turnId: string;
   now: Date;
 }): Promise<boolean> {
-  if (input.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED !== "1" ||
-      !hasAuthorizedHostedRelayExtension(input.authorization)) return false;
+  if (
+    input.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED !== "1" ||
+    !hasAuthorizedHostedRelayExtension(input.authorization)
+  )
+    return false;
   const [repository, binding, turn] = await Promise.all([
     input.prisma.repositoryConnection.findUnique({
       where: { id: input.authorization.repositoryConnectionId },
       select: { githubRepositoryId: true, workspaceId: true },
     }),
     input.prisma.hostedCodexRepositoryBinding.findUnique({
-      where: { repositoryConnectionId: input.authorization.repositoryConnectionId },
-      select: { status: true, workspaceId: true, attestedGithubRepositoryId: true },
+      where: {
+        repositoryConnectionId: input.authorization.repositoryConnectionId,
+      },
+      select: {
+        status: true,
+        workspaceId: true,
+        attestedGithubRepositoryId: true,
+      },
     }),
     input.prisma.reviewInvestigationTurn.findUnique({
       where: { turnId: input.turnId },
-      select: { investigationId: true, state: true, expiresAt: true,
-        turnBudgetCanonicalJson: true, turnBudgetHash: true },
+      select: {
+        investigationId: true,
+        state: true,
+        expiresAt: true,
+        turnBudgetCanonicalJson: true,
+        turnBudgetHash: true,
+      },
     }),
   ]);
   if (
@@ -334,19 +360,24 @@ export async function isHostedV4RelayAdmissionCurrent(input: {
     binding?.status !== "active" ||
     binding.workspaceId !== input.authorization.workspaceId ||
     binding.attestedGithubRepositoryId !== repository.githubRepositoryId ||
-    !turn || turn.investigationId !== input.investigationId ||
-    turn.state !== "leased" || turn.expiresAt <= input.now ||
-    !turn.turnBudgetCanonicalJson || !turn.turnBudgetHash ||
+    !turn ||
+    turn.investigationId !== input.investigationId ||
+    turn.state !== "leased" ||
+    turn.expiresAt <= input.now ||
+    !turn.turnBudgetCanonicalJson ||
+    !turn.turnBudgetHash ||
     !isHostedV4DisposableRelayCohort({
       env: input.env,
       githubRepositoryId: repository.githubRepositoryId.toString(),
     })
-  ) return false;
+  )
+    return false;
   try {
     await verifyRelayTurnBudget({
       canonicalJson: turn.turnBudgetCanonicalJson,
       hash: turn.turnBudgetHash,
-      digestUtf8: async (value) => createHash("sha256").update(value).digest("hex"),
+      digestUtf8: async (value) =>
+        createHash("sha256").update(value).digest("hex"),
       now: input.now,
       turnExpiresAt: turn.expiresAt,
     });

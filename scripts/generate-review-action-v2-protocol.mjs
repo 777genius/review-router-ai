@@ -135,9 +135,13 @@ export async function generateReviewActionV2Protocol(input = {}) {
   }
   for (const operationDescriptor of publishedContract.operations) {
     const operationSchemaSource =
-      published.relayExtensionSchema.$defs[`${operationDescriptor.operationId}_request`] !== undefined
+      published.relayExtensionSchema.$defs[
+        `${operationDescriptor.operationId}_request`
+      ] !== undefined
         ? published.relayExtensionSchema
-        : published.extensionSchema.$defs[`${operationDescriptor.operationId}_request`] !== undefined
+        : published.extensionSchema.$defs[
+              `${operationDescriptor.operationId}_request`
+            ] !== undefined
           ? published.extensionSchema
           : published.schema;
     const requestDefinition =

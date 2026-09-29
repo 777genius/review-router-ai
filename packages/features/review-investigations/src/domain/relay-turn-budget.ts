@@ -53,8 +53,15 @@ export async function verifyRelayTurnBudget(input: {
     throw new ReviewInvestigationDomainError("relay_turn_budget_not_canonical");
   }
   const fields = Object.keys(parsed).sort();
-  const expected = ["version", ...Object.keys(relayTurnBudgetCeilings), "deadline"].sort();
-  if (fields.length !== expected.length || fields.some((field, index) => field !== expected[index])) {
+  const expected = [
+    "version",
+    ...Object.keys(relayTurnBudgetCeilings),
+    "deadline",
+  ].sort();
+  if (
+    fields.length !== expected.length ||
+    fields.some((field, index) => field !== expected[index])
+  ) {
     throw new ReviewInvestigationDomainError("relay_turn_budget_invalid");
   }
   const budget = parsed as Record<string, unknown>;
@@ -63,8 +70,14 @@ export async function verifyRelayTurnBudget(input: {
   }
   for (const [field, ceiling] of Object.entries(relayTurnBudgetCeilings)) {
     const value = budget[field];
-    if (!Number.isSafeInteger(value) || (value as number) < 1 || (value as number) > ceiling) {
-      throw new ReviewInvestigationDomainError("relay_turn_budget_limit_invalid");
+    if (
+      !Number.isSafeInteger(value) ||
+      (value as number) < 1 ||
+      (value as number) > ceiling
+    ) {
+      throw new ReviewInvestigationDomainError(
+        "relay_turn_budget_limit_invalid",
+      );
     }
   }
   const deadline = budget.deadline;
@@ -76,7 +89,9 @@ export async function verifyRelayTurnBudget(input: {
     Date.parse(deadline) <= input.now.getTime() ||
     Date.parse(deadline) > input.turnExpiresAt.getTime()
   ) {
-    throw new ReviewInvestigationDomainError("relay_turn_budget_deadline_invalid");
+    throw new ReviewInvestigationDomainError(
+      "relay_turn_budget_deadline_invalid",
+    );
   }
   if ((await input.digestUtf8(input.canonicalJson)) !== input.hash) {
     throw new ReviewInvestigationDomainError("relay_turn_budget_hash_mismatch");

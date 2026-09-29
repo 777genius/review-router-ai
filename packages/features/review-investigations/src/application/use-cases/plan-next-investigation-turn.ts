@@ -89,11 +89,17 @@ export class PlanNextInvestigationTurn {
       throw new Error("turn_obligation_limit_invalid");
     }
     const now = this.clock.now();
-    if ((command.turnBudgetCanonicalJson === undefined) !== (command.turnBudgetHash === undefined)) {
+    if (
+      (command.turnBudgetCanonicalJson === undefined) !==
+      (command.turnBudgetHash === undefined)
+    ) {
       throw new Error("relay_turn_budget_pair_required");
     }
     const turnExpiresAt = new Date(now.getTime() + command.leaseDurationMs);
-    if (command.turnBudgetCanonicalJson !== undefined && command.turnBudgetHash !== undefined) {
+    if (
+      command.turnBudgetCanonicalJson !== undefined &&
+      command.turnBudgetHash !== undefined
+    ) {
       await verifyRelayTurnBudget({
         canonicalJson: command.turnBudgetCanonicalJson,
         hash: command.turnBudgetHash,

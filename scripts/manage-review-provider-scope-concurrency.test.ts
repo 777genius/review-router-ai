@@ -317,7 +317,10 @@ function assertProviderFixtureContract(
     ) ||
     JSON.stringify(preflightDatabases) !==
       JSON.stringify(
-        ["review_router_provider_scope_ci_test", "rr_v4_444_disposable_ci"].sort(),
+        [
+          "review_router_provider_scope_ci_test",
+          "rr_v4_444_disposable_ci",
+        ].sort(),
       ) ||
     !provision.includes(
       "node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci",

@@ -842,7 +842,8 @@ describe("Review Action v2 run-control composition", () => {
       extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
       hostedRelayExtension: {
         capability: "hosted_relay_turn_v1" as const,
-        extensionCanonicalizerDigest: reviewHostedRelayExtensionV1.canonicalizerDigest,
+        extensionCanonicalizerDigest:
+          reviewHostedRelayExtensionV1.canonicalizerDigest,
         extensionId: reviewHostedRelayExtensionV1.extensionId,
         extensionSchemaDigest: reviewHostedRelayExtensionV1.schemaDigest,
       },
@@ -866,9 +867,12 @@ describe("Review Action v2 run-control composition", () => {
     expect(first.statusCode).toBe(201);
     const combinedAuthorization = {
       providerVoteLanes: facts.providerVoteLanes,
-      reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson(descriptor),
+      reviewInvestigationAuthorizationDescriptorCanonicalJson:
+        canonicalJson(descriptor),
     };
-    expect(hasAuthorizedCodexInvestigationRecording(combinedAuthorization)).toBe(true);
+    expect(
+      hasAuthorizedCodexInvestigationRecording(combinedAuthorization),
+    ).toBe(true);
     expect(hasAuthorizedHostedRelayExtension(combinedAuthorization)).toBe(true);
     expect(
       JSON.parse(first.result.authorizationFactsCanonicalJson!)
@@ -1228,8 +1232,9 @@ describe("Review Action v2 run-control composition", () => {
     );
     expect(
       hasAuthorizedHostedRelayExtension({
-        reviewInvestigationAuthorizationDescriptorCanonicalJson:
-          canonicalJson(facts.reviewInvestigation),
+        reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson(
+          facts.reviewInvestigation,
+        ),
       }),
     ).toBe(false);
   });

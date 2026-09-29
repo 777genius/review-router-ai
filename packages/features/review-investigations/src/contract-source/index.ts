@@ -105,14 +105,25 @@ const reviewInvestigationsActionContractFragmentBase = Object.freeze({
     Object.freeze({
       typeName: "ReviewInvestigationRelayGrantResultStatus",
       values: Object.freeze([
-        "issued", "restored", "rejected", "conflict", "busy", "recovery_required",
+        "issued",
+        "restored",
+        "rejected",
+        "conflict",
+        "busy",
+        "recovery_required",
       ]),
     }),
     Object.freeze({
       typeName: "ReviewInvestigationRelayStatusState",
       values: Object.freeze([
-        "missing", "prepared", "dispatching", "response_started",
-        "succeeded", "failed_no_effect", "failed_classified", "terminal_unknown",
+        "missing",
+        "prepared",
+        "dispatching",
+        "response_started",
+        "succeeded",
+        "failed_no_effect",
+        "failed_classified",
+        "terminal_unknown",
       ]),
     }),
     Object.freeze({
@@ -280,7 +291,9 @@ const reviewInvestigationsActionContractFragmentBase = Object.freeze({
       callerAuthority: "run_authorization",
       mutability: "command",
       naturalIdempotencyPreimage: Object.freeze([
-        "investigation_id", "turn_id", "idempotency_key",
+        "investigation_id",
+        "turn_id",
+        "idempotency_key",
       ]),
       semanticRetryClass: "same_request",
       requestFields: Object.freeze([
@@ -292,8 +305,14 @@ const reviewInvestigationsActionContractFragmentBase = Object.freeze({
       ]),
       resultStatusEnum: "ReviewInvestigationRelayGrantResultStatus",
       resultFields: Object.freeze([
-        Object.freeze({ name: "grantResponse", type: "nullable_hosted_v4_relay_grant" }),
-        Object.freeze({ name: "blockedPrerequisite", type: "nullable_identifier" }),
+        Object.freeze({
+          name: "grantResponse",
+          type: "nullable_hosted_v4_relay_grant",
+        }),
+        Object.freeze({
+          name: "blockedPrerequisite",
+          type: "nullable_identifier",
+        }),
       ]),
     }),
     Object.freeze({
@@ -302,7 +321,10 @@ const reviewInvestigationsActionContractFragmentBase = Object.freeze({
       resultTypeName: "ReviewInvestigationRelayStatusResult",
       callerAuthority: "run_authorization",
       mutability: "read",
-      naturalIdempotencyPreimage: Object.freeze(["investigation_id", "turn_id"]),
+      naturalIdempotencyPreimage: Object.freeze([
+        "investigation_id",
+        "turn_id",
+      ]),
       semanticRetryClass: "read_only",
       requestFields: Object.freeze([
         Object.freeze({ name: "authorizationId", type: "identifier" }),
@@ -317,8 +339,14 @@ const reviewInvestigationsActionContractFragmentBase = Object.freeze({
         Object.freeze({ name: "effectId", type: "nullable_identifier" }),
         Object.freeze({ name: "ordinal", type: "nullable_positive_integer" }),
         Object.freeze({ name: "requestHash", type: "nullable_hash" }),
-        Object.freeze({ name: "acceptedAttestationId", type: "nullable_identifier" }),
-        Object.freeze({ name: "dispatchBlockedPrerequisite", type: "nullable_identifier" }),
+        Object.freeze({
+          name: "acceptedAttestationId",
+          type: "nullable_identifier",
+        }),
+        Object.freeze({
+          name: "dispatchBlockedPrerequisite",
+          type: "nullable_identifier",
+        }),
       ]),
     }),
     Object.freeze({
@@ -734,7 +762,8 @@ const reviewInvestigationsActionContractFragmentBase = Object.freeze({
 });
 
 // Relay additions are versioned separately from the published base and shadow wires.
-const relayBaseOperations = reviewInvestigationsActionContractFragmentBase.operations;
+const relayBaseOperations =
+  reviewInvestigationsActionContractFragmentBase.operations;
 const relayTurnPlanBase = relayBaseOperations.find(
   (operation) => operation.operationId === "review_investigation_turn_plan",
 );
@@ -756,7 +785,10 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
       resultTypeName: "ReviewInvestigationRelayTurnPlanResult",
       requestFields: Object.freeze([
         ...relayTurnPlanBase.requestFields,
-        Object.freeze({ name: "turnBudgetCanonicalJson", type: "canonical_json" }),
+        Object.freeze({
+          name: "turnBudgetCanonicalJson",
+          type: "canonical_json",
+        }),
       ]),
     }),
     Object.freeze({

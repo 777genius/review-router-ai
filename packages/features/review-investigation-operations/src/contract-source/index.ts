@@ -28,10 +28,12 @@ export const reviewHostedRelayExtensionPrerequisiteV1Contract = Object.freeze({
   disposableCohortFlag: "REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID",
   requiresCanonicalizerDigest: true,
   requiresSchemaDigest: true,
-  paidDispatchBlockedPrerequisite: "pinned_codex_transport_output_token_limit_unqualified",
+  paidDispatchBlockedPrerequisite:
+    "pinned_codex_transport_output_token_limit_unqualified",
 });
 
-export const reviewHostedRelayExtensionPrerequisitePublishedContract = Object.freeze({
-  exportName: "reviewHostedRelayExtensionPrerequisiteV1Contract",
-  value: reviewHostedRelayExtensionPrerequisiteV1Contract,
-});
+export const reviewHostedRelayExtensionPrerequisitePublishedContract =
+  Object.freeze({
+    exportName: "reviewHostedRelayExtensionPrerequisiteV1Contract",
+    value: reviewHostedRelayExtensionPrerequisiteV1Contract,
+  });

@@ -20,7 +20,10 @@ import type {
   RegisterReviewSnapshotReadV2RoutesDependencies,
 } from "@reviewrouter/features-action-control-plane/v2";
 import { InvestigationTurnProviderKind } from "@reviewrouter/features-review-investigations";
-import { HostedV4AuthorityBridge, PrismaHostedV4RelayTurn } from "@reviewrouter/features-hosted-account-pool";
+import {
+  HostedV4AuthorityBridge,
+  PrismaHostedV4RelayTurn,
+} from "@reviewrouter/features-hosted-account-pool";
 import {
   investigationPrivateMaterialActiveKeyIdEnvironmentVariable,
   investigationPrivateMaterialKeysEnvironmentVariable,
@@ -191,7 +194,10 @@ import {
 import { OctokitCodexRotatingGitHubSecretGateway } from "./github/octokit-codex-rotating-github-secret-gateway.js";
 import { HostedV4ScmReadGateway } from "./github/hosted-v4-scm-read-gateway.js";
 import { createHostedV4AuthoritySources } from "./hosted-v4-authority-sources.js";
-import { composeHostedV4RelayAuthority, isHostedV4RelayAdmissionCurrent } from "./hosted-v4-relay-authority.js";
+import {
+  composeHostedV4RelayAuthority,
+  isHostedV4RelayAdmissionCurrent,
+} from "./hosted-v4-relay-authority.js";
 import type { HostedV4ReadRoutesDependencies } from "./hosted-v4-read-routes.js";
 import { ProductionReviewMutationAuthorityProofFacts } from "./review-action-v2-mutation-proof-facts.js";
 import { OctokitReviewV2DispatchCapabilityInspector } from "./github/octokit-review-v2-dispatch-capability-inspector.js";
@@ -669,10 +675,20 @@ export function composeReviewActionV2ProductionRoutes(input: {
     investigationQueries: investigationStore,
     investigationLeaseCapabilities,
     relayTurnStatus: new PrismaHostedV4RelayTurn(prisma),
-    relayGatewayAdmission: ({ authorization, lease }: Parameters<NonNullable<ReviewActionV2ContextAttestationHandlerDependencies["relayGatewayAdmission"]>>[0]) =>
+    relayGatewayAdmission: ({
+      authorization,
+      lease,
+    }: Parameters<
+      NonNullable<
+        ReviewActionV2ContextAttestationHandlerDependencies["relayGatewayAdmission"]
+      >
+    >[0]) =>
       isHostedV4RelayAdmissionCurrent({
-        prisma, env: input.env, authorization,
-        investigationId: lease.investigationId, turnId: lease.turnId,
+        prisma,
+        env: input.env,
+        authorization,
+        investigationId: lease.investigationId,
+        turnId: lease.turnId,
         now: clock.now(),
       }),
     investigationRollout: investigationRolloutGuard,
@@ -926,14 +942,22 @@ export function composeReviewActionV2ProductionRoutes(input: {
       investigationLeaseCapabilities,
       relayTurnStatus: new PrismaHostedV4RelayTurn(prisma),
       relayLeaseAdmission: async ({ authorization, investigation }) => {
-        if (!investigation.activeTurn ||
+        if (
+          !investigation.activeTurn ||
           !(await isHostedV4RelayAdmissionCurrent({
-            prisma, env: input.env, authorization,
+            prisma,
+            env: input.env,
+            authorization,
             investigationId: investigation.investigationId,
             turnId: investigation.activeTurn.turnId,
             now: clock.now(),
-          }))) {
-          throw new ReviewActionV2RouteFailure(403, ReviewActionV2ProtocolErrorCode.CapabilityDisabled, ["review_investigation_relay_lease_disabled"]);
+          }))
+        ) {
+          throw new ReviewActionV2RouteFailure(
+            403,
+            ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
+            ["review_investigation_relay_lease_disabled"],
+          );
         }
       },
       digest,

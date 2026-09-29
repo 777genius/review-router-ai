@@ -38,7 +38,10 @@ describe("immutable relay turn budget admission", () => {
       verify({ ...budget, maxRequests: 0 }, originalHash),
     ).rejects.toThrow("relay_turn_budget_limit_invalid");
     await expect(
-      verify({ ...budget, maxOutputTokens: budget.maxOutputTokens - 1 }, originalHash),
+      verify(
+        { ...budget, maxOutputTokens: budget.maxOutputTokens - 1 },
+        originalHash,
+      ),
     ).rejects.toThrow("relay_turn_budget_hash_mismatch");
   });
 
