@@ -11,6 +11,8 @@ import {
   disposableProvider79HandoffSql,
   disposableProvider79VerificationSql,
   disposableReleaseMigrationRoleSql,
+  disposableReleaseMigrationRoleCleanupSql,
+  disposableReleasePairPreflightSql,
   disposableRuntimeQualifiedVerificationSql,
   writeDisposableMigrationCatalog,
 } from "./disposable-release-role-fixture.mjs";
@@ -292,7 +294,11 @@ const boundarySql = readFileSync(new URL(
     newDatabase("rr_role_provider");
     query("rr_role_test", disposableFreshDatabasePreflightSql);
     query("rr_role_provider", disposableFreshDatabasePreflightSql);
+    expect(() => query("rr_role_test", disposableReleasePairPreflightSql))
+      .toThrow("disposable_release_pair_preflight_invalid");
     query("postgres", disposableReleaseMigrationRoleSql(password));
+    query("rr_role_test", disposableReleasePairPreflightSql);
+    query("rr_role_provider", disposableReleasePairPreflightSql);
     expect(() => query("postgres", disposableReleaseMigrationRoleSql(password))).toThrow("self_hosted_release_role_already_present");
     migrate("rr_role_test", before87);
     assertStockLedger("rr_role_test", stockMigrationNames.filter((name) => name < "000087_"));
@@ -772,5 +778,24 @@ const boundarySql = readFileSync(new URL(
         FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_schema_owner')
       AND (SELECT rolcanlogin AND rolvaliduntil IS NULL
         FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration')`)).toBe("t");
+  }, 90_000);
+
+  it("removes only the exact created migration login after its databases are gone", () => {
+    const oid = query("postgres", `SELECT oid FROM pg_catalog.pg_roles
+      WHERE rolname='reviewrouter_release_migration'`);
+    expect(oid).toMatch(/^[1-9][0-9]*$/u);
+    expect(() => query("postgres", disposableReleaseMigrationRoleCleanupSql(
+      String(Number(oid) + 1)))).toThrow("disposable_release_role_cleanup_invalid");
+    expect(() => query("postgres", disposableReleaseMigrationRoleCleanupSql(oid)))
+      .toThrow(); // live database grants must prevent premature cluster cleanup
+    expect(query("postgres", "SELECT to_regrole('reviewrouter_release_migration') IS NOT NULL"))
+      .toBe("t");
+    query("postgres", "DROP DATABASE rr_role_test");
+    query("postgres", "DROP DATABASE rr_role_provider");
+    query("postgres", disposableReleaseMigrationRoleCleanupSql(oid));
+    expect(query("postgres", "SELECT to_regrole('reviewrouter_release_migration') IS NULL"))
+      .toBe("t");
+    expect(query("postgres", "SELECT to_regrole('reviewrouter_release_schema_owner') IS NOT NULL"))
+      .toBe("t");
   }, 90_000);
 });

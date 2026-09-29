@@ -624,6 +624,45 @@ END $disposable_release_role$;
 `;
 }
 
+// The item11 CI database is on the separate application-test cluster. Check
+// the pair's effective authority there before applying its first migration.
+export const disposableReleasePairPreflightSql = `DO $item11_pair$
+BEGIN
+  IF ${adminGuard}
+     OR ${releasePairCatalogInvalid}
+     OR pg_catalog.current_database() = 'postgres'
+     OR pg_catalog.has_database_privilege(
+          pg_catalog.to_regrole('reviewrouter_release_schema_owner'),
+          pg_catalog.current_database(),'CREATE')
+     OR pg_catalog.has_database_privilege(
+          pg_catalog.to_regrole('reviewrouter_release_migration'),
+          pg_catalog.current_database(),'CREATE')
+     OR pg_catalog.has_schema_privilege(
+          pg_catalog.to_regrole('reviewrouter_release_schema_owner'),'public','CREATE')
+     OR pg_catalog.has_schema_privilege(
+          pg_catalog.to_regrole('reviewrouter_release_migration'),'public','CREATE')
+  THEN RAISE EXCEPTION 'disposable_release_pair_preflight_invalid' USING ERRCODE='42501';
+  END IF;
+END $item11_pair$;\n`;
+
+// Only a role created by this run can be removed. An exact OID and the
+// unchanged catalog shape are required; DROP ROLE rejects foreign dependencies.
+export function disposableReleaseMigrationRoleCleanupSql(oid) {
+  if (!/^[1-9][0-9]*$/u.test(String(oid)))
+    throw new Error("disposable_release_role_oid_invalid");
+  return `DO $item11_cleanup$
+BEGIN
+  IF ${adminGuard}
+     OR ${releasePairCatalogInvalid}
+     OR pg_catalog.current_database() <> 'postgres'
+     OR (SELECT oid FROM pg_catalog.pg_roles
+         WHERE rolname='reviewrouter_release_migration') <> ${oid}
+  THEN RAISE EXCEPTION 'disposable_release_role_cleanup_invalid' USING ERRCODE='42501';
+  END IF;
+  DROP ROLE reviewrouter_release_migration;
+END $item11_cleanup$;\n`;
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if (process.argv[2] === "catalog") {
     process.stdout.write(writeDisposableMigrationCatalog("before87", process.argv[3]) + "\n");
