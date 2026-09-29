@@ -3890,6 +3890,7 @@ model SdkGrowthAuthorityCustody {
   verifierRevision            String                      @db.VarChar(256)
   sourceCommit                String                      @db.VarChar(40)
   sourceTree                  String                      @db.VarChar(40)
+  sourceBinding               Json?
   requestDigest               String                      @db.VarChar(71)
   requestWire                 Bytes
   grantDigest                 String                      @db.VarChar(71)
@@ -3967,6 +3968,7 @@ model SdkGrowthVerifierEvidence {
   verifierRevision            String   @db.VarChar(40)
   sourceCommit                String   @db.VarChar(40)
   sourceTree                  String   @db.VarChar(40)
+  sourceBinding               Json?
   producer                    String
   candidateWritable           Boolean  @default(false)
   authorityBinding            Json
@@ -3994,6 +3996,7 @@ model SdkGrowthFinalizedReportEvidence {
   runId             String                    @db.VarChar(256)
   runAttempt        String                    @db.VarChar(256)
   verifierRevision  String                    @db.VarChar(40)
+  sourceBinding     Json?
   producer          String
   candidateWritable Boolean                   @default(false)
   reportDigest      String                    @db.VarChar(71)

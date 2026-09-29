@@ -23,6 +23,7 @@ const claims = (): GitHubActionsOidcClaims => ({
   repository_id: "123",
   repository_owner: "acme",
   event_name: "pull_request",
+  ref: "refs/pull/42/merge",
   run_id: "456",
   run_attempt: "2",
   workflow_ref: "acme/repo/.github/workflows/verify.yml@refs/heads/main",
@@ -56,6 +57,14 @@ function authentication(
       verifierRevision: string;
       sourceCommit: string;
       sourceTree: string;
+      pullRequest: number;
+      headRepositoryId: string;
+      baseRepositoryId: string;
+      baseRef: string;
+      baseCommit: string;
+      baseTree: string;
+      mergeBaseCommit: string;
+      mergeBaseTree: string;
     } | null;
     readonly consume?: boolean;
     readonly rejectVerification?: boolean;
@@ -74,6 +83,14 @@ function authentication(
           verifierRevision: "5".repeat(40),
           sourceCommit: "6".repeat(40),
           sourceTree: "7".repeat(40),
+          pullRequest: 42,
+          headRepositoryId: "123",
+          baseRepositoryId: "123",
+          baseRef: "main",
+          baseCommit: "8".repeat(40),
+          baseTree: "9".repeat(40),
+          mergeBaseCommit: "8".repeat(40),
+          mergeBaseTree: "9".repeat(40),
         }
       : overrides.resolved;
   return new SdkGrowthOidcAuthentication(
@@ -112,6 +129,44 @@ function request() {
 }
 
 describe("SDK growth OIDC authentication", () => {
+  it("uses workflow_sha only for historical GET when reusable workflow SHA is absent", async () => {
+    const resolve = vi.fn();
+    const resolveHistorical = vi.fn().mockResolvedValue({
+      installationId: "789",
+      runId: "456",
+      runAttempt: "2",
+      verifierRevision: "4".repeat(40),
+      pullRequest: 42,
+      sourceCommit: "9".repeat(40),
+      sourceTree: "a".repeat(40),
+    });
+    const auth = new SdkGrowthOidcAuthentication(
+      {
+        verify: vi
+          .fn()
+          .mockResolvedValue({ ...claims(), job_workflow_sha: undefined }),
+      },
+      {
+        findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
+      } as unknown as ActionControlPlaneRepositoryPort,
+      { tryConsumeNonce: vi.fn().mockResolvedValue(true) },
+      { resolve, resolveHistorical },
+      "sdk-growth",
+      () => new Date(1_000),
+    );
+    const route = { repositoryId: "repo", pullRequest: 42 };
+    const result = await auth.authenticateReadback(request(), route);
+    expect(result.current).toBeNull();
+    expect(await result.historical?.()).toMatchObject({
+      verifierRevision: "4".repeat(40),
+      sourceCommit: "9".repeat(40),
+    });
+    expect(resolve).not.toHaveBeenCalled();
+    await expect(auth.authenticate(request(), route)).rejects.toMatchObject({
+      code: "wrong-identity",
+    });
+  });
+
   it("derives the complete execution identity outside request JSON", async () => {
     await expect(
       authentication().authenticate(request(), {
@@ -130,6 +185,15 @@ describe("SDK growth OIDC authentication", () => {
       verifierRevision: "5".repeat(40),
       sourceCommit: "6".repeat(40),
       sourceTree: "7".repeat(40),
+      sourceBinding: {
+        headRepositoryId: "123",
+        baseRepositoryId: "123",
+        baseRef: "main",
+        baseCommit: "8".repeat(40),
+        baseTree: "9".repeat(40),
+        mergeBaseCommit: "8".repeat(40),
+        mergeBaseTree: "9".repeat(40),
+      },
     });
   });
 
@@ -139,6 +203,25 @@ describe("SDK growth OIDC authentication", () => {
     [
       "repository",
       () => authentication({ claims: { ...claims(), repository_id: "999" } }),
+    ],
+    [
+      "event",
+      () =>
+        authentication({
+          claims: { ...claims(), event_name: "pull_request_target" },
+        }),
+    ],
+    [
+      "PR ref",
+      () =>
+        authentication({ claims: { ...claims(), ref: "refs/pull/99/merge" } }),
+    ],
+    [
+      "workflow revision",
+      () =>
+        authentication({
+          claims: { ...claims(), job_workflow_sha: undefined },
+        }),
     ],
     [
       "installation",
@@ -151,6 +234,14 @@ describe("SDK growth OIDC authentication", () => {
             verifierRevision: "5".repeat(40),
             sourceCommit: "6".repeat(40),
             sourceTree: "7".repeat(40),
+            pullRequest: 42,
+            headRepositoryId: "123",
+            baseRepositoryId: "123",
+            baseRef: "main",
+            baseCommit: "8".repeat(40),
+            baseTree: "9".repeat(40),
+            mergeBaseCommit: "8".repeat(40),
+            mergeBaseTree: "9".repeat(40),
           },
         }),
     ],
@@ -165,6 +256,14 @@ describe("SDK growth OIDC authentication", () => {
             verifierRevision: "5".repeat(40),
             sourceCommit: "6".repeat(40),
             sourceTree: "7".repeat(40),
+            pullRequest: 42,
+            headRepositoryId: "123",
+            baseRepositoryId: "123",
+            baseRef: "main",
+            baseCommit: "8".repeat(40),
+            baseTree: "9".repeat(40),
+            mergeBaseCommit: "8".repeat(40),
+            mergeBaseTree: "9".repeat(40),
           },
         }),
     ],
@@ -179,6 +278,14 @@ describe("SDK growth OIDC authentication", () => {
             verifierRevision: "5".repeat(40),
             sourceCommit: "6".repeat(40),
             sourceTree: "7".repeat(40),
+            pullRequest: 42,
+            headRepositoryId: "123",
+            baseRepositoryId: "123",
+            baseRef: "main",
+            baseCommit: "8".repeat(40),
+            baseTree: "9".repeat(40),
+            mergeBaseCommit: "8".repeat(40),
+            mergeBaseTree: "9".repeat(40),
           },
         }),
     ],
@@ -193,6 +300,14 @@ describe("SDK growth OIDC authentication", () => {
             verifierRevision: "8".repeat(40),
             sourceCommit: "6".repeat(40),
             sourceTree: "7".repeat(40),
+            pullRequest: 42,
+            headRepositoryId: "123",
+            baseRepositoryId: "123",
+            baseRef: "main",
+            baseCommit: "8".repeat(40),
+            baseTree: "9".repeat(40),
+            mergeBaseCommit: "8".repeat(40),
+            mergeBaseTree: "9".repeat(40),
           },
         }),
     ],
@@ -208,6 +323,158 @@ describe("SDK growth OIDC authentication", () => {
 });
 
 describe("SDK growth authority routes", () => {
+  // Regression: after a PR closes, bridge-v1 custody still has the old run
+  // SHA/tree; the current v2 PR capture is unavailable, but GET may read it.
+  it("reads historical v1 grant, receipt and stale status without admitting a mutation", async () => {
+    const legacy = {
+      installationId: "789",
+      runId: "456",
+      runAttempt: "2",
+      verifierRevision: "5".repeat(40),
+      pullRequest: 42,
+      sourceCommit: "9".repeat(40),
+      sourceTree: "a".repeat(40),
+    };
+    const resolve = vi.fn().mockResolvedValue(null); // Closed PR: no open v2 capture.
+    const resolveHistorical = vi.fn().mockResolvedValue(legacy);
+    const nonce = vi.fn().mockResolvedValue(true);
+    const auth = new SdkGrowthOidcAuthentication(
+      { verify: vi.fn().mockResolvedValue(claims()) },
+      {
+        findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
+      } as unknown as ActionControlPlaneRepositoryPort,
+      { tryConsumeNonce: nonce },
+      { resolve, resolveHistorical },
+      "sdk-growth",
+      () => new Date(1_000),
+    );
+    const grant = Buffer.from("historical-grant");
+    const receipt = Buffer.from("historical-receipt");
+    const stored = {
+      tenantId: "tenant",
+      repositoryId: "repo",
+      pullRequest: 42,
+      githubRepositoryId: "123",
+      installationId: "789",
+      subject: "repo:acme/repo:pull_request",
+      runId: "456",
+      runAttempt: "2",
+      verifierRevision: "5".repeat(40),
+      sourceCommit: "9".repeat(40),
+      sourceTree: "a".repeat(40),
+    };
+    const service = {
+      admit: vi.fn(),
+      complete: vi.fn(),
+      admissionReadback: vi.fn(async (value: AuthenticatedEfExecution) =>
+        JSON.stringify(value) === JSON.stringify(stored) ? grant : null,
+      ),
+      completionReadback: vi.fn(async (value: AuthenticatedEfExecution) =>
+        JSON.stringify(value) === JSON.stringify(stored) ? receipt : null,
+      ),
+      status: vi.fn(),
+      historicalStatus: vi.fn(async (value: AuthenticatedEfExecution) =>
+        JSON.stringify(value) === JSON.stringify(stored)
+          ? {
+              requestDigest: "request",
+              grantDigest: "grant",
+              completionDigest: "completion",
+              receiptDigest: "receipt",
+              publicationState: "applied",
+              authorityState: "stale",
+            }
+          : null,
+      ),
+    };
+    const app = Fastify();
+    await registerSdkGrowthAuthorityRoutes(app, {
+      authentication: auth,
+      service: service as unknown as EfAuthorityService,
+    });
+    const base = "/sdk-growth/v1/repositories/repo/pulls/42";
+    const requestDigest = "sha256:" + "a".repeat(64);
+    const completionDigest = "sha256:" + "b".repeat(64);
+    const getGrant = await app.inject({
+      method: "GET",
+      url: `${base}/requests/${requestDigest}`,
+      headers: { authorization: "Bearer oidc" },
+    });
+    const getReceipt = await app.inject({
+      method: "GET",
+      url: `${base}/receipts?requestDigest=${requestDigest}&completionDigest=${completionDigest}`,
+      headers: { authorization: "Bearer oidc" },
+    });
+    const getStatus = await app.inject({
+      method: "GET",
+      url: `${base}/status?requestDigest=${requestDigest}`,
+      headers: { authorization: "Bearer oidc" },
+    });
+    expect(getGrant.body).toBe(grant.toString());
+    expect(getReceipt.body).toBe(receipt.toString());
+    expect(getStatus.json().authorityState).toBe("stale");
+    expect(nonce).toHaveBeenCalledTimes(3);
+    expect(service.status).not.toHaveBeenCalled();
+    const post = await app.inject({
+      method: "POST",
+      url: `${base}/requests`,
+      payload: {},
+      headers: { authorization: "Bearer oidc" },
+    });
+    expect(post.statusCode).toBe(403);
+    expect(service.admit).not.toHaveBeenCalled();
+    expect(resolveHistorical).toHaveBeenCalledTimes(3);
+    await app.close();
+  });
+
+  it("tries v1 GET only after v2 custody misses", async () => {
+    const current = {
+      repositoryId: "repo",
+      pullRequest: 42,
+      sourceBinding: { baseRef: "main" },
+    } as AuthenticatedEfExecution;
+    const historical = {
+      repositoryId: "repo",
+      pullRequest: 42,
+      sourceCommit: "9".repeat(40),
+    } as AuthenticatedEfExecution;
+    const readback = vi.fn(async (value: AuthenticatedEfExecution) =>
+      value === historical ? Buffer.from("v1-grant") : null,
+    );
+    const loadHistorical = vi.fn(async () => historical);
+    const app = Fastify();
+    await registerSdkGrowthAuthorityRoutes(app, {
+      authentication: {
+        authenticate: vi.fn(),
+        authenticateReadback: vi
+          .fn()
+          .mockResolvedValue({ current, historical: loadHistorical }),
+      },
+      service: { admissionReadback: readback } as unknown as EfAuthorityService,
+    });
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/sdk-growth/v1/repositories/repo/pulls/42/requests/sha256:" +
+        "a".repeat(64),
+    });
+    expect(response.body).toBe("v1-grant");
+    expect(readback.mock.calls.map(([value]) => value)).toEqual([
+      current,
+      historical,
+    ]);
+    expect(loadHistorical).toHaveBeenCalledOnce();
+    readback.mockResolvedValueOnce(Buffer.from("v2-grant"));
+    const currentResponse = await app.inject({
+      method: "GET",
+      url:
+        "/sdk-growth/v1/repositories/repo/pulls/42/requests/sha256:" +
+        "a".repeat(64),
+    });
+    expect(currentResponse.body).toBe("v2-grant");
+    expect(loadHistorical).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
   it("registers admission, both readbacks, completion and status", async () => {
     const execution = {
       tenantId: "tenant",

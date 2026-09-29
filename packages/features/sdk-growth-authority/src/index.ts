@@ -1,5 +1,6 @@
 export { SdkGrowthAuthority } from "./application/authority.js";
 export * from "./application/ef-authority-service.js";
+export * from "./application/source-binding.js";
 export { PinnedEfAuthorityCodecV1 } from "./application/pinned-ef-authority-codec.js";
 export * from "./application/ef-v3-host-transport.js";
 export { ServerSideTrustedAuthorityIngestion } from "./application/trusted-authority-ingestion.js";
