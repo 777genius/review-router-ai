@@ -270,13 +270,15 @@ async function pull(
       })
     ).data,
   );
+  if (value.number !== number || value.state !== "open") return null;
   const head = record(value.head);
   const base = record(value.base);
+  // GitHub can retain a closed PR after deleting its fork. An absent fork
+  // cannot qualify current v2 capture; historical GET verifies the run alone.
+  if (head.repo === null) return null;
   const headRepository = record(head.repo);
   const baseRepository = record(base.repo);
   if (
-    value.number !== number ||
-    value.state !== "open" ||
     String(baseRepository.id) !== repositoryId ||
     !sha(head.sha) ||
     !sha(base.sha) ||

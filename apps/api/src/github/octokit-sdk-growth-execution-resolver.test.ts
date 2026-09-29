@@ -117,6 +117,32 @@ describe("Octokit SDK growth PR source binding", () => {
     ).toBe(false);
   });
 
+  it("holds current capture when a closed PR has a deleted fork", async () => {
+    const subject = resolver({
+      before: {
+        state: "closed",
+        head: { sha: hex("2"), repo: null },
+      },
+    });
+    await expect(subject.value.resolve(input)).resolves.toBeNull();
+    expect(
+      subject.request.mock.calls.some(([route]) =>
+        route.includes("actions/runs"),
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    { head: { sha: hex("2") } },
+    { base: { sha: hex("3"), ref: "main", repo: null } },
+  ])("rejects malformed open PR ownership data %#", async (before) => {
+    await expect(
+      resolver({ before }).value.resolve(input),
+    ).rejects.toMatchObject({
+      code: "binding-changed",
+    });
+  });
+
   it("accepts an empty closed-run PR list only with the signed PR ref", async () => {
     await expect(
       resolver({ run: { pull_requests: [] } }).value.resolveHistorical(input),

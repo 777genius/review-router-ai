@@ -10,6 +10,7 @@ import type {
   AuthenticatedEfExecution,
   EfAuthorityService,
 } from "@reviewrouter/features-sdk-growth-authority";
+import { OctokitSdkGrowthExecutionResolver } from "./github/octokit-sdk-growth-execution-resolver.js";
 import {
   registerSdkGrowthAuthorityRoutes,
   SdkGrowthOidcAuthentication,
@@ -323,9 +324,9 @@ describe("SDK growth OIDC authentication", () => {
 });
 
 describe("SDK growth authority routes", () => {
-  // Regression: after a PR closes, bridge-v1 custody still has the old run
-  // SHA/tree; the current v2 PR capture is unavailable, but GET may read it.
-  it("reads historical v1 grant, receipt and stale status without admitting a mutation", async () => {
+  // Regression: GitHub can null a deleted fork's head.repo after closure.
+  // A throw during current capture would prevent verified v1 GET readback.
+  it("reads historical v1 custody after a closed PR loses its fork repository", async () => {
     const legacy = {
       installationId: "789",
       runId: "456",
@@ -335,8 +336,43 @@ describe("SDK growth authority routes", () => {
       sourceCommit: "9".repeat(40),
       sourceTree: "a".repeat(40),
     };
-    const resolve = vi.fn().mockResolvedValue(null); // Closed PR: no open v2 capture.
-    const resolveHistorical = vi.fn().mockResolvedValue(legacy);
+    const githubRequest = vi.fn(async (route: string) => {
+      if (route === "GET /repos/{owner}/{repo}")
+        return { data: { id: 123, full_name: "acme/repo" } };
+      if (route === "GET /repos/{owner}/{repo}/pulls/{pull_number}")
+        return {
+          data: {
+            number: 42,
+            state: "closed",
+            head: { sha: "6".repeat(40), repo: null },
+            base: { sha: "8".repeat(40), ref: "main", repo: { id: 123 } },
+          },
+        };
+      if (route === "GET /repos/{owner}/{repo}/actions/runs/{run_id}")
+        return {
+          data: {
+            id: 456,
+            run_attempt: 2,
+            event: "pull_request",
+            head_sha: legacy.sourceCommit,
+            workflow_id: 7,
+            path: ".github/workflows/verify.yml",
+            repository: { id: 123, full_name: "acme/repo" },
+            pull_requests: [],
+          },
+        };
+      if (route === "GET /repos/{owner}/{repo}/git/commits/{commit_sha}")
+        return {
+          data: {
+            sha: legacy.sourceCommit,
+            tree: { sha: legacy.sourceTree },
+          },
+        };
+      throw new Error(`Unexpected GitHub route: ${route}`);
+    });
+    const executions = new OctokitSdkGrowthExecutionResolver({
+      app: { getInstallationOctokit: async () => ({ request: githubRequest }) },
+    });
     const nonce = vi.fn().mockResolvedValue(true);
     const auth = new SdkGrowthOidcAuthentication(
       { verify: vi.fn().mockResolvedValue(claims()) },
@@ -344,7 +380,7 @@ describe("SDK growth authority routes", () => {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
       } as unknown as ActionControlPlaneRepositoryPort,
       { tryConsumeNonce: nonce },
-      { resolve, resolveHistorical },
+      executions,
       "sdk-growth",
       () => new Date(1_000),
     );
@@ -414,6 +450,10 @@ describe("SDK growth authority routes", () => {
     expect(getStatus.json().authorityState).toBe("stale");
     expect(nonce).toHaveBeenCalledTimes(3);
     expect(service.status).not.toHaveBeenCalled();
+    const historicalRunReads = githubRequest.mock.calls.filter(([route]) =>
+      route.includes("actions/runs"),
+    ).length;
+    expect(historicalRunReads).toBe(6);
     const post = await app.inject({
       method: "POST",
       url: `${base}/requests`,
@@ -422,7 +462,17 @@ describe("SDK growth authority routes", () => {
     });
     expect(post.statusCode).toBe(403);
     expect(service.admit).not.toHaveBeenCalled();
-    expect(resolveHistorical).toHaveBeenCalledTimes(3);
+    expect(
+      githubRequest.mock.calls.filter(([route]) =>
+        route.includes("actions/runs"),
+      ),
+    ).toHaveLength(historicalRunReads);
+    expect(
+      githubRequest.mock.calls.filter(([route]) => route.includes("/pulls/")),
+    ).toHaveLength(4);
+    expect(
+      githubRequest.mock.calls.some(([route]) => route.includes("/compare/")),
+    ).toBe(false);
     await app.close();
   });
 
