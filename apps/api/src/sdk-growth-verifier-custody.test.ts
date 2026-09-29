@@ -29,6 +29,15 @@ const execution: AuthenticatedEfExecution = {
   sourceCommit: "2".repeat(40),
   sourceTree: "3".repeat(40),
 };
+const sourceBinding = {
+  headRepositoryId: execution.githubRepositoryId,
+  baseRepositoryId: execution.githubRepositoryId,
+  baseRef: "main",
+  baseCommit: "4".repeat(40),
+  baseTree: "6".repeat(40),
+  mergeBaseCommit: "5".repeat(40),
+  mergeBaseTree: "7".repeat(40),
+};
 const report = Buffer.from("finalized-report");
 const reportDigest =
   "sha256:" + createHash("sha256").update(report).digest("hex");
@@ -115,6 +124,49 @@ function custody(
 }
 
 describe("SDK verifier custody adapter", () => {
+  // Regression: a retained report for the same head and run but another base
+  // ref could previously satisfy a new execution's report readback.
+  it("rejects stale report and archive evidence with a changed v2 base ref", async () => {
+    const bound = { ...execution, sourceBinding };
+    const stale = { ...sourceBinding, baseRef: "release" };
+    await expect(
+      custody({ ...evidence, sourceBinding: stale }).load(bound),
+    ).rejects.toMatchObject({ code: "owner-evidence" });
+    await expect(
+      custody(
+        { ...evidence, sourceBinding },
+        { ...finalized, sourceBinding: stale },
+      ).verifyFinalizedReport({
+        execution: bound,
+        report,
+        completion,
+        reportDecision,
+      }),
+    ).rejects.toMatchObject({ code: "owner-evidence" });
+  });
+
+  it("domain-separates v2 evidence IDs across base ref and tree changes while preserving v1", () => {
+    const historical = sdkGrowthVerifierExecutionId(execution, evidence);
+    const bound = { ...execution, sourceBinding };
+    expect(sdkGrowthVerifierExecutionId(execution, evidence)).toBe(historical);
+    expect(sdkGrowthVerifierExecutionId(bound, evidence)).not.toBe(historical);
+    expect(sdkGrowthVerifierExecutionId(bound, evidence)).not.toBe(
+      sdkGrowthVerifierExecutionId(
+        { ...bound, sourceBinding: { ...sourceBinding, baseRef: "release" } },
+        evidence,
+      ),
+    );
+    expect(sdkGrowthVerifierExecutionId(bound, evidence)).not.toBe(
+      sdkGrowthVerifierExecutionId(
+        {
+          ...bound,
+          sourceBinding: { ...sourceBinding, baseTree: "8".repeat(40) },
+        },
+        evidence,
+      ),
+    );
+  });
+
   it("derives distinct evidence identity for pull requests in one execution", () => {
     expect(sdkGrowthVerifierExecutionId(execution, evidence)).not.toBe(
       sdkGrowthVerifierExecutionId({ ...execution, pullRequest: 99 }, evidence),
@@ -240,6 +292,7 @@ function verifierWriterHarness() {
   let currentInstallationActive = true;
   let currentVerifierActive = true;
   let admissionAvailable = true;
+  let admissionSourceBinding: unknown = null;
   let now = 100;
   let credentialExpiresAt = Infinity;
   let assignmentExpiresAt = Infinity;
@@ -277,7 +330,14 @@ function verifierWriterHarness() {
       }
       if (sql.includes('FROM "SdkGrowthAuthorityCustody"'))
         return admissionAvailable
-          ? [{ requestDigest, grantDigest, grantWire }]
+          ? [
+              {
+                requestDigest,
+                grantDigest,
+                grantWire,
+                sourceBinding: admissionSourceBinding,
+              },
+            ]
           : [];
       if (sql.includes('SELECT r.*, e."pullRequest"')) {
         const row = sql.includes('r."reportEvidenceId"')
@@ -311,27 +371,29 @@ function verifierWriterHarness() {
             verifierRevision: values[9],
             sourceCommit: values[10],
             sourceTree: values[11],
+            sourceBinding:
+              values[12] == null ? null : JSON.parse(String(values[12])),
             producer: "reviewrouter-verifier",
             candidateWritable: false,
-            authorityBinding: JSON.parse(String(values[12])),
-            candidateArchive: values[13],
-            candidateArchiveSha256: values[14],
-            candidateArchiveSha512Sri: values[15],
-            releasedArchive: values[16],
-            releasedArchiveSha256: values[17],
-            releasedArchiveSha512Sri: values[18],
-            toolArchive: values[19],
-            toolArchiveSha256: values[20],
-            toolArchiveSha512Sri: values[21],
-            installedDistributionWire: values[22],
-            installedDistributionDigest: values[23],
+            authorityBinding: JSON.parse(String(values[13])),
+            candidateArchive: values[14],
+            candidateArchiveSha256: values[15],
+            candidateArchiveSha512Sri: values[16],
+            releasedArchive: values[17],
+            releasedArchiveSha256: values[18],
+            releasedArchiveSha512Sri: values[19],
+            toolArchive: values[20],
+            toolArchiveSha256: values[21],
+            toolArchiveSha512Sri: values[22],
+            installedDistributionWire: values[23],
+            installedDistributionDigest: values[24],
           });
         return 1;
       }
       if (sql.includes('INSERT INTO "SdkGrowthFinalizedReportEvidence"')) {
         const evidenceId = String(values[1]);
-        const reportDigest = String(values[6]);
-        const key = `${evidenceId}:${String(values[8])}`;
+        const reportDigest = String(values[7]);
+        const key = `${evidenceId}:${String(values[9])}`;
         if (!reportRows.has(key))
           reportRows.set(key, {
             reportEvidenceId: values[0],
@@ -341,15 +403,19 @@ function verifierWriterHarness() {
             runId: values[3],
             runAttempt: values[4],
             verifierRevision: values[5],
+            sourceBinding:
+              values[6] == null ? null : JSON.parse(String(values[6])),
+            evidenceSourceBinding:
+              evidenceRows.get(evidenceId)?.sourceBinding ?? null,
             producer: "reviewrouter-verifier",
             candidateWritable: false,
             reportDigest,
-            finalizedReport: values[7],
-            grantId: values[8],
-            outcome: values[9],
-            coverage: values[10],
-            coveredScopes: JSON.parse(String(values[11])),
-            phases: JSON.parse(String(values[12])),
+            finalizedReport: values[8],
+            grantId: values[9],
+            outcome: values[10],
+            coverage: values[11],
+            coveredScopes: JSON.parse(String(values[12])),
+            phases: JSON.parse(String(values[13])),
           });
         return 1;
       }
@@ -427,6 +493,9 @@ function verifierWriterHarness() {
     withdrawVerifier() {
       currentVerifierActive = false;
     },
+    setAdmissionSourceBinding(value: unknown) {
+      admissionSourceBinding = value;
+    },
     removeAdmission() {
       admissionAvailable = false;
     },
@@ -434,6 +503,26 @@ function verifierWriterHarness() {
 }
 
 describe("trusted verifier producer custody", () => {
+  // Regression: a grant for the same head/run may remain in authority custody
+  // after the base ref changes; it cannot authorize v2 report finalization.
+  it("refuses v2 finalization against admission with a different base ref", async () => {
+    const h = verifierWriterHarness();
+    const bound = { ...execution, sourceBinding };
+    h.setExecution(bound);
+    h.setAdmissionSourceBinding({ ...sourceBinding, baseRef: "release" });
+    await h.writer.retainEvidence("verifier-credential", h.evidenceInput);
+    await expect(
+      h.writer.retainFinalizedReport("verifier-credential", {
+        expectedAuthorityEpoch: 1,
+        requestDigest: h.requestDigest,
+        grantDigest: h.grantDigest,
+        finalizedReport: report,
+        decision: reportDecision,
+      }),
+    ).rejects.toMatchObject({ code: "owner-evidence" });
+    expect(h.reportRows.size).toBe(0);
+  });
+
   it("retains evidence when the authority wait ends before both deadlines", async () => {
     const h = verifierWriterHarness();
     h.setDeadlines(150, 150);

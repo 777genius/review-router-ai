@@ -33,6 +33,17 @@ export interface AuthenticatedEfExecution {
   readonly verifierRevision: string;
   readonly sourceCommit: string;
   readonly sourceTree: string;
+  /** Present on independently captured PR-head executions. Historical v1
+   * executions have no such field and retain their existing readback key. */
+  readonly sourceBinding?: {
+    readonly headRepositoryId: string;
+    readonly baseRepositoryId: string;
+    readonly baseRef: string;
+    readonly baseCommit: string;
+    readonly baseTree: string;
+    readonly mergeBaseCommit: string;
+    readonly mergeBaseTree: string;
+  };
 }
 
 export interface EfBindingAssertions {
@@ -292,6 +303,7 @@ function authorityRequestId(
         execution.verifierRevision,
         execution.sourceCommit,
         execution.sourceTree,
+        ...(execution.sourceBinding ? [execution.sourceBinding] : []),
         requestDigest,
       ]),
       "utf8",
@@ -403,6 +415,10 @@ export class EfAuthorityService {
           grant.binding.repositoryId !== repositoryId ||
           grant.binding.pullRequest !== pullRequest ||
           grant.binding.head !== execution.sourceCommit ||
+          (execution.sourceBinding !== undefined &&
+            (grant.binding.base !== execution.sourceBinding.baseCommit ||
+              grant.binding.mergeBase !==
+                execution.sourceBinding.mergeBaseCommit)) ||
           grant.authorityEpoch !== trusted.authorityEpoch ||
           grant.ownerEvidence.evidenceId !== trusted.ownerEvidenceId ||
           grant.ownerEvidence.sourceDigest !== trusted.ownerSourceDigest ||
@@ -604,6 +620,31 @@ export class EfAuthorityService {
         return { ...retained, authorityState };
       },
     );
+  }
+
+  /** Historical bridge-v1 readback is immutable custody, never live authority. */
+  async historicalStatus(
+    execution: AuthenticatedEfExecution,
+    repositoryId: string,
+    pullRequest: number,
+    requestDigest: string,
+  ): Promise<
+    (AuthorityCustodyRead & { readonly authorityState: "stale" }) | null
+  > {
+    if (execution.sourceBinding !== undefined)
+      throw new AuthorityError("wrong-identity");
+    assertRouteExecution(execution, repositoryId, pullRequest);
+    const retained = await this.transactions.transact(
+      execution,
+      { tenantId: execution.tenantId, repositoryId, pullRequest },
+      ({ custody }) =>
+        custody.readAdmission(
+          { tenantId: execution.tenantId, repositoryId, pullRequest },
+          execution,
+          requestDigest,
+        ),
+    );
+    return retained ? { ...retained, authorityState: "stale" } : null;
   }
 }
 

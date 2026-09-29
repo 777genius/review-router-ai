@@ -26,6 +26,7 @@ const checkout105 = full.slice(0, 105);
 const checkout106 = full.slice(0, 106);
 const checkout107 = full.slice(0, 107);
 const checkout108 = full.slice(0, 108);
+const checkout109 = full.slice(0, 109);
 const manifest = (rows: typeof full) =>
   `sha256:${createHash("sha256")
     .update(rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","))
@@ -33,8 +34,9 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full109 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(109);
+  it("validates the full110 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(110);
+    expect(full[109]?.migrationName).toBe("000111_sdk_growth_source_binding");
     expect(full[108]?.migrationName).toBe(
       "000110_historical_unknown_scope_barrier",
     );
@@ -89,9 +91,10 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: checkout106 },
     { checkout: checkout107 },
     { checkout: checkout108 },
+    { checkout: checkout109 },
     { checkout: full },
   ])(
-    "accepts a complete validated checkout through 000110 (%#)",
+    "accepts a complete validated checkout through 000111 (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);
