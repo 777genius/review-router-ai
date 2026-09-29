@@ -795,10 +795,10 @@ jobs:
           test "$(git -C "$candidate" rev-parse HEAD)" = 243b99abbd89216fca55a1ffe4a1b83a1b7efc2e
           source_tree="$(git -C "$candidate" rev-parse 'HEAD^{tree}')"
           printf '%s' "$source_tree" | grep -Eq '^[a-f0-9]{40}$'
-          pnpm --dir "$candidate" install --frozen-lockfile
-          pnpm --dir "$candidate" --filter @agent-teams/engineering-foundation build
+          (cd "$candidate" && corepack pnpm install --frozen-lockfile)
+          (cd "$candidate" && corepack pnpm --filter @agent-teams/engineering-foundation build)
           archive="$RUNNER_TEMP/agent-teams-engineering-foundation-1.6.1.tgz"
-          pnpm --dir "$candidate/packages/engineering-foundation" pack --pack-destination "$RUNNER_TEMP" >"$RUNNER_TEMP/ef-candidate-pack.log"
+          (cd "$candidate/packages/engineering-foundation" && corepack pnpm pack --pack-destination "$RUNNER_TEMP") >"$RUNNER_TEMP/ef-candidate-pack.log"
           test -s "$archive"
           npm install --prefix "$RUNNER_TEMP/ef-candidate-installed" --ignore-scripts --no-audit --no-fund "$archive"
           EF_V3_CANDIDATE_PACKAGE_ROOT="$RUNNER_TEMP/ef-candidate-installed/node_modules/@agent-teams/engineering-foundation" \
