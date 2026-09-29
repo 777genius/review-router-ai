@@ -237,6 +237,7 @@ export interface ProtectedVerifierAssignment {
   readonly createdAt: Date;
   readonly expiresAt: Date;
   readonly revokedAt: Date | null;
+  readonly efToolArtifactId?: string;
 }
 
 function assignment(value: unknown): ProtectedVerifierAssignment {
@@ -249,7 +250,13 @@ function assignment(value: unknown): ProtectedVerifierAssignment {
     !/^[a-f0-9]{64}$/.test(row.jobKey) ||
     !(row.createdAt instanceof Date) ||
     !(row.expiresAt instanceof Date) ||
-    !(row.revokedAt === null || row.revokedAt instanceof Date)
+    !(row.revokedAt === null || row.revokedAt instanceof Date) ||
+    !(
+      row.efToolArtifactId === null ||
+      row.efToolArtifactId === undefined ||
+      (typeof row.efToolArtifactId === "string" &&
+        /^[a-f0-9]{64}$/.test(row.efToolArtifactId))
+    )
   )
     reject();
   const identity = execution(row.execution, true);
@@ -261,7 +268,25 @@ function assignment(value: unknown): ProtectedVerifierAssignment {
     createdAt: row.createdAt,
     expiresAt: row.expiresAt,
     revokedAt: row.revokedAt,
+    ...(typeof row.efToolArtifactId === "string"
+      ? { efToolArtifactId: row.efToolArtifactId }
+      : {}),
   };
+}
+
+function pinnedAssignmentDigest(
+  execution: AuthenticatedEfExecution,
+  artifactId: string,
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        "reviewrouter-sdk-verifier-assignment:v3",
+        executionDigest(execution),
+        artifactId,
+      ]),
+    )
+    .digest("hex");
 }
 
 /** Protected scheduler storage; never expose create/revoke through candidate routes. */
@@ -271,6 +296,24 @@ export class PrismaSdkGrowthVerifierAssignmentStore {
   async create(
     value: AuthenticatedEfExecution,
     expiresAt: Date,
+  ): Promise<ProtectedVerifierAssignment> {
+    return this.createInternal(value, expiresAt);
+  }
+
+  /** A separate scheduler-only path; legacy assignments keep their token shape. */
+  async createPinned(
+    value: AuthenticatedEfExecution,
+    expiresAt: Date,
+    efToolArtifactId: string,
+  ): Promise<ProtectedVerifierAssignment> {
+    if (!/^[a-f0-9]{64}$/.test(efToolArtifactId)) reject();
+    return this.createInternal(value, expiresAt, efToolArtifactId);
+  }
+
+  private async createInternal(
+    value: AuthenticatedEfExecution,
+    expiresAt: Date,
+    efToolArtifactId?: string,
   ): Promise<ProtectedVerifierAssignment> {
     const identity = execution(value);
     const persisted = identity.sourceBinding
@@ -301,11 +344,17 @@ export class PrismaSdkGrowthVerifierAssignmentStore {
         await transaction.$executeRaw`
           UPDATE "SdkGrowthVerifierAssignment" SET "revokedAt" = now()
           WHERE "jobKey" = ${scope} AND "revokedAt" IS NULL`;
-        const rows = await transaction.$queryRaw`
-          INSERT INTO "SdkGrowthVerifierAssignment" (
-            "assignmentId", "jobKey", "execution", "createdAt", "expiresAt"
-          ) VALUES (${assignmentId}, ${scope}, ${JSON.stringify(persisted)}::jsonb, ${lockedAt}, ${expiresAt})
-          RETURNING *`;
+        const rows = efToolArtifactId
+          ? await transaction.$queryRaw`
+              INSERT INTO "SdkGrowthVerifierAssignment" (
+                "assignmentId", "jobKey", "execution", "createdAt", "expiresAt", "efToolArtifactId"
+              ) VALUES (${assignmentId}, ${scope}, ${JSON.stringify(persisted)}::jsonb, ${lockedAt}, ${expiresAt}, ${efToolArtifactId})
+              RETURNING *`
+          : await transaction.$queryRaw`
+              INSERT INTO "SdkGrowthVerifierAssignment" (
+                "assignmentId", "jobKey", "execution", "createdAt", "expiresAt"
+              ) VALUES (${assignmentId}, ${scope}, ${JSON.stringify(persisted)}::jsonb, ${lockedAt}, ${expiresAt})
+              RETURNING *`;
         if (rows.length !== 1) reject();
         return assignment(rows[0]);
       },
@@ -365,7 +414,14 @@ export class SdkGrowthVerifierCredentialIssuer {
       reject();
     return new SignJWT({
       assignmentId: row.assignmentId,
-      executionDigest: executionDigest(row.execution),
+      ...(row.efToolArtifactId
+        ? {
+            assignmentDigest: pinnedAssignmentDigest(
+              row.execution,
+              row.efToolArtifactId,
+            ),
+          }
+        : { executionDigest: executionDigest(row.execution) }),
     })
       .setProtectedHeader({ alg: "EdDSA", typ: tokenType })
       .setIssuer(issuer)
@@ -421,8 +477,14 @@ export class JoseSdkGrowthVerifierProducerAuthenticator implements SdkGrowthVeri
         typeof payload.jti !== "string" ||
         !/^[0-9a-f-]{36}$/.test(payload.jti) ||
         typeof payload.assignmentId !== "string" ||
-        typeof payload.executionDigest !== "string" ||
-        !/^[a-f0-9]{64}$/.test(payload.executionDigest) ||
+        !(
+          (typeof payload.executionDigest === "string" &&
+            /^[a-f0-9]{64}$/.test(payload.executionDigest) &&
+            payload.assignmentDigest === undefined) ||
+          (typeof payload.assignmentDigest === "string" &&
+            /^[a-f0-9]{64}$/.test(payload.assignmentDigest) &&
+            payload.executionDigest === undefined)
+        ) ||
         typeof payload.iat !== "number" ||
         typeof payload.exp !== "number" ||
         payload.exp - payload.iat > maxCredentialSeconds ||
@@ -442,7 +504,10 @@ export class JoseSdkGrowthVerifierProducerAuthenticator implements SdkGrowthVeri
         lockedAt.getTime() < row.createdAt.getTime() ||
         payload.iat < Math.floor(row.createdAt.getTime() / 1000) ||
         payload.exp * 1000 > row.expiresAt.getTime() ||
-        payload.executionDigest !== executionDigest(row.execution)
+        (row.efToolArtifactId
+          ? payload.assignmentDigest !==
+            pinnedAssignmentDigest(row.execution, row.efToolArtifactId)
+          : payload.executionDigest !== executionDigest(row.execution))
       )
         reject();
       return {
@@ -451,6 +516,9 @@ export class JoseSdkGrowthVerifierProducerAuthenticator implements SdkGrowthVeri
         subject,
         authenticationId: payload.jti,
         execution: row.execution,
+        ...(row.efToolArtifactId
+          ? { efToolArtifactId: row.efToolArtifactId }
+          : {}),
       };
     } catch {
       return reject();

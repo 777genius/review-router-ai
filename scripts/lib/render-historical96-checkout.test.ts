@@ -34,8 +34,9 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full112 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(112);
+  it("validates the full113 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(113);
+    expect(full[112]?.migrationName).toBe("000114_sdk_growth_v3_tool_artifact");
     expect(full[111]?.migrationName).toBe("000113_sdk_growth_approval_ledger");
     expect(full[110]?.migrationName).toBe(
       "000112_sdk_growth_operator_credential",
@@ -100,7 +101,7 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: full.slice(0, 111) },
     { checkout: full },
   ])(
-    "accepts a complete validated checkout through 000113 (%#)",
+    "accepts a complete validated checkout through 000114 (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);
@@ -139,7 +140,7 @@ describe("trusted historical96 checkout reader", () => {
     ],
     [
       "unknown future extension",
-      [...full, { migrationName: "000113_unknown", checksum: "a".repeat(64) }],
+      [...full, { migrationName: "000114_unknown", checksum: "a".repeat(64) }],
     ],
     [
       "future replacement",

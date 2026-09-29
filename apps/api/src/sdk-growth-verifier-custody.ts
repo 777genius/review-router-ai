@@ -67,6 +67,8 @@ export interface AuthenticatedSdkGrowthVerifierProducer {
   readonly subject: string;
   readonly authenticationId: string;
   readonly execution: AuthenticatedEfExecution;
+  /** Present only for a v3 assignment; legacy producer custody ignores it. */
+  readonly efToolArtifactId?: string;
 }
 
 /** Implemented by protected service identity (for example workload mTLS or a

@@ -97,6 +97,38 @@ come from the protected runtime secret store and must not be logged. The
 separate scheduler/runtime deployment and key distribution remain integration
 work before activation.
 
+### Fixture-only EF v3 tool pin
+
+Migration `000114_sdk_growth_v3_tool_artifact` adds immutable archive custody
+and an optional foreign key on the assignment. A protected scheduler can retain
+exact `@agent-teams/engineering-foundation` archive bytes through
+`PrismaSdkGrowthV3ToolArtifactStore`, then call `createPinned` with the returned
+artifact ID. For these assignments, the five-minute credential binds the
+execution and artifact ID in `assignmentDigest`; the authenticator reloads the
+locked assignment on every write. Legacy assignments keep `executionDigest`.
+The producer cannot change a pin, and replacement creates a new assignment.
+
+This is **source-built test fixture custody only**. The store records the
+source commit, tree and installed distribution digest supplied by the protected
+test setup; it does not independently prove them or install the archive.
+There is no production scheduler or runner composition for this path, no
+registry provenance claim and no permission to activate G1 or publish a package.
+The next checkpoint must independently verify the built archive and installed
+distribution before a verifier can produce v3 evidence. Candidate, producer
+and ordinary API routes must not receive archive write or assignment creation
+capabilities. The scheduler role needs INSERT/SELECT on the tool artifact table;
+the verifier producer needs only its authenticated assignment read, while
+candidate roles have no access to either table. Check these grants on the
+disposable target before any activation.
+
+Under the Get Modular Consumer Module Standard pinned at
+`e0795e63d3b4185bced5c85c4c7f47a7039292ec` (full document SHA-256
+`33b41d5babf0a431c97e8e596a56e6ec1557ba1a0b26d39bf23e13d9a19e1fbd`),
+this artifact store and assignment binding are feature-local adapters of the
+existing SDK Growth authority owner, not new composition graph nodes. ReviewRouter
+still has no accepted adoption profile. A production runner composition requires
+its own reviewed standard pin, adoption scope and rejecting gate.
+
 The code assumes the deployment gives the candidate role no assignment or
 verifier custody table access, the verifier producer role assignment SELECT,
 current authority/admission SELECT and verifier custody INSERT/SELECT through
