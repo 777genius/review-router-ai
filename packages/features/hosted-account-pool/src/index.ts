@@ -28,6 +28,7 @@ export * from "./infrastructure/runtime/hosted-codex-session-runtime";
 export * from "./infrastructure/prisma/prisma-hosted-codex-session-persistence";
 export * from "./infrastructure/prisma/prisma-hosted-codex-mutation-fence";
 export * from "./infrastructure/prisma/prisma-invocation-grant-repository";
+export * from "./infrastructure/prisma/prisma-hosted-historical-scope-barrier";
 export * from "./infrastructure/prisma/prisma-hosted-v4-relay-turn";
 export * from "./infrastructure/prisma/prisma-hosted-comment-token-mint-ledger";
 export * from "./infrastructure/prisma/prisma-hosted-codex-upstream-effect-ledger";

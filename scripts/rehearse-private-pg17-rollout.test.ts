@@ -64,6 +64,12 @@ function gitCustodyFixture() {
   git("init", "-q");
   git("config", "user.name", "iliya");
   git("config", "user.email", "iliyazelenkog@gmail.com");
+  expect(git("var", "GIT_AUTHOR_IDENT")).toContain(
+    "iliya <iliyazelenkog@gmail.com>",
+  );
+  expect(git("var", "GIT_COMMITTER_IDENT")).toContain(
+    "iliya <iliyazelenkog@gmail.com>",
+  );
   writeFileSync(join(root, "evidence.txt"), "base\n");
   git("add", "evidence.txt");
   git("commit", "-qm", "base");
@@ -1265,6 +1271,17 @@ describe("disposable dual-version rehearsal", () => {
       .map((entry) => entry.name);
 
     const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
+    const previousCheckout = migrationNames.filter(
+      (name) => name !== "000110_historical_unknown_scope_barrier",
+    );
+    expect(previousCheckout).toHaveLength(108);
+    expect(() =>
+      resolvePreReleaseMigrationExclusions(previousCheckout),
+    ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
+    expect(migrationNames).toHaveLength(109);
+    expect(migrationManifestIdentity(migrationNames)).toBe(
+      "sha256:1a5470960ccf766827bb58fc0a270553f002802e0019225adb4a0dfcf2b591af",
+    );
 
     expect(exclusions).toEqual([
       "000060_codex_oauth_setup_serialization",
@@ -1299,6 +1316,7 @@ describe("disposable dual-version rehearsal", () => {
       "000107_hosted_v4_relay_turn_contract",
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
+      "000110_historical_unknown_scope_barrier",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1347,7 +1365,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000106_sdk_growth_finalized_report_logical_identity" &&
             name !== "000107_hosted_v4_relay_turn_contract" &&
             name !== "000108_sdk_growth_verifier_assignment" &&
-            name !== "000109_sdk_growth_verifier_assignment_lock",
+            name !== "000109_sdk_growth_verifier_assignment_lock" &&
+            name !== "000110_historical_unknown_scope_barrier",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1369,7 +1388,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000106_sdk_growth_finalized_report_logical_identity" &&
             name !== "000107_hosted_v4_relay_turn_contract" &&
             name !== "000108_sdk_growth_verifier_assignment" &&
-            name !== "000109_sdk_growth_verifier_assignment_lock",
+            name !== "000109_sdk_growth_verifier_assignment_lock" &&
+            name !== "000110_historical_unknown_scope_barrier",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1397,6 +1417,12 @@ describe("disposable dual-version rehearsal", () => {
       [...names, exactTail],
       names.map((name) => (name === exactTail ? "000108_unknown" : name)),
       [...names, "000109_future_migration"],
+      [...names, "000111_future_migration"],
+      names.map((name) =>
+        name === "000110_historical_unknown_scope_barrier"
+          ? "000110_relabelled"
+          : name,
+      ),
     ]) {
       expect(() => resolvePreReleaseMigrationExclusions(candidate)).toThrow(
         "private_pg17_rehearsal_migration_boundary_unclassified",
@@ -1417,6 +1443,7 @@ describe("disposable dual-version rehearsal", () => {
     "000107_hosted_v4_relay_turn_contract",
     "000108_sdk_growth_verifier_assignment",
     "000109_sdk_growth_verifier_assignment_lock",
+    "000110_historical_unknown_scope_barrier",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1455,7 +1482,8 @@ describe("disposable dual-version rehearsal", () => {
                   "000106_sdk_growth_finalized_report_logical_identity" &&
                 name !== "000107_hosted_v4_relay_turn_contract" &&
                 name !== "000108_sdk_growth_verifier_assignment" &&
-                name !== "000109_sdk_growth_verifier_assignment_lock",
+                name !== "000109_sdk_growth_verifier_assignment_lock" &&
+                name !== "000110_historical_unknown_scope_barrier",
               "000102_sdk_growth_current_authority",
             ),
           ),
