@@ -41,6 +41,7 @@ type AssignmentRow = {
   createdAt: Date;
   expiresAt: Date;
   revokedAt: Date | null;
+  efToolArtifactId?: string | null;
 };
 type FakeTransaction = {
   $queryRaw(
@@ -73,6 +74,9 @@ function fixture() {
           createdAt: values[3] as Date,
           expiresAt: values[4] as Date,
           revokedAt: null,
+          ...(values[5] === undefined
+            ? {}
+            : { efToolArtifactId: values[5] as string }),
         };
         rows.set(row.assignmentId, row);
         return [structuredClone(row)];
@@ -144,6 +148,32 @@ function fixture() {
 }
 
 describe("protected SDK verifier producer identity", () => {
+  // Regression: a legacy execution-only token must not authenticate an
+  // assignment that has a different immutable EF tool artifact pin.
+  it("binds v3 credentials to the scheduler-owned tool artifact", async () => {
+    const h = fixture();
+    const artifactId = "a".repeat(64);
+    const row = await h.store.createPinned(
+      { ...execution, sourceBinding },
+      new Date(Date.now() + 15 * 60_000),
+      artifactId,
+    );
+    const token = await h.issuer.issue(row.assignmentId);
+    expect(decodeJwt(token)).toMatchObject({
+      assignmentId: row.assignmentId,
+      assignmentDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(decodeJwt(token)).not.toHaveProperty("executionDigest");
+    expect(await h.authenticator.authenticate(token)).toMatchObject({
+      execution: { ...execution, sourceBinding },
+      efToolArtifactId: artifactId,
+    });
+    h.rows.get(row.assignmentId)!.efToolArtifactId = "b".repeat(64);
+    await expect(h.authenticator.authenticate(token)).rejects.toThrow(
+      "sdk_growth_verifier_credential_rejected",
+    );
+  });
+
   // Regression: adding v2 source data could change the digest or JSON bytes
   // used by already issued v1 credentials and historical assignments.
   it("preserves the historical 11-field execution and credential digest", async () => {

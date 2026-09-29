@@ -4060,9 +4060,27 @@ model SdkGrowthVerifierAssignment {
   createdAt    DateTime  @default(now()) @db.Timestamptz(3)
   expiresAt    DateTime  @db.Timestamptz(3)
   revokedAt    DateTime? @db.Timestamptz(3)
+  efToolArtifactId String? @db.VarChar(64)
+  efToolArtifact SdkGrowthV3ToolArtifact? @relation(fields: [efToolArtifactId], references: [artifactId], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([expiresAt], map: "SdkGrowthVerifierAssignment_expires_idx")
   // SQL migration has a partial unique index on jobKey WHERE revokedAt IS NULL.
+}
+
+model SdkGrowthV3ToolArtifact {
+  artifactId                  String   @id @db.VarChar(64)
+  packageName                 String   @db.VarChar(128)
+  packageVersion              String   @db.VarChar(128)
+  sourceCommit                String   @db.VarChar(40)
+  sourceTree                  String   @db.VarChar(40)
+  installedDistributionDigest String   @db.VarChar(71)
+  provenanceKind              String   @db.VarChar(32)
+  archive                     Bytes
+  archiveByteLength           Int
+  archiveSha256               String   @db.VarChar(71)
+  archiveSha512Sri            String   @db.VarChar(128)
+  recordedAt                  DateTime @default(now()) @db.Timestamptz(6)
+  assignments                 SdkGrowthVerifierAssignment[]
 }
 
 model SdkGrowthVerifierEvidence {
