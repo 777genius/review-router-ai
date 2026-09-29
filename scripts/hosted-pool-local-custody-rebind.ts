@@ -434,7 +434,12 @@ async function loadSnapshotWithinTransaction(
   readonly authority: CustodyAuthoritySnapshot;
 }> {
   const accounts = await tx.hostedCodexAccount.findMany({
-    where: { activeGeneration: { not: null } },
+    // Tombstoned accounts retain historical activeGeneration pointers, but
+    // cannot be reactivated. Keep their envelopes byte-for-byte as evidence.
+    where: {
+      activeGeneration: { not: null },
+      state: { not: "tombstoned" },
+    },
     include: {
       credentialVersions: {
         include: {
@@ -1211,7 +1216,10 @@ export async function readCommittedRebindReceipt(
       await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
       await assertConnectedTargetGeneration(tx, admission);
       const accounts = await tx.hostedCodexAccount.findMany({
-        where: { activeGeneration: { not: null } },
+        where: {
+          activeGeneration: { not: null },
+          state: { not: "tombstoned" },
+        },
         include: {
           credentialVersions: { include: { envelopeRevisions: true } },
         },

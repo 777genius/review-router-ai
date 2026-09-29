@@ -83,6 +83,7 @@ const accountIds = [
   hostedAccountId(`custody-account-b-${prefix}`),
   hostedAccountId(`custody-account-c-${prefix}`),
 ] as const;
+const tombstonedAccountId = hostedAccountId(`custody-account-tombstoned-${prefix}`);
 const installationId = `custody-installation-${prefix}`;
 const repositoryId = `custody-repository-${prefix}`;
 const bindingId = `custody-binding-${prefix}`;
@@ -308,6 +309,24 @@ beforeAll(async () => {
       now: new Date(),
     });
   }
+  await enrollment.importCodexAuth({
+    workspaceId: workspace,
+    poolId: pool,
+    accountId: tombstonedAccountId,
+    label: "Synthetic tombstoned",
+    priority: 100,
+    expectedPoolRevision: accountIds.length + 1,
+    authJsonBytes: authJson("subject-tombstoned"),
+    now: new Date(),
+  });
+  await prisma.hostedCodexAccount.update({
+    where: { id: tombstonedAccountId },
+    data: {
+      state: "tombstoned",
+      tombstonedAt: new Date(),
+      healthVersion: { increment: 1 },
+    },
+  });
   await prisma.hostedCodexAccount.update({
     where: { id: accountIds[2] },
     data: { state: "restore_quarantined", healthVersion: { increment: 1 } },
@@ -578,7 +597,7 @@ describe.runIf(enabled)(
     it("rejects a sibling database with identical inventory and copied witness", async () => {
       const before =
         await siblingPrisma!.hostedCodexCredentialEnvelopeRevision.count();
-      expect(before).toBe(3);
+      expect(before).toBe(4);
       await expect(
         readCommittedRebindReceipt(siblingPrisma!, admission),
       ).rejects.toThrow("custody_target_generation_mismatch");
@@ -596,7 +615,7 @@ describe.runIf(enabled)(
         applyLocalCustodyRebind({ prisma: prisma!, admission, env }),
       ).rejects.toThrow("custody_authority_unsafeRuntimeGate_unresolved");
       expect(await prisma!.hostedCodexCredentialEnvelopeRevision.count()).toBe(
-        3,
+        4,
       );
       await prisma!.hostedCodexRuntimeGate.update({
         where: { id: "global" },
@@ -625,6 +644,13 @@ describe.runIf(enabled)(
       const snapshot = await loadLocalRebindSnapshot(prisma!);
       expect(() => assertQuiescentAuthority(snapshot.authority)).not.toThrow();
       expect(snapshot.rows).toHaveLength(3);
+      expect(snapshot.rows.some((row) => row.accountId === tombstonedAccountId)).toBe(false);
+      const tombstoned = await prisma!.hostedCodexAccount.findUniqueOrThrow({
+        where: { id: tombstonedAccountId },
+        select: { activeGeneration: true, state: true },
+      });
+      expect(tombstoned.state).toBe("tombstoned");
+      expect(tombstoned.activeGeneration).not.toBeNull();
       expect(await prisma!.hostedCodexCredentialEnvelopeRevision.count()).toBe(
         beforeRevisions,
       );
@@ -669,7 +695,7 @@ describe.runIf(enabled)(
         ).rejects.toThrow("custody_authority_activeMutationFences_unresolved");
         expect(
           await prisma!.hostedCodexCredentialEnvelopeRevision.count(),
-        ).toBe(3);
+        ).toBe(4);
       } finally {
         await prisma!.hostedCodexMutationFence.update({
           where: { accountId: accountIds[0] },
@@ -790,7 +816,7 @@ describe.runIf(enabled)(
         );
       }
       expect(await prisma!.hostedCodexCredentialEnvelopeRevision.count()).toBe(
-        3,
+        4,
       );
       expect(
         await prisma!.hostedCodexInvocationGrant.findUniqueOrThrow({
@@ -892,7 +918,7 @@ describe.runIf(enabled)(
         }),
       ).rejects.toThrow("custody_readback_receipt_conflict");
       expect(await prisma!.hostedCodexCredentialEnvelopeRevision.count()).toBe(
-        6,
+        7,
       );
       expect(
         await prisma!.hostedCodexCredentialVersion.findMany({
