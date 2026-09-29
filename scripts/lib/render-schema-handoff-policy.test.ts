@@ -986,7 +986,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
 
   it("admits only exact SQL115 after the 113-directory checkout", () => {
     expect(migration115.checksum).toBe(
-      "4b1e8fc3723fe985c2350d19e779e827bce776949927ebddb4e81c65b9f5f27a",
+      "07fdc348fe27d0ee1ddc15d97e6932cca3dc02cc920d856c4380f71cabb36db0",
     );
     expect(checkout114.map((row) => row.migrationName)).toEqual(
       canonicalPrismaMigrationNames,
@@ -999,7 +999,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
             .join(","),
         )
         .digest("hex"),
-    ).toBe("24a3cef6abc3e78c13e69e9418320469b69c05eae4f813d34ea3c67f3b4e4f14");
+    ).toBe("15a397089c81b84540534361777b74a69a48955df7db81bf6353130d51aa6ed0");
     expect(partitionRenderSchemaHandoffCheckout(checkout114)).toEqual(catalog);
     for (const rows of [
       [...checkout113, { ...migration115, checksum: "0".repeat(64) }],

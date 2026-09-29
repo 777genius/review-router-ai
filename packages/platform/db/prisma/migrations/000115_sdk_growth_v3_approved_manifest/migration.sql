@@ -40,6 +40,15 @@ CREATE TABLE "SdkGrowthV3ApprovedManifest" (
     "requestByteLength" = octet_length("requestWire") AND "requestByteLength" BETWEEN 1 AND 1048576 AND
     "validationEvidenceByteLength" = octet_length("validationEvidenceWire") AND
     "validationEvidenceByteLength" BETWEEN 1 AND 65536
+  ),
+  CONSTRAINT "SdkGrowthV3ApprovedManifest_digests" CHECK (
+    "manifestSha256" = 'sha256:' || encode(sha256("manifestWire"), 'hex') AND
+    "requestWireSha256" = 'sha256:' || encode(sha256("requestWire"), 'hex') AND
+    "validationEvidenceSha256" = 'sha256:' || encode(sha256("validationEvidenceWire"), 'hex') AND
+    "manifestId" = encode(
+      sha256(convert_to('reviewrouter:g1-approved-v3-manifest:1', 'UTF8') || '\x00'::bytea || "manifestWire"),
+      'hex'
+    )
   )
 );
 CREATE TRIGGER sdk_growth_v3_manifest_immutable

@@ -1280,7 +1280,7 @@ describe("disposable dual-version rehearsal", () => {
     ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
     expect(migrationNames).toHaveLength(114);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:24a3cef6abc3e78c13e69e9418320469b69c05eae4f813d34ea3c67f3b4e4f14",
+      "sha256:15a397089c81b84540534361777b74a69a48955df7db81bf6353130d51aa6ed0",
     );
 
     expect(exclusions).toEqual([

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
@@ -17,11 +17,18 @@ import { PrismaAuthorityProvisioning } from "../infrastructure/prisma/prisma-cur
 import { PrismaG1V3ApprovedManifestCommand } from "../infrastructure/prisma/prisma-v3-approved-manifest.js";
 import {
   proposal as v3Proposal,
+  hash as v3Hash,
   source as v3Source,
   sri as v3Sri,
   toolId as v3ToolId,
   wire as v3Wire,
 } from "./v3-approved-manifest.fixture.js";
+
+const v3ManifestId = (wire: Uint8Array) =>
+  createHash("sha256")
+    .update("reviewrouter:g1-approved-v3-manifest:1\0")
+    .update(wire)
+    .digest("hex");
 import type { TrustedAuthorityRecord } from "../application/ports.js";
 
 const url = process.env.SDK_GROWTH_TEST_DATABASE_URL;
@@ -364,8 +371,8 @@ describe.skipIf(!url)("G1 approval ledger / disposable PostgreSQL", () => {
           "requestWire", "requestByteLength", "requestWireSha256", "validationEvidenceWire",
           "validationEvidenceByteLength", "validationEvidenceSha256", "toolArtifactId"
         ) VALUES (
-          ${"c".repeat(64)}, ${orphanScopeKey}, 1, ${orphanWire}, ${orphanWire.byteLength},
-          ${orphan.manifest.requestWireSha256}, ${orphan.requestWire}, ${orphan.requestWire.byteLength},
+          ${v3ManifestId(orphanWire)}, ${orphanScopeKey}, 1, ${orphanWire}, ${orphanWire.byteLength},
+          ${v3Hash(orphanWire)}, ${orphan.requestWire}, ${orphan.requestWire.byteLength},
           ${orphan.manifest.requestWireSha256}, ${orphan.validationEvidenceWire},
           ${orphan.validationEvidenceWire.byteLength}, ${orphan.manifest.validationEvidenceSha256},
           ${v3ToolId}
@@ -394,7 +401,19 @@ describe.skipIf(!url)("G1 approval ledger / disposable PostgreSQL", () => {
         )`;
     });
     const stagedWire = v3Wire(staged.manifest);
-    const stagedManifestId = "d".repeat(64);
+    const stagedManifestId = v3ManifestId(stagedWire);
+    await expect(database.$executeRaw`
+      INSERT INTO "SdkGrowthV3ApprovedManifest" (
+        "manifestId", "scopeKey", "epoch", "manifestWire", "manifestByteLength", "manifestSha256",
+        "requestWire", "requestByteLength", "requestWireSha256", "validationEvidenceWire",
+        "validationEvidenceByteLength", "validationEvidenceSha256", "toolArtifactId"
+      ) VALUES (
+        ${stagedManifestId}, ${stagedKey}, 1, ${stagedWire}, ${stagedWire.byteLength},
+        ${digest}, ${staged.requestWire}, ${staged.requestWire.byteLength},
+        ${staged.manifest.requestWireSha256}, ${staged.validationEvidenceWire},
+        ${staged.validationEvidenceWire.byteLength}, ${staged.manifest.validationEvidenceSha256},
+        ${v3ToolId}
+      )`).rejects.toThrow("SdkGrowthV3ApprovedManifest_digests");
     await expect(
       database.$transaction(async (tx) => {
         await tx.$executeRaw`
@@ -406,7 +425,7 @@ describe.skipIf(!url)("G1 approval ledger / disposable PostgreSQL", () => {
           "validationEvidenceByteLength", "validationEvidenceSha256", "toolArtifactId"
         ) VALUES (
           ${stagedManifestId}, ${stagedKey}, 1, ${stagedWire}, ${stagedWire.byteLength},
-          ${digest}, ${staged.requestWire}, ${staged.requestWire.byteLength},
+          ${v3Hash(stagedWire)}, ${staged.requestWire}, ${staged.requestWire.byteLength},
           ${staged.manifest.requestWireSha256}, ${staged.validationEvidenceWire},
           ${staged.validationEvidenceWire.byteLength}, ${staged.manifest.validationEvidenceSha256},
           ${v3ToolId}
