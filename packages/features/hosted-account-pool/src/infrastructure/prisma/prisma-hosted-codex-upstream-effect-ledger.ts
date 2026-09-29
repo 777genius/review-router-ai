@@ -698,10 +698,8 @@ async function lockRuntimeGateAuthority(
   const rows = await transaction.$queryRaw<
     Array<{ status: string; authzEpoch: bigint }>
   >`
-    SELECT "status"::text AS "status", "authzEpoch"
-    FROM "HostedCodexRuntimeGate"
-    WHERE "id" = 'global'
-    FOR SHARE
+    SELECT "status", "authzEpoch"
+    FROM public.hosted_historical_lock_runtime_gate()
   `;
   if (rows.length !== 1)
     throw new Error("hosted_codex_effect_authority_revoked");

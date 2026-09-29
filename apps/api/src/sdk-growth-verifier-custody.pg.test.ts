@@ -281,7 +281,7 @@ describe.skipIf(!url)("verifier custody writer / real PostgreSQL 17", () => {
         "000106_sdk_growth_finalized_report_logical_identity",
         "000108_sdk_growth_verifier_assignment",
         "000109_sdk_growth_verifier_assignment_lock",
-        "000110_sdk_growth_source_binding",
+        "000111_sdk_growth_source_binding",
       ])
         await connection.query(
           readFileSync(

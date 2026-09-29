@@ -313,7 +313,7 @@ describe("SDK growth application-schema checkpoint", () => {
     "000107_hosted_v4_relay_turn_contract",
     "000108_sdk_growth_verifier_assignment",
     "000109_sdk_growth_verifier_assignment_lock",
-    "000110_sdk_growth_source_binding",
+    "000111_sdk_growth_source_binding",
   ])(
     "rejects an already-applied later checkout row %s at the 000106 checkpoint",
     (migrationName) => {
@@ -702,7 +702,7 @@ describePg17("SDK growth separate disposable PG17 migration rehearsal", () => {
         "000107_hosted_v4_relay_turn_contract",
         "000108_sdk_growth_verifier_assignment",
         "000109_sdk_growth_verifier_assignment_lock",
-        "000110_sdk_growth_source_binding",
+        "000111_sdk_growth_source_binding",
       ])
         rmSync(join(prismaRoot, "migrations", migrationName), {
           recursive: true,

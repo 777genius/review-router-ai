@@ -9,7 +9,22 @@ named_root_name="rr-release-authority-named-root-pg17-$$"
 contract_tmp=$(mktemp -d)
 pg17_image=${REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE:-postgres:17.5-alpine}
 docker run -d --rm --name "$name" -p 127.0.0.1::5432 -e POSTGRES_PASSWORD=test "$pg17_image" >/dev/null
-trap 'docker rm -f "$name" "$upgrade_name" "$legacy_name" "$named_root_name" >/dev/null 2>&1 || true; rm -rf "$contract_tmp"' EXIT
+gate_children=()
+gate_fifos_open=false
+short_lock_fifo_open=false
+cleanup_contract() {
+  if test "$gate_fifos_open" = true; then exec 8>&- 9>&- 10>&- 11>&-; fi
+  if test "$short_lock_fifo_open" = true; then exec 12>&-; fi
+  for child in "${gate_children[@]}"; do kill "$child" 2>/dev/null || true; done
+  timeout -k 5s 20s docker rm -f "$name" "$upgrade_name" "$legacy_name" "$named_root_name" >/dev/null 2>&1 || true
+  for child in "${gate_children[@]}"; do
+    for _ in $(seq 1 50); do kill -0 "$child" 2>/dev/null || break; sleep 0.1; done
+    kill -KILL "$child" 2>/dev/null || true
+    wait "$child" >/dev/null 2>&1 || true
+  done
+  rm -rf "$contract_tmp"
+}
+trap cleanup_contract EXIT
 
 probe_provider_root() {
   local container=$1
@@ -150,16 +165,62 @@ docker cp "/tmp/release-authority-install-$$.sql" "$name:/tmp/release-authority-
 # callers, bounded lock waits, atomic failure, drift, and replay.
 node -e "import('./scripts/install-release-authority-db.mjs').then(m => process.stdout.write(m.releaseAuthorityMigrationBundle('fresh-install',process.cwd())))" \
   > "$contract_tmp/fresh.sql"
-node -e "import('./scripts/install-release-authority-db.mjs').then(m => process.stdout.write(m.releaseAuthorityMigrationBundle('incremental-upgrade',process.cwd(),{lockTimeoutMs:200,statementTimeoutMs:2000})))" \
-  > "$contract_tmp/short-upgrade.sql"
+node --input-type=module - > "$contract_tmp/short-fresh-lock.sql" <<'JS'
+import { releaseAuthorityMigrationBundle } from './scripts/install-release-authority-db.mjs';
+const sql = releaseAuthorityMigrationBundle('fresh-install', process.cwd(),
+  { lockTimeoutMs: 200, statementTimeoutMs: 2_000 });
+const boundary = 'DO $final_global_roles$';
+if (sql.indexOf(boundary) < 0 || sql.indexOf(boundary) !== sql.lastIndexOf(boundary))
+  throw new Error('final embedded migration boundary missing or ambiguous');
+process.stdout.write(sql.replace(boundary, `
+SELECT 'short_timeout_settings:'||(SELECT setting FROM pg_catalog.pg_settings WHERE name='lock_timeout')||':'||
+  (SELECT setting FROM pg_catalog.pg_settings WHERE name='statement_timeout');
+DO $short_lock_probe$
+DECLARE started timestamptz := clock_timestamp();
+BEGIN
+  PERFORM pg_catalog.pg_advisory_xact_lock(1381126735, 1381258073);
+  RAISE EXCEPTION 'short timeout lock unexpectedly acquired';
+EXCEPTION WHEN lock_not_available THEN
+  RAISE NOTICE 'short_lock_elapsed_ms:%',
+    (extract(epoch FROM clock_timestamp()-started)*1000)::integer;
+  RAISE;
+END
+$short_lock_probe$;
+${boundary}`));
+JS
 node -e "import('./scripts/install-release-authority-db.mjs').then(m => process.stdout.write(m.releaseAuthorityMigrationBundle('fresh-install',process.cwd()).replace('\nCOMMIT;\n','\nSELECT definitely_missing_release_authority_probe();\nCOMMIT;\n')))" \
   > "$contract_tmp/failing-fresh.sql"
-node -e "import('./scripts/install-release-authority-db.mjs').then(m => process.stdout.write(m.releaseAuthorityMigrationBundle('fresh-install',process.cwd()).replace('\n     \$upgrade_gate\$;','\n     \$upgrade_gate\$;\nSELECT pg_sleep(2);')))" \
-  > "$contract_tmp/slow-fresh.sql"
+node --input-type=module - "$contract_tmp" <<'JS'
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { releaseAuthorityMigrationBundle } from './scripts/install-release-authority-db.mjs';
+const sql = releaseAuthorityMigrationBundle('fresh-install', process.cwd());
+const marker = '\n     $upgrade_gate$;';
+const split = sql.indexOf(marker);
+if (split < 0 || sql.indexOf(marker, split + marker.length) >= 0)
+  throw new Error('release authority gate boundary missing or ambiguous');
+writeFileSync(join(process.argv[2], 'gate-prefix.sql'),
+  sql.slice(0, split + marker.length) + "\nSELECT 'fresh_gate_pid:'||pg_backend_pid();\n");
+const suffix = sql.slice(split + marker.length);
+const quiescence = '\nDO $quiesce_bootstrap$';
+const probeAt = suffix.indexOf(quiescence);
+if (probeAt < 0 || suffix.indexOf(quiescence, probeAt + quiescence.length) >= 0)
+  throw new Error('release authority quiescence boundary missing or ambiguous');
+const timeoutProbe = `
+DO $timeout_probe$
+BEGIN
+  IF (SELECT setting::bigint FROM pg_catalog.pg_settings WHERE name='lock_timeout') IS DISTINCT FROM 5000
+     OR (SELECT setting::bigint FROM pg_catalog.pg_settings WHERE name='statement_timeout') IS DISTINCT FROM 120000
+  THEN RAISE EXCEPTION 'embedded migration changed gate timeouts'; END IF;
+END
+$timeout_probe$;`;
+writeFileSync(join(process.argv[2], 'gate-suffix.sql'),
+  suffix.slice(0, probeAt) + timeoutProbe + suffix.slice(probeAt));
+JS
 node -e "import('./scripts/install-release-authority-db.mjs').then(m => process.stdout.write(m.releaseAuthorityMigrationBundle('incremental-upgrade',process.cwd()).replace('\n     \$upgrade_gate\$;','\n     \$upgrade_gate\$;\nSELECT pg_sleep(2);')))" \
   > "$contract_tmp/slow-upgrade.sql"
-for gate_file in fresh short-upgrade failing-fresh slow-fresh slow-upgrade; do
-  docker cp "$contract_tmp/$gate_file.sql" "$name:/tmp/$gate_file.sql" >/dev/null
+for gate_file in fresh short-fresh-lock failing-fresh gate-prefix gate-suffix slow-upgrade; do
+  timeout -k 5s 20s docker cp "$contract_tmp/$gate_file.sql" "$name:/tmp/$gate_file.sql" >/dev/null
 done
 docker exec -e PGPASSWORD=bootstrap-admin "$name" psql -h 127.0.0.1 \
   -v ON_ERROR_STOP=1 -U reviewrouter_bootstrap_administrator -d postgres -c \
@@ -410,74 +471,244 @@ docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -c \
 # broker, and a third races the winner. Migration must reject all foreign
 # bootstrap sessions; only provider cleanup may terminate them, and terminal
 # deletion happens after the final B session exits.
-docker exec -e PGPASSWORD=bootstrap-admin "$name" psql -h 127.0.0.1 \
+timeout -k 2s 10s docker exec -e PGPASSWORD=bootstrap-admin "$name" psql -h 127.0.0.1 \
   -v ON_ERROR_STOP=1 -U reviewrouter_bootstrap_administrator -d postgres -c \
   "ALTER ROLE rr_authority_gate_bootstrap CONNECTION LIMIT 5" >/dev/null
 owner_fifo="$contract_tmp/bootstrap-owner.fifo"
 broker_fifo="$contract_tmp/bootstrap-broker.fifo"
 loser_fifo="$contract_tmp/bootstrap-loser.fifo"
-mkfifo "$owner_fifo" "$broker_fifo" "$loser_fifo"
-exec 8<>"$owner_fifo" 9<>"$broker_fifo" 10<>"$loser_fifo"
-docker exec -i "$name" psql -qAt -v ON_ERROR_STOP=1 \
+winner_fifo="$contract_tmp/bootstrap-winner.fifo"
+mkfifo "$owner_fifo" "$broker_fifo" "$loser_fifo" "$winner_fifo"
+exec 8<>"$owner_fifo" 9<>"$broker_fifo" 10<>"$loser_fifo" 11<>"$winner_fifo"
+gate_fifos_open=true
+timeout -k 5s 120s docker exec -i "$name" psql -XqAt -v ON_ERROR_STOP=1 \
   -U rr_authority_gate_bootstrap -d rr_authority_gate \
-  <"$owner_fifo" >"$contract_tmp/bootstrap-owner.out" 2>&1 &
+  <"$owner_fifo" 8>&- 9>&- 10>&- 11>&- >"$contract_tmp/bootstrap-owner.out" 2>&1 &
 owner_backend_pid=$!
-docker exec -i "$name" psql -qAt -v ON_ERROR_STOP=1 \
+gate_children+=("$owner_backend_pid")
+timeout -k 5s 120s docker exec -i "$name" psql -XqAt -v ON_ERROR_STOP=1 \
   -U rr_authority_gate_bootstrap -d rr_authority_gate \
-  <"$broker_fifo" >"$contract_tmp/bootstrap-broker.out" 2>&1 &
+  <"$broker_fifo" 8>&- 9>&- 10>&- 11>&- >"$contract_tmp/bootstrap-broker.out" 2>&1 &
 broker_backend_pid=$!
-docker exec -i "$name" psql -qAt -v ON_ERROR_STOP=1 \
+gate_children+=("$broker_backend_pid")
+timeout -k 5s 120s docker exec -i "$name" psql -XqAt -v ON_ERROR_STOP=1 \
   -U rr_authority_gate_bootstrap -d rr_authority_gate \
-  <"$loser_fifo" >"$contract_tmp/bootstrap-loser.out" 2>&1 &
+  <"$loser_fifo" 8>&- 9>&- 10>&- 11>&- >"$contract_tmp/bootstrap-loser.out" 2>&1 &
 loser_backend_pid=$!
+gate_children+=("$loser_backend_pid")
 printf '%s\n' 'SET ROLE reviewrouter_authority_owner;' \
-  'SELECT current_user;' 'SELECT pg_sleep(30);' >&8
+  'SELECT current_user;' "SELECT 'owner_pid:'||pg_backend_pid();" \
+  'SELECT pg_sleep(30);' >&8
 printf '%s\n' 'SET ROLE reviewrouter_migration_broker;' \
-  'SELECT current_user;' 'SELECT pg_sleep(30);' >&9
+  'SELECT current_user;' "SELECT 'broker_pid:'||pg_backend_pid();" \
+  'SELECT pg_sleep(30);' >&9
 printf '%s\n' '\set ON_ERROR_STOP on' "SELECT 'bootstrap_loser_ready';" >&10
-for _ in $(seq 1 40); do
+for _ in $(seq 1 100); do
   if grep -q '^reviewrouter_authority_owner$' "$contract_tmp/bootstrap-owner.out" \
       && grep -q '^reviewrouter_migration_broker$' "$contract_tmp/bootstrap-broker.out" \
       && grep -q '^bootstrap_loser_ready$' "$contract_tmp/bootstrap-loser.out"; then
     break
   fi
-  sleep 0.05
+  sleep 0.1
 done
 grep -q '^reviewrouter_authority_owner$' "$contract_tmp/bootstrap-owner.out"
 grep -q '^reviewrouter_migration_broker$' "$contract_tmp/bootstrap-broker.out"
 grep -q '^bootstrap_loser_ready$' "$contract_tmp/bootstrap-loser.out"
 
-docker exec "$name" psql -v ON_ERROR_STOP=1 -U rr_authority_gate_bootstrap -d rr_authority_gate \
-  -f /tmp/slow-fresh.sql >/dev/null &
-fresh_gate_pid=$!
-for _ in $(seq 1 40); do
-  if test "$(docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -Atc \
-      "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype='advisory' AND classid=1381126735 AND objid=1381258071 AND granted)")" = t; then
+: > "$contract_tmp/bootstrap-winner.out"
+timeout -k 5s 120s docker exec -i -e PGOPTIONS='-c idle_in_transaction_session_timeout=90000' \
+  "$name" psql -XqAt -v ON_ERROR_STOP=1 -U rr_authority_gate_bootstrap -d rr_authority_gate \
+  <"$contract_tmp/bootstrap-winner.fifo" 8>&- 9>&- 10>&- 11>&- >"$contract_tmp/bootstrap-winner.out" 2>&1 &
+fresh_gate_child_pid=$!
+gate_children+=("$fresh_gate_child_pid")
+printf '%s\n' '\i /tmp/gate-prefix.sql' >&11
+gate_observed=false
+gate_deadline=$((SECONDS + 20))
+while test "$SECONDS" -lt "$gate_deadline"; do
+  gate_backend_pid=$(sed -n 's/^fresh_gate_pid:\([0-9][0-9]*\)$/\1/p' "$contract_tmp/bootstrap-winner.out" | head -1)
+  if test -n "$gate_backend_pid" && test "$(timeout -k 2s 3s docker exec "$name" psql -X -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -Atc \
+      "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks l
+        WHERE l.pid=$gate_backend_pid AND l.database=(SELECT oid FROM pg_catalog.pg_database WHERE datname=current_database())
+          AND l.locktype='advisory' AND l.classid=1381126735 AND l.objid=1381258071
+          AND l.objsubid=2 AND l.mode='ExclusiveLock' AND l.granted)")" = t; then
+    gate_observed=true
     break
   fi
-  sleep 0.05
+  sleep 0.1
 done
-docker exec -e PGPASSWORD=bootstrap-admin "$name" psql -h 127.0.0.1 \
+if test "$gate_observed" != true; then
+  echo "fresh winner did not hold its exact PG advisory gate before deadline" >&2
+  cat "$contract_tmp/bootstrap-winner.out" >&2
+  exit 1
+fi
+timeout -k 2s 10s docker exec -e PGPASSWORD=bootstrap-admin "$name" psql -h 127.0.0.1 \
   -v ON_ERROR_STOP=1 -U reviewrouter_bootstrap_administrator -d postgres -c \
   "ALTER ROLE rr_authority_gate_bootstrap CONNECTION LIMIT 1" >/dev/null
 printf '%s\n' '\i /tmp/fresh.sql' >&10
 if wait "$loser_backend_pid"; then
   echo "concurrent authority fresh installer was admitted" >&2
   exit 1
+else
+  loser_status=$?
 fi
-if wait "$fresh_gate_pid"; then
-  echo "migration quiesced bootstrap while foreign B sessions remained" >&2
+if test "$loser_status" -ne 3 || \
+    ! grep -Eq '^psql:.*: ERROR:  release authority migration gate is already held$' \
+    "$contract_tmp/bootstrap-loser.out"; then
+  echo "concurrent authority installer failed for an unexpected reason" >&2
+  cat "$contract_tmp/bootstrap-loser.out" >&2
   exit 1
 fi
+gate_children=("$owner_backend_pid" "$broker_backend_pid" "$fresh_gate_child_pid")
+echo "concurrent authority installer rejected at migration gate"
+owner_pg_pid=$(sed -n 's/^owner_pid:\([0-9][0-9]*\)$/\1/p' "$contract_tmp/bootstrap-owner.out" | head -1)
+broker_pg_pid=$(sed -n 's/^broker_pid:\([0-9][0-9]*\)$/\1/p' "$contract_tmp/bootstrap-broker.out" | head -1)
+if test -z "$owner_pg_pid" || test -z "$broker_pg_pid" || \
+    test "$(timeout -k 2s 5s docker exec "$name" psql -X -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -Atc \
+      "SELECT count(*)=2 FROM pg_catalog.pg_stat_activity
+       WHERE pid IN ($owner_pg_pid,$broker_pg_pid)
+         AND datname=current_database() AND usename='rr_authority_gate_bootstrap'")" != t; then
+  echo "foreign owner and broker bootstrap sessions did not survive to quiescence" >&2
+  exit 1
+fi
+printf '%s\n' '\i /tmp/gate-suffix.sql' >&11
+if wait "$fresh_gate_child_pid"; then
+  echo "migration quiesced bootstrap while foreign B sessions remained" >&2
+  exit 1
+else
+  winner_status=$?
+fi
+if test "$winner_status" -ne 3 || \
+    ! grep -Eq '^psql:.*: ERROR:  bootstrap quiescence is noncanonical$' \
+    "$contract_tmp/bootstrap-winner.out"; then
+  echo "fresh winner failed for an unexpected reason" >&2
+  cat "$contract_tmp/bootstrap-winner.out" >&2
+  exit 1
+fi
+gate_children=("$owner_backend_pid" "$broker_backend_pid")
+echo "fresh authority installer rejected at bootstrap quiescence"
 REVIEW_ROUTER_RELEASE_AUTHORITY_PROVIDER_DATABASE_URL_FILE="$bootstrap_provider_file" \
 REVIEW_ROUTER_RELEASE_AUTHORITY_MIGRATION_DATABASE_URL_FILE="$bootstrap_retry_file" \
-  node scripts/install-release-authority-db.mjs --cleanup-bootstrap
-wait "$owner_backend_pid" >/dev/null 2>&1 || true
-wait "$broker_backend_pid" >/dev/null 2>&1 || true
-exec 8>&- 9>&- 10>&-
+  timeout -k 5s 150s node scripts/install-release-authority-db.mjs --cleanup-bootstrap
+printf '%s\n' '\q' >&8
+printf '%s\n' '\q' >&9
+exec 8>&- 9>&- 10>&- 11>&-
+gate_fifos_open=false
+owner_status=0
+wait "$owner_backend_pid" >/dev/null 2>&1 || owner_status=$?
+broker_status=0
+wait "$broker_backend_pid" >/dev/null 2>&1 || broker_status=$?
+gate_children=()
+for session in owner broker; do
+  if test "$session" = owner; then status=$owner_status; else status=$broker_status; fi
+  if test "$status" -eq 0; then continue; fi
+  if { test "$status" -eq 2 || test "$status" -eq 3; } &&
+      grep -Fq 'FATAL:  terminating connection due to administrator command' \
+        "$contract_tmp/bootstrap-$session.out"; then
+    continue
+  fi
+  echo "$session bootstrap client exited unexpectedly (status $status)" >&2
+  cat "$contract_tmp/bootstrap-$session.out" >&2
+  exit 1
+done
 REVIEW_ROUTER_RELEASE_AUTHORITY_PROVIDER_DATABASE_URL_FILE="$bootstrap_provider_file" \
 REVIEW_ROUTER_RELEASE_AUTHORITY_MIGRATION_DATABASE_URL_FILE="$bootstrap_retry_file" \
-  node scripts/install-release-authority-db.mjs --provision-bootstrap
+  timeout -k 5s 150s node scripts/install-release-authority-db.mjs --provision-bootstrap
+# Exercise the caller's short policy after the final embedded shadow body.
+# This fresh transaction is admitted as the disposable database owner; the
+# conflicting backend is postgres, so it cannot itself trip B quiescence.
+short_authority_snapshot() {
+  timeout -k 2s 5s docker exec "$name" psql -X -v ON_ERROR_STOP=1 -U postgres \
+    -d rr_authority_gate -Atc \
+    "SELECT jsonb_build_object(
+      'database', (SELECT jsonb_build_object('owner',datdba,'acl',datacl,'limit',datconnlimit)
+                   FROM pg_catalog.pg_database WHERE datname=current_database()),
+      'roles', (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.rolname)
+                FROM pg_catalog.pg_roles r WHERE r.rolname IN
+                  ('rr_authority_gate_bootstrap','reviewrouter_authority_owner',
+                   'reviewrouter_migration_broker','reviewrouter_bootstrap_administrator')),
+      'edges', (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.oid)
+                FROM pg_catalog.pg_auth_members m WHERE m.roleid IN
+                  (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN
+                    ('rr_authority_gate_bootstrap','reviewrouter_authority_owner',
+                     'reviewrouter_migration_broker'))),
+      'default_acl', (SELECT jsonb_agg(to_jsonb(a) ORDER BY a.oid)
+                      FROM pg_catalog.pg_default_acl a WHERE a.defaclrole IN
+                        (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN
+                          ('rr_authority_gate_bootstrap','reviewrouter_authority_owner',
+                           'reviewrouter_migration_broker'))),
+      'helper', (SELECT to_jsonb(p) FROM pg_catalog.pg_proc p WHERE p.oid=
+                  pg_catalog.to_regprocedure('reviewrouter_migration_bootstrap.quiesce(name,name)')),
+      'helper_schema', (SELECT to_jsonb(n) FROM pg_catalog.pg_namespace n
+                        WHERE n.nspname='reviewrouter_migration_bootstrap'))::text"
+}
+short_authority_before=$(short_authority_snapshot)
+short_lock_fifo="$contract_tmp/short-lock.fifo"
+mkfifo "$short_lock_fifo"
+exec 12<>"$short_lock_fifo"
+short_lock_fifo_open=true
+timeout -k 5s 180s docker exec -i -e PGOPTIONS='-c idle_in_transaction_session_timeout=170000' \
+  "$name" psql -XqAt -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate \
+  <"$short_lock_fifo" 8>&- 9>&- 10>&- 11>&- 12>&- >"$contract_tmp/short-lock-holder.out" 2>&1 &
+short_lock_child=$!
+gate_children+=("$short_lock_child")
+printf '%s\n' 'BEGIN;' 'SELECT pg_catalog.pg_advisory_xact_lock(1381126735,1381258073);' \
+  "SELECT 'short_lock_pid:'||pg_backend_pid();" >&12
+short_lock_observed=false
+short_lock_deadline=$((SECONDS + 20))
+while test "$SECONDS" -lt "$short_lock_deadline"; do
+  short_lock_pg_pid=$(sed -n 's/^short_lock_pid:\([0-9][0-9]*\)$/\1/p' \
+    "$contract_tmp/short-lock-holder.out" | head -1)
+  if test -n "$short_lock_pg_pid" && test "$(timeout -k 2s 3s docker exec "$name" \
+      psql -X -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -Atc \
+      "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks l
+        WHERE l.pid=$short_lock_pg_pid AND l.database=(SELECT oid FROM pg_catalog.pg_database WHERE datname=current_database())
+          AND l.locktype='advisory' AND l.classid=1381126735 AND l.objid=1381258073
+          AND l.objsubid=2 AND l.mode='ExclusiveLock' AND l.granted)")" = t; then
+    short_lock_observed=true
+    break
+  fi
+  sleep 0.1
+done
+if test "$short_lock_observed" != true; then
+  echo "short-timeout holder did not hold its exact PG advisory lock" >&2
+  cat "$contract_tmp/short-lock-holder.out" >&2
+  exit 1
+fi
+if timeout -k 5s 120s docker exec "$name" psql -XAt -v ON_ERROR_STOP=1 \
+    -v VERBOSITY=verbose -U rr_authority_gate_bootstrap -d rr_authority_gate \
+    -f /tmp/short-fresh-lock.sql >"$contract_tmp/short-fresh-lock.out" 2>&1; then
+  echo "short migration acquired a held advisory lock" >&2
+  exit 1
+else
+  short_status=$?
+fi
+short_elapsed=$(sed -n 's/.*short_lock_elapsed_ms:\([0-9][0-9]*\).*/\1/p' \
+  "$contract_tmp/short-fresh-lock.out" | head -1)
+if test "$short_status" -ne 3 || \
+    ! grep -q '^short_timeout_settings:200:2000$' "$contract_tmp/short-fresh-lock.out" || \
+    ! grep -Eq '55P03: canceling statement due to lock timeout' "$contract_tmp/short-fresh-lock.out" || \
+    test -z "$short_elapsed" || test "$short_elapsed" -lt 100 || test "$short_elapsed" -ge 1800; then
+  echo "short migration did not preserve its effective 200ms/2000ms lock policy" >&2
+  cat "$contract_tmp/short-fresh-lock.out" >&2
+  exit 1
+fi
+printf '%s\n' 'COMMIT;' '\q' >&12
+exec 12>&-
+short_lock_fifo_open=false
+wait "$short_lock_child"
+gate_children=()
+if test "$(short_authority_snapshot)" != "$short_authority_before"; then
+  echo "short migration changed authority state after its lock-timeout rollback" >&2
+  exit 1
+fi
+test "$(timeout -k 2s 5s docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres \
+  -d rr_authority_gate -Atc \
+  "SELECT (pg_catalog.to_regnamespace('release_authority') IS NULL)::text||':'||
+    (pg_catalog.to_regclass('release_authority.schema_migration') IS NULL)::text||':'||
+    pg_catalog.pg_get_userbyid(datdba)||':'||
+    (pg_catalog.to_regnamespace('reviewrouter_migration_bootstrap') IS NOT NULL)::text
+   FROM pg_catalog.pg_database WHERE datname=current_database()")" = \
+  true:true:rr_authority_gate_bootstrap:true
 docker exec "$name" psql -v ON_ERROR_STOP=1 -U rr_authority_gate_bootstrap \
   -d rr_authority_gate -f /tmp/fresh.sql >/dev/null
 test "$(docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -Atc \
@@ -825,29 +1056,6 @@ for default_case in \
   docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -c \
     "SET ROLE reviewrouter_authority_owner; ALTER DEFAULT PRIVILEGES IN SCHEMA release_authority REVOKE $privilege ON $objects FROM \"reviewrouter quoted acl probe\"" >/dev/null
 done
-
-# A conflicting table lock is bounded by lock_timeout rather than waiting for
-# the process timeout. No migration history changes on the failed attempt.
-gate_manifest=$(docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -Atc \
-  "SELECT release_authority.release_schema_migration_manifest()")
-docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -c \
-  "BEGIN; LOCK TABLE release_authority.schema_migration IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(2); COMMIT" >/dev/null &
-table_lock_pid=$!
-for _ in $(seq 1 40); do
-  if test "$(docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -Atc \
-      "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE relation='release_authority.schema_migration'::regclass AND mode='AccessExclusiveLock' AND granted)")" = t; then
-    break
-  fi
-  sleep 0.05
-done
-if docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate \
-  -f /tmp/short-upgrade.sql >/dev/null 2>&1; then
-  echo "authority upgrade ignored its bounded lock timeout" >&2
-  exit 1
-fi
-wait "$table_lock_pid"
-test "$(docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -Atc \
-  "SELECT release_authority.release_schema_migration_manifest()")" = "$gate_manifest"
 
 # Checksum drift fails before any forward work. Restoring the fixture permits
 # two byte-identical idempotent reruns with unchanged catalog evidence.
@@ -3192,4 +3400,5 @@ docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate -c 
 test "$(docker exec "$name" psql -v ON_ERROR_STOP=1 -U postgres \
   -d rr_authority_gate -Atf /tmp/gate-terminal.sql)" = requires-migration
 
+node --test "$root/packages/platform/release-authority-db/test-gate-join.mjs"
 echo "release authority PG17 contract passed"

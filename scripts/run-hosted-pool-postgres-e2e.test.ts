@@ -69,12 +69,13 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     ]);
   });
 
-  it("applies hosted-v4 before SDK verifier migrations in the staged PG17 rehearsal", () => {
+  it("stages 000110 and 000111 after hosted-v4 and SDK verifier migrations", () => {
     for (const migration of [
       "000107_hosted_v4_relay_turn_contract",
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
-      "000110_sdk_growth_source_binding",
+      "000110_historical_unknown_scope_barrier",
+      "000111_sdk_growth_source_binding",
     ])
       expect(source.match(new RegExp(migration, "gu"))).toHaveLength(1);
     const preparation = section(
@@ -83,12 +84,14 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     );
     expect(preparation).toContain("v4RelayTurnMigration");
     expect(preparation).toContain("...sdkGrowthVerifierAssignmentMigrations");
+    expect(preparation).toContain("historicalUnknownScopeBarrierMigration");
+    expect(preparation).toContain("sdkGrowthSourceBindingMigration");
     const stagedTail = section(
       "addMigration(rehearsalDirectory, v4RelayTurnMigration)",
       "const migrationCount =",
     );
     expect(stagedTail).toMatch(
-      /addMigration\(rehearsalDirectory, v4RelayTurnMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*for \(const migrationName of sdkGrowthVerifierAssignmentMigrations\) \{\s*addMigration\(rehearsalDirectory, migrationName\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*\}/u,
+      /addMigration\(rehearsalDirectory, v4RelayTurnMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*for \(const migrationName of sdkGrowthVerifierAssignmentMigrations\) \{\s*addMigration\(rehearsalDirectory, migrationName\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*\}\s*addMigration\(rehearsalDirectory, historicalUnknownScopeBarrierMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*addMigration\(rehearsalDirectory, sdkGrowthSourceBindingMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);/u,
     );
   });
 

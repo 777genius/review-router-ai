@@ -106,8 +106,10 @@ const v4RelayTurnMigration = "000107_hosted_v4_relay_turn_contract";
 const sdkGrowthVerifierAssignmentMigrations = Object.freeze([
   "000108_sdk_growth_verifier_assignment",
   "000109_sdk_growth_verifier_assignment_lock",
-  "000110_sdk_growth_source_binding",
 ]);
+const historicalUnknownScopeBarrierMigration =
+  "000110_historical_unknown_scope_barrier";
+const sdkGrowthSourceBindingMigration = "000111_sdk_growth_source_binding";
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -181,6 +183,10 @@ try {
       addMigration(rehearsalDirectory, migrationName);
       runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     }
+    addMigration(rehearsalDirectory, historicalUnknownScopeBarrierMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    addMigration(rehearsalDirectory, sdkGrowthSourceBindingMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
 
     const migrationCount = await countAppliedMigrations(migrationDatabaseUrl);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
@@ -760,6 +766,8 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           requestScopedFailoverMigration.name,
           v4RelayTurnMigration,
           ...sdkGrowthVerifierAssignmentMigrations,
+          historicalUnknownScopeBarrierMigration,
+          sdkGrowthSourceBindingMigration,
         ]
       : []),
   ]);

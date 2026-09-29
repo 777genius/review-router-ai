@@ -34,9 +34,12 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full109 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(109);
-    expect(full[108]?.migrationName).toBe("000110_sdk_growth_source_binding");
+  it("validates the full110 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(110);
+    expect(full[109]?.migrationName).toBe("000111_sdk_growth_source_binding");
+    expect(full[108]?.migrationName).toBe(
+      "000110_historical_unknown_scope_barrier",
+    );
     expect(full[107]?.migrationName).toBe(
       "000109_sdk_growth_verifier_assignment_lock",
     );
@@ -89,8 +92,9 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: checkout107 },
     { checkout: checkout108 },
     { checkout: checkout109 },
+    { checkout: full },
   ])(
-    "also accepts a complete validated older checkout (%#)",
+    "accepts a complete validated checkout through 000111 (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);
@@ -120,6 +124,17 @@ describe("trusted historical96 checkout reader", () => {
       [...historical, { ...full[96]!, migrationName: "000099_unknown" }],
     ],
     ["duplicate extension", [...full, full[96]!]],
+    [
+      "relabelled 110",
+      [
+        ...full.slice(0, 108),
+        { ...full[108]!, migrationName: "000110_relabelled" },
+      ],
+    ],
+    [
+      "unknown 111",
+      [...full, { migrationName: "000111_unknown", checksum: "a".repeat(64) }],
+    ],
     [
       "future replacement",
       [...full.slice(0, 99), { ...full[99]!, migrationName: "000102_unknown" }],
