@@ -46,6 +46,37 @@ describe("closed v3 approval manifest", () => {
     expect(() => validate(unverified)).toThrow();
   });
 
+  it("rejects promote-release after matching the approved request and validation bytes", () => {
+    const fixture = proposal();
+    const request = {
+      ...fixture.request,
+      operation: "promote-release",
+      admissionReceiptId: "receipt-1",
+    };
+    const requestWire = wire(request);
+    const validationEvidenceWire = wire({
+      schema: "reviewrouter:g1-v3-request-validation-fixture:1",
+      requestWireSha256: hash(requestWire),
+      requestByteLength: requestWire.byteLength,
+      toolArtifactId: toolId,
+      result: "validated",
+    });
+    fixture.manifest.approval.operation = "promote-release";
+    fixture.manifest.requestWireSha256 = hash(requestWire);
+    fixture.manifest.requestByteLength = requestWire.byteLength;
+    fixture.manifest.validationEvidenceSha256 = hash(validationEvidenceWire);
+    fixture.manifest.validationEvidenceByteLength =
+      validationEvidenceWire.byteLength;
+
+    expect(() =>
+      validateV3ManifestProposal(
+        { manifestWire: wire(fixture.manifest), requestWire },
+        scope,
+        { decodedRequest: request, validationEvidenceWire },
+      ),
+    ).toThrow();
+  });
+
   it("rejects approval provenance for another owner or source", () => {
     const owner = proposal();
     owner.manifest.provenance.subject = "other-owner";
