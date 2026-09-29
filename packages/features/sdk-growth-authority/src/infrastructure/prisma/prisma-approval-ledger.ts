@@ -6,6 +6,7 @@ import type {
   AuthorityScope,
   CanonicalAuthorityMaterial,
   TrustedAuthorityRecord,
+  TrustedOwnerApproval,
   TrustedAuthoritySourcePort,
 } from "../../application/ports.js";
 import { validateTrustedAuthorityRecord } from "../../application/trusted-authority-ingestion.js";
@@ -62,7 +63,19 @@ function recordFromMaterial(
   material: CanonicalAuthorityMaterial,
   identity: G1AuthenticatedOperator["principal"],
 ): TrustedAuthorityRecord {
-  const { binding: _binding, ...approval } = material.ownerEvidence;
+  const evidence = material.ownerEvidence;
+  const approval: TrustedOwnerApproval = {
+    version: evidence.version,
+    evidenceId: evidence.evidenceId,
+    tenantId: evidence.tenantId,
+    ownerSubject: evidence.ownerSubject,
+    scopes: evidence.scopes,
+    decision: evidence.decision,
+    sourceDigest: evidence.sourceDigest,
+    issuedAt: evidence.issuedAt,
+    expiresAt: evidence.expiresAt,
+    revoked: evidence.revoked,
+  };
   return {
     tenantId: identity.tenantId,
     repositoryId: identity.repositoryId,
