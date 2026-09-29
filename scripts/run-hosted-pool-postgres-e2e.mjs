@@ -112,6 +112,7 @@ const historicalUnknownScopeBarrierMigration =
 const sdkGrowthSourceBindingMigration = "000111_sdk_growth_source_binding";
 const sdkGrowthOperatorCredentialMigration =
   "000112_sdk_growth_operator_credential";
+const sdkGrowthApprovalLedgerMigration = "000113_sdk_growth_approval_ledger";
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -771,6 +772,7 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           historicalUnknownScopeBarrierMigration,
           sdkGrowthSourceBindingMigration,
           sdkGrowthOperatorCredentialMigration,
+          sdkGrowthApprovalLedgerMigration,
         ]
       : []),
   ]);

@@ -66,3 +66,36 @@ arrays, custom prototypes and non-cloneable proxies. It detaches the graph befor
 validating provenance and domain contracts or awaiting any database operation.
 Checkout policy admits SQL112 only with its pinned bytes and complete predecessor
 manifest; historical96 and managed92 projections remain unchanged.
+
+## Dormant G1 approval ledger
+
+SQL113 adds immutable approval and revocation facts. The protected
+`PrismaG1ApprovalLedgerCommand` is not composed into a route or startup path.
+Approve accepts only scope, expected epoch and an opaque reference resolved by a
+trusted server proposal port. The proposal builder must retain and show the exact
+source/base/merge-base, scopes, decisions, package set and expiry; this slice does
+not create that builder. The command rejects candidate material and expired,
+rejected or revoked proposals. Existing approved authority must have a matching
+current ledger fact; approval after revocation is rejected until a separately
+accepted reactivation transition exists.
+
+The command authenticates with P1a, then locks scope advisory key, current epoch
+row `FOR UPDATE`, and credential row `FOR SHARE` in that order. It rechecks exact
+credential ID/generation, disabled state, expiry, scope and operation after those
+locks. Only then can it insert immutable authority versions, append the ledger
+fact and advance the epoch in one transaction. SQL113 stamps each pointer write
+with the full PostgreSQL `xid8` transaction identity; the deferred fact guard
+requires that stamp to equal its own transaction. Historical pointer rows keep
+a null stamp until their next transition and cannot receive a late standalone
+fact. Failed CAS or rotation rolls back all
+rows. The ledger retains the original proposal's approval provenance and
+source digest; revoke appends a reference and changes only `revoked` in the new
+authority version. `PrismaG1ApprovalLedgerSource` returns only an exact current
+ledger epoch through the existing trusted-source port. It is a readback, never
+a later publication permission.
+
+The G1 writer/source are private feature-local adapters under the existing SDK
+Growth authority owner. RR has no accepted Consumer Module Standard adoption
+profile or pin for this dormant seam; this change does not claim one. A future
+production composition is a separate acceptance step. SQL113 is checkout-only
+and leaves historical96 and managed92 manifests unchanged.
