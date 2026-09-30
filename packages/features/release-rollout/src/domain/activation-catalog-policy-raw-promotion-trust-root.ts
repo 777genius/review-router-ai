@@ -3,7 +3,7 @@ import {
   type ActivationCatalogRawCaptureEvidence,
 } from "./activation-catalog-policy-provenance-contract";
 import { canonicalReleaseMigrationPostManifestIdentity } from "./release-migration-artifact-identity.js";
-import activationCatalogRawPromotionTrustRootData from "./activation-catalog-policy-raw-promotion-trust-root.json";
+import activationCatalogRawPromotionTrustRootData from "./activation-catalog-policy-raw-promotion-trust-root.json" with { type: "json" };
 
 export const activationCatalogRawPromotionOptIn =
   "promote-reviewed-activation-catalog-raw-v1";
