@@ -83,7 +83,9 @@ const accountIds = [
   hostedAccountId(`custody-account-b-${prefix}`),
   hostedAccountId(`custody-account-c-${prefix}`),
 ] as const;
-const tombstonedAccountId = hostedAccountId(`custody-account-tombstoned-${prefix}`);
+const tombstonedAccountId = hostedAccountId(
+  `custody-account-tombstoned-${prefix}`,
+);
 const installationId = `custody-installation-${prefix}`;
 const repositoryId = `custody-repository-${prefix}`;
 const bindingId = `custody-binding-${prefix}`;
@@ -644,7 +646,9 @@ describe.runIf(enabled)(
       const snapshot = await loadLocalRebindSnapshot(prisma!);
       expect(() => assertQuiescentAuthority(snapshot.authority)).not.toThrow();
       expect(snapshot.rows).toHaveLength(3);
-      expect(snapshot.rows.some((row) => row.accountId === tombstonedAccountId)).toBe(false);
+      expect(
+        snapshot.rows.some((row) => row.accountId === tombstonedAccountId),
+      ).toBe(false);
       const tombstoned = await prisma!.hostedCodexAccount.findUniqueOrThrow({
         where: { id: tombstonedAccountId },
         select: { activeGeneration: true, state: true },
