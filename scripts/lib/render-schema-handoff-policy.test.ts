@@ -235,12 +235,12 @@ const migration110 = {
 };
 const checkout109 = [...checkout108, migration110];
 const migration111 = {
-  migrationName: "000111_hosted_v4_fenced_dispatch",
+  migrationName: "000116_hosted_v4_fenced_dispatch",
   checksum: createHash("sha256")
     .update(
       readFileSync(
         new URL(
-          "../../packages/platform/db/prisma/migrations/000111_hosted_v4_fenced_dispatch/migration.sql",
+          "../../packages/platform/db/prisma/migrations/000116_hosted_v4_fenced_dispatch/migration.sql",
           import.meta.url,
         ),
       ),
@@ -769,7 +769,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
             .join(","),
         )
         .digest("hex"),
-    ).toBe("8e8ba2d70adbe0533a9fa5fc391ca9c40c15dc644d52e80b6d5ed0e3406530a3");
+    ).toBe("60fa3047c910ca947f30d8011f6aded08dbfa75cc466cce699d58a3df53c5989");
     expect(partitionRenderSchemaHandoffCheckout(checkout109)).toEqual(catalog);
     expect(partitionRenderSchemaHandoffCheckout(checkout110)).toEqual(catalog);
     expect(() => assertRenderSchemaHandoffCatalog(checkout110)).toThrow(

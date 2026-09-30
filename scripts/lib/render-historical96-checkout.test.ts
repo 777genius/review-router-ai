@@ -37,7 +37,7 @@ describe("trusted historical96 checkout reader", () => {
   // admitted 110-directory checkout at count; the old reader fails here.
   it("validates the full110 source and returns only the exact immutable historical96", () => {
     expect(full).toHaveLength(110);
-    expect(full[109]?.migrationName).toBe("000111_hosted_v4_fenced_dispatch");
+    expect(full[109]?.migrationName).toBe("000116_hosted_v4_fenced_dispatch");
     expect(full[109]?.checksum).toBe(
       "869cc817d2654e6239d23f1c2ce7461c37da09af66b06900afd8eace6de7f0d5",
     );

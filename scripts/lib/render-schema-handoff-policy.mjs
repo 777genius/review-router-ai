@@ -187,7 +187,7 @@ const checkoutExtensions = Object.freeze([
       "aa9cd8a8e34e9909dcc22c5a7dd94cc4121821db93330c0a54bb48b0aaf61a79",
   }),
   Object.freeze({
-    migrationName: "000111_hosted_v4_fenced_dispatch",
+    migrationName: "000116_hosted_v4_fenced_dispatch",
     checksum:
       "869cc817d2654e6239d23f1c2ce7461c37da09af66b06900afd8eace6de7f0d5",
   }),
@@ -316,7 +316,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     extensions === 18 &&
     manifest(catalog) !==
-      "sha256:8e8ba2d70adbe0533a9fa5fc391ca9c40c15dc644d52e80b6d5ed0e3406530a3"
+      "sha256:60fa3047c910ca947f30d8011f6aded08dbfa75cc466cce699d58a3df53c5989"
   )
     fail("checkout_manifest");
   assertRenderSchemaHandoffCatalog(managed);

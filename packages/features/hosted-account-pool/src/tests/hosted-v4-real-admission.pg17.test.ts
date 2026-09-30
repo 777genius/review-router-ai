@@ -374,7 +374,7 @@ describe.skipIf(!runDisposablePg17 || ownershipNegative)(
           ),
         );
       }
-      expect(stock.at(-1)).toBe("000111_hosted_v4_fenced_dispatch");
+      expect(stock.at(-1)).toBe("000116_hosted_v4_fenced_dispatch");
       const failed = await setup.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
       SELECT count(*)::bigint AS count FROM public._prisma_migrations
       WHERE finished_at IS NULL AND rolled_back_at IS NULL
@@ -1135,7 +1135,7 @@ describe.skipIf(!runDisposablePg17 || !ownershipNegative)(
         expect(server?.version).toBeGreaterThanOrEqual(170000);
         expect(server?.version).toBeLessThan(180000);
         expect(server?.database).toContain(marker);
-        expect(server?.lastMigration).toBe("000111_hosted_v4_fenced_dispatch");
+        expect(server?.lastMigration).toBe("000116_hosted_v4_fenced_dispatch");
 
         const [owner] = await setup.$queryRaw<Array<{ name: string }>>(
           Prisma.sql`

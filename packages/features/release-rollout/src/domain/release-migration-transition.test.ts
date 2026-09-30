@@ -112,10 +112,10 @@ describe("canonical release migration transition", () => {
     expect(full.slice(-3).map((row) => row.migrationName)).toEqual([
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
-      "000111_hosted_v4_fenced_dispatch",
+      "000116_hosted_v4_fenced_dispatch",
     ]);
     expect(manifest(full)).toBe(
-      "sha256:8e8ba2d70adbe0533a9fa5fc391ca9c40c15dc644d52e80b6d5ed0e3406530a3",
+      "sha256:60fa3047c910ca947f30d8011f6aded08dbfa75cc466cce699d58a3df53c5989",
     );
     const historical = readRenderHistorical96CheckoutInventory();
     expect(historical).toHaveLength(96);
