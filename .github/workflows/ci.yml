@@ -438,6 +438,7 @@ jobs:
             packages/features/sdk-growth-authority/src/tests/prisma-receipt-repository.test.ts \
             packages/features/sdk-growth-authority/src/tests/prisma-current-authority.test.ts \
             packages/features/sdk-growth-authority/src/tests/prisma-lane-a.test.ts \
+            packages/features/sdk-growth-authority/src/tests/prisma-approval-ledger.real.test.ts \
             packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts \
             apps/api/src/sdk-growth-verifier-custody.pg.test.ts \
             apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts \
@@ -478,6 +479,7 @@ jobs:
             "packages/features/sdk-growth-authority/src/tests/prisma-receipt-repository.test.ts",
             "packages/features/sdk-growth-authority/src/tests/prisma-current-authority.test.ts",
             "packages/features/sdk-growth-authority/src/tests/prisma-lane-a.test.ts",
+            "packages/features/sdk-growth-authority/src/tests/prisma-approval-ledger.real.test.ts",
             "packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts",
             "apps/api/src/sdk-growth-verifier-custody.pg.test.ts",
             "apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts",
@@ -775,6 +777,41 @@ jobs:
 
       - name: EF v3 SDK growth contract
         run: pnpm --filter @reviewrouter/features-sdk-growth-authority test:ef-v3
+
+      - name: Checkout exact EF v3 candidate source
+        uses: actions/checkout@v6
+        with:
+          repository: agent-teams-ai/engineering-foundation
+          ref: 243b99abbd89216fca55a1ffe4a1b83a1b7efc2e
+          path: .candidate/engineering-foundation
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Qualify source-built EF v3 request decoder fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate=.candidate/engineering-foundation
+          test "$(git -C "$candidate" rev-parse HEAD)" = 243b99abbd89216fca55a1ffe4a1b83a1b7efc2e
+          source_tree="$(git -C "$candidate" rev-parse 'HEAD^{tree}')"
+          printf '%s' "$source_tree" | grep -Eq '^[a-f0-9]{40}$'
+          (cd "$candidate" && corepack pnpm install --frozen-lockfile)
+          (cd "$candidate" && corepack pnpm --filter @agent-teams/engineering-foundation build)
+          archive="$RUNNER_TEMP/agent-teams-engineering-foundation-1.6.1.tgz"
+          (cd "$candidate/packages/engineering-foundation" && corepack pnpm pack --pack-destination "$RUNNER_TEMP") >"$RUNNER_TEMP/ef-candidate-pack.log"
+          test -s "$archive"
+          npm install --prefix "$RUNNER_TEMP/ef-candidate-installed" --ignore-scripts --no-audit --no-fund "$archive"
+          EF_V3_CANDIDATE_PACKAGE_ROOT="$RUNNER_TEMP/ef-candidate-installed/node_modules/@agent-teams/engineering-foundation" \
+          EF_V3_CANDIDATE_ARCHIVE="$archive" \
+          EF_V3_CANDIDATE_SOURCE_COMMIT=243b99abbd89216fca55a1ffe4a1b83a1b7efc2e \
+          EF_V3_CANDIDATE_SOURCE_TREE="$source_tree" \
+          SDK_GROWTH_TEST_DATABASE_URL="$REVIEW_ROUTER_TEST_DATABASE_URL" \
+            node --import tsx --test packages/features/sdk-growth-authority/src/tests/v3-approved-manifest.ef-candidate.node-test.mjs
+
+      - name: Remove EF candidate checkout
+        if: always()
+        run: |
+          node -e "require('node:fs').rmSync('.candidate', { recursive: true, force: true })"
 
       - name: Architecture boundaries
         run: pnpm architecture:check

@@ -34,8 +34,11 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full113 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(113);
+  it("validates the full114 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(114);
+    expect(full[113]?.migrationName).toBe(
+      "000115_sdk_growth_v3_approved_manifest",
+    );
     expect(full[112]?.migrationName).toBe("000114_sdk_growth_v3_tool_artifact");
     expect(full[111]?.migrationName).toBe("000113_sdk_growth_approval_ledger");
     expect(full[110]?.migrationName).toBe(

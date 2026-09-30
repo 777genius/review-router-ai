@@ -99,3 +99,28 @@ Growth authority owner. RR has no accepted Consumer Module Standard adoption
 profile or pin for this dormant seam; this change does not claim one. A future
 production composition is a separate acceptance step. SQL113 is checkout-only
 and leaves historical96 and managed92 manifests unchanged.
+
+## Dormant EF v3 approval manifest
+
+SQL114 retains a source-built EF tool artifact for TEST fixtures. SQL115 adds
+immutable exact manifest, request and validation-evidence bytes, each with a
+length and SHA-256, and links the manifest to one authority epoch and approval
+fact. PostgreSQL checks each digest against its bytes and checks the
+domain-separated manifest ID. The deferred database guards reject a standalone manifest, late
+attachment to an earlier approval, a mismatched authority version, and a fact
+without an epoch advance in the same transaction. The v1 reader returns no
+authority for v3 facts; v1 approvals retain their original shape.
+
+`PrismaG1V3ApprovedManifestCommand` is a private protected command. Its proposal
+port supplies exact owner-approved bytes. Its separate validation port must call
+EF `decodeRequest()` on the **same** request bytes and return the decoded value
+plus bound evidence. A fixture test builds the pinned EF 1.6.1 source archive
+from commit `243b99abbd89216fca55a1ffe4a1b83a1b7efc2e`, installs it, and
+exercises the public decoder through the protected command and a disposable
+PostgreSQL commit. It checks exact stored bytes and rejects an EF-invalid
+request before another fact can be written. The focused database tests also
+cover atomic custody, concurrent approve/revoke, expiry after a scope lock wait,
+credential rotation, same-transaction version facts and v1 isolation.
+`promote-release` is rejected until an exact existing admission receipt can be
+checked. No production startup, route, candidate writer, verifier assignment,
+or publication path composes this command. G1 remains `hold`.

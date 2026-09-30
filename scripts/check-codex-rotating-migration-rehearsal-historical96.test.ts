@@ -34,6 +34,7 @@ const extensions = [
   "000112_sdk_growth_operator_credential",
   "000113_sdk_growth_approval_ledger",
   "000114_sdk_growth_v3_tool_artifact",
+  "000115_sdk_growth_v3_approved_manifest",
 ];
 function body(name: string) {
   const match = source.match(
