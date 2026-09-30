@@ -116,6 +116,8 @@ const sdkGrowthApprovalLedgerMigration = "000113_sdk_growth_approval_ledger";
 const sdkGrowthV3ToolArtifactMigration = "000114_sdk_growth_v3_tool_artifact";
 const sdkGrowthV3ApprovedManifestMigration =
   "000115_sdk_growth_v3_approved_manifest";
+const sdkGrowthV3RequestEvidenceMigration =
+  "000116_sdk_growth_v3_request_evidence";
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -778,6 +780,7 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           sdkGrowthApprovalLedgerMigration,
           sdkGrowthV3ToolArtifactMigration,
           sdkGrowthV3ApprovedManifestMigration,
+          sdkGrowthV3RequestEvidenceMigration,
         ]
       : []),
   ]);

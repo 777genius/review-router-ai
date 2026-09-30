@@ -318,6 +318,7 @@ describe("SDK growth application-schema checkpoint", () => {
     "000113_sdk_growth_approval_ledger",
     "000114_sdk_growth_v3_tool_artifact",
     "000115_sdk_growth_v3_approved_manifest",
+    "000116_sdk_growth_v3_request_evidence",
   ])(
     "rejects an already-applied later checkout row %s at the 000106 checkpoint",
     (migrationName) => {

@@ -124,3 +124,29 @@ credential rotation, same-transaction version facts and v1 isolation.
 `promote-release` is rejected until an exact existing admission receipt can be
 checked. No production startup, route, candidate writer, verifier assignment,
 or publication path composes this command. G1 remains `hold`.
+
+## Dormant v3 request evidence ingress
+
+SQL116 adds one immutable `check/request-validation` slot per protected verifier
+assignment. `PrismaG1V3RequestEvidenceCommand` accepts only a verifier credential,
+approved manifest ID and exact request bytes. It first verifies the credential,
+then asks a trusted adapter to run the pinned EF `decodeRequest` on a copy of the
+wire. The adapter must encode EF's canonical `wire` as UTF-8 and return its
+`wireDigest` and distinct `protocolDigest`. The command reauthenticates inside a
+READ COMMITTED transaction, holds the assignment and current authority locks,
+matches the current v3 approval, exact manifest, source/base/merge-base, verifier
+revision, authorized subject and tool pin, then retains the bytes and closed
+validation evidence. SQL checks bytes/digests, slot identity, current approval,
+assignment and deadlines again at INSERT and deferred commit using PostgreSQL
+`clock_timestamp()`. A same-slot replay needs a still-valid credential and
+current approval; its first JTI remains unchanged. Different bytes conflict.
+Replacement makes old manifest IDs ineligible, while a still-valid assignment
+may target the new manifest only if its exact execution and tool pin match.
+This first TEST slice inherits the protected assignment's same-repository
+head/base policy; fork PR support requires a separate source-binding contract.
+
+Deployment must grant the narrow lock function and evidence table access only
+to the isolated verifier producer role; the migration grants neither to PUBLIC.
+The command has no production composition, HTTP route, grant, completion or
+publication effect. This evidence proves request admission and custody only,
+not candidate archive contents or release eligibility. G1 remains `hold`.

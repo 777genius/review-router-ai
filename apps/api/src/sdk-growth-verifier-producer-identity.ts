@@ -240,6 +240,22 @@ export interface ProtectedVerifierAssignment {
   readonly efToolArtifactId?: string;
 }
 
+/** Closed v3 projection for custody's DB-clock fence. All fields come from
+ * the verified credential or the protected assignment, never request input. */
+export interface AuthenticatedSdkGrowthVerifierProducerV3 extends AuthenticatedSdkGrowthVerifierProducer {
+  readonly assignmentId: string;
+  readonly efToolArtifactId: string;
+  readonly tokenIssuedAtMs: number;
+  readonly tokenExpiresAtMs: number;
+  readonly assignmentCreatedAt: Date;
+  readonly assignmentExpiresAt: Date;
+  readonly execution: AuthenticatedEfExecution & {
+    readonly sourceBinding: NonNullable<
+      AuthenticatedEfExecution["sourceBinding"]
+    >;
+  };
+}
+
 function assignment(value: unknown): ProtectedVerifierAssignment {
   if (!value || typeof value !== "object") reject();
   const row = value as Record<string, unknown>;
@@ -451,6 +467,53 @@ export class JoseSdkGrowthVerifierProducerAuthenticator implements SdkGrowthVeri
     credential: unknown,
     transaction?: Query,
   ): Promise<AuthenticatedSdkGrowthVerifierProducer> {
+    const verified = await this.verify(credential, transaction);
+    return {
+      producer: subject,
+      issuer,
+      subject,
+      authenticationId: verified.authenticationId,
+      execution: verified.assignment.execution,
+      ...(verified.assignment.efToolArtifactId
+        ? { efToolArtifactId: verified.assignment.efToolArtifactId }
+        : {}),
+    };
+  }
+
+  async authenticateV3(
+    credential: unknown,
+    transaction?: Query,
+  ): Promise<AuthenticatedSdkGrowthVerifierProducerV3> {
+    const verified = await this.verify(credential, transaction);
+    const row = verified.assignment;
+    if (!row.efToolArtifactId || !row.execution.sourceBinding) reject();
+    return {
+      producer: subject,
+      issuer,
+      subject,
+      authenticationId: verified.authenticationId,
+      assignmentId: row.assignmentId,
+      efToolArtifactId: row.efToolArtifactId,
+      tokenIssuedAtMs: verified.tokenIssuedAtMs,
+      tokenExpiresAtMs: verified.tokenExpiresAtMs,
+      assignmentCreatedAt: row.createdAt,
+      assignmentExpiresAt: row.expiresAt,
+      execution: {
+        ...row.execution,
+        sourceBinding: row.execution.sourceBinding,
+      },
+    };
+  }
+
+  private async verify(
+    credential: unknown,
+    transaction?: Query,
+  ): Promise<{
+    readonly assignment: ProtectedVerifierAssignment;
+    readonly authenticationId: string;
+    readonly tokenIssuedAtMs: number;
+    readonly tokenExpiresAtMs: number;
+  }> {
     if (
       typeof credential !== "string" ||
       credential.length > 4096 ||
@@ -511,14 +574,10 @@ export class JoseSdkGrowthVerifierProducerAuthenticator implements SdkGrowthVeri
       )
         reject();
       return {
-        producer: subject,
-        issuer,
-        subject,
+        assignment: row,
         authenticationId: payload.jti,
-        execution: row.execution,
-        ...(row.efToolArtifactId
-          ? { efToolArtifactId: row.efToolArtifactId }
-          : {}),
+        tokenIssuedAtMs: payload.iat * 1000,
+        tokenExpiresAtMs: payload.exp * 1000,
       };
     } catch {
       return reject();

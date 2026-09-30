@@ -8,6 +8,7 @@ import test from "node:test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { validateV3ManifestProposal } from "../application/v3-approved-manifest.ts";
+import { bindV3RequestEvidence } from "../application/v3-request-evidence.ts";
 import {
   G1OperatorCredentialAuthenticator,
   hashG1OperatorCredential,
@@ -195,6 +196,56 @@ test("packed EF decoder validates exact bytes before protected v3 approval commi
     assert.equal(rows[0].requestWireSha256, sha256(requestWire));
     assert.equal(rows[0].toolArtifactId, toolId);
     assert.equal(rows[0].v3ManifestId, accepted.manifestId);
+
+    // The request evidence binder consumes the public decoder's canonical
+    // output while keeping EF's protocol digest distinct from the wire hash.
+    const now = Date.now();
+    const requestEvidence = bindV3RequestEvidence({
+      producer: {
+        assignmentId: "01234567-89ab-4cde-8fab-0123456789ab",
+        authenticationId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        efToolArtifactId: toolId,
+        tokenIssuedAtMs: now - 1000,
+        tokenExpiresAtMs: now + 300_000,
+        assignmentCreatedAt: new Date(now - 2000),
+        assignmentExpiresAt: new Date(now + 3600_000),
+        execution: {
+          tenantId: scope.tenantId,
+          repositoryId: scope.repositoryId,
+          pullRequest: scope.pullRequest,
+          githubRepositoryId: "123",
+          installationId: "456",
+          subject: "test-runner",
+          verifierRevision: fixture.request.binding.verifier.immutableRevision,
+          sourceCommit: fixture.request.binding.target.head.commit,
+          sourceTree: fixture.request.binding.target.head.tree,
+          sourceBinding: {
+            headRepositoryId: "123",
+            baseRepositoryId: "123",
+            baseCommit: fixture.request.binding.target.base.commit,
+            baseTree: fixture.request.binding.target.base.tree,
+            mergeBaseCommit: fixture.request.binding.target.mergeBase.commit,
+            mergeBaseTree: fixture.request.binding.target.mergeBase.tree,
+          },
+        },
+      },
+      manifestId: accepted.manifestId,
+      manifestWire,
+      approvedRequestWire: requestWire,
+      scopeKey: key,
+      approvalEpoch: 1n,
+      requestWire,
+      decoded: {
+        ...initial,
+        wire: Buffer.from(initial.wire, "utf8"),
+      },
+    });
+    assert.equal(requestEvidence.requestWireSha256, sha256(requestWire));
+    assert.equal(requestEvidence.protocolDigest, initial.protocolDigest);
+    assert.notEqual(
+      requestEvidence.protocolDigest,
+      requestEvidence.requestWireSha256,
+    );
 
     const invalidRequest = { ...initial.value, requiredPhases: ["topology"] };
     const invalidWire = wire(invalidRequest);

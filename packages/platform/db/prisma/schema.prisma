@@ -3938,6 +3938,7 @@ model SdkGrowthApprovalFact {
   approval             SdkGrowthApprovalFact? @relation("SdkGrowthApprovalRevocations", fields: [scopeKey, approvalEpoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
   revocations          SdkGrowthApprovalFact[] @relation("SdkGrowthApprovalRevocations")
   v3Manifest           SdkGrowthV3ApprovedManifest? @relation(fields: [v3ManifestId], references: [manifestId], onDelete: Restrict, onUpdate: NoAction)
+  v3RequestEvidence    SdkGrowthV3RequestEvidence[]
 
   @@id([scopeKey, epoch])
   @@index([scopeKey, epoch(sort: Desc)], map: "SdkGrowthApprovalFact_latest_idx")
@@ -3962,6 +3963,7 @@ model SdkGrowthV3ApprovedManifest {
   owner                        SdkGrowthOwnerVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
   toolArtifact                 SdkGrowthV3ToolArtifact @relation(fields: [toolArtifactId], references: [artifactId], onDelete: Restrict, onUpdate: NoAction)
   approvalFacts                SdkGrowthApprovalFact[]
+  requestEvidence              SdkGrowthV3RequestEvidence[]
 
   @@unique([scopeKey, epoch])
 }
@@ -4090,6 +4092,7 @@ model SdkGrowthVerifierAssignment {
   revokedAt    DateTime? @db.Timestamptz(3)
   efToolArtifactId String? @db.VarChar(64)
   efToolArtifact SdkGrowthV3ToolArtifact? @relation(fields: [efToolArtifactId], references: [artifactId], onDelete: Restrict, onUpdate: Restrict)
+  v3RequestEvidence SdkGrowthV3RequestEvidence[]
 
   @@index([expiresAt], map: "SdkGrowthVerifierAssignment_expires_idx")
   // SQL migration has a partial unique index on jobKey WHERE revokedAt IS NULL.
@@ -4110,6 +4113,39 @@ model SdkGrowthV3ToolArtifact {
   recordedAt                  DateTime @default(now()) @db.Timestamptz(6)
   assignments                 SdkGrowthVerifierAssignment[]
   manifests                   SdkGrowthV3ApprovedManifest[]
+  requestEvidence             SdkGrowthV3RequestEvidence[]
+}
+
+// One immutable TEST-only request validation result per protected assignment slot.
+// SQL guards enforce the current approval, exact bytes, producer clock and locks.
+model SdkGrowthV3RequestEvidence {
+  evidenceId                   String   @unique @db.VarChar(64)
+  assignmentId                 String
+  operation                    String
+  stage                        String
+  scopeKey                     String
+  approvalEpoch                BigInt
+  manifestId                   String   @db.VarChar(64)
+  ownerEvidenceId              String
+  efToolArtifactId             String   @db.VarChar(64)
+  firstJti                     String   @db.VarChar(128)
+  tokenIssuedAtMs              BigInt
+  tokenExpiresAtMs             BigInt
+  requestWire                  Bytes
+  requestByteLength            Int
+  requestWireSha256            String   @db.VarChar(71)
+  efRequestDigest              String   @db.VarChar(71)
+  validationEvidenceWire       Bytes
+  validationEvidenceByteLength Int
+  validationEvidenceSha256     String   @db.VarChar(71)
+  recordedAt                   DateTime @default(now()) @db.Timestamptz(6)
+  assignment                   SdkGrowthVerifierAssignment @relation(fields: [assignmentId], references: [assignmentId], onDelete: Restrict, onUpdate: NoAction)
+  approval                     SdkGrowthApprovalFact @relation(fields: [scopeKey, approvalEpoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  manifest                     SdkGrowthV3ApprovedManifest @relation(fields: [manifestId], references: [manifestId], onDelete: Restrict, onUpdate: NoAction)
+  toolArtifact                 SdkGrowthV3ToolArtifact @relation(fields: [efToolArtifactId], references: [artifactId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([assignmentId, operation, stage])
+  @@index([scopeKey, approvalEpoch], map: "SdkGrowthV3RequestEvidence_approval_idx")
 }
 
 model SdkGrowthVerifierEvidence {

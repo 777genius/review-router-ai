@@ -442,6 +442,7 @@ jobs:
             packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts \
             apps/api/src/sdk-growth-verifier-custody.pg.test.ts \
             apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts \
+            apps/api/src/sdk-growth-v3-request-evidence.pg.test.ts \
             scripts/sdk-growth-application-schema-checkpoint.test.ts \
             --reporter=json --outputFile="$results"; then
             RESULTS_PATH="$results" node --input-type=module <<'NODE'
@@ -483,6 +484,7 @@ jobs:
             "packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts",
             "apps/api/src/sdk-growth-verifier-custody.pg.test.ts",
             "apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts",
+            "apps/api/src/sdk-growth-v3-request-evidence.pg.test.ts",
             "scripts/sdk-growth-application-schema-checkpoint.test.ts",
           ];
           const suites = report.testResults.map((suite) =>

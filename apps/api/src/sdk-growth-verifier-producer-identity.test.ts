@@ -174,6 +174,103 @@ describe("protected SDK verifier producer identity", () => {
     );
   });
 
+  // A v3 caller needs the protected row and verified token deadlines for its
+  // DB-clock fence; neither may be supplied by the candidate request.
+  it("projects a pinned v3 assignment and its verified token timestamps", async () => {
+    const h = fixture();
+    const bound = { ...execution, sourceBinding };
+    const artifactId = "a".repeat(64);
+    const row = await h.store.createPinned(
+      bound,
+      new Date(Date.now() + 15 * 60_000),
+      artifactId,
+    );
+    const token = await h.issuer.issue(row.assignmentId);
+    const payload = decodeJwt(token);
+
+    expect(await h.authenticator.authenticateV3(token, h.db)).toEqual({
+      producer: "reviewrouter-verifier",
+      issuer: "reviewrouter-sdk-verifier-workload",
+      subject: "reviewrouter-verifier",
+      authenticationId: payload.jti,
+      assignmentId: row.assignmentId,
+      efToolArtifactId: artifactId,
+      tokenIssuedAtMs: (payload.iat as number) * 1000,
+      tokenExpiresAtMs: (payload.exp as number) * 1000,
+      assignmentCreatedAt: row.createdAt,
+      assignmentExpiresAt: row.expiresAt,
+      execution: bound,
+    });
+    expect(await h.authenticator.authenticate(token)).not.toHaveProperty(
+      "assignmentId",
+    );
+    expect(await h.authenticator.authenticate(token)).not.toHaveProperty(
+      "tokenExpiresAtMs",
+    );
+  });
+
+  it("rejects legacy and unbound assignments through authenticateV3", async () => {
+    const h = fixture();
+    const legacy = await h.store.create(
+      { ...execution, sourceBinding },
+      new Date(Date.now() + 15 * 60_000),
+    );
+    const legacyToken = await h.issuer.issue(legacy.assignmentId);
+    await expect(h.authenticator.authenticateV3(legacyToken)).rejects.toThrow(
+      "sdk_growth_verifier_credential_rejected",
+    );
+    expect((await h.authenticator.authenticate(legacyToken)).execution).toEqual(
+      {
+        ...execution,
+        sourceBinding,
+      },
+    );
+
+    const unbound = await h.store.createPinned(
+      execution,
+      new Date(Date.now() + 15 * 60_000),
+      "a".repeat(64),
+    );
+    await expect(
+      h.authenticator.authenticateV3(
+        await h.issuer.issue(unbound.assignmentId),
+      ),
+    ).rejects.toThrow("sdk_growth_verifier_credential_rejected");
+  });
+
+  it("rejects revoked and expired pinned credentials through authenticateV3", async () => {
+    const h = fixture();
+    const first = await h.store.createPinned(
+      { ...execution, sourceBinding },
+      new Date(Date.now() + 15 * 60_000),
+      "a".repeat(64),
+    );
+    const revokedToken = await h.issuer.issue(first.assignmentId);
+    await h.store.revoke(first.assignmentId);
+    await expect(h.authenticator.authenticateV3(revokedToken)).rejects.toThrow(
+      "sdk_growth_verifier_credential_rejected",
+    );
+
+    const second = await h.store.createPinned(
+      { ...execution, sourceBinding },
+      new Date(Date.now() + 15 * 60_000),
+      "b".repeat(64),
+    );
+    const expiredToken = await h.issuer.issue(second.assignmentId);
+    h.rows.set(second.assignmentId, {
+      ...second,
+      expiresAt: new Date(Date.now() - 1),
+    });
+    await expect(h.authenticator.authenticateV3(expiredToken)).rejects.toThrow(
+      "sdk_growth_verifier_credential_rejected",
+    );
+    h.rows.set(second.assignmentId, second);
+    h.setNow(new Date(Date.now() + 6 * 60_000));
+    await expect(h.authenticator.authenticateV3(expiredToken)).rejects.toThrow(
+      "sdk_growth_verifier_credential_rejected",
+    );
+  });
+
   // Regression: adding v2 source data could change the digest or JSON bytes
   // used by already issued v1 credentials and historical assignments.
   it("preserves the historical 11-field execution and credential digest", async () => {

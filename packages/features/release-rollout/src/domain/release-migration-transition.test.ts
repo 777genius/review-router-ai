@@ -107,9 +107,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(114);
+    expect(full).toHaveLength(115);
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-7).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-8).map((row) => row.migrationName)).toEqual([
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
       "000111_sdk_growth_source_binding",
@@ -117,9 +117,10 @@ describe("canonical release migration transition", () => {
       "000113_sdk_growth_approval_ledger",
       "000114_sdk_growth_v3_tool_artifact",
       "000115_sdk_growth_v3_approved_manifest",
+      "000116_sdk_growth_v3_request_evidence",
     ]);
     expect(manifest(full)).toBe(
-      "sha256:15a397089c81b84540534361777b74a69a48955df7db81bf6353130d51aa6ed0",
+      "sha256:3aff741fbd31519db12d929cfe69d7d35327ec39816e8e24c9e1902bfd8a71e2",
     );
     const historical = readRenderHistorical96CheckoutInventory();
     expect(historical).toHaveLength(96);

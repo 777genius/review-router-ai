@@ -211,6 +211,11 @@ const checkoutExtensions = Object.freeze([
     checksum:
       "07fdc348fe27d0ee1ddc15d97e6932cca3dc02cc920d856c4380f71cabb36db0",
   }),
+  Object.freeze({
+    migrationName: "000116_sdk_growth_v3_request_evidence",
+    checksum:
+      "17f31eebad45bc2f08f1481428223c077f08edfaa12155001ffa4d0f77e0429a",
+  }),
 ]);
 
 export function partitionRenderSchemaHandoffCheckout(catalog) {
@@ -240,7 +245,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     ![
       0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-      22,
+      22, 23,
     ].includes(extensions)
   )
     fail("checkout_extension");
