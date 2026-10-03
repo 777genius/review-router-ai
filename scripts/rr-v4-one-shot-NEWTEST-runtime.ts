@@ -2,6 +2,8 @@ import {
   exclusivePublicationHash,
   exclusivePublicationOperations,
   exclusivePublicationPlanHash,
+} from "../packages/features/review-publishing/src/v2/infrastructure/exclusive-test-publication-hash.js";
+import {
   type ExclusiveTestPublicationBinding,
   type ExclusiveTestPublicationIntent,
 } from "../packages/features/review-publishing/src/v2/domain/exclusive-test-publication.js";

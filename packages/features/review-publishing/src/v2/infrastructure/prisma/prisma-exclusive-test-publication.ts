@@ -2,13 +2,15 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   assertExclusivePublicationIntent,
   assertExclusivePublicationBinding,
-  exclusivePublicationHash,
-  exclusivePublicationOperations,
-  exclusivePublicationPlanHash,
   type ExclusiveTestPublicationIntent,
   type ExclusiveTestPublicationBinding,
   type ExclusiveTestPublicationRecord,
 } from "../../domain/exclusive-test-publication";
+import {
+  exclusivePublicationHash,
+  exclusivePublicationOperations,
+  exclusivePublicationPlanHash,
+} from "../exclusive-test-publication-hash";
 import type { ExclusiveTestPublicationPort } from "../../application/ports/exclusive-test-publication-port";
 type Db = Pick<Prisma.TransactionClient, "$queryRaw" | "$executeRaw">;
 type Row = ExclusiveTestPublicationRecord;

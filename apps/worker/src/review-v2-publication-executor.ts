@@ -1,3 +1,9 @@
+import {
+  exclusivePublicationHash,
+  exclusivePublicationOperationHash,
+  exclusivePublicationPlanHash,
+  exclusivePublicationOperations,
+} from "@reviewrouter/features-review-publishing/v2/composition";
 import { createHash } from "node:crypto";
 import {
   BeginReviewPublicationOperationStatus,
@@ -14,10 +20,6 @@ import {
   ReviewPublicationTerminalOutcome,
   TerminalizeUnknownReviewPublicationStatus,
   operationCapabilityFacts,
-  exclusivePublicationHash,
-  exclusivePublicationOperationHash,
-  exclusivePublicationPlanHash,
-  exclusivePublicationOperations,
   hasEveryRequiredCanonicalReceipt,
   type ExclusiveTestPublicationBinding,
   planPublicationSiblingTerminalizations,

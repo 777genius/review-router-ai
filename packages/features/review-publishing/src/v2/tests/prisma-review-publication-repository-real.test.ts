@@ -23,15 +23,17 @@ import {
   ReviewPublicationTerminalOutcome,
   TerminalizeUnknownReviewPublicationStatus,
   planReviewPublicationOperations,
-  exclusivePublicationHash,
-  exclusivePublicationPlanHash,
-  exclusivePublicationOperations,
   type ExclusiveTestPublicationBinding,
   publishedReviewProjectionPublicationEnvelopeVersion,
   type ReviewPublicationOperationPlan,
   type ReviewPublicationOperationCapabilityFacts,
   type ReviewPublicationPermitIdentity,
 } from "../index";
+import {
+  exclusivePublicationHash,
+  exclusivePublicationPlanHash,
+  exclusivePublicationOperations,
+} from "../infrastructure/exclusive-test-publication-hash";
 import { PrismaReviewPublicationRepository } from "../infrastructure/prisma/prisma-review-publication-repository";
 import { PrismaExclusiveTestPublication } from "../infrastructure/prisma/prisma-exclusive-test-publication";
 import { reviewPublicationNoEffectProofHash } from "../infrastructure/review-publication-no-effect-proof";

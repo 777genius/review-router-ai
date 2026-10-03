@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
 import {
-  RequestReviewPublicationStatus,
   exclusivePublicationHash,
   exclusivePublicationPlanHash,
   exclusivePublicationOperations,
+} from "@reviewrouter/features-review-publishing/v2/composition";
+import { describe, expect, it, vi } from "vitest";
+import {
+  RequestReviewPublicationStatus,
   type ExclusiveTestPublicationBinding,
   type ExclusiveTestPublicationPort,
   ReviewPublicationEffectStrategy,

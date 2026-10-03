@@ -98,7 +98,7 @@ import {
   exclusivePublicationHash,
   exclusivePublicationOperations,
   exclusivePublicationPlanHash,
-} from "../../domain/exclusive-test-publication";
+} from "../exclusive-test-publication-hash";
 import {
   lockExclusivePublicationExecution,
   readExclusivePublication,
