@@ -117,6 +117,8 @@ const sdkGrowthV3ToolArtifactMigration = "000114_sdk_growth_v3_tool_artifact";
 const sdkGrowthV3ApprovedManifestMigration =
   "000115_sdk_growth_v3_approved_manifest";
 const v4FencedDispatchMigration = "000116_hosted_v4_fenced_dispatch";
+const v4OneShotDispatchMigration = "000117_hosted_v4_one_shot_dispatch";
+const exclusiveTestPublicationMigration = "000118_exclusive_test_publication";
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -195,6 +197,10 @@ try {
     addMigration(rehearsalDirectory, sdkGrowthSourceBindingMigration);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     addMigration(rehearsalDirectory, v4FencedDispatchMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    addMigration(rehearsalDirectory, v4OneShotDispatchMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    addMigration(rehearsalDirectory, exclusiveTestPublicationMigration);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
 
     const migrationCount = await countAppliedMigrations(migrationDatabaseUrl);
@@ -782,6 +788,8 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           sdkGrowthV3ToolArtifactMigration,
           sdkGrowthV3ApprovedManifestMigration,
           v4FencedDispatchMigration,
+          v4OneShotDispatchMigration,
+          exclusiveTestPublicationMigration,
         ]
       : []),
   ]);
