@@ -14,24 +14,24 @@ approximately 2000 changed LOC; security boundaries remain intact.
 
 ## Checkpoints and bounded ownership
 
-| Checkpoint/component                        | Deliverable/owner boundary                                                                         | Dependencies and nearest qualification                                                                                                          |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| A accepted foundation                       | Separate reusable TS SDK/static optional Get Modular seam; gateway repo                            | Existing exact artifact/two outside consumer evidence only; 53 §§1–2                                                                            |
-| B2 active elsewhere                         | Private kernel account-global occupied transports/exact close proof                                | Merged kernel 1ea; actual concurrent PG proof; producer scope unchanged; 53 §§3–4                                                               |
-| W5 terminal, awaiting qualification         | Native fa16 F1–F4 repairs; fork PR2                                                                | Main qualifies actual patch and exact review/CI; no assumed acceptance                                                                          |
-| B3a                                         | Gateway TS management adapter, encrypted transient intent and exact mapping                        | Accepted A/kernel; 53 §§2,7; real native create/readback/lost ACK                                                                               |
-| B3b                                         | Fork Go opt-in bootstrap/cancel-wait registry + minimal protected inherited-lock launcher          | Accepted W5+B2; 53 §§3–4; actual dual POST/callback/restart/ACK-loss and Linux closure                                                          |
-| B3c                                         | Gateway authenticated HTTP composition/recovery/stream/cleanup                                     | B3a+b; separate additive kernel/SDK rejected-before-dispatch support before dispatch acceptance; 53 §§2–4,7                                     |
-| C1 terminal catalog, awaiting qualification | Existing RR PR488 owner/connection/binding persistence                                             | Preserve history and migration117 bytes; fresh full-schema/catalog qualification, final exact-source review/CI; not remote fencing              |
-| C2                                          | RR adapter/config/system admission/OIDC relay/binding fence delivery                               | Accepted A+B+C1; 53 §§5–6; actual config/FK/CAS, source classification, X/Y fence and bounded wait                                              |
-| C3 (parallel)                               | Our Accounts and Models/repository batch UI                                                        | A+B+C1; C2 authority composition; 53 §6; two disposable repos, truthful partial CAS/readback                                                    |
-| D-min                                       | First real Codex/MiMo tools + final parsed review + approved-head App publication                  | B+C1+C2; same authoritative connection/binding/admission use cases via disposable fixture/operator command before full UI; 53 §8                |
-| D-final                                     | Complete first slice including our UI batch, measured enforced bounds/cleanup/memory and long OIDC | D-min+C3; all 10 scenarios in 52, capacity/retention facts per 53 §8                                                                            |
-| S                                           | Operator shared pool explicit grants after D; separate RR use case                                 | D-final; dedicated operator workspace/XOR, granted vs paid/ungranted, global capacity/fence; 53 §§1,5,8                                         |
-| E                                           | OpenRouter selected real profile + tools/final/publication                                         | D-final; profile-specific unknown/cap/usage/auth gates; remains mandatory                                                                       |
-| F                                           | Protected Codex OAuth connect/engine refresh/CLI and all custody paths                             | B+D-final; 53 §§2,7–8; actual OAuth identity/refresh/reconnect, one writer, dump/restore/rotation                                               |
-| G                                           | Breaking replacement; no old-pool migration or persistent coexistence                              | D-final+E+F and release checks; 53 §8; exact stale grants/workflows/refresh denial and retained effects                                         |
-| H                                           | Canonical personal owner/personal+multi-org use follow-up                                          | Stable base and deletion/fence policy; retained vision 50, 53 §§1,5; personal+X+Y, third denied, rename/reconnect/detach/role loss/shared quota |
+| Checkpoint/component                            | Deliverable/owner boundary                                                                         | Dependencies and nearest qualification                                                                                                          |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| A accepted foundation                           | Separate reusable TS SDK/static optional Get Modular seam; gateway repo                            | Existing exact artifact/two outside consumer evidence only; 53 §§1–2                                                                            |
+| B2 accepted kernel; B2a accepted additive proof | Private kernel account-global occupancy and exact native proof/non-entry settlement                | Kernel PR4 `ded15302`; B2a PR5 `5f3e93ba`; exact-source review and CI accepted, assembled native dispatch still pending; 53 §§3–4               |
+| W5 accepted native checkpoint                   | Private native identity and Responses compatibility; fork PR2                                      | Accepted `16d621c2`; source review/CI and focused transport evidence only, no private bootstrap/provider acceptance                             |
+| B3a                                             | Gateway TS management adapter, encrypted transient intent and exact mapping                        | Accepted A/kernel; 53 §§2,7; real native create/readback/lost ACK                                                                               |
+| B3b                                             | Fork Go opt-in bootstrap/cancel-wait registry + minimal protected inherited-lock launcher          | Accepted W5+B2; 53 §§3–4; actual dual POST/callback/restart/ACK-loss and Linux closure                                                          |
+| B3c                                             | Gateway authenticated HTTP composition/recovery/stream/cleanup                                     | B3a+b; separate additive kernel/SDK rejected-before-dispatch support before dispatch acceptance; 53 §§2–4,7                                     |
+| C1 accepted foundation                          | RR PR488 owner/connection/binding persistence                                                      | Accepted root `8645c40a`, migration117/catalog and independent source review/CI; local revocation does not prove remote fencing                 |
+| C2                                              | RR adapter/config/system admission/OIDC relay/binding fence delivery                               | Accepted A+B+C1; 53 §§5–6; actual config/FK/CAS, source classification, X/Y fence and bounded wait                                              |
+| C3 (parallel)                                   | Our Accounts and Models/repository batch UI                                                        | A+B+C1; C2 authority composition; 53 §6; two disposable repos, truthful partial CAS/readback                                                    |
+| D-min                                           | First real Codex/MiMo tools + final parsed review + approved-head App publication                  | B+C1+C2; same authoritative connection/binding/admission use cases via disposable fixture/operator command before full UI; 53 §8                |
+| D-final                                         | Complete first slice including our UI batch, measured enforced bounds/cleanup/memory and long OIDC | D-min+C3; all 10 scenarios in 52, capacity/retention facts per 53 §8                                                                            |
+| S                                               | Operator shared pool explicit grants after D; separate RR use case                                 | D-final; dedicated operator workspace/XOR, granted vs paid/ungranted, global capacity/fence; 53 §§1,5,8                                         |
+| E                                               | OpenRouter selected real profile + tools/final/publication                                         | D-final; profile-specific unknown/cap/usage/auth gates; remains mandatory                                                                       |
+| F                                               | Protected Codex OAuth connect/engine refresh/CLI and all custody paths                             | B+D-final; 53 §§2,7–8; actual OAuth identity/refresh/reconnect, one writer, dump/restore/rotation                                               |
+| G                                               | Breaking replacement; no old-pool migration or persistent coexistence                              | D-final+E+F and release checks; 53 §8; exact stale grants/workflows/refresh denial and retained effects                                         |
+| H                                               | Canonical personal owner/personal+multi-org use follow-up                                          | Stable base and deletion/fence policy; retained vision 50, 53 §§1,5; personal+X+Y, third denied, rename/reconnect/detach/role loss/shared quota |
 
 D-min resolves the historical tools-without-final-answer failure early. C3 UI may
 proceed alongside C2/D-min; D-final includes it. Additional Claude BYOK may be
@@ -40,10 +40,39 @@ No product scenario is marked PASS by these dependency assignments.
 
 The reusable gateway and native fork keep repository-local component PR bases;
 RR children target `feat/account-gateway-integration` under root PR490, not main.
-Main integrates accepted service/SDK/engine identities and opens the docs child.
-This worker edits only its six docs; no code, migrations, tests, dependencies,
-locks, git add/commit/push, deployment or retirement. Main verifies author and
-committer `iliya <iliyazelenkog@gmail.com>` before integration.
+The orchestrator integrates exact accepted service/SDK/engine identities and verifies
+author and committer `iliya <iliyazelenkog@gmail.com>` before each ordinary commit.
+Individual worker packets define their owned paths; this plan is not a docs-only
+restriction on implementation workers.
+
+## Lean delivery scope and next executable outcome
+
+The independent 2026-10-03 scope critique prioritizes **D-min**, which contract53
+already permits. First assemble one private engine/facade with the existing SQL
+kernel, then one RR workspace/binding/repository through actual T0/OIDC admission,
+then real Codex/MiMo tools, final parsed review and GitHub App publication on the
+same approved head. A green workflow without that final result fails acceptance.
+C3 UI may proceed in parallel; its completion is not a prerequisite of D-min.
+
+Immediate candidate repairs are bounded: PR6 raw numeric native-ID validation,
+SQL004 parent-scope guards and management-suite CI selection; PR3 launcher
+context deadlines, trusted root-path validation, pidfd test cleanup and canonical
+UUID incarnation agreement with the kernel. Native custody and C2a pending patches
+require their own qualification/review. Existing component passes are reused;
+actual native create/dispatch/callback/closure and RR assembly remain unproved.
+
+D-min retains baseline enforced bounds/deadlines, backend custody, tenant/run/head
+checks, single durable admission, unknown without replay and exact physical closure.
+Full UI/batch, sustained memory/retention/cleanup measurements and long OIDC are
+D-final gates. Full OAuth custody/refresh qualification belongs to F before G.
+Broad RR Docs Protocol/Foundation corpus adoption is a separate bounded follow-up,
+not a D-min prerequisite. Keep accepted SDK tooling and existing checks intact.
+
+OUT of the current implementation: H personal-to-multi-organization sharing,
+a generic DI/plugin/scheduler/vault platform, additional agent/auth profiles
+without qualification, credential/history migration and automatic legacy fallback.
+OpenRouter E, protected Codex OAuth F, operator grants S and breaking retirement G
+remain required final deliverables; this ordering does not remove them from scope.
 
 ## Implementation packet and verification
 
@@ -59,8 +88,12 @@ candidate, scenario, identity, command and actual evidence as required by 53 §8
 
 ## NONNORMATIVE forecast and historical evidence
 
-Estimates are remaining work, not measured diffs/completion percentages. Opus
-forecast (confidence 5/10 for D, lower for OAuth):
+Estimates are remaining work, not measured diffs/completion percentages. The
+2026-10-03 independent scope review forecasts D-min at 1400–2800 production and
+1200–2400 test/helper lines (confidence 4/10); cumulative D-final at 3000–5500 /
+2400–4600 (4/10); D-final plus S/E/F/G at 5950–12350 / 5100–10600 (3/10).
+These are advisory ranges, not ceilings. The following older Opus/component
+forecasts remain historical and are superseded for current remaining-work reporting:
 
 | Remaining scope | Production LOC |  Test LOC | Config LOC / qualification risk                        |
 | --------------- | -------------: | --------: | ------------------------------------------------------ |
@@ -124,7 +157,9 @@ over this dirty checkout or generate a competing documentation tree. Commit the
 profile, ownership/reachability rules, scripts and CI check together. Adoption
 in the new gateway repository is qualified for docs and package READMEs; its root
 README remains outside the supported catalog. RR adoption remains pending;
-writing these Markdown documents does not constitute adoption.
+writing these Markdown documents does not constitute adoption. This broad RR
+adoption is outside the D-min critical path; it must not delay the first actual
+provider/tools/final/App proof.
 
 #### Scoped composition and artifact acceptance
 
