@@ -5,6 +5,27 @@ const id = z.string().trim().min(1).max(256);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
 const positive = z.number().int().positive();
+export const hostedV4OneShotApprovalPayloadSchema = z
+  .object({
+    approvalId: id,
+    purpose: z.literal("owner_one_shot_uncapped_test"),
+    githubRepositoryId: z.literal("1252762369"),
+    accountId: id,
+    // The full issue-time scope binds authorization, leases, head and release
+    // witnesses without storing credentials or a bearer in the approval.
+    unapprovedScopeHash: hash,
+    grantId: id,
+    sourceCommit: sha,
+    requestHash: hash,
+    idempotencyKeyHash: hash,
+    expiresAt: z.iso.datetime({ precision: 3 }),
+  })
+  .strict();
+export const hostedV4OneShotApprovalSchema =
+  hostedV4OneShotApprovalPayloadSchema.extend({ approvalHash: hash }).strict();
+export type HostedV4OneShotApproval = z.infer<
+  typeof hostedV4OneShotApprovalSchema
+>;
 const canaryLimits = Object.freeze({
   maxRequests: 1,
   maxRequestBytes: 1_000_000,
@@ -137,6 +158,7 @@ export const hostedV4RelayScopeSchema = z
     authorizationExpiresAt: z.date(),
     turnExpiresAt: z.date(),
     policyExpiresAt: z.date(),
+    ownerOneShotApproval: hostedV4OneShotApprovalSchema.optional(),
   })
   .strict();
 
@@ -261,6 +283,61 @@ export function hostedV4LogicalTurnKey(
   return digest([id.parse(investigationId), id.parse(turnId)]);
 }
 
+/** Canonical immutable approval reference, not a bearer or permission issuer. */
+export function hostedV4UnapprovedScopeHash(scope: HostedV4RelayScope): string {
+  const { ownerOneShotApproval: _approval, ...unapproved } = scope;
+  return digest([canonicalScope(hostedV4RelayScopeSchema.parse(unapproved))]);
+}
+
+export function hostedV4OneShotApprovalHash(
+  payload: z.infer<typeof hostedV4OneShotApprovalPayloadSchema>,
+): string {
+  return createHash("sha256")
+    .update(JSON.stringify(hostedV4OneShotApprovalPayloadSchema.parse(payload)))
+    .digest("hex");
+}
+
+/** A server-supplied immutable approval must match the saved grant exactly.
+ * No request flag, repo-only switch or recovered reservation grants a waiver. */
+export function assertHostedV4OneShotApproval(input: {
+  contract: HostedV4RelayGrantContract;
+  approval: HostedV4OneShotApproval | null;
+  accountId: string;
+  idempotencyKey: string;
+  requestHash: string;
+  now: Date;
+}): void {
+  const { contract } = input;
+  const approval =
+    input.approval && hostedV4OneShotApprovalSchema.parse(input.approval);
+  const saved = contract.scope.ownerOneShotApproval;
+  if (!approval || !saved) throw new Error("hosted_v4_output_cap_unqualified");
+  const { approvalHash, ...payload } = approval;
+  const grantId = `v4-grant-${contract.logicalTurnKey}`;
+  const idempotencyKeyHash = createHash("sha256")
+    .update(
+      JSON.stringify(["hosted-v4-request", grantId, input.idempotencyKey]),
+    )
+    .digest("hex");
+  if (
+    JSON.stringify(saved) !== JSON.stringify(approval) ||
+    approvalHash !== hostedV4OneShotApprovalHash(payload) ||
+    approval.unapprovedScopeHash !==
+      hostedV4UnapprovedScopeHash(contract.scope) ||
+    contract.scope.githubRepositoryId !== approval.githubRepositoryId ||
+    approval.accountId !== input.accountId ||
+    approval.grantId !== grantId ||
+    approval.requestHash !== input.requestHash ||
+    approval.idempotencyKeyHash !== idempotencyKeyHash ||
+    Date.parse(approval.expiresAt) <= input.now.getTime() ||
+    Date.parse(approval.expiresAt) > contract.expiresAt.getTime() ||
+    contract.maxRequests !== 1 ||
+    contract.maxConcurrentRequests !== 1 ||
+    contract.expiresAt <= input.now
+  )
+    throw new Error("hosted_v4_one_shot_approval_mismatch");
+}
+
 /** Every mutable authority fact must be re-resolved before admission and dispatch. */
 export function assertHostedV4RelayScopeCurrent(
   saved: HostedV4RelayGrantContract,
@@ -309,6 +386,52 @@ export function canonicalScope(scope: HostedV4RelayScope): string {
   return JSON.stringify(scope, (_key, value) =>
     typeof value === "bigint" ? value.toString() : value,
   );
+}
+
+/** Decode only the persisted canonical scope, never caller-selected coercions. */
+export function parseHostedV4ScopeCanonical(
+  canonical: string,
+): HostedV4RelayScope {
+  const decoded: unknown = JSON.parse(canonical);
+  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded))
+    throw new Error("hosted_v4_scope_canonical_invalid");
+  const scope = decoded as Record<string, unknown>;
+  for (const key of [
+    "mutationEpoch",
+    "poolAuthzEpoch",
+    "runtimeAuthzEpoch",
+    "investigationVersion",
+  ]) {
+    if (typeof scope[key] !== "string")
+      throw new Error("hosted_v4_scope_canonical_invalid");
+    scope[key] = BigInt(scope[key] as string);
+  }
+  for (const key of [
+    "authorizationExpiresAt",
+    "turnExpiresAt",
+    "policyExpiresAt",
+  ]) {
+    if (typeof scope[key] !== "string")
+      throw new Error("hosted_v4_scope_canonical_invalid");
+    scope[key] = new Date(scope[key] as string);
+  }
+  for (const key of ["investigationLease", "invocationLease"]) {
+    const lease = scope[key];
+    if (!lease || typeof lease !== "object" || Array.isArray(lease))
+      throw new Error("hosted_v4_scope_canonical_invalid");
+    const record = lease as Record<string, unknown>;
+    if (
+      typeof record.fencingToken !== "string" ||
+      typeof record.expiresAt !== "string"
+    )
+      throw new Error("hosted_v4_scope_canonical_invalid");
+    record.fencingToken = BigInt(record.fencingToken);
+    record.expiresAt = new Date(record.expiresAt);
+  }
+  const parsed = hostedV4RelayScopeSchema.parse(scope);
+  if (canonicalScope(parsed) !== canonical)
+    throw new Error("hosted_v4_scope_canonical_invalid");
+  return parsed;
 }
 
 function digest(parts: readonly string[]): string {

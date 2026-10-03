@@ -136,86 +136,102 @@ describe("Review Action v2 investigation composition", () => {
       await app.close();
     }
   });
-  it("reconstructs relay status with only current run authority while new admission is disabled", async () => {
-    const aggregate = activeInvestigation();
-    const readStatus = vi.fn().mockResolvedValue({
-      logicalTurnKey: sha("turn"),
-      state: "terminal_unknown",
-      grantId: "grant-1",
-      requestId: "request-1",
-      effectId: "effect-1",
-      ordinal: 1,
-      requestHash: sha("bounded-body"),
-      acceptedAttestationId: null,
-    });
-    const routes = composeReviewActionV2InvestigationRoutes({
-      enabled: true,
-      runtime: {
-        readServerTime: async () => now,
-        createRequestId: () => "request-generated",
-      },
-      handlers: {
-        ...investigationLeaseHandlerStubs,
-        authorizations: authorizationResolver(),
-        authorizationQueries: {} as never,
-        executionQueries: {} as never,
-        investigations: {
-          restore: { snapshot: vi.fn().mockResolvedValue(aggregate) },
-        } as never,
-        capabilities: {} as never,
-        digest,
-        now: () => now,
-        rollout: allowingRollout,
-        terminalShadowEvidence: { execute: vi.fn() } as never,
-        crossRevisionReplayEnabled: false,
-        replayPreparation: vi.fn() as never,
-        relayTurnStatus: { readStatus },
-      },
-    });
-    const request: ReviewInvestigationRelayStatusRequest = {
-      ...envelope("relay-status"),
-      authorizationToken: "authorization-token",
-      authorizationId: authorization.authorizationId,
-      investigationId: aggregate.investigationId,
-      turnId: aggregate.activeTurn!.turnId,
-    };
-    await expect(routes.relayStatus!.execute(request)).resolves.toMatchObject({
-      statusCode: 200,
-      result: {
-        status: ReviewInvestigationRelayStatusState.TerminalUnknown,
+  // A matched waiver changes only cap diagnostics, never durable uncertainty.
+  it.each([false, true])(
+    "reconstructs relay status without reopening uncertainty (approved=%s)",
+    async (approved) => {
+      const aggregate = activeInvestigation();
+      const readStatus = vi.fn().mockResolvedValue({
+        logicalTurnKey: sha("turn"),
+        state: "terminal_unknown",
         grantId: "grant-1",
         requestId: "request-1",
         effectId: "effect-1",
+        ordinal: 1,
         requestHash: sha("bounded-body"),
-        dispatchBlockedPrerequisite:
-          "pinned_codex_transport_output_token_limit_unqualified",
-      },
-    });
-    expect(readStatus).toHaveBeenCalledOnce();
-    const relayPlan = await withBodyHash(
-      ReviewActionV2OperationId.ReviewInvestigationRelayTurnPlan,
-      {
-        ...envelope("relay-plan-without-extension"),
+        acceptedAttestationId: null,
+      });
+      const routes = composeReviewActionV2InvestigationRoutes({
+        enabled: true,
+        runtime: {
+          readServerTime: async () => now,
+          createRequestId: () => "request-generated",
+        },
+        handlers: {
+          ...investigationLeaseHandlerStubs,
+          authorizations: authorizationResolver(),
+          authorizationQueries: {} as never,
+          executionQueries: {} as never,
+          investigations: {
+            restore: { snapshot: vi.fn().mockResolvedValue(aggregate) },
+          } as never,
+          capabilities: {} as never,
+          digest,
+          now: () => now,
+          rollout: allowingRollout,
+          terminalShadowEvidence: { execute: vi.fn() } as never,
+          crossRevisionReplayEnabled: false,
+          replayPreparation: vi.fn() as never,
+          relayTurnStatus: { readStatus },
+          ...(approved
+            ? {
+                relayGrantIssuer: { issue: vi.fn() },
+                relayDispatchApproval: {
+                  grantId: "grant-1",
+                  expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+                },
+              }
+            : {}),
+        },
+      });
+      const request: ReviewInvestigationRelayStatusRequest = {
+        ...envelope("relay-status"),
         authorizationToken: "authorization-token",
-        idempotencyKey: "relay-plan-without-extension",
-        requestBodyHash: sha("placeholder"),
+        authorizationId: authorization.authorizationId,
         investigationId: aggregate.investigationId,
-        expectedVersion: String(aggregate.version),
-        dossierDigest: aggregate.dossierDigest,
-        leaseDurationMs: 60_000,
-        maxObligationsForTurn: 1,
-        turnBudgetHash: sha("{}"),
-        turnBudgetCanonicalJson: "{}",
-      },
-    );
-    await expect(
-      routes.relayPlanTurn!.execute(relayPlan),
-    ).rejects.toMatchObject({ statusCode: 403 });
-    await expect(
-      routes.relayStatus!.execute({ ...request, authorizationId: "other" }),
-    ).rejects.toMatchObject({ statusCode: 412 });
-    expect(readStatus).toHaveBeenCalledOnce();
-  });
+        turnId: aggregate.activeTurn!.turnId,
+      };
+      await expect(routes.relayStatus!.execute(request)).resolves.toMatchObject(
+        {
+          statusCode: 200,
+          result: {
+            status: ReviewInvestigationRelayStatusState.TerminalUnknown,
+            grantId: "grant-1",
+            requestId: "request-1",
+            effectId: "effect-1",
+            requestHash: sha("bounded-body"),
+            dispatchBlockedPrerequisite: approved
+              ? null
+              : "pinned_codex_transport_output_token_limit_unqualified",
+          },
+        },
+      );
+      expect(readStatus).toHaveBeenCalledOnce();
+      const relayPlan = await withBodyHash(
+        ReviewActionV2OperationId.ReviewInvestigationRelayTurnPlan,
+        {
+          ...envelope("relay-plan-without-extension"),
+          authorizationToken: "authorization-token",
+          idempotencyKey: "relay-plan-without-extension",
+          requestBodyHash: sha("placeholder"),
+          investigationId: aggregate.investigationId,
+          expectedVersion: String(aggregate.version),
+          dossierDigest: aggregate.dossierDigest,
+          leaseDurationMs: 60_000,
+          maxObligationsForTurn: 1,
+          turnBudgetHash: sha("{}"),
+          turnBudgetCanonicalJson: "{}",
+        },
+      );
+      await expect(
+        routes.relayPlanTurn!.execute(relayPlan),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      await expect(
+        routes.relayStatus!.execute({ ...request, authorizationId: "other" }),
+      ).rejects.toMatchObject({ statusCode: 412 });
+      expect(readStatus).toHaveBeenCalledOnce();
+    },
+  );
   it("keeps the negotiated grant route closed with an explicit prerequisite", async () => {
     const original = activeInvestigation();
     const aggregate = {

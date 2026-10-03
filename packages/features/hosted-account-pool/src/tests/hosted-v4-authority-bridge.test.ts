@@ -91,6 +91,33 @@ function fixture(signingKey = Buffer.alloc(32, 42)) {
 }
 
 describe("hosted v4 authority bridge", () => {
+  it("rechecks saved relay metadata without minting a read capability or bypassing revocation", async () => {
+    const f = fixture();
+    const input = {
+      authorizationId: authorization.authorizationId,
+      repositoryConnectionId: live.repositoryConnectionId,
+      providerInstanceId: live.providerInstanceId,
+      bindingId: live.bindingId,
+      bindingVersion: live.bindingVersion,
+    };
+    const result = await f.bridge.resolveSavedRelayAuthority(input);
+    expect(Object.keys(result)).toEqual(["authorization", "live"]);
+    await expect(
+      f.bridge.resolveSavedRelayAuthority({ ...input, bindingVersion: 99 }),
+    ).rejects.toThrow("hosted_v4_authority_denied");
+    f.setLive({ ...live, headSha: "e".repeat(40) });
+    await expect(f.bridge.resolveSavedRelayAuthority(input)).rejects.toThrow(
+      "hosted_v4_authority_denied",
+    );
+    f.setLive(live);
+    f.setLiveReader(async () => {
+      f.setAuthorization({ ...authorization, state: "revoked" });
+      return live;
+    });
+    await expect(f.bridge.resolveSavedRelayAuthority(input)).rejects.toThrow(
+      "hosted_v4_authority_denied",
+    );
+  });
   // Regression: reusing a read capability or cached authorization would bypass
   // the v2 token, live head/release, or mutation epoch checks.
   it("resolves relay prerequisites only from a current v2 token and live authority", async () => {

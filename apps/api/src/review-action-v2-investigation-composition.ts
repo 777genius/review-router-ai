@@ -219,6 +219,7 @@ export type ReviewActionV2InvestigationHandlerDependencies = Readonly<{
   investigationLeaseCapabilities: ReviewActionV2InvestigationLeaseCapabilityPort;
   relayTurnStatus?: Pick<HostedV4RelayTurnPort, "readStatus">;
   relayGrantIssuer?: HostedV4RelayGrantIssuerPort;
+  relayDispatchApproval?: Readonly<{ grantId: string; expiresAt: string }>;
   relayLeaseAdmission?: (input: {
     authorization: ReviewRunAuthorization;
     investigation: ReviewInvestigation;
@@ -1310,7 +1311,12 @@ async function relayStatus(
       ordinal: status.ordinal,
       requestHash: status.requestHash,
       acceptedAttestationId: status.acceptedAttestationId,
-      dispatchBlockedPrerequisite: hostedV4PaidDispatchBlockedPrerequisite,
+      dispatchBlockedPrerequisite:
+        d.relayGrantIssuer &&
+        d.relayDispatchApproval?.grantId === status.grantId &&
+        Date.parse(d.relayDispatchApproval.expiresAt) > d.now().getTime()
+          ? null
+          : hostedV4PaidDispatchBlockedPrerequisite,
     },
   };
 }

@@ -74,6 +74,7 @@ import {
 } from "@reviewrouter/features-system-health";
 import {
   registerHostedCodexRelayRoutes,
+  registerHostedV4OneShotRelayRoute,
   type RegisterHostedCodexRelayRoutesDependencies,
 } from "@reviewrouter/features-hosted-account-pool";
 import {
@@ -187,8 +188,10 @@ import {
 } from "./sdk-growth-authority-routes.js";
 import { composeProductionSdkGrowthAuthorityRoutes } from "./sdk-growth-authority-composition.js";
 import { registerHostedV4ReadRoutes } from "./hosted-v4-read-routes.js";
+import type { HostedV4OneShotCanaryConfiguration } from "./hosted-v4-one-shot-canary-composition.js";
 
 export type CreateApiAppOptions = {
+  readonly hostedV4OneShotCanary?: HostedV4OneShotCanaryConfiguration;
   readonly githubWebhookSecret?: string;
   readonly githubWebhookDependencies?: RegisterGitHubWebhookRoutesDependencies;
   readonly gitLabIntegrationDependencies?: RegisterGitLabIntegrationRoutesDependencies;
@@ -862,6 +865,9 @@ export async function createApiApp(
           enabled: true,
           env: reviewActionV2Env,
           runtime: disabledReviewActionV2RuntimeDependencies,
+          ...(options.hostedV4OneShotCanary
+            ? { hostedV4OneShotCanary: options.hostedV4OneShotCanary }
+            : {}),
           ...(prisma ? { prisma } : {}),
           ...(options.actionOidcAudience
             ? { oidcAudience: options.actionOidcAudience }
@@ -905,6 +911,18 @@ export async function createApiApp(
     app,
     productionReviewActionV2Dependencies?.hostedV4 ?? { enabled: false },
   );
+  if (
+    options.hostedV4OneShotCanary &&
+    !productionReviewActionV2Dependencies?.hostedV4OneShot.enabled
+  ) {
+    throw new Error("hosted_v4_one_shot_authority_prerequisites_missing");
+  }
+  if (productionReviewActionV2Dependencies?.hostedV4OneShot.enabled) {
+    await registerHostedV4OneShotRelayRoute(
+      app,
+      productionReviewActionV2Dependencies.hostedV4OneShot,
+    );
+  }
   const reviewExecutionV2Dependencies =
     options.reviewExecutionV2Dependencies ??
     productionReviewActionV2Dependencies?.execution ??

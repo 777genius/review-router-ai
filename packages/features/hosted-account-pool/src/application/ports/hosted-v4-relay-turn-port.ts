@@ -70,3 +70,35 @@ export interface HostedV4RelayTurnPort {
   ): Promise<"failed_no_effect" | "recovery_required">;
   readStatus(logicalTurnKey: string): Promise<HostedV4RelayDurableStatus>;
 }
+
+export type HostedV4DispatchLease = Readonly<{
+  contract: HostedV4RelayGrantContract;
+  prepared: HostedV4PreparedRequest;
+  accountId: string;
+  credentialGeneration: bigint;
+  ownerIdHash: string;
+  fenceEpoch: 1n;
+  idempotencyKey: string;
+}>;
+
+/** Separate V4 authority: legacy effect adapters must continue rejecting V4. */
+export interface HostedV4RelayDispatchPort {
+  assertCurrentGrant(
+    contract: HostedV4RelayGrantContract,
+    input: {
+      grantId: string;
+      accountId: string;
+      credentialGeneration: bigint;
+    },
+  ): Promise<void>;
+  beginDispatch(lease: HostedV4DispatchLease): Promise<void>;
+  heartbeatDispatch(lease: HostedV4DispatchLease): Promise<void>;
+  markDispatchResponseStarted(lease: HostedV4DispatchLease): Promise<void>;
+  completeDispatchResponse(
+    input: HostedV4DispatchLease & {
+      responseBytes: number;
+      responseHash: string;
+      terminalEvidenceHash: string;
+    },
+  ): Promise<void>;
+}

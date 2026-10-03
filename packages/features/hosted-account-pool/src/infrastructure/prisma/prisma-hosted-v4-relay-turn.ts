@@ -13,9 +13,12 @@ import type {
   HostedV4PreparedRequestInput,
   HostedV4RelayDurableStatus,
   HostedV4RelayTurnPort,
+  HostedV4RelayDispatchPort,
+  HostedV4DispatchLease,
 } from "../../application/ports/hosted-v4-relay-turn-port";
 import {
   canonicalScope,
+  assertHostedV4OneShotApproval,
   defineHostedV4RelayGrant,
   hostedV4RelayCanaryAccountRequestAllocation,
   hostedV4RelayCanaryPolicyFingerprint,
@@ -58,7 +61,9 @@ function retryableReservationConflict(error: unknown): boolean {
 }
 
 /** Sticky turn history. Reissue with a replacement lease cannot reset it. */
-export class PrismaHostedV4RelayTurn implements HostedV4RelayTurnPort {
+export class PrismaHostedV4RelayTurn
+  implements HostedV4RelayTurnPort, HostedV4RelayDispatchPort
+{
   private readonly clock = new PostgresTransactionClock();
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -660,6 +665,263 @@ export class PrismaHostedV4RelayTurn implements HostedV4RelayTurnPort {
       }
     }
     throw new Error("hosted_v4_relay_reservation_retry_exhausted");
+  }
+
+  async beginDispatch(lease: HostedV4DispatchLease): Promise<void> {
+    await this.mutateDispatch(lease, "begin");
+  }
+
+  /** Fresh issue/authorization fence without consuming a request slot. */
+  async assertCurrentGrant(
+    contract: HostedV4RelayGrantContract,
+    input: {
+      grantId: string;
+      accountId: string;
+      credentialGeneration: bigint;
+    },
+  ): Promise<void> {
+    await this.prisma.$transaction(
+      async (tx) => {
+        const now = await this.clock.now(tx);
+        if (!now) throw new Error("hosted_v4_relay_database_time_unavailable");
+        if (
+          !v4AdmissionEnabled(contract.scope.githubRepositoryId) ||
+          !(await lockCurrentProducerRelease(
+            tx,
+            contract.scope.producerReleaseId,
+          ))
+        )
+          throw new Error("hosted_v4_relay_admission_disabled");
+        await assertOpenLocked(tx, contract);
+        const grant = await tx.hostedCodexInvocationGrant.findUnique({
+          where: { id: input.grantId },
+        });
+        if (
+          !grant ||
+          input.grantId !== `v4-grant-${contract.logicalTurnKey}` ||
+          grant.authorityKind !== "v4_relay_turn" ||
+          grant.v4TurnKey !== contract.logicalTurnKey ||
+          grant.v4ScopeHash !== contract.scopeHash ||
+          grant.activeAccountId !== input.accountId ||
+          grant.primaryAccountId !== input.accountId ||
+          grant.backupAccountId !== null ||
+          !["issued", "exhausted"].includes(grant.status) ||
+          grant.expiresAt <= now ||
+          grant.maxRequests !== 1 ||
+          grant.maxConcurrentRequests !== 1 ||
+          grant.requestCount > 1 ||
+          grant.inFlight > 1
+        )
+          throw new Error("hosted_v4_dispatch_grant_stale");
+        await assertPreparedReservationAuthority(
+          tx,
+          contract,
+          grant,
+          input,
+          now,
+        );
+      },
+      { isolationLevel: "Serializable" },
+    );
+  }
+
+  async heartbeatDispatch(lease: HostedV4DispatchLease): Promise<void> {
+    await this.mutateDispatch(lease, "heartbeat");
+  }
+
+  async markDispatchResponseStarted(
+    lease: HostedV4DispatchLease,
+  ): Promise<void> {
+    await this.mutateDispatch(lease, "response");
+  }
+
+  async completeDispatchResponse(
+    input: HostedV4DispatchLease & {
+      responseBytes: number;
+      responseHash: string;
+      terminalEvidenceHash: string;
+    },
+  ): Promise<void> {
+    if (
+      !Number.isSafeInteger(input.responseBytes) ||
+      input.responseBytes < 1 ||
+      input.responseBytes > input.contract.maxResponseBytes ||
+      !/^[a-f0-9]{64}$/.test(input.responseHash) ||
+      !/^[a-f0-9]{64}$/.test(input.terminalEvidenceHash)
+    )
+      throw new Error("hosted_v4_response_evidence_invalid");
+    await this.mutateDispatch(input, "complete", input);
+  }
+
+  /** No transaction retry around a dispatch transition. An ambiguous commit
+   * requires recovery, never another provider send. All lifecycle mutations
+   * reuse the same full current-authority check as request reservation. */
+  private async mutateDispatch(
+    lease: HostedV4DispatchLease,
+    mutation: "begin" | "heartbeat" | "response" | "complete",
+    result?: {
+      responseBytes: number;
+      responseHash: string;
+      terminalEvidenceHash: string;
+    },
+  ): Promise<void> {
+    if (
+      lease.prepared.status !== "prepared" ||
+      lease.fenceEpoch !== 1n ||
+      !/^[a-f0-9]{64}$/.test(lease.ownerIdHash)
+    )
+      throw new Error("hosted_v4_dispatch_lease_invalid");
+    await this.prisma.$transaction(
+      async (tx) => {
+        const now = await this.clock.now(tx);
+        if (!now) throw new Error("hosted_v4_relay_database_time_unavailable");
+        const contract = lease.contract;
+        assertHostedV4OneShotApproval({
+          contract,
+          approval: contract.scope.ownerOneShotApproval ?? null,
+          accountId: lease.accountId,
+          idempotencyKey: lease.idempotencyKey,
+          requestHash: lease.prepared.requestHash,
+          now,
+        });
+        if (
+          !v4AdmissionEnabled(contract.scope.githubRepositoryId) ||
+          !(await lockCurrentProducerRelease(
+            tx,
+            contract.scope.producerReleaseId,
+          ))
+        )
+          throw new Error("hosted_v4_relay_admission_disabled");
+        await assertOpenLocked(tx, contract);
+        const grant = await tx.hostedCodexInvocationGrant.findUnique({
+          where: { id: lease.prepared.grantId },
+        });
+        if (
+          !grant ||
+          grant.authorityKind !== "v4_relay_turn" ||
+          grant.v4TurnKey !== contract.logicalTurnKey ||
+          grant.v4ScopeHash !== contract.scopeHash ||
+          grant.primaryAccountId !== lease.accountId ||
+          grant.activeAccountId !== lease.accountId ||
+          grant.backupAccountId !== null ||
+          grant.status !== "exhausted" ||
+          grant.requestCount !== 1 ||
+          grant.inFlight !== 1 ||
+          grant.expiresAt <= now
+        )
+          throw new Error("hosted_v4_dispatch_grant_stale");
+        const effect = await tx.hostedCodexUpstreamEffectAttempt.findUnique({
+          where: { id: lease.prepared.effectId },
+        });
+        const expected =
+          mutation === "begin"
+            ? ["prepared"]
+            : mutation === "complete"
+              ? ["response_started"]
+              : mutation === "response"
+                ? ["dispatching"]
+                : ["dispatching", "response_started"];
+        if (
+          !effect ||
+          effect.authorityKind !== "v4_relay_turn" ||
+          effect.grantId !== grant.id ||
+          effect.relayRequestId !== lease.prepared.requestId ||
+          effect.attemptOrdinal !== 1 ||
+          effect.requestHash !== lease.prepared.requestHash ||
+          effect.accountId !== lease.accountId ||
+          effect.credentialGeneration !== lease.credentialGeneration ||
+          effect.ownerIdHash !== lease.ownerIdHash ||
+          effect.fenceEpoch !== lease.fenceEpoch ||
+          effect.leaseExpiresAt <= now ||
+          !expected.includes(effect.state)
+        )
+          throw new Error("hosted_v4_dispatch_owner_stale");
+        if (
+          mutation === "begin" &&
+          (effect.dispatchStartedAt || effect.responseStartedAt)
+        )
+          throw new Error("hosted_v4_dispatch_replay_forbidden");
+        await assertPreparedReservationAuthority(
+          tx,
+          contract,
+          grant,
+          lease,
+          now,
+        );
+        if (mutation === "begin" || mutation === "response") {
+          const request = await tx.hostedCodexRelayRequest.updateMany({
+            where: {
+              id: effect.relayRequestId,
+              grantId: grant.id,
+              status: mutation === "begin" ? "received" : "processing",
+              requestHash: effect.requestHash,
+            },
+            data:
+              mutation === "begin"
+                ? { status: "processing", startedAt: now }
+                : {
+                    status: "response_started",
+                    successfulResponseStartedAt: now,
+                    responseBytes: 0,
+                  },
+          });
+          if (request.count !== 1)
+            throw new Error("hosted_v4_dispatch_request_stale");
+        }
+        const updated = await tx.hostedCodexUpstreamEffectAttempt.updateMany({
+          where: {
+            id: effect.id,
+            state: effect.state,
+            ownerIdHash: lease.ownerIdHash,
+            fenceEpoch: lease.fenceEpoch,
+            leaseExpiresAt: { gt: now },
+          },
+          data: {
+            heartbeatAt: now,
+            // Monotonic effect lease even when the approval expires earlier.
+            leaseExpiresAt: new Date(
+              Math.max(
+                effect.leaseExpiresAt.getTime(),
+                Math.min(now.getTime() + 30_000, contract.expiresAt.getTime()),
+              ),
+            ),
+            ...(mutation === "begin"
+              ? { state: "dispatching" as const, dispatchStartedAt: now }
+              : {}),
+            ...(mutation === "response"
+              ? { state: "response_started" as const, responseStartedAt: now }
+              : {}),
+            ...(mutation === "complete"
+              ? {
+                  state: "succeeded" as const,
+                  completedAt: now,
+                  terminalEvidenceHash: result!.terminalEvidenceHash,
+                }
+              : {}),
+          },
+        });
+        if (updated.count !== 1)
+          throw new Error("hosted_v4_dispatch_owner_stale");
+        if (mutation === "complete") {
+          const request = await tx.hostedCodexRelayRequest.updateMany({
+            where: {
+              id: effect.relayRequestId,
+              grantId: grant.id,
+              status: "response_started",
+            },
+            data: {
+              status: "succeeded",
+              completedAt: now,
+              responseBytes: result!.responseBytes,
+              responseHash: result!.responseHash,
+            },
+          });
+          if (request.count !== 1)
+            throw new Error("hosted_v4_dispatch_request_stale");
+        }
+      },
+      { isolationLevel: "Serializable" },
+    );
   }
 
   async readStatus(

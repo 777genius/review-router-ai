@@ -9,6 +9,9 @@ import { seedExecution } from "../../../review-investigations/src/testing/prisma
 import { hostedV4DescriptorExtensionIdentities } from "../domain/hosted-v4-relay-descriptor";
 import {
   defineHostedV4RelayGrant,
+  hostedV4LogicalTurnKey,
+  hostedV4OneShotApprovalHash,
+  hostedV4UnapprovedScopeHash,
   hostedV4RelayCanaryPolicyFingerprint,
   type HostedV4RelayScope,
 } from "../domain/hosted-v4-relay-grant";
@@ -61,6 +64,7 @@ const protectedRoutines = [
   "hosted_codex_v4_turn_guard",
   "hosted_codex_v4_grant_guard",
   "hosted_codex_v4_dispatch_disabled",
+  "hosted_codex_v4_one_shot_update_guard",
   "hosted_codex_v4_unknown_effect_fence",
   "review_investigation_turn_budget_guard",
   "review_investigation_v4_request_fence",
@@ -303,25 +307,6 @@ describe.skipIf(!runDisposablePg17 || ownershipNegative)(
     let setup: PrismaClient;
     let runtime: PrismaClient;
     let runtimeGateEpoch: bigint;
-    const suffix = randomUUID();
-    const seed = createInvestigationStoreContractSeed(`v4-${suffix}`, {
-      trustDomain: "trusted_managed",
-    });
-    const ids = {
-      installation: `installation-${suffix}`,
-      pool: `pool-${suffix}`,
-      binding: `binding-${suffix}`,
-      account: `account-${suffix}`,
-      request: `request-${suffix}`,
-      config: `config-${suffix}`,
-      turn: `turn-${suffix}`,
-      investigationLease: `investigation-lease-${suffix}`,
-      invocationLease: `invocation-lease-${suffix}`,
-    };
-    const githubRepositoryId = BigInt(`0x${hash(suffix).slice(0, 15)}`);
-    const githubInstallationId = githubRepositoryId + 1n;
-    const producerReleaseId = `producer-${seed.investigationId}`;
-    const authorizationId = `authorization-${seed.investigationId}`;
     const expires = (minutes: number) =>
       new Date(Date.now() + minutes * 60_000);
 
@@ -374,7 +359,7 @@ describe.skipIf(!runDisposablePg17 || ownershipNegative)(
           ),
         );
       }
-      expect(stock.at(-1)).toBe("000116_hosted_v4_fenced_dispatch");
+      expect(stock.at(-1)).toBe("000117_hosted_v4_one_shot_dispatch");
       const failed = await setup.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
       SELECT count(*)::bigint AS count FROM public._prisma_migrations
       WHERE finished_at IS NULL AND rolled_back_at IS NULL
@@ -425,733 +410,925 @@ describe.skipIf(!runDisposablePg17 || ownershipNegative)(
       if (setup) await setup.$disconnect();
     });
 
-    it("admits one grant, debits one hashed request and restores one prepared effect after restart", async () => {
-      const now = new Date();
-      const investigationLeaseExpiry = expires(8);
-      const invocationLeaseExpiry = expires(9);
-      const turnExpiry = expires(7);
-      const authorizationExpiry = expires(10);
-      const policyExpiry = expires(10);
-      const turnBudgetCanonicalJson = canonicalJson({
-        deadline: turnExpiry.toISOString(),
-        maxGatewayOperations: 8,
-        maxOutputFindings: 4,
-        maxOutputProposals: 4,
-        maxOutputTokens: 100,
-        maxRequestBytes: 1_000,
-        maxRequests: 1,
-        maxResponseBytes: 2_000,
-        version: 1,
-      });
-      const turnBudgetHash = hash(turnBudgetCanonicalJson);
-      const investigationManifestCanonicalJson = canonicalJson({
-        test: suffix,
-      });
-      const investigationManifestHash = hash(
-        investigationManifestCanonicalJson,
-      );
-      const preparedManifestCanonicalJson = canonicalJson({
-        manifestVersion: 1,
-      });
-      const coverageProfileHash = hash("coverage");
-      const policyHash = hash("policy");
-      const descriptor = canonicalJson({
-        authorizationDescriptorVersion: 3,
-        capability: "review_investigation_v1",
-        coverageProfileHash,
-        extensionCanonicalizerDigest:
-          hostedV4DescriptorExtensionIdentities.shadow.canonicalizerDigest,
-        extensionId: hostedV4DescriptorExtensionIdentities.shadow.extensionId,
-        extensionSchemaDigest:
-          hostedV4DescriptorExtensionIdentities.shadow.schemaDigest,
-        policyHash,
-        providerCapabilities: [
-          { providerKind: "codex", capabilities: ["recording"] },
-        ],
-        hostedRelayExtension: {
-          capability: "hosted_relay_turn_v1",
+    it.each([
+      { canary: false, label: "normal cap-closed turn" },
+      { canary: true, label: "one approval-bound canary lifecycle" },
+    ])(
+      "admits one hashed request and proves $label after restart",
+      async ({ canary }) => {
+        // Separate NEW synthetic execution/account/leases for each case. The
+        // trusted fixture seeding below is not native/prod lifecycle evidence.
+        const suffix = randomUUID();
+        const seed = {
+          ...createInvestigationStoreContractSeed(`v4-${suffix}`, {
+            trustDomain: "trusted_managed",
+          }),
+          // The shared harness uses lane-codex. Keep each retained active lease
+          // distinct under the stock provider-vote-lane uniqueness constraint.
+          providerVoteLaneId: hash(`provider-vote-lane-${suffix}`),
+        };
+        const ids = {
+          installation: `installation-${suffix}`,
+          pool: `pool-${suffix}`,
+          binding: `binding-${suffix}`,
+          account: `account-${suffix}`,
+          request: `request-${suffix}`,
+          config: `config-${suffix}`,
+          turn: `turn-${suffix}`,
+          investigationLease: `investigation-lease-${suffix}`,
+          invocationLease: `invocation-lease-${suffix}`,
+        };
+        const githubRepositoryId = canary
+          ? 1252762369n
+          : BigInt(`0x${hash(suffix).slice(0, 15)}`);
+        const githubInstallationId = githubRepositoryId + 1n;
+        const producerReleaseId = `producer-${seed.investigationId}`;
+        const authorizationId = `authorization-${seed.investigationId}`;
+        const now = new Date();
+        const investigationLeaseExpiry = expires(8);
+        const invocationLeaseExpiry = expires(9);
+        const turnExpiry = expires(7);
+        const authorizationExpiry = expires(10);
+        const policyExpiry = expires(10);
+        const turnBudgetCanonicalJson = canonicalJson({
+          deadline: turnExpiry.toISOString(),
+          maxGatewayOperations: 8,
+          maxOutputFindings: 4,
+          maxOutputProposals: 4,
+          maxOutputTokens: 100,
+          maxRequestBytes: 1_000,
+          maxRequests: 1,
+          maxResponseBytes: 2_000,
+          version: 1,
+        });
+        const turnBudgetHash = hash(turnBudgetCanonicalJson);
+        const investigationManifestCanonicalJson = canonicalJson({
+          test: suffix,
+        });
+        const investigationManifestHash = hash(
+          investigationManifestCanonicalJson,
+        );
+        const preparedManifestCanonicalJson = canonicalJson({
+          manifestVersion: 1,
+        });
+        const coverageProfileHash = hash("coverage");
+        const policyHash = hash("policy");
+        const descriptor = canonicalJson({
+          authorizationDescriptorVersion: 3,
+          capability: "review_investigation_v1",
+          coverageProfileHash,
           extensionCanonicalizerDigest:
-            hostedV4DescriptorExtensionIdentities.relay.canonicalizerDigest,
-          extensionId: hostedV4DescriptorExtensionIdentities.relay.extensionId,
+            hostedV4DescriptorExtensionIdentities.shadow.canonicalizerDigest,
+          extensionId: hostedV4DescriptorExtensionIdentities.shadow.extensionId,
           extensionSchemaDigest:
-            hostedV4DescriptorExtensionIdentities.relay.schemaDigest,
-        },
-      });
+            hostedV4DescriptorExtensionIdentities.shadow.schemaDigest,
+          policyHash,
+          providerCapabilities: [
+            { providerKind: "codex", capabilities: ["recording"] },
+          ],
+          hostedRelayExtension: {
+            capability: "hosted_relay_turn_v1",
+            extensionCanonicalizerDigest:
+              hostedV4DescriptorExtensionIdentities.relay.canonicalizerDigest,
+            extensionId:
+              hostedV4DescriptorExtensionIdentities.relay.extensionId,
+            extensionSchemaDigest:
+              hostedV4DescriptorExtensionIdentities.relay.schemaDigest,
+          },
+        });
 
-      await seedExecution(setup, seed);
-      const release = await setup.producerRelease.findUniqueOrThrow({
-        where: { producerReleaseId },
-      });
-      await setup.producerRelease.update({
-        where: { producerReleaseId },
-        data: {
-          contextGatewayPolicyVersion: seed.contract.gatewayPolicyVersion,
-          contextGatewayEntrypointDigest: hash("gateway"),
-          reviewInvestigationCapability: "review_investigation_v1",
-          reviewInvestigationCoverageProfileHash: coverageProfileHash,
-          reviewInvestigationPolicyHash: policyHash,
-        },
-      });
-      await setup.reviewRunAuthorization.update({
-        where: { authorizationId },
-        data: {
-          trustDomain: "trusted_managed",
-          expiresAt: authorizationExpiry,
-          maxExpiresAt: expires(20),
-          reviewInvestigationAuthorizationDescriptorCanonicalJson: descriptor,
-        },
-      });
-      await setup.reviewExecutionV2.update({
-        where: { executionId: seed.executionId },
-        data: {
-          createdAt: now,
-          updatedAt: now,
-          admissionDeadlineAt: expires(5),
-          executionDeadlineAt: expires(20),
-          retainUntil: expires(60),
-        },
-      });
-      await setup.gitHubInstallation.create({
-        data: {
-          id: ids.installation,
-          workspaceId: seed.scope.workspaceId,
-          githubInstallationId,
-          accountLogin: "disposable-v4",
-          accountType: "Organization",
-          repositorySelection: "selected",
-          status: "active",
-        },
-      });
-      await setup.repositoryConnection.update({
-        where: { id: seed.scope.repositoryConnectionId },
-        data: {
-          externalRepositoryId: githubRepositoryId.toString(),
-          githubRepositoryId,
-          installationId: ids.installation,
-          selected: true,
-        },
-      });
-      await setup.scmRepositoryIdentity.update({
-        where: { scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId },
-        data: { externalRepositoryId: githubRepositoryId.toString() },
-      });
-      await setup.reviewMutationAuthority.create({
-        data: {
-          scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
-          laneKind: "hosted_reviewrouter_app",
-          epoch: 1n,
-          mode: "v2_active",
-          initializedAt: now,
-          activatedAt: now,
-        },
-      });
-      await setup.hostedCodexPool.create({
-        data: {
-          id: ids.pool,
-          workspaceId: seed.scope.workspaceId,
-          name: "disposable-v4",
-          status: "active",
-          authzEpoch: 1n,
-        },
-      });
-      await setup.hostedCodexRepositoryBinding.create({
-        data: {
-          id: ids.binding,
-          workspaceId: seed.scope.workspaceId,
-          poolId: ids.pool,
-          repositoryConnectionId: seed.scope.repositoryConnectionId,
-          status: "active",
-          revision: 1n,
-          workflowPath: ".github/workflows/reviewrouter-codex.yml",
-          workflowActionRef: `reviewrouter/action@${seed.revision.headSha}`,
-          workflowSourceCommitSha: seed.revision.headSha,
-          workflowSourceBlobSha: seed.revision.headSha,
-          workflowSourceSha256: hash("disposable-v4-workflow-source"),
-          workflowSemanticSha256: hash("disposable-v4-workflow-semantic"),
-          workflowSourceTrust: "trusted_default_branch_revision",
-          attestedGithubRepositoryId: githubRepositoryId,
-          attestedBindingRevision: 1n,
-          activatedAt: now,
-        },
-      });
-      await setup.hostedCodexAccount.create({
-        data: {
-          id: ids.account,
-          workspaceId: seed.scope.workspaceId,
-          poolId: ids.pool,
-          label: "disposable-v4",
-          accountFingerprint: hash(ids.account),
-          state: "provisioning_pending",
-          priority: 1,
-        },
-      });
-      await setup.hostedCodexCredentialVersion.create({
-        data: {
-          workspaceId: seed.scope.workspaceId,
-          poolId: ids.pool,
-          accountId: ids.account,
-          generation: 1n,
-          databaseIncarnation: `disposable-${suffix}`,
-          envelopeVersion: 1,
-          encryptionAlgorithm: "test-only-unusable",
-          keyId: "test-only",
-          aadHash: hash("aad"),
-          generationHash: hash("generation"),
-          ciphertextHash: hash("ciphertext"),
-          encryptedCiphertext: "test-only-unusable",
-          envelopeMetadata: {},
-          credentialExpiresAt: expires(20),
-        },
-      });
-      await setup.hostedCodexAccount.update({
-        where: { id: ids.account },
-        data: {
-          state: "healthy",
-          activeGeneration: 1n,
-          healthVersion: 1n,
-          lastHealthyAt: now,
-        },
-      });
-      await setup.reviewConfiguration.create({
-        data: {
-          id: ids.config,
-          workspaceId: seed.scope.workspaceId,
-          repositoryId: seed.scope.repositoryConnectionId,
-          targetKey: `repo:${seed.scope.repositoryConnectionId}`,
-          versions: {
-            create: {
-              version: 1,
-              providerKind: "codex",
-              providerAuthMode: "codex_subscription_oauth_hosted_pool",
-              model: "codex",
-              reasoningEffort: "low",
-              failOnSeverity: "critical",
-              inlineMaxComments: 1,
-              targetTokensPerBatch: 4_000,
-              providerLimit: 1,
-              providerMaxParallel: 1,
-              investigationRecordingEnabled: true,
+        await seedExecution(setup, seed);
+        const release = await setup.producerRelease.findUniqueOrThrow({
+          where: { producerReleaseId },
+        });
+        await setup.producerRelease.update({
+          where: { producerReleaseId },
+          data: {
+            contextGatewayPolicyVersion: seed.contract.gatewayPolicyVersion,
+            contextGatewayEntrypointDigest: hash("gateway"),
+            reviewInvestigationCapability: "review_investigation_v1",
+            reviewInvestigationCoverageProfileHash: coverageProfileHash,
+            reviewInvestigationPolicyHash: policyHash,
+          },
+        });
+        await setup.reviewRunAuthorization.update({
+          where: { authorizationId },
+          data: {
+            trustDomain: "trusted_managed",
+            expiresAt: authorizationExpiry,
+            maxExpiresAt: expires(20),
+            reviewInvestigationAuthorizationDescriptorCanonicalJson: descriptor,
+          },
+        });
+        await setup.reviewExecutionV2.update({
+          where: { executionId: seed.executionId },
+          data: {
+            createdAt: now,
+            updatedAt: now,
+            admissionDeadlineAt: expires(5),
+            executionDeadlineAt: expires(20),
+            retainUntil: expires(60),
+          },
+        });
+        await setup.gitHubInstallation.create({
+          data: {
+            id: ids.installation,
+            workspaceId: seed.scope.workspaceId,
+            githubInstallationId,
+            accountLogin: "disposable-v4",
+            accountType: "Organization",
+            repositorySelection: "selected",
+            status: "active",
+          },
+        });
+        await setup.repositoryConnection.update({
+          where: { id: seed.scope.repositoryConnectionId },
+          data: {
+            externalRepositoryId: githubRepositoryId.toString(),
+            githubRepositoryId,
+            installationId: ids.installation,
+            selected: true,
+          },
+        });
+        await setup.scmRepositoryIdentity.update({
+          where: {
+            scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
+          },
+          data: { externalRepositoryId: githubRepositoryId.toString() },
+        });
+        await setup.reviewMutationAuthority.create({
+          data: {
+            scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
+            laneKind: "hosted_reviewrouter_app",
+            epoch: 1n,
+            mode: "v2_active",
+            initializedAt: now,
+            activatedAt: now,
+          },
+        });
+        await setup.hostedCodexPool.create({
+          data: {
+            id: ids.pool,
+            workspaceId: seed.scope.workspaceId,
+            name: "disposable-v4",
+            status: "active",
+            authzEpoch: 1n,
+          },
+        });
+        await setup.hostedCodexRepositoryBinding.create({
+          data: {
+            id: ids.binding,
+            workspaceId: seed.scope.workspaceId,
+            poolId: ids.pool,
+            repositoryConnectionId: seed.scope.repositoryConnectionId,
+            status: "active",
+            revision: 1n,
+            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+            workflowActionRef: `reviewrouter/action@${seed.revision.headSha}`,
+            workflowSourceCommitSha: seed.revision.headSha,
+            workflowSourceBlobSha: seed.revision.headSha,
+            workflowSourceSha256: hash("disposable-v4-workflow-source"),
+            workflowSemanticSha256: hash("disposable-v4-workflow-semantic"),
+            workflowSourceTrust: "trusted_default_branch_revision",
+            attestedGithubRepositoryId: githubRepositoryId,
+            attestedBindingRevision: 1n,
+            activatedAt: now,
+          },
+        });
+        await setup.hostedCodexAccount.create({
+          data: {
+            id: ids.account,
+            workspaceId: seed.scope.workspaceId,
+            poolId: ids.pool,
+            label: "disposable-v4",
+            accountFingerprint: hash(ids.account),
+            state: "provisioning_pending",
+            priority: 1,
+          },
+        });
+        await setup.hostedCodexCredentialVersion.create({
+          data: {
+            workspaceId: seed.scope.workspaceId,
+            poolId: ids.pool,
+            accountId: ids.account,
+            generation: 1n,
+            databaseIncarnation: `disposable-${suffix}`,
+            envelopeVersion: 1,
+            encryptionAlgorithm: "test-only-unusable",
+            keyId: "test-only",
+            aadHash: hash("aad"),
+            generationHash: hash("generation"),
+            ciphertextHash: hash("ciphertext"),
+            encryptedCiphertext: "test-only-unusable",
+            envelopeMetadata: {},
+            credentialExpiresAt: expires(20),
+          },
+        });
+        await setup.hostedCodexAccount.update({
+          where: { id: ids.account },
+          data: {
+            state: "healthy",
+            activeGeneration: 1n,
+            healthVersion: 1n,
+            lastHealthyAt: now,
+          },
+        });
+        await setup.reviewConfiguration.create({
+          data: {
+            id: ids.config,
+            workspaceId: seed.scope.workspaceId,
+            repositoryId: seed.scope.repositoryConnectionId,
+            targetKey: `repo:${seed.scope.repositoryConnectionId}`,
+            versions: {
+              create: {
+                version: 1,
+                providerKind: "codex",
+                providerAuthMode: "codex_subscription_oauth_hosted_pool",
+                model: "codex",
+                reasoningEffort: "low",
+                failOnSeverity: "critical",
+                inlineMaxComments: 1,
+                targetTokensPerBatch: 4_000,
+                providerLimit: 1,
+                providerMaxParallel: 1,
+                investigationRecordingEnabled: true,
+              },
             },
           },
-        },
-      });
-      await setup.reviewRequestedIntent.create({
-        data: {
-          requestId: ids.request,
-          workspaceId: seed.scope.workspaceId,
-          repositoryConnectionId: seed.scope.repositoryConnectionId,
-          scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
-          pullRequestNumber: seed.scope.pullRequestNumber,
-          baseSha: seed.revision.baseSha,
-          mergeBaseSha: seed.revision.mergeBaseSha,
-          headSha: seed.revision.headSha,
-          reviewRevisionHash: seed.revision.reviewRevisionHash,
-          triggerKind: "manual_command",
-          deliveryIdentityHash: hash(`delivery-${suffix}`),
-          canonicalRequestHash: hash(`request-${suffix}`),
-          state: "dispatched",
-          admissionState: "admitted",
-          notBefore: now,
-          admissionChangedLines: 1,
-          admissionMaxChangedLines: 10,
-          admissionPolicySnapshotId: `disposable-policy-${suffix}`,
-          admissionDecisionHash: hash(`admission-${suffix}`),
-          admissionCheckedAt: now,
-          sourceRunId: `run-${seed.investigationId}`,
-          sourceRunAttempt: "1",
-          authorizationId,
-          executionId: seed.executionId,
-          createdAt: now,
-          updatedAt: now,
-          retainUntil: expires(60),
-        },
-      });
-      await setup.reviewExecutionWorkSlotV2.update({
-        where: {
-          executionId_workSlotId: {
+        });
+        await setup.reviewRequestedIntent.create({
+          data: {
+            requestId: ids.request,
+            workspaceId: seed.scope.workspaceId,
+            repositoryConnectionId: seed.scope.repositoryConnectionId,
+            scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
+            pullRequestNumber: seed.scope.pullRequestNumber,
+            baseSha: seed.revision.baseSha,
+            mergeBaseSha: seed.revision.mergeBaseSha,
+            headSha: seed.revision.headSha,
+            reviewRevisionHash: seed.revision.reviewRevisionHash,
+            triggerKind: "manual_command",
+            deliveryIdentityHash: hash(`delivery-${suffix}`),
+            canonicalRequestHash: hash(`request-${suffix}`),
+            state: "dispatched",
+            admissionState: "admitted",
+            notBefore: now,
+            admissionChangedLines: 1,
+            admissionMaxChangedLines: 10,
+            admissionPolicySnapshotId: `disposable-policy-${suffix}`,
+            admissionDecisionHash: hash(`admission-${suffix}`),
+            admissionCheckedAt: now,
+            sourceRunId: `run-${seed.investigationId}`,
+            sourceRunAttempt: "1",
+            authorizationId,
+            executionId: seed.executionId,
+            createdAt: now,
+            updatedAt: now,
+            retainUntil: expires(60),
+          },
+        });
+        await setup.reviewExecutionWorkSlotV2.update({
+          where: {
+            executionId_workSlotId: {
+              executionId: seed.executionId,
+              workSlotId: seed.workSlotId,
+            },
+          },
+          data: { state: "leased", activeLeaseId: ids.invocationLease },
+        });
+        await setup.reviewInvestigation.create({
+          data: {
+            investigationId: seed.investigationId,
+            naturalIdentityHash: seed.naturalIdentityHash,
+            version: 2n,
+            workspaceId: seed.scope.workspaceId,
+            repositoryConnectionId: seed.scope.repositoryConnectionId,
+            scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
+            pullRequestNumber: seed.scope.pullRequestNumber,
+            trustDomain: "trusted_managed",
+            authorizationScopeHash: seed.scope.authorizationScopeHash,
+            baseSha: seed.revision.baseSha,
+            mergeBaseSha: seed.revision.mergeBaseSha,
+            headSha: seed.revision.headSha,
+            reviewRevisionHash: seed.revision.reviewRevisionHash,
             executionId: seed.executionId,
             workSlotId: seed.workSlotId,
+            stableReviewUnitKey: seed.stableReviewUnitKey,
+            providerVoteLaneId: seed.providerVoteLaneId,
+            providerStrategyId: seed.providerStrategyId,
+            investigationManifestCanonicalJson,
+            investigationManifestHash,
+            runtimeProfile: "gateway_attested_agent_v1",
+            coverageContractVersion: seed.contract.coverageContractVersion,
+            expansionRulesVersion: seed.contract.expansionRulesVersion,
+            criticPolicyVersion: seed.contract.criticPolicyVersion,
+            gatewayPolicyVersion: seed.contract.gatewayPolicyVersion,
+            producerReleaseId,
+            runtimeProfileVersion: seed.contract.runtimeProfileVersion,
+            policy: seed.policy as Prisma.InputJsonValue,
+            state: "awaiting_turn",
+            findings: [],
+            turnProvenance: [],
+            dossierDigest: seed.dossierDigest,
+            createdAt: now,
+            updatedAt: now,
+            retainUntil: expires(60),
           },
-        },
-        data: { state: "leased", activeLeaseId: ids.invocationLease },
-      });
-      await setup.reviewInvestigation.create({
-        data: {
-          investigationId: seed.investigationId,
-          naturalIdentityHash: seed.naturalIdentityHash,
-          version: 2n,
-          workspaceId: seed.scope.workspaceId,
-          repositoryConnectionId: seed.scope.repositoryConnectionId,
-          scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
-          pullRequestNumber: seed.scope.pullRequestNumber,
-          trustDomain: "trusted_managed",
-          authorizationScopeHash: seed.scope.authorizationScopeHash,
-          baseSha: seed.revision.baseSha,
-          mergeBaseSha: seed.revision.mergeBaseSha,
-          headSha: seed.revision.headSha,
-          reviewRevisionHash: seed.revision.reviewRevisionHash,
-          executionId: seed.executionId,
-          workSlotId: seed.workSlotId,
-          stableReviewUnitKey: seed.stableReviewUnitKey,
-          providerVoteLaneId: seed.providerVoteLaneId,
-          providerStrategyId: seed.providerStrategyId,
-          investigationManifestCanonicalJson,
-          investigationManifestHash,
-          runtimeProfile: "gateway_attested_agent_v1",
-          coverageContractVersion: seed.contract.coverageContractVersion,
-          expansionRulesVersion: seed.contract.expansionRulesVersion,
-          criticPolicyVersion: seed.contract.criticPolicyVersion,
-          gatewayPolicyVersion: seed.contract.gatewayPolicyVersion,
-          producerReleaseId,
-          runtimeProfileVersion: seed.contract.runtimeProfileVersion,
-          policy: seed.policy as Prisma.InputJsonValue,
-          state: "awaiting_turn",
-          findings: [],
-          turnProvenance: [],
-          dossierDigest: seed.dossierDigest,
-          createdAt: now,
-          updatedAt: now,
-          retainUntil: expires(60),
-        },
-      });
-      await setup.reviewInvestigationTurn.create({
-        data: {
-          turnId: ids.turn,
-          investigationId: seed.investigationId,
-          turnOrdinal: 1,
-          purpose: "discovery",
-          state: "leased",
-          leasedAtVersion: 2n,
-          dossierDigest: seed.dossierDigest,
-          turnBudgetCanonicalJson,
-          turnBudgetHash,
-          obligationIds: [],
-          semanticTurnOrdinal: 1,
-          criticCycleOrdinal: 0,
-          leasedAt: now,
-          expiresAt: turnExpiry,
-          retainUntil: expires(60),
-        },
-      });
-      await setup.reviewInvestigation.update({
-        where: { investigationId: seed.investigationId },
-        data: { state: "turn_leased", activeTurnId: ids.turn },
-      });
-      const investigationLease = await setup.reviewInvestigationLease.create({
-        data: {
-          leaseId: ids.investigationLease,
-          purpose: "relay_turn",
-          workspaceId: seed.scope.workspaceId,
-          repositoryConnectionId: seed.scope.repositoryConnectionId,
-          scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
-          pullRequestNumber: seed.scope.pullRequestNumber,
+        });
+        await setup.reviewInvestigationTurn.create({
+          data: {
+            turnId: ids.turn,
+            investigationId: seed.investigationId,
+            turnOrdinal: 1,
+            purpose: "discovery",
+            state: "leased",
+            leasedAtVersion: 2n,
+            dossierDigest: seed.dossierDigest,
+            turnBudgetCanonicalJson,
+            turnBudgetHash,
+            obligationIds: [],
+            semanticTurnOrdinal: 1,
+            criticCycleOrdinal: 0,
+            leasedAt: now,
+            expiresAt: turnExpiry,
+            retainUntil: expires(60),
+          },
+        });
+        await setup.reviewInvestigation.update({
+          where: { investigationId: seed.investigationId },
+          data: { state: "turn_leased", activeTurnId: ids.turn },
+        });
+        const investigationLease = await setup.reviewInvestigationLease.create({
+          data: {
+            leaseId: ids.investigationLease,
+            purpose: "relay_turn",
+            workspaceId: seed.scope.workspaceId,
+            repositoryConnectionId: seed.scope.repositoryConnectionId,
+            scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
+            pullRequestNumber: seed.scope.pullRequestNumber,
+            authorizationId,
+            mutationEpoch: 1n,
+            executionId: seed.executionId,
+            workSlotId: seed.workSlotId,
+            baseSha: seed.revision.baseSha,
+            mergeBaseSha: seed.revision.mergeBaseSha,
+            headSha: seed.revision.headSha,
+            reviewRevisionHash: seed.revision.reviewRevisionHash,
+            investigationId: seed.investigationId,
+            investigationVersion: 2n,
+            turnId: ids.turn,
+            turnPurpose: "discovery",
+            providerVoteLaneId: seed.providerVoteLaneId,
+            providerStrategyId: seed.providerStrategyId,
+            investigationManifestCanonicalJson,
+            investigationManifestHash,
+            attemptId: `attempt-${suffix}`,
+            acquireRequestIdHash: hash("investigation-acquire-id"),
+            acquireRequestHash: hash("investigation-acquire"),
+            ownerIdHash: hash("investigation-owner"),
+            leaseCapabilityId: `investigation-capability-${suffix}`,
+            capabilitySigningKeyId: "test-only",
+            state: "active",
+            acquiredAt: now,
+            renewedAt: now,
+            expiresAt: investigationLeaseExpiry,
+            resultReportUntil: expires(20),
+            retainUntil: expires(60),
+          },
+        });
+        const invocationLease = await setup.reviewInvocationLeaseV2.create({
+          data: {
+            leaseId: ids.invocationLease,
+            workspaceId: seed.scope.workspaceId,
+            repositoryConnectionId: seed.scope.repositoryConnectionId,
+            scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
+            pullRequestNumber: seed.scope.pullRequestNumber,
+            executionId: seed.executionId,
+            executionGeneration: 1n,
+            providerInvocationKey: `provider-invocation-${suffix}`,
+            preparedManifestCanonicalJson,
+            preparedManifestKey: hash(preparedManifestCanonicalJson),
+            providerVoteIdentityHash: seed.providerVoteLaneId,
+            workSlotId: seed.workSlotId,
+            purpose: "provider_execution",
+            authorizationId,
+            producerReleaseId,
+            reviewRevisionHash: seed.revision.reviewRevisionHash,
+            mutationEpoch: 1n,
+            leaseSafetyDecisionHash: hash("lease-safety"),
+            attemptId: `invocation-attempt-${suffix}`,
+            attemptOrdinal: 1,
+            acquireRequestIdHash: hash("invocation-acquire-id"),
+            acquireRequestHash: hash("invocation-acquire"),
+            ownerIdHash: hash("invocation-owner"),
+            leaseCapabilityId: `invocation-capability-${suffix}`,
+            capabilitySigningKeyId: "test-only",
+            state: "active",
+            acquiredAt: now,
+            renewedAt: now,
+            expiresAt: invocationLeaseExpiry,
+            resultReportUntil: expires(20),
+            retainUntil: expires(60),
+          },
+        });
+
+        const scope: HostedV4RelayScope = {
+          version: 4,
           authorizationId,
+          authorizationState: "active",
           mutationEpoch: 1n,
-          executionId: seed.executionId,
-          workSlotId: seed.workSlotId,
+          trustDomain: "trusted_managed",
+          investigationCodexRecordingAllowed: true,
+          workspaceId: seed.scope.workspaceId,
+          repositoryConnectionId: seed.scope.repositoryConnectionId,
+          scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
+          githubRepositoryId: githubRepositoryId.toString(),
+          githubInstallationId: githubInstallationId.toString(),
+          pullRequestNumber: seed.scope.pullRequestNumber,
           baseSha: seed.revision.baseSha,
           mergeBaseSha: seed.revision.mergeBaseSha,
           headSha: seed.revision.headSha,
           reviewRevisionHash: seed.revision.reviewRevisionHash,
+          producerReleaseId,
+          producerReleaseRegistered: true,
+          actionIdentityHash: release.wrapperEntrypointDigest!,
+          runtimeIdentityHash: release.runtimeEntrypointDigest,
+          gatewayIdentityHash: hash("gateway"),
+          protocolVersion: "review_action_v2",
+          schemaDigest: release.schemaDigest,
+          protocolLimitsProfileId: release.protocolLimitsProfileId,
+          providerInstanceId: `hosted-pool:repository:${githubRepositoryId}`,
+          repositoryBindingId: ids.binding,
+          bindingRevision: 1,
+          bindingActive: true,
+          repositorySelected: true,
+          poolId: ids.pool,
+          poolActive: true,
+          poolAuthzEpoch: 1n,
+          runtimeGateActive: true,
+          runtimeAuthzEpoch: runtimeGateEpoch,
+          model: "codex",
+          policyFingerprint: hostedV4RelayCanaryPolicyFingerprint({
+            accountId: ids.account,
+            runtimeConfigVersion: 1,
+            model: "codex",
+            maxRequests: 1,
+            maxRequestBytes: 1_000,
+            maxResponseBytes: 2_000,
+            maxOutputTokens: 100,
+          }),
           investigationId: seed.investigationId,
           investigationVersion: 2n,
           turnId: ids.turn,
+          turnBudgetCanonicalJson,
+          turnBudgetHash,
           turnPurpose: "discovery",
+          planningInputDossierDigest: seed.dossierDigest,
+          dossierDigest: seed.dossierDigest,
+          investigationManifestHash,
+          executionId: seed.executionId,
+          workSlotId: seed.workSlotId,
           providerVoteLaneId: seed.providerVoteLaneId,
           providerStrategyId: seed.providerStrategyId,
-          investigationManifestCanonicalJson,
-          investigationManifestHash,
-          attemptId: `attempt-${suffix}`,
-          acquireRequestIdHash: hash("investigation-acquire-id"),
-          acquireRequestHash: hash("investigation-acquire"),
-          ownerIdHash: hash("investigation-owner"),
-          leaseCapabilityId: `investigation-capability-${suffix}`,
-          capabilitySigningKeyId: "test-only",
-          state: "active",
-          acquiredAt: now,
-          renewedAt: now,
-          expiresAt: investigationLeaseExpiry,
-          resultReportUntil: expires(20),
-          retainUntil: expires(60),
-        },
-      });
-      const invocationLease = await setup.reviewInvocationLeaseV2.create({
-        data: {
-          leaseId: ids.invocationLease,
-          workspaceId: seed.scope.workspaceId,
-          repositoryConnectionId: seed.scope.repositoryConnectionId,
-          scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
-          pullRequestNumber: seed.scope.pullRequestNumber,
-          executionId: seed.executionId,
-          executionGeneration: 1n,
-          providerInvocationKey: `provider-invocation-${suffix}`,
-          preparedManifestCanonicalJson,
-          preparedManifestKey: hash(preparedManifestCanonicalJson),
-          providerVoteIdentityHash: seed.providerVoteLaneId,
-          workSlotId: seed.workSlotId,
-          purpose: "provider_execution",
-          authorizationId,
-          producerReleaseId,
-          reviewRevisionHash: seed.revision.reviewRevisionHash,
-          mutationEpoch: 1n,
-          leaseSafetyDecisionHash: hash("lease-safety"),
-          attemptId: `invocation-attempt-${suffix}`,
-          attemptOrdinal: 1,
-          acquireRequestIdHash: hash("invocation-acquire-id"),
-          acquireRequestHash: hash("invocation-acquire"),
-          ownerIdHash: hash("invocation-owner"),
-          leaseCapabilityId: `invocation-capability-${suffix}`,
-          capabilitySigningKeyId: "test-only",
-          state: "active",
-          acquiredAt: now,
-          renewedAt: now,
-          expiresAt: invocationLeaseExpiry,
-          resultReportUntil: expires(20),
-          retainUntil: expires(60),
-        },
-      });
-
-      const scope: HostedV4RelayScope = {
-        version: 4,
-        authorizationId,
-        authorizationState: "active",
-        mutationEpoch: 1n,
-        trustDomain: "trusted_managed",
-        investigationCodexRecordingAllowed: true,
-        workspaceId: seed.scope.workspaceId,
-        repositoryConnectionId: seed.scope.repositoryConnectionId,
-        scmRepositoryIdentityId: seed.scope.scmRepositoryIdentityId,
-        githubRepositoryId: githubRepositoryId.toString(),
-        githubInstallationId: githubInstallationId.toString(),
-        pullRequestNumber: seed.scope.pullRequestNumber,
-        baseSha: seed.revision.baseSha,
-        mergeBaseSha: seed.revision.mergeBaseSha,
-        headSha: seed.revision.headSha,
-        reviewRevisionHash: seed.revision.reviewRevisionHash,
-        producerReleaseId,
-        producerReleaseRegistered: true,
-        actionIdentityHash: release.wrapperEntrypointDigest!,
-        runtimeIdentityHash: release.runtimeEntrypointDigest,
-        gatewayIdentityHash: hash("gateway"),
-        protocolVersion: "review_action_v2",
-        schemaDigest: release.schemaDigest,
-        protocolLimitsProfileId: release.protocolLimitsProfileId,
-        providerInstanceId: `hosted-pool:repository:${githubRepositoryId}`,
-        repositoryBindingId: ids.binding,
-        bindingRevision: 1,
-        bindingActive: true,
-        repositorySelected: true,
-        poolId: ids.pool,
-        poolActive: true,
-        poolAuthzEpoch: 1n,
-        runtimeGateActive: true,
-        runtimeAuthzEpoch: runtimeGateEpoch,
-        model: "codex",
-        policyFingerprint: hostedV4RelayCanaryPolicyFingerprint({
-          accountId: ids.account,
-          runtimeConfigVersion: 1,
-          model: "codex",
+          attemptId: investigationLease.attemptId,
+          investigationLease: {
+            leaseId: investigationLease.leaseId,
+            capabilityId: investigationLease.leaseCapabilityId,
+            ownerIdHash: investigationLease.ownerIdHash,
+            fencingToken: investigationLease.fencingToken,
+            purpose: "relay_turn",
+            expiresAt: investigationLeaseExpiry,
+          },
+          invocationLease: {
+            leaseId: invocationLease.leaseId,
+            capabilityId: invocationLease.leaseCapabilityId,
+            ownerIdHash: invocationLease.ownerIdHash,
+            fencingToken: invocationLease.fencingToken,
+            purpose: "provider_execution",
+            attemptId: invocationLease.attemptId,
+            providerInvocationKey: invocationLease.providerInvocationKey,
+            expiresAt: invocationLeaseExpiry,
+          },
+          authorizationExpiresAt: authorizationExpiry,
+          turnExpiresAt: turnExpiry,
+          policyExpiresAt: policyExpiry,
+        };
+        const body = new TextEncoder().encode(
+          '{"model":"codex","max_output_tokens":100}',
+        );
+        const idempotencyKey = `same-${suffix}`;
+        if (canary) {
+          const grantId = `v4-grant-${hostedV4LogicalTurnKey(scope.investigationId, scope.turnId)}`;
+          const payload = {
+            approvalId: `sandbox-approval-${suffix}`,
+            purpose: "owner_one_shot_uncapped_test" as const,
+            githubRepositoryId: "1252762369" as const,
+            accountId: ids.account,
+            unapprovedScopeHash: hostedV4UnapprovedScopeHash(scope),
+            grantId,
+            sourceCommit: "a".repeat(40),
+            requestHash: hash(body),
+            idempotencyKeyHash: hash(
+              JSON.stringify(["hosted-v4-request", grantId, idempotencyKey]),
+            ),
+            expiresAt: turnExpiry.toISOString(),
+          };
+          scope.ownerOneShotApproval = {
+            ...payload,
+            approvalHash: hostedV4OneShotApprovalHash(payload),
+          };
+        }
+        const contract = defineHostedV4RelayGrant({
+          scope,
+          now,
           maxRequests: 1,
           maxRequestBytes: 1_000,
           maxResponseBytes: 2_000,
           maxOutputTokens: 100,
-        }),
-        investigationId: seed.investigationId,
-        investigationVersion: 2n,
-        turnId: ids.turn,
-        turnBudgetCanonicalJson,
-        turnBudgetHash,
-        turnPurpose: "discovery",
-        planningInputDossierDigest: seed.dossierDigest,
-        dossierDigest: seed.dossierDigest,
-        investigationManifestHash,
-        executionId: seed.executionId,
-        workSlotId: seed.workSlotId,
-        providerVoteLaneId: seed.providerVoteLaneId,
-        providerStrategyId: seed.providerStrategyId,
-        attemptId: investigationLease.attemptId,
-        investigationLease: {
-          leaseId: investigationLease.leaseId,
-          capabilityId: investigationLease.leaseCapabilityId,
-          ownerIdHash: investigationLease.ownerIdHash,
-          fencingToken: investigationLease.fencingToken,
-          purpose: "relay_turn",
-          expiresAt: investigationLeaseExpiry,
-        },
-        invocationLease: {
-          leaseId: invocationLease.leaseId,
-          capabilityId: invocationLease.leaseCapabilityId,
-          ownerIdHash: invocationLease.ownerIdHash,
-          fencingToken: invocationLease.fencingToken,
-          purpose: "provider_execution",
-          attemptId: invocationLease.attemptId,
-          providerInvocationKey: invocationLease.providerInvocationKey,
-          expiresAt: invocationLeaseExpiry,
-        },
-        authorizationExpiresAt: authorizationExpiry,
-        turnExpiresAt: turnExpiry,
-        policyExpiresAt: policyExpiry,
-      };
-      const contract = defineHostedV4RelayGrant({
-        scope,
-        now,
-        maxRequests: 1,
-        maxRequestBytes: 1_000,
-        maxResponseBytes: 2_000,
-        maxOutputTokens: 100,
-      });
-      const grantInput = {
-        contract,
-        capabilityTokenHash: hash(`bearer-${suffix}`),
-        accountId: ids.account,
-        credentialGeneration: 1n,
-        runtimeConfigVersion: 1,
-      };
-      const body = new TextEncoder().encode(
-        '{"model":"codex","max_output_tokens":100}',
-      );
-      const requestInput = {
-        contract,
-        grantId: `v4-grant-${contract.logicalTurnKey}`,
-        idempotencyKey: `same-${suffix}`,
-        ordinal: 1 as const,
-        body,
-        accountId: ids.account,
-        credentialGeneration: 1n,
-        ownerIdHash: hash(`effect-owner-${suffix}`),
-      };
+        });
+        const grantInput = {
+          contract,
+          capabilityTokenHash: hash(`bearer-${suffix}`),
+          accountId: ids.account,
+          credentialGeneration: 1n,
+          runtimeConfigVersion: 1,
+        };
+        const requestInput = {
+          contract,
+          grantId: `v4-grant-${contract.logicalTurnKey}`,
+          idempotencyKey,
+          ordinal: 1 as const,
+          body,
+          accountId: ids.account,
+          credentialGeneration: 1n,
+          ownerIdHash: hash(`effect-owner-${suffix}`),
+        };
 
-      const previousEnabled = process.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED;
-      const previousRepository =
-        process.env.REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID;
-      process.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED = "1";
-      process.env.REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID =
-        scope.githubRepositoryId;
-      try {
-        const first = new PrismaHostedV4RelayTurn(runtime);
-        const grant = await first.reserveGrant(grantInput);
-        expect(grant).toEqual({
-          status: "issued",
-          grantId: requestInput.grantId,
-        });
-        expect(await first.reserveGrant(grantInput)).toEqual({
-          status: "restored",
-          grantId: grant.grantId,
-        });
-        const expiryFixtures = [
-          ["HostedCodexV4RelayTurn", "logicalTurnKey", contract.logicalTurnKey],
-          ["ReviewInvestigationTurn", "turnId", ids.turn],
-          ["ReviewRunAuthorization", "authorizationId", authorizationId],
-          ["ReviewInvestigationLease", "leaseId", ids.investigationLease],
-          ["ReviewInvocationLeaseV2", "leaseId", ids.invocationLease],
-        ] as const;
-        // Only trusted, disposable fixture setup changes immutable expiry
-        // facts. Trigger suppression is transaction-local on the setup backend
-        // and restored before the authenticated API backend exercises them.
-        const setFixtureExpiry = async (
-          fixture: (typeof expiryFixtures)[number],
-          expired: boolean,
-        ) => {
-          requireDisposableUrls();
-          const [table, key, value] = fixture;
-          await setup.$transaction(async (tx) => {
-            await tx.$executeRawUnsafe(
-              "SET LOCAL session_replication_role = replica",
-            );
-            const expiry = expired
-              ? new Date(Date.now() - 30_000)
-              : table === "HostedCodexV4RelayTurn"
-                ? contract.expiresAt
-                : table === "ReviewInvestigationTurn"
-                  ? turnExpiry
-                  : table === "ReviewRunAuthorization"
-                    ? authorizationExpiry
-                    : table === "ReviewInvestigationLease"
-                      ? investigationLeaseExpiry
-                      : invocationLeaseExpiry;
-            const older = new Date(Date.now() - 120_000);
-            const dates =
-              table === "ReviewRunAuthorization"
-                ? Prisma.sql`, "createdAt" = ${older}`
-                : table === "ReviewInvestigationLease" ||
-                    table === "ReviewInvocationLeaseV2"
-                  ? Prisma.sql`, "acquiredAt" = ${older}, "renewedAt" = ${older}`
-                  : Prisma.empty;
-            expect(
-              await tx.$executeRaw(Prisma.sql`
+        const previousEnabled =
+          process.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED;
+        const previousRepository =
+          process.env.REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID;
+        process.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED = "1";
+        process.env.REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID =
+          scope.githubRepositoryId;
+        try {
+          const first = new PrismaHostedV4RelayTurn(runtime);
+          const grant = await first.reserveGrant(grantInput);
+          expect(grant).toEqual({
+            status: "issued",
+            grantId: requestInput.grantId,
+          });
+          expect(await first.reserveGrant(grantInput)).toEqual({
+            status: "restored",
+            grantId: grant.grantId,
+          });
+          const expiryFixtures = [
+            [
+              "HostedCodexV4RelayTurn",
+              "logicalTurnKey",
+              contract.logicalTurnKey,
+            ],
+            ["ReviewInvestigationTurn", "turnId", ids.turn],
+            ["ReviewRunAuthorization", "authorizationId", authorizationId],
+            ["ReviewInvestigationLease", "leaseId", ids.investigationLease],
+            ["ReviewInvocationLeaseV2", "leaseId", ids.invocationLease],
+          ] as const;
+          // Only trusted, disposable fixture setup changes immutable expiry
+          // facts. Trigger suppression is transaction-local on the setup backend
+          // and restored before the authenticated API backend exercises them.
+          const setFixtureExpiry = async (
+            fixture: (typeof expiryFixtures)[number],
+            expired: boolean,
+          ) => {
+            requireDisposableUrls();
+            const [table, key, value] = fixture;
+            await setup.$transaction(async (tx) => {
+              await tx.$executeRawUnsafe(
+                "SET LOCAL session_replication_role = replica",
+              );
+              const expiry = expired
+                ? new Date(Date.now() - 30_000)
+                : table === "HostedCodexV4RelayTurn"
+                  ? contract.expiresAt
+                  : table === "ReviewInvestigationTurn"
+                    ? turnExpiry
+                    : table === "ReviewRunAuthorization"
+                      ? authorizationExpiry
+                      : table === "ReviewInvestigationLease"
+                        ? investigationLeaseExpiry
+                        : invocationLeaseExpiry;
+              const older = new Date(Date.now() - 120_000);
+              const dates =
+                table === "ReviewRunAuthorization"
+                  ? Prisma.sql`, "createdAt" = ${older}`
+                  : table === "ReviewInvestigationLease" ||
+                      table === "ReviewInvocationLeaseV2"
+                    ? Prisma.sql`, "acquiredAt" = ${older}, "renewedAt" = ${older}`
+                    : Prisma.empty;
+              expect(
+                await tx.$executeRaw(Prisma.sql`
               UPDATE ${Prisma.raw(`public."${table}"`)}
               SET "expiresAt" = ${expiry} ${dates}
               WHERE ${Prisma.raw(`"${key}"`)} = ${value}
             `),
-            ).toBe(1);
-          });
-        };
-        const assertNoReservation = async () => {
-          expect(
-            await setup.hostedCodexInvocationGrant.findUniqueOrThrow({
-              where: { id: grant.grantId },
-              select: { status: true, requestCount: true, inFlight: true },
-            }),
-          ).toEqual({ status: "issued", requestCount: 0, inFlight: 0 });
-          expect(
-            await setup.hostedCodexRelayRequest.count({
-              where: { grantId: grant.grantId },
-            }),
-          ).toBe(0);
-          expect(
-            await setup.hostedCodexUpstreamEffectAttempt.count({
-              where: { grantId: grant.grantId },
-            }),
-          ).toBe(0);
-        };
-        for (const zone of ["Europe/Berlin", "America/Los_Angeles"]) {
-          for (const fixture of expiryFixtures) {
-            await setFixtureExpiry(fixture, true);
-            try {
-              // Bypass application prevalidation, not DB admission. Both
-              // BEFORE INSERT triggers run on the real API connection.
-              await expect(
-                runtime.$transaction(async (tx) => {
-                  await tx.$executeRaw(
-                    Prisma.sql`SELECT set_config('TimeZone', ${zone}, true)`,
-                  );
-                  await tx.hostedCodexRelayRequest.create({
-                    data: {
-                      id: randomUUID(),
-                      authorityKind: "v4_relay_turn",
-                      grantId: grant.grantId,
-                      ordinal: 1,
-                      idempotencyKeyHash: hash(`expired-${fixture[0]}-${zone}`),
-                      requestHash: hash(body),
-                      requestBytes: body.byteLength,
-                      status: "received",
-                    },
-                  });
-                }),
-              ).rejects.toThrow(
-                fixture[0] === "HostedCodexV4RelayTurn"
-                  ? "hosted_v4_relay_grant_turn_denied"
-                  : "hosted_v4_relay_request_reservation_denied",
-              );
-              await assertNoReservation();
-            } finally {
-              await setFixtureExpiry(fixture, false);
+              ).toBe(1);
+            });
+          };
+          const assertNoReservation = async () => {
+            expect(
+              await setup.hostedCodexInvocationGrant.findUniqueOrThrow({
+                where: { id: grant.grantId },
+                select: { status: true, requestCount: true, inFlight: true },
+              }),
+            ).toEqual({ status: "issued", requestCount: 0, inFlight: 0 });
+            expect(
+              await setup.hostedCodexRelayRequest.count({
+                where: { grantId: grant.grantId },
+              }),
+            ).toBe(0);
+            expect(
+              await setup.hostedCodexUpstreamEffectAttempt.count({
+                where: { grantId: grant.grantId },
+              }),
+            ).toBe(0);
+          };
+          for (const zone of ["Europe/Berlin", "America/Los_Angeles"]) {
+            for (const fixture of expiryFixtures) {
+              await setFixtureExpiry(fixture, true);
+              try {
+                // Bypass application prevalidation, not DB admission. Both
+                // BEFORE INSERT triggers run on the real API connection.
+                await expect(
+                  runtime.$transaction(async (tx) => {
+                    await tx.$executeRaw(
+                      Prisma.sql`SELECT set_config('TimeZone', ${zone}, true)`,
+                    );
+                    await tx.hostedCodexRelayRequest.create({
+                      data: {
+                        id: randomUUID(),
+                        authorityKind: "v4_relay_turn",
+                        grantId: grant.grantId,
+                        ordinal: 1,
+                        idempotencyKeyHash: hash(
+                          `expired-${fixture[0]}-${zone}`,
+                        ),
+                        requestHash: hash(body),
+                        requestBytes: body.byteLength,
+                        status: "received",
+                      },
+                    });
+                  }),
+                ).rejects.toThrow(
+                  fixture[0] === "HostedCodexV4RelayTurn"
+                    ? "hosted_v4_relay_grant_turn_denied"
+                    : "hosted_v4_relay_request_reservation_denied",
+                );
+                await assertNoReservation();
+              } finally {
+                await setFixtureExpiry(fixture, false);
+              }
             }
           }
-        }
-        await runtime.$executeRawUnsafe("SET timezone = 'Europe/Berlin'");
-        const prepared = await first.reservePreparedRequest(requestInput);
-        expect(prepared).toMatchObject({
-          status: "prepared",
-          grantId: grant.grantId,
-          ordinal: 1,
-          requestHash: hash(body),
-        });
-        expect(prepared.requestId).toBeTruthy();
-        expect(prepared.effectId).toBeTruthy();
-        expect(
-          await runtime.$queryRaw<Array<{ zone: string }>>(
-            Prisma.sql`SELECT current_setting('TimeZone') AS zone`,
-          ),
-        ).toEqual([{ zone: "Europe/Berlin" }]);
-
-        // Reopen a separate Prisma object to prove restoration is durable.
-        const restarted = createPrismaClient({
-          databaseUrl: requireDisposableUrls().runtime,
-          poolMax: 1,
-        });
-        try {
-          await assertRuntimeAuthority(restarted);
-          const second = new PrismaHostedV4RelayTurn(restarted);
-          expect(await second.reservePreparedRequest(requestInput)).toEqual({
-            ...prepared,
-            status: "restored",
-          });
-          await expect(
-            second.reservePreparedRequest({
-              ...requestInput,
-              idempotencyKey: `different-${suffix}`,
-            }),
-          ).rejects.toThrow("hosted_v4_relay_request_conflict");
-          await expect(
-            second.reservePreparedRequest({
-              ...requestInput,
-              body: new TextEncoder().encode(
-                '{"model":"codex","max_output_tokens":99}',
-              ),
-            }),
-          ).rejects.toThrow("hosted_v4_relay_request_conflict");
-          expect(await second.reserveGrant(grantInput)).toEqual({
-            status: "recovery_required",
+          await runtime.$executeRawUnsafe("SET timezone = 'Europe/Berlin'");
+          const prepared = await first.reservePreparedRequest(requestInput);
+          expect(prepared).toMatchObject({
+            status: "prepared",
             grantId: grant.grantId,
+            ordinal: 1,
+            requestHash: hash(body),
           });
-        } finally {
-          await restarted.$disconnect();
-        }
+          expect(prepared.requestId).toBeTruthy();
+          expect(prepared.effectId).toBeTruthy();
+          expect(
+            await runtime.$queryRaw<Array<{ zone: string }>>(
+              Prisma.sql`SELECT current_setting('TimeZone') AS zone`,
+            ),
+          ).toEqual([{ zone: "Europe/Berlin" }]);
 
-        const [grants, requests, effects] = await Promise.all([
-          setup.hostedCodexInvocationGrant.findMany({
-            where: { v4TurnKey: contract.logicalTurnKey },
-          }),
-          setup.hostedCodexRelayRequest.findMany({
-            where: { grantId: grant.grantId },
-          }),
-          setup.hostedCodexUpstreamEffectAttempt.findMany({
-            where: { grantId: grant.grantId },
-          }),
-        ]);
-        expect(grants).toHaveLength(1);
-        expect(grants[0]).toMatchObject({
-          id: grant.grantId,
-          status: "exhausted",
-          requestCount: 1,
-          inFlight: 1,
-          maxRequests: 1,
-        });
-        expect(requests).toHaveLength(1);
-        expect(requests[0]).toMatchObject({
-          id: prepared.requestId,
-          grantId: grant.grantId,
-          ordinal: 1,
-          status: "received",
-          requestHash: prepared.requestHash,
-          requestBytes: body.byteLength,
-        });
-        expect(requests[0]?.requestHash).toMatch(/^[a-f0-9]{64}$/);
-        expect(effects).toHaveLength(1);
-        expect(effects[0]).toMatchObject({
-          id: prepared.effectId,
-          relayRequestId: prepared.requestId,
-          state: "prepared",
-          requestHash: prepared.requestHash,
-          credentialGeneration: 1n,
-        });
-        expect(effects[0]?.dispatchStartedAt).toBeNull();
-        await expect(
-          runtime.hostedCodexUpstreamEffectAttempt.update({
-            where: { id: prepared.effectId },
-            data: { state: "dispatching", dispatchStartedAt: new Date() },
-          }),
-        ).rejects.toThrow("hosted_v4_relay_paid_dispatch_unqualified");
-        expect(
-          (
-            await setup.hostedCodexUpstreamEffectAttempt.findUniqueOrThrow({
-              where: { id: prepared.effectId },
-            })
-          ).state,
-        ).toBe("prepared");
-      } finally {
-        if (previousEnabled === undefined)
-          delete process.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED;
-        else
-          process.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED = previousEnabled;
-        if (previousRepository === undefined)
-          delete process.env.REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID;
-        else
-          process.env.REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID =
-            previousRepository;
-      }
-    }, 60_000);
+          // Reopen a separate Prisma object to prove restoration is durable.
+          const restarted = createPrismaClient({
+            databaseUrl: requireDisposableUrls().runtime,
+            poolMax: 1,
+          });
+          try {
+            await assertRuntimeAuthority(restarted);
+            const second = new PrismaHostedV4RelayTurn(restarted);
+            expect(await second.reservePreparedRequest(requestInput)).toEqual({
+              ...prepared,
+              status: "restored",
+            });
+            await expect(
+              second.reservePreparedRequest({
+                ...requestInput,
+                idempotencyKey: `different-${suffix}`,
+              }),
+            ).rejects.toThrow("hosted_v4_relay_request_conflict");
+            await expect(
+              second.reservePreparedRequest({
+                ...requestInput,
+                body: new TextEncoder().encode(
+                  '{"model":"codex","max_output_tokens":99}',
+                ),
+              }),
+            ).rejects.toThrow("hosted_v4_relay_request_conflict");
+            expect(await second.reserveGrant(grantInput)).toEqual({
+              status: "recovery_required",
+              grantId: grant.grantId,
+            });
+          } finally {
+            await restarted.$disconnect();
+          }
+
+          const [grants, requests, effects] = await Promise.all([
+            setup.hostedCodexInvocationGrant.findMany({
+              where: { v4TurnKey: contract.logicalTurnKey },
+            }),
+            setup.hostedCodexRelayRequest.findMany({
+              where: { grantId: grant.grantId },
+            }),
+            setup.hostedCodexUpstreamEffectAttempt.findMany({
+              where: { grantId: grant.grantId },
+            }),
+          ]);
+          expect(grants).toHaveLength(1);
+          expect(grants[0]).toMatchObject({
+            id: grant.grantId,
+            status: "exhausted",
+            requestCount: 1,
+            inFlight: 1,
+            maxRequests: 1,
+          });
+          expect(requests).toHaveLength(1);
+          expect(requests[0]).toMatchObject({
+            id: prepared.requestId,
+            grantId: grant.grantId,
+            ordinal: 1,
+            status: "received",
+            requestHash: prepared.requestHash,
+            requestBytes: body.byteLength,
+          });
+          expect(requests[0]?.requestHash).toMatch(/^[a-f0-9]{64}$/);
+          expect(effects).toHaveLength(1);
+          expect(effects[0]).toMatchObject({
+            id: prepared.effectId,
+            relayRequestId: prepared.requestId,
+            state: "prepared",
+            requestHash: prepared.requestHash,
+            credentialGeneration: 1n,
+          });
+          expect(effects[0]?.dispatchStartedAt).toBeNull();
+          if (!canary) {
+            await expect(
+              runtime.hostedCodexUpstreamEffectAttempt.update({
+                where: { id: prepared.effectId },
+                data: { state: "dispatching", dispatchStartedAt: new Date() },
+              }),
+            ).rejects.toThrow("hosted_v4_relay_paid_dispatch_unqualified");
+            expect(
+              (
+                await setup.hostedCodexUpstreamEffectAttempt.findUniqueOrThrow({
+                  where: { id: prepared.effectId },
+                })
+              ).state,
+            ).toBe("prepared");
+          } else {
+            const lease = {
+              contract,
+              prepared,
+              accountId: ids.account,
+              credentialGeneration: 1n,
+              ownerIdHash: requestInput.ownerIdHash,
+              fenceEpoch: 1n as const,
+              idempotencyKey,
+            };
+            await first.assertCurrentGrant(contract, {
+              grantId: grant.grantId,
+              accountId: ids.account,
+              credentialGeneration: 1n,
+            });
+            await expect(
+              first.beginDispatch({
+                ...lease,
+                ownerIdHash: hash("other-sandbox-owner"),
+              }),
+            ).rejects.toThrow("hosted_v4_dispatch_owner_stale");
+            const authorizationFixture = expiryFixtures[2];
+            // Expiry restoration is explicitly a disposable setup seam, not a
+            // claim that an immutable production authorization may be reset.
+            await setFixtureExpiry(authorizationFixture, true);
+            try {
+              await expect(first.beginDispatch(lease)).rejects.toThrow(
+                "hosted_v4_relay_reservation_authority_stale",
+              );
+              expect(
+                (
+                  await runtime.hostedCodexUpstreamEffectAttempt.findUniqueOrThrow(
+                    {
+                      where: { id: prepared.effectId },
+                    },
+                  )
+                ).state,
+              ).toBe("prepared");
+            } finally {
+              await setFixtureExpiry(authorizationFixture, false);
+            }
+            await first.beginDispatch(lease);
+            const dispatched =
+              await runtime.hostedCodexUpstreamEffectAttempt.findUniqueOrThrow({
+                where: { id: prepared.effectId },
+              });
+            expect(dispatched.state).toBe("dispatching");
+            expect(dispatched.dispatchStartedAt).not.toBeNull();
+            await expect(first.beginDispatch(lease)).rejects.toThrow(
+              "hosted_v4_dispatch_owner_stale",
+            );
+            await first.heartbeatDispatch(lease);
+            await expect(
+              first.heartbeatDispatch({
+                ...lease,
+                ownerIdHash: hash("other-sandbox-owner"),
+              }),
+            ).rejects.toThrow("hosted_v4_dispatch_owner_stale");
+            await first.markDispatchResponseStarted(lease);
+            const response = Buffer.from(
+              'data: {"type":"response.completed","response":{"id":"resp_sandbox","status":"completed"}}\n\n',
+            );
+            await first.completeDispatchResponse({
+              ...lease,
+              responseBytes: response.byteLength,
+              responseHash: hash(response),
+              terminalEvidenceHash: hash("synthetic-completed-evidence"),
+            });
+            expect(
+              await first.readStatus(contract.logicalTurnKey),
+            ).toMatchObject({
+              state: "succeeded",
+              grantId: grant.grantId,
+              requestId: prepared.requestId,
+              effectId: prepared.effectId,
+              ordinal: 1,
+              requestHash: hash(body),
+              acceptedAttestationId: null,
+            });
+            expect(
+              await runtime.hostedCodexInvocationGrant.findUniqueOrThrow({
+                where: { id: grant.grantId },
+              }),
+            ).toMatchObject({
+              requestCount: 1,
+              inFlight: 0,
+              backupAccountId: null,
+            });
+            expect(
+              await runtime.hostedCodexRelayRequest.findUniqueOrThrow({
+                where: { id: prepared.requestId },
+              }),
+            ).toMatchObject({
+              status: "succeeded",
+              ordinal: 1,
+              responseHash: hash(response),
+              responseBytes: response.byteLength,
+            });
+            expect(
+              await runtime.hostedCodexUpstreamEffectAttempt.findUniqueOrThrow({
+                where: { id: prepared.effectId },
+              }),
+            ).toMatchObject({
+              state: "succeeded",
+              attemptOrdinal: 1,
+              terminalEvidenceHash: hash("synthetic-completed-evidence"),
+            });
+            expect(
+              await runtime.hostedCodexRelayRequest.count({
+                where: { grantId: grant.grantId },
+              }),
+            ).toBe(1);
+            expect(
+              await runtime.hostedCodexUpstreamEffectAttempt.count({
+                where: { grantId: grant.grantId },
+              }),
+            ).toBe(1);
+            expect(
+              await first.reservePreparedRequest(requestInput),
+            ).toMatchObject({ status: "recovery_required" });
+            await expect(first.beginDispatch(lease)).rejects.toThrow(
+              "hosted_v4_dispatch_grant_stale",
+            );
+          }
+        } finally {
+          if (previousEnabled === undefined)
+            delete process.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED;
+          else
+            process.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED = previousEnabled;
+          if (previousRepository === undefined)
+            delete process.env.REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID;
+          else
+            process.env.REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID =
+              previousRepository;
+        }
+      },
+      60_000,
+    );
   },
 );
 
@@ -1248,7 +1425,9 @@ describe.skipIf(!runDisposablePg17 || !ownershipNegative)(
         expect(server?.version).toBeGreaterThanOrEqual(170000);
         expect(server?.version).toBeLessThan(180000);
         expect(server?.database).toContain(marker);
-        expect(server?.lastMigration).toBe("000116_hosted_v4_fenced_dispatch");
+        expect(server?.lastMigration).toBe(
+          "000117_hosted_v4_one_shot_dispatch",
+        );
 
         const [owner] = await setup.$queryRaw<Array<{ name: string }>>(
           Prisma.sql`

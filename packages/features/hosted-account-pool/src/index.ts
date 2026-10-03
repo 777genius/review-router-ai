@@ -37,6 +37,8 @@ export * from "./infrastructure/prisma/prisma-hosted-account-pool-adapters";
 export * from "./infrastructure/security/opaque-invocation-grant";
 export * from "./infrastructure/security/codex-account-identity";
 export * from "./infrastructure/http/prisma-hosted-codex-relay";
+export * from "./infrastructure/http/hosted-v4-one-shot-relay";
+export * from "./interface/http/register-hosted-v4-one-shot-relay-route";
 export * from "./interface/http/register-hosted-codex-relay-routes";
 export * from "./application/use-cases/query-hosted-account-pool";
 export * from "./application/use-cases/import-enroll-hosted-account";

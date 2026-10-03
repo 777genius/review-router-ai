@@ -199,6 +199,10 @@ import {
   isHostedV4RelayAdmissionCurrent,
 } from "./hosted-v4-relay-authority.js";
 import type { HostedV4ReadRoutesDependencies } from "./hosted-v4-read-routes.js";
+import {
+  composeProductionHostedV4OneShotCanary,
+  type HostedV4OneShotCanaryConfiguration,
+} from "./hosted-v4-one-shot-canary-composition.js";
 import { ProductionReviewMutationAuthorityProofFacts } from "./review-action-v2-mutation-proof-facts.js";
 import { OctokitReviewV2DispatchCapabilityInspector } from "./github/octokit-review-v2-dispatch-capability-inspector.js";
 import { ReviewInvestigationCertificateVerificationAdapter } from "./review-investigation-certificate-verification-adapter.js";
@@ -268,6 +272,9 @@ type ReviewActionV2RouteRuntime = Pick<
 
 export type ReviewActionV2ProductionRoutes = Readonly<{
   hostedV4: HostedV4ReadRoutesDependencies;
+  hostedV4OneShot:
+    | { readonly enabled: false }
+    | ReturnType<typeof composeProductionHostedV4OneShotCanary>;
   hostedV4Relay: Readonly<{
     enabled: false;
     resolver?: ReturnType<typeof composeHostedV4RelayAuthority>["resolver"];
@@ -396,6 +403,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   readonly prisma?: PrismaClient | undefined;
   readonly oidcAudience?: string | undefined;
   readonly ledgerHmacSecret?: string | undefined;
+  readonly hostedV4OneShotCanary?: HostedV4OneShotCanaryConfiguration;
   readonly investigationTelemetrySamples?:
     | ReviewInvestigationTerminalTelemetrySamplePort
     | undefined;
@@ -408,6 +416,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   if (!input.enabled) {
     return Object.freeze({
       hostedV4: { enabled: false },
+      hostedV4OneShot: { enabled: false },
       hostedV4Relay: { enabled: false },
       runControl: input.runtime,
       execution: input.runtime,
@@ -798,6 +807,33 @@ export function composeReviewActionV2ProductionRoutes(input: {
     contextPolicy: contextReplay,
     now: () => clock.now(),
   });
+  const hostedV4 = composeProductionHostedV4ReadRoutes({
+    env: input.env,
+    prisma,
+    runControl,
+    repositories,
+    prerequisites,
+    repositoryReleaseSelector,
+    workflowInventory,
+  });
+  if (
+    input.hostedV4OneShotCanary &&
+    (!hostedV4.bridge || !investigationRecordingEnabled)
+  )
+    throw new Error("hosted_v4_one_shot_authority_prerequisites_missing");
+  const hostedV4OneShot =
+    input.hostedV4OneShotCanary && hostedV4.bridge
+      ? composeProductionHostedV4OneShotCanary({
+          prisma,
+          bridge: hostedV4.bridge,
+          env: input.env,
+          configuration: input.hostedV4OneShotCanary,
+          authorizations: runControl.authorizations,
+          capabilities,
+          investigationLeaseCapabilities,
+          now: () => clock.now(),
+        })
+      : { enabled: false as const };
   const investigation = composeReviewActionV2InvestigationRoutes({
     enabled: investigationRecordingEnabled,
     runtime: input.runtime,
@@ -941,6 +977,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
       capabilities,
       investigationLeaseCapabilities,
       relayTurnStatus: new PrismaHostedV4RelayTurn(prisma),
+      ...(hostedV4OneShot.enabled
+        ? {
+            relayGrantIssuer: hostedV4OneShot.authority,
+            relayDispatchApproval: hostedV4OneShot.approval,
+          }
+        : {}),
       relayLeaseAdmission: async ({ authorization, investigation }) => {
         if (
           !investigation.activeTurn ||
@@ -985,17 +1027,9 @@ export function composeReviewActionV2ProductionRoutes(input: {
     },
   });
 
-  const hostedV4 = composeProductionHostedV4ReadRoutes({
-    env: input.env,
-    prisma,
-    runControl,
-    repositories,
-    prerequisites,
-    repositoryReleaseSelector,
-    workflowInventory,
-  });
   return Object.freeze({
     hostedV4,
+    hostedV4OneShot,
     hostedV4Relay: hostedV4.bridge
       ? composeHostedV4RelayAuthority({ prisma, bridge: hostedV4.bridge })
       : { enabled: false as const },
