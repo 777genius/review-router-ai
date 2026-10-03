@@ -117,10 +117,14 @@ describe("hosted SSE semantic completion", () => {
     expect(parser.finish()).toBe(true);
   });
 
-  it("rejects malformed UTF8 and bounds an unclosed frame", () => {
+  it("rejects malformed UTF8 and bounds a fully framed oversized comment", () => {
     const parser = new HostedSseCompletion();
     parser.push(new Uint8Array([0xc3, 0x28]));
     expect(parser.finish()).toBe(false);
     expect(parse("data: " + "x".repeat(2_000_001))).toBe(false);
+    expect(parse(": comment\n\n" + frame(completed))).toBe(true);
+    expect(parse(":" + "x".repeat(2_000_001) + "\n\n" + frame(completed))).toBe(
+      false,
+    );
   });
 });
