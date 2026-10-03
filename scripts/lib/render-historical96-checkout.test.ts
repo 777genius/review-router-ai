@@ -34,10 +34,16 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full115 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(115);
-    expect(full[114]?.migrationName).toBe("000116_hosted_v4_fenced_dispatch");
+  it("validates the full116 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(116);
+    expect(full[114]?.migrationName).toBe(
+      "000116_hosted_codex_relay_admission_utc",
+    );
     expect(full[114]?.checksum).toBe(
+      "af399b3aea5cd73e0b65a46085bba2df216cd44888caf066baa02a6516f7d585",
+    );
+    expect(full[115]?.migrationName).toBe("000116_hosted_v4_fenced_dispatch");
+    expect(full[115]?.checksum).toBe(
       "6175278da6c36b072ad8b35fa3df4d8f67e48a86127c45ce6202317ae2cdd451",
     );
     expect(full[113]?.migrationName).toBe(
@@ -109,6 +115,13 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: full.slice(0, 112) },
     { checkout: full.slice(0, 113) },
     { checkout: full.slice(0, 114) },
+    { checkout: full.slice(0, 115) },
+    {
+      checkout: full.filter(
+        (row) =>
+          row.migrationName !== "000116_hosted_codex_relay_admission_utc",
+      ),
+    },
     { checkout: full },
   ])(
     "accepts a complete validated historical checkout prefix (%#)",
@@ -158,9 +171,15 @@ describe("trusted historical96 checkout reader", () => {
     [
       "relabelled v4 extension",
       [
-        ...full.slice(0, 114),
-        { ...full[114]!, migrationName: "000116_relabelled" },
+        ...full.slice(0, 115),
+        { ...full[115]!, migrationName: "000116_relabelled" },
       ],
+    ],
+    [
+      "relabelled UTC extension",
+      full.map((row, index) =>
+        index === 114 ? { ...row, migrationName: "000116_relabelled" } : row,
+      ),
     ],
     [
       "unknown future extension",
@@ -195,7 +214,7 @@ describe("trusted historical96 checkout reader", () => {
 
   it.each([
     96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
-    112, 113, 114,
+    112, 113, 114, 115,
   ])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {

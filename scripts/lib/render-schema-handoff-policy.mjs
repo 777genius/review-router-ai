@@ -212,6 +212,11 @@ const checkoutExtensions = Object.freeze([
       "07fdc348fe27d0ee1ddc15d97e6932cca3dc02cc920d856c4380f71cabb36db0",
   }),
   Object.freeze({
+    migrationName: "000116_hosted_codex_relay_admission_utc",
+    checksum:
+      "af399b3aea5cd73e0b65a46085bba2df216cd44888caf066baa02a6516f7d585",
+  }),
+  Object.freeze({
     migrationName: "000116_hosted_v4_fenced_dispatch",
     checksum:
       "6175278da6c36b072ad8b35fa3df4d8f67e48a86127c45ce6202317ae2cdd451",
@@ -245,7 +250,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     ![
       0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-      22, 23,
+      22, 23, 24,
     ].includes(extensions)
   )
     fail("checkout_extension");
@@ -371,8 +376,16 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     fail("checkout_manifest");
   if (
     extensions === 23 &&
+    ![
+      "sha256:1423415eefb158f298b3760f77ddc3dc3a38f13774c206b01df9a4a24b050a79",
+      "sha256:30f68ffc62e0b46815bc007339d83aa7894b61b23f301c012b8990713cc0ad14",
+    ].includes(manifest(catalog))
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 24 &&
     manifest(catalog) !==
-      "sha256:1423415eefb158f298b3760f77ddc3dc3a38f13774c206b01df9a4a24b050a79"
+      "sha256:9eeace9d8fdb11a4052077e023dd5b895b5c25482b6776962a8886f2e5ec5182"
   )
     fail("checkout_manifest");
   assertRenderSchemaHandoffCatalog(managed);
