@@ -65,7 +65,7 @@ test(
       const names = (await readdir(migrations))
         .filter((name) => /^\d{6}_/.test(name))
         .sort();
-      assert.ok(names.includes("000116_provider_accounts"));
+      assert.ok(names.includes("000117_provider_accounts"));
       for (const name of names) {
         const migration = await readFile(
           new URL(`${name}/migration.sql`, migrations),

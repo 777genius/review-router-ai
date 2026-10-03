@@ -212,9 +212,9 @@ const checkoutExtensions = Object.freeze([
       "07fdc348fe27d0ee1ddc15d97e6932cca3dc02cc920d856c4380f71cabb36db0",
   }),
   Object.freeze({
-    migrationName: "000116_provider_accounts",
+    migrationName: "000116_hosted_codex_relay_admission_utc",
     checksum:
-      "786e21fc4a8880c25f41304393a576d8e3337b6654720931aa076fdbf793c4e7",
+      "af399b3aea5cd73e0b65a46085bba2df216cd44888caf066baa02a6516f7d585",
   }),
 ]);
 
@@ -372,7 +372,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     extensions === 23 &&
     manifest(catalog) !==
-      "sha256:ae0b21de10e57e6164478c4b04bf386381e22c70aaabe23206f5e31da5360a30"
+      "sha256:30f68ffc62e0b46815bc007339d83aa7894b61b23f301c012b8990713cc0ad14"
   )
     fail("checkout_manifest");
   assertRenderSchemaHandoffCatalog(managed);
