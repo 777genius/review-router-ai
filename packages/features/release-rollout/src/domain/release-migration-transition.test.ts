@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps full116 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps full118 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,9 +107,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(116);
+    expect(full).toHaveLength(118);
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-9).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-11).map((row) => row.migrationName)).toEqual([
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
       "000111_sdk_growth_source_binding",
@@ -119,8 +119,21 @@ describe("canonical release migration transition", () => {
       "000115_sdk_growth_v3_approved_manifest",
       "000116_hosted_codex_relay_admission_utc",
       "000116_hosted_v4_fenced_dispatch",
+      "000117_hosted_v4_one_shot_dispatch",
+      "000118_exclusive_test_publication",
     ]);
     expect(manifest(full)).toBe(
+      "sha256:84ce2adbefa80ba402eef62e6c8349887c214a3e2be2a332a741a98f1b5498e5",
+    );
+    expect(
+      manifest(
+        full.filter(
+          (row) =>
+            row.migrationName !== "000117_hosted_v4_one_shot_dispatch" &&
+            row.migrationName !== "000118_exclusive_test_publication",
+        ),
+      ),
+    ).toBe(
       "sha256:9eeace9d8fdb11a4052077e023dd5b895b5c25482b6776962a8886f2e5ec5182",
     );
     const historical = readRenderHistorical96CheckoutInventory();
