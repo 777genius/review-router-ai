@@ -1,122 +1,87 @@
 # Account Gateway: Modular Implementation Plan
 
-Date: 2026-10-02. Status: accepted owner direction; checkpoint A merged on
-2026-10-03, B–D in progress. Full program acceptance is incomplete.
-No package was installed, new service deployed or old pool disabled by this plan.
+Date: 2026-10-03. Delivery order for accepted owner vision; product acceptance
+is incomplete. [Contract 53](./53-account-gateway-implementation-contract.md)
+is the sole normative implementation authority and goes in every worker packet.
+[Vision 50](./50-reusable-account-gateway-and-personal-pool.md) retains all owner
+and personal-sharing intent; [52](./52-account-gateway-first-slice-contract.md)
+keeps Opus dispositions/scenarios and NONNORMATIVE source history.
 
-Authorities: [ADR-030](../decisions/030-reusable-account-gateway-and-ownership.md)
-and [owner vision / account lifecycle](./50-reusable-account-gateway-and-personal-pool.md).
-This document owns delivery order; document 50 owns the account/sharing rules.
+Writers use explicit `gpt-6.1-sol/high/default`, independent reviewers
+`gpt-6.1-sol/xhigh/default`; NO FAST. These are required profiles, not an
+independently observed worker-model receipt. Coherent component PRs target
+approximately 2000 changed LOC; security boundaries remain intact.
 
-## Worker execution preference
+## Checkpoints and bounded ownership
 
-Newest owner instruction, reaffirmed on 2026-10-03: subsequent hosted workers use ordinary
-mode, `serviceTier: default`; do not request fast/priority service. Keep explicit
-`gpt-6.1-sol` and role-appropriate effort. Historical fast-mode review receipts
-below remain historical and are not the template for new jobs.
+| Checkpoint/component                        | Deliverable/owner boundary                                                                         | Dependencies and nearest qualification                                                                                                          |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| A accepted foundation                       | Separate reusable TS SDK/static optional Get Modular seam; gateway repo                            | Existing exact artifact/two outside consumer evidence only; 53 §§1–2                                                                            |
+| B2 active elsewhere                         | Private kernel account-global occupied transports/exact close proof                                | Merged kernel 1ea; actual concurrent PG proof; producer scope unchanged; 53 §§3–4                                                               |
+| W5 terminal, awaiting qualification         | Native fa16 F1–F4 repairs; fork PR2                                                                | Main qualifies actual patch and exact review/CI; no assumed acceptance                                                                          |
+| B3a                                         | Gateway TS management adapter, encrypted transient intent and exact mapping                        | Accepted A/kernel; 53 §§2,7; real native create/readback/lost ACK                                                                               |
+| B3b                                         | Fork Go opt-in bootstrap/cancel-wait registry + minimal protected inherited-lock launcher          | Accepted W5+B2; 53 §§3–4; actual dual POST/callback/restart/ACK-loss and Linux closure                                                          |
+| B3c                                         | Gateway authenticated HTTP composition/recovery/stream/cleanup                                     | B3a+b; separate additive kernel/SDK rejected-before-dispatch support before dispatch acceptance; 53 §§2–4,7                                     |
+| C1 terminal catalog, awaiting qualification | Existing RR PR488 owner/connection/binding persistence                                             | Preserve history and migration117 bytes; fresh full-schema/catalog qualification, final exact-source review/CI; not remote fencing              |
+| C2                                          | RR adapter/config/system admission/OIDC relay/binding fence delivery                               | Accepted A+B+C1; 53 §§5–6; actual config/FK/CAS, source classification, X/Y fence and bounded wait                                              |
+| C3 (parallel)                               | Our Accounts and Models/repository batch UI                                                        | A+B+C1; C2 authority composition; 53 §6; two disposable repos, truthful partial CAS/readback                                                    |
+| D-min                                       | First real Codex/MiMo tools + final parsed review + approved-head App publication                  | B+C1+C2; same authoritative connection/binding/admission use cases via disposable fixture/operator command before full UI; 53 §8                |
+| D-final                                     | Complete first slice including our UI batch, measured enforced bounds/cleanup/memory and long OIDC | D-min+C3; all 10 scenarios in 52, capacity/retention facts per 53 §8                                                                            |
+| S                                           | Operator shared pool explicit grants after D; separate RR use case                                 | D-final; dedicated operator workspace/XOR, granted vs paid/ungranted, global capacity/fence; 53 §§1,5,8                                         |
+| E                                           | OpenRouter selected real profile + tools/final/publication                                         | D-final; profile-specific unknown/cap/usage/auth gates; remains mandatory                                                                       |
+| F                                           | Protected Codex OAuth connect/engine refresh/CLI and all custody paths                             | B+D-final; 53 §§2,7–8; actual OAuth identity/refresh/reconnect, one writer, dump/restore/rotation                                               |
+| G                                           | Breaking replacement; no old-pool migration or persistent coexistence                              | D-final+E+F and release checks; 53 §8; exact stale grants/workflows/refresh denial and retained effects                                         |
+| H                                           | Canonical personal owner/personal+multi-org use follow-up                                          | Stable base and deletion/fence policy; retained vision 50, 53 §§1,5; personal+X+Y, third denied, rename/reconnect/detach/role loss/shared quota |
 
-## Implementation readiness
+D-min resolves the historical tools-without-final-answer failure early. C3 UI may
+proceed alongside C2/D-min; D-final includes it. Additional Claude BYOK may be
+qualified alongside E/F, but is not evidence of Claude subscription OAuth.
+No product scenario is marked PASS by these dependency assignments.
 
-This is a detailed architecture/delivery plan, not a frozen implementation
-specification for every checkpoint. A can begin with public artifact and module
-qualification. [First-slice execution contract](./52-account-gateway-first-slice-contract.md)
-now supplies the proposed wire/storage, account-operation, bounded run/deadline
-and restart-cleanup defaults for A–D. Freeze its schemas in A and prove the
-native mapping/reconciliation in B before exposing execution in C/D.
-OAuth protected custody and numeric capacity acceptance remain explicit later
-decisions. These require actual evidence before their checkpoints can pass.
+The reusable gateway and native fork keep repository-local component PR bases;
+RR children target `feat/account-gateway-integration` under root PR490, not main.
+Main integrates accepted service/SDK/engine identities and opens the docs child.
+This worker edits only its six docs; no code, migrations, tests, dependencies,
+locks, git add/commit/push, deployment or retirement. Main verifies author and
+committer `iliya <iliyazelenkog@gmail.com>` before integration.
 
-Independent 2026-10-03 readiness audit found two concrete omissions, now specified
-in contract52: preparation/readback must return the selected safe account/epoch,
-and initial MiMo tokens is a native per-request output/reasoning cap with
-conservative request-slot accounting. The SDK result-schema correction and
-actual native cap qualification remain required implementation gates.
+## Implementation packet and verification
 
-Readiness review provenance: the 2026-10-02 hosted attempt used
-`gpt-6.1-sol/high/default` and ended `partial / task_timeout` without report
-artifacts. Its generic continuation was rejected with
-`project_control_broker_required`; the job is no longer running. It is not a
-completed independent review. Contract 52 is coordinator-authored; post-change
-independent SDK review has now passed at exact head `226a0907`; PR 1 merged as
-`07234f60`. Native review requested six fixes. Facade/RR and live product E2E
-remain NOT RUN. Current evidence belongs to contract 52 and the execution ledger.
+Include full contract 53 + digest, supplied base and observed HEAD separately, owned paths,
+accepted dependency SHAs, installed toolchain/image, disposable fixture, nearest
+observable/security test command and receipt destination. Never infer a native
+capability from route prose. A missing dependent patch is an explicit gate.
+One nearest test owner per invariant; real HTTP/DB/Linux/CLI where required,
+no implementation-mirror/mock-only/source-string tests or prose regression suite.
+Reuse unchanged accepted A/kernel proofs; requalify changed or newly assembled
+boundaries and run final exact-head CI/review. Every product receipt binds exact
+candidate, scenario, identity, command and actual evidence as required by 53 §8.
 
-## Locked scope
+## NONNORMATIVE forecast and historical evidence
 
-- Independent Sub2API-backed service, reusable from several products.
-- A separate TS package from the first slice. The owner confirms at least two
-  intended products. The second product's name is not supplied; do not invent it
-  or run agents against another real project to test portability.
-- Get Modular for composition, Engineering Foundation for development checks,
-  Docs Protocol for repository-owned documentation. No framework types in
-  product policy. No Sub2API-specific additions to Get Modular Core.
-- Own Review Router Accounts UI, server-side workspace authorization,
-  Models/repository/batch settings and actual CI review/publishing.
-- Own BYOK connections do not need a manual shared-pool grant. Operator-managed
-  pool access remains granted to selected workspaces. Keep role/entitlement and
-  owner/use checks separate from that shared-pool availability decision.
-- MiMo Token Plan and OpenRouter BYOK, and Codex subscription through Sub2API,
-  with distinct protocol/auth qualification. Claude is an additional explicitly
-  qualified agent; new Claude subscription OAuth is a separate profile.
-- Owner/use distinction immediately. Full personal-to-org sharing follows the
-  first working integration; the detailed user vision remains in document 50.
-- Breaking replacement: no old-pool credential/history migration, compatibility
-  adapter or persistent dual backend. Users reconnect accounts. The owner states
-  there are no users requiring old-pool compatibility.
+Estimates are remaining work, not measured diffs/completion percentages. Opus
+forecast (confidence 5/10 for D, lower for OAuth):
 
-## Smallest reusable boundary
+| Remaining scope | Production LOC |  Test LOC | Config LOC / qualification risk                        |
+| --------------- | -------------: | --------: | ------------------------------------------------------ |
+| Through D-final |      3000–6000 | 3000–5000 | 400–1000; real final answer/closure/memory             |
+| S               |        300–600 |   300–500 | Unpriced; grant/fence reuse                            |
+| E               |       400–1000 |  400–1000 | Unpriced; actual selected profile                      |
+| F               |      2500–5000 | 2000–4000 | Unpriced; protected refresh/cache/restore and identity |
+| G net cleanup   |        300–800 |   300–600 | Unpriced; retirement proof                             |
+| H and deletion  |      1700–3200 | 1800–3300 | Unpriced; canonical multi-use lifetime                 |
 
-```text
-Review Router domain/application          Another product's policy
-          | own ports                              | own ports
-          v                                        v
-Product adapter + composition            Product adapter + composition
-          \________________________________________/
-                       |
-          separate TS account-gateway package
-             contracts | http | get-modular
-                       | versioned private HTTP
-          Account Gateway facade + pinned Sub2API
-                       | approved native protocol
-                    providers
-```
+B3 report component estimates (production/test separately): B3a 350–450/180–250,
+B3b 400–550/250–350, B3c 300–400/180–250, with generated Wire/config delta measured
+separately. Additive kernel/SDK settlement is a dependency, not hidden inside an
+accepted B2/W5 patch. Split by cohesive ownership near 2000 total changed LOC;
+these ranges overlap the through-D forecast, not additional charges.
 
-Package: `@agent-teams/account-gateway`, in the private
-`agent-teams-ai/account-gateway` repository. SDK checkpoint A is merged; service
-facade and native integration are still being implemented. Keep service facade,
-wire authority and TS SDK together in a dedicated account-gateway repository;
-the Sub2API fork remains a pinned engine dependency. Do not move the feature into
-Get Modular's framework repository. Repository/namespace availability is checked
-when creating the implementation workspace.
+Historical artifact/tooling observations and qualification requirements below
+retain original hashes/history. They cannot override 53 or certify current
+installation, repository-wide adoption, service dispatch, release or OAuth.
 
-The SDK has real feature-owned management and execution capabilities; module
-composition and curated exports index those features. Private transport helpers
-stay with their owner. An integration SDK needs no invented business aggregate
-or empty domain/application directory tree. The organization standard governs
-that role-appropriate topology only after scoped local adoption.
-
-| Surface         | Owns                                                                         | Must not own                                                           |
-| --------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `/contracts`    | Versioned safe wire DTOs, diagnostics/effect classifications                 | RR User/Workspace/Repository models, native admin responses            |
-| `/http`         | Server-only management/execution clients, validation, stream/cancel/readback | Product policy, provider protocol conversion, independent paid retries |
-| `/get-modular`  | Inert declaration + typed construction factory for the client                | Credentials in profiles, auth decisions, global service locator        |
-| Product adapter | Translation to its application-owned ports                                   | A duplicate HTTP/schema implementation                                 |
-| Service facade  | Consumer mapping, private engine calls, execution authority                  | Product login, GitHub OIDC, PR publishing                              |
-
-A service wire schema is the single authority; derive TS types/validators and
-check drift. Do not independently edit equivalent DTOs in each product. Small
-product-specific mappings remain legitimate when they protect different policy.
-Separate management from execution permissions and credentials. A CI/execution
-handle cannot invoke account administration. Credential submission is write-only;
-status/readback never returns a key, refresh token or vendor account document.
-
-Module compilation is passive. Use public Core/Assembly APIs, exact declared
-dependencies and an explicit static profile. Assembly is used only for factory
-construction; no lifecycle kernel or dynamic plugin subsystem is needed. The
-Host supplies admitted origin/auth configuration privately and owns resource
-cleanup. Neither module metadata nor a plan digest authorizes a run or tenant.
-
-## Current tooling facts and adoption
+### Current tooling facts and adoption
 
 Checked through `gh` against RR main
 `99f5e97c16b7bce47b4cfe196c1d8e462c92f6d3`:
@@ -161,7 +126,7 @@ in the new gateway repository is qualified for docs and package READMEs; its roo
 README remains outside the supported catalog. RR adoption remains pending;
 writing these Markdown documents does not constitute adoption.
 
-### Scoped composition and artifact acceptance
+#### Scoped composition and artifact acceptance
 
 Checkpoint A records the selected combinations in one small capability matrix:
 
@@ -216,103 +181,7 @@ existing documents remain reachable, a broken relation/invalid metadata is
 rejected and a changed apply preimage causes zero mutation. New-repository
 bootstrap does not qualify RR's historical corpus or rewrite it automatically.
 
-## Implementation checkpoints
-
-Each worker owns a bounded lane and returns patch/bundle and evidence. Main
-integrates and commits with owner identity. Use dependency-safe PRs near 2,000
-changed LOC; keep indivisible security contracts together. Do not create a large
-framework scaffold before a functioning client/service slice.
-
-| Checkpoint                  | Ownership and outcome                                                                                                                     | Dependencies / acceptance                                                                                                                               |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A. Reusable contract/client | Dedicated repository: wire schema, minimal HTTP clients, Get Modular entry, dev profiles, packed consumer fixtures                        | Exact artifact/toolchain checks; static construction; correct namespace/role/errors; installed public exports work without RR source imports            |
-| B. Native service path      | Gateway facade and pinned fork: private routing, write-only MiMo account connection, scoped mappings, status/revoke                       | A; real native request and response; foreign consumer/account denied; no shared-group fallback; no master in readback                                   |
-| C. RR account/UI policy     | Existing RR account feature and composition: owner/use model, own Accounts UI, safe connect/reconnect/disable, Models/repo/batch bindings | A+B; explicit workspace membership and roles; personal stable user ownership; org-owned scope; partial batch failures; no key copying into repo secrets |
-| D. MiMo real CI slice       | Existing Action/control-plane/relay/publishing adapters                                                                                   | B+C; OIDC admission, bounded run grant, native Codex tools/final answer, actual findings publication, secret isolation and lifecycle/failure gates      |
-| E. OpenRouter               | Profile adapter/config and relevant CLI compatibility                                                                                     | D; actual OpenRouter tools/final/publication, usage/error mapping; repeat only profile-specific unproven gates                                          |
-| F. Codex subscription       | Protected credential custody + engine setup/refresh + CLI profile                                                                         | B+D; live test-account connect, refresh, tools/final/publication, fenced single writer, encrypted custody/cache/history/restore qualification           |
-| G. Breaking replacement     | RR old-pool selectors/routes/UI/jobs and provisioning cleanup                                                                             | D+E+F and exact-candidate release checks; retirement contract below; old grants cannot dispatch; no dual runtime authority                              |
-| H. Sharing follow-up        | RR canonical accounts, workspace-use relations and Accounts UI                                                                            | Stable base; personal + two org uses, foreign third denied; rename/reconnect/detach/global disable/role loss/shared quota as document 50                |
-
-Claude/BYOK compatibility can run alongside E/F once its native endpoint path is
-ready. It does not qualify Claude subscription OAuth. A and B may be reviewed in
-bounded sub-PRs, but C/D form the first useful product vertical checkpoint.
-Memory and cleanup defects may require a separate bounded engine patch; they
-are acceptance work, not silently deferred because the client is modular.
-
-Before assigning another real product, name its repository, authorization policy
-and service namespace. Two disposable TS fixtures establish package portability
-and isolation, not second-product production adoption.
-
-## Runtime contracts that make the tests meaningful
-
-- Bind consumer identity to a server credential, not caller-supplied IDs. RR
-  authorizes live workspace membership, binding revision, repo/model and budget
-  before preparation and dispatch; engine groups never substitute for this.
-- Use the existing explicit RR membership policy from architecture 29. Do not
-  add broad GitHub membership permissions or an external-sync system for v1.
-- The RR-to-gateway admission envelope and acknowledged policy-fencing contract
-  are authoritative in document 50 section 5. Apply it in C/D: close local
-  admission before revoke; expose pending/unknown until remote fencing is
-  acknowledged; atomically check permission and claim each gateway attempt.
-  Pause/resume a real admitted request across revoke to prove stale envelopes
-  cannot dispatch after that fence. Classify already admitted effects separately.
-- Agent checkout, tools and loop stay in CI. CI receives a narrow revocable run
-  capability and relay origin; only servers hold upstream master credentials.
-  Test CI logs/env/artifacts and public read APIs for master-secret absence.
-- Specify start and maximum run deadline separately from initial OIDC expiry.
-  Initially issue one capability bounded to the server-approved run deadline;
-  the caller cannot extend it. Do not add renewal unless an actual supported
-  runner demonstrates that need and its contract is separately qualified. Expiry/revoke
-  denies new dispatch; accepted upstream effects are classified rather than
-  claimed undone. Automatic expiry/abandonment cleanup must be demonstrated.
-- Pin canonical account and owner authorization epoch across tool requests.
-  Ordinary fenced refresh can advance credential generation on the same account.
-  At most one classified backup before first success, freshly and atomically
-  admitted. No independent native round-robin or SDK/CLI failover.
-- Gateway owns paid inference retry/failover. Once dispatch may have occurred,
-  timeout/partial SSE is never a reason to resubmit. Stable attempt references
-  and effect-state readback distinguish not-dispatched from unknown outcome;
-  unknown effect fences the invocation even if a caller changes request ID.
-- Qualify bounded streaming/backpressure/cancellation and native CLI retry
-  behavior. Observe process/memory bounds under concurrent invocations and
-  cleanup after deadline, worker loss and abandoned supervisor. Historical
-  functional load success does not close the failed strict RSS gate.
-- Endpoint/profile configuration is server-owned; deny arbitrary upstream URLs,
-  redirects, admin routes and unsupported agent/protocol/profile combinations.
-  New engine restore does not revive obsolete grants or credential authority.
-
-Keep actual failure-path evidence beside the exact candidate. Add tests for
-observable contract regressions at the nearest strong boundary. Explain what
-would make each new test fail; no source-string assertions, mock-only tests,
-copied implementation expectations or duplicated scenarios at every layer.
-
-## Retirement contract, without migration
-
-1. Qualify the new stack on disposable accounts/repositories. Reuse existing
-   disposable repos; no launch/provisioning tests on real user projects.
-2. In the coherent replacement batch, close old admission and refresh scheduling,
-   invalidate old grants and classify in-flight effects. Check that no legacy
-   writer survives before enrolling that same provider identity into Sub2API.
-3. Require new connection/setup and new server-side repo bindings. Update the
-   supported Action/control plane together. Old workflow versions/config fail
-   with a clear reconnect/update state; no transparent fallback to old secrets.
-4. Remove old pool UI/routes/runtime selectors and obsolete secret provisioning.
-   Remove dead code without weakening unrelated account/tenant invariants. A
-   source grep alone is not proof: stale API/grant/workflow behavior must deny.
-5. No history import or credential conversion. Existing read-only evidence can
-   stay under retention; retire legacy secrets under that policy. Do not delete
-   unrelated review/user/workspace data.
-6. If the new candidate fails, suspend dispatch and repair/revert safely; do not
-   automatically restart old refresh writers or revive old grants. Preserve
-   ambiguous-effect evidence. Breaking compatibility is not permission to replay
-   a paid request or corrupt existing tenant crypto constraints.
-
-This is the target delivery behavior. The current production pool is not shut
-down during this planning turn. Follow the existing release/deployment runbook
-for an actual coherent verified batch.
-
-## Budget interpretation and open risks
+### Budget interpretation and open risks
 
 The earlier 4–9k production /3.3–7k tests estimate covers MiMo/OpenRouter BYOK,
 private facade, own UI and CI integration. It already includes HTTP client,
@@ -352,7 +221,7 @@ four design findings: authorization handoff/fencing, scoped modular adoption,
 artifact/capability matrix and existing-docs mapping. This is a source review,
 not a subsequent independent review of the revised plan or implementation.
 
-## Source pins
+### Source pins
 
 - [Get Modular public boundary](https://github.com/agent-teams-ai/get-modular/blob/4b56072ec6ca269fb16e3fdf131d31423af804bd/README.md)
   and [consumer construction](https://github.com/agent-teams-ai/get-modular/blob/4b56072ec6ca269fb16e3fdf131d31423af804bd/docs/guides/consumer-quickstart.md).
