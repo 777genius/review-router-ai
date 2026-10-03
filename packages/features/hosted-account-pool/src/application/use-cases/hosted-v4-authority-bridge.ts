@@ -185,6 +185,48 @@ export class HostedV4AuthorityBridge {
     return scope;
   }
 
+  /** Server-only saved-grant lookup. This accepts no plaintext run token and
+   * issues no capability; the caller must first authenticate the relay bearer
+   * against its immutable durable grant and compare the saved scope. */
+  async resolveSavedRelayAuthority(input: {
+    readonly authorizationId: string;
+    readonly repositoryConnectionId: string;
+    readonly providerInstanceId: string;
+    readonly bindingId: string;
+    readonly bindingVersion: number;
+  }): Promise<
+    Readonly<{
+      authorization: HostedV4Authorization;
+      live: HostedV4LiveAuthority;
+    }>
+  > {
+    if (
+      !input.authorizationId ||
+      !input.repositoryConnectionId ||
+      !input.bindingId ||
+      !Number.isSafeInteger(input.bindingVersion) ||
+      input.bindingVersion < 1
+    )
+      throw denied();
+    const authorization = await this.sources.findAuthorization(
+      input.authorizationId,
+    );
+    if (
+      !authorization ||
+      authorization.authorizationId !== input.authorizationId ||
+      authorization.repositoryConnectionId !== input.repositoryConnectionId
+    )
+      throw denied();
+    const live = await this.check(authorization);
+    if (
+      live.providerInstanceId !== input.providerInstanceId ||
+      live.bindingId !== input.bindingId ||
+      live.bindingVersion !== input.bindingVersion
+    )
+      throw denied();
+    return { authorization, live };
+  }
+
   async refresh(
     capability: string,
     authorizationToken: string,

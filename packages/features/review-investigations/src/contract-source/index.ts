@@ -55,7 +55,7 @@ const commonResultFields = Object.freeze([
   }),
 ]);
 
-export const reviewInvestigationsActionContractFragment = Object.freeze({
+const reviewInvestigationsActionContractFragmentBase = Object.freeze({
   fragmentVersion: 1,
   boundedContext: "review_investigations",
   publishedEnums: Object.freeze([
@@ -92,6 +92,38 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
         "idempotency_conflict",
         "rejected",
         "missing",
+      ]),
+    }),
+    Object.freeze({
+      typeName: "ReviewInvestigationLeaseAuthorityPurpose",
+      values: Object.freeze(["shadow_turn", "relay_turn"]),
+    }),
+    Object.freeze({
+      typeName: "ReviewInvestigationRelayLeasePurpose",
+      values: Object.freeze(["relay_turn"]),
+    }),
+    Object.freeze({
+      typeName: "ReviewInvestigationRelayGrantResultStatus",
+      values: Object.freeze([
+        "issued",
+        "restored",
+        "rejected",
+        "conflict",
+        "busy",
+        "recovery_required",
+      ]),
+    }),
+    Object.freeze({
+      typeName: "ReviewInvestigationRelayStatusState",
+      values: Object.freeze([
+        "missing",
+        "prepared",
+        "dispatching",
+        "response_started",
+        "succeeded",
+        "failed_no_effect",
+        "failed_classified",
+        "terminal_unknown",
       ]),
     }),
     Object.freeze({
@@ -251,6 +283,71 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
       ]),
       resultStatusEnum: "ReviewInvestigationRestoreResultStatus",
       resultFields: commonResultFields,
+    }),
+    Object.freeze({
+      operationId: "review_investigation_relay_grant",
+      requestTypeName: "ReviewInvestigationRelayGrantRequest",
+      resultTypeName: "ReviewInvestigationRelayGrantResult",
+      callerAuthority: "run_authorization",
+      mutability: "command",
+      naturalIdempotencyPreimage: Object.freeze([
+        "investigation_id",
+        "turn_id",
+        "idempotency_key",
+      ]),
+      semanticRetryClass: "same_request",
+      requestFields: Object.freeze([
+        Object.freeze({ name: "authorizationId", type: "identifier" }),
+        Object.freeze({ name: "investigationId", type: "identifier" }),
+        Object.freeze({ name: "turnId", type: "identifier" }),
+        Object.freeze({ name: "investigationLeaseCapability", type: "token" }),
+        Object.freeze({ name: "invocationLeaseCapability", type: "token" }),
+      ]),
+      resultStatusEnum: "ReviewInvestigationRelayGrantResultStatus",
+      resultFields: Object.freeze([
+        Object.freeze({
+          name: "grantResponse",
+          type: "nullable_hosted_v4_relay_grant",
+        }),
+        Object.freeze({
+          name: "blockedPrerequisite",
+          type: "nullable_identifier",
+        }),
+      ]),
+    }),
+    Object.freeze({
+      operationId: "review_investigation_relay_status",
+      requestTypeName: "ReviewInvestigationRelayStatusRequest",
+      resultTypeName: "ReviewInvestigationRelayStatusResult",
+      callerAuthority: "run_authorization",
+      mutability: "read",
+      naturalIdempotencyPreimage: Object.freeze([
+        "investigation_id",
+        "turn_id",
+      ]),
+      semanticRetryClass: "read_only",
+      requestFields: Object.freeze([
+        Object.freeze({ name: "authorizationId", type: "identifier" }),
+        Object.freeze({ name: "investigationId", type: "identifier" }),
+        Object.freeze({ name: "turnId", type: "identifier" }),
+      ]),
+      resultStatusEnum: "ReviewInvestigationRelayStatusState",
+      resultFields: Object.freeze([
+        Object.freeze({ name: "logicalTurnKey", type: "hash" }),
+        Object.freeze({ name: "grantId", type: "nullable_identifier" }),
+        Object.freeze({ name: "requestId", type: "nullable_identifier" }),
+        Object.freeze({ name: "effectId", type: "nullable_identifier" }),
+        Object.freeze({ name: "ordinal", type: "nullable_positive_integer" }),
+        Object.freeze({ name: "requestHash", type: "nullable_hash" }),
+        Object.freeze({
+          name: "acceptedAttestationId",
+          type: "nullable_identifier",
+        }),
+        Object.freeze({
+          name: "dispatchBlockedPrerequisite",
+          type: "nullable_identifier",
+        }),
+      ]),
     }),
     Object.freeze({
       operationId: "review_investigation_turn_plan",
@@ -660,6 +757,54 @@ export const reviewInvestigationsActionContractFragment = Object.freeze({
       ]),
       resultStatusEnum: "ReviewInvestigationMutationResultStatus",
       resultFields: Object.freeze([...commonResultFields]),
+    }),
+  ]),
+});
+
+// Relay additions are versioned separately from the published base and shadow wires.
+const relayBaseOperations =
+  reviewInvestigationsActionContractFragmentBase.operations;
+const relayTurnPlanBase = relayBaseOperations.find(
+  (operation) => operation.operationId === "review_investigation_turn_plan",
+);
+const relayLeaseAcquireBase = relayBaseOperations.find(
+  (operation) => operation.operationId === "review_investigation_lease_acquire",
+);
+if (!relayTurnPlanBase || !relayLeaseAcquireBase) {
+  throw new Error("relay_contract_base_operation_missing");
+}
+
+export const reviewInvestigationsActionContractFragment = Object.freeze({
+  ...reviewInvestigationsActionContractFragmentBase,
+  operations: Object.freeze([
+    ...relayBaseOperations,
+    Object.freeze({
+      ...relayTurnPlanBase,
+      operationId: "review_investigation_relay_turn_plan",
+      requestTypeName: "ReviewInvestigationRelayTurnPlanRequest",
+      resultTypeName: "ReviewInvestigationRelayTurnPlanResult",
+      requestFields: Object.freeze([
+        ...relayTurnPlanBase.requestFields,
+        Object.freeze({
+          name: "turnBudgetCanonicalJson",
+          type: "canonical_json",
+        }),
+      ]),
+    }),
+    Object.freeze({
+      ...relayLeaseAcquireBase,
+      operationId: "review_investigation_relay_lease_acquire",
+      requestTypeName: "ReviewInvestigationRelayLeaseAcquireRequest",
+      resultTypeName: "ReviewInvestigationRelayLeaseAcquireResult",
+      requestFields: Object.freeze([
+        ...relayLeaseAcquireBase.requestFields.slice(0, 4),
+        Object.freeze({
+          name: "leasePurpose",
+          type: "enum",
+          enumTypeName: "ReviewInvestigationRelayLeasePurpose",
+        }),
+        ...relayLeaseAcquireBase.requestFields.slice(4),
+      ]),
     }),
   ]),
 });

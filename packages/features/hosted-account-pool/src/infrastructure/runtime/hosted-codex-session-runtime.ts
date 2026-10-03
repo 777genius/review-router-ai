@@ -204,12 +204,14 @@ export class HostedCodexMutationFenceLeaseStore implements LeaseStorePort {
 export class HostedCodexSessionRuntime {
   readonly sessionDriver: CodexCliSessionDriver;
   private readonly runtime: ReturnType<typeof createSubscriptionRuntime>;
+  private readonly sessionStore: HostedCodexSessionStore;
 
   constructor(input: {
     readonly sessionStore: HostedCodexSessionStore;
     readonly leaseStore: HostedCodexMutationFenceLeaseStore;
     readonly sourceEnv?: Readonly<Record<string, string | undefined>>;
   }) {
+    this.sessionStore = input.sessionStore;
     const codexBinaryPath = resolveHostedCodexBinaryPath();
     const sourceEnv = input.sourceEnv ?? {
       PATH: process.env.PATH,
@@ -258,6 +260,76 @@ export class HostedCodexSessionRuntime {
 
   classifyFailure(error: unknown) {
     return classifyCodexFailure(error);
+  }
+
+  /** One-shot canaries must never enter refreshSession: Codex's refresh
+   * bootstrap itself can execute a model request. Read the certified stored
+   * artifact and inspect its supported freshness contract without any runner,
+   * writeback or provider network. Unknown expiry is deliberately fail-closed.
+   */
+  async readFreshSessionWithoutRefresh(input: {
+    readonly accountId: string;
+    readonly validUntil: Date;
+    readonly abortSignal: AbortSignal;
+  }): Promise<{
+    readonly accessToken: string;
+    readonly chatgptAccountId: string;
+    readonly credentialGeneration: number;
+  }> {
+    input.abortSignal.throwIfAborted();
+    const session = await this.sessionStore.read({
+      providerInstanceId: input.accountId,
+      expectedProviderId: this.sessionDriver.providerId,
+    });
+    input.abortSignal.throwIfAborted();
+    if (
+      !session ||
+      session.providerInstanceId !== input.accountId ||
+      !Number.isSafeInteger(session.generation) ||
+      session.generation < 1
+    )
+      throw new Error("hosted_codex_prequalified_session_required");
+    const validation = await this.sessionDriver.validateSession({
+      session: session.artifact,
+    });
+    const now = new Date();
+    const freshness = await this.sessionDriver.inspectSessionFreshness({
+      session: session.artifact,
+      now,
+      redactor: new DefaultRedactor(),
+      // Same pinned AR default freshness policy, strengthened to cover the
+      // entire grant window. No unknown-expiry recent-refresh shortcut.
+      policy: {
+        minFreshMs: 15 * 60_000,
+        maxSessionAgeMs: 24 * 60 * 60_000,
+        refreshBeforeExpiryMs: Math.max(
+          5 * 60_000,
+          input.validUntil.getTime() - now.getTime(),
+        ),
+      },
+    });
+    input.abortSignal.throwIfAborted();
+    if (
+      validation.status !== "valid" ||
+      freshness.status !== "fresh" ||
+      !freshness.expiresAt ||
+      !Number.isFinite(input.validUntil.getTime()) ||
+      input.validUntil <= now ||
+      freshness.expiresAt <= input.validUntil
+    )
+      throw new Error("hosted_codex_prequalified_session_required");
+    const parsed = validateCodexAuthJsonBytes({
+      authJsonBytes: codexAuthJsonFromArtifact(session.artifact),
+    }).parsed;
+    const accessToken = parsed.tokens.access_token;
+    const idToken = parsed.tokens.id_token;
+    if (!accessToken || !idToken)
+      throw new Error("hosted_codex_prequalified_session_required");
+    return {
+      accessToken,
+      chatgptAccountId: extractChatgptAccountId(idToken),
+      credentialGeneration: session.generation,
+    };
   }
 
   async ensureFreshSession(input: {

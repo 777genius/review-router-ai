@@ -8,6 +8,11 @@
       "types": "./src/index.ts",
       "production": "./dist/index.js",
       "default": "./src/index.ts"
+    },
+    "./v4-relay-descriptor": {
+      "types": "./src/domain/hosted-v4-relay-descriptor.ts",
+      "production": "./dist/domain/hosted-v4-relay-descriptor.js",
+      "default": "./src/domain/hosted-v4-relay-descriptor.ts"
     }
   },
   "dependencies": {
@@ -17,6 +22,7 @@
     "@777genius/subscription-runtime": "git+https://github.com/777genius/ar.git#83a7329f4383b05ac5c39356b79f82f029182d42",
     "@openai/codex": "0.147.0",
     "@prisma/client": "^7.8.0",
+    "@reviewrouter/platform-db": "workspace:*",
     "fastify": "^5.10.0",
     "zod": "^4.4.2"
   },

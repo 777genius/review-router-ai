@@ -23,12 +23,17 @@ import {
   ReviewPublicationTerminalOutcome,
   TerminalizeUnknownReviewPublicationStatus,
   planReviewPublicationOperations,
+  exclusivePublicationHash,
+  exclusivePublicationPlanHash,
+  exclusivePublicationOperations,
+  type ExclusiveTestPublicationBinding,
   publishedReviewProjectionPublicationEnvelopeVersion,
   type ReviewPublicationOperationPlan,
   type ReviewPublicationOperationCapabilityFacts,
   type ReviewPublicationPermitIdentity,
 } from "../index";
 import { PrismaReviewPublicationRepository } from "../infrastructure/prisma/prisma-review-publication-repository";
+import { PrismaExclusiveTestPublication } from "../infrastructure/prisma/prisma-exclusive-test-publication";
 import { reviewPublicationNoEffectProofHash } from "../infrastructure/review-publication-no-effect-proof";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
@@ -48,6 +53,138 @@ describeWithDatabase("PrismaReviewPublicationRepository real database", () => {
   afterAll(async () => {
     if (prisma && fixture) await cleanupFixture(prisma, fixture);
     await prisma?.$disconnect();
+  });
+
+  it("enforces exclusive admission against legacy SQL writers and retains lost-COMMIT consumption", async () => {
+    const own = await seedFixture(prisma);
+    try {
+      const request = requestCommand(own, `exclusive-${randomUUID()}`);
+      const claim = claimCommand(request.publicationAttemptId);
+      const store = new PrismaExclusiveTestPublication(prisma);
+      const binding: ExclusiveTestPublicationBinding = {
+        intent: {
+          publicationIntentId: `NEWTEST-${randomUUID()}`,
+          approvalId: `approval-${randomUUID()}`,
+          approvalHash: digest(randomUUID()),
+          purpose: "owner_one_shot_uncapped_test",
+          repositoryGitHubId: "1252762369",
+          testIdentityId: `NEWTEST-${randomUUID()}`,
+          executionId: own.executionId,
+          ownerIdHash: claim.ownerIdHash,
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        },
+        artifactId: `artifact-${randomUUID()}`,
+        artifactHash: digest("measured-test-artifact"),
+        permitHash: exclusivePublicationHash(request.permit),
+        publicationAttemptId: request.publicationAttemptId,
+        planHash: exclusivePublicationPlanHash(request.operations),
+        operations: exclusivePublicationOperations(request.operations),
+      };
+      await store.admitIntent(binding.intent);
+      await expect(store.admitIntent(binding.intent)).rejects.toThrow(
+        "exclusive_publication_intent_already_admitted",
+      );
+      await expect(repository.request(request)).resolves.toMatchObject({
+        status: RequestReviewPublicationStatus.IdentityConflict,
+      });
+      await store.bind(binding, request.operations);
+      await expect(
+        store.bind(
+          { ...binding, artifactHash: digest("changed-artifact") },
+          request.operations,
+        ),
+      ).rejects.toThrow("exclusive_publication_binding_conflict");
+      await repository.request(request);
+      const {
+        expectedAttemptVersion: _version,
+        requestHash: claimRequestHash,
+        ...legacyClaim
+      } = claim;
+      await expect(
+        prisma.reviewPublicationClaimTermV2.create({
+          data: {
+            ...legacyClaim,
+            ownerIdHash: digest("ordinary-worker"),
+            claimId: `legacy-${randomUUID()}`,
+            acquireRequestIdHash: digest(randomUUID()),
+            acquireRequestHash: claimRequestHash,
+            commandFingerprint: "NEWTEST-legacy-claim",
+            claimCapabilityId: `legacy-cap-${randomUUID()}`,
+            state: "active",
+            renewedAt: claim.acquiredAt,
+          },
+        }),
+      ).rejects.toThrow("exclusive_publication_owner_denied");
+      const acquired = await repository.claim(claim);
+      if (acquired.status !== ClaimReviewPublicationStatus.Acquired)
+        throw new Error("exclusive_test_claim_missing");
+      const operationId = request.operations[0]!.publicationOperationId;
+      const begin = beginCommand(request.publicationAttemptId, operationId, {
+        expectedAttemptVersion: acquired.attempt.version,
+        claimId: acquired.claim.claimId,
+        claimFencingToken: acquired.claim.fencingToken,
+      });
+      const {
+        expectedAttemptVersion: _beginVersion,
+        requestHash: beginRequestHash,
+        ...legacyBegin
+      } = begin;
+      await expect(
+        prisma.reviewPublicationOperationAttemptV2.create({
+          data: {
+            ...legacyBegin,
+            acquireRequestHash: beginRequestHash,
+            commandFingerprint: "NEWTEST-legacy-begin",
+            publicationOperationId: "not-in-immutable-plan",
+            state: "active",
+          },
+        }),
+      ).rejects.toThrow("exclusive_publication_operation_denied");
+      const begun = await repository.begin(begin);
+      if (begun.status !== BeginReviewPublicationOperationStatus.Begun)
+        throw new Error("exclusive_test_begin_missing");
+      let dispatchedTransactions = 0;
+      const lostAckClient = new Proxy(prisma, {
+        get(target, property) {
+          if (property === "$transaction")
+            return async (...args: unknown[]) => {
+              dispatchedTransactions++;
+              await Reflect.apply(target.$transaction, target, args);
+              throw new Error("NEWTEST_lost_COMMIT_ack");
+            };
+          const value = Reflect.get(target, property);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const consume = {
+        binding,
+        publicationOperationId: operationId,
+        claimId: acquired.claim.claimId,
+        claimFencingToken: acquired.claim.fencingToken,
+        operationAttemptId: begin.operationAttemptId,
+        operationCapabilityId: begin.operationCapabilityId,
+      };
+      await expect(
+        new PrismaExclusiveTestPublication(lostAckClient).consume(consume),
+      ).rejects.toThrow("NEWTEST_lost_COMMIT_ack");
+      expect(dispatchedTransactions).toBe(1);
+      expect(
+        (await store.findByAttempt(request.publicationAttemptId))
+          ?.consumedOperations,
+      ).toEqual([operationId]);
+      await expect(store.consume(consume)).resolves.toBe(false);
+      await expect(
+        prisma.$executeRaw`DELETE FROM "ExclusiveTestPublicationDispatchV2" WHERE "publicationAttemptId" = ${request.publicationAttemptId}`,
+      ).rejects.toThrow("exclusive_publication_immutable");
+      await store.closeUnknown(binding);
+      expect(
+        (await store.findByAttempt(request.publicationAttemptId))?.closedAt,
+      ).not.toBeNull();
+      await expect(store.consume(consume)).resolves.toBe(false);
+    } finally {
+      // Immutable admission/dispatch evidence is intentionally retained in TEST.
+      await cleanupFixture(prisma, own);
+    }
   });
 
   it("persists request aliases and restores only the exact immutable envelope", async () => {

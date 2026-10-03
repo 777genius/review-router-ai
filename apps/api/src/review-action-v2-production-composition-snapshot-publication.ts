@@ -37,6 +37,7 @@ import {
   resolveCurrentReviewPublicationOperationIdentity,
   reviewPublicationAttemptId,
   planReviewPublicationOperations,
+  assertCurrentReviewPublication,
   publishedReviewProjectionPublicationEnvelopeVersion,
   reviewPublicationLifecycleExpectationFromProjection,
   type LiveReviewPublicationLifecyclePort,
@@ -47,6 +48,7 @@ import {
   type ReviewPublicationDecisionPorts,
   type ReviewPublicationPermitIdentity,
   type ReviewPublicationPlanningLimits,
+  type RequestReviewPublicationCommand,
 } from "@reviewrouter/features-review-publishing/v2";
 import {
   PrismaReviewPublicationRepository,
@@ -113,6 +115,136 @@ export interface ReviewPublicationContextPolicyPort {
     readonly authorization: ReviewRunAuthorization;
     readonly snapshot: ReviewExecutionSnapshot;
   }): Promise<void>;
+}
+
+type PublicationPreparationDependencies = Readonly<{
+  authorizations: ReviewActionV2AuthorizationResolverPort;
+  executions: FinalizedExecutionQueries;
+  releases: ReleaseQueries;
+  publications: ReviewPublicationAttemptQueryPort;
+  capabilities: ReviewActionV2ExecutionEvidenceCapabilityAdapter;
+  digest: ReviewActionV2DigestPort;
+  contextPolicy: ReviewPublicationContextPolicyPort;
+  now: () => Date;
+}>;
+
+export type PreparedExclusivePublication = Readonly<{
+  artifactId: string;
+  artifactHash: string;
+  verifiedPermit: ReviewPublicationPermitIdentity;
+  command: RequestReviewPublicationCommand;
+}>;
+
+/** Trusted server composition only. It exposes no request/enqueue command,
+ * waiver flag, HTTP route or caller-supplied permit facts. */
+export function createTrustedExclusivePublicationPreparation(
+  input: PublicationPreparationDependencies &
+    Readonly<{ decisions: ReviewPublicationDecisionPorts }>,
+) {
+  return Object.freeze({
+    async prepareExclusivePublication(
+      request: ReviewPublicationRequest,
+      measured: Readonly<{ artifactId: string; artifactHash: string }>,
+    ): Promise<PreparedExclusivePublication> {
+      const prepared = await preparePublicationRequest(request, input);
+      const { artifact, command, authorization, snapshot } = prepared;
+      if (prepared.existing)
+        throw routeFailure(
+          412,
+          ReviewActionV2ProtocolErrorCode.StalePrecondition,
+          "exclusive_publication_attempt_already_exists",
+        );
+      const artifactHash = await input.digest.digestUtf8(
+        `rr.review-artifact.v1\0${canonicalJson({
+          operationsCanonicalJson: request.operationsCanonicalJson,
+          projectionHash: artifact.projectionHash,
+        })}`,
+      );
+      if (
+        artifact.artifactId !== `rr:artifact:${artifactHash}` ||
+        measured.artifactId !== artifact.artifactId ||
+        measured.artifactHash !== artifactHash ||
+        artifact.byteCount !==
+          Buffer.byteLength(artifact.projectionEnvelopeJson, "utf8") ||
+        artifact.projectionHash !==
+          (await input.digest.digestUtf8(artifact.projectionEnvelopeJson))
+      )
+        throw routeFailure(
+          412,
+          ReviewActionV2ProtocolErrorCode.StalePrecondition,
+          "exclusive_publication_measured_artifact_mismatch",
+        );
+      await assertCurrentPublicationContextPolicy({
+        contextPolicy: input.contextPolicy,
+        authorization,
+        snapshot,
+      });
+      await assertCurrentReviewPublication({
+        permit: command.permit,
+        capability: ReviewPublicationCapability.Request,
+        now: input.now(),
+        decisions: input.decisions,
+      });
+      return Object.freeze({
+        artifactId: artifact.artifactId,
+        artifactHash,
+        verifiedPermit: artifact.publicationPermit,
+        command,
+      });
+    },
+    async readPublicationEvidence(
+      request: Readonly<{
+        authorizationToken: string;
+        publicationAttemptId: string;
+      }>,
+    ): Promise<
+      Readonly<{
+        view: ReviewPublicationAttemptView;
+        canonicalReceiptSetHash: string | null;
+      }>
+    > {
+      const authorization = await requireAuthorization(
+        request.authorizationToken,
+        input.authorizations,
+      );
+      const view = await input.publications.findById(
+        request.publicationAttemptId,
+      );
+      if (!view)
+        throw routeFailure(
+          404,
+          ReviewActionV2ProtocolErrorCode.NotFound,
+          "publication_attempt_missing",
+        );
+      assertPublicationReadAuthority(view, authorization);
+      return Object.freeze({
+        view,
+        canonicalReceiptSetHash:
+          view.attempt.state === ReviewPublicationAttemptState.Terminal
+            ? publicationReceiptSetHash(view)
+            : null,
+      });
+    },
+  });
+}
+
+export type TrustedExclusivePublicationPreparation = ReturnType<
+  typeof createTrustedExclusivePublicationPreparation
+>;
+
+/** Build the same live decision authorities as the ordinary production route,
+ * with a read-only repository surface and no publication application writer. */
+export function composeTrustedExclusivePublicationPreparation(
+  input: Omit<
+    Parameters<typeof composeReviewActionV2SnapshotPublicationRoutes>[0],
+    "runtime"
+  >,
+): TrustedExclusivePublicationPreparation {
+  return createTrustedExclusivePublicationPreparation({
+    ...input,
+    publications: new PrismaReviewPublicationRepository(input.prisma),
+    decisions: productionPublicationDecisions(input),
+  });
 }
 
 export function composeReviewActionV2SnapshotPublicationRoutes(input: {
@@ -297,19 +429,63 @@ async function restoreSnapshot(
 
 async function requestPublication(
   request: ReviewPublicationRequest,
-  dependencies: {
-    readonly authorizations: ReviewActionV2AuthorizationResolverPort;
-    readonly executions: FinalizedExecutionQueries;
-    readonly releases: ReleaseQueries;
-    readonly publications: ReviewPublicationAttemptQueryPort;
+  dependencies: PublicationPreparationDependencies & {
     readonly requestPublication: ReturnType<
       typeof createReviewPublicationV2Application
     >["request"];
-    readonly capabilities: ReviewActionV2ExecutionEvidenceCapabilityAdapter;
-    readonly digest: ReviewActionV2DigestPort;
-    readonly contextPolicy: ReviewPublicationContextPolicyPort;
-    readonly now: () => Date;
   },
+) {
+  const {
+    artifact,
+    authorization,
+    snapshot,
+    envelope,
+    limits,
+    existing,
+    command,
+  } = await preparePublicationRequest(request, dependencies);
+  if (existing) {
+    if (existing.attempt.requestHash !== command.requestHash) {
+      return {
+        statusCode: 200,
+        result: {
+          status: ReviewPublicationRequestResultStatus.Conflict,
+          publicationAttemptId: null,
+          publicationState: null,
+          pollAfterMs: null,
+        },
+      } as const;
+    }
+    return {
+      statusCode: 200,
+      result: {
+        status: ReviewPublicationRequestResultStatus.Restored,
+        publicationAttemptId: existing.attempt.publicationAttemptId,
+        publicationState: existing.attempt.state,
+        pollAfterMs:
+          existing.attempt.state === ReviewPublicationAttemptState.Terminal
+            ? null
+            : 1_000,
+      },
+    } as const;
+  }
+  await assertCurrentPublicationContextPolicy({
+    contextPolicy: dependencies.contextPolicy,
+    authorization,
+    snapshot,
+  });
+  return enqueuePublicationRequest({
+    artifact,
+    envelope,
+    limits,
+    command,
+    dependencies,
+  });
+}
+
+async function preparePublicationRequest(
+  request: ReviewPublicationRequest,
+  dependencies: PublicationPreparationDependencies,
 ) {
   await assertRequestBodyHash(request, dependencies.digest);
   const authorization = await requireAuthorization(
@@ -386,36 +562,31 @@ async function requestPublication(
     publicationAttemptId,
     existing,
   });
-  if (existing) {
-    if (existing.attempt.requestHash !== command.requestHash) {
-      return {
-        statusCode: 200,
-        result: {
-          status: ReviewPublicationRequestResultStatus.Conflict,
-          publicationAttemptId: null,
-          publicationState: null,
-          pollAfterMs: null,
-        },
-      } as const;
-    }
-    return {
-      statusCode: 200,
-      result: {
-        status: ReviewPublicationRequestResultStatus.Restored,
-        publicationAttemptId: existing.attempt.publicationAttemptId,
-        publicationState: existing.attempt.state,
-        pollAfterMs:
-          existing.attempt.state === ReviewPublicationAttemptState.Terminal
-            ? null
-            : 1_000,
-      },
-    } as const;
-  }
-  await assertCurrentPublicationContextPolicy({
-    contextPolicy: dependencies.contextPolicy,
+  return {
+    artifact,
     authorization,
     snapshot,
-  });
+    envelope,
+    limits,
+    existing,
+    command,
+  };
+}
+
+async function enqueuePublicationRequest(input: {
+  artifact: FinalizedReviewProjectionArtifact;
+  envelope: PublishedReviewProjectionPublicationEnvelope;
+  limits: NonNullable<
+    Awaited<ReturnType<ReleaseQueries["findProtocolLimitsProfileById"]>>
+  >;
+  command: RequestReviewPublicationCommand;
+  dependencies: PublicationPreparationDependencies & {
+    requestPublication: ReturnType<
+      typeof createReviewPublicationV2Application
+    >["request"];
+  };
+}) {
+  const { artifact, envelope, limits, command, dependencies } = input;
   let result;
   try {
     result = await dependencies.requestPublication(command);

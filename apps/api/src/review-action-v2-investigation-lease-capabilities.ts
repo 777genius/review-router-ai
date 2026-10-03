@@ -11,6 +11,7 @@ import {
 } from "@reviewrouter/features-review-investigations";
 
 const investigationLeaseRole = "review_investigation_shadow_lease_v1";
+const relayLeaseRole = "review_investigation_relay_lease_v1";
 
 export type ReviewActionV2InvestigationLeaseCapabilityIdentity = Readonly<{
   capabilityId: string;
@@ -18,6 +19,7 @@ export type ReviewActionV2InvestigationLeaseCapabilityIdentity = Readonly<{
 }>;
 
 export type VerifiedReviewActionV2InvestigationLeaseCapability = Readonly<{
+  purpose: ReviewInvestigationLeasePurpose;
   capabilityId: string;
   authorizationId: string;
   mutationEpoch: bigint;
@@ -50,6 +52,10 @@ export interface ReviewActionV2InvestigationLeaseCapabilityPort {
     token: string,
     now: Date,
   ): Promise<VerifiedReviewActionV2InvestigationLeaseCapability>;
+  verifyRelay?(
+    token: string,
+    now: Date,
+  ): Promise<VerifiedReviewActionV2InvestigationLeaseCapability>;
 }
 
 export class ReviewActionV2InvestigationLeaseCapabilityAdapter implements ReviewActionV2InvestigationLeaseCapabilityPort {
@@ -75,13 +81,21 @@ export class ReviewActionV2InvestigationLeaseCapabilityAdapter implements Review
     lease: ReviewInvestigationLease,
     authorizationScopeHash: string,
   ): Promise<string> {
-    if (lease.purpose !== ReviewInvestigationLeasePurpose.ShadowTurn) {
+    if (
+      lease.purpose !== ReviewInvestigationLeasePurpose.ShadowTurn &&
+      lease.purpose !== ReviewInvestigationLeasePurpose.RelayTurn
+    ) {
       throw new Error("investigation_lease_capability_purpose_invalid");
     }
+    const relay = lease.purpose === ReviewInvestigationLeasePurpose.RelayTurn;
     const signed = await this.codec.sign({
       capabilityId: lease.leaseCapabilityId,
-      kind: CapabilityKind.InvestigationShadowLease,
-      audience: CapabilityAudience.ReviewInvestigationShadowLease,
+      kind: relay
+        ? CapabilityKind.InvestigationRelayLease
+        : CapabilityKind.InvestigationShadowLease,
+      audience: relay
+        ? CapabilityAudience.ReviewInvestigationRelayLease
+        : CapabilityAudience.ReviewInvestigationShadowLease,
       issuer: this.issuer,
       subject: lease.leaseId,
       issuedAt: new Date(lease.renewedAt),
@@ -89,7 +103,7 @@ export class ReviewActionV2InvestigationLeaseCapabilityAdapter implements Review
       ownershipExpiresAt: new Date(lease.expiresAt),
       expiresAt: new Date(lease.resultReportUntil),
       payload: {
-        role: investigationLeaseRole,
+        role: relay ? relayLeaseRole : investigationLeaseRole,
         authorization_id: lease.authorizationId,
         mutation_epoch: lease.mutationEpoch.toString(10),
         scope_hash: authorizationScopeHash,
@@ -116,11 +130,39 @@ export class ReviewActionV2InvestigationLeaseCapabilityAdapter implements Review
     token: string,
     now: Date,
   ): Promise<VerifiedReviewActionV2InvestigationLeaseCapability> {
+    return this.verifyForPurpose(
+      token,
+      now,
+      ReviewInvestigationLeasePurpose.ShadowTurn,
+    );
+  }
+
+  async verifyRelay(
+    token: string,
+    now: Date,
+  ): Promise<VerifiedReviewActionV2InvestigationLeaseCapability> {
+    return this.verifyForPurpose(
+      token,
+      now,
+      ReviewInvestigationLeasePurpose.RelayTurn,
+    );
+  }
+
+  private async verifyForPurpose(
+    token: string,
+    now: Date,
+    purpose: ReviewInvestigationLeasePurpose,
+  ): Promise<VerifiedReviewActionV2InvestigationLeaseCapability> {
+    const relay = purpose === ReviewInvestigationLeasePurpose.RelayTurn;
     const claims = await this.codec.verify({
       token,
       expectedIssuer: this.issuer,
-      expectedAudience: CapabilityAudience.ReviewInvestigationShadowLease,
-      expectedKind: CapabilityKind.InvestigationShadowLease,
+      expectedAudience: relay
+        ? CapabilityAudience.ReviewInvestigationRelayLease
+        : CapabilityAudience.ReviewInvestigationShadowLease,
+      expectedKind: relay
+        ? CapabilityKind.InvestigationRelayLease
+        : CapabilityKind.InvestigationShadowLease,
       now,
     });
     const payload = exactPayload(claims.payload, [
@@ -144,13 +186,15 @@ export class ReviewActionV2InvestigationLeaseCapabilityAdapter implements Review
       "fencing_token",
     ]);
     if (
-      text(field(payload, "role")) !== investigationLeaseRole ||
+      text(field(payload, "role")) !==
+        (relay ? relayLeaseRole : investigationLeaseRole) ||
       claims.subject !== text(field(payload, "lease_id")) ||
       claims.ownershipExpiresAt === null
     ) {
       throw new Error("investigation_lease_capability_claims_invalid");
     }
     return Object.freeze({
+      purpose,
       capabilityId: claims.capabilityId,
       authorizationId: text(field(payload, "authorization_id")),
       mutationEpoch: unsignedBigInt(field(payload, "mutation_epoch")),

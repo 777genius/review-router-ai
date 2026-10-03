@@ -309,6 +309,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
       REVIEW_ROUTER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
+      REVIEW_ROUTER_V4_RELAY_DISPOSABLE_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/rr_v4_444_disposable_ci?schema=public
 
     services:
       postgres:
@@ -389,6 +390,7 @@ jobs:
         run: |
           psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci'
           psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_provider_scope_ci_test'
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE rr_v4_444_disposable_ci'
           psql -h 127.0.0.1 -p 5433 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci_test'
 
       # Application suites need the stock, role-free schema. Keep it in its own
@@ -413,19 +415,44 @@ jobs:
       - name: Apply dev database migrations
         run: pnpm db:migrate:deploy
 
-      # Dev reached 110 without a release pair. The provider fixture shares its
-      # cluster; reject its dirty catalog before creating the restricted login.
+      # Dev reached 111 without a release pair. The provider and v4 fixtures
+      # share its cluster; reject dirty catalogs before creating the login.
       - name: Complete disposable CI release-role catalog
         env:
           PGPASSWORD: postgres
         run: |
           set -o pipefail
-          for database in review_router_provider_scope_ci_test; do
+          for database in review_router_provider_scope_ci_test rr_v4_444_disposable_ci; do
             node --input-type=module -e 'import { disposableFreshDatabasePreflightSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
               psql -XqAt -h 127.0.0.1 -U postgres -d "$database" -v ON_ERROR_STOP=1
           done
           node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci
 
+      - name: Apply v4 disposable database through 000086
+        run: |
+          BEFORE87_CONFIG=$(node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs catalog "$RUNNER_TEMP")
+          DATABASE_URL="$REVIEW_ROUTER_V4_RELAY_DISPOSABLE_DATABASE_URL" pnpm --filter @reviewrouter/platform-db exec prisma migrate deploy --config "$BEFORE87_CONFIG"
+
+      - name: Hand off exact v4 disposable database owners before 000087
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          for database in rr_v4_444_disposable_ci; do
+            node --input-type=module -e 'import { disposableBefore87HandoffSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+              psql -XqAt -h 127.0.0.1 -U postgres -d "$database" -v ON_ERROR_STOP=1
+          done
+
+      - name: Complete v4 disposable database through 000111 and verify
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          DATABASE_URL="$REVIEW_ROUTER_V4_RELAY_DISPOSABLE_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
+          for database in rr_v4_444_disposable_ci; do
+            node --input-type=module -e 'import { disposableFullChainVerificationSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+              psql -XqAt -h 127.0.0.1 -U postgres -d "$database" -v ON_ERROR_STOP=1
+          done
       - name: SDK authority and outbox PostgreSQL contracts (zero skips)
         env:
           REVIEW_ROUTER_REQUIRE_SDK_GROWTH_SCHEMA_PG17: "1"

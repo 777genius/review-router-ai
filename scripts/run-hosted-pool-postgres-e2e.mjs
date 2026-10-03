@@ -116,6 +116,7 @@ const sdkGrowthApprovalLedgerMigration = "000113_sdk_growth_approval_ledger";
 const sdkGrowthV3ToolArtifactMigration = "000114_sdk_growth_v3_tool_artifact";
 const sdkGrowthV3ApprovedManifestMigration =
   "000115_sdk_growth_v3_approved_manifest";
+const v4FencedDispatchMigration = "000116_hosted_v4_fenced_dispatch";
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -192,6 +193,8 @@ try {
     addMigration(rehearsalDirectory, historicalUnknownScopeBarrierMigration);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     addMigration(rehearsalDirectory, sdkGrowthSourceBindingMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    addMigration(rehearsalDirectory, v4FencedDispatchMigration);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
 
     const migrationCount = await countAppliedMigrations(migrationDatabaseUrl);
@@ -778,6 +781,7 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           sdkGrowthApprovalLedgerMigration,
           sdkGrowthV3ToolArtifactMigration,
           sdkGrowthV3ApprovedManifestMigration,
+          v4FencedDispatchMigration,
         ]
       : []),
   ]);

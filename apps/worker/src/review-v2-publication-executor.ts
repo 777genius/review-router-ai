@@ -14,6 +14,12 @@ import {
   ReviewPublicationTerminalOutcome,
   TerminalizeUnknownReviewPublicationStatus,
   operationCapabilityFacts,
+  exclusivePublicationHash,
+  exclusivePublicationOperationHash,
+  exclusivePublicationPlanHash,
+  exclusivePublicationOperations,
+  hasEveryRequiredCanonicalReceipt,
+  type ExclusiveTestPublicationBinding,
   planPublicationSiblingTerminalizations,
   publicationOperationsWithExternalEffectRisk,
   selectCanonicalExternalEffect,
@@ -46,6 +52,14 @@ import {
 } from "./review-v2-publication-ports";
 
 const hashPattern = /^[a-f0-9]{64}$/;
+function exclusiveUnknown(
+  safeReason: string,
+): ReviewV2PublicationExecutionResult {
+  return {
+    status: ReviewV2PublicationExecutionStatus.TerminalUnknown,
+    safeReason,
+  };
+}
 
 type AcquiredClaim = {
   readonly claim: ReviewPublicationClaimTerm;
@@ -88,7 +102,153 @@ export class ExecuteReviewV2PublicationOperation {
   async execute(
     requestedCommand: ReviewV2PublicationExecutionCommand,
   ): Promise<ReviewV2PublicationExecutionResult> {
+    return this.executeInternal(requestedCommand, null);
+  }
+
+  /** Qualification is read-only and must precede provider use. No flag can
+   * replace the durable store or the no-retry transport adapter. */
+  qualifyExclusivePublication(): void {
+    if (
+      !this.dependencies.exclusivePublication ||
+      !this.dependencies.credentials.acquireNoRetry
+    ) {
+      throw new Error("exclusive_publication_adapter_unavailable");
+    }
+  }
+
+  async executeExclusiveOnce(
+    command: ReviewV2PublicationExecutionCommand,
+    binding: ExclusiveTestPublicationBinding,
+  ): Promise<ReviewV2PublicationExecutionResult> {
+    return this.executeExclusivePlan(command, binding);
+  }
+
+  async executeExclusivePlan(
+    command: Omit<
+      ReviewV2PublicationExecutionCommand,
+      "publicationOperationId"
+    >,
+    binding: ExclusiveTestPublicationBinding,
+  ): Promise<ReviewV2PublicationExecutionResult> {
+    this.qualifyExclusivePublication();
+    try {
+      const previous =
+        await this.dependencies.exclusivePublication!.findByAttempt(
+          command.publicationAttemptId,
+        );
+      if (
+        !previous?.binding ||
+        previous.closedAt !== null ||
+        previous.consumedOperations.length !== 0 ||
+        exclusivePublicationHash(previous.binding) !==
+          exclusivePublicationHash(binding) ||
+        command.ownerIdHash !== binding.intent.ownerIdHash
+      ) {
+        // Restoration is observation-only, including partial completion.
+        return this.observeExclusivePublication(command, binding);
+      }
+      for (const operation of binding.operations) {
+        const result = await this.executeInternal(
+          {
+            ...command,
+            publicationOperationId: operation.publicationOperationId,
+          },
+          binding,
+        );
+        if (result.status !== ReviewV2PublicationExecutionStatus.Completed) {
+          await this.dependencies.exclusivePublication!.closeUnknown(binding);
+          return exclusiveUnknown(result.safeReason);
+        }
+      }
+      const complete = await this.observeExclusivePublication(command, binding);
+      return complete.status ===
+        ReviewV2PublicationExecutionStatus.AlreadyCompleted
+        ? { ...complete, status: ReviewV2PublicationExecutionStatus.Completed }
+        : complete;
+    } catch {
+      // Including lost DB acknowledgments after mutation. Retained consumed
+      // intent, not a caller retry, determines any later observation.
+      try {
+        await this.dependencies.exclusivePublication!.closeUnknown(binding);
+      } catch {
+        /* sticky dispatch rows still fence restoration */
+      }
+      return exclusiveUnknown("exclusive_publication_execution_unknown");
+    }
+  }
+
+  /** No claim, capability, provider mutation or cleanup. A partial required
+   * receipt set is never completion and never permission to resume SEND. */
+  async observeExclusivePublication(
+    command: Omit<
+      ReviewV2PublicationExecutionCommand,
+      "publicationOperationId"
+    >,
+    binding: ExclusiveTestPublicationBinding,
+  ): Promise<ReviewV2PublicationExecutionResult> {
+    const retained =
+      await this.dependencies.exclusivePublication?.findByAttempt(
+        command.publicationAttemptId,
+      );
+    const view = await this.dependencies.attempts.findById(
+      command.publicationAttemptId,
+    );
+    if (
+      !retained?.binding ||
+      !view ||
+      command.ownerIdHash !== binding.intent.ownerIdHash ||
+      exclusivePublicationHash(retained.binding) !==
+        exclusivePublicationHash(binding) ||
+      exclusivePublicationHash(view.attempt.permit) !== binding.permitHash ||
+      exclusivePublicationPlanHash(view.attempt.operations) !==
+        binding.planHash ||
+      !hasEveryRequiredCanonicalReceipt({
+        operations: view.attempt.operations,
+        receipts: view.receipts,
+      }) ||
+      (await this.readFreshness(command.provider, view.attempt.permit))
+        .status !== "current"
+    ) {
+      return exclusiveUnknown(
+        "exclusive_publication_required_receipts_unresolved",
+      );
+    }
+    return {
+      status: ReviewV2PublicationExecutionStatus.AlreadyCompleted,
+      safeReason: "exclusive_publication_full_plan_observed",
+      receiptStatus: ReviewPublicationReceiptStatus.Succeeded,
+    };
+  }
+
+  private async executeInternal(
+    requestedCommand: ReviewV2PublicationExecutionCommand,
+    exclusiveBinding: ExclusiveTestPublicationBinding | null,
+  ): Promise<ReviewV2PublicationExecutionResult> {
     assertCommand(requestedCommand);
+    const exclusive =
+      await this.dependencies.exclusivePublication?.findByAttempt(
+        requestedCommand.publicationAttemptId,
+      );
+    if (exclusiveBinding) {
+      if (
+        !exclusive?.binding ||
+        exclusive.closedAt !== null ||
+        exclusive.consumedOperations.includes(
+          requestedCommand.publicationOperationId,
+        ) ||
+        exclusivePublicationHash(exclusive.binding) !==
+          exclusivePublicationHash(exclusiveBinding) ||
+        requestedCommand.ownerIdHash !== exclusiveBinding.intent.ownerIdHash ||
+        !exclusiveBinding.operations.some(
+          (op) =>
+            op.publicationOperationId ===
+            requestedCommand.publicationOperationId,
+        )
+      ) {
+        return exclusiveUnknown("exclusive_publication_dispatch_closed");
+      }
+    } else if (exclusive)
+      return manual("exclusive_publication_dedicated_owner_required");
     let view = await this.dependencies.attempts.findById(
       requestedCommand.publicationAttemptId,
     );
@@ -104,6 +264,34 @@ export class ExecuteReviewV2PublicationOperation {
       requestedCommand.publicationOperationId,
     );
     const riskOperations = externalEffectRiskOperations(view);
+    const exclusiveOperation = exclusiveBinding?.operations.find(
+      (op) =>
+        op.publicationOperationId === requestedCommand.publicationOperationId,
+    );
+    if (
+      exclusiveBinding &&
+      (exclusivePublicationHash(view.attempt.permit) !==
+        exclusiveBinding.permitHash ||
+        exclusivePublicationOperationHash(requestedOperation) !==
+          exclusiveOperation?.operationHash ||
+        exclusivePublicationPlanHash(view.attempt.operations) !==
+          exclusiveBinding.planHash ||
+        exclusivePublicationHash(
+          exclusivePublicationOperations(view.attempt.operations),
+        ) !== exclusivePublicationHash(exclusiveBinding.operations) ||
+        view.operationAttempts.some(
+          (op) =>
+            op.publicationOperationId ===
+            requestedOperation.publicationOperationId,
+        ) ||
+        riskOperations.some(
+          (op) =>
+            op.publicationOperationId ===
+            requestedOperation.publicationOperationId,
+        ))
+    ) {
+      return exclusiveUnknown("exclusive_publication_restoration_no_send");
+    }
     const requestedOperationHasRisk = riskOperations.some(
       (candidate) =>
         candidate.publicationOperationId ===
@@ -111,7 +299,11 @@ export class ExecuteReviewV2PublicationOperation {
     );
     let operationSelectedForReconciliation: ReviewPublicationOperation | null =
       requestedOperationHasRisk ? requestedOperation : null;
-    if (!requestedOperationHasRisk && riskOperations.length > 0) {
+    if (
+      !exclusiveBinding &&
+      !requestedOperationHasRisk &&
+      riskOperations.length > 0
+    ) {
       const routingFreshness = await this.readFreshness(
         requestedCommand.provider,
         view.attempt.permit,
@@ -343,7 +535,10 @@ export class ExecuteReviewV2PublicationOperation {
     }
     let mutationSession: ReviewV2ScmGatewaySession;
     try {
-      mutationSession = await this.dependencies.credentials.acquire({
+      const acquire = exclusiveBinding
+        ? this.dependencies.credentials.acquireNoRetry!
+        : this.dependencies.credentials.acquire;
+      mutationSession = await acquire.call(this.dependencies.credentials, {
         provider: command.provider,
         purpose: ReviewV2ScmCredentialPurpose.Mutate,
         permit: begun.attempt.permit,
@@ -359,6 +554,22 @@ export class ExecuteReviewV2PublicationOperation {
       if (mutationSession.purpose !== ReviewV2ScmCredentialPurpose.Mutate) {
         return manual("publication_mutation_credential_scope_invalid");
       }
+      if (exclusiveBinding) {
+        const original = mutationSession;
+        mutationSession = {
+          purpose: ReviewV2ScmCredentialPurpose.Mutate,
+          close: () => original.close(),
+          gateway: {
+            findAllByMarker: (request) =>
+              original.gateway.findAllByMarker(request),
+            applyOperation: (request) =>
+              original.gateway.applyOperation(request),
+            markStaleOrDelete: async () => {
+              throw new Error("exclusive_publication_cleanup_forbidden");
+            },
+          },
+        };
+      }
       let inventory: readonly ReviewPublicationGatewayObject[];
       try {
         inventory = await this.loadInventory(
@@ -367,6 +578,11 @@ export class ExecuteReviewV2PublicationOperation {
         );
       } catch {
         return manual("publication_marker_inventory_invalid");
+      }
+      // This lane has no compensation authority. Existing objects are evidence,
+      // not permission to delete/update them or start a second mutation.
+      if (exclusiveBinding && inventory.length !== 0) {
+        return exclusiveUnknown("exclusive_publication_inventory_not_empty");
       }
       if (hasCurrentOperationObject(inventory, begun.operation)) {
         return this.settleInventory({
@@ -478,11 +694,26 @@ export class ExecuteReviewV2PublicationOperation {
         });
       }
       try {
+        if (exclusiveBinding) {
+          const consumed =
+            await this.dependencies.exclusivePublication!.consume({
+              binding: exclusiveBinding,
+              publicationOperationId: command.publicationOperationId,
+              claimId: claim.claimId,
+              claimFencingToken: claim.fencingToken,
+              operationAttemptId: capability.operationAttemptId,
+              operationCapabilityId: capability.capabilityId,
+            });
+          if (!consumed)
+            return exclusiveUnknown("exclusive_publication_dispatch_consumed");
+        }
         applied = await mutationSession.gateway.applyOperation({
           operation: begun.operation,
           capability,
         });
       } catch (error) {
+        if (exclusiveBinding)
+          return exclusiveUnknown("exclusive_publication_dispatch_unknown");
         return this.reconcileAfterMutationFailure({
           command,
           operation: begun.operation,
@@ -531,6 +762,13 @@ export class ExecuteReviewV2PublicationOperation {
         });
       }
       const inventoryAfterMutation = mergeGatewayObjects(observed, [applied]);
+      if (
+        exclusiveBinding &&
+        (afterMutation.status !== "current" ||
+          inventoryAfterMutation.length !== 1)
+      ) {
+        return exclusiveUnknown("exclusive_publication_post_dispatch_unknown");
+      }
       if (afterMutation.status !== "current") {
         return this.handleStaleKnownEffect({
           command,

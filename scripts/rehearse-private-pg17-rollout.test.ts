@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -56,6 +57,22 @@ import {
 } from "./rehearse-private-pg17-rollout.mjs";
 
 const digest = "d".repeat(64);
+
+function syntheticPrismaFixture(migrationNames: readonly string[]) {
+  const root = mkdtempSync(join("scripts", "NEWTEST-migration-boundary-"));
+  const source = join(root, "source");
+  mkdirSync(join(source, "migrations"), { recursive: true });
+  writeFileSync(join(source, "schema.prisma"), "// NEWTEST synthetic schema\n");
+  for (const name of migrationNames) {
+    const directory = join(source, "migrations", name);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(
+      join(directory, "migration.sql"),
+      `-- NEWTEST synthetic migration ${name}\nSELECT 1;\n`,
+    );
+  }
+  return { root, source };
+}
 
 function gitCustodyFixture() {
   const root = mkdtempSync(join(tmpdir(), "rr-catalog-git-custody-"));
@@ -1272,15 +1289,20 @@ describe("disposable dual-version rehearsal", () => {
 
     const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
     const previousCheckout = migrationNames.filter(
-      (name) => name !== "000116_hosted_codex_relay_admission_utc",
+      (name) =>
+        name !== "000117_hosted_v4_one_shot_dispatch" &&
+        name !== "000118_exclusive_test_publication",
     );
-    expect(previousCheckout).toHaveLength(114);
+    expect(previousCheckout).toHaveLength(116);
+    expect(migrationManifestIdentity(previousCheckout)).toBe(
+      "sha256:9eeace9d8fdb11a4052077e023dd5b895b5c25482b6776962a8886f2e5ec5182",
+    );
     expect(() =>
       resolvePreReleaseMigrationExclusions(previousCheckout),
     ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
-    expect(migrationNames).toHaveLength(115);
+    expect(migrationNames).toHaveLength(118);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:30f68ffc62e0b46815bc007339d83aa7894b61b23f301c012b8990713cc0ad14",
+      "sha256:84ce2adbefa80ba402eef62e6c8349887c214a3e2be2a332a741a98f1b5498e5",
     );
 
     expect(exclusions).toEqual([
@@ -1323,6 +1345,9 @@ describe("disposable dual-version rehearsal", () => {
       "000114_sdk_growth_v3_tool_artifact",
       "000115_sdk_growth_v3_approved_manifest",
       "000116_hosted_codex_relay_admission_utc",
+      "000116_hosted_v4_fenced_dispatch",
+      "000117_hosted_v4_one_shot_dispatch",
+      "000118_exclusive_test_publication",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1378,7 +1403,10 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000113_sdk_growth_approval_ledger" &&
             name !== "000114_sdk_growth_v3_tool_artifact" &&
             name !== "000115_sdk_growth_v3_approved_manifest" &&
-            name !== "000116_hosted_codex_relay_admission_utc",
+            name !== "000116_hosted_codex_relay_admission_utc" &&
+            name !== "000116_hosted_v4_fenced_dispatch" &&
+            name !== "000117_hosted_v4_one_shot_dispatch" &&
+            name !== "000118_exclusive_test_publication",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1407,7 +1435,10 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000113_sdk_growth_approval_ledger" &&
             name !== "000114_sdk_growth_v3_tool_artifact" &&
             name !== "000115_sdk_growth_v3_approved_manifest" &&
-            name !== "000116_hosted_codex_relay_admission_utc",
+            name !== "000116_hosted_codex_relay_admission_utc" &&
+            name !== "000116_hosted_v4_fenced_dispatch" &&
+            name !== "000117_hosted_v4_one_shot_dispatch" &&
+            name !== "000118_exclusive_test_publication",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1435,7 +1466,15 @@ describe("disposable dual-version rehearsal", () => {
       [...names, exactTail],
       names.map((name) => (name === exactTail ? "000108_unknown" : name)),
       [...names, "000109_future_migration"],
-      [...names, "000111_future_migration"],
+      [...names, "000117_future_migration"],
+      [...names, "000118_future_migration"],
+      [...names, "000119_future_migration"],
+      names.filter((name) => name !== "000116_hosted_v4_fenced_dispatch"),
+      names.map((name) =>
+        name === "000116_hosted_v4_fenced_dispatch"
+          ? "000111_relabelled"
+          : name,
+      ),
       names.map((name) =>
         name === "000110_historical_unknown_scope_barrier"
           ? "000110_relabelled"
@@ -1468,13 +1507,17 @@ describe("disposable dual-version rehearsal", () => {
     "000114_sdk_growth_v3_tool_artifact",
     "000115_sdk_growth_v3_approved_manifest",
     "000116_hosted_codex_relay_admission_utc",
+    "000116_hosted_v4_fenced_dispatch",
+    "000117_hosted_v4_one_shot_dispatch",
+    "000118_exclusive_test_publication",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
-      const source = "packages/platform/db/prisma";
+      const { root, source } = syntheticPrismaFixture(
+        canonicalPrismaMigrationNames,
+      );
       const sourceSql = join(source, "migrations", migration, "migration.sql");
       const before = readFileSync(sourceSql);
-      const root = mkdtempSync(join(tmpdir(), "rr-pre-release96-"));
       try {
         const destination = materializeCanonicalPreReleasePrisma(
           source,
@@ -1482,6 +1525,15 @@ describe("disposable dual-version rehearsal", () => {
         );
         const historical = readdirSync(join(destination, "migrations"));
         expect(historical).not.toContain(migration);
+        for (const name of historical) {
+          expect(
+            readFileSync(
+              join(destination, "migrations", name, "migration.sql"),
+            ),
+          ).toEqual(
+            readFileSync(join(source, "migrations", name, "migration.sql")),
+          );
+        }
         expect(migrationManifestIdentity(historical)).toBe(
           canonicalReleaseMigrationArtifact.preManifestIdentity,
         );
@@ -1513,7 +1565,10 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000113_sdk_growth_approval_ledger" &&
                 name !== "000114_sdk_growth_v3_tool_artifact" &&
                 name !== "000115_sdk_growth_v3_approved_manifest" &&
-                name !== "000116_hosted_codex_relay_admission_utc",
+                name !== "000116_hosted_codex_relay_admission_utc" &&
+                name !== "000116_hosted_v4_fenced_dispatch" &&
+                name !== "000117_hosted_v4_one_shot_dispatch" &&
+                name !== "000118_exclusive_test_publication",
               "000102_sdk_growth_current_authority",
             ),
           ),
@@ -1525,6 +1580,49 @@ describe("disposable dual-version rehearsal", () => {
       }
     },
   );
+  it.each([
+    "000116_hosted_codex_relay_admission_utc",
+    "000116_hosted_v4_fenced_dispatch",
+    "000117_hosted_v4_one_shot_dispatch",
+    "000118_exclusive_test_publication",
+  ])("rejects omitted, duplicated, or renamed %s", (migration) => {
+    const names = canonicalPrismaMigrationNames;
+    const omitted = names.filter((name) => name !== migration);
+    const renamed = names.map((name) =>
+      name === migration ? `${migration}_alien` : name,
+    );
+    for (const candidate of [omitted, [...names, migration], renamed]) {
+      expect(() => resolvePreReleaseMigrationExclusions(candidate)).toThrow(
+        "private_pg17_rehearsal_migration_boundary_unclassified",
+      );
+    }
+    for (const candidate of [omitted, renamed]) {
+      const { root, source } = syntheticPrismaFixture(candidate);
+      try {
+        expect(() =>
+          materializeCanonicalPreReleasePrisma(source, join(root, "prisma")),
+        ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
+        expect(readdirSync(join(source, "migrations")).sort()).toEqual(
+          [...candidate].sort(),
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+  it("rejects an alien future migration during fixture materialization", () => {
+    const { root, source } = syntheticPrismaFixture([
+      ...canonicalPrismaMigrationNames,
+      "000119_alien_migration",
+    ]);
+    try {
+      expect(() =>
+        materializeCanonicalPreReleasePrisma(source, join(root, "prisma")),
+      ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it("canonicalizes only the disposable PUBLIC table-read drift", () => {
     const sql = disposableTargetPublicTableAclCanonicalizationSql();
 

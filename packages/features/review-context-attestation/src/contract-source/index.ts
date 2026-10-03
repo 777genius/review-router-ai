@@ -1,7 +1,15 @@
-export const reviewContextAttestationActionContractFragment = Object.freeze({
+const reviewContextAttestationActionContractFragmentBase = Object.freeze({
   fragmentVersion: 1,
   boundedContext: "review_context_attestation",
   publishedEnums: Object.freeze([
+    Object.freeze({
+      typeName: "ReviewInvestigationContextLeaseAuthorityKind",
+      values: Object.freeze(["investigation_shadow", "investigation_relay"]),
+    }),
+    Object.freeze({
+      typeName: "ReviewInvestigationRelayContextLeaseAuthorityKind",
+      values: Object.freeze(["investigation_relay"]),
+    }),
     Object.freeze({
       typeName: "ReviewContextGatewayOpenResultStatus",
       values: Object.freeze(["opened", "idempotent", "denied", "conflict"]),
@@ -267,6 +275,57 @@ export const reviewContextAttestationActionContractFragment = Object.freeze({
           name: "attachmentCapability",
           type: "nullable_token",
         }),
+      ]),
+    }),
+  ]),
+});
+
+const relayGatewayBaseOperations =
+  reviewContextAttestationActionContractFragmentBase.operations;
+const relayGatewayOpenBase = relayGatewayBaseOperations.find(
+  (operation) =>
+    operation.operationId === "review_investigation_context_gateway_open",
+);
+const relayGatewaySealBase = relayGatewayBaseOperations.find(
+  (operation) =>
+    operation.operationId === "review_investigation_context_gateway_seal",
+);
+if (!relayGatewayOpenBase || !relayGatewaySealBase) {
+  throw new Error("relay_gateway_contract_base_operation_missing");
+}
+
+export const reviewContextAttestationActionContractFragment = Object.freeze({
+  ...reviewContextAttestationActionContractFragmentBase,
+  operations: Object.freeze([
+    ...relayGatewayBaseOperations,
+    Object.freeze({
+      ...relayGatewayOpenBase,
+      operationId: "review_investigation_relay_context_gateway_open",
+      requestTypeName: "ReviewInvestigationRelayContextGatewayOpenRequest",
+      resultTypeName: "ReviewInvestigationRelayContextGatewayOpenResult",
+      requestFields: Object.freeze([
+        ...relayGatewayOpenBase.requestFields.slice(0, 2),
+        Object.freeze({
+          name: "sourceLeaseAuthorityKind",
+          type: "enum",
+          enumTypeName: "ReviewInvestigationRelayContextLeaseAuthorityKind",
+        }),
+        ...relayGatewayOpenBase.requestFields.slice(2),
+      ]),
+    }),
+    Object.freeze({
+      ...relayGatewaySealBase,
+      operationId: "review_investigation_relay_context_gateway_seal",
+      requestTypeName: "ReviewInvestigationRelayContextGatewaySealRequest",
+      resultTypeName: "ReviewInvestigationRelayContextGatewaySealResult",
+      requestFields: Object.freeze([
+        ...relayGatewaySealBase.requestFields.slice(0, 4),
+        Object.freeze({
+          name: "sourceLeaseAuthorityKind",
+          type: "enum",
+          enumTypeName: "ReviewInvestigationRelayContextLeaseAuthorityKind",
+        }),
+        ...relayGatewaySealBase.requestFields.slice(4),
       ]),
     }),
   ]),

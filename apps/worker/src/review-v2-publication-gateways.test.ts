@@ -1,5 +1,6 @@
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
+import { Octokit } from "@octokit/rest";
 import { describe, expect, it } from "vitest";
 import {
   ReviewPublicationEffectStrategy,
@@ -21,6 +22,7 @@ import {
   RotatingReviewV2OperationCapabilityIssuer,
   SignedReviewV2OperationCapabilityVerifier,
   GitHubReviewV2PublicationClient,
+  GitHubAppReviewV2CredentialProvider,
   readGitHubReviewV2LiveRevision,
   type GitHubInstallationClient,
   type ReviewV2ProviderCredentialPort,
@@ -37,6 +39,165 @@ import {
 } from "./review-v2-publication-ports";
 
 describe("protocol v2 provider-neutral SCM gateways", () => {
+  // Red if qualification sees a no-retry method but the backend falls back.
+  it("advertises no-retry acquisition only with actual backend support", async () => {
+    const ordinary = credentialProvider(ReviewV2ScmProvider.GitHub);
+    expect(
+      new ProviderNeutralReviewV2ScmCredentialRouter(
+        [ordinary],
+        allowingCapabilityVerifier,
+      ).acquireNoRetry,
+    ).toBeUndefined();
+    let ordinaryCalls = 0,
+      exclusiveCalls = 0;
+    const router = new ProviderNeutralReviewV2ScmCredentialRouter(
+      [
+        {
+          provider: ReviewV2ScmProvider.GitHub,
+          async acquireClient() {
+            ordinaryCalls += 1;
+            return { client: fakeClient(), close: async () => {} };
+          },
+          async acquireClientNoRetry() {
+            exclusiveCalls += 1;
+            return { client: fakeClient(), close: async () => {} };
+          },
+        },
+      ],
+      allowingCapabilityVerifier,
+    );
+    const input = {
+      ...capabilityInput(),
+      provider: ReviewV2ScmProvider.GitHub,
+      purpose: ReviewV2ScmCredentialPurpose.Mutate,
+      signedCapability: signedCapability(),
+    };
+    await router.acquire(input);
+    const session = await router.acquireNoRetry!(input);
+    expect({ ordinaryCalls, exclusiveCalls }).toEqual({
+      ordinaryCalls: 1,
+      exclusiveCalls: 1,
+    });
+    await expect(
+      session.gateway.markStaleOrDelete({
+        operation: operation(),
+        canonicalExternalObjectId: "1",
+        duplicateExternalObjectIds: [],
+        compensateCanonical: true,
+      }),
+    ).rejects.toThrow("exclusive_test_publication_cleanup_forbidden");
+  });
+
+  // Red if bypassing retry accidentally skips signed head/owner/fence checks.
+  it("verifies the signed capability before no-retry credential acquisition", async () => {
+    const boundary = capabilityBoundary();
+    const signed = await boundary.issuer.issue(capabilityInput());
+    let acquisitions = 0;
+    const provider = {
+      ...credentialProvider(ReviewV2ScmProvider.GitHub),
+      async acquireClientNoRetry() {
+        acquisitions += 1;
+        return { client: fakeClient(), close: async () => {} };
+      },
+    };
+    const router = new ProviderNeutralReviewV2ScmCredentialRouter(
+      [provider],
+      boundary.verifier,
+    );
+    const input = {
+      ...capabilityInput(),
+      provider: ReviewV2ScmProvider.GitHub,
+      purpose: ReviewV2ScmCredentialPurpose.Mutate,
+      signedCapability: signed,
+    };
+    await router.acquireNoRetry!(input);
+    await expect(
+      router.acquireNoRetry!({
+        ...input,
+        claim: { ...claim(), fencingToken: 2n },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      router.acquireNoRetry!({
+        ...input,
+        permit: { ...permit(), reviewedHeadSha: hash("9") },
+      }),
+    ).rejects.toThrow();
+    expect(acquisitions).toBe(1);
+  });
+
+  // Actual Octokit + fake fetch: a fresh-token 401 would normally be replayed
+  // by auth-app independently of request.retries. Count HTTP effects, not flags.
+  it.each([401, 429, 500])(
+    "sends a TEST mutation once on HTTP %s without auth/plugin retry",
+    async (status) => {
+      const f = noRetryGitHubFixture({ mutationStatus: status });
+      const session = await f.provider.acquireClientNoRetry({
+        purpose: ReviewV2ScmCredentialPurpose.Mutate,
+        permit: permit(),
+        capability: capability(),
+      });
+      await expect(
+        session.client.applyOperation({
+          operation: operation(),
+          capability: capability(),
+        }),
+      ).rejects.toMatchObject({ retryable: false });
+      expect(
+        f.calls.filter(({ path }) => path.endsWith("/issues/42/comments")),
+      ).toHaveLength(1);
+      expect(
+        f.calls.filter(({ path }) => path.endsWith("/access_tokens")),
+      ).toHaveLength(1);
+      expect(f.calls.every(({ redirect }) => redirect === "error")).toBe(true);
+      const mutation = f.calls.find(({ path }) =>
+        path.endsWith("/issues/42/comments"),
+      )!;
+      expect(mutation.authorization).toBe("token fake-test-installation-token");
+      await expect(
+        session.client.markStaleOrDelete({
+          operation: operation(),
+          canonicalExternalObjectId: "1",
+          duplicateExternalObjectIds: [],
+          compensateCanonical: true,
+        }),
+      ).rejects.toThrow();
+      const beforeClose = f.calls.length;
+      await session.close();
+      await expect(
+        session.client.findAllByMarker({
+          operation: operation(),
+          cursor: null,
+        }),
+      ).rejects.toThrow("credential_expired");
+      expect(f.calls).toHaveLength(beforeClose);
+    },
+  );
+
+  it("does not retry installation-token acquisition or fall back to ordinary auth", async () => {
+    const f = noRetryGitHubFixture({ tokenStatus: 500 });
+    const failure = await f.provider
+      .acquireClientNoRetry({
+        purpose: ReviewV2ScmCredentialPurpose.Mutate,
+        permit: permit(),
+        capability: capability(),
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    expect(failure).toMatchObject({
+      message: "review_v2_github_no_retry_transport_failed",
+      status: 500,
+    });
+    expect(collectKeys(failure)).not.toContain("request");
+    expect(collectKeys(failure)).not.toContain("authorization");
+    expect(collectKeys(failure)).not.toContain("cause");
+    expect(f.calls.map(({ path }) => path)).toEqual([
+      "/app",
+      "/app/installations/1/access_tokens",
+    ]);
+  });
   it.each([ReviewV2ScmProvider.GitHub, ReviewV2ScmProvider.GitLab])(
     "routes %s through an adapter-bound credential session without exposing a token",
     async (provider) => {
@@ -1047,6 +1208,80 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
 });
 
 const capabilityIssuer = "reviewrouter-review-v2-worker";
+function noRetryGitHubFixture(input: {
+  mutationStatus?: number;
+  tokenStatus?: number;
+}) {
+  const calls: Array<{
+    path: string;
+    authorization: string;
+    redirect: RequestRedirect | undefined;
+  }> = [];
+  const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    .privateKey.export({ type: "pkcs8", format: "pem" })
+    .toString();
+  // A plugin that really retries proves hook:null prevents plugin invocation.
+  const RetryOctokit = Octokit.plugin((octokit) => {
+    octokit.hook.wrap("request", async (request, options) => {
+      try {
+        return await request(options);
+      } catch {
+        return request(options);
+      }
+    });
+    return {};
+  }).defaults({
+    request: {
+      fetch: async (url: string, options: RequestInit) => {
+        const path = new URL(url).pathname;
+        calls.push({
+          path,
+          authorization:
+            new Headers(options.headers).get("authorization") ?? "",
+          redirect: options.redirect,
+        });
+        if (path === "/app")
+          return Response.json({ id: 303, slug: "review-router" });
+        if (path.endsWith("/access_tokens")) {
+          if (input.tokenStatus)
+            return Response.json(
+              { message: "fixture token unavailable" },
+              { status: input.tokenStatus },
+            );
+          expect(JSON.parse(String(options.body)).repositories).toEqual([
+            "repo",
+          ]);
+          return Response.json({
+            token: "fake-test-installation-token",
+            expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+          });
+        }
+        if (path.endsWith("/issues/42/comments"))
+          return Response.json(
+            { message: "fixture mutation unavailable" },
+            { status: input.mutationStatus ?? 500 },
+          );
+        throw new Error(`unexpected_fixture_request:${path}`);
+      },
+    },
+  });
+  const marker = "<!-- review-router:exclusive-test -->";
+  const provider = new GitHubAppReviewV2CredentialProvider(
+    { appId: "303", privateKey, Octokit: RetryOctokit },
+    { resolve: async () => githubRepository },
+    {
+      resolve: async () => ({
+        kind: ReviewV2PublicationPayloadKind.Summary,
+        marker,
+        markerHash: hash("1"),
+        bodyHash: hash("2"),
+        bodyByteCount: Buffer.byteLength(marker),
+        body: marker,
+      }),
+    },
+  );
+  return { calls, provider };
+}
 const githubRepository = {
   githubInstallationId: "1",
   owner: "owner",
