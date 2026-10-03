@@ -224,6 +224,7 @@ describe.skipIf(!url)(
           "000102_sdk_growth_current_authority",
           "000103_sdk_growth_authority_custody",
           "000105_sdk_growth_publication_effect",
+          "000111_sdk_growth_source_binding",
         ])
           await connection.query(
             readFileSync(

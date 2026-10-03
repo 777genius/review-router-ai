@@ -17,7 +17,12 @@ vi.mock("./render-schema-handoff-policy.mjs", async (importOriginal) => {
   };
 });
 const reader = vi.mocked(readRenderManagedCheckoutInventory);
-const full = readRenderManagedCheckoutInventory();
+// Keep old immutable-prefix fixtures independent from the optional key branch.
+// The key-enabled filesystem checkout is exercised by the admission suite.
+const currentFull = readRenderManagedCheckoutInventory();
+const full = currentFull.filter(
+  (row) => row.migrationName !== "000110_provider_api_key_workspace_management",
+);
 const historical = full.slice(0, 96);
 const checkout97 = full.slice(0, 97);
 const checkout98 = full.slice(0, 98);
@@ -26,6 +31,7 @@ const checkout105 = full.slice(0, 105);
 const checkout106 = full.slice(0, 106);
 const checkout107 = full.slice(0, 107);
 const checkout108 = full.slice(0, 108);
+const checkout109 = full.slice(0, 109);
 const manifest = (rows: typeof full) =>
   `sha256:${createHash("sha256")
     .update(rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","))
@@ -33,13 +39,22 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full109 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(109);
-    expect(manifest(full)).toBe(
-      "sha256:d4e309a83e36089dae1bfaa94c707eaa81ef5ff7e0d3d3831763c26331e1ad5c",
+  it("validates the full115 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(115);
+    expect(full[114]?.migrationName).toBe(
+      "000116_hosted_codex_relay_admission_utc",
     );
+    expect(full[113]?.migrationName).toBe(
+      "000115_sdk_growth_v3_approved_manifest",
+    );
+    expect(full[112]?.migrationName).toBe("000114_sdk_growth_v3_tool_artifact");
+    expect(full[111]?.migrationName).toBe("000113_sdk_growth_approval_ledger");
+    expect(full[110]?.migrationName).toBe(
+      "000112_sdk_growth_operator_credential",
+    );
+    expect(full[109]?.migrationName).toBe("000111_sdk_growth_source_binding");
     expect(full[108]?.migrationName).toBe(
-      "000110_provider_api_key_workspace_management",
+      "000110_historical_unknown_scope_barrier",
     );
     expect(full[107]?.migrationName).toBe(
       "000109_sdk_growth_verifier_assignment_lock",
@@ -79,7 +94,7 @@ describe("trusted historical96 checkout reader", () => {
     );
     expect(Object.isFrozen(result)).toBe(true);
     expect(result.every(Object.isFrozen)).toBe(true);
-    expect(readRenderManagedCheckoutInventory()).toEqual(full);
+    expect(readRenderManagedCheckoutInventory()).toEqual(currentFull);
     expect(reader).toHaveBeenCalledWith();
   });
 
@@ -92,8 +107,12 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: checkout106 },
     { checkout: checkout107 },
     { checkout: checkout108 },
+    { checkout: checkout109 },
+    { checkout: full.slice(0, 110) },
+    { checkout: full.slice(0, 111) },
+    { checkout: full },
   ])(
-    "also accepts a complete validated older checkout (%#)",
+    "accepts a complete validated checkout through 000114 (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);
@@ -124,6 +143,17 @@ describe("trusted historical96 checkout reader", () => {
     ],
     ["duplicate extension", [...full, full[96]!]],
     [
+      "relabelled 110",
+      [
+        ...full.slice(0, 108),
+        { ...full[108]!, migrationName: "000110_relabelled" },
+      ],
+    ],
+    [
+      "unknown future extension",
+      [...full, { migrationName: "000114_unknown", checksum: "a".repeat(64) }],
+    ],
+    [
       "future replacement",
       [...full.slice(0, 99), { ...full[99]!, migrationName: "000102_unknown" }],
     ],
@@ -150,7 +180,9 @@ describe("trusted historical96 checkout reader", () => {
     },
   );
 
-  it.each([96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107])(
+  it.each([
+    96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
+  ])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {
       reader.mockImplementationOnce(() => {
