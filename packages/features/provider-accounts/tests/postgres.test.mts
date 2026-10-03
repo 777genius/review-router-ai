@@ -13,6 +13,8 @@ import {
   revokeWorkspaceAccountBinding,
 } from "../src/application/use-cases/workspace-account-bindings";
 
+import { runBindingFencePostgresTests } from "./postgres-fences";
+
 const enabled = process.env.RR_PROVIDER_ACCOUNTS_PG_TEST === "1";
 const denied = (code: string) => (error: unknown) =>
   error instanceof ProviderAccountError && error.code === code;
@@ -66,7 +68,22 @@ test(
         .filter((name) => /^\d{6}_/.test(name))
         .sort();
       assert.ok(names.includes("000117_provider_accounts"));
+      assert.ok(names.includes("000118_workspace_binding_fences"));
       for (const name of names) {
+        if (name === "000118_workspace_binding_fences") {
+          // Existing 117 rows prove that 118 initializes policy independently.
+          await sql.query(`INSERT INTO "Workspace" ("id", "slug", "name", "updatedAt")
+            VALUES ('c2a-bootstrap-workspace', 'c2a-bootstrap-workspace', 'Synthetic bootstrap', now());
+            INSERT INTO "ProviderAccountConnection" ("id", "ownerWorkspaceId", "gatewayAccountRef", "displayName", "state", "updatedAt") VALUES
+            ('c2a-bootstrap-active-connection', 'c2a-bootstrap-workspace', 'c2a-bootstrap-active-account', 'Active bootstrap', 'active', now()),
+            ('c2a-bootstrap-revoked-connection', 'c2a-bootstrap-workspace', 'c2a-bootstrap-revoked-account', 'Revoked bootstrap', 'active', now());
+            INSERT INTO "WorkspaceAccountBinding" ("id", "workspaceId", "connectionId", "state", "updatedAt") VALUES
+            ('c2a-bootstrap-active', 'c2a-bootstrap-workspace', 'c2a-bootstrap-active-connection', 'active', now()),
+            ('c2a-bootstrap-revoked', 'c2a-bootstrap-workspace', 'c2a-bootstrap-revoked-connection', 'active', now());
+            UPDATE "WorkspaceAccountBinding" SET "revision" = 2, "state" = 'revoked' WHERE "id" = 'c2a-bootstrap-revoked';
+            UPDATE "WorkspaceAccountBinding" SET "revision" = 2 WHERE "id" = 'c2a-bootstrap-active';
+            UPDATE "WorkspaceAccountBinding" SET "revision" = 3 WHERE "id" = 'c2a-bootstrap-active';`);
+        }
         const migration = await readFile(
           new URL(`${name}/migration.sql`, migrations),
           "utf8",
@@ -907,6 +924,20 @@ test(
           );
         },
       );
+      await runBindingFencePostgresTests(t, {
+        db,
+        sql,
+        workspaceId,
+        foreignWorkspaceId,
+        actor,
+        dependencies,
+        targetUrl: process.env.RR_PROVIDER_ACCOUNTS_PG_TEST_URL ?? "",
+        createPrisma: () =>
+          new PrismaClient({
+            adapter: new PrismaPg(target),
+            transactionOptions: { maxWait: 10_000, timeout: 20_000 },
+          }),
+      });
     } finally {
       await prisma?.$disconnect();
       await sql.end();

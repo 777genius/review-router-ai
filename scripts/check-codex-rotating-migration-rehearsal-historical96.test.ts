@@ -37,6 +37,7 @@ const extensions = [
   "000115_sdk_growth_v3_approved_manifest",
   "000116_hosted_codex_relay_admission_utc",
   "000117_provider_accounts",
+  "000118_workspace_binding_fences",
 ];
 function body(name: string) {
   const match = source.match(

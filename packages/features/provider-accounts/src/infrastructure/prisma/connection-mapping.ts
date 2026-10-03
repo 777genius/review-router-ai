@@ -35,6 +35,22 @@ export function mapBinding(row: BindingRecord): WorkspaceAccountBinding {
     connectionId: row.connectionId,
     state: row.state,
     revision: row.revision,
+    policyRevision: row.policyRevision,
+    pendingFence:
+      row.pendingFenceOperationId === null
+        ? null
+        : {
+            operationId: row.pendingFenceOperationId,
+            policySubject: row.pendingFencePolicySubject!,
+            policyRevision: row.pendingFencePolicyRevision!,
+          },
+    fenceAck:
+      row.fenceAckOperationId === null
+        ? null
+        : {
+            operationId: row.fenceAckOperationId,
+            policyRevision: row.fenceAckPolicyRevision!,
+          },
   };
 }
 export function rethrowProductStorageError(error: unknown): never {

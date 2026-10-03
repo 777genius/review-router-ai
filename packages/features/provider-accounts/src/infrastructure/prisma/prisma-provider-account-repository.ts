@@ -1,10 +1,15 @@
 import type { PrismaClient } from "@prisma/client";
+import { randomUUID } from "node:crypto";
+import type { WorkspaceBindingFenceRepositoryPort } from "../../application/ports/workspace-binding-fence-port";
 import type { ProviderAccountRepositoryPort } from "../../application/ports/provider-account-repository-port";
 import {
   ProviderAccountError,
   assertExecutable,
   assertExpectedRevision,
   assertWorkspaceOwner,
+  assertOpaqueReference,
+  snapshotBindingFence,
+  type ScopedBindingFence,
   type BindingScope,
   type BindingState,
 } from "../../domain/provider-account";
@@ -14,7 +19,9 @@ import {
   rethrowProductStorageError,
 } from "./connection-mapping";
 
-export class PrismaProviderAccountRepository implements ProviderAccountRepositoryPort {
+export class PrismaProviderAccountRepository
+  implements ProviderAccountRepositoryPort, WorkspaceBindingFenceRepositoryPort
+{
   private readonly prisma: PrismaClient;
   constructor(prisma: PrismaClient) {
     this.prisma = prisma;
@@ -100,13 +107,32 @@ export class PrismaProviderAccountRepository implements ProviderAccountRepositor
             }
             return mapBinding(
               await tx.workspaceAccountBinding.create({
-                data: { ...pair, state: "active", revision: 1 },
+                data: {
+                  ...pair,
+                  state: "active",
+                  revision: 1,
+                  policyRevision: 1,
+                },
               }),
             );
           }
+          assertExpectedRevision(current.policyRevision);
           const changed = await tx.workspaceAccountBinding.updateMany({
             where: { ...pair, revision: input.expectedRevision },
-            data: { state: input.state, revision: { increment: 1 } },
+            data: {
+              state: input.state,
+              revision: { increment: 1 },
+              policyRevision: { increment: 1 },
+              // Higher monotonic intent retains the older outstanding requirement.
+              // Grants preserve it; only its actual durable ACK can clear it.
+              ...(input.state === "revoked"
+                ? {
+                    pendingFenceOperationId: randomUUID(),
+                    pendingFencePolicySubject: current.id,
+                    pendingFencePolicyRevision: current.policyRevision + 1,
+                  }
+                : {}),
+            },
           });
           if (changed.count !== 1)
             throw new ProviderAccountError("revision_conflict");
@@ -120,5 +146,53 @@ export class PrismaProviderAccountRepository implements ProviderAccountRepositor
     } catch (error) {
       return rethrowProductStorageError(error);
     }
+  }
+
+  async listPendingBindingFences(request: {
+    readonly limit: number;
+    readonly afterBindingId?: string;
+  }) {
+    const input = {
+      limit: request.limit,
+      ...(request.afterBindingId !== undefined
+        ? { afterBindingId: request.afterBindingId }
+        : {}),
+    };
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100)
+      throw new ProviderAccountError("invalid_input");
+    if (input.afterBindingId !== undefined)
+      assertOpaqueReference(input.afterBindingId);
+    const rows = await this.prisma.workspaceAccountBinding.findMany({
+      where: {
+        pendingFenceOperationId: { not: null },
+        ...(input.afterBindingId !== undefined
+          ? { id: { gt: input.afterBindingId } }
+          : {}),
+      },
+      orderBy: { id: "asc" },
+      take: input.limit,
+    });
+    return rows.map(mapBinding);
+  }
+
+  async acknowledgeBindingFence(request: ScopedBindingFence): Promise<boolean> {
+    const input = snapshotBindingFence(request);
+    const changed = await this.prisma.workspaceAccountBinding.updateMany({
+      where: {
+        id: input.bindingId,
+        workspaceId: input.workspaceId,
+        pendingFenceOperationId: input.operationId,
+        pendingFencePolicySubject: input.policySubject,
+        pendingFencePolicyRevision: input.policyRevision,
+      },
+      data: {
+        pendingFenceOperationId: null,
+        pendingFencePolicySubject: null,
+        pendingFencePolicyRevision: null,
+        fenceAckOperationId: input.operationId,
+        fenceAckPolicyRevision: input.policyRevision,
+      },
+    });
+    return changed.count === 1;
   }
 }
