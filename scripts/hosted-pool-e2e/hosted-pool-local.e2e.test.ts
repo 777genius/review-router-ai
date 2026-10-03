@@ -121,6 +121,7 @@ describe("disposable hosted pool local E2E", () => {
             },
             body: Readable.from([
               `data: {"type":"response.output_text.delta","delta":"turn-${turn}"}\n\n`,
+              `data: {"type":"response.completed","response":{"id":"fake-response-${turn}","status":"completed"}}\n\n`,
               "data: [DONE]\n\n",
             ]),
           };
@@ -167,7 +168,18 @@ describe("disposable hosted pool local E2E", () => {
           });
           expect(response.status).toBe(200);
           expect(response.headers.get("set-cookie")).toBeNull();
-          expect(await response.text()).toContain(`"turn-${turn}"`);
+          const stream = await response.text();
+          expect(stream).toContain(`"turn-${turn}"`);
+          const events = stream
+            .split("\n\n")
+            .filter(
+              (frame) => frame.startsWith("data: ") && frame !== "data: [DONE]",
+            )
+            .map((frame) => JSON.parse(frame.slice("data: ".length)));
+          expect(events).toContainEqual({
+            type: "response.completed",
+            response: { id: `fake-response-${turn}`, status: "completed" },
+          });
         }
         const refreshed = await fetch(commentTokenRefreshUrl, {
           method: "POST",
