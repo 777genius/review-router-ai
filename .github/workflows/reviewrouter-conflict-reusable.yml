@@ -111,6 +111,10 @@ jobs:
         working-directory: .reviewrouter-runtime
         run: |
           set -euo pipefail
+          if [[ ! -f action-dist/conflict-runtime.cjs ]]; then
+            echo "::error::Selected runtime_ref does not provide the bundled conflict runtime. Use a compatible public Action release tag or full commit SHA."
+            exit 1
+          fi
           node --check action-dist/conflict-runtime.cjs
 
       - name: Preflight conflict runtime before PR checkout
