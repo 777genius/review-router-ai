@@ -1393,6 +1393,7 @@ async function createHarness(
 
   await prisma.workspace.create({
     data: { id: workspaceId, slug: workspaceId, name: workspaceId },
+    select: { id: true },
   });
   await prisma.scmRepositoryIdentity.create({
     data: {
@@ -1802,7 +1803,10 @@ async function cleanupScope(workspaceId: string): Promise<void> {
       });
     }
   }
-  await prisma.workspace.delete({ where: { id: workspaceId } });
+  await prisma.workspace.delete({
+    where: { id: workspaceId },
+    select: { id: true },
+  });
 }
 
 function hash(index: number): string {

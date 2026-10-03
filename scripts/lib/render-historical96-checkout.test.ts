@@ -34,8 +34,9 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full115 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(115);
+  it("validates the full116 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(116);
+    expect(full[115]?.migrationName).toBe("000117_provider_accounts");
     expect(full[114]?.migrationName).toBe(
       "000116_hosted_codex_relay_admission_utc",
     );
@@ -105,9 +106,13 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: checkout109 },
     { checkout: full.slice(0, 110) },
     { checkout: full.slice(0, 111) },
+    { checkout: full.slice(0, 112) },
+    { checkout: full.slice(0, 113) },
+    { checkout: full.slice(0, 114) },
+    { checkout: full.slice(0, 115) },
     { checkout: full },
   ])(
-    "accepts a complete validated checkout through 000114 (%#)",
+    "accepts a complete validated checkout through 000117 (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);
@@ -176,7 +181,8 @@ describe("trusted historical96 checkout reader", () => {
   );
 
   it.each([
-    96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
+    96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+    112, 113, 114, 115,
   ])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {
