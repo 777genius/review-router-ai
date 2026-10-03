@@ -249,7 +249,7 @@ test("configured local override uses auth seam while owner policy remains closed
 });
 
 // Regression: a stale bind revives local revocation, or missing revision overwrites.
-test("CAS rejects stale/missing revisions; revoked selection stays denied until a fresh bind", async () => {
+test("CAS rejects stale/missing revisions; fresh rebind stays denied while its fence is pending", async () => {
   const f = fixture();
   await assert.rejects(bind(f, 1), denied("revision_conflict"));
   await assert.rejects(
@@ -274,7 +274,7 @@ test("CAS rejects stale/missing revisions; revoked selection stays denied until 
   await assert.rejects(bind(f, 1), denied("revision_conflict"));
   await assert.rejects(resolve(f), denied("binding_unavailable"));
   assert.equal((await bind(f, 2)).revision, 3);
-  assert.equal((await resolve(f)).bindingRevision, 3);
+  await assert.rejects(resolve(f), denied("binding_unavailable"));
 });
 
 // Regression: a gateway unknown/inactive state is treated as executable locally.

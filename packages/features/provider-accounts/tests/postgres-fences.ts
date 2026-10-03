@@ -52,6 +52,11 @@ export async function runBindingFencePostgresTests(
   const x = { workspaceId, connectionId: "c2a-connection-x" };
   const y = { workspaceId, connectionId: "c2a-connection-y" };
   let bindingId = "";
+  const resolveX = (repository = accounts) =>
+    resolveWorkspaceAccountBinding(
+      { workspaceId, bindingId, actor },
+      { ...dependencies, accounts: repository },
+    );
   let original!: ScopedBindingFence;
   let replacement!: ScopedBindingFence;
   try {
@@ -194,13 +199,7 @@ export async function runBindingFencePostgresTests(
           policySubject: bindingId,
           policyRevision: 2,
         };
-        await assert.rejects(
-          resolveWorkspaceAccountBinding(
-            { workspaceId, bindingId, actor },
-            dependencies,
-          ),
-          denied("binding_unavailable"),
-        );
+        await assert.rejects(resolveX(), denied("binding_unavailable"));
         const yBinding = await db.workspaceAccountBinding.findUniqueOrThrow({
           where: { workspaceId_connectionId: y },
         });
@@ -303,23 +302,51 @@ export async function runBindingFencePostgresTests(
     await t.test(
       "restart recovers the exact persisted operation after a lost local ACK write",
       async () => {
+        await bindWorkspaceAccount(
+          { ...x, actor, expectedRevision: 2 },
+          dependencies,
+        );
+        await assert.rejects(resolveX(), denied("binding_unavailable"));
+        assert.equal(
+          await second.acknowledgeBindingFence({
+            ...original,
+            operationId: "wrong-operation",
+          }),
+          false,
+        );
+        await assert.rejects(resolveX(), denied("binding_unavailable"));
         const seen: ScopedBindingFence[] = [];
+        let applied = false;
         const delivery: WorkspaceBindingFenceDeliveryPort = {
           async submitFence(input) {
             if (input.bindingId === bindingId) seen.push(input);
             return { state: "unknown" };
           },
           async readFenceOperation(input): Promise<BindingFenceResponse> {
-            return input.bindingId === bindingId
+            return input.bindingId === bindingId && applied
               ? {
                   state: "applied",
                   operationId: original.operationId,
                   policySubject: bindingId,
                   policyRevision: 2,
                 }
-              : { state: "not_found" };
+              : {
+                  state:
+                    input.bindingId === bindingId ? "unknown" : "not_found",
+                };
           },
         };
+        const unknown = await reconcileWorkspaceBindingFences(
+          { limit: 100 },
+          { accounts: second, delivery },
+        );
+        assert.equal(
+          unknown.results.find((r) => r.bindingId === bindingId)
+            ?.remoteFenceDelivery,
+          "remote_pending",
+        );
+        await assert.rejects(resolveX(), denied("binding_unavailable"));
+        applied = true;
         const lostWrite = {
           listPendingBindingFences:
             accounts.listPendingBindingFences.bind(accounts),
@@ -347,8 +374,10 @@ export async function runBindingFencePostgresTests(
             policySubject: bindingId,
             policyRevision: 2,
           });
-          // Read again through the new process/client without acknowledging; the
-          // two-session race below still needs the original unacknowledged intent.
+          assert.equal(pending?.revision, 3);
+          assert.equal(pending?.policyRevision, 3);
+          await assert.rejects(resolveX(reader), denied("binding_unavailable"));
+          // Read again through the new client without acknowledging.
           await reconcileWorkspaceBindingFences(
             { limit: 100 },
             {
@@ -365,7 +394,7 @@ export async function runBindingFencePostgresTests(
         } finally {
           await restarted.$disconnect();
         }
-        assert.deepEqual(seen, [original, original]);
+        assert.deepEqual(seen, [original, original, original]);
         // A new Node process cannot reuse the original repository or its heap.
         const restartedProcess = spawnSync(
           process.execPath,
@@ -391,6 +420,24 @@ export async function runBindingFencePostgresTests(
         assert.equal(restartedProcess.error, undefined);
         assert.equal(restartedProcess.status, 0, restartedProcess.stderr);
         assert.deepEqual(JSON.parse(restartedProcess.stdout), original);
+        await assert.rejects(resolveX(), denied("binding_unavailable"));
+        assert.equal(await second.acknowledgeBindingFence(original), true);
+        const acked = await accounts.findBinding({ workspaceId, bindingId });
+        assert.equal(acked?.binding.pendingFence, null);
+        assert.deepEqual(acked?.binding.fenceAck, {
+          operationId: original.operationId,
+          policyRevision: 2,
+        });
+        const selected = await resolveX();
+        assert.equal(selected.bindingRevision, 3);
+        assert.equal(selected.policyRevision, 3);
+        // Leave an exact, still-pending receipt for the existing blocked ACK race.
+        const revoked = await revokeWorkspaceAccountBinding(
+          { ...x, actor, expectedRevision: 3 },
+          dependencies,
+        );
+        assert.ok(revoked.pendingFence);
+        original = { bindingId, workspaceId, ...revoked.pendingFence };
       },
     );
 
@@ -399,6 +446,9 @@ export async function runBindingFencePostgresTests(
     await t.test(
       "two sessions serialize revoke replacement against a blocked stale ACK",
       async () => {
+        const previousAck = (
+          await accounts.findBinding({ workspaceId, bindingId })
+        )?.binding.fenceAck;
         await sql.query("BEGIN");
         let revoking:
           | ReturnType<typeof revokeWorkspaceAccountBinding>
@@ -431,7 +481,7 @@ export async function runBindingFencePostgresTests(
           // Queue the actual authorized revoke first, then the actual old ACK.
           // No persistence/CAS/revision or return value is replaced by the barrier.
           revoking = revokeWorkspaceAccountBinding(
-            { ...x, actor, expectedRevision: 2 },
+            { ...x, actor, expectedRevision: 4 },
             { ...dependencies, accounts: second },
           );
           await waitForBlockedWriters(1);
@@ -440,7 +490,7 @@ export async function runBindingFencePostgresTests(
         } finally {
           await sql.query("COMMIT");
         }
-        assert.equal((await revoking)?.revision, 3);
+        assert.equal((await revoking)?.revision, 5);
         assert.equal(await acknowledging, false);
         const persisted = (
           await sql.query(
@@ -458,15 +508,15 @@ export async function runBindingFencePostgresTests(
           workspaceId,
           operationId: persisted.pendingFenceOperationId,
           policySubject: bindingId,
-          policyRevision: 3,
+          policyRevision: 5,
         };
         const row = await second.findBinding({ workspaceId, bindingId });
         assert.deepEqual(row?.binding.pendingFence, {
           operationId: replacement.operationId,
           policySubject: bindingId,
-          policyRevision: 3,
+          policyRevision: 5,
         });
-        assert.equal(row?.binding.fenceAck, null);
+        assert.deepEqual(row?.binding.fenceAck, previousAck);
       },
     );
 
@@ -476,14 +526,15 @@ export async function runBindingFencePostgresTests(
       "fresh grant retains the higher requirement until its actual ACK; ACK keeps both versions",
       async () => {
         await bindWorkspaceAccount(
-          { ...x, actor, expectedRevision: 3 },
+          { ...x, actor, expectedRevision: 5 },
           dependencies,
         );
         const granted = await accounts.findBinding({ workspaceId, bindingId });
-        assert.equal(granted?.binding.revision, 4);
-        assert.equal(granted?.binding.policyRevision, 4);
-        assert.equal(granted?.binding.pendingFence?.policyRevision, 3);
+        assert.equal(granted?.binding.revision, 6);
+        assert.equal(granted?.binding.policyRevision, 6);
+        assert.equal(granted?.binding.pendingFence?.policyRevision, 5);
         assert.equal(await second.acknowledgeBindingFence(original), false);
+        await assert.rejects(resolveX(), denied("binding_unavailable"));
         const delivery: WorkspaceBindingFenceDeliveryPort = {
           async submitFence(): Promise<BindingFenceResponse> {
             return { state: "pending" };
@@ -494,7 +545,7 @@ export async function runBindingFencePostgresTests(
                   state: "applied",
                   operationId: replacement.operationId,
                   policySubject: bindingId,
-                  policyRevision: 3,
+                  policyRevision: 5,
                 }
               : { state: "unknown" };
           },
@@ -509,20 +560,20 @@ export async function runBindingFencePostgresTests(
           "remote_applied",
         );
         const acked = await accounts.findBinding({ workspaceId, bindingId });
-        assert.equal(acked?.binding.revision, 4);
-        assert.equal(acked?.binding.policyRevision, 4);
+        assert.equal(acked?.binding.revision, 6);
+        assert.equal(acked?.binding.policyRevision, 6);
         assert.equal(acked?.binding.state, "active");
         assert.equal(acked?.binding.pendingFence, null);
         assert.deepEqual(acked?.binding.fenceAck, {
           operationId: replacement.operationId,
-          policyRevision: 3,
+          policyRevision: 5,
         });
         assert.equal(
           await accounts.acknowledgeBindingFence(replacement),
           false,
         );
         await revokeWorkspaceAccountBinding(
-          { ...x, actor, expectedRevision: 4 },
+          { ...x, actor, expectedRevision: 6 },
           dependencies,
         );
         await db.workspaceMember.update({
@@ -531,7 +582,7 @@ export async function runBindingFencePostgresTests(
         });
         await assert.rejects(
           bindWorkspaceAccount(
-            { ...x, actor, expectedRevision: 5 },
+            { ...x, actor, expectedRevision: 7 },
             dependencies,
           ),
           denied("workspace_forbidden"),
@@ -540,23 +591,32 @@ export async function runBindingFencePostgresTests(
           where: { workspaceId_userId: { workspaceId, userId: actor.userId! } },
           data: { role: "admin" },
         });
-        await assert.rejects(
-          resolveWorkspaceAccountBinding(
-            { workspaceId, bindingId, actor },
-            dependencies,
-          ),
-          denied("binding_unavailable"),
-        );
+        await assert.rejects(resolveX(), denied("binding_unavailable"));
         await bindWorkspaceAccount(
-          { ...x, actor, expectedRevision: 5 },
+          { ...x, actor, expectedRevision: 7 },
           dependencies,
+        );
+        await assert.rejects(resolveX(), denied("binding_unavailable"));
+        assert.equal(
+          await accounts.acknowledgeBindingFence(replacement),
+          false,
+        );
+        const rebound = await accounts.findBinding({ workspaceId, bindingId });
+        assert.ok(rebound?.binding.pendingFence);
+        assert.equal(
+          await accounts.acknowledgeBindingFence({
+            bindingId,
+            workspaceId,
+            ...rebound.binding.pendingFence,
+          }),
+          true,
         );
         const selected = await resolveWorkspaceAccountBinding(
           { workspaceId, bindingId, actor },
           dependencies,
         );
-        assert.equal(selected.bindingRevision, 6);
-        assert.equal(selected.policyRevision, 6);
+        assert.equal(selected.bindingRevision, 8);
+        assert.equal(selected.policyRevision, 8);
         const unchangedY = await db.workspaceAccountBinding.findUniqueOrThrow({
           where: { workspaceId_connectionId: y },
         });

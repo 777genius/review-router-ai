@@ -172,6 +172,7 @@ export function selectBinding(
     selection.binding.id !== bindingId ||
     selection.binding.workspaceId !== workspaceId ||
     selection.binding.state !== "active" ||
+    selection.binding.pendingFence !== null ||
     selection.binding.connectionId !== selection.connection.id ||
     !isPersistedRevision(selection.binding.revision) ||
     !isPersistedRevision(selection.binding.policyRevision)

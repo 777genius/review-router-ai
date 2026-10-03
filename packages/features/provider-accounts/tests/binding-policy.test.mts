@@ -14,11 +14,7 @@ const binding: WorkspaceAccountBinding = {
   state: "revoked",
   revision: 9,
   policyRevision: 2,
-  pendingFence: {
-    operationId: "op-x-2",
-    policySubject: "binding-x",
-    policyRevision: 2,
-  },
+  pendingFence: null,
   fenceAck: null,
 };
 const connection: ProviderAccountConnection = {
@@ -48,6 +44,50 @@ test("selection retains independent versions and the opaque binding subject", ()
       gatewayAccountRef: "account-x",
       profileRef: "profile-x",
     },
+  );
+});
+
+test("rebound selection waits for the retained fence; ACK alone cannot restore revoked state", () => {
+  const rebound: WorkspaceAccountBinding = {
+    ...binding,
+    state: "active",
+    revision: 3,
+    policyRevision: 3,
+    pendingFence: {
+      operationId: "op-x-2",
+      policySubject: "binding-x",
+      policyRevision: 2,
+    },
+  };
+  const unavailable = (e: unknown) =>
+    e instanceof ProviderAccountError && e.code === "binding_unavailable";
+  assert.throws(
+    () =>
+      selectBinding("workspace-x", "binding-x", {
+        binding: rebound,
+        connection,
+      }),
+    unavailable,
+  );
+  const acked: WorkspaceAccountBinding = {
+    ...rebound,
+    pendingFence: null,
+    fenceAck: { operationId: "op-x-2", policyRevision: 2 },
+  };
+  assert.equal(
+    selectBinding("workspace-x", "binding-x", {
+      binding: acked,
+      connection,
+    }).policyRevision,
+    3,
+  );
+  assert.throws(
+    () =>
+      selectBinding("workspace-x", "binding-x", {
+        binding: { ...acked, state: "revoked" },
+        connection,
+      }),
+    unavailable,
   );
 });
 

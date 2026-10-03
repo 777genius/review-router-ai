@@ -447,6 +447,30 @@ test(
       await t.test(
         "scoped selection and live authorization deny foreign/member/stale identity access",
         async () => {
+          // The preceding race leaves a retained revoke fence on the rebind.
+          // Selection requires the exact durable-ACK bookkeeping before these
+          // independent membership and account-status assertions can execute.
+          const rebound = await accounts.findBinding({
+            workspaceId,
+            bindingId,
+          });
+          const pending = rebound?.binding.pendingFence;
+          assert.ok(pending);
+          await assert.rejects(
+            resolveWorkspaceAccountBinding(
+              { workspaceId, bindingId, actor },
+              dependencies,
+            ),
+            denied("binding_unavailable"),
+          );
+          assert.equal(
+            await accounts.acknowledgeBindingFence({
+              workspaceId,
+              bindingId,
+              ...pending,
+            }),
+            true,
+          );
           const selected = await resolveWorkspaceAccountBinding(
             { workspaceId, bindingId, actor },
             dependencies,
