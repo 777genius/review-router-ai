@@ -268,6 +268,13 @@ describe("platform config", () => {
     expect(() =>
       assertHostedCodexProductionReadiness({
         ...base,
+        REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY:
+          "hetzner:postgres:b28fc7b17042414386eb9b114046e50c:7689268937922398406",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertHostedCodexProductionReadiness({
+        ...base,
         REVIEW_ROUTER_ENABLE_HOSTED_CODEX_CUSTODY: "0",
       }),
     ).toThrow(
@@ -304,6 +311,13 @@ describe("platform config", () => {
         ...base,
         REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY:
           "operator-string",
+      }),
+    ).toThrow("hosted_codex_database_resource_identity_invalid");
+    expect(() =>
+      assertHostedCodexProductionReadiness({
+        ...base,
+        REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY:
+          "hetzner:postgres:prod-hel1-01:7689268937922398406",
       }),
     ).toThrow("hosted_codex_database_resource_identity_invalid");
     const localEnv = {
