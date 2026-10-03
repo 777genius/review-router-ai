@@ -11,7 +11,7 @@ ENV CI=1 \
     PATH=/pnpm:$PATH
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates \
+  && apt-get install -y --no-install-recommends git ca-certificates openssl \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
   && corepack prepare pnpm@10.33.0 --activate
@@ -41,14 +41,18 @@ ENV CI=1 \
     PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 
-RUN corepack enable \
-  && corepack prepare pnpm@10.33.0 --activate
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/* \
+  && corepack disable pnpm \
+  && npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
 
 COPY --from=build --chown=node:node /app /app
 COPY --chown=root:root deploy/render-runtime/entrypoint.sh /usr/local/bin/reviewrouter-runtime
 RUN chmod 0555 /usr/local/bin/reviewrouter-runtime
 
 USER node
+RUN pnpm --version
 
 EXPOSE 10000
 

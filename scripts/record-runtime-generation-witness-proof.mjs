@@ -22,7 +22,8 @@ export async function recordRuntimeGenerationWitnessProof(env = process.env) {
   const prisma = createPrismaClient({ databaseUrl: required("DATABASE_URL") });
   try {
     await prisma.$queryRawUnsafe(
-      "SELECT public.reviewrouter_record_runtime_generation_witness_proof($1,$2,$3,$4)",
+      // The PostgreSQL function returns void, which Prisma cannot deserialize.
+      "SELECT public.reviewrouter_record_runtime_generation_witness_proof($1,$2,$3,$4)::text",
       rolloutId,
       runtimeRole,
       releaseCommitSha,
