@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readRenderHistorical96CheckoutInventory } from "./render-historical96-checkout.mjs";
 import {
@@ -34,8 +38,18 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full116 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(116);
+  it("validates full118 without leaking pinned117/118 into immutable historical96", () => {
+    expect(full).toHaveLength(118);
+    expect(full[116]).toEqual({
+      migrationName: "000117_hosted_v4_one_shot_dispatch",
+      checksum:
+        "a3d41075c93a82dadc8f070c7716bd7567e7c635b3dba1cbe84b68ee43ada3c4",
+    });
+    expect(full[117]).toEqual({
+      migrationName: "000118_exclusive_test_publication",
+      checksum:
+        "9e224c1bc0b9f78603322777a09f234c5723b75ed99c5f2da978eb32c57688a8",
+    });
     expect(full[114]?.migrationName).toBe(
       "000116_hosted_codex_relay_admission_utc",
     );
@@ -105,6 +119,9 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: checkout97 },
     { checkout: checkout98 },
     { checkout: checkout99 },
+    ...[100, 101, 102, 103, 104].map((count) => ({
+      checkout: full.slice(0, count),
+    })),
     { checkout: checkout105 },
     { checkout: checkout106 },
     { checkout: checkout107 },
@@ -117,11 +134,15 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: full.slice(0, 114) },
     { checkout: full.slice(0, 115) },
     {
-      checkout: full.filter(
-        (row) =>
-          row.migrationName !== "000116_hosted_codex_relay_admission_utc",
-      ),
+      checkout: full
+        .slice(0, 116)
+        .filter(
+          (row) =>
+            row.migrationName !== "000116_hosted_codex_relay_admission_utc",
+        ),
     },
+    { checkout: full.slice(0, 116) },
+    { checkout: full.slice(0, 117) },
     { checkout: full },
   ])(
     "accepts a complete validated historical checkout prefix (%#)",
@@ -154,6 +175,12 @@ describe("trusted historical96 checkout reader", () => {
       [...historical, { ...full[96]!, migrationName: "000099_unknown" }],
     ],
     ["duplicate extension", [...full, full[96]!]],
+    [
+      "relabelled pinned118",
+      full.map((row, index) =>
+        index === 117 ? { ...row, migrationName: "000118_unknown" } : row,
+      ),
+    ],
     [
       "relabelled 110",
       [
@@ -214,7 +241,7 @@ describe("trusted historical96 checkout reader", () => {
 
   it.each([
     96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
-    112, 113, 114, 115,
+    112, 113, 114, 115, 116, 117,
   ])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {
@@ -230,4 +257,77 @@ describe("trusted historical96 checkout reader", () => {
       );
     },
   );
+
+  it.each([
+    [
+      "unknown future119",
+      [...full, { migrationName: "000119_unknown", checksum: "a".repeat(64) }],
+    ],
+    ["duplicate pinned118", [...full, full[117]!]],
+    [
+      "reordered pinned117/118",
+      [...full.slice(0, 116), full[117]!, full[116]!],
+    ],
+    [
+      "missing pinned117 before118",
+      full.filter((_row, index) => index !== 116),
+    ],
+    [
+      "historical checksum drift",
+      full.map((row, index) =>
+        index === 0 ? { ...row, checksum: "a".repeat(64) } : row,
+      ),
+    ],
+  ])(
+    "upstream rejects %s before historical filtering can hide it",
+    (_name, rows) => {
+      expect(() => partitionRenderSchemaHandoffCheckout(rows)).toThrow(
+        "render_schema_handoff_rejected:",
+      );
+      reader.mockImplementationOnce(() => {
+        partitionRenderSchemaHandoffCheckout(rows);
+        return rows;
+      });
+      expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
+        "render_schema_handoff_rejected:",
+      );
+    },
+  );
+
+  it("real NEWTEST full118 SQL checkout catches the CI count-cap regression without reader mocks", async () => {
+    const fixture = mkdtempSync(
+      join(tmpdir(), "NEWTEST-historical96-checkout-"),
+    );
+    try {
+      const library = join(fixture, "scripts/lib");
+      mkdirSync(library, { recursive: true });
+      for (const name of [
+        "render-historical96-checkout.mjs",
+        "render-schema-handoff-policy.mjs",
+      ]) {
+        cpSync(new URL(name, import.meta.url), join(library, name));
+      }
+      cpSync(
+        new URL(
+          "../../packages/platform/db/prisma/migrations/",
+          import.meta.url,
+        ),
+        join(fixture, "packages/platform/db/prisma/migrations"),
+        { recursive: true },
+      );
+      const actual = await import(
+        pathToFileURL(join(library, "render-historical96-checkout.mjs")).href
+      );
+      const result = actual.readRenderHistorical96CheckoutInventory();
+      expect(result).toEqual(historical);
+      expect(result).toHaveLength(96);
+      expect(manifest(result)).toBe(
+        "sha256:5faad7059a2f57055086dd1571e87706c261a486e8952334401f1d91cc41c97b",
+      );
+      expect(Object.isFrozen(result)).toBe(true);
+      expect(result.every(Object.isFrozen)).toBe(true);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
 });
