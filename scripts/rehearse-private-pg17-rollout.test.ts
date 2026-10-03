@@ -1274,13 +1274,13 @@ describe("disposable dual-version rehearsal", () => {
     const previousCheckout = migrationNames.filter(
       (name) => name !== "000116_hosted_v4_fenced_dispatch",
     );
-    expect(previousCheckout).toHaveLength(109);
+    expect(previousCheckout).toHaveLength(114);
     expect(() =>
       resolvePreReleaseMigrationExclusions(previousCheckout),
     ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
-    expect(migrationNames).toHaveLength(110);
+    expect(migrationNames).toHaveLength(115);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:60fa3047c910ca947f30d8011f6aded08dbfa75cc466cce699d58a3df53c5989",
+      "sha256:1423415eefb158f298b3760f77ddc3dc3a38f13774c206b01df9a4a24b050a79",
     );
 
     expect(exclusions).toEqual([
@@ -1317,6 +1317,11 @@ describe("disposable dual-version rehearsal", () => {
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
+      "000111_sdk_growth_source_binding",
+      "000112_sdk_growth_operator_credential",
+      "000113_sdk_growth_approval_ledger",
+      "000114_sdk_growth_v3_tool_artifact",
+      "000115_sdk_growth_v3_approved_manifest",
       "000116_hosted_v4_fenced_dispatch",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
@@ -1368,6 +1373,11 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000108_sdk_growth_verifier_assignment" &&
             name !== "000109_sdk_growth_verifier_assignment_lock" &&
             name !== "000110_historical_unknown_scope_barrier" &&
+            name !== "000111_sdk_growth_source_binding" &&
+            name !== "000112_sdk_growth_operator_credential" &&
+            name !== "000113_sdk_growth_approval_ledger" &&
+            name !== "000114_sdk_growth_v3_tool_artifact" &&
+            name !== "000115_sdk_growth_v3_approved_manifest" &&
             name !== "000116_hosted_v4_fenced_dispatch",
           "000102_sdk_growth_current_authority",
         ),
@@ -1392,6 +1402,11 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000108_sdk_growth_verifier_assignment" &&
             name !== "000109_sdk_growth_verifier_assignment_lock" &&
             name !== "000110_historical_unknown_scope_barrier" &&
+            name !== "000111_sdk_growth_source_binding" &&
+            name !== "000112_sdk_growth_operator_credential" &&
+            name !== "000113_sdk_growth_approval_ledger" &&
+            name !== "000114_sdk_growth_v3_tool_artifact" &&
+            name !== "000115_sdk_growth_v3_approved_manifest" &&
             name !== "000116_hosted_v4_fenced_dispatch",
           "000102_sdk_growth_current_authority",
         ),
@@ -1414,7 +1429,7 @@ describe("disposable dual-version rehearsal", () => {
   });
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
-    const exactTail = "000109_sdk_growth_verifier_assignment_lock";
+    const exactTail = "000115_sdk_growth_v3_approved_manifest";
     for (const candidate of [
       names.filter((name) => name !== exactTail),
       [...names, exactTail],
@@ -1453,6 +1468,11 @@ describe("disposable dual-version rehearsal", () => {
     "000108_sdk_growth_verifier_assignment",
     "000109_sdk_growth_verifier_assignment_lock",
     "000110_historical_unknown_scope_barrier",
+    "000111_sdk_growth_source_binding",
+    "000112_sdk_growth_operator_credential",
+    "000113_sdk_growth_approval_ledger",
+    "000114_sdk_growth_v3_tool_artifact",
+    "000115_sdk_growth_v3_approved_manifest",
     "000116_hosted_v4_fenced_dispatch",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
@@ -1494,6 +1514,11 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000108_sdk_growth_verifier_assignment" &&
                 name !== "000109_sdk_growth_verifier_assignment_lock" &&
                 name !== "000110_historical_unknown_scope_barrier" &&
+                name !== "000111_sdk_growth_source_binding" &&
+                name !== "000112_sdk_growth_operator_credential" &&
+                name !== "000113_sdk_growth_approval_ledger" &&
+                name !== "000114_sdk_growth_v3_tool_artifact" &&
+                name !== "000115_sdk_growth_v3_approved_manifest" &&
                 name !== "000116_hosted_v4_fenced_dispatch",
               "000102_sdk_growth_current_authority",
             ),

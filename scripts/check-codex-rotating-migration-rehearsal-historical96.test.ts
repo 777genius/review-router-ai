@@ -30,6 +30,11 @@ const extensions = [
   "000107_hosted_v4_relay_turn_contract",
   "000108_sdk_growth_verifier_assignment",
   "000109_sdk_growth_verifier_assignment_lock",
+  "000111_sdk_growth_source_binding",
+  "000112_sdk_growth_operator_credential",
+  "000113_sdk_growth_approval_ledger",
+  "000114_sdk_growth_v3_tool_artifact",
+  "000115_sdk_growth_v3_approved_manifest",
 ];
 function body(name: string) {
   const match = source.match(

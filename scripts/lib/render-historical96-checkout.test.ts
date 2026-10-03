@@ -26,6 +26,7 @@ const checkout105 = full.slice(0, 105);
 const checkout106 = full.slice(0, 106);
 const checkout107 = full.slice(0, 107);
 const checkout108 = full.slice(0, 108);
+const checkout109 = full.slice(0, 109);
 const manifest = (rows: typeof full) =>
   `sha256:${createHash("sha256")
     .update(rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","))
@@ -33,14 +34,21 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  // CI 36453651163 left the direct historical96 reader rejecting the now
-  // admitted 110-directory checkout at count; the old reader fails here.
-  it("validates the full110 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(110);
-    expect(full[109]?.migrationName).toBe("000116_hosted_v4_fenced_dispatch");
-    expect(full[109]?.checksum).toBe(
-      "869cc817d2654e6239d23f1c2ce7461c37da09af66b06900afd8eace6de7f0d5",
+  it("validates the full115 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(115);
+    expect(full[114]?.migrationName).toBe("000116_hosted_v4_fenced_dispatch");
+    expect(full[114]?.checksum).toBe(
+      "6175278da6c36b072ad8b35fa3df4d8f67e48a86127c45ce6202317ae2cdd451",
     );
+    expect(full[113]?.migrationName).toBe(
+      "000115_sdk_growth_v3_approved_manifest",
+    );
+    expect(full[112]?.migrationName).toBe("000114_sdk_growth_v3_tool_artifact");
+    expect(full[111]?.migrationName).toBe("000113_sdk_growth_approval_ledger");
+    expect(full[110]?.migrationName).toBe(
+      "000112_sdk_growth_operator_credential",
+    );
+    expect(full[109]?.migrationName).toBe("000111_sdk_growth_source_binding");
     expect(full[108]?.migrationName).toBe(
       "000110_historical_unknown_scope_barrier",
     );
@@ -95,7 +103,12 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: checkout106 },
     { checkout: checkout107 },
     { checkout: checkout108 },
-    { checkout: full.slice(0, 109) },
+    { checkout: checkout109 },
+    { checkout: full.slice(0, 110) },
+    { checkout: full.slice(0, 111) },
+    { checkout: full.slice(0, 112) },
+    { checkout: full.slice(0, 113) },
+    { checkout: full.slice(0, 114) },
     { checkout: full },
   ])(
     "accepts a complete validated historical checkout prefix (%#)",
@@ -136,18 +149,22 @@ describe("trusted historical96 checkout reader", () => {
       ],
     ],
     [
-      "unknown 111",
+      "unknown v4 extension",
       [
-        ...full.slice(0, 109),
-        { migrationName: "000111_unknown", checksum: "a".repeat(64) },
+        ...full.slice(0, 114),
+        { migrationName: "000116_unknown", checksum: "a".repeat(64) },
       ],
     ],
     [
-      "relabelled 111",
+      "relabelled v4 extension",
       [
-        ...full.slice(0, 109),
-        { ...full[109]!, migrationName: "000111_relabelled" },
+        ...full.slice(0, 114),
+        { ...full[114]!, migrationName: "000116_relabelled" },
       ],
+    ],
+    [
+      "unknown future extension",
+      [...full, { migrationName: "000114_unknown", checksum: "a".repeat(64) }],
     ],
     [
       "future replacement",
@@ -176,9 +193,10 @@ describe("trusted historical96 checkout reader", () => {
     },
   );
 
-  // A checksum drift in SQL111 must still be rejected by source admission;
-  // the old test range never exercised the new checkout-only tail.
-  it.each([96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109])(
+  it.each([
+    96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+    112, 113, 114,
+  ])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {
       reader.mockImplementationOnce(() => {

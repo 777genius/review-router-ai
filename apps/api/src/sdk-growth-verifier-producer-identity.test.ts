@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { decodeJwt, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
@@ -24,6 +24,15 @@ const execution: AuthenticatedEfExecution = {
   sourceCommit: "2".repeat(40),
   sourceTree: "3".repeat(40),
 };
+const sourceBinding = {
+  headRepositoryId: "100",
+  baseRepositoryId: "100",
+  baseRef: "main",
+  baseCommit: "4".repeat(40),
+  baseTree: "5".repeat(40),
+  mergeBaseCommit: "4".repeat(40),
+  mergeBaseTree: "5".repeat(40),
+};
 
 type AssignmentRow = {
   assignmentId: string;
@@ -32,6 +41,7 @@ type AssignmentRow = {
   createdAt: Date;
   expiresAt: Date;
   revokedAt: Date | null;
+  efToolArtifactId?: string | null;
 };
 type FakeTransaction = {
   $queryRaw(
@@ -64,6 +74,9 @@ function fixture() {
           createdAt: values[3] as Date,
           expiresAt: values[4] as Date,
           revokedAt: null,
+          ...(values[5] === undefined
+            ? {}
+            : { efToolArtifactId: values[5] as string }),
         };
         rows.set(row.assignmentId, row);
         return [structuredClone(row)];
@@ -135,6 +148,204 @@ function fixture() {
 }
 
 describe("protected SDK verifier producer identity", () => {
+  // Regression: a legacy execution-only token must not authenticate an
+  // assignment that has a different immutable EF tool artifact pin.
+  it("binds v3 credentials to the scheduler-owned tool artifact", async () => {
+    const h = fixture();
+    const artifactId = "a".repeat(64);
+    const row = await h.store.createPinned(
+      { ...execution, sourceBinding },
+      new Date(Date.now() + 15 * 60_000),
+      artifactId,
+    );
+    const token = await h.issuer.issue(row.assignmentId);
+    expect(decodeJwt(token)).toMatchObject({
+      assignmentId: row.assignmentId,
+      assignmentDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(decodeJwt(token)).not.toHaveProperty("executionDigest");
+    expect(await h.authenticator.authenticate(token)).toMatchObject({
+      execution: { ...execution, sourceBinding },
+      efToolArtifactId: artifactId,
+    });
+    h.rows.get(row.assignmentId)!.efToolArtifactId = "b".repeat(64);
+    await expect(h.authenticator.authenticate(token)).rejects.toThrow(
+      "sdk_growth_verifier_credential_rejected",
+    );
+  });
+
+  // Regression: adding v2 source data could change the digest or JSON bytes
+  // used by already issued v1 credentials and historical assignments.
+  it("preserves the historical 11-field execution and credential digest", async () => {
+    const h = fixture();
+    const row = await h.store.create(
+      execution,
+      new Date(Date.now() + 15 * 60_000),
+    );
+    const token = await h.issuer.issue(row.assignmentId);
+    const expected = createHash("sha256")
+      .update(
+        JSON.stringify([
+          execution.tenantId,
+          execution.repositoryId,
+          execution.pullRequest,
+          execution.githubRepositoryId,
+          execution.installationId,
+          execution.subject,
+          execution.runId,
+          execution.runAttempt,
+          execution.verifierRevision,
+          execution.sourceCommit,
+          execution.sourceTree,
+        ]),
+      )
+      .digest("hex");
+    expect(decodeJwt(token).executionDigest).toBe(expected);
+    expect(h.rows.get(row.assignmentId)?.execution).toEqual(execution);
+    expect((await h.authenticator.authenticate(token)).execution).toEqual(
+      execution,
+    );
+  });
+
+  // Regression: v1's exact 11-key parser would drop or reject captured PR
+  // base identity, leaving a verifier assignment tied only to the head SHA.
+  it("persists v2 source binding and authenticates its exact protected assignment", async () => {
+    const h = fixture();
+    const bound = { ...execution, sourceBinding };
+    const row = await h.store.create(bound, new Date(Date.now() + 15 * 60_000));
+    expect(h.rows.get(row.assignmentId)?.execution).toEqual({
+      ...bound,
+      version: 2,
+    });
+    expect((await h.store.load(row.assignmentId))?.execution).toEqual(bound);
+    const token = await h.issuer.issue(row.assignmentId);
+    expect((await h.authenticator.authenticate(token, h.db)).execution).toEqual(
+      bound,
+    );
+    expect(decodeJwt(token).executionDigest).not.toBe(
+      createHash("sha256")
+        .update(
+          JSON.stringify([
+            execution.tenantId,
+            execution.repositoryId,
+            execution.pullRequest,
+            execution.githubRepositoryId,
+            execution.installationId,
+            execution.subject,
+            execution.runId,
+            execution.runAttempt,
+            execution.verifierRevision,
+            execution.sourceCommit,
+            execution.sourceTree,
+          ]),
+        )
+        .digest("hex"),
+    );
+  });
+
+  // Regression: a changed base ref or tree with the same head could reuse a
+  // previous credential unless the full v2 capture enters its digest.
+  it.each([
+    "baseRef",
+    "baseCommit",
+    "baseTree",
+    "mergeBaseCommit",
+    "mergeBaseTree",
+  ] as const)(
+    "rejects tampered persisted v2 %s under an issued credential",
+    async (field) => {
+      const h = fixture();
+      const row = await h.store.create(
+        { ...execution, sourceBinding },
+        new Date(Date.now() + 15 * 60_000),
+      );
+      const token = await h.issuer.issue(row.assignmentId);
+      h.rows.set(row.assignmentId, {
+        ...h.rows.get(row.assignmentId)!,
+        execution: {
+          ...execution,
+          version: 2,
+          sourceBinding: {
+            ...sourceBinding,
+            [field]: field === "baseRef" ? "release" : "a".repeat(40),
+          },
+        } as AuthenticatedEfExecution,
+      });
+      await expect(h.authenticator.authenticate(token)).rejects.toThrow(
+        "credential_rejected",
+      );
+    },
+  );
+
+  // Regression: an incomplete or extended v2 record could pass through a
+  // loose JSON parser and silently lose source authority fields.
+  it.each([
+    { sourceBinding: { ...sourceBinding, baseTree: undefined } },
+    { sourceBinding: { ...sourceBinding, unexpected: "field" } },
+    { sourceBinding: { ...sourceBinding, baseRepositoryId: "999" } },
+    { sourceBinding: { ...sourceBinding, baseRef: "../main" } },
+  ])(
+    "rejects malformed source binding before assignment write %#",
+    async (change) => {
+      const h = fixture();
+      await expect(
+        h.store.create(
+          { ...execution, ...change } as AuthenticatedEfExecution,
+          new Date(Date.now() + 15 * 60_000),
+        ),
+      ).rejects.toThrow("credential_rejected");
+      expect(h.rows.size).toBe(0);
+    },
+  );
+
+  it.each([{ version: 1 }, { version: 3 }, { version: 2, unexpected: true }])(
+    "rejects malformed persisted v2 envelope %#",
+    async (change) => {
+      const h = fixture();
+      const row = await h.store.create(
+        { ...execution, sourceBinding },
+        new Date(Date.now() + 15 * 60_000),
+      );
+      h.rows.set(row.assignmentId, {
+        ...h.rows.get(row.assignmentId)!,
+        execution: {
+          ...execution,
+          sourceBinding,
+          ...change,
+        } as AuthenticatedEfExecution,
+      });
+      await expect(h.store.load(row.assignmentId)).rejects.toThrow(
+        "credential_rejected",
+      );
+    },
+  );
+
+  // Regression: a new PR base under the same scope must revoke the previous
+  // assignment even when run, attempt and head remain unchanged.
+  it("revokes old v2 credential when the captured base changes", async () => {
+    const h = fixture();
+    const first = await h.store.create(
+      { ...execution, sourceBinding },
+      new Date(Date.now() + 15 * 60_000),
+    );
+    const oldCredential = await h.issuer.issue(first.assignmentId);
+    const replacement = await h.store.create(
+      { ...execution, sourceBinding: { ...sourceBinding, baseRef: "release" } },
+      new Date(Date.now() + 15 * 60_000),
+    );
+    expect(h.rows.get(first.assignmentId)?.revokedAt).toBeInstanceOf(Date);
+    await expect(h.authenticator.authenticate(oldCredential)).rejects.toThrow(
+      "credential_rejected",
+    );
+    expect(
+      (
+        await h.authenticator.authenticate(
+          await h.issuer.issue(replacement.assignmentId),
+        )
+      ).execution.sourceBinding?.baseRef,
+    ).toBe("release");
+  });
+
   it("locks the empty PR scope before replacement and locks assignment through the custody transaction", async () => {
     const h = fixture();
     const first = await h.store.create(

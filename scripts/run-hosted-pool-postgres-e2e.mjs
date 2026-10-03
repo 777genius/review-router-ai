@@ -109,6 +109,13 @@ const sdkGrowthVerifierAssignmentMigrations = Object.freeze([
 ]);
 const historicalUnknownScopeBarrierMigration =
   "000110_historical_unknown_scope_barrier";
+const sdkGrowthSourceBindingMigration = "000111_sdk_growth_source_binding";
+const sdkGrowthOperatorCredentialMigration =
+  "000112_sdk_growth_operator_credential";
+const sdkGrowthApprovalLedgerMigration = "000113_sdk_growth_approval_ledger";
+const sdkGrowthV3ToolArtifactMigration = "000114_sdk_growth_v3_tool_artifact";
+const sdkGrowthV3ApprovedManifestMigration =
+  "000115_sdk_growth_v3_approved_manifest";
 const v4FencedDispatchMigration = "000116_hosted_v4_fenced_dispatch";
 
 const codexOAuthV5Migrations = [
@@ -184,6 +191,8 @@ try {
       runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     }
     addMigration(rehearsalDirectory, historicalUnknownScopeBarrierMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    addMigration(rehearsalDirectory, sdkGrowthSourceBindingMigration);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     addMigration(rehearsalDirectory, v4FencedDispatchMigration);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
@@ -767,6 +776,11 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           v4RelayTurnMigration,
           ...sdkGrowthVerifierAssignmentMigrations,
           historicalUnknownScopeBarrierMigration,
+          sdkGrowthSourceBindingMigration,
+          sdkGrowthOperatorCredentialMigration,
+          sdkGrowthApprovalLedgerMigration,
+          sdkGrowthV3ToolArtifactMigration,
+          sdkGrowthV3ApprovedManifestMigration,
           v4FencedDispatchMigration,
         ]
       : []),

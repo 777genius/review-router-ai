@@ -187,9 +187,34 @@ const checkoutExtensions = Object.freeze([
       "aa9cd8a8e34e9909dcc22c5a7dd94cc4121821db93330c0a54bb48b0aaf61a79",
   }),
   Object.freeze({
+    migrationName: "000111_sdk_growth_source_binding",
+    checksum:
+      "2d9b80ff0d894ba22602c4d84f7487a5343352e6bd2602f64c0b3cafdce048cd",
+  }),
+  Object.freeze({
+    migrationName: "000112_sdk_growth_operator_credential",
+    checksum:
+      "0178f5198025c8e0f03bc995139940f9a2c9739f3c3ad000c857e8e0c8b425d0",
+  }),
+  Object.freeze({
+    migrationName: "000113_sdk_growth_approval_ledger",
+    checksum:
+      "1684eced3efccf7af153c4fd8e24a31a96aec20ddb2674b2764ba56796d8f6c2",
+  }),
+  Object.freeze({
+    migrationName: "000114_sdk_growth_v3_tool_artifact",
+    checksum:
+      "14d0dd69bdf596cbdfe39306965b08bd969a9d9b89b0a49ddcfe34fe43118d58",
+  }),
+  Object.freeze({
+    migrationName: "000115_sdk_growth_v3_approved_manifest",
+    checksum:
+      "07fdc348fe27d0ee1ddc15d97e6932cca3dc02cc920d856c4380f71cabb36db0",
+  }),
+  Object.freeze({
     migrationName: "000116_hosted_v4_fenced_dispatch",
     checksum:
-      "869cc817d2654e6239d23f1c2ce7461c37da09af66b06900afd8eace6de7f0d5",
+      "6175278da6c36b072ad8b35fa3df4d8f67e48a86127c45ce6202317ae2cdd451",
   }),
 ]);
 
@@ -218,9 +243,10 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     }
   }
   if (
-    ![0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].includes(
-      extensions,
-    )
+    ![
+      0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23,
+    ].includes(extensions)
   )
     fail("checkout_extension");
   if (
@@ -316,7 +342,37 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     extensions === 18 &&
     manifest(catalog) !==
-      "sha256:60fa3047c910ca947f30d8011f6aded08dbfa75cc466cce699d58a3df53c5989"
+      "sha256:48019e5f9ad81af25742e30903b83d7053affa263c2e0674a4f9e4c909b4ec26"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 19 &&
+    manifest(catalog) !==
+      "sha256:7e1d7018a5f959cfd5d237fd2ac18dd1436580b05ab0da7a9416bc7dfb842988"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 20 &&
+    manifest(catalog) !==
+      "sha256:24a99e65c00ef46f0a63d0823ec12f38575b793e794c82990bd5c3ecfd0a2271"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 21 &&
+    manifest(catalog) !==
+      "sha256:06b7ead8634045dd96f1e79626cb1fdcee3bd147ca5068e9fe001705271f5446"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 22 &&
+    manifest(catalog) !==
+      "sha256:15a397089c81b84540534361777b74a69a48955df7db81bf6353130d51aa6ed0"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 23 &&
+    manifest(catalog) !==
+      "sha256:1423415eefb158f298b3760f77ddc3dc3a38f13774c206b01df9a4a24b050a79"
   )
     fail("checkout_manifest");
   assertRenderSchemaHandoffCatalog(managed);
