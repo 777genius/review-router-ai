@@ -34,8 +34,9 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full116 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(116);
+  it("validates the full117 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(117);
+    expect(full[116]?.migrationName).toBe("000118_workspace_binding_fences");
     expect(full[115]?.migrationName).toBe("000117_provider_accounts");
     expect(full[114]?.migrationName).toBe(
       "000116_hosted_codex_relay_admission_utc",
