@@ -412,6 +412,12 @@ describe.skipIf(!runDisposablePg17 || ownershipNegative)(
         );
       }
       runtimeGateEpoch = gate.authzEpoch;
+      // PR478's stock admission guard predates the separately qualified UTC
+      // correction. Isolate that sibling defect in this disposable database;
+      // never alter its stock migration or the runtime connection's authority.
+      await setup.$executeRawUnsafe(
+        "ALTER FUNCTION public.hosted_codex_relay_admission_guard() SET timezone = 'UTC'",
+      );
     });
 
     afterAll(async () => {
@@ -932,6 +938,108 @@ describe.skipIf(!runDisposablePg17 || ownershipNegative)(
           status: "restored",
           grantId: grant.grantId,
         });
+        const expiryFixtures = [
+          ["HostedCodexV4RelayTurn", "logicalTurnKey", contract.logicalTurnKey],
+          ["ReviewInvestigationTurn", "turnId", ids.turn],
+          ["ReviewRunAuthorization", "authorizationId", authorizationId],
+          ["ReviewInvestigationLease", "leaseId", ids.investigationLease],
+          ["ReviewInvocationLeaseV2", "leaseId", ids.invocationLease],
+        ] as const;
+        // Only trusted, disposable fixture setup changes immutable expiry
+        // facts. Trigger suppression is transaction-local on the setup backend
+        // and restored before the authenticated API backend exercises them.
+        const setFixtureExpiry = async (
+          fixture: (typeof expiryFixtures)[number],
+          expired: boolean,
+        ) => {
+          requireDisposableUrls();
+          const [table, key, value] = fixture;
+          await setup.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(
+              "SET LOCAL session_replication_role = replica",
+            );
+            const expiry = expired
+              ? new Date(Date.now() - 30_000)
+              : table === "HostedCodexV4RelayTurn"
+                ? contract.expiresAt
+                : table === "ReviewInvestigationTurn"
+                  ? turnExpiry
+                  : table === "ReviewRunAuthorization"
+                    ? authorizationExpiry
+                    : table === "ReviewInvestigationLease"
+                      ? investigationLeaseExpiry
+                      : invocationLeaseExpiry;
+            const older = new Date(Date.now() - 120_000);
+            const dates =
+              table === "ReviewRunAuthorization"
+                ? Prisma.sql`, "createdAt" = ${older}`
+                : table === "ReviewInvestigationLease" ||
+                    table === "ReviewInvocationLeaseV2"
+                  ? Prisma.sql`, "acquiredAt" = ${older}, "renewedAt" = ${older}`
+                  : Prisma.empty;
+            expect(
+              await tx.$executeRaw(Prisma.sql`
+              UPDATE ${Prisma.raw(`public."${table}"`)}
+              SET "expiresAt" = ${expiry} ${dates}
+              WHERE ${Prisma.raw(`"${key}"`)} = ${value}
+            `),
+            ).toBe(1);
+          });
+        };
+        const assertNoReservation = async () => {
+          expect(
+            await setup.hostedCodexInvocationGrant.findUniqueOrThrow({
+              where: { id: grant.grantId },
+              select: { status: true, requestCount: true, inFlight: true },
+            }),
+          ).toEqual({ status: "issued", requestCount: 0, inFlight: 0 });
+          expect(
+            await setup.hostedCodexRelayRequest.count({
+              where: { grantId: grant.grantId },
+            }),
+          ).toBe(0);
+          expect(
+            await setup.hostedCodexUpstreamEffectAttempt.count({
+              where: { grantId: grant.grantId },
+            }),
+          ).toBe(0);
+        };
+        for (const zone of ["Europe/Berlin", "America/Los_Angeles"]) {
+          for (const fixture of expiryFixtures) {
+            await setFixtureExpiry(fixture, true);
+            try {
+              // Bypass application prevalidation, not DB admission. Both
+              // BEFORE INSERT triggers run on the real API connection.
+              await expect(
+                runtime.$transaction(async (tx) => {
+                  await tx.$executeRaw(
+                    Prisma.sql`SELECT set_config('TimeZone', ${zone}, true)`,
+                  );
+                  await tx.hostedCodexRelayRequest.create({
+                    data: {
+                      id: randomUUID(),
+                      authorityKind: "v4_relay_turn",
+                      grantId: grant.grantId,
+                      ordinal: 1,
+                      idempotencyKeyHash: hash(`expired-${fixture[0]}-${zone}`),
+                      requestHash: hash(body),
+                      requestBytes: body.byteLength,
+                      status: "received",
+                    },
+                  });
+                }),
+              ).rejects.toThrow(
+                fixture[0] === "HostedCodexV4RelayTurn"
+                  ? "hosted_v4_relay_grant_turn_denied"
+                  : "hosted_v4_relay_request_reservation_denied",
+              );
+              await assertNoReservation();
+            } finally {
+              await setFixtureExpiry(fixture, false);
+            }
+          }
+        }
+        await runtime.$executeRawUnsafe("SET timezone = 'Europe/Berlin'");
         const prepared = await first.reservePreparedRequest(requestInput);
         expect(prepared).toMatchObject({
           status: "prepared",
@@ -941,6 +1049,11 @@ describe.skipIf(!runDisposablePg17 || ownershipNegative)(
         });
         expect(prepared.requestId).toBeTruthy();
         expect(prepared.effectId).toBeTruthy();
+        expect(
+          await runtime.$queryRaw<Array<{ zone: string }>>(
+            Prisma.sql`SELECT current_setting('TimeZone') AS zone`,
+          ),
+        ).toEqual([{ zone: "Europe/Berlin" }]);
 
         // Reopen a separate Prisma object to prove restoration is durable.
         const restarted = createPrismaClient({

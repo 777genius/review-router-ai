@@ -97,7 +97,8 @@ CREATE TRIGGER review_investigation_v4_request_fence_trigger
 -- transport must add its own fenced dispatch transition; this migration does
 -- not authorize a provider send.
 CREATE OR REPLACE FUNCTION public.hosted_codex_v4_dispatch_disabled()
-RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $guard$
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp
+SET timezone = 'UTC' AS $guard$
 DECLARE
   grant_row public."HostedCodexInvocationGrant"%ROWTYPE;
   turn_row public."HostedCodexV4RelayTurn"%ROWTYPE;

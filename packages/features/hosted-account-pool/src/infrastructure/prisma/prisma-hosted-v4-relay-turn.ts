@@ -1,5 +1,6 @@
 import { parseInvestigationAuthorizationDescriptorJson } from "../../domain/hosted-v4-relay-descriptor";
 import { createHash, randomUUID } from "node:crypto";
+import { PostgresTransactionClock } from "../../../../../platform/db/src/postgres-transaction-clock.js";
 import {
   Prisma,
   type HostedCodexInvocationGrant,
@@ -58,6 +59,7 @@ function retryableReservationConflict(error: unknown): boolean {
 
 /** Sticky turn history. Reissue with a replacement lease cannot reset it. */
 export class PrismaHostedV4RelayTurn implements HostedV4RelayTurnPort {
+  private readonly clock = new PostgresTransactionClock();
   constructor(private readonly prisma: PrismaClient) {}
 
   /** Reserve one immutable turn and grant. The token issuer supplies a
@@ -103,12 +105,7 @@ export class PrismaHostedV4RelayTurn implements HostedV4RelayTurnPort {
       try {
         return await this.prisma.$transaction(
           async (tx) => {
-            const databaseTime = await tx.$queryRaw<
-              Array<{ now: Date }>
-            >(Prisma.sql`
-            SELECT clock_timestamp() AS "now"
-          `);
-            const now = databaseTime[0]?.now;
+            const now = await this.clock.now(tx);
             if (!now || contract.expiresAt <= now)
               throw new Error("hosted_v4_relay_turn_expired");
             // Release is the first row lock in either reservation path. A
@@ -495,12 +492,7 @@ export class PrismaHostedV4RelayTurn implements HostedV4RelayTurnPort {
       try {
         return await this.prisma.$transaction(
           async (tx) => {
-            const databaseTime = await tx.$queryRaw<
-              Array<{ now: Date }>
-            >(Prisma.sql`
-          SELECT clock_timestamp() AS "now"
-        `);
-            const now = databaseTime[0]?.now;
+            const now = await this.clock.now(tx);
             if (!now)
               throw new Error("hosted_v4_relay_database_time_unavailable");
             const releaseRegistered = await lockCurrentProducerRelease(
@@ -790,12 +782,7 @@ export class PrismaHostedV4RelayTurn implements HostedV4RelayTurnPort {
             authorityKind: "v4_relay_turn",
           },
         });
-        const databaseTime = await tx.$queryRaw<
-          Array<{ now: Date }>
-        >(Prisma.sql`
-        SELECT clock_timestamp() AS "now"
-      `);
-        const now = databaseTime[0]?.now;
+        const now = await this.clock.now(tx);
         if (
           !now ||
           !effect ||

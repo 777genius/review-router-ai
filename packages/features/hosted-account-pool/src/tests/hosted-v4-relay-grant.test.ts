@@ -204,15 +204,17 @@ describe("hosted v4 relay turn contract", () => {
   });
   it("creates no turn without both exact disposable admission flags", async () => {
     const tx = {
-      $queryRaw: vi.fn(async (query: Prisma.Sql) =>
-        query.strings.join("").includes('"ProducerRelease"')
+      $queryRaw: vi.fn(async (query: Prisma.Sql | TemplateStringsArray) =>
+        ("strings" in query ? query.strings : query)
+          .join("")
+          .includes('"ProducerRelease"')
           ? [
               {
                 producerReleaseId: saved.scope.producerReleaseId,
                 state: "registered",
               },
             ]
-          : [{ now }],
+          : [{ epochMs: BigInt(now.getTime()) }],
       ),
       hostedCodexV4RelayTurn: { findUnique: vi.fn().mockResolvedValue(null) },
       $executeRaw: vi.fn(),
@@ -286,7 +288,7 @@ describe("hosted v4 relay turn contract", () => {
       const tx = {
         $queryRaw: vi
           .fn()
-          .mockResolvedValueOnce([{ now }])
+          .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
           .mockResolvedValueOnce([
             {
               producerReleaseId: saved.scope.producerReleaseId,
@@ -568,7 +570,7 @@ describe("hosted v4 relay turn contract", () => {
     const tx = {
       $queryRaw: vi
         .fn()
-        .mockResolvedValueOnce([{ now }])
+        .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
         .mockResolvedValueOnce([
           { producerReleaseId: s.producerReleaseId, state: "registered" },
         ])
@@ -765,7 +767,7 @@ describe("hosted v4 relay turn contract", () => {
     tx.$executeRaw.mockClear();
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -848,7 +850,7 @@ describe("hosted v4 relay turn contract", () => {
     // A stale plain release read must never be enough to debit a request.
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -871,7 +873,7 @@ describe("hosted v4 relay turn contract", () => {
     expect(createEffect).not.toHaveBeenCalled();
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -937,7 +939,7 @@ describe("hosted v4 relay turn contract", () => {
     );
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -967,7 +969,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1001,7 +1003,7 @@ describe("hosted v4 relay turn contract", () => {
     tx.hostedCodexRelayRequest.findFirst.mockResolvedValue(null);
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1033,7 +1035,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1066,7 +1068,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1110,7 +1112,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1169,7 +1171,7 @@ describe("hosted v4 relay turn contract", () => {
       });
       tx.$queryRaw
         .mockReset()
-        .mockResolvedValueOnce([{ now }])
+        .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
         .mockResolvedValueOnce([
           { producerReleaseId: s.producerReleaseId, state: "registered" },
         ])
@@ -1221,7 +1223,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1260,7 +1262,7 @@ describe("hosted v4 relay turn contract", () => {
     // repository authority alone has closed. No replacement grant is issued.
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1295,7 +1297,7 @@ describe("hosted v4 relay turn contract", () => {
     expect(createGrant).not.toHaveBeenCalled();
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1346,7 +1348,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1392,7 +1394,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1438,7 +1440,7 @@ describe("hosted v4 relay turn contract", () => {
     vi.stubEnv("REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED", "0");
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1457,7 +1459,7 @@ describe("hosted v4 relay turn contract", () => {
     vi.stubEnv("REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED", "1");
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1481,7 +1483,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1533,7 +1535,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1586,7 +1588,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1622,7 +1624,7 @@ describe("hosted v4 relay turn contract", () => {
     tx.reviewInvocationLeaseV2.findUnique.mockResolvedValue(invocationLease);
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1656,7 +1658,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1713,7 +1715,7 @@ describe("hosted v4 relay turn contract", () => {
     });
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ now }])
+      .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
       .mockResolvedValueOnce([
         { producerReleaseId: s.producerReleaseId, state: "registered" },
       ])
@@ -1808,7 +1810,7 @@ describe("hosted v4 relay turn contract", () => {
     const tx = {
       $queryRaw: vi
         .fn()
-        .mockResolvedValueOnce([{ now }])
+        .mockResolvedValueOnce([{ epochMs: BigInt(now.getTime()) }])
         .mockResolvedValueOnce([
           {
             producerReleaseId: saved.scope.producerReleaseId,
@@ -2051,7 +2053,7 @@ describe("hosted v4 relay turn contract", () => {
       $queryRaw: vi
         .fn()
         .mockResolvedValueOnce([{ state: "open" }])
-        .mockResolvedValueOnce([{ now: new Date() }]),
+        .mockResolvedValueOnce([{ epochMs: BigInt(Date.now()) }]),
       hostedCodexInvocationGrant: {
         findUnique: vi.fn().mockResolvedValue({
           id: "grant",
@@ -2109,7 +2111,7 @@ describe("hosted v4 relay turn contract", () => {
       $queryRaw: vi
         .fn()
         .mockResolvedValueOnce([{ state: "open" }])
-        .mockResolvedValueOnce([{ now: new Date() }]),
+        .mockResolvedValueOnce([{ epochMs: BigInt(Date.now()) }]),
       hostedCodexInvocationGrant: {
         findUnique: vi.fn().mockResolvedValue({
           id: "grant",
@@ -2316,11 +2318,13 @@ describe("hosted v4 relay turn persistence", () => {
                   get(target, property) {
                     if (property !== "$queryRaw")
                       return Reflect.get(target, property);
-                    return async (query: Prisma.Sql) => {
+                    return async (query: Prisma.Sql | TemplateStringsArray) => {
                       const result = await tx.$queryRaw(query);
                       if (
                         !paused &&
-                        query.strings.join("").includes("clock_timestamp()")
+                        ("strings" in query ? query.strings : query)
+                          .join("")
+                          .includes("clock_timestamp()")
                       ) {
                         expect(
                           (
