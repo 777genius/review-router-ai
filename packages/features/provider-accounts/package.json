@@ -4,8 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": { "types": "./src/index.ts", "production": "./dist/index.js", "default": "./src/index.ts" },
-    "./synchronization": { "types": "./src/synchronization.ts", "production": "./dist/synchronization.js", "default": "./src/synchronization.ts" }
+    ".": {
+      "types": "./src/index.ts",
+      "production": "./dist/index.js",
+      "default": "./src/index.ts"
+    },
+    "./synchronization": {
+      "types": "./src/synchronization.ts",
+      "production": "./dist/synchronization.js",
+      "default": "./src/synchronization.ts"
+    }
   },
   "dependencies": {
     "@prisma/client": "7.8.0",

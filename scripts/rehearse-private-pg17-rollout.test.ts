@@ -1272,15 +1272,15 @@ describe("disposable dual-version rehearsal", () => {
 
     const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
     const previousCheckout = migrationNames.filter(
-      (name) => name !== "000115_sdk_growth_v3_approved_manifest",
+      (name) => name !== "000116_provider_accounts",
     );
-    expect(previousCheckout).toHaveLength(113);
+    expect(previousCheckout).toHaveLength(114);
     expect(() =>
       resolvePreReleaseMigrationExclusions(previousCheckout),
     ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
-    expect(migrationNames).toHaveLength(114);
+    expect(migrationNames).toHaveLength(115);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:15a397089c81b84540534361777b74a69a48955df7db81bf6353130d51aa6ed0",
+      "sha256:ae0b21de10e57e6164478c4b04bf386381e22c70aaabe23206f5e31da5360a30",
     );
 
     expect(exclusions).toEqual([
@@ -1322,6 +1322,7 @@ describe("disposable dual-version rehearsal", () => {
       "000113_sdk_growth_approval_ledger",
       "000114_sdk_growth_v3_tool_artifact",
       "000115_sdk_growth_v3_approved_manifest",
+      "000116_provider_accounts",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1376,7 +1377,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000112_sdk_growth_operator_credential" &&
             name !== "000113_sdk_growth_approval_ledger" &&
             name !== "000114_sdk_growth_v3_tool_artifact" &&
-            name !== "000115_sdk_growth_v3_approved_manifest",
+            name !== "000115_sdk_growth_v3_approved_manifest" &&
+            name !== "000116_provider_accounts",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1404,7 +1406,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000112_sdk_growth_operator_credential" &&
             name !== "000113_sdk_growth_approval_ledger" &&
             name !== "000114_sdk_growth_v3_tool_artifact" &&
-            name !== "000115_sdk_growth_v3_approved_manifest",
+            name !== "000115_sdk_growth_v3_approved_manifest" &&
+            name !== "000116_provider_accounts",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1426,7 +1429,7 @@ describe("disposable dual-version rehearsal", () => {
   });
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
-    const exactTail = "000115_sdk_growth_v3_approved_manifest";
+    const exactTail = "000116_provider_accounts";
     for (const candidate of [
       names.filter((name) => name !== exactTail),
       [...names, exactTail],
@@ -1464,6 +1467,7 @@ describe("disposable dual-version rehearsal", () => {
     "000113_sdk_growth_approval_ledger",
     "000114_sdk_growth_v3_tool_artifact",
     "000115_sdk_growth_v3_approved_manifest",
+    "000116_provider_accounts",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1508,7 +1512,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000112_sdk_growth_operator_credential" &&
                 name !== "000113_sdk_growth_approval_ledger" &&
                 name !== "000114_sdk_growth_v3_tool_artifact" &&
-                name !== "000115_sdk_growth_v3_approved_manifest",
+                name !== "000115_sdk_growth_v3_approved_manifest" &&
+                name !== "000116_provider_accounts",
               "000102_sdk_growth_current_authority",
             ),
           ),

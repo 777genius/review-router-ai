@@ -1,7 +1,8 @@
 # contract52 C1 handoff
 
-C1 owner/binding foundation is implemented in the workspace. Main qualification
-is pending; this is not UI/gateway/CI completion or a production release.
+C1 owner/binding foundation is implemented. Main qualification results are recorded
+below; exact final-head review/CI are pending. This is not UI/gateway/live-review
+completion or a production release.
 
 ## Identity and owned patch
 
@@ -13,6 +14,7 @@ requirements are the implementation contract. Primary must compare with the
 approved documents and confirm the exact base before integrating.
 
 Available pre-edit SHA256 fingerprints:
+
 - schema.prisma: `87d0beaeadf6dc66abd81afcc3b79a73243865c5c55eec2d23d7b520ef977b14`
 - pnpm-lock.yaml: `3d81c57a3ea0bdd9223592fb5021dfb049f02a50fd3ce5f68337ff812c5141cd`
 - exported auth assertion source: `69a423d022a285257d0d930ec6be46409297a511d95453188149b81f67304c64`
@@ -67,6 +69,7 @@ inactive/future gateway states; workspace-scoped selection; unsafe/nonempty PG
 fixtures; real SQL XOR/transfer/FK/duplicate/revision failures and CAS races.
 
 From repository root on Node v24.21.0:
+
 - `node --import ./packages/features/provider-accounts/tests/register-source-loader.mjs --test packages/features/provider-accounts/tests/use-cases.test.mts packages/features/provider-accounts/tests/database-target.test.mts`: **PASS, 7 tests**.
 - TypeScript syntax parsing using Node `stripTypeScriptTypes` (12 TS/MTS files), JSON manifest parsing and focused whitespace inspection: **PASS**. Syntax parsing is not a typecheck.
 - `node --experimental-transform-types --import ./packages/features/provider-accounts/tests/register-source-loader.mjs --test packages/features/provider-accounts/tests/postgres.test.mts`: **SKIPPED**, opt-in absent; actual PG/full migration **NOT_RUN**.
@@ -100,28 +103,8 @@ Exact-base and actual CI-run qualification remain unverified.
 
 ## Main-owned qualification and deferred work
 
-Main qualified the guarded worker patch `3a5aed10` on canonical `f0c18bf7`
-in a NEW hosted sandbox: Prisma generation/validation, feature typecheck/build,
-all seven lightweight tests and actual architecture checks passed. A NEW
-PostgreSQL 17.10 cluster passed all historical migrations and all six database
-cases, with zero skips. The original multi-statement `pg` harness failed on
-historical `CREATE INDEX CONCURRENTLY`; main corrected only the fixture to use
-actual `psql` with checked loopback parameters, no ambient credentials and
-individual-statement execution. Migration SQL and product policy were unchanged.
-The failed first cluster and successful second cluster have separate receipts
-under `qualification-c1-3a5aed10-v1` and `qualification-c1-pg-harness-v2`.
-
-Pinned pnpm 10.33.0 generated the real package importer. Main retained only that
-16-line importer after proving parsed existing lock authority unchanged; the
-unrelated full re-resolution is retained as evidence. Frozen install and feature
-typecheck passed again on the minimal lock. Stale worker-only `EVIDENCE.json`
-was retained outside product source. The dedicated C1 workflow explicitly runs
-the standalone Node tests and full-schema PostgreSQL fixture; root Vitest alone
-does not cover them. Exact-head CI and independent xhigh review remain pending.
-
 No new libraries: package dependencies reuse pinned Prisma/adapter 7.8.0 and pg
-8.23.0, verified in current package manifests/lock. The original worker's pending
-qualification instructions below describe the reproducible commands. Main ran
+8.23.0, verified in current package manifests/lock. **Pending:** main must run
 pinned pnpm 10.33.0 lockfile registration (lock-only, ignore scripts), generate
 Prisma from the full schema, validate/typecheck/build and architecture checks.
 Do not hand-edit a guessed importer. Worker installed nothing.
@@ -160,8 +143,7 @@ Additive nullable Workspace column and new tables/enums/indexes/triggers; existi
 rows need no backfill. New authority references intentionally prevent deleting
 referenced User/Workspace/connection rows. Binding tombstones prevent application
 ABA. Apply SQL migration, not schema push, to retain XOR/immutability/revision
-constraints. Full historical migrations passed in the new hosted fixture above;
-production migration and rollback have not been executed.
+constraints. Full historical migration compatibility is unverified locally.
 
 Prefer a forward fix. For rollback, first disable future C1 composition/writers
 and preserve safe product rows for recovery, then main can remove bindings,
@@ -169,3 +151,35 @@ connections, guard functions, enums and the reserved Workspace FK/index/column
 in dependency order. Dropping these loses product mapping/revocation history;
 gateway accounts/credentials remain outside RR. Never rewrite older migration
 hashes or alter pool tables. Rollback and actual PG deployment are NOT_RUN.
+
+## Primary qualification update - 2026-10-03
+
+The main controller verified the guarded base and created owner commit
+`1a9fa9c8` in PR 488. Fresh sandbox qualification used Node 24.21.0 and pnpm
+10.33.0: frozen installation, full Prisma generation/validation, feature type
+check/build, architecture and seven Node cases passed. The minimally generated
+lock importer adds 16 lines; every previous parsed lock authority is preserved.
+
+The first full-migration fixture failed on historical CONCURRENTLY SQL because
+pg sends an entire file in one implicit transaction. Primary changed only the
+fixture to actual passwordless psql with explicit isolated target/session
+options. A NEW PostgreSQL 17.10 cluster applied all 115 SQL files and passed all
+six real adapter/SQL scenarios; zero skipped cases. Historical SQL is unchanged.
+Dedicated exact-head CI 37104443106 and the existing self-host E2E job passed.
+That existing self-host receipt is not a new gateway/provider review receipt.
+
+Full CI found the additive migration absent from current checkout catalogs.
+The corrected explicit checksum/exclusion preserves all historical manifests
+and historical96. All 205 affected existing catalog tests now pass. Final
+source lint, feature typecheck/build and seven Node cases pass on the repaired
+candidate; five SQL-error predicates use unknown with structural narrowing and
+display-name validation retains the same control-character rejection. Existing
+Prettier formatting is applied to the new module. The coherent PR is slightly
+above the 2,000-line target because real full-migration tests and their required
+formatter expand the same invariant; splitting its SQL/auth/CAS boundary would
+leave an unqualified intermediate feature. No additional product surface added.
+
+Current independent xhigh/default review covers the prior exact head. A final
+exact-code review and final complete CI must pass before merge. No UI, browser
+route, remote fence acknowledgement, provider call, production migration or
+legacy-pool change is qualified by this checkpoint.

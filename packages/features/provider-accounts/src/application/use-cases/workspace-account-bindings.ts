@@ -4,13 +4,22 @@ import {
   type WorkspaceAccessRepositoryPort,
 } from "@reviewrouter/features-auth";
 import {
-  ProviderAccountError, assertExecutable, assertExpectedRevision, assertOpaqueReference,
-  assertWorkspaceOwner, selectBinding,
-  type BindingScope, type SafeBindingTuple, type WorkspaceAccountBinding,
+  ProviderAccountError,
+  assertExecutable,
+  assertExpectedRevision,
+  assertOpaqueReference,
+  assertWorkspaceOwner,
+  selectBinding,
+  type BindingScope,
+  type SafeBindingTuple,
+  type WorkspaceAccountBinding,
 } from "../../domain/provider-account";
 import type { ProviderAccountRepositoryPort } from "../ports/provider-account-repository-port";
 
-export type WorkspaceAccountActor = Pick<AssertWorkspaceAdminAllowedInput, "userId" | "githubUserId" | "githubLogin">;
+export type WorkspaceAccountActor = Pick<
+  AssertWorkspaceAdminAllowedInput,
+  "userId" | "githubUserId" | "githubLogin"
+>;
 export type ProviderAccountDependencies = {
   readonly accounts: ProviderAccountRepositoryPort;
   readonly workspaceAccess: WorkspaceAccessRepositoryPort;
@@ -20,8 +29,11 @@ export type ProviderAccountDependencies = {
 
 function assertActor(actor: WorkspaceAccountActor): void {
   if (actor.userId !== undefined) assertOpaqueReference(actor.userId);
-  if (typeof actor.githubUserId !== "string" || typeof actor.githubLogin !== "string" ||
-      (actor.userId === undefined && !/^[0-9]+$/.test(actor.githubUserId))) {
+  if (
+    typeof actor.githubUserId !== "string" ||
+    typeof actor.githubLogin !== "string" ||
+    (actor.userId === undefined && !/^[0-9]+$/.test(actor.githubUserId))
+  ) {
     throw new ProviderAccountError("invalid_input");
   }
 }
@@ -32,16 +44,28 @@ type MutationInput = BindingScope & {
 };
 
 async function assertAdmin(
-  workspaceId: string, actor: WorkspaceAccountActor, dependencies: ProviderAccountDependencies,
+  workspaceId: string,
+  actor: WorkspaceAccountActor,
+  dependencies: ProviderAccountDependencies,
 ): Promise<void> {
   try {
-    await assertWorkspaceAdminAllowed({
-      workspaceId, userId: actor.userId,
-      githubUserId: actor.githubUserId, githubLogin: actor.githubLogin,
-      ...(dependencies.localAdminGithubLogins ? { localAdminGithubLogins: dependencies.localAdminGithubLogins } : {}),
-    }, { workspaceAccess: dependencies.workspaceAccess });
+    await assertWorkspaceAdminAllowed(
+      {
+        workspaceId,
+        userId: actor.userId,
+        githubUserId: actor.githubUserId,
+        githubLogin: actor.githubLogin,
+        ...(dependencies.localAdminGithubLogins
+          ? { localAdminGithubLogins: dependencies.localAdminGithubLogins }
+          : {}),
+      },
+      { workspaceAccess: dependencies.workspaceAccess },
+    );
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("workspace_admin_forbidden:")) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("workspace_admin_forbidden:")
+    ) {
       throw new ProviderAccountError("workspace_forbidden");
     }
     throw error;
@@ -49,7 +73,9 @@ async function assertAdmin(
 }
 
 async function changeBinding(
-  input: MutationInput, dependencies: ProviderAccountDependencies, state: "active" | "revoked",
+  input: MutationInput,
+  dependencies: ProviderAccountDependencies,
+  state: "active" | "revoked",
 ): Promise<WorkspaceAccountBinding> {
   assertActor(input.actor);
   assertOpaqueReference(input.workspaceId);
@@ -61,31 +87,51 @@ async function changeBinding(
   assertWorkspaceOwner(connection, input.workspaceId);
   if (state === "active") assertExecutable(connection);
   return dependencies.accounts.compareAndSetBinding({
-    workspaceId: input.workspaceId, connectionId: input.connectionId,
-    expectedRevision: input.expectedRevision, state,
+    workspaceId: input.workspaceId,
+    connectionId: input.connectionId,
+    expectedRevision: input.expectedRevision,
+    state,
   });
 }
-export function bindWorkspaceAccount(input: MutationInput, dependencies: ProviderAccountDependencies): Promise<WorkspaceAccountBinding> {
+export function bindWorkspaceAccount(
+  input: MutationInput,
+  dependencies: ProviderAccountDependencies,
+): Promise<WorkspaceAccountBinding> {
   return changeBinding(input, dependencies, "active");
 }
 /** Local denial only. This is not a remote gateway disable/fence acknowledgment. */
-export function revokeWorkspaceAccountBinding(input: MutationInput, dependencies: ProviderAccountDependencies): Promise<WorkspaceAccountBinding> {
+export function revokeWorkspaceAccountBinding(
+  input: MutationInput,
+  dependencies: ProviderAccountDependencies,
+): Promise<WorkspaceAccountBinding> {
   return changeBinding(input, dependencies, "revoked");
 }
-export async function resolveWorkspaceAccountBinding(input: {
-  readonly workspaceId: string;
-  readonly bindingId: string;
-  readonly actor: WorkspaceAccountActor;
-}, dependencies: ProviderAccountDependencies): Promise<SafeBindingTuple> {
+export async function resolveWorkspaceAccountBinding(
+  input: {
+    readonly workspaceId: string;
+    readonly bindingId: string;
+    readonly actor: WorkspaceAccountActor;
+  },
+  dependencies: ProviderAccountDependencies,
+): Promise<SafeBindingTuple> {
   assertActor(input.actor);
   assertOpaqueReference(input.workspaceId);
   assertOpaqueReference(input.bindingId);
   const role = input.actor.userId
-    ? await dependencies.workspaceAccess.findWorkspaceRoleByUserId({ workspaceId: input.workspaceId, userId: input.actor.userId })
-    : await dependencies.workspaceAccess.findWorkspaceRoleByGitHubUserId({ workspaceId: input.workspaceId, githubUserId: input.actor.githubUserId });
+    ? await dependencies.workspaceAccess.findWorkspaceRoleByUserId({
+        workspaceId: input.workspaceId,
+        userId: input.actor.userId,
+      })
+    : await dependencies.workspaceAccess.findWorkspaceRoleByGitHubUserId({
+        workspaceId: input.workspaceId,
+        githubUserId: input.actor.githubUserId,
+      });
   // Members may read/select in their current workspace; missing membership must
   // pass the existing explicit local override seam. No login-role fallback.
   if (!role) await assertAdmin(input.workspaceId, input.actor, dependencies);
-  const selection = await dependencies.accounts.findBinding({ workspaceId: input.workspaceId, bindingId: input.bindingId });
+  const selection = await dependencies.accounts.findBinding({
+    workspaceId: input.workspaceId,
+    bindingId: input.bindingId,
+  });
   return selectBinding(input.workspaceId, input.bindingId, selection);
 }

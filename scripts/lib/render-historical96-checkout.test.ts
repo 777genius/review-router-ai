@@ -34,8 +34,9 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full114 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(114);
+  it("validates the full115 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(115);
+    expect(full[114]?.migrationName).toBe("000116_provider_accounts");
     expect(full[113]?.migrationName).toBe(
       "000115_sdk_growth_v3_approved_manifest",
     );
