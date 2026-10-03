@@ -44,7 +44,7 @@ export interface AuthorityProvisioningPrismaClient {
     options: { isolationLevel: "ReadCommitted" },
   ): Promise<T>;
 }
-function key(scope: AuthorityScope): string {
+export function authorityScopeKey(scope: AuthorityScope): string {
   const s = storageScope(scope);
   return JSON.stringify([s.tenantId, s.repositoryId, s.pullRequest]);
 }
@@ -138,7 +138,7 @@ function isStringArray(value: unknown): value is string[] {
     )
   );
 }
-function validateMaterial(
+export function validateMaterial(
   value: unknown,
   scope: AuthorityScope,
 ): CanonicalAuthorityMaterial {
@@ -251,7 +251,7 @@ function storedEpoch(value: unknown, allowZero = false): bigint {
   );
   return row.epoch;
 }
-async function loadStoredMaterial(
+export async function loadStoredMaterial(
   transaction: AuthorityReadTransaction,
   scopeKey: string,
   scope: AuthorityScope,
@@ -299,7 +299,7 @@ export class PrismaCurrentAuthoritySnapshot implements CurrentAuthoritySnapshotP
       repositoryId: identity.repositoryId,
       pullRequest: request.pullRequest,
     };
-    const scopeKey = key(scope);
+    const scopeKey = authorityScopeKey(scope);
     const read = async (tx: AuthorityReadTransaction) => {
       active();
       const [row] = await tx.$queryRaw`
@@ -359,7 +359,7 @@ export class PrismaAuthorityProvisioning {
     change: AuthorityChange,
   ): Promise<bigint> {
     const scope = storageScope(authorityScope);
-    const scopeKey = key(scope);
+    const scopeKey = authorityScopeKey(scope);
     requireValid(
       typeof expectedEpoch === "bigint" &&
         expectedEpoch >= 0n &&

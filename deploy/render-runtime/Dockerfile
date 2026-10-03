@@ -41,7 +41,10 @@ ENV CI=1 \
     PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 
-RUN corepack enable \
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && corepack enable \
   && corepack prepare pnpm@10.33.0 --activate
 
 COPY --from=build --chown=node:node /app /app

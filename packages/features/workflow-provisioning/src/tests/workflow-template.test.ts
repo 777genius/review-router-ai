@@ -117,6 +117,54 @@ describe("renderReviewRouterWorkflow", () => {
     }
   });
 
+  it("rejects unreachable runtime checkout, execution, and review job guards", () => {
+    const actionRef =
+      "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
+    const workflow = renderReviewRouterWorkflow({
+      actionRef,
+      apiUrl: "https://reviewrouter.site",
+      runtimeConfigMode: "static",
+    });
+    for (const invalid of [
+      workflow.replace(
+        /(- name: Checkout ReviewRouter runtime\n        if:) [^\n]+/,
+        "$1 ${{ false }}",
+      ),
+      workflow.replace(
+        /(- name: Run ReviewRouter\n        if:) [^\n]+/,
+        "$1 ${{ false }}",
+      ),
+      workflow.replace(/^    if: [^\n]+/m, "    if: ${{ false }}"),
+    ]) {
+      expect(workflowChecksOutReviewRouterRuntime(invalid, actionRef)).toBe(
+        false,
+      );
+    }
+  });
+
+  it("does not accept runtime refs in comments when the checkout targets another ref", () => {
+    const actionRef =
+      "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
+    const workflow =
+      renderReviewRouterWorkflow({
+        actionRef,
+        apiUrl: "https://reviewrouter.site",
+        runtimeConfigMode: "static",
+      }).replace(
+        "ref: 0123456789abcdef0123456789abcdef01234567",
+        "ref: old-runtime",
+      ) +
+      "\n# repository: 777genius/review-router\n# ref: 0123456789abcdef0123456789abcdef01234567\n";
+    expect(
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml: workflow,
+        providerKind: "openrouter",
+        workflowStyle: "explicit",
+        expectedActionRef: actionRef,
+      }).missingRequirements,
+    ).toContain("action_ref_supports_provider");
+  });
+
   it.each(["openrouter-api", "mimo-token-plan-api"])(
     "gives %s generated workflows a bounded paid-provider budget",
     (authMode) => {
@@ -519,6 +567,51 @@ describe("renderReviewRouterWorkflow", () => {
       missingRequirements: ["secret_pass_through"],
     });
   });
+
+  it.each(["mimo-token-plan-api", "codex-oauth"])(
+    "scopes reusable conflict and interaction secrets to selected auth mode %s",
+    (authMode) => {
+      const options = {
+        ...workflowOptions,
+        workflowStyle: "reusable" as const,
+        conflictReviewFallbackEnabled: true,
+        staticRuntimeEnv: { REVIEW_AUTH_MODE: authMode },
+      };
+      const review = parse(renderReviewRouterReusableWorkflow(options));
+      const interaction = parse(
+        renderReviewRouterReusableInteractionWorkflow(options),
+      );
+      if (authMode === "mimo-token-plan-api") {
+        expect(interaction.jobs.interaction.with.discussion_auth_mode).toBe(
+          "mimo-token-plan-api",
+        );
+        expect(interaction.jobs.interaction.with.discussion_model).toBe(
+          "${{ vars.REVIEW_CODEX_MODEL || 'mimo-v2.6-pro' }}",
+        );
+      } else {
+        expect(interaction.jobs.interaction.with).not.toHaveProperty(
+          "discussion_auth_mode",
+        );
+        expect(interaction.jobs.interaction.with.discussion_model).toBe(
+          "${{ vars.REVIEW_CODEX_MODEL || 'gpt-5.6-sol' }}",
+        );
+      }
+      for (const job of [
+        review.jobs.review,
+        review.jobs["conflict-review"],
+        interaction.jobs.interaction,
+      ]) {
+        expect(job).toBeDefined();
+        if (authMode === "mimo-token-plan-api") {
+          expect(job.secrets.MIMO_TOKEN_PLAN_API_KEY).toBe(
+            "${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+          );
+        } else {
+          expect(job.secrets).not.toHaveProperty("MIMO_TOKEN_PLAN_API_KEY");
+        }
+      }
+    },
+  );
 
   it("keeps stale Codex auth inert for a MiMo-only explicit workflow", () => {
     const workflow = renderReviewRouterWorkflow({

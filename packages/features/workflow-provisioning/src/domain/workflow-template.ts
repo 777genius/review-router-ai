@@ -670,7 +670,11 @@ ${template.staticRuntimeEnvJsonBlock}
     secrets:
       CODEX_AUTH_JSON: \${{ secrets.CODEX_AUTH_JSON }}
       CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
-      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}`
+      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}${
+        mimoTokenPlanSelected
+          ? `\n      MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}`
+          : ""
+      }`
           : ""
       }
 `;
@@ -679,6 +683,9 @@ ${template.staticRuntimeEnvJsonBlock}
 export function renderReviewRouterReusableInteractionWorkflow(
   options: ReviewRouterWorkflowOptions,
 ): string {
+  const mimoTokenPlanSelected = codexRotatingProviderSecretInputsForRuntimeEnv(
+    options.staticRuntimeEnv,
+  ).mimoTokenPlanApiKeySecret;
   const template = prepareReusableWorkflowTemplate(options);
 
   return `name: ReviewRouter Interaction
@@ -708,7 +715,11 @@ jobs:
       runtime_config_mode: ${options.runtimeConfigMode}
       review_workflow_file: reviewrouter.yml
       discussion_mode: ${discussionModeExpression(options)}
-      discussion_model: \${{ vars.REVIEW_CODEX_MODEL || '${defaultCodexReviewModel}' }}
+      discussion_model: \${{ vars.REVIEW_CODEX_MODEL || '${mimoTokenPlanSelected ? "mimo-v2.6-pro" : defaultCodexReviewModel}' }}${
+        mimoTokenPlanSelected
+          ? "\n      discussion_auth_mode: mimo-token-plan-api"
+          : ""
+      }
       discussion_reasoning_effort: \${{ vars.REVIEW_CODEX_EFFORT || 'xhigh' }}
       discussion_max_per_pr: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_PR || '20' }}
       discussion_max_per_thread: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD || '5' }}
@@ -717,7 +728,11 @@ jobs:
       REVIEW_ROUTER_LEDGER_KEY: \${{ secrets.REVIEW_ROUTER_LEDGER_KEY }}
       CODEX_AUTH_JSON: \${{ secrets.CODEX_AUTH_JSON }}
       CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
-      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
+      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}${
+        mimoTokenPlanSelected
+          ? `\n      MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}`
+          : ""
+      }
 `;
 }
 
@@ -860,17 +875,9 @@ export function analyzeWorkflowProviderCompatibility(input: {
 
   if (
     input.expectedActionRef &&
-    !input.workflowYaml.includes(input.expectedActionRef) &&
-    !(
-      input.workflowYaml.includes(
-        `repository: ${input.expectedActionRef.slice(0, input.expectedActionRef.lastIndexOf("@"))}`,
-      ) &&
-      input.workflowYaml.includes(
-        `ref: ${extractActionVersion(input.expectedActionRef)}`,
-      )
-    ) &&
-    !input.workflowYaml.includes(
-      `uses: ${input.expectedActionRef.slice(0, input.expectedActionRef.lastIndexOf("@"))}/${reusableReviewWorkflowPath}@${extractActionVersion(input.expectedActionRef)}`,
+    !workflowUsesExpectedReviewRouterRuntime(
+      input.workflowYaml,
+      input.expectedActionRef,
     )
   ) {
     missingRequirements.push("action_ref_supports_provider");
@@ -1404,10 +1411,11 @@ export function workflowChecksOutReviewRouterRuntime(
   const repository = actionRef.slice(0, atIndex);
   const ref = actionRef.slice(atIndex + 1);
   const reviewJob = getJobSection(workflowYaml, "review");
-  if (!reviewJob) return false;
+  if (!reviewJob || !hasAdmittedReviewJobGuard(reviewJob)) return false;
   const steps = reviewJob.split(/^ {6}- /m).slice(1);
   const checkoutIndex = steps.findIndex(
     (step) =>
+      hasAdmittedRuntimeStepGuard(step) &&
       /^ {8}uses: actions\/checkout@\S+$/m.test(step) &&
       new RegExp(`^ {10}repository: ${escapeRegExp(repository)}$`, "m").test(
         step,
@@ -1421,9 +1429,61 @@ export function workflowChecksOutReviewRouterRuntime(
     steps.some(
       (step, index) =>
         index > checkoutIndex &&
+        hasAdmittedRuntimeStepGuard(step) &&
         /^ {8}run: node \.reviewrouter-runtime\/dist\/index\.js$/m.test(step),
     )
   );
+}
+
+function hasAdmittedReviewJobGuard(job: string): boolean {
+  const guards = [...job.matchAll(/^ {4}(?:if|"if"|'if')\s*:\s*(.*)$/gm)].map(
+    (match) => match[1],
+  );
+  return (
+    guards.length === 0 ||
+    (guards.length === 1 &&
+      (guards[0] ===
+        "${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false }}" ||
+        guards[0] === "${{ github.event_name != 'repository_dispatch' }}"))
+  );
+}
+
+function hasAdmittedRuntimeStepGuard(step: string): boolean {
+  const guards = [...step.matchAll(/^ {8}(?:if|"if"|'if')\s*:\s*(.*)$/gm)].map(
+    (match) => match[1],
+  );
+  return (
+    guards.length === 0 ||
+    (guards.length === 1 &&
+      (guards[0] ===
+        "${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}" ||
+        guards[0] ===
+          "${{ github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}"))
+  );
+}
+
+function workflowUsesExpectedReviewRouterRuntime(
+  workflow: string,
+  actionRef: string,
+): boolean {
+  if (workflowChecksOutReviewRouterRuntime(workflow, actionRef)) return true;
+  const reviewJob = getJobSection(workflow, "review");
+  if (!reviewJob || !hasAdmittedReviewJobGuard(reviewJob)) return false;
+  const atIndex = actionRef.lastIndexOf("@");
+  if (atIndex < 1) return false;
+  const reusableRef = `${actionRef.slice(0, atIndex)}/${reusableReviewWorkflowPath}@${actionRef.slice(atIndex + 1)}`;
+  if (
+    new RegExp(`^ {4}uses: ${escapeRegExp(reusableRef)}$`, "m").test(reviewJob)
+  )
+    return true;
+  return reviewJob
+    .split(/^ {6}- /m)
+    .slice(1)
+    .some(
+      (step) =>
+        hasAdmittedRuntimeStepGuard(step) &&
+        new RegExp(`^ {8}uses: ${escapeRegExp(actionRef)}$`, "m").test(step),
+    );
 }
 
 function getJobNestedSection(

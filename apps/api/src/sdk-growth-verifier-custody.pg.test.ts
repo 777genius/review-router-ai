@@ -75,7 +75,10 @@ const digest = `sha256:${"a".repeat(64)}`;
 let db: PrismaClient;
 let peer: PrismaClient;
 
-function fixture(suffix: string) {
+function fixture(
+  suffix: string,
+  sourceBinding?: NonNullable<AuthenticatedEfExecution["sourceBinding"]>,
+) {
   const execution: AuthenticatedEfExecution = {
     tenantId: `tenant-${suffix}`,
     repositoryId: "repo",
@@ -88,6 +91,7 @@ function fixture(suffix: string) {
     verifierRevision: "1".repeat(40),
     sourceCommit: "2".repeat(40),
     sourceTree: "3".repeat(40),
+    ...(sourceBinding ? { sourceBinding } : {}),
   };
   const binding = {
     repositoryId: execution.repositoryId,
@@ -182,6 +186,7 @@ function fixture(suffix: string) {
 async function seedAuthorityAndAdmission(
   connection: PrismaClient,
   f: ReturnType<typeof fixture>,
+  admissionBinding = f.execution.sourceBinding ?? null,
 ) {
   const scopeKey = JSON.stringify([
     f.execution.tenantId,
@@ -214,10 +219,11 @@ async function seedAuthorityAndAdmission(
   const archiveSri = `sha512-${createHash("sha512").update(archive).digest("base64")}`;
   const distribution = Buffer.from("admission-distribution");
   const requestWire = Buffer.from(`request-${f.grant.grantId}`);
+  const sourceBinding = admissionBinding;
   await connection.$executeRaw`
     INSERT INTO "SdkGrowthAuthorityCustody" (
       "custodyId", "tenantId", "repositoryId", "pullRequest", "githubRepositoryId", "installationId", "subject",
-      "runId", "runAttempt", "verifierRevision", "sourceCommit", "sourceTree", "requestDigest", "requestWire",
+      "runId", "runAttempt", "verifierRevision", "sourceCommit", "sourceTree", "sourceBinding", "requestDigest", "requestWire",
       "grantDigest", "grantWire", "candidateArchive", "candidateArchiveSha256", "candidateArchiveSha512Sri",
       "releasedArchive", "releasedArchiveSha256", "releasedArchiveSha512Sri", "toolArchive", "toolArchiveSha256",
       "toolArchiveSha512Sri", "installedDistributionWire", "installedDistributionDigest"
@@ -225,6 +231,7 @@ async function seedAuthorityAndAdmission(
       ${randomUUID()}, ${f.execution.tenantId}, ${f.execution.repositoryId}, ${f.execution.pullRequest},
       ${f.execution.githubRepositoryId}, ${f.execution.installationId}, ${f.execution.subject}, ${f.execution.runId},
       ${f.execution.runAttempt}, ${f.execution.verifierRevision}, ${f.execution.sourceCommit}, ${f.execution.sourceTree},
+      ${sourceBinding === null ? null : JSON.stringify(sourceBinding)}::jsonb,
       ${f.requestDigest}, ${requestWire}, ${f.grantDigest}, ${f.grantWire}, ${archive}, ${sha256(archive)}, ${archiveSri},
       ${archive}, ${sha256(archive)}, ${archiveSri}, ${archive}, ${sha256(archive)}, ${archiveSri},
       ${distribution}, ${sha256(distribution)}
@@ -274,6 +281,7 @@ describe.skipIf(!url)("verifier custody writer / real PostgreSQL 17", () => {
         "000106_sdk_growth_finalized_report_logical_identity",
         "000108_sdk_growth_verifier_assignment",
         "000109_sdk_growth_verifier_assignment_lock",
+        "000111_sdk_growth_source_binding",
       ])
         await connection.query(
           readFileSync(
@@ -311,6 +319,67 @@ describe.skipIf(!url)("verifier custody writer / real PostgreSQL 17", () => {
       await db.$executeRawUnsafe(`DROP ROLE IF EXISTS "${role}"`);
     }
     await Promise.all(clients.map((value) => value.$disconnect()));
+  });
+
+  // Regression: a protected verifier at the same head/run could finalize a
+  // report against a stale admission after only the PR base ref changed.
+  it("persists v2 binding and rejects a stale admission in disposable PG", async () => {
+    const binding = {
+      headRepositoryId: "123",
+      baseRepositoryId: "123",
+      baseRef: "main",
+      baseCommit: "4".repeat(40),
+      baseTree: "6".repeat(40),
+      mergeBaseCommit: "5".repeat(40),
+      mergeBaseTree: "7".repeat(40),
+    };
+    const accepted = fixture("v2-accepted", binding);
+    await seedAuthorityAndAdmission(db, accepted);
+    const writer = new PrismaSdkGrowthVerifierEvidenceCustody(
+      custodyClient(db) as never,
+      accepted.authenticator,
+      accepted.policy,
+    );
+    await expect(
+      writer.retainEvidence("verifier-credential", accepted.evidenceInput),
+    ).resolves.toMatchObject({ sourceBinding: binding });
+    await expect(
+      writer.retainFinalizedReport(
+        "verifier-credential",
+        reportInput(accepted, "v2-report", "passed"),
+      ),
+    ).resolves.toMatchObject({ sourceBinding: binding });
+    await expect(db.$executeRaw`
+      UPDATE "SdkGrowthAuthorityCustody"
+      SET "sourceBinding" = ${JSON.stringify({ ...binding, baseRef: "tampered" })}::jsonb
+      WHERE "tenantId" = ${accepted.execution.tenantId}`).rejects.toThrow(
+      /source binding is immutable/,
+    );
+
+    const stale = fixture("v2-stale", binding);
+    await seedAuthorityAndAdmission(db, stale, {
+      ...binding,
+      baseRef: "release",
+    });
+    const staleWriter = new PrismaSdkGrowthVerifierEvidenceCustody(
+      custodyClient(db) as never,
+      stale.authenticator,
+      stale.policy,
+    );
+    await staleWriter.retainEvidence(
+      "verifier-credential",
+      stale.evidenceInput,
+    );
+    await expect(
+      staleWriter.retainFinalizedReport(
+        "verifier-credential",
+        reportInput(stale, "stale-report", "passed"),
+      ),
+    ).rejects.toMatchObject({ code: "owner-evidence" });
+    const [row] = await db.$queryRaw<Array<{ count: bigint }>>`
+      SELECT count(*)::bigint AS count FROM "SdkGrowthFinalizedReportEvidence"
+      WHERE "grantId" = ${stale.grant.grantId}`;
+    expect(row?.count).toBe(0n);
   });
 
   it("lets a SELECT-only producer lock current authority and insert custody in one transaction", async () => {

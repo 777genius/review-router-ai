@@ -18,7 +18,14 @@ const checkoutOnlyMigrations = Object.freeze([
   "000107_hosted_v4_relay_turn_contract",
   "000108_sdk_growth_verifier_assignment",
   "000109_sdk_growth_verifier_assignment_lock",
+  "000110_historical_unknown_scope_barrier",
   "000110_provider_api_key_workspace_management",
+  "000111_sdk_growth_source_binding",
+  "000112_sdk_growth_operator_credential",
+  "000113_sdk_growth_approval_ledger",
+  "000114_sdk_growth_v3_tool_artifact",
+  "000115_sdk_growth_v3_approved_manifest",
+  "000116_hosted_codex_relay_admission_utc",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
@@ -26,8 +33,14 @@ export function readRenderHistorical96CheckoutInventory() {
   const checkout = readRenderManagedCheckoutInventory();
   if (
     ![
-      96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109,
-    ].includes(checkout.length)
+      96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
+      111, 112, 113, 114, 115,
+    ].includes(
+      checkout.filter(
+        (row) =>
+          row.migrationName !== "000110_provider_api_key_workspace_management",
+      ).length,
+    )
   )
     throw new Error("render_historical96_checkout_rejected:count");
   const historical = checkout.filter(

@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 const syncedFiles = [
   "action.yml",
   "action-dist/index.cjs",
+  "action-dist/conflict-runtime.cjs",
   "action-dist/codex/linux-x64/codex-linux-x64.tgz",
   "action-dist/codex/linux-x64/manifest.json",
   "scripts/seed-codex-rotating-auth.sh",
@@ -44,13 +45,7 @@ describe("public Action runtime sync", () => {
       initializeRepository(actionRepo);
 
       for (const file of syncedFiles) {
-        const source = join(saasRepo, file);
-        mkdirSync(dirname(source), { recursive: true });
-        const contents =
-          file === "action-dist/index.cjs"
-            ? "@vioxen/subscription-runtime 0.1.0-main.28 777genius/ar@83a7329f4383b05ac5c39356b79f82f029182d42\n"
-            : `exact bytes for ${file}\n`;
-        writeFileSync(source, contents);
+        writeSyncedFixture(saasRepo, file, "exact");
       }
 
       const result = spawnSync(
@@ -127,6 +122,49 @@ describe("public Action runtime sync", () => {
           "M  action-dist/index.cjs\0",
       ),
     ).toEqual(["scripts/seed-codex-rotating-auth.sh", "action-dist/index.cjs"]);
+  });
+
+  it("rejects conflict source drift before copying any destination file", () => {
+    const root = mkdtempSync(join(tmpdir(), "rr-public-action-stale-"));
+    try {
+      const saasRepo = join(root, "saas");
+      const actionRepo = join(root, "action");
+      initializeRepository(saasRepo);
+      initializeRepository(actionRepo);
+      for (const file of syncedFiles) {
+        writeSyncedFixture(saasRepo, file, "fresh");
+        writeSyncedFixture(actionRepo, file, "retained");
+      }
+      const retained = syncedFiles.map((file) =>
+        readFileSync(join(actionRepo, file)),
+      );
+      writeFileSync(
+        join(
+          saasRepo,
+          "packages/features/conflict-runtime/src/interface/cli/reviewrouter-conflict-runtime.ts",
+        ),
+        'process.stdout.write("changed after build");\n',
+      );
+      const result = spawnSync(
+        process.execPath,
+        [
+          join(process.cwd(), "scripts/sync-public-action-runtime.mjs"),
+          "--saas-repo",
+          saasRepo,
+          "--action-repo",
+          actionRepo,
+          "--write",
+        ],
+        { encoding: "utf8" },
+      );
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("conflict_runtime_bundle_stale");
+      expect(
+        syncedFiles.map((file) => readFileSync(join(actionRepo, file))),
+      ).toEqual(retained);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it.each([
@@ -284,6 +322,20 @@ describe("public Action runtime sync", () => {
 function writeSyncedFixture(repo: string, file: string, version: string): void {
   const target = join(repo, file);
   mkdirSync(dirname(target), { recursive: true });
+  if (file === "action-dist/conflict-runtime.cjs") {
+    const entry = join(
+      repo,
+      "packages/features/conflict-runtime/src/interface/cli/reviewrouter-conflict-runtime.ts",
+    );
+    mkdirSync(dirname(entry), { recursive: true });
+    writeFileSync(entry, `process.stdout.write(${JSON.stringify(version)});\n`);
+    execFileSync(
+      process.execPath,
+      [join(process.cwd(), "scripts/build-conflict-runtime.ts")],
+      { cwd: repo },
+    );
+    return;
+  }
   const runtimeMarker =
     file === "action-dist/index.cjs"
       ? "@vioxen/subscription-runtime 0.1.0-main.28 777genius/ar@83a7329f4383b05ac5c39356b79f82f029182d42 "

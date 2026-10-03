@@ -1,14 +1,16 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { runProviderScopeConcurrencyOperation } from "./manage-review-provider-scope-concurrency.mjs";
+import { writeDisposableMigrationCatalog } from "./self-hosted-e2e/disposable-release-role-fixture.mjs";
 
 const PRE_PROVIDER_SCOPE_PRISMA_CONFIG =
-  '--config "$RUNNER_TEMP/provider-scope-migrations/pre-000079.config.mjs"';
+  '--config "$(cat "$RUNNER_TEMP/provider-scope-migrations/pre-000079.config-path")"';
 const THROUGH_PROVIDER_SCOPE_PRISMA_CONFIG =
-  '--config "$RUNNER_TEMP/provider-scope-migrations/through-000079.config.mjs"';
+  '--config "$(cat "$RUNNER_TEMP/provider-scope-migrations/through-000079.config-path")"';
 const PROVIDER_SCOPE_URL =
   "postgresql://postgres:postgres@127.0.0.1:5432/review_router_provider_scope_ci_test?schema=public";
 
@@ -49,10 +51,6 @@ function executableShellLines(run: unknown): string[] {
     .filter((line) => line.length > 0 && !line.startsWith("#"));
 }
 
-function stripSqlComments(sql: string): string {
-  return sql.replace(/\/\*[\s\S]*?\*\//gu, " ").replace(/--[^\n]*/gu, " ");
-}
-
 function commentFreeExecutableSource(source: string): string {
   return source
     .replace(/\/\*[\s\S]*?\*\//gu, " ")
@@ -69,19 +67,10 @@ function commentFreeExecutableSource(source: string): string {
 }
 
 function literalAuthorityStatements(steps: WorkflowStep[]): string[] {
-  let executable = steps
+  const executable = steps
     .map((step) => commentFreeExecutableSource(step.run ?? ""))
     .join("\n")
     .replace(/\\\n\s*/gu, " ");
-  const approvedSchemaGrants = [
-    /\bGRANT\s+USAGE\s+ON\s+SCHEMA\s+public\s+TO\s+reviewrouter_release_migration\s*;/iu,
-    /\bGRANT\s+USAGE\s*,\s*CREATE\s+ON\s+SCHEMA\s+public\s+TO\s+reviewrouter_release_schema_owner\s*;/iu,
-  ];
-  for (const approvedGrant of approvedSchemaGrants) {
-    // Remove exactly one approved occurrence. A duplicate or broadened grant
-    // remains visible to the generic GRANT rejection below.
-    executable = executable.replace(approvedGrant, "");
-  }
   const forbidden = [
     /\bGRANT\b/giu,
     /\bALTER\s+ROLE\b/giu,
@@ -133,36 +122,6 @@ function isProcessEnv(node: ts.Node): boolean {
       isIdentifier(node.expression, "process") &&
       ts.isStringLiteral(node.argumentExpression) &&
       node.argumentExpression.text === "env")
-  );
-}
-
-function psqlStatements(run: unknown): string[] {
-  if (typeof run !== "string") {
-    return [];
-  }
-  const executableRun = executableShellLines(run).join("\n");
-  const sources: string[] = [];
-  const heredoc =
-    /(?:^|\n)[^\n]*\bpsql\b[^\n]*<<'(?<delimiter>[A-Z][A-Z0-9_]*)'\n(?<sql>[\s\S]*?)\n\s*\k<delimiter>(?=\n|$)/gu;
-  for (const match of executableRun.matchAll(heredoc)) {
-    sources.push(match.groups?.sql ?? "");
-  }
-  for (const line of executableRun.split("\n")) {
-    if (!/\bpsql\b/u.test(line)) {
-      continue;
-    }
-    for (const match of line.matchAll(/(?:^|\s)-c\s+'(?<sql>[^']*)'/gu)) {
-      sources.push(match.groups?.sql ?? "");
-    }
-    for (const match of line.matchAll(/(?:^|\s)-c\s+"(?<sql>[^"]*)"/gu)) {
-      sources.push(match.groups?.sql ?? "");
-    }
-  }
-  return sources.flatMap((source) =>
-    stripSqlComments(source)
-      .split(";")
-      .map((statement) => statement.replace(/\s+/gu, " ").trim())
-      .filter(Boolean),
   );
 }
 
@@ -246,103 +205,21 @@ function assertProviderSuiteBinding(suiteSource: string): void {
 function assertMigrationCatalogContract(run: unknown): void {
   const nodeSources = heredocBodies(run);
   if (nodeSources.length !== 1) {
-    throw new Error("migration catalog must contain one literal Node program");
+    throw new Error("migration catalog must contain one Node program");
   }
-  const sourceFile = ts.createSourceFile(
-    "provider-scope-catalog.mjs",
-    nodeSources[0] as string,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.JS,
-  );
-  let phases: Array<{ name: string; boundary: string }> | undefined;
-  let expectedBoundary: string[] | undefined;
-  let phaseBoundaryComparison = 0;
-  let throughBoundaryComparison = 0;
-  visitNodes(sourceFile, (node) => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      isIdentifier(node.name, "phases") &&
-      node.initializer &&
-      ts.isArrayLiteralExpression(node.initializer)
-    ) {
-      phases = node.initializer.elements.map((element) => {
-        if (!ts.isObjectLiteralExpression(element)) {
-          return { name: "", boundary: "" };
-        }
-        const value = (propertyName: string) => {
-          const property = element.properties.find(
-            (candidate) =>
-              ts.isPropertyAssignment(candidate) &&
-              candidate.name.getText(sourceFile) === propertyName,
-          );
-          return property &&
-            ts.isPropertyAssignment(property) &&
-            ts.isStringLiteral(property.initializer)
-            ? property.initializer.text
-            : "";
-        };
-        return {
-          name: value("name"),
-          boundary: value("firstExcludedMigration"),
-        };
-      });
-    }
-    if (
-      ts.isVariableDeclaration(node) &&
-      isIdentifier(node.name, "expectedBoundary") &&
-      node.initializer &&
-      ts.isArrayLiteralExpression(node.initializer)
-    ) {
-      expectedBoundary = node.initializer.elements.map((element) =>
-        ts.isStringLiteral(element) ? element.text : "",
-      );
-    }
-    if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.GreaterThanEqualsToken &&
-      ts.isPropertyAccessExpression(node.left) &&
-      isIdentifier(node.left.expression, "entry") &&
-      node.left.name.text === "name" &&
-      ts.isPropertyAccessExpression(node.right) &&
-      isIdentifier(node.right.expression, "phase") &&
-      node.right.name.text === "firstExcludedMigration"
-    ) {
-      phaseBoundaryComparison += 1;
-    }
-    if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.GreaterThanEqualsToken &&
-      isIdentifier(node.left, "name") &&
-      ts.isStringLiteral(node.right) &&
-      node.right.text === "000080_" &&
-      ts.isArrowFunction(node.parent) &&
-      ts.isCallExpression(node.parent.parent) &&
-      ts.isPropertyAccessExpression(node.parent.parent.expression) &&
-      isIdentifier(
-        node.parent.parent.expression.expression,
-        "postMigrations",
-      ) &&
-      node.parent.parent.expression.name.text === "some"
-    ) {
-      throughBoundaryComparison += 1;
-    }
-  });
+  const executable = commentFreeExecutableSource(nodeSources[0] as string);
   if (
-    JSON.stringify(phases) !==
-      JSON.stringify([
-        { name: "pre-000079", boundary: "000079_" },
-        { name: "through-000079", boundary: "000080_" },
-      ]) ||
-    phaseBoundaryComparison !== 1 ||
-    throughBoundaryComparison !== 1 ||
-    JSON.stringify(expectedBoundary) !==
-      JSON.stringify([
-        "000079_hosted_codex_output_limits",
-        "000079_remove_account_wide_provider_lane_serialization",
-      ])
+    !executable.includes(
+      'import { writeDisposableMigrationCatalog } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"',
+    ) ||
+    !executable.includes('["pre79", "pre-000079"]') ||
+    !executable.includes('["through79", "through-000079"]') ||
+    !executable.includes("writeDisposableMigrationCatalog(phase, root)") ||
+    !executable.includes(
+      "writeFileSync(join(root, `${label}.config-path`), `${config}\\n`)",
+    )
   ) {
-    throw new Error("migration catalog boundaries are not exact");
+    throw new Error("provider catalogs must use the imported bounded fixture");
   }
 }
 
@@ -350,20 +227,31 @@ function assertProviderFixtureContract(
   workflowSource: string,
   suiteSource: string,
 ): void {
+  const workflow = parse(workflowSource) as {
+    jobs?: {
+      quality?: {
+        env?: Record<string, string>;
+        services?: Record<string, { ports?: string[] }>;
+      };
+    };
+  };
+  const quality = workflow.jobs?.quality;
   const steps = qualitySteps(workflowSource);
   const step = (name: string) => namedStep(steps, name);
   const index = (name: string) => steps.indexOf(step(name));
   const runLines = (name: string) => executableShellLines(step(name).run);
 
   const orderedSteps = [
+    "Create CI databases",
+    "Apply ordinary test database migrations",
     "Rotating Codex PostgreSQL 17 combined migration rehearsal (no skips)",
     "Apply dev database migrations",
-    "Apply ordinary test database migrations",
+    "Complete disposable CI release-role catalog",
+    "Build provider-scope migration catalogs",
     "Apply provider-scope database before 000079",
-    "Provision provider-scope transition test roles",
     "Apply provider-scope database through 000079 and hand off relations",
     "Provider-scope real database tests",
-    "Tear down provider-scope database and roles",
+    "Tear down provider-scope database",
     "Migration smoke test",
   ];
   for (let position = 1; position < orderedSteps.length; position += 1) {
@@ -406,45 +294,89 @@ function assertProviderFixtureContract(
     step("Build provider-scope migration catalogs").run,
   );
 
-  const approvedAuthority = [
-    'ALTER TABLE public."ReviewProviderScopeConcurrencyControl" OWNER TO reviewrouter_release_schema_owner',
-    'ALTER TABLE public."ReviewInvocationLeaseV2" OWNER TO reviewrouter_release_schema_owner',
-  ];
-  const approvedHandoffStatements = [
-    ...approvedAuthority,
-    "GRANT USAGE ON SCHEMA public TO reviewrouter_release_migration",
-    "GRANT USAGE, CREATE ON SCHEMA public TO reviewrouter_release_schema_owner",
-  ];
   const authorityStatements = literalAuthorityStatements(steps);
-  if (
-    JSON.stringify(authorityStatements) !== JSON.stringify(approvedAuthority)
-  ) {
+  if (authorityStatements.length !== 0) {
     throw new Error("quality job contains unexpected literal SQL authority");
   }
 
-  const provisionStatements = psqlStatements(
-    step("Provision provider-scope transition test roles").run,
+  const provision = runLines("Complete disposable CI release-role catalog");
+  const freshPreflightIndex = provision.findIndex(
+    (line) =>
+      line.includes("disposableFreshDatabasePreflightSql as sql") &&
+      line.includes("disposable-release-role-fixture.mjs"),
   );
   if (
-    JSON.stringify(provisionStatements) !==
-    JSON.stringify([
-      "CREATE ROLE reviewrouter_release_migration LOGIN PASSWORD 'postgres' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS",
-      "CREATE ROLE reviewrouter_release_schema_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS",
-    ])
+    freshPreflightIndex < 0 ||
+    !provision[freshPreflightIndex + 1]?.includes(
+      'psql -XqAt -h 127.0.0.1 -U postgres -d "$database" -v ON_ERROR_STOP=1',
+    ) ||
+    !provision.includes(
+      "for database in review_router_provider_scope_ci_test; do",
+    ) ||
+    !provision.includes(
+      "node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci",
+    )
   ) {
     throw new Error(
-      "provider fixture roles have unexpected authority or membership",
+      "provider fixture must verify the fresh catalog before role creation",
     );
   }
 
-  const handoffRun = step(
+  const handoff = runLines(
     "Apply provider-scope database through 000079 and hand off relations",
-  ).run;
+  );
+  for (const importedSql of [
+    "disposableProvider79HandoffSql",
+    "disposableProvider79VerificationSql",
+  ]) {
+    const importedIndex = handoff.findIndex(
+      (line) =>
+        line.includes(`${importedSql} as sql`) &&
+        line.includes("disposable-release-role-fixture.mjs"),
+    );
+    if (
+      importedIndex < 0 ||
+      !handoff[importedIndex + 1]?.includes(
+        "psql -XqAt -h 127.0.0.1 -U postgres -d review_router_provider_scope_ci_test -v ON_ERROR_STOP=1",
+      )
+    ) {
+      throw new Error(`provider fixture is missing ${importedSql}`);
+    }
+  }
+
+  const appUrl =
+    "postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public";
   if (
-    JSON.stringify(psqlStatements(handoffRun)) !==
-    JSON.stringify(approvedHandoffStatements)
+    quality?.env?.TEST_DATABASE_URL !== appUrl ||
+    quality.env.REVIEW_ROUTER_TEST_DATABASE_URL !== appUrl ||
+    !quality.services?.postgres?.ports?.includes("5432:5432") ||
+    !quality.services?.["postgres-app-test"]?.ports?.includes("5433:5432") ||
+    !runLines("Create CI databases").includes(
+      "psql -h 127.0.0.1 -p 5433 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci_test'",
+    ) ||
+    !runLines("Apply ordinary test database migrations").some(
+      (line) =>
+        line.includes("-p 5433") &&
+        line.includes("reviewrouter_release_migration") &&
+        line.includes("reviewrouter_release_schema_owner") &&
+        line.endsWith("= 0"),
+    ) ||
+    !runLines("Apply ordinary test database migrations").some(
+      (line) =>
+        line.includes("codex_oauth_provider_identity_guard") &&
+        line.includes("proowner") &&
+        line.includes("postgres") &&
+        line.endsWith("= 1"),
+    ) ||
+    !runLines("Apply ordinary test database migrations").some(
+      (line) =>
+        line.includes("rolname='reviewrouter_release_migration'") &&
+        line.endsWith("= 0"),
+    )
   ) {
-    throw new Error("provider fixture has unexpected handoff authority");
+    throw new Error(
+      "ordinary test database must migrate role-free in its own cluster",
+    );
   }
 
   const providerTest = step("Provider-scope real database tests");
@@ -470,21 +402,18 @@ function assertProviderFixtureContract(
   }
   assertProviderSuiteBinding(suiteSource);
 
-  const teardown = step("Tear down provider-scope database and roles");
+  const teardown = step("Tear down provider-scope database");
   if (teardown.if !== "always()") {
     throw new Error("provider fixture teardown must run always");
   }
-  const teardownStatements = psqlStatements(teardown.run);
   if (
-    JSON.stringify(teardownStatements) !==
-    JSON.stringify([
-      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'review_router_provider_scope_ci_test' AND pid <> pg_backend_pid()",
-      "DROP DATABASE IF EXISTS review_router_provider_scope_ci_test",
-      "DROP ROLE IF EXISTS reviewrouter_release_migration",
-      "DROP ROLE IF EXISTS reviewrouter_release_schema_owner",
-    ])
+    !executableShellLines(teardown.run).some((line) =>
+      line.includes(
+        "DROP DATABASE IF EXISTS review_router_provider_scope_ci_test",
+      ),
+    )
   ) {
-    throw new Error("provider teardown is incomplete or ordered unsafely");
+    throw new Error("provider teardown must drop the disposable database");
   }
   if (!runLines("Migration smoke test").includes("pnpm db:migrate:smoke")) {
     throw new Error("later migration smoke command is missing");
@@ -632,193 +561,58 @@ describe("provider scope concurrency rollout control", () => {
     ).not.toThrow();
   });
 
-  it.each([
-    ["deleted dev migration", "        run: pnpm db:migrate:deploy\n", ""],
-    [
-      "commented dev migration",
-      "        run: pnpm db:migrate:deploy",
-      "        run: |\n          # pnpm db:migrate:deploy",
-    ],
-    [
-      "deleted ordinary migration",
-      '        run: DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy\n',
-      "",
-    ],
-    [
-      "commented ordinary migration",
-      '        run: DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy',
-      '        run: |\n          # DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy',
-    ],
-    [
-      "deleted pre-000079 config argument",
-      `            ${PRE_PROVIDER_SCOPE_PRISMA_CONFIG}`,
-      "",
-    ],
-    [
-      "commented pre-000079 config argument",
-      `            ${PRE_PROVIDER_SCOPE_PRISMA_CONFIG}`,
-      `            # ${PRE_PROVIDER_SCOPE_PRISMA_CONFIG}`,
-    ],
-    [
-      "deleted through-000079 config argument",
-      `            ${THROUGH_PROVIDER_SCOPE_PRISMA_CONFIG}`,
-      "",
-    ],
-    [
-      "commented through-000079 config argument",
-      `            ${THROUGH_PROVIDER_SCOPE_PRISMA_CONFIG}`,
-      `            # ${THROUGH_PROVIDER_SCOPE_PRISMA_CONFIG}`,
-    ],
-    [
-      "deleted release migration schema usage",
-      "          GRANT USAGE ON SCHEMA public TO reviewrouter_release_migration;\n",
-      "",
-    ],
-    [
-      "deleted schema-owner schema authority",
-      `          GRANT USAGE, CREATE ON SCHEMA public
-            TO reviewrouter_release_schema_owner;
-`,
-      "",
-    ],
-    [
-      "broadened release migration schema authority",
-      "          GRANT USAGE ON SCHEMA public TO reviewrouter_release_migration;",
-      "          GRANT USAGE, CREATE ON SCHEMA public TO reviewrouter_release_migration;",
-    ],
-    [
-      "public schema authority",
-      "          GRANT USAGE ON SCHEMA public TO reviewrouter_release_migration;",
-      `          GRANT USAGE ON SCHEMA public TO reviewrouter_release_migration;
-          GRANT USAGE ON SCHEMA public TO PUBLIC;`,
-    ],
-    ["removed teardown always guard", "        if: always()\n", ""],
-    [
-      "commented teardown always guard",
-      "        if: always()",
-      "        # if: always()",
-    ],
-    [
-      "deleted later migration smoke command",
-      "        run: pnpm db:migrate:smoke\n",
-      "",
-    ],
-    [
-      "commented later migration smoke command",
-      "        run: pnpm db:migrate:smoke",
-      "        run: |\n          # pnpm db:migrate:smoke",
-    ],
-  ])("rejects %s", (_label, before, after) => {
-    expectRejectedMutation(qualityGatesWorkflow, before, after, (mutated) =>
-      assertProviderFixtureContract(mutated, realProviderScopeSuite),
-    );
-  });
-
+  // Each mutation breaks a separate CI boundary: app DB isolation, bounded
+  // provider migration, restricted fixture authority, or cleanup.
   it.each([
     [
-      "ALTER TABLE ONLY on an approved table",
-      'ALTER TABLE public."ReviewProviderScopeConcurrencyControl"',
-      'ALTER TABLE ONLY public."ReviewProviderScopeConcurrencyControl"',
+      "ordinary migration removed",
+      '          DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy',
+      '          # DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy',
     ],
     [
-      "ALTER TABLE ONLY on the other approved table",
-      'ALTER TABLE public."ReviewInvocationLeaseV2"',
-      'ALTER TABLE ONLY public."ReviewInvocationLeaseV2"',
+      "ordinary database redirected into the role-bearing cluster",
+      "127.0.0.1:5433/review_router_ci_test?schema=public",
+      "127.0.0.1:5432/review_router_ci_test?schema=public",
     ],
     [
-      "a third owner transfer in another heredoc",
-      "          SQL\n\n      - name: Provider-scope real database tests",
-      `          SQL
-          psql -h 127.0.0.1 -U postgres -d review_router_provider_scope_ci_test <<'MORE_SQL'
-          ALTER TABLE public."HiddenThird" OWNER TO reviewrouter_release_schema_owner;
-          MORE_SQL
-
-      - name: Provider-scope real database tests`,
+      "provider pre-79 catalog removed",
+      PRE_PROVIDER_SCOPE_PRISMA_CONFIG,
+      '--config "$RUNNER_TEMP/provider-scope-migrations/unbounded.config.mjs"',
     ],
     [
-      "a third owner transfer through psql -c",
-      "          SQL\n\n      - name: Provider-scope real database tests",
-      `          SQL
-          psql -h 127.0.0.1 -U postgres -d review_router_provider_scope_ci_test -c 'ALTER TABLE public."HiddenThird" OWNER TO reviewrouter_release_schema_owner;'
-
-      - name: Provider-scope real database tests`,
+      "provider through-79 catalog removed",
+      THROUGH_PROVIDER_SCOPE_PRISMA_CONFIG,
+      '--config "$RUNNER_TEMP/provider-scope-migrations/unbounded.config.mjs"',
     ],
     [
-      "a third owner transfer through an unquoted lowercase heredoc",
-      "          SQL\n\n      - name: Provider-scope real database tests",
-      `          SQL
-          psql -h 127.0.0.1 -U postgres <<sql
-          alter table public."LowercaseThird" owner to reviewrouter_release_schema_owner;
-          sql
-
-      - name: Provider-scope real database tests`,
+      "fixture role provisioning removed",
+      "node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci",
+      "echo roles-ready",
     ],
     [
-      "a third owner transfer through --command",
-      "          SQL\n\n      - name: Provider-scope real database tests",
-      `          SQL
-          psql --command='alter table public."CommandThird" owner to reviewrouter_release_schema_owner;'
-
-      - name: Provider-scope real database tests`,
+      "provider handoff removed",
+      "disposableProvider79HandoffSql as sql",
+      "disposableProvider79HandoffRemoved as sql",
     ],
     [
-      "a third owner transfer piped to psql",
-      "          SQL\n\n      - name: Provider-scope real database tests",
-      `          SQL
-          printf 'ALTER TABLE public."PipedThird" OWNER TO reviewrouter_release_schema_owner;' | psql
-
-      - name: Provider-scope real database tests`,
+      "provider authority verification removed",
+      "disposableProvider79VerificationSql as sql",
+      "disposableProvider79VerificationRemoved as sql",
     ],
     [
-      "a third owner transfer in an added quality step",
+      "provider teardown guard removed",
+      "      - name: Tear down provider-scope database\n        if: always()",
+      "      - name: Tear down provider-scope database",
+    ],
+    [
+      "provider database cleanup removed",
+      "DROP DATABASE IF EXISTS review_router_provider_scope_ci_test;",
+      "SELECT 1;",
+    ],
+    [
+      "broad inline grant added",
       "      - name: Provider-scope real database tests",
-      `      - name: Accidental authority
-        run: psql --command='ALTER TABLE public."AddedStepThird" OWNER TO reviewrouter_release_schema_owner;'
-
-      - name: Provider-scope real database tests`,
-    ],
-    [
-      "a duplicate approved grant in another shell",
-      "          SQL\n\n      - name: Provider-scope real database tests",
-      `          SQL
-          psql -h 127.0.0.1 -U postgres -d review_router_provider_scope_ci_test -c 'GRANT USAGE ON SCHEMA public TO reviewrouter_release_migration;'
-
-      - name: Provider-scope real database tests`,
-    ],
-    [
-      "an extra executable owner transfer",
-      '          ALTER TABLE public."ReviewInvocationLeaseV2"',
-      '          ALTER TABLE public."Extra" OWNER TO reviewrouter_release_schema_owner;\n          ALTER TABLE public."ReviewInvocationLeaseV2"',
-    ],
-    [
-      "broad predefined-role authority",
-      "          SQL\n\n      - name: Apply provider-scope database through 000079",
-      "          GRANT pg_write_all_data TO reviewrouter_release_migration;\n          SQL\n\n      - name: Apply provider-scope database through 000079",
-    ],
-    [
-      "role membership",
-      "          SQL\n\n      - name: Apply provider-scope database through 000079",
-      "          GRANT reviewrouter_release_schema_owner TO reviewrouter_release_migration;\n          SQL\n\n      - name: Apply provider-scope database through 000079",
-    ],
-    [
-      "a broad role attribute",
-      "          SQL\n\n      - name: Apply provider-scope database through 000079",
-      "          ALTER ROLE reviewrouter_release_migration CREATEROLE;\n          SQL\n\n      - name: Apply provider-scope database through 000079",
-    ],
-    [
-      "a broad object grant",
-      "          SQL\n\n      - name: Apply provider-scope database through 000079",
-      "          GRANT ALL ON ALL TABLES IN SCHEMA public TO reviewrouter_release_migration;\n          SQL\n\n      - name: Apply provider-scope database through 000079",
-    ],
-    [
-      "database ownership authority",
-      "          SQL\n\n      - name: Apply provider-scope database through 000079",
-      "          ALTER DATABASE review_router_provider_scope_ci_test OWNER TO reviewrouter_release_schema_owner;\n          SQL\n\n      - name: Apply provider-scope database through 000079",
-    ],
-    [
-      "owned-object reassignment",
-      "          SQL\n\n      - name: Apply provider-scope database through 000079",
-      "          REASSIGN OWNED BY postgres TO reviewrouter_release_schema_owner;\n          SQL\n\n      - name: Apply provider-scope database through 000079",
+      "      - name: Broad authority\n        run: psql -c 'GRANT ALL ON ALL TABLES IN SCHEMA public TO reviewrouter_release_migration;'\n\n      - name: Provider-scope real database tests",
     ],
   ])("rejects %s", (_label, before, after) => {
     expectRejectedMutation(qualityGatesWorkflow, before, after, (mutated) =>
@@ -826,73 +620,54 @@ describe("provider scope concurrency rollout control", () => {
     );
   });
 
-  it("does not allow SQL comments to supply either ownership transfer", () => {
-    const mutated = qualityGatesWorkflow.replace(
-      '          ALTER TABLE public."ReviewInvocationLeaseV2"',
-      '          -- ALTER TABLE public."ReviewInvocationLeaseV2"',
-    );
-    expect(() =>
-      assertProviderFixtureContract(mutated, realProviderScopeSuite),
-    ).toThrow();
-  });
-
-  it("rejects role drops moved before the database drop", () => {
-    const databaseDrop =
-      "          DROP DATABASE IF EXISTS review_router_provider_scope_ci_test;";
-    const roleDrops =
-      "          DROP ROLE IF EXISTS reviewrouter_release_migration;\n          DROP ROLE IF EXISTS reviewrouter_release_schema_owner;";
-    const mutated = qualityGatesWorkflow
-      .replace(databaseDrop, "__DATABASE_DROP__")
-      .replace(roleDrops, `${roleDrops}\n${databaseDrop}`)
-      .replace("__DATABASE_DROP__\n", "");
-    expect(() =>
-      assertProviderFixtureContract(mutated, realProviderScopeSuite),
-    ).toThrow();
-  });
-
-  it("rejects teardown moved after the later migration smoke", () => {
-    const teardown = qualityGatesWorkflow.match(
-      / {6}- name: Tear down provider-scope database and roles[\s\S]*?(?=\n {6}- name: Bind hosted certification input bytes)/u,
+  it("rejects moving app migration after release-role provisioning", () => {
+    const app = qualityGatesWorkflow.match(
+      / {6}- name: Apply ordinary test database migrations[\s\S]*?(?=\n {6}- name: Rotating Codex PostgreSQL 17 combined migration rehearsal)/u,
     )?.[0];
-    expect(teardown).toBeDefined();
+    expect(app).toBeDefined();
     const mutated = qualityGatesWorkflow
-      .replace(`${teardown ?? ""}\n`, "")
+      .replace(`${app ?? ""}\n`, "")
       .replace(
-        "      - name: Review v2 migration rehearsal",
-        `${teardown ?? ""}\n\n      - name: Review v2 migration rehearsal`,
+        "      - name: Apply dev database migrations",
+        `${app ?? ""}\n\n      - name: Apply dev database migrations`,
       );
     expect(() =>
       assertProviderFixtureContract(mutated, realProviderScopeSuite),
     ).toThrow();
   });
 
-  it("rejects a through-boundary mutation hidden by comment decoys", () => {
-    const before = `          if (postMigrations.some((name) => name >= "000080_")) {
-            throw new Error("through-000079 catalog crossed its upper boundary");
-          }`;
-    const after = `          /* if (postMigrations.some((name) => name >= "000080_")) {
-            throw new Error("through-000079 catalog crossed its upper boundary");
-          } */
-          if (postMigrations.some((name) => name >= "999999_")) {
-            throw new Error("through-000079 catalog crossed its upper boundary");
-          }`;
-    expectRejectedMutation(qualityGatesWorkflow, before, after, (mutated) =>
-      assertProviderFixtureContract(mutated, realProviderScopeSuite),
+  it("rejects replacement of the imported catalog implementation", () => {
+    expectRejectedMutation(
+      qualityGatesWorkflow,
+      "writeDisposableMigrationCatalog(phase, root)",
+      'writeDisposableMigrationCatalog("full", root)',
+      (mutated) =>
+        assertProviderFixtureContract(mutated, realProviderScopeSuite),
     );
   });
 
-  it("rejects migration boundary names supplied only by block comments", () => {
-    const before = `            "000079_hosted_codex_output_limits",
-            "000079_remove_account_wide_provider_lane_serialization",`;
-    const after = `            /* "000079_hosted_codex_output_limits",
-            "000079_remove_account_wide_provider_lane_serialization", */
-            "999999_decoy_one",
-            "999999_decoy_two",`;
-    expectRejectedMutation(qualityGatesWorkflow, before, after, (mutated) =>
-      assertProviderFixtureContract(mutated, realProviderScopeSuite),
-    );
+  it("materializes exact pre-79 and through-79 migration sets", () => {
+    const root = mkdtempSync(join(tmpdir(), "review-router-provider-catalog-"));
+    try {
+      const migrationNames = (phase: "pre79" | "through79") => {
+        const config = writeDisposableMigrationCatalog(phase, root);
+        const prismaRoot = join(config, "..", "prisma", "migrations");
+        return readdirSync(prismaRoot).filter((name) =>
+          /^\d{6}_[a-z0-9_]+$/u.test(name),
+        );
+      };
+      const pre = migrationNames("pre79");
+      const through = migrationNames("through79");
+      expect(pre.some((name) => name >= "000079_")).toBe(false);
+      expect(through).toContain("000079_hosted_codex_output_limits");
+      expect(through).toContain(
+        "000079_remove_account_wide_provider_lane_serialization",
+      );
+      expect(through.some((name) => name >= "000080_")).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
-
   it.each([
     [
       "direct DATABASE_URL fallback",

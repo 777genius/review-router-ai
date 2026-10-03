@@ -182,9 +182,39 @@ const checkoutExtensions = Object.freeze([
       "750038a865bced544ae9cca42060112a6479c05163c3dc05c41f504c993147ef",
   }),
   Object.freeze({
-    migrationName: "000110_provider_api_key_workspace_management",
+    migrationName: "000110_historical_unknown_scope_barrier",
     checksum:
-      "d69beaa182fd49ad231bb86b2af4b9d53af3c54cab3a12fa3ca910e7a4379208",
+      "aa9cd8a8e34e9909dcc22c5a7dd94cc4121821db93330c0a54bb48b0aaf61a79",
+  }),
+  Object.freeze({
+    migrationName: "000111_sdk_growth_source_binding",
+    checksum:
+      "2d9b80ff0d894ba22602c4d84f7487a5343352e6bd2602f64c0b3cafdce048cd",
+  }),
+  Object.freeze({
+    migrationName: "000112_sdk_growth_operator_credential",
+    checksum:
+      "0178f5198025c8e0f03bc995139940f9a2c9739f3c3ad000c857e8e0c8b425d0",
+  }),
+  Object.freeze({
+    migrationName: "000113_sdk_growth_approval_ledger",
+    checksum:
+      "1684eced3efccf7af153c4fd8e24a31a96aec20ddb2674b2764ba56796d8f6c2",
+  }),
+  Object.freeze({
+    migrationName: "000114_sdk_growth_v3_tool_artifact",
+    checksum:
+      "14d0dd69bdf596cbdfe39306965b08bd969a9d9b89b0a49ddcfe34fe43118d58",
+  }),
+  Object.freeze({
+    migrationName: "000115_sdk_growth_v3_approved_manifest",
+    checksum:
+      "07fdc348fe27d0ee1ddc15d97e6932cca3dc02cc920d856c4380f71cabb36db0",
+  }),
+  Object.freeze({
+    migrationName: "000116_hosted_codex_relay_admission_utc",
+    checksum:
+      "af399b3aea5cd73e0b65a46085bba2df216cd44888caf066baa02a6516f7d585",
   }),
 ]);
 
@@ -200,6 +230,27 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // This independently published checkout addition is not part of the old
+  // managed or historical manifests. Validate its exact bytes and predecessor,
+  // then validate the complete original history without changing those pins.
+  const providerKeyMigration = catalog.find(
+    (row) =>
+      row.migrationName === "000110_provider_api_key_workspace_management",
+  );
+  if (providerKeyMigration) {
+    if (
+      providerKeyMigration.checksum !==
+        "d69beaa182fd49ad231bb86b2af4b9d53af3c54cab3a12fa3ca910e7a4379208" ||
+      !catalog.some(
+        (row) =>
+          row.migrationName === "000109_sdk_growth_verifier_assignment_lock",
+      )
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== providerKeyMigration),
+    );
+  }
   const managed = [];
   let extensions = 0;
   for (const row of catalog) {
@@ -213,9 +264,10 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     }
   }
   if (
-    ![0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17].includes(
-      extensions,
-    )
+    ![
+      0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23,
+    ].includes(extensions)
   )
     fail("checkout_extension");
   if (
@@ -305,7 +357,43 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     extensions === 17 &&
     manifest(catalog) !==
-      "sha256:d4e309a83e36089dae1bfaa94c707eaa81ef5ff7e0d3d3831763c26331e1ad5c"
+      "sha256:1a5470960ccf766827bb58fc0a270553f002802e0019225adb4a0dfcf2b591af"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 18 &&
+    manifest(catalog) !==
+      "sha256:48019e5f9ad81af25742e30903b83d7053affa263c2e0674a4f9e4c909b4ec26"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 19 &&
+    manifest(catalog) !==
+      "sha256:7e1d7018a5f959cfd5d237fd2ac18dd1436580b05ab0da7a9416bc7dfb842988"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 20 &&
+    manifest(catalog) !==
+      "sha256:24a99e65c00ef46f0a63d0823ec12f38575b793e794c82990bd5c3ecfd0a2271"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 21 &&
+    manifest(catalog) !==
+      "sha256:06b7ead8634045dd96f1e79626cb1fdcee3bd147ca5068e9fe001705271f5446"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 22 &&
+    manifest(catalog) !==
+      "sha256:15a397089c81b84540534361777b74a69a48955df7db81bf6353130d51aa6ed0"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 23 &&
+    manifest(catalog) !==
+      "sha256:30f68ffc62e0b46815bc007339d83aa7894b61b23f301c012b8990713cc0ad14"
   )
     fail("checkout_manifest");
   assertRenderSchemaHandoffCatalog(managed);

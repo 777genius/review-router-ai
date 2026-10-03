@@ -2,7 +2,6 @@ import {
   defaultCodexRotatingWorkflowPath,
   defaultSetupBranch,
   defaultWorkflowPath,
-  codexRotatingProviderSecretInputsForRuntimeEnv,
   type ReviewRouterDiscussionMode,
   type ReviewRouterWorkflowStyle,
 } from "./workflow-template";
@@ -136,11 +135,7 @@ export function createProvisionWorkflowPlan(
   }
   return {
     ...input,
-    workflowStyle: codexRotatingProviderSecretInputsForRuntimeEnv(
-      input.staticRuntimeEnv,
-    ).mimoTokenPlanApiKeySecret
-      ? "explicit"
-      : (input.workflowStyle ?? "reusable"),
+    workflowStyle: input.workflowStyle ?? "reusable",
     setupBranch: input.setupBranch ?? defaultSetupBranch,
     workflowPath:
       input.workflowPath ??

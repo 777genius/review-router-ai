@@ -329,6 +329,48 @@ function harness() {
 }
 
 describe("EF authority application boundary", () => {
+  it("reports historical v1 custody as stale without consulting live authority", async () => {
+    const h = harness();
+    await h.service.admit(h.f.execution, "repo", 42, {});
+    const result = await h.service.historicalStatus(
+      h.f.execution,
+      "repo",
+      42,
+      h.f.admission.requestDigest,
+    );
+    expect(result?.authorityState).toBe("stale");
+    expect(h.authority.currentGrant).not.toHaveBeenCalled();
+  });
+
+  // Regression: an approved bridge-v1 head could be paired with a different
+  // independently observed PR base or merge base before grant custody.
+  it("holds when the grant base differs from the authenticated PR capture", async () => {
+    const h = harness();
+    const execution: AuthenticatedEfExecution = {
+      ...h.f.execution,
+      sourceBinding: {
+        headRepositoryId: h.f.execution.githubRepositoryId,
+        baseRepositoryId: h.f.execution.githubRepositoryId,
+        baseRef: "main",
+        baseCommit: "a".repeat(40),
+        baseTree: "b".repeat(40),
+        mergeBaseCommit: h.f.binding.mergeBase,
+        mergeBaseTree: "c".repeat(40),
+      },
+    };
+    await expect(
+      h.service.admit(execution, "repo", 42, {}),
+    ).rejects.toMatchObject({
+      code: "binding-changed",
+    });
+    expect(
+      await h.custody.readExecution(
+        { tenantId: "tenant", repositoryId: "repo", pullRequest: 42 },
+        execution,
+      ),
+    ).toBeNull();
+  });
+
   it("propagates current-authority infrastructure failures from status", async () => {
     const h = harness();
     await h.service.admit(h.f.execution, "repo", 42, {});

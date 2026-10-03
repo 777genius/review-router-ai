@@ -176,12 +176,17 @@ jobs:
             exit 1
           fi
           mapfile -t synced_files < <(node ../review-router-ai/scripts/sync-public-action-runtime.mjs --print-files)
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "iliya"
+          git config user.email "iliyazelenkog@gmail.com"
+          git var GIT_AUTHOR_IDENT
+          git var GIT_COMMITTER_IDENT
+          [[ "$(git var GIT_AUTHOR_IDENT)" == "iliya <iliyazelenkog@gmail.com> "* ]]
+          [[ "$(git var GIT_COMMITTER_IDENT)" == "iliya <iliyazelenkog@gmail.com> "* ]]
           git add -- "${synced_files[@]}"
           git commit \
             -m "fix: sync public action runtime" \
-            -m "Source: 777genius/review-router-ai@${SOURCE_SHA}"
+            -m "Source: 777genius/review-router-ai@${SOURCE_SHA}" \
+            -m "Refs 777genius/review-router-ai#444"
           git pull --rebase origin "${ACTION_BRANCH}"
           git diff --exit-code -- "${synced_files[@]}"
           git diff --cached --exit-code -- "${synced_files[@]}"
