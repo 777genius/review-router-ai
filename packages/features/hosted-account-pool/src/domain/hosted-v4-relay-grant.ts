@@ -286,6 +286,7 @@ export function hostedV4LogicalTurnKey(
 /** Canonical immutable approval reference, not a bearer or permission issuer. */
 export function hostedV4UnapprovedScopeHash(scope: HostedV4RelayScope): string {
   const { ownerOneShotApproval: _approval, ...unapproved } = scope;
+  void _approval;
   return digest([canonicalScope(hostedV4RelayScopeSchema.parse(unapproved))]);
 }
 

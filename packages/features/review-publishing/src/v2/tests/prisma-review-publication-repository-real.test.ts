@@ -102,6 +102,7 @@ describeWithDatabase("PrismaReviewPublicationRepository real database", () => {
         requestHash: claimRequestHash,
         ...legacyClaim
       } = claim;
+      void _version;
       await expect(
         prisma.reviewPublicationClaimTermV2.create({
           data: {
@@ -131,6 +132,7 @@ describeWithDatabase("PrismaReviewPublicationRepository real database", () => {
         requestHash: beginRequestHash,
         ...legacyBegin
       } = begin;
+      void _beginVersion;
       await expect(
         prisma.reviewPublicationOperationAttemptV2.create({
           data: {

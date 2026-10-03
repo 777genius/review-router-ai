@@ -452,6 +452,7 @@ test("all seven native preparation requests validate before grant, using exact f
     replies[Op.ReviewInvestigationRelayTurnPlan].turnId,
   );
   const { leasePurpose, ...missingPurpose } = lease;
+  void leasePurpose;
   assert.equal(
     parseReviewActionV2Request(
       Op.ReviewInvestigationRelayLeaseAcquire,

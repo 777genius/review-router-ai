@@ -27,7 +27,11 @@ function pathParts(path: string): string[] {
     path.length > 0 &&
       path.length <= 512 &&
       path.normalize("NFC") === path &&
-      !/[\x00-\x1f\x7f\\]/u.test(path),
+      !path.includes("\\") &&
+      Array.from(path).every((character) => {
+        const code = character.charCodeAt(0);
+        return code >= 0x20 && code !== 0x7f;
+      }),
     "newtest_gateway_path_invalid",
   );
   const parts = path.split("/");

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { TextEncoder, TextDecoder } from "node:util";
+const { structuredClone } = globalThis;
 const { compileMeasuredDiscovery, createNewtestSemanticCompiler } =
   await import("./rr-v4-one-shot-NEWTEST-semantic.ts");
 const { ReviewActionV2OperationId: Op } =

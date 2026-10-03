@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
+import { TextEncoder } from "node:util";
+
+const { structuredClone, Response } = globalThis;
 
 // Run with node --import tsx --test. Only fake transport, no runtime/auth entry.
 const {
