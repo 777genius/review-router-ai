@@ -18,6 +18,7 @@ import {
   ReviewPublicationAdjudicationEvidenceStatus,
   ReviewPublicationCapability,
   ReviewPublicationAttemptState,
+  ReviewPublicationGateRejectionReason,
   CurrentPublicationLifecycleStatus,
   CurrentReviewSafetyDecisionStatus,
   ReviewPublicationLifecycleExpectationStatus,
@@ -70,6 +71,7 @@ import { ReviewActionV2ExecutionEvidenceCapabilityAdapter } from "./review-actio
 import {
   createProductionPublicationLifecyclePort,
   createReviewActionV2SnapshotPublicationRoutes,
+  createTrustedExclusivePublicationPreparation,
 } from "./review-action-v2-production-composition-snapshot-publication.js";
 
 const now = new Date("2026-07-23T12:00:00.000Z");
@@ -1134,12 +1136,287 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
   });
 });
 
+describe("trusted exclusive publication preparation", () => {
+  // A regression that enqueues during preparation, uses a separate planner or
+  // adopts an existing attempt must fail before any exclusive external effect.
+  it("prepares the exact ordinary command without enqueue and refuses existing attempts", async () => {
+    const { finalizedArtifact, measured, request } =
+      await measuredPublication();
+    const repository = new InMemoryReviewPublicationRepository();
+    const writes = vi.spyOn(repository, "request");
+    const dependencies = routeDependencies(
+      repository,
+      undefined,
+      finalizedArtifact,
+    );
+    const preparation = createTrustedExclusivePublicationPreparation({
+      ...dependencies,
+      decisions: allowingReviewPublicationDecisionPorts(
+        finalizedArtifact.publicationPermit,
+      ),
+    });
+    const prepared = await preparation.prepareExclusivePublication(
+      request,
+      measured,
+    );
+    expect(prepared.artifactId).toBe(measured.artifactId);
+    expect(prepared.artifactHash).toBe(measured.artifactHash);
+    expect(prepared.verifiedPermit).toEqual(
+      finalizedArtifact.publicationPermit,
+    );
+    expect(prepared.command.operations).toHaveLength(2);
+    expect(writes).not.toHaveBeenCalled();
+    await expect(
+      repository.findById(prepared.command.publicationAttemptId),
+    ).resolves.toBeNull();
+
+    const routes = createReviewActionV2SnapshotPublicationRoutes(dependencies);
+    await expect(
+      routes.publication.request!.execute(request),
+    ).resolves.toMatchObject({
+      statusCode: 201,
+      result: { publicationAttemptId: prepared.command.publicationAttemptId },
+    });
+    expect(writes).toHaveBeenCalledExactlyOnceWith(prepared.command);
+    await expect(
+      preparation.prepareExclusivePublication(request, measured),
+    ).rejects.toMatchObject({
+      issues: ["exclusive_publication_attempt_already_exists"],
+    });
+    const evidence = await preparation.readPublicationEvidence({
+      authorizationToken: request.authorizationToken,
+      publicationAttemptId: prepared.command.publicationAttemptId,
+    });
+    expect(evidence.view.attempt.operations).toHaveLength(2);
+    expect(evidence.view.attempt.state).toBe(
+      ReviewPublicationAttemptState.Pending,
+    );
+    expect(evidence.canonicalReceiptSetHash).toBeNull();
+    expect(writes).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects measured identity and stored-byte drift before enqueue", async () => {
+    const { finalizedArtifact, measured, request } =
+      await measuredPublication();
+    const repository = new InMemoryReviewPublicationRepository();
+    const writes = vi.spyOn(repository, "request");
+    const changedProjection = canonicalJson({
+      ...JSON.parse(finalizedArtifact.projectionEnvelopeJson),
+      commandLedgerWatermark: "3",
+    });
+    expect(await digest.digestUtf8(changedProjection)).not.toBe(
+      finalizedArtifact.projectionHash,
+    );
+    const cases = [
+      {
+        saved: finalizedArtifact,
+        measured: { ...measured, artifactHash: hash("0") },
+      },
+      {
+        saved: finalizedArtifact,
+        measured: { ...measured, artifactId: "another-artifact" },
+      },
+      {
+        saved: { ...finalizedArtifact, artifactId: "uncorrelated-artifact" },
+        measured,
+      },
+      {
+        saved: {
+          ...finalizedArtifact,
+          byteCount: finalizedArtifact.byteCount + 1,
+        },
+        measured,
+      },
+      {
+        saved: {
+          ...finalizedArtifact,
+          projectionEnvelopeJson: changedProjection,
+          byteCount: Buffer.byteLength(changedProjection, "utf8"),
+        },
+        measured,
+      },
+    ];
+    for (const candidate of cases) {
+      const preparation = createTrustedExclusivePublicationPreparation({
+        ...routeDependencies(repository, undefined, candidate.saved),
+        decisions: allowingReviewPublicationDecisionPorts(
+          finalizedArtifact.publicationPermit,
+        ),
+      });
+      await expect(
+        preparation.prepareExclusivePublication(request, candidate.measured),
+      ).rejects.toMatchObject({
+        issues: ["exclusive_publication_measured_artifact_mismatch"],
+      });
+    }
+    expect(writes).not.toHaveBeenCalled();
+    await expect(
+      repository.findByPermitIdentity(finalizedArtifact.publicationPermit),
+    ).resolves.toBeNull();
+  });
+
+  it("rechecks actual signed authority, live safety and context rather than caller claims", async () => {
+    const { finalizedArtifact, measured, request } =
+      await measuredPublication();
+    const repository = new InMemoryReviewPublicationRepository();
+    const writes = vi.spyOn(repository, "request");
+    const dependencies = routeDependencies(
+      repository,
+      undefined,
+      finalizedArtifact,
+    );
+    const decisions = allowingReviewPublicationDecisionPorts(
+      finalizedArtifact.publicationPermit,
+      {
+        safety: {
+          async resolve() {
+            return {
+              status: CurrentReviewSafetyDecisionStatus.Allowed,
+              decisionHash: hash("0"),
+            };
+          },
+        },
+      },
+    );
+    const preparation = createTrustedExclusivePublicationPreparation({
+      ...dependencies,
+      decisions,
+    });
+    await expect(
+      preparation.prepareExclusivePublication(request, measured),
+    ).rejects.toMatchObject({
+      reason: ReviewPublicationGateRejectionReason.SafetyDecisionMismatch,
+    });
+    await expect(
+      preparation.prepareExclusivePublication(
+        await publicationRequest(
+          "opaque-unverified-permit",
+          request.operationsCanonicalJson,
+          request.projectionHash,
+        ),
+        measured,
+      ),
+    ).rejects.toMatchObject({ issues: ["publication_permit_invalid"] });
+    const staleContext = createTrustedExclusivePublicationPreparation({
+      ...dependencies,
+      contextPolicy: {
+        async assertCurrentPolicy() {
+          throw new Error("stale");
+        },
+      },
+      decisions: allowingReviewPublicationDecisionPorts(
+        finalizedArtifact.publicationPermit,
+      ),
+    });
+    await expect(
+      staleContext.prepareExclusivePublication(request, measured),
+    ).rejects.toMatchObject({
+      issues: ["publication_context_policy_stale"],
+    });
+    expect(writes).not.toHaveBeenCalled();
+  });
+
+  it("does not expose another authorization's publication evidence", async () => {
+    const { finalizedArtifact, measured, request } =
+      await measuredPublication();
+    const repository = new InMemoryReviewPublicationRepository();
+    const dependencies = routeDependencies(
+      repository,
+      undefined,
+      finalizedArtifact,
+    );
+    const preparation = createTrustedExclusivePublicationPreparation({
+      ...dependencies,
+      decisions: allowingReviewPublicationDecisionPorts(
+        finalizedArtifact.publicationPermit,
+      ),
+    });
+    const prepared = await preparation.prepareExclusivePublication(
+      request,
+      measured,
+    );
+    await createReviewActionV2SnapshotPublicationRoutes(
+      dependencies,
+    ).publication.request!.execute(request);
+    const foreign = createTrustedExclusivePublicationPreparation({
+      ...dependencies,
+      authorizations: {
+        async resolveReviewRunAuthorizationToken() {
+          return {
+            status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+            authorization: {
+              ...authorization,
+              authorizationId: "foreign-authorization",
+            },
+          };
+        },
+      },
+      decisions: allowingReviewPublicationDecisionPorts(
+        finalizedArtifact.publicationPermit,
+      ),
+    });
+    await expect(
+      foreign.readPublicationEvidence({
+        authorizationToken: "foreign-token",
+        publicationAttemptId: prepared.command.publicationAttemptId,
+      }),
+    ).rejects.toMatchObject({
+      issues: ["publication_status_scope_mismatch"],
+    });
+  });
+});
+
+async function measuredPublication() {
+  const projectionHash = await digest.digestUtf8(projectionEnvelopeJson);
+  const artifactHash = await digest.digestUtf8(
+    `rr.review-artifact.v1\0${canonicalJson({
+      operationsCanonicalJson: canonicalJson(publishing),
+      projectionHash,
+    })}`,
+  );
+  const finalizedArtifact: FinalizedReviewProjectionArtifact = {
+    ...artifact,
+    artifactId: `rr:artifact:${artifactHash}`,
+    projectionHash,
+    publicationPermit: { ...artifact.publicationPermit, projectionHash },
+  };
+  const publicationPermit = await capabilityAdapter().issuePublicationPermit(
+    finalizedArtifact.publicationPermit,
+    now,
+  );
+  return {
+    finalizedArtifact,
+    measured: { artifactId: finalizedArtifact.artifactId, artifactHash },
+    request: await publicationRequest(
+      publicationPermit,
+      canonicalJson(publishing),
+      projectionHash,
+    ),
+  };
+}
+
 function createRoutes(
   publicationRepository = new InMemoryReviewPublicationRepository(),
   contextPolicy = { assertCurrentPolicy: vi.fn() },
   finalizedArtifact: FinalizedReviewProjectionArtifact = artifact,
   decisionOverrides: Partial<ReviewPublicationDecisionPorts> = {},
 ) {
+  return createReviewActionV2SnapshotPublicationRoutes(
+    routeDependencies(
+      publicationRepository,
+      contextPolicy,
+      finalizedArtifact,
+      decisionOverrides,
+    ),
+  );
+}
+
+function routeDependencies(
+  publicationRepository = new InMemoryReviewPublicationRepository(),
+  contextPolicy = { assertCurrentPolicy: vi.fn() },
+  finalizedArtifact: FinalizedReviewProjectionArtifact = artifact,
+  decisionOverrides: Partial<ReviewPublicationDecisionPorts> = {},
+): Parameters<typeof createReviewActionV2SnapshotPublicationRoutes>[0] {
   const publicationApplication = createReviewPublicationV2Application({
     clock: { now: () => now },
     decisions: allowingReviewPublicationDecisionPorts(
@@ -1168,7 +1445,7 @@ function createRoutes(
     },
     enabledCapabilities: new Set([ReviewPublicationCapability.Request]),
   });
-  return createReviewActionV2SnapshotPublicationRoutes({
+  return {
     runtime: {
       readServerTime: async () => now,
       createRequestId: () => "request-generated",
@@ -1207,7 +1484,7 @@ function createRoutes(
     digest,
     contextPolicy,
     now: () => now,
-  });
+  };
 }
 
 class LostPublicationResponseRepository extends InMemoryReviewPublicationRepository {

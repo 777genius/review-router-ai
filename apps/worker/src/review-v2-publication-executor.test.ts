@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   RequestReviewPublicationStatus,
+  exclusivePublicationHash,
+  exclusivePublicationPlanHash,
+  exclusivePublicationOperations,
+  type ExclusiveTestPublicationBinding,
+  type ExclusiveTestPublicationPort,
   ReviewPublicationEffectStrategy,
   ReviewPublicationExternalEffectKind,
   ReviewPublicationKind,
@@ -39,6 +44,171 @@ const initialTime = at("2026-07-23T12:00:00.000Z");
 const ownerIdHash = hash("e");
 
 describe("protocol v2 publication executor", () => {
+  it("fails exclusive qualification closed without a no-retry transport adapter", async () => {
+    const f = await createFixture({ exclusive: true, noRetry: false });
+    expect(() => f.executor.qualifyExclusivePublication()).toThrow(
+      "exclusive_publication_adapter_unavailable",
+    );
+    expect(f.gateway.applyCalls).toBe(0);
+    expect(f.credentials.purposes).toEqual([]);
+  });
+
+  it("excludes ordinary execution and consumes before the sole transport mutation", async () => {
+    const f = await createFixture({ exclusive: true });
+    expect((await f.executor.execute(executionCommand())).status).toBe(
+      ReviewV2PublicationExecutionStatus.ManualRequired,
+    );
+    expect(f.credentials.purposes).toEqual([]);
+    expect(
+      (await f.executor.executeExclusiveOnce(executionCommand(), f.binding))
+        .status,
+    ).toBe(ReviewV2PublicationExecutionStatus.Completed);
+    expect(f.exclusive.consumeCalls).toBe(1);
+    expect(f.exclusive.applyCallsAtConsumption).toBe(0);
+    expect(f.gateway.applyCalls).toBe(1);
+    expect(f.gateway.compensationCalls).toBe(0);
+    expect(
+      (await f.executor.executeExclusiveOnce(executionCommand(), f.binding))
+        .status,
+    ).toBe(ReviewV2PublicationExecutionStatus.AlreadyCompleted);
+    expect(f.gateway.applyCalls).toBe(1);
+  });
+
+  it("never sends after a lost consumption COMMIT acknowledgment", async () => {
+    const f = await createFixture({ exclusive: true });
+    f.exclusive.loseCommitAck = true;
+    expect(
+      (await f.executor.executeExclusiveOnce(executionCommand(), f.binding))
+        .safeReason,
+    ).toBe("exclusive_publication_dispatch_unknown");
+    expect(f.exclusive.consumedOperations).toEqual(["operation-1"]);
+    expect(f.gateway.applyCalls).toBe(0);
+    await f.executor.executeExclusiveOnce(executionCommand(), f.binding);
+    expect(f.exclusive.consumeCalls).toBe(1);
+    expect(f.gateway.applyCalls).toBe(0);
+  });
+
+  it("keeps ambiguous provider effects fenced without retry or cleanup", async () => {
+    const f = await createFixture({ exclusive: true });
+    f.gateway.applyError = new Error("lost provider response");
+    expect(
+      (await f.executor.executeExclusiveOnce(executionCommand(), f.binding))
+        .status,
+    ).toBe(ReviewV2PublicationExecutionStatus.TerminalUnknown);
+    f.gateway.applyError = null;
+    f.clock.set(at("2026-07-23T12:02:00.000Z")); // expiry cannot rearm dispatch
+    await f.executor.executeExclusiveOnce(executionCommand(), f.binding);
+    expect(f.gateway.applyCalls).toBe(1);
+    expect(f.gateway.compensationCalls).toBe(0);
+  });
+
+  it("publishes the full canonical plan once per operation and requires every required receipt", async () => {
+    const first = operationPlan();
+    const second = {
+      ...first,
+      publicationOperationId: "operation-2",
+      publicationKind: ReviewPublicationKind.ManagedCheck,
+      markerHash: hash("b"),
+      bodyHash: hash("c"),
+    };
+    const f = await createFixture({
+      exclusive: true,
+      operations: [first, second],
+    });
+    f.gateway.inventorySnapshots = [
+      [],
+      [gatewayObject("object-1")],
+      [],
+      [
+        {
+          ...gatewayObject("object-1"),
+          markerHash: second.markerHash,
+          bodyHash: second.bodyHash,
+        },
+      ],
+    ];
+    expect(
+      (await f.executor.executeExclusivePlan(executionCommand(), f.binding))
+        .status,
+    ).toBe(ReviewV2PublicationExecutionStatus.Completed);
+    expect(f.gateway.applyCalls).toBe(2);
+    expect(f.exclusive.consumedOperations).toEqual([
+      "operation-1",
+      "operation-2",
+    ]);
+    expect(
+      (await f.repository.findById("publication-1"))?.receipts
+        .map((r) => r.publicationOperationId)
+        .sort(),
+    ).toEqual(["operation-1", "operation-2"]);
+    await f.executor.executeExclusivePlan(executionCommand(), f.binding);
+    expect(f.gateway.applyCalls).toBe(2);
+    expect(f.gateway.compensationCalls).toBe(0);
+  });
+
+  it("stops the whole canonical plan after its first unknown operation", async () => {
+    const first = operationPlan();
+    const second = {
+      ...first,
+      publicationOperationId: "operation-2",
+      publicationKind: ReviewPublicationKind.ManagedCheck,
+      markerHash: hash("b"),
+      bodyHash: hash("c"),
+    };
+    const f = await createFixture({
+      exclusive: true,
+      operations: [first, second],
+    });
+    f.gateway.applyError = new Error("unknown first effect");
+    expect(
+      (await f.executor.executeExclusivePlan(executionCommand(), f.binding))
+        .status,
+    ).toBe(ReviewV2PublicationExecutionStatus.TerminalUnknown);
+    expect(f.exclusive.closedAt).not.toBeNull();
+    f.gateway.applyError = null;
+    await f.executor.executeExclusivePlan(executionCommand(), f.binding);
+    expect(f.gateway.applyCalls).toBe(1);
+    expect(f.exclusive.consumedOperations).toEqual(["operation-1"]);
+  });
+
+  it("does not clean up duplicate post-dispatch inventory", async () => {
+    const f = await createFixture({ exclusive: true });
+    f.gateway.postApplyObjects = [gatewayObject("unexpected-second-object")];
+    expect(
+      (await f.executor.executeExclusiveOnce(executionCommand(), f.binding))
+        .status,
+    ).toBe(ReviewV2PublicationExecutionStatus.TerminalUnknown);
+    expect(f.gateway.applyCalls).toBe(1);
+    expect(f.gateway.compensationCalls).toBe(0);
+  });
+
+  it("allows at most one transport mutation across concurrent exclusive callers", async () => {
+    const f = await createFixture({ exclusive: true });
+    await Promise.all([
+      f.executor.executeExclusiveOnce(executionCommand(), f.binding),
+      f.executor.executeExclusiveOnce(executionCommand(), f.binding),
+    ]);
+    expect(f.gateway.applyCalls).toBeLessThanOrEqual(1);
+    expect(f.gateway.compensationCalls).toBe(0);
+  });
+
+  it("keeps existing effect admission authoritative in the exclusive lane", async () => {
+    const f = await createFixture({ exclusive: true });
+    f.effectGate.decision = ReviewV2PublicationEffectGateDecision.Disabled;
+    await f.executor.executeExclusiveOnce(executionCommand(), f.binding);
+    expect(f.exclusive.consumeCalls).toBe(0);
+    expect(f.gateway.applyCalls).toBe(0);
+  });
+
+  it("refuses changed measured artifact binding before acquiring credentials", async () => {
+    const f = await createFixture({ exclusive: true });
+    await f.executor.executeExclusiveOnce(executionCommand(), {
+      ...f.binding,
+      artifactHash: hash("f"),
+    });
+    expect(f.credentials.purposes).toEqual([]);
+    expect(f.gateway.applyCalls).toBe(0);
+  });
   it("completes the publication lifecycle with the production capability set", async () => {
     const fixture = await createFixture();
 
@@ -1192,6 +1362,8 @@ describe("protocol v2 publication executor", () => {
 
 async function createFixture(
   input: {
+    readonly exclusive?: boolean;
+    readonly noRetry?: boolean;
     readonly reconcileUntil?: Date;
     readonly claimDurationMs?: number;
     readonly operations?: readonly ReviewPublicationOperationPlan[];
@@ -1233,6 +1405,32 @@ async function createFixture(
   const freshness = new MutableFreshness(currentFreshness());
   const gateway = new FakeGateway();
   const credentials = new FakeCredentials(gateway);
+  const binding: ExclusiveTestPublicationBinding = {
+    intent: {
+      publicationIntentId: "test-intent-1",
+      approvalId: "owner-approval-1",
+      approvalHash: hash("3"),
+      purpose: "owner_one_shot_uncapped_test",
+      repositoryGitHubId: "1252762369",
+      testIdentityId: "NEWTEST-1",
+      executionId: permit.executionId,
+      ownerIdHash,
+      expiresAt: "2026-07-23T13:00:00.000Z",
+    },
+    artifactId: "artifact-1",
+    artifactHash: hash("4"),
+    permitHash: exclusivePublicationHash(permit),
+    publicationAttemptId: "publication-1",
+    planHash: exclusivePublicationPlanHash(
+      input.operations ?? [operationPlan(input.reconcileUntil)],
+    ),
+    operations: exclusivePublicationOperations(
+      input.operations ?? [operationPlan(input.reconcileUntil)],
+    ),
+  };
+  const exclusive = new FakeExclusivePublication(binding, gateway);
+  if (input.exclusive && input.noRetry !== false)
+    credentials.acquireNoRetry = credentials.acquire.bind(credentials);
   const compensation = {
     decision: ReviewV2PublicationCompensationDecision.ManualOnly,
     async decide() {
@@ -1243,6 +1441,7 @@ async function createFixture(
   const executor = new ExecuteReviewV2PublicationOperation(
     {
       attempts: repository,
+      ...(input.exclusive ? { exclusivePublication: exclusive } : {}),
       application,
       freshness,
       compensation,
@@ -1273,6 +1472,8 @@ async function createFixture(
   );
   return {
     application,
+    binding,
+    exclusive,
     clock,
     compensation,
     credentials,
@@ -1313,6 +1514,7 @@ class MutableEffectGate {
 }
 
 class FakeCredentials {
+  acquireNoRetry?: FakeCredentials["acquire"];
   readonly purposes: ReviewV2ScmCredentialPurpose[] = [];
 
   constructor(private readonly gateway: FakeGateway) {}
@@ -1334,6 +1536,49 @@ class FakeCredentials {
       },
       async close() {},
     } as const;
+  }
+}
+
+class FakeExclusivePublication implements ExclusiveTestPublicationPort {
+  closedAt: Date | null = null;
+  consumedOperations: string[] = [];
+  consumeCalls = 0;
+  applyCallsAtConsumption = -1;
+  loseCommitAck = false;
+  constructor(
+    private readonly binding: ExclusiveTestPublicationBinding,
+    private readonly gateway: FakeGateway,
+  ) {}
+  async admitIntent(): Promise<void> {
+    throw new Error("fixture cannot authenticate approval");
+  }
+  async bind(): Promise<void> {
+    throw new Error("fixture cannot authenticate artifact");
+  }
+  async findByAttempt(id: string) {
+    return id === this.binding.publicationAttemptId
+      ? {
+          intent: this.binding.intent,
+          binding: this.binding,
+          closedAt: this.closedAt,
+          consumedOperations: [...this.consumedOperations],
+        }
+      : null;
+  }
+  async closeUnknown() {
+    this.closedAt = initialTime;
+  }
+  async consume(input: Parameters<ExclusiveTestPublicationPort["consume"]>[0]) {
+    this.consumeCalls++;
+    this.applyCallsAtConsumption = this.gateway.applyCalls;
+    if (
+      this.closedAt !== null ||
+      this.consumedOperations.includes(input.publicationOperationId)
+    )
+      return false;
+    this.consumedOperations.push(input.publicationOperationId);
+    if (this.loseCommitAck) throw new Error("lost COMMIT response");
+    return true;
   }
 }
 

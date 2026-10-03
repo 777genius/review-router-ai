@@ -63,12 +63,14 @@ import {
   type ReviewPublicationPermitIdentity,
   type ReviewPublicationReleaseLimitsQueryPort,
   type ReviewPublicationScope,
+  type ExclusiveTestPublicationPort,
 } from "@reviewrouter/features-review-publishing/v2";
 import {
   GitHubReviewPublicationLifecycleAdapter,
   HmacReviewCommandLedgerVerifier,
   OctokitGitHubInstallationGraphqlClientFactory,
   PrismaReviewPublicationRepository,
+  PrismaExclusiveTestPublication,
   createReviewPublicationV2Application,
   resolveReviewCommandLedgerHmacSecret,
   trustedReviewCommandLedgerAuthorsFromEnv,
@@ -173,6 +175,23 @@ export const reviewV2CapabilityKeysEnv =
   "REVIEW_ROUTER_REVIEW_V2_CAPABILITY_KEYS_JSON";
 
 export type ProductionReviewV2WorkerRuntime = {
+  /** Server-only trusted composition, not an Action-v2 caller approval flag. */
+  readonly exclusivePublication?: {
+    readonly store: ExclusiveTestPublicationPort;
+    qualify(): void;
+    executeOnce(
+      ...args: Parameters<
+        ExecuteReviewV2PublicationOperation["executeExclusivePlan"]
+      >
+    ): ReturnType<ExecuteReviewV2PublicationOperation["executeExclusivePlan"]>;
+    observe(
+      ...args: Parameters<
+        ExecuteReviewV2PublicationOperation["observeExclusivePublication"]
+      >
+    ): ReturnType<
+      ExecuteReviewV2PublicationOperation["observeExclusivePublication"]
+    >;
+  };
   readonly runtime: ReviewV2CompletionRuntime;
   readonly wakeups: ReviewCompletionExecutionContextAdapter;
   readonly ownerIdHash: string;
@@ -218,6 +237,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
   const observations = new PrismaReviewObservationStore(input.prisma);
   const investigations = new PrismaInvestigationStore(input.prisma);
   const attempts = new PrismaReviewPublicationRepository(input.prisma);
+  const exclusivePublication = new PrismaExclusiveTestPublication(input.prisma);
   const releases = new PrismaProducerReleaseRepository(input.prisma);
   const authorizations = new PrismaReviewRunAuthorizationRepository(
     input.prisma,
@@ -508,6 +528,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
   const publicationExecutor = new ExecuteReviewV2PublicationOperation(
     {
       attempts,
+      exclusivePublication,
       application: publicationApplication,
       freshness,
       compensation: conservativeCompensationPolicy,
@@ -598,6 +619,14 @@ export function createProductionReviewV2WorkerRuntime(input: {
   };
   return {
     runtime,
+    exclusivePublication: {
+      store: exclusivePublication,
+      qualify: () => publicationExecutor.qualifyExclusivePublication(),
+      executeOnce: (command, binding) =>
+        publicationExecutor.executeExclusivePlan(command, binding),
+      observe: (command, binding) =>
+        publicationExecutor.observeExclusivePublication(command, binding),
+    },
     wakeups: executionContext,
     ownerIdHash,
     dueLimit: positiveInteger(
@@ -1502,6 +1531,9 @@ class PrismaReviewV2PublicationWorkFeed implements ReviewV2PublicationWorkFeed {
     const attemptIds = [
       ...new Set(operations.map((row) => row.publicationAttemptId)),
     ];
+    const excluded = await new PrismaExclusiveTestPublication(
+      this.prisma,
+    ).excludedAttempts(attemptIds);
     const attempts = await this.prisma.reviewPublicationAttemptV2.findMany({
       where: {
         publicationAttemptId: { in: attemptIds },
@@ -1529,6 +1561,7 @@ class PrismaReviewV2PublicationWorkFeed implements ReviewV2PublicationWorkFeed {
     );
     return operations
       .flatMap((operation) => {
+        if (excluded.has(operation.publicationAttemptId)) return [];
         const attempt = attemptById.get(operation.publicationAttemptId);
         if (!attempt) return [];
         const provider = providerByRepository.get(
