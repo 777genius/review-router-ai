@@ -301,10 +301,24 @@ test("gateway composition rejects absent or differently leased actual records be
     reviewRevisionHash: "d".repeat(64),
   };
   const prepared = {
-    [Op.ReviewRunAuthorize]: { status: "authorized", authorizationId: "auth", producerReleaseId: "release" },
+    [Op.ReviewRunAuthorize]: {
+      status: "authorized",
+      authorizationId: "auth",
+      producerReleaseId: "release",
+    },
     [Op.ReviewExecutionStart]: { status: "admitted", executionId: "execution" },
-    [Op.ReviewInvestigationRelayLeaseAcquire]: { status: "acquired", leaseId: "lease", attemptId: "attempt", fencingToken: "1" },
-    [Op.ReviewInvestigationRelayContextGatewayOpen]: { status: "opened", sessionId: "session", eventChainSeedHash: "e".repeat(64), expiresAt: "2099-01-01T00:00:00.000Z" },
+    [Op.ReviewInvestigationRelayLeaseAcquire]: {
+      status: "acquired",
+      leaseId: "lease",
+      attemptId: "attempt",
+      fencingToken: "1",
+    },
+    [Op.ReviewInvestigationRelayContextGatewayOpen]: {
+      status: "opened",
+      sessionId: "session",
+      eventChainSeedHash: "e".repeat(64),
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    },
   };
   let actualSession = null;
   let gitReads = 0;
@@ -313,14 +327,35 @@ test("gateway composition rejects absent or differently leased actual records be
     expectedTestScope: scope,
     workSlotId: "slot",
     measuredGatewayEntrypointSha256: "f".repeat(64),
-    objects: { read: async () => { gitReads += 1; throw new Error("must not read Git"); } },
+    objects: {
+      read: async () => {
+        gitReads += 1;
+        throw new Error("must not read Git");
+      },
+    },
     readers: {
       sessions: { findSession: async () => actualSession },
-      executions: { findExecution: async () => ({ execution: { ...scope, revision, authorizationId: "auth", producerReleaseId: "release", executionId: "execution", assignmentManifestCanonicalJson: "{}" } }) },
-      releases: { findProducerReleaseById: async () => ({ producerReleaseId: "release" }) },
+      executions: {
+        findExecution: async () => ({
+          execution: {
+            ...scope,
+            revision,
+            authorizationId: "auth",
+            producerReleaseId: "release",
+            executionId: "execution",
+            assignmentManifestCanonicalJson: "{}",
+          },
+        }),
+      },
+      releases: {
+        findProducerReleaseById: async () => ({ producerReleaseId: "release" }),
+      },
     },
   };
-  await assert.rejects(createPreparedNewtestGateway(input), /actual_records_missing/);
+  await assert.rejects(
+    createPreparedNewtestGateway(input),
+    /actual_records_missing/,
+  );
   actualSession = {
     sessionId: "session",
     producerReleaseId: "release",
@@ -331,9 +366,14 @@ test("gateway composition rejects absent or differently leased actual records be
     sourceFencingToken: "1",
     sourceRevision: revision,
     scope,
-    eventChainSeedHash: prepared[Op.ReviewInvestigationRelayContextGatewayOpen].eventChainSeedHash,
+    eventChainSeedHash:
+      prepared[Op.ReviewInvestigationRelayContextGatewayOpen]
+        .eventChainSeedHash,
     expiresAtMs: Date.parse("2099-01-01T00:00:00.000Z"),
   };
-  await assert.rejects(createPreparedNewtestGateway(input), /actual_binding_mismatch/);
+  await assert.rejects(
+    createPreparedNewtestGateway(input),
+    /actual_binding_mismatch/,
+  );
   assert.equal(gitReads, 0);
 });
