@@ -20,10 +20,16 @@ canonical accounts can be selected into several organization workspaces, while
 organizations can also connect their own accounts. Rename and authorization
 changes affect the canonical account and all active uses.
 
-The full vision, lifecycle, TS integration and delivery contract are in
+The full preserved vision and TS integration intent are in
 [Reusable Account Gateway and Personal Pool](../architecture/50-reusable-account-gateway-and-personal-pool.md).
 The executable delivery sequence is in the
 [Modular Integration Plan](../architecture/51-account-gateway-modular-implementation-plan.md).
+
+The sole normative implementation authority is
+[contract 53](../architecture/53-account-gateway-implementation-contract.md).
+The decisions below explain architecture; detailed runtime/fence/custody rules
+are referenced there rather than independently edited here. DOC PLAN corrections
+accepted 2026-10-03; no implementation/deployment acceptance is implied.
 
 ## Decision
 
@@ -53,7 +59,8 @@ The executable delivery sequence is in the
 6. Separate `CredentialOwner` from `ExecutionWorkspace` from the first data
    model. A physical account has one credential/refresh authority. Each
    workspace receives an explicit use binding, not a credential copy. Initially
-   only the account's owner scope uses it; sharing is the next bounded feature.
+   only the account's owner scope uses it; S adds explicit operator workspace
+   grants after D, and H adds personal sharing as a separate follow-up (contract 53 §8).
 7. New gateway connections for MiMo/OpenRouter keys and Codex/Claude
    subscriptions target Sub2API. Each supported provider/protocol/auth profile
    requires its own acceptance. The owner authorizes a breaking replacement:
@@ -75,7 +82,8 @@ The executable delivery sequence is in the
     first success. The gateway adapter owns paid inference retry/failover;
     native engine/SDK/CLI behavior must conform to that single authority and
     propagate safe dispatch/response/unknown-effect metadata. Routine fenced
-    refresh may advance credential generation on the pinned account.
+    OAuth refresh advances only the engine credential version on the same
+    physical birth UUID; owner authorization epoch remains separate (contract 53 §2).
 
 ## Clean Architecture, SOLID and DRY
 
@@ -102,13 +110,12 @@ ADR-005 remains the dependency-direction rule. This decision extends the
 opt-in hosted architecture described in
 [ADR-029 at inspected main](https://github.com/777genius/review-router-ai/blob/99f5e97c16b7bce47b4cfe196c1d8e462c92f6d3/ai-docs/decisions/029-opt-in-hosted-workspace-account-pool.md).
 
-Moving the engine to an external service moves the custody boundary; it does not
-remove custody. Stock Sub2API can persist credentials in JSONB and Redis caches.
-Its use does not by itself satisfy ADR-029's encrypted Codex custody/restore
-requirements. Before enabling new Codex subscription accounts in production,
-qualify the composed service's credential storage, refresh/history/cache paths
-and restore quarantine or explicitly amend the policy through another decision.
-Encryption of volumes alone must not be called application encryption.
+Moving the engine moves custody; it does not remove it. Managed BYOK at-rest
+AEAD and transient create custody are specified by [contract 53 §7](../architecture/53-account-gateway-implementation-contract.md#7-custody-and-account-lifecycle).
+F extends that proof to all OAuth refresh/cache/history/restore paths. Stock
+JSONB/Redis and encrypted volumes are not application-envelope proof. Real-user
+release is gated independently from the isolated canary; no alternative policy
+amendment or memory-only downgrade is adopted by this DOC PLAN correction.
 
 Legacy ADR-001/006 pool behavior is superseded for the replacement delivery;
 there is no required account migration or permanent transition mode. No live
@@ -131,8 +138,8 @@ equivalent. Memory/OAuth acceptance gaps are not declared closed.
 ## Delivery
 
 First: owner/use contracts and one workspace-owned MiMo vertical slice, followed
-by OpenRouter and Codex-through-Sub2API with their required gates. Then sharing
-and remaining Claude coverage. Keep dependency-safe bounded PRs and use existing
+by OpenRouter and Codex-through-Sub2API with their required gates. Explicit S operator grants follow D separately from own BYOK. Then H personal
+sharing and remaining qualified Claude coverage. G retains D+E+F prerequisites. Keep dependency-safe bounded PRs and use existing
 disposable test repositories. The detailed plan names acceptance and safe
 suspension/recovery for the breaking replacement. No generic multi-project
 platform is a prerequisite.

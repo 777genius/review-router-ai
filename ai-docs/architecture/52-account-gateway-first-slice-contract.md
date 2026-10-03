@@ -1,18 +1,108 @@
-# Account Gateway: First-Slice Execution Contract
+# Account Gateway: First-Slice Dispositions and Evidence
 
-Date: 2026-10-02. Status: A–D implementation in progress;
-all product acceptance below remains NOT RUN until exact-candidate receipts.
-Read with [plan 51](./51-account-gateway-modular-implementation-plan.md) and
-[account/security authority 50](./50-reusable-account-gateway-and-personal-pool.md).
-This card makes the initial boundary concrete; it does not qualify native
-Sub2API APIs, live OAuth or production capacity.
+Date: 2026-10-03. DOC PLAN corrections accepted; implementation/product gates
+remain unqualified here. Sole normative authority:
+[contract 53](./53-account-gateway-implementation-contract.md) (include
+its exact bytes/digest in every implementation packet). [50](./50-reusable-account-gateway-and-personal-pool.md)
+preserves vision and [51](./51-account-gateway-modular-implementation-plan.md)
+owns delivery order. Historical readiness/evidence below is NONNORMATIVE.
 
-Execution preference reaffirmed by the owner on 2026-10-03: all subsequent
-hosted jobs use `serviceTier: default`, never fast/priority. Implementation uses
-explicit `gpt-6.1-sol` and role-appropriate effort; exact-code PR review uses
-`gpt-6.1-sol/xhigh`. Historical receipts retain their original mode.
+## Opus 5.5/xhigh finding dispositions
 
-## Readiness assessment - 2026-10-03
+Every finding is resolved at plan level individually; the table records accepted
+correction, justified alternative or explicit dependent gate, not runtime PASS.
+Links are to the sole normative text. Existing B2/W5/C1 ownership is unchanged.
+
+| Finding | Disposition and concrete decision                                                                                                         | Scope / dependency                                                                                                                                                                        | Nearest meaningful future observable test                                                                                                |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| P0-1    | Alternative to Redis spent-ticket authority: sole kernel SQL claim via Go reserved-entry admit callback; no TS preclaim                   | B2/B3, [53 §3](./53-account-gateway-implementation-contract.md#3-one-durable-admit-and-replay-protection)                                                                                 | Real duplicate POST/callback, restart and lost/delayed ACK: max one upstream entry, sealed reservation zero                              |
+| P1-1    | Accepted positively attested rejected_before_dispatch; spent allowance and exact occupancy closure separate                               | Additive kernel/SDK patch before B gate, [§4](./53-account-gateway-implementation-contract.md#4-effects-allowances-and-closure)                                                           | Postclaim store:true/entered=false vs lost settlement; zero entry, later safe request vs unknown fence                                   |
+| P1-2    | Accepted binding-id policySubject/pending fence; alternative retains independent policy/binding revisions                                 | C2, [§5](./53-account-gateway-implementation-contract.md#5-product-binding-policy-and-mirrors)                                                                                            | Pause X/Y, detach X+ACK, resume: X denied/Y runs; crash/delayed ACK; settings next-run pin                                               |
+| P1-3    | Accepted relay-only bounded local admission_limited+not_dispatched wait                                                                   | C2/D, [§6](./53-account-gateway-implementation-contract.md#6-relay-wait-ci-trust-and-ui)                                                                                                  | Two invocations/cap1 each completes once; wait exhausted busy; partial stream/new-ID fence                                               |
+| P1-4    | Accepted birth UUID vs internal refresh version; alternative keeps auth epoch independently owned                                         | F, [§2](./53-account-gateway-implementation-contract.md#2-private-http-and-persisted-identity)                                                                                            | Actual OAuth refresh mid-tool-loop same row/epoch; reconnect old authority denies                                                        |
+| P1-5    | Accepted explicit S operator workspace + special grant; own BYOK independent                                                              | S after D, [§8](./53-account-gateway-implementation-contract.md#8-qualification-retention-and-delivery)                                                                                   | Granted succeeds, paid/ungranted denied; same physical cap and X revoke/Y unaffected                                                     |
+| P1-6    | Accepted managed-row AEAD envelope/server-only outside-DB key and scoped AAD                                                              | Real-user release; F extends all OAuth paths, [§7](./53-account-gateway-implementation-contract.md#7-custody-and-account-lifecycle)                                                       | Actual DB/cache/dump/export plaintext absence, rotate/readback quarantine and restored-epoch denial                                      |
+| P1-7    | Accepted CI misuse/source disclosure limits; alternative preserves inspected RR fork policy rather than blanket ban                       | C2/D, [§6](./53-account-gateway-implementation-contract.md#6-relay-wait-ci-trust-and-ui)                                                                                                  | Existing allowed/denied event classification, privileged head denial, head/attempt mismatch, master absence/close; scrub not job secrecy |
+| P2-1    | Justified alternative: retain mandatory E and F prerequisites for G; OpenRouter is owner goal                                             | G after D+E+F, [§8](./53-account-gateway-implementation-contract.md#8-qualification-retention-and-delivery)                                                                               | Retirement stale grant/workflow/refresh denial only after exact E/F qualification                                                        |
+| P2-2    | Justified alternative: retain encrypted short-TTL transient intent until equivalent crash/readback/erase custody is actually proved       | B3a/F, [§7](./53-account-gateway-implementation-contract.md#7-custody-and-account-lifecycle)                                                                                              | Crash/lost-create-ACK finds single exact generation; no second create; expiry erases ciphertext                                          |
+| P2-3    | Accepted dedicated single fixed private engine; no per-org admin/scheduler or second Concurrency limiter                                  | B3/D, [§2](./53-account-gateway-implementation-contract.md#2-private-http-and-persisted-identity), [§4](./53-account-gateway-implementation-contract.md#4-effects-allowances-and-closure) | Assembled listener exposure and private cap behavior; old process prevents new start under real Linux lock                               |
+| P2-4    | Accepted system-owned repo/config binding admission without synthetic user actor                                                          | C2/D, [§5](./53-account-gateway-implementation-contract.md#5-product-binding-policy-and-mirrors)                                                                                          | Real run registration succeeds with server authority; stale/revoked original config denies                                               |
+| P2-5    | Accepted revoke+ACK -> cleanup+erase -> tombstone -> owner deletion                                                                       | C2 and H deletion, [§5](./53-account-gateway-implementation-contract.md#5-product-binding-policy-and-mirrors)                                                                             | Actual owner delete pending with occupied stream, completes after exact closure/erase; Y history retained                                |
+| P2-6    | Accepted TTL/tombstone policy; concrete numeric bounds derived at D, not invented now                                                     | D-final/release, [§8](./53-account-gateway-implementation-contract.md#8-qualification-retention-and-delivery)                                                                             | Expired safe records GC; unknown/occupied/pending-fence and restore-reachable tombstones retained                                        |
+| P2-7    | Accepted retain existing full saved-envelope checks; no renewal interface/authority expansion                                             | B3/C2, [§2–3](./53-account-gateway-implementation-contract.md#3-one-durable-admit-and-replay-protection)                                                                                  | Reuse accepted full-envelope PG evidence; changed field/deadline or stale epoch at real composed admit denies                            |
+| P2-8    | Accepted mirror refresh after mutation/readback and Accounts GET with safe revision CAS                                                   | C2/C3, [§5](./53-account-gateway-implementation-contract.md#5-product-binding-policy-and-mirrors)                                                                                         | Out-of-order actual readbacks cannot replace newer safe metadata or grant use                                                            |
+| P2-9    | Accepted controlled credential/profile staging then explicit first canary; alternative rejects generic401 NoEffect or implicit paid probe | B3/D, [§7](./53-account-gateway-implementation-contract.md#7-custody-and-account-lifecycle)                                                                                               | Staging cannot infer; only qualified non-inference check; lost/401 actual transport never grants replay                                  |
+| P2-10   | Accepted single concise normative 53, evidence separation and exact contract in every packet                                              | DOC PLAN/main packet assembly                                                                                                                                                             | Light link/line/coverage/hash checks; main compares supplied base and accepted packet digest                                             |
+
+## Primary acceptance owners (no newly qualified product scenarios)
+
+| Scenario                              | Expected evidence / nearest boundary                                                                                                                  |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Package/static graph                  | Install the exact archive outside the source tree; public exports/type closure; correct graph; invalid slot/missing factory rejected before effects   |
+| Consumer/owner denial                 | Real facade+DB denies foreign references/role and unsupported profile, with zero native dispatch                                                      |
+| Create/reconnect lost acknowledgement | Native adapter fault injection leaves one owned candidate; readback/quarantine; no duplicate row or silent activation                                 |
+| Rename vs reconnect                   | Metadata rename preserves execution identity; reconnect revokes old authority and new calls use only the promoted generation                          |
+| Native ID reuse/restore               | Stale route cannot select a different physical account; old permission denied                                                                         |
+| Revoke race                           | Pause between RR admission and gateway claim, acknowledge fence, resume: no dispatch; already claimed effect retained                                 |
+| Long run/deadline                     | Request after OIDC mint expiry and before approved deadline succeeds; after deadline or revoke denies new dispatch                                    |
+| Cancel/partial SSE/crash              | Unknown outcome retained; no inference replay, duplicate publish or second refresh writer; cleanup after supervisor loss/restart                      |
+| UI batch                              | Two disposable repos, per-target CAS and truthful partial status; saved selection/result survives refetch; server bindings change without key copying |
+| Real RR CI                            | Actual CLI spawn, tools, final parsed review and publication at approved head; missing final answer is failure; no master in CI/logs/artifacts        |
+
+Reuse existing disposable repositories after fresh App/permission inspection:
+`777genius/rr-selfhost-direct-v2-e2e-20260730t115357z` (ID 1317214237) and
+`777genius/rr-selfhost-direct-v2-e2e-20260730t120036z` (ID 1317220367).
+Both were freshly read through `gh` as unarchived E2E sandboxes on 2026-10-02.
+No inference, workflow dispatch or repository mutation occurred in this review.
+
+## Current primary evidence - 2026-10-03
+
+- Native W5 raw guard6008eaa5, main-qualified postformat patch7be954dc and owner ef36a8a9:
+  four pinned Go suites PASS; same new tests fail behavior on oldfa16 with successful compilation.
+  Exact fullCI37116107145, native37116107047 and security37116107020 PASS.
+  Independent exact-source review remains pending; no native runtime/provider/product receipt.
+- C1 catalog raw5920, qualified patch5c6248a0 and owner16594567 on root490:
+  216 catalog +16 auth +8 actual PG cases PASS, fresh full116 SQL.
+  CI37116108945 C1 and fullCI37116108967 selfhost/release/build checks PASS, but
+  Unit tests found three stale full115 fixture expectations. Their bounded correction and final
+  exact-head CI/review remain pending. Historical96/managed92 authorities remain unchanged.
+- B2 timed-out rawf832 was mechanically retained as UNQUALIFIED owner be978224.
+  Main actual partial-source type/domain and27/27 PG PASS at that exact checkpoint.
+  Finish delta873be837 changes handoff and legacy test only; final tests/review/CI pending.
+- Root490 remains draft; all product/D acceptance scenarios remain unqualified.
+  No provider key, auth bytes, inference, deployment or legacy retirement occurred here.
+
+## Current gate interpretation
+
+A/package-static graph is accepted source/installed-artifact evidence; no new
+product scenario is marked PASS. Merged kernel1ea is a private foundation.
+Native fa16 CI is source proof with four open F defects; terminal W5 patch is
+unaccepted pending main qualification. Terminal C1 catalog still needs fresh
+migration117/full-schema and exact review/CI. C1 auth16/PG8/historical31 are
+historical source receipts. B2 is active in another owner lane. B3 report is a
+plan, not Linux/native closure implementation. No new provider/daemon/deploy/
+retirement receipt exists here. D-min tools/final/publication precedes full UI;
+D-final additionally requires UI batch, measured enforced bounds and long OIDC.
+
+RR policy inspection for P1-7: current `action-control-plane` domain admits
+pull_request and pull_request_target in its explicit event vocabulary and
+selected repository/workflow checks. `prelease-codex-rotating-oauth` resolves
+pull_request_target PR identity through a workflow-run verifier, and
+`prepare-certified-fork-review` validates a server-bound fork prompt packet.
+Those actual source paths contradict a blanket “forks unsupported” assumption;
+they do not by themselves qualify new gateway grants. C2/D must preserve the
+applicable current App-first policy and run source-classification tests.
+
+## NONNORMATIVE historical readiness and evidence
+
+The original readiness prose and chronological receipts are retained below
+with section headings nested under this NONNORMATIVE evidence section, including hashes, failing setup, REQUEST_CHANGES, old NOT_RUN states
+and historical fast modes. They describe their dates/candidates, not current
+runtime availability. References to contract 52/vision 50 as runtime authority are
+historical; contract 53 exclusively supersedes them. Future worker terminal state
+is not acceptance. No historical PASS becomes a new product-scenario PASS.
+
+### Readiness assessment - 2026-10-03
 
 The first slice has enough specification to implement A and investigate B
 without inventing product policy. It is not yet a frozen specification for
@@ -20,11 +110,11 @@ every native adapter, database transaction or capacity setting. Keep these
 bounded decisions in their implementation packets; do not expand the platform
 or postpone A while collecting unrelated future-profile evidence.
 
-| Remaining decision | Required output before dependent work is accepted |
-| --- | --- |
-| B: native physical identity and generation pin | Exact engine API/patch and persisted identity proof, tested against deletion/reuse, reconnect and lost acknowledgement; inability to prove identity denies dispatch |
+| Remaining decision                              | Required output before dependent work is accepted                                                                                                                                                   |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B: native physical identity and generation pin  | Exact engine API/patch and persisted identity proof, tested against deletion/reuse, reconnect and lost acknowledgement; inability to prove identity denies dispatch                                 |
 | B/C: concrete persistence and RR policy mapping | Selected existing-compatible DB/tooling, migration/unique constraints, atomic claim/fence/promotion transactions and RR membership/binding fields; real concurrent DB tests, not only HTTP fixtures |
-| D: capacity and lifecycle bounds | Numeric enforced request/output/buffer/concurrency limits, approved deadline and cleanup target, with repeated-burst and supervisor-loss evidence on the pinned candidate |
+| D: capacity and lifecycle bounds                | Numeric enforced request/output/buffer/concurrency limits, approved deadline and cleanup target, with repeated-burst and supervisor-loss evidence on the pinned candidate                           |
 
 Assessment: **8/10 for implementing the first vertical slice**, not production
 readiness. The remaining details are bounded decisions below, resolved before
@@ -251,401 +341,53 @@ in plan 51 remains a range; implementation evidence may revise it. Completion
 is measured by the acceptance scenarios below, not by generated LOC or a
 worker's successful exit.
 
-## Goal, scope and exclusions
+#### Historical plan51 readiness provenance
 
-First real slice: one workspace-owned MiMo connection -> server-side repository
-binding -> existing RR CI runner -> tools/final review -> actual publication.
-Own BYOK needs normal workspace authority, not an operator shared-pool grant.
-Build the separate TS package and static Get Modular seam immediately.
-Full personal sharing, new OAuth custody, additional protocols and old-pool
-retirement are later checkpoints. No credential/history migration, generic
-scheduler, dynamic plugin system or per-org engine instance is included.
+### Implementation readiness
 
-## Proposed private facade v1
+This is a detailed architecture/delivery plan, not a frozen implementation
+specification for every checkpoint. A can begin with public artifact and module
+qualification. [First-slice execution contract](./52-account-gateway-first-slice-contract.md)
+now supplies the proposed wire/storage, account-operation, bounded run/deadline
+and restart-cleanup defaults for A–D. Freeze its schemas in A and prove the
+native mapping/reconciliation in B before exposing execution in C/D.
+OAuth protected custody and numeric capacity acceptance remain explicit later
+decisions. These require actual evidence before their checkpoints can pass.
 
-These are OUR facade routes, not existing stock Sub2API routes. Freeze schemas
-and status semantics in A before the HTTP client and service diverge.
-Authentication binds the consumer namespace and control/execution role;
-caller-provided `consumerId`, native account/group IDs and origins are rejected.
+Independent 2026-10-03 readiness audit found two concrete omissions, now specified
+in contract52: preparation/readback must return the selected safe account/epoch,
+and initial MiMo tokens is a native per-request output/reasoning cap with
+conservative request-slot accounting. The SDK result-schema correction and
+actual native cap qualification remain required implementation gates.
 
-| Route                                                   | Minimal input/result                                                                                                         | Contract                                                                      |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `GET /v1/profiles`                                      | Safe profile IDs, protocols, model IDs and auth kinds                                                                        | Server-owned catalog; no upstream URL or credential                           |
-| `POST /v1/accounts`                                     | Operation ID, opaque owner ref, profile, display name, write-only credential                                                 | Stage a new connection; never expose native admin response                    |
-| `GET /v1/accounts`                                      | Opaque owner filter and bounded cursor; safe account summaries                                                               | Control role only, consumer-bound; RR filters by live product authority       |
-| `GET /v1/accounts/:accountRef`                          | Safe metadata, state, metadata revision, authorization epoch                                                                 | Foreign/unknown references share a non-disclosing response                    |
-| `PATCH /v1/accounts/:accountRef`                        | Operation ID, expected metadata revision, display name                                                                       | Rename only; cannot transfer ownership or replace a credential                |
-| `POST /v1/accounts/:accountRef/reconnect`               | Operation ID, expected metadata revision, new write-only credential                                                          | Stage/promote a new generation; old authority invalidated                     |
-| `POST /v1/accounts/:accountRef/disable`                 | Operation ID, expected revision                                                                                              | Logical deny first; no implied erasure of accepted effects                    |
-| `GET /v1/operations/:operationRef`                      | Pending/applied/rejected/unknown and safe error code                                                                         | Readback after timeout; no credential-bearing intent body                     |
-| `POST /v1/executions`                                   | Operation ID, opaque invocation/attempt refs, permitted account refs, policy subject/revision, binding revision, profile, limits, absolute deadline | Prepare one sticky account and bounded server-only permission                 |
-| `POST /v1/executions/:executionRef/requests`            | Stable request ID, trusted admission envelope, native request payload                                                        | Stream the selected protocol; no independent retry                            |
-| `GET /v1/executions/:executionRef/requests/:requestRef` | Safe effect state and terminal status                                                                                        | Readback does not replay inference or return prompt bodies                    |
-| `POST /v1/executions/:executionRef/close`               | Operation ID, terminal/cancel reason                                                                                         | Deny new claims; persist cleanup without erasing accepted effects; idempotent |
-| `POST /v1/policy-fences`                                | Operation ID, subject ref, monotonic revision                                                                                | Acknowledged fencing blocks old dispatch admission                            |
+Readiness review provenance: the 2026-10-02 hosted attempt used
+`gpt-6.1-sol/high/default` and ended `partial / task_timeout` without report
+artifacts. Its generic continuation was rejected with
+`project_control_broker_required`; the job is no longer running. It is not a
+completed independent review. Contract 52 is coordinator-authored; post-change
+independent SDK review has now passed at exact head `226a0907`; PR 1 merged as
+`07234f60`. Native review requested six fixes. Facade/RR and live product E2E
+remain NOT RUN. Current evidence belongs to contract 52 and the execution ledger.
 
-Keep secret-submission schemas private to server ingress. Public safe DTOs use
-positive allowlists; no generic passthrough object or raw vendor exception.
-Management CAS uses metadata revision; execution authority uses authorization
-epoch and policy/binding revision. Rename changes metadata, not credential
-authority. Routine fenced OAuth refresh can change credential generation while
-preserving the account/epoch; explicit reconnect does not.
+#### Historical provider documentation and B3 source references
 
-The facade/kernel bridge preserves the opaque string attempt reference and
-persists the binding revision and complete approved limits with preparation.
-It must not narrow the attempt reference to a number or reconstruct independent
-binding revision from policy revision. Claim checks use the persisted envelope;
-transport enforces body/output bounds and the qualified profile's token policy.
-The current bounded kernel prototype needs this bridge before HTTP acceptance.
+MiMo Responses documentation observed 2026-10-03 described output+reasoning
+1–131072 tokens, usage.output_tokens and incomplete cap exhaustion:
+https://mimo.mi.com/docs/en-US/api/chat/responses . This is a documentation
+candidate, not qualified Token Plan endpoint/model capacity.
+Official Codex guide updated 2026-09-22 and observed 2026-10-03:
+https://mimo.mi.com/docs/en-US/tokenplan/integration/codex-configuration .
+Its Token Plan native Responses/model-catalog claim needs real D qualification.
+Historical bridge is separate and never fallback after unknown dispatch.
 
-Common safe error: code, trace reference, operation/request reference where
-applicable, effect state and an explicitly justified retry hint. No raw upstream
-body/header, native ID, key, token, prompt or credential fingerprint.
+The read-only Opus source packet includes vision-and-review-task.md,
+opus-plan-review.md, review-decisions.md, context/q.md, context-manifest.json,
+all source snapshots and b3-native-lifecycle-plan.md. B3 specifies inherited-lock
+closure, not an existing universal supervisor platform. Its source pins1ea/fa16
+are supplied provenance; no new Git identity is observed by this worker.
+Main previously read LGPLv3 text at pinned96f4c115 per review-decisions.md;
+license/distribution support is still a release gate, not legal approval.
 
-- `202`: operation accepted/pending, never synonymous with applied.
-- `400`: invalid schema/profile combination; `401/403`: local authorization.
-- `404`: unknown or foreign reference; `409`: revision/idempotency conflict.
-- `429`: our admission limit returns not-dispatched plus safe retry timing.
-- Upstream `401/429/5xx` alone does not prove no paid effect. The qualified
-  adapter must supply the effect classification; ambiguity fences the invocation.
-- `5xx` or lost response after mutation/dispatch requires status readback. The
-  SDK does not automatically repeat a secret mutation or inference POST.
-
-### References that survive a lost acknowledgement
-
-- Within the authenticated consumer namespace, `operationRef` equals the
-  client-supplied stable `operationId`. It is an identifier, not a credential.
-  A caller can read `GET /v1/operations/:operationRef` even when the initial
-  response never arrived. A server-generated reference available only in that
-  lost response is insufficient.
-- Operation readback has a strict, bounded result union: account mutations may
-  return the safe account reference/revisions; execution preparation may return
-  the safe execution reference/deadline/state plus the actually selected
-  `accountRef` and `authorizationEpoch`. Both preparation acknowledgement and
-  operation readback return that same persisted tuple. It never returns a submitted key,
-  upstream document, admission envelope or CI capability. RR issues its own CI
-  grant through the existing authorized control plane.
-- Within an execution, `requestRef` equals the stable caller `requestId`.
-  After losing the request response, the caller already has the readback URL.
-  No readback operation resumes a stream or dispatches another inference.
-- Readback `404` means no visible durable record, not proof that retrying a
-  paid request is safe. Once transport has been entered, RR stops that attempt
-  and reconciles the original identity. An uncertain result remains fenced;
-  neither a new operation ID nor a fresh execution can bypass the same
-  invocation/attempt fence.
-
-### Preparation identity and MiMo token policy
-
-Independent readiness review on 2026-10-03 identified two integration omissions;
-these decisions close their specification, not their implementation gates.
-
-The gateway may choose one sticky account from the approved set. RR retains the
-outgoing preparation intent and obtains the selected account/epoch ONLY from
-the applied preparation result or its operation readback. Construct subsequent
-admission from that persisted tuple plus the saved profile, subject, revisions,
-limits and deadline. Do not infer the chosen epoch from a later account GET or
-narrow the contract to singleton sets to avoid returning it. The selected tuple
-must belong to the approved set/profile. Reconnect before/after preparation and
-lost acknowledgement need actual facade/DB tests with zero stale dispatch.
-
-The merged A SDK now requires both selected-result fields through its single
-`executionResult` schema (PR 2, `83f0c7ca`). Applied-result HTTP and installed
-archive regressions passed; actual facade/native selection remains a B gate.
-Safe readback contains no admission capability, credential, native descriptor
-or prompt/output body.
-
-For initial MiMo native Responses, `limits.tokens` means the maximum generated
-output tokens PER REQUEST, including reasoning; input is separately bounded by
-request bytes and the qualified model context. It is not a currency/credit or
-execution-total input/output budget. Execution's conservative output ceiling is
-`limits.requests * limits.tokens`; no tokenizer/billing/refund subsystem is added.
-Each atomic dispatch claim permanently consumes one request slot and fixes its
-approved cap. Completion or missing usage does not recycle slots; uncertain
-effects retain the slot/cap and fence the attempt. Concurrent claims cannot
-exceed the approved request/concurrency limits. The prototype kernel currently
-limits concurrency per execution. Before B dispatch acceptance, enforce the
-profile's account-wide bound across executions in the same durable admission
-authority; two executions sharing an account must not each consume the full
-account capacity. A second independent scheduler is not required.
-
-Track occupied concurrency separately from permanently consumed request/token
-allowances. An unknown request retains its occupied slot until the exact local
-transport owner acknowledges that its request context and response body are
-closed. Deleting an old credential generation alone is not that acknowledgement:
-an already opened response stream can outlive the generation lock. Cleanup can
-release local occupancy without changing `effect_unknown`, refunding the spent
-allowance or claiming that the upstream did not bill. Qualify this distinction
-with a held-open stream, revocation and supervisor loss before enabling dispatch.
-
-The server-owned profile injects `max_output_tokens` when absent and clamps a
-valid larger caller cap to the approved per-request cap. Invalid/non-integer or duplicate top-level
-caps are rejected before native entry; first-key/last-key JSON ambiguity must
-not bypass the approved cap. The profile also narrows the generic SDK
-ceiling to the provider's qualified range. MiMo's published Responses reference
-documents output plus reasoning, a 1–131072 range, `usage.output_tokens` and an
-incomplete response on cap exhaustion:
-[MiMo Responses API](https://mimo.mi.com/docs/en-US/api/chat/responses), observed
-2026-10-03. This is a documented candidate policy, not proof for Token Plan's
-specific endpoint/model/catalog. Preserve protocol-native bytes except that
-approved request parameter; the SDK does not convert or meter the protocol.
-
-B tests the actual capped outgoing payload and atomic claim counts against a
-controlled HTTP upstream; D proves the selected live Token Plan profile obeys
-the cap, including exhaustion and usage. Missing/oversized cap, two tool requests,
-concurrent claims, lost usage and uncertain dispatch must preserve the bound.
-Cap exhaustion must not synthesize successful completion/final publication.
-If the selected endpoint cannot enforce the cap, finish profile compatibility
-work before enabling it; output byte bounds are not token enforcement evidence.
-
-Reject case-folded aliases and duplicate critical policy/terminal fields before
-different JSON decoders can disagree. Buffered legacy responses need a supported
-choice and qualified finish reason; `{}`, error-only bodies and truncated output
-cannot become synthetic successful completion. Stream and buffered delivery must
-check full writes and flush errors before acknowledging completion. These are
-native adapter guarantees; the public SDK continues to pass the selected protocol.
-
-## Canonical records and constraints
-
-Names below describe responsibilities, not a required ORM/table naming scheme.
-RR and gateway have distinct authorities; no shared database writes.
-
-| Authority | Canonical records / constraints                                                                                                              |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| RR        | Account owner is exactly one stable User or org Workspace; personal scope explicitly linked to User; immutable owner in this slice           |
-| RR        | WorkspaceAccountBinding unique by workspace/account; active/revoked state and revision; repository policy references only an allowed binding |
-| Gateway   | Account mapping unique by consumer/accountRef; ownerRef, state, metadata revision, authorization epoch and active credential generation      |
-| Gateway   | Native route mapping unique by account/generation/profile; private engine identity proof; no native-ID-only lookup                           |
-| Gateway   | Account operation unique by consumer/operationId; stable target, revision and private request fingerprint; safe status/result                |
-| Gateway   | Invocation/attempt unique in consumer namespace; selected account/epoch, subject revision, limits, deadline and active/fenced/terminal state |
-| Gateway   | Request identity unique per execution; durable claim/effect state; no new request ID bypasses an invocation fence                            |
-
-Gateway owns engine routing/operations. RR owns membership, workspace bindings,
-repo/model policy and publication. Engine groups are derived routing, not a
-second tenant authority. Credential-bearing operation data is not a plaintext
-journal; use protected transient custody where reconciliation requires it.
-Conflict fingerprints are private and secret-safe, not public/logged key hashes.
-
-### C: concrete Review Router integration decisions
-
-Inspected canonical RR main `f0c18bf7759c030f311cf21050d6a61718e9dcd4`
-on 2026-10-03. Its schema, provider catalog/runtime plan and review configuration
-save/resolve sources match the previously inspected `99f5e97c` files. This
-inspection is not implemented C behavior. Freeze the following in the C packet:
-
-- Reuse live `assertWorkspaceAdminAllowed` for workspace account and settings
-  mutations: stable User identity first, existing immutable GitHub-ID fallback,
-  existing owner/admin policy and explicitly configured local-admin override.
-  Ordinary members cannot submit/reconnect/disable keys. UI hiding is not
-  authorization. Own BYOK does not require a shared-pool operator grant.
-- Add canonical RR connection ownership with exactly one User or Workspace
-  owner enforced by a DB check; never derive a personal owner from display name,
-  login or oldest membership. The present Workspace schema has no personal-owner
-  field. This slice may create workspace-owned connections; personal provisioning
-  must record its stable User link explicitly before personal connections are
-  admitted. Ownership transfer and personal-to-org sharing stay deferred.
-- Keep one connection record and separate unique workspace/connection binding
-  with active/revoked state and revision. Initially bind only to its owning
-  workspace. Foreign consumer bindings need the later explicit sharing grant;
-  copying a key or connection row is not a substitute.
-- Accounts connects/renames/reconnects/disables. Models selects the connection,
-  model and repositories, and changes server-side configuration. Preserve
-  existing repository override -> workspace default -> safe default precedence.
-  A workspace default applies only to repositories without an override.
-  Credential submission/reconnect uses a dedicated one-off server ingress.
-  Provider keys must not enter React Query mutation variables/cache, browser
-  storage, readback DTOs or refetch results; interactive cached data contains
-  only safe connection/binding metadata.
-- The initial Codex/MiMo route needs a new explicit gateway auth mode in the
-  existing provider catalog plus a binding reference in versioned provider
-  configuration. Preserve that mode in normalization; its required secret names
-  are empty. Keep upstream profile/model selection server-owned. The current
-  catalog has no MiMo or gateway mode; changing only its visible label cannot
-  make the CI path work. Other agent/profile combinations require their own
-  qualification, not a new engine-specific product domain.
-- Persist the selected binding in ordered provider versions and the primary
-  representation together; DB relations must keep configuration, repository and
-  binding in the same workspace. Provider-row identity/deduplication must retain
-  the selected connection. Exact Prisma/SQL field names and constraints belong
-  to the bounded C persistence patch, with actual DB tests.
-- Reuse per-target `expectedVersion` CAS. Batch preflights every target's live
-  workspace/repository authority, then returns an individual applied/conflict/
-  rejected result with stable operation identity. Do not overwrite a stale
-  target, silently drop a selection or claim all-or-nothing success. A network
-  timeout causes readback of that target, not a new secret submission. Refetch
-  retains selected targets and truthful results.
-- OIDC registration resolves the current repository configuration and active
-  binding server-side, pins its revision/account/profile/approved head and
-  issues only the bounded RR relay grant. CI cannot choose another owner,
-  account, origin or longer deadline. Revocation must deny new local admission
-  immediately and remain pending until the gateway fence is acknowledged.
-
-The C packet must include tests for member/foreign binding denial, repository
-override precedence, binding surviving version serialization, two-target CAS
-partial failure and revocation between registration and transport claim. Use
-the nearest real boundary for each risk; UI fixtures alone cannot prove DB or
-gateway isolation.
-
-Idempotency rules:
-
-1. Same consumer/operation ID and same intent returns the existing operation.
-2. Reused ID with different target, expected revision or credential intent
-   returns `409`; never silently apply the second body.
-3. Record the native step/owned candidate before its possible effect. Lost
-   native acknowledgement means unknown, not permission to create another row.
-4. Reconcile only through the exact owned candidate and adapter-supported proof.
-   If identity/effect proof is missing, quarantine and deny use; do not guess by
-   name, latest native row or reused integer ID.
-
-## Account transitions and partial failure
-
-```text
-new -> staging -> active
-              -> quarantined / rejected
-active -> staged reconnect -> atomic promotion of new generation
-active -> disabled -> tombstoned after independent cleanup/retention
-```
-
-- `staging` is not executable. Native setup/probes must not escape the approved
-  profile or secretly enable model traffic while preparation is incomplete.
-- During reconnect, the existing generation remains unchanged until promotion.
-  Promotion atomically changes the active route/epoch; old permissions become
-  unusable. A partially prepared candidate never becomes the default route.
-- If native effect or promotion acknowledgement is uncertain, read back the
-  canonical mapping/operation. Do not report success or create another candidate.
-- Disable closes local admission, persists the matching fence and reports
-  applied only after gateway acknowledgement. Pending cleanup does not grant use.
-- Native cleanup may be delayed or fail. Keep an inert owned residue and safe
-  status; cleanup retry cannot re-enable the account or select a foreign row.
-- Native row deletion/reuse, restored stale mapping or descriptor mismatch
-  quarantines the route. B must prove the adapter's actual identity mechanism;
-  do not pretend stock engine IDs alone establish generation identity.
-
-## Run lifetime, effects and restart
-
-Use ONE capability bounded to the approved run deadline in the initial slice.
-Validate OIDC when issuing it. Compute deadline on the server from existing
-review timeout, run authority and policy limit; the client cannot extend it.
-OIDC mint expiry does not prematurely truncate the approved run grant. No
-renewal subsystem is required. If an actual supported runner needs renewal,
-specify/qualify it as a separate change rather than adding it speculatively.
-
-Run identity includes repository, workflow/run, run attempt and approved head;
-reissue does not create another concurrent execution. Before publishing,
-existing RR head/finality and publication-idempotency checks remain mandatory.
-The PR author need not own the provider account; workspace authorization decides.
-
-Use the acknowledged envelope/fence contract in document 50 section 5. Dispatch
-claim and permission/epoch checks are atomic in gateway state. A fence denies
-new claims; accepted effects remain classified. Keep account identity sticky,
-with backup disabled until its profile-specific safe classification is proven.
-
-```text
-not_dispatched -> dispatch_started -> response_started -> completed
-                       \____________________> effect_unknown
-```
-
-Persist possible dispatch before entering native transport. If the owner dies
-after that boundary, mark ambiguity and fence; lease expiry is not proof of no
-upstream effect. A repeated request POST returns a safe status/readback reference,
-never another inference or a reconstructed partial stream. Keep the output stream
-ephemeral; recovery GET returns effect state, not recorded prompt/output bodies.
-Partial SSE/cancel/timeout is not permission to retry with a fresh request ID.
-
-Cleanup belongs to a durable gateway operation owner independent of the CI
-capability and supervisor lifetime. After restart, reconcile nonterminal claims;
-ambiguous attempts stay fenced, incomplete candidates stay inert. Do not resume
-inference automatically. Native residue cleanup is scoped to its recorded owner.
-Restore requires an explicit fresh admission/issuer epoch and quarantine check;
-restored old grants/claims cannot dispatch or replay. Normal restart recovery
-and backup restore are separate test cases.
-
-At each asynchronous admission or mutation boundary, snapshot the trusted
-consumer identity and accepted primitive intent before the first `await`. Use
-that same snapshot for authorization, CAS, writes and idempotency fingerprints.
-A mutable caller object must not switch consumers or recorded intent while a DB
-lock is pending. A fresh worker lease must not admit another request into an
-execution whose earlier in-flight owner has expired, even with spare concurrency.
-
-## Primary acceptance owners
-
-| Scenario                              | Expected evidence / nearest boundary                                                                                                                  |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Package/static graph                  | Install the exact archive outside the source tree; public exports/type closure; correct graph; invalid slot/missing factory rejected before effects   |
-| Consumer/owner denial                 | Real facade+DB denies foreign references/role and unsupported profile, with zero native dispatch                                                      |
-| Create/reconnect lost acknowledgement | Native adapter fault injection leaves one owned candidate; readback/quarantine; no duplicate row or silent activation                                 |
-| Rename vs reconnect                   | Metadata rename preserves execution identity; reconnect revokes old authority and new calls use only the promoted generation                          |
-| Native ID reuse/restore               | Stale route cannot select a different physical account; old permission denied                                                                         |
-| Revoke race                           | Pause between RR admission and gateway claim, acknowledge fence, resume: no dispatch; already claimed effect retained                                 |
-| Long run/deadline                     | Request after OIDC mint expiry and before approved deadline succeeds; after deadline or revoke denies new dispatch                                    |
-| Cancel/partial SSE/crash              | Unknown outcome retained; no inference replay, duplicate publish or second refresh writer; cleanup after supervisor loss/restart                      |
-| UI batch                              | Two disposable repos, per-target CAS and truthful partial status; saved selection/result survives refetch; server bindings change without key copying |
-| Real RR CI                            | Actual CLI spawn, tools, final parsed review and publication at approved head; missing final answer is failure; no master in CI/logs/artifacts        |
-
-Reuse existing disposable repositories after fresh App/permission inspection:
-`777genius/rr-selfhost-direct-v2-e2e-20260730t115357z` (ID 1317214237) and
-`777genius/rr-selfhost-direct-v2-e2e-20260730t120036z` (ID 1317220367).
-Both were freshly read through `gh` as unarchived E2E sandboxes on 2026-10-02.
-No inference, workflow dispatch or repository mutation occurred in this review.
-
-## Bounded implementation and qualification packets
-
-Do not ask a worker to infer native capability from the facade route list. Each
-checkpoint packet names its exact source/base SHA, owned paths, installed
-toolchain, engine SHA/image when applicable, test project, commands and receipt
-destination. Record observed results separately from planned assertions.
-
-- **A freezes:** strict schemas for all routes and safe result unions; the
-  stable-reference rules above; role separation; archive/public export closure;
-  and zero-resource construction on invalid static wiring. Its HTTP fixture is
-  evidence of client behavior, not native engine or tenant-isolation proof.
-- **B decides from evidence:** the actual native account identity/generation
-  proof, create/reconnect readback and account pin. Name the exact native API
-  and persisted proof mechanism. If stock Sub2API cannot supply one, make the
-  smallest pinned fork change and qualify it before allowing execution. Never
-  replace the missing proof with a display-name lookup or shared group.
-  First qualify MiMo's native Responses through explicit Sub2API API-key
-  passthrough: the [official Codex guide](https://mimo.mi.com/docs/en-US/tokenplan/integration/codex-configuration),
-  updated 2026-09-22 and observed 2026-10-03, documents Token Plan Responses
-  and requires its model catalog for freeform lite custom tools. Pin the actual
-  catalog, model, endpoint and CLI in D. Documentation alone is not live proof;
-  retain the historical conversion profile separately, without automatic
-  fallback after an uncertain dispatch. SDK/facade do not convert protocols.
-- **C freezes:** the actual existing membership/role policy, canonical RR
-  owner/use constraints, affected repo/model policy fields and per-target CAS.
-  UI success follows acknowledged server state; pending/unknown is visible.
-- **D records before its final gate:** a bounded workload and explicit numeric
-  request/output/buffer/concurrency limits, run deadline and cleanup target.
-  Capacity measurement chooses the supported values; the final candidate must
-  pass them. A measurements-only report cannot claim these limits are enforced.
-
-Every PASS receipt binds candidate SHA/image, scenario, test identity, command,
-observed outcome and retained evidence. An actual paid canary is one planned
-invocation; an uncertain response triggers readback, not an automatic re-run.
-Missing tools, final parsed review or approved-head publication fails the real
-CI gate even if the workflow itself reports success.
-
-Rollback for A–D closes only the new gateway execution admission first, keeps
-unknown-effect and cleanup records, and reverts the bounded code/config change.
-It cannot replay inference, restore revoked capabilities or reactivate a legacy
-pool. The existing production pool is not retired by this first-slice gate.
-
-## Checkpoint prerequisites and open empirical decisions
-
-- **A:** separate package/repository, freeze the above candidate schemas, exact
-  artifact/toolchain and installed public API checks. B proves native use.
-- **B/C:** prove native identity/pin, operation reconciliation, concrete DB
-  constraints and local source gates. Native setup must stay private/inert.
-- **D/release:** record numeric body/output/buffer/concurrency and cgroup limits,
-  repeated-burst/retained-heap/cleanup SLOs, and their workload/source/image pin.
-  Derive them from the bounded sandbox capacity measurement; do not invent PASS
-  or use forced GC to repaint the historical RSS failure.
-- **F:** choose and qualify protected OAuth custody across DB, both Redis
-  projections, refresh/history, export/debug and restore paths; prove one refresh
-  writer and live test-account setup. Server-only BYOK evidence is not this proof.
-- **G:** retirement starts only after required D/E/F receipts. Disable old pool
-  admission/refresh/grants without migration; preserve unrelated data. Unrelated
-  explicitly configured standalone Action BYOK is not a gateway fallback.
-
-Use actual package scripts discovered in A and focused affected RR gates, then
-one exact-head final CI per mergeable PR. No installed artifacts, live OAuth,
-capacity thresholds or deploy command are claimed qualified by this card.
+Historical C inspection source: `f0c18bf7759c030f311cf21050d6a61718e9dcd4`
+(2026-10-03); its schema/catalog/config source comparison matched earlier99f5e97c.
+This retains the original full identifier, not a fresh HEAD observation.
