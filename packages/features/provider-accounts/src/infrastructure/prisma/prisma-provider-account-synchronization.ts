@@ -19,12 +19,21 @@ export class PrismaProviderAccountSynchronization implements ProviderAccountSync
     this.prisma = prisma;
   }
   async recordWorkspaceConnection(
-    input: ConnectionMetadata & {
+    request: ConnectionMetadata & {
       readonly id: string;
       readonly workspaceId: string;
       readonly gatewayAccountRef: string;
     },
   ) {
+    const input = {
+      id: request.id,
+      workspaceId: request.workspaceId,
+      gatewayAccountRef: request.gatewayAccountRef,
+      gatewayOperationRef: request.gatewayOperationRef,
+      profileRef: request.profileRef,
+      displayName: request.displayName,
+      state: request.state,
+    };
     assertMetadata(input);
     for (const ref of [input.id, input.workspaceId, input.gatewayAccountRef])
       assertOpaqueReference(ref);
@@ -50,12 +59,21 @@ export class PrismaProviderAccountSynchronization implements ProviderAccountSync
     }
   }
   async synchronizeMetadata(
-    input: ConnectionMetadata & {
+    request: ConnectionMetadata & {
       readonly workspaceId: string;
       readonly connectionId: string;
       readonly expectedRevision: number;
     },
   ) {
+    const input = {
+      workspaceId: request.workspaceId,
+      connectionId: request.connectionId,
+      expectedRevision: request.expectedRevision,
+      gatewayOperationRef: request.gatewayOperationRef,
+      profileRef: request.profileRef,
+      displayName: request.displayName,
+      state: request.state,
+    };
     assertMetadata(input);
     assertExpectedRevision(input.expectedRevision);
     assertOpaqueReference(input.workspaceId);

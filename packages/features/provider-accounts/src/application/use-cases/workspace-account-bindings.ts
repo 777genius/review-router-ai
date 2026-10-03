@@ -43,6 +43,21 @@ type MutationInput = BindingScope & {
   readonly expectedRevision: number;
 };
 
+// Capture only primitive authority fields before validation or any live read.
+// The nested actor must not retain a caller-owned reference across awaits.
+function snapshotMutation(input: MutationInput): MutationInput {
+  return {
+    workspaceId: input.workspaceId,
+    connectionId: input.connectionId,
+    expectedRevision: input.expectedRevision,
+    actor: {
+      userId: input.actor.userId,
+      githubUserId: input.actor.githubUserId,
+      githubLogin: input.actor.githubLogin,
+    },
+  };
+}
+
 async function assertAdmin(
   workspaceId: string,
   actor: WorkspaceAccountActor,
@@ -97,23 +112,32 @@ export function bindWorkspaceAccount(
   input: MutationInput,
   dependencies: ProviderAccountDependencies,
 ): Promise<WorkspaceAccountBinding> {
-  return changeBinding(input, dependencies, "active");
+  return changeBinding(snapshotMutation(input), dependencies, "active");
 }
 /** Local denial only. This is not a remote gateway disable/fence acknowledgment. */
 export function revokeWorkspaceAccountBinding(
   input: MutationInput,
   dependencies: ProviderAccountDependencies,
 ): Promise<WorkspaceAccountBinding> {
-  return changeBinding(input, dependencies, "revoked");
+  return changeBinding(snapshotMutation(input), dependencies, "revoked");
 }
 export async function resolveWorkspaceAccountBinding(
-  input: {
+  request: {
     readonly workspaceId: string;
     readonly bindingId: string;
     readonly actor: WorkspaceAccountActor;
   },
   dependencies: ProviderAccountDependencies,
 ): Promise<SafeBindingTuple> {
+  const input = {
+    workspaceId: request.workspaceId,
+    bindingId: request.bindingId,
+    actor: {
+      userId: request.actor.userId,
+      githubUserId: request.actor.githubUserId,
+      githubLogin: request.actor.githubLogin,
+    },
+  };
   assertActor(input.actor);
   assertOpaqueReference(input.workspaceId);
   assertOpaqueReference(input.bindingId);

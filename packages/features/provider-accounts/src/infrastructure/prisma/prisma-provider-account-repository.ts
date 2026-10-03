@@ -20,7 +20,11 @@ export class PrismaProviderAccountRepository implements ProviderAccountRepositor
     this.prisma = prisma;
   }
 
-  async findOwnedConnection(scope: BindingScope) {
+  async findOwnedConnection(request: BindingScope) {
+    const scope = {
+      workspaceId: request.workspaceId,
+      connectionId: request.connectionId,
+    };
     const row = await this.prisma.providerAccountConnection.findFirst({
       where: {
         id: scope.connectionId,
@@ -30,10 +34,14 @@ export class PrismaProviderAccountRepository implements ProviderAccountRepositor
     });
     return row ? mapConnection(row) : null;
   }
-  async findBinding(input: {
+  async findBinding(request: {
     readonly workspaceId: string;
     readonly bindingId: string;
   }) {
+    const input = {
+      workspaceId: request.workspaceId,
+      bindingId: request.bindingId,
+    };
     const row = await this.prisma.workspaceAccountBinding.findUnique({
       where: {
         id_workspaceId: { id: input.bindingId, workspaceId: input.workspaceId },
@@ -45,11 +53,17 @@ export class PrismaProviderAccountRepository implements ProviderAccountRepositor
       : null;
   }
   async compareAndSetBinding(
-    input: BindingScope & {
+    request: BindingScope & {
       readonly expectedRevision: number;
       readonly state: BindingState;
     },
   ) {
+    const input = {
+      workspaceId: request.workspaceId,
+      connectionId: request.connectionId,
+      expectedRevision: request.expectedRevision,
+      state: request.state,
+    };
     assertExpectedRevision(input.expectedRevision, input.state === "active");
     try {
       return await this.prisma.$transaction(

@@ -304,3 +304,157 @@ test("foreign workspace and missing binding selection are denied", async () => {
     denied("binding_unavailable"),
   );
 });
+
+// R1: suspend the actual exported auth algorithm's live role query, then switch
+// both the request and its retained nested actor. Storage here is a product-port
+// fixture; this test makes no claim about Prisma or PostgreSQL.
+for (const operation of ["bind", "revoke", "selection"] as const) {
+  for (const identity of ["stable", "github", "override"] as const) {
+    test(
+      `${operation} captures tenant and nested ${identity} identity before live auth waits`,
+      { timeout: 5_000 },
+      async () => {
+        const f = fixture();
+        await bind(f);
+        const nestedActor = {
+          userId: identity === "stable" ? actor.userId : undefined,
+          githubUserId: actor.githubUserId,
+          githubLogin: actor.githubLogin,
+        };
+        const input = {
+          ...scope,
+          bindingId: "binding-test",
+          expectedRevision: 1,
+          actor: nestedActor,
+        };
+        let entered!: () => void;
+        let release!: () => void;
+        const waiting = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const reads: unknown[] = [];
+        const accounts: ProviderAccountRepositoryPort = {
+          async findOwnedConnection(request) {
+            reads.push({
+              workspaceId: request.workspaceId,
+              connectionId: request.connectionId,
+            });
+            if (request.workspaceId === "tenant-b") {
+              return {
+                ...connection,
+                id: "connection-b",
+                owner: { kind: "workspace", workspaceId: "tenant-b" },
+              };
+            }
+            return f.dependencies.accounts.findOwnedConnection(request);
+          },
+          async findBinding(request) {
+            reads.push({ ...request });
+            if (request.workspaceId === "tenant-b") {
+              return {
+                binding: {
+                  id: "binding-b",
+                  workspaceId: "tenant-b",
+                  connectionId: "connection-b",
+                  state: "active",
+                  revision: 2,
+                },
+                connection: {
+                  ...connection,
+                  id: "connection-b",
+                  owner: { kind: "workspace", workspaceId: "tenant-b" },
+                },
+              };
+            }
+            return f.dependencies.accounts.findBinding(request);
+          },
+          async compareAndSetBinding(request) {
+            reads.push({ ...request });
+            if (request.workspaceId === "tenant-b") {
+              return {
+                id: "binding-b",
+                ...request,
+                revision: request.expectedRevision + 1,
+              };
+            }
+            return f.dependencies.accounts.compareAndSetBinding(request);
+          },
+        };
+        const authReads: unknown[] = [];
+        const liveRole = async (request: unknown) => {
+          authReads.push(request);
+          entered();
+          await gate;
+          return identity === "override" ? null : ("admin" as const);
+        };
+        const dependencies = {
+          accounts,
+          workspaceAccess: {
+            ...f.dependencies.workspaceAccess,
+            findWorkspaceRoleByUserId: liveRole,
+            findWorkspaceRoleByGitHubUserId: liveRole,
+          },
+          localAdminGithubLogins: [actor.githubLogin],
+        };
+        const pending =
+          operation === "bind"
+            ? bindWorkspaceAccount(input, dependencies)
+            : operation === "revoke"
+              ? revokeWorkspaceAccountBinding(input, dependencies)
+              : resolveWorkspaceAccountBinding(input, dependencies);
+        await waiting;
+        Object.assign(input, {
+          workspaceId: "tenant-b",
+          connectionId: "connection-b",
+          bindingId: "binding-b",
+          expectedRevision: 2,
+        });
+        Object.assign(nestedActor, {
+          userId: "user-b",
+          githubUserId: "990002",
+          githubLogin: "login-b",
+        });
+        input.actor = { ...nestedActor };
+        release();
+        const result = await pending;
+        assert.equal(result.workspaceId, scope.workspaceId);
+        assert.equal(result.connectionId, scope.connectionId);
+        const authRequest =
+          identity === "stable"
+            ? { workspaceId: scope.workspaceId, userId: actor.userId }
+            : {
+                workspaceId: scope.workspaceId,
+                githubUserId: actor.githubUserId,
+              };
+        assert.deepEqual(
+          authReads,
+          Array(
+            identity === "override" && operation === "selection" ? 2 : 1,
+          ).fill(authRequest),
+        );
+        if (operation === "selection") {
+          assert.deepEqual(reads, [
+            { workspaceId: scope.workspaceId, bindingId: "binding-test" },
+          ]);
+          assert.equal(
+            "bindingRevision" in result && result.bindingRevision,
+            1,
+          );
+        } else {
+          assert.deepEqual(reads, [
+            scope,
+            {
+              ...scope,
+              expectedRevision: 1,
+              state: operation === "bind" ? "active" : "revoked",
+            },
+          ]);
+          assert.equal("revision" in result && result.revision, 2);
+        }
+      },
+    );
+  }
+}

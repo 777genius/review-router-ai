@@ -626,6 +626,209 @@ test(
         },
       );
 
+      // R2: gate only transaction admission, then delegate to the actual Prisma
+      // client/database. No query, lock, CAS or return value is mocked. Production
+      // gets no test hook. Validation has already run when `entered` resolves.
+      function transactionGate() {
+        let enter!: () => void;
+        let release!: () => void;
+        const entered = new Promise<void>((resolve) => {
+          enter = resolve;
+        });
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const client = new Proxy(db, {
+          get(target, property) {
+            if (property === "$transaction") {
+              return async (...args: unknown[]) => {
+                enter();
+                await gate;
+                return Reflect.apply(target.$transaction, target, args);
+              };
+            }
+            return Reflect.get(target, property, target);
+          },
+        });
+        return { client, entered, release };
+      }
+
+      await t.test(
+        "binding adapter captures CAS revision, scope and requested state before transaction admission",
+        async () => {
+          for (const stale of [true, false]) {
+            const suffix = stale ? "stale" : "fresh";
+            const a = {
+              workspaceId,
+              connectionId: `rr-test-binding-alias-a-${suffix}`,
+            };
+            const b = {
+              workspaceId: foreignWorkspaceId,
+              connectionId: `rr-test-binding-alias-b-${suffix}`,
+            };
+            for (const target of [a, b]) {
+              await mirror.recordWorkspaceConnection({
+                id: target.connectionId,
+                workspaceId: target.workspaceId,
+                gatewayAccountRef: `gateway-${target.connectionId}`,
+                ...metadata,
+              });
+              await accounts.compareAndSetBinding({
+                ...target,
+                expectedRevision: 0,
+                state: "active",
+              });
+              await accounts.compareAndSetBinding({
+                ...target,
+                expectedRevision: 1,
+                state: "revoked",
+              });
+            }
+            const gate = transactionGate();
+            const adapter = new PrismaProviderAccountRepository(gate.client);
+            const input: Parameters<typeof adapter.compareAndSetBinding>[0] = {
+              ...a,
+              expectedRevision: stale ? 1 : 2,
+              state: stale ? "active" : "revoked",
+            };
+            const pending = adapter.compareAndSetBinding(input);
+            // Attach rejection assertions before releasing the gate.
+            const result = stale
+              ? assert.rejects(pending, denied("revision_conflict"))
+              : pending;
+            await gate.entered;
+            Object.assign(input, {
+              ...b,
+              expectedRevision: 2,
+              state: "active",
+            });
+            gate.release();
+            const returned = await result;
+            if (!stale) {
+              assert.ok(returned);
+              assert.equal(returned.workspaceId, a.workspaceId);
+              assert.equal(returned.connectionId, a.connectionId);
+              assert.equal(returned.revision, 3);
+              assert.equal(returned.state, "revoked");
+            }
+            const original = await db.workspaceAccountBinding.findUniqueOrThrow(
+              {
+                where: { workspaceId_connectionId: a },
+              },
+            );
+            const foreign = await db.workspaceAccountBinding.findUniqueOrThrow({
+              where: { workspaceId_connectionId: b },
+            });
+            assert.equal(original.revision, stale ? 2 : 3);
+            assert.equal(original.state, "revoked");
+            assert.equal(foreign.revision, 2);
+            assert.equal(foreign.state, "revoked");
+          }
+        },
+      );
+
+      await t.test(
+        "synchronization adapter captures CAS revision, scope and safe metadata before transaction admission",
+        async () => {
+          for (const stale of [true, false]) {
+            const suffix = stale ? "stale" : "fresh";
+            const a = {
+              workspaceId,
+              connectionId: `rr-test-metadata-alias-a-${suffix}`,
+            };
+            const b = {
+              workspaceId: foreignWorkspaceId,
+              connectionId: `rr-test-metadata-alias-b-${suffix}`,
+            };
+            for (const target of [a, b]) {
+              await mirror.recordWorkspaceConnection({
+                id: target.connectionId,
+                workspaceId: target.workspaceId,
+                gatewayAccountRef: `gateway-${target.connectionId}`,
+                ...metadata,
+              });
+              await mirror.synchronizeMetadata({
+                ...target,
+                ...metadata,
+                expectedRevision: 1,
+                state: "disabled",
+              });
+            }
+            const gate = transactionGate();
+            const adapter = new PrismaProviderAccountSynchronization(
+              gate.client,
+            );
+            const input: Parameters<typeof adapter.synchronizeMetadata>[0] = {
+              ...a,
+              ...metadata,
+              expectedRevision: stale ? 1 : 2,
+              state: stale ? "active" : "disabled",
+              gatewayOperationRef: "original-operation",
+              profileRef: "original-profile",
+              displayName: "Original safe label",
+            };
+            const pending = adapter.synchronizeMetadata(input);
+            const result = stale
+              ? assert.rejects(pending, denied("revision_conflict"))
+              : pending;
+            await gate.entered;
+            Object.assign(input, {
+              ...b,
+              expectedRevision: 2,
+              state: "active",
+              gatewayOperationRef: "changed-operation",
+              profileRef: "changed-profile",
+              displayName: "Changed safe label",
+            });
+            gate.release();
+            const returned = await result;
+            if (!stale) {
+              assert.ok(returned);
+              assert.equal(returned.id, a.connectionId);
+              assert.deepEqual(returned.owner, {
+                kind: "workspace",
+                workspaceId: a.workspaceId,
+              });
+              assert.equal(returned.metadataRevision, 3);
+              assert.equal(returned.state, "disabled");
+              assert.equal(returned.gatewayOperationRef, "original-operation");
+              assert.equal(returned.profileRef, "original-profile");
+              assert.equal(returned.displayName, "Original safe label");
+            }
+            const original =
+              await db.providerAccountConnection.findUniqueOrThrow({
+                where: { id: a.connectionId },
+              });
+            const foreign =
+              await db.providerAccountConnection.findUniqueOrThrow({
+                where: { id: b.connectionId },
+              });
+            assert.equal(original.metadataRevision, stale ? 2 : 3);
+            assert.equal(original.state, "disabled");
+            assert.equal(
+              original.gatewayOperationRef,
+              stale ? metadata.gatewayOperationRef : "original-operation",
+            );
+            assert.equal(
+              original.profileRef,
+              stale ? metadata.profileRef : "original-profile",
+            );
+            assert.equal(
+              original.displayName,
+              stale ? metadata.displayName : "Original safe label",
+            );
+            assert.equal(foreign.metadataRevision, 2);
+            assert.equal(foreign.state, "disabled");
+            assert.equal(
+              foreign.gatewayOperationRef,
+              metadata.gatewayOperationRef,
+            );
+            assert.equal(foreign.profileRef, metadata.profileRef);
+            assert.equal(foreign.displayName, metadata.displayName);
+          }
+        },
+      );
+
       await t.test(
         "privileged status synchronization is CAS and disables selection without authorizing native effects",
         async () => {

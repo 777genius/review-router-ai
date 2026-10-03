@@ -183,3 +183,92 @@ Current independent xhigh/default review covers the prior exact head. A final
 exact-code review and final complete CI must pass before merge. No UI, browser
 route, remote fence acknowledgement, provider call, production migration or
 legacy-pool change is qualified by this checkpoint.
+
+## C1 R1/P1 and R2/P2 input lifetime repair - 2026-10-03, attempt 2
+
+Worker scope is exactly three existing production files, two existing test files,
+and this handoff within `packages/features/provider-accounts`. The application
+bind/revoke entry points synchronously capture the workspace, connection,
+expected revision and each nested actor scalar. Selection captures workspace,
+binding and each actor scalar. Every public Prisma repository/synchronization
+operation now explicitly copies its allowed scope/revision/state/metadata fields
+before validation or its first await. All later authorization, lock, query, CAS
+and return-selection reads use that single snapshot. No caller-owned actor or
+upstream descriptor is retained. Existing auth algorithm, stable-ID policy,
+local override, metadata allowlist, errors and SQL behavior are preserved.
+
+R1 evidence uses the actual exported auth use-case and its live role-query gate;
+only auth/storage ports are fixtures. Nine regressions cover bind, revoke and
+selection with stable identity, GitHub identity and the existing local override.
+While the live query is suspended they mutate both request and retained nested
+actor, then replace the actor. They assert original identity/tenant/IDs/revision
+and exact scoped storage calls, including selection's second auth call when the
+first live membership read returns no role. The foreign fixture can succeed, so
+old code demonstrably returns tenant B after authorizing A.
+
+On Node 24.21.0, final tests against an isolated copy of the pre-edit production
+sources: **6 existing pass, 9 new FAIL**, exit 1 (tenant-B results; override
+selection fails after adopting B's actor). On repaired workspace:
+
+```sh
+node --import ./packages/features/provider-accounts/tests/register-source-loader.mjs \
+  --test packages/features/provider-accounts/tests/use-cases.test.mts \
+  packages/features/provider-accounts/tests/database-target.test.mts
+```
+
+**PASS 16/16**, zero skips. These are actual auth algorithm/application tests,
+not actual Prisma or PostgreSQL execution. Syntax parsing of all 12 feature
+TS/MTS files and focused whitespace inspection also passed; parsing is not a
+typecheck. The opt-in PG command was run without opt-in and **SKIPPED** its root
+case. Actual Prisma/PG execution of these new R2 regressions is **NOT_RUN**.
+
+R2 regressions extend the existing full-migration PG suite at the actual Prisma
+adapter boundary. A test-only Proxy gates transaction admission and delegates
+unchanged arguments to the real Prisma client. It mocks no persistence, CAS,
+row locks or return values and adds no production hook. For each adapter a
+revoked/disabled revision-2 row exists in A and B. A validated stale revision-1
+request is changed to B/revision 2/active during admission; it must still reject
+and both rows must remain revision 2 and revoked/disabled. A second fresh request
+must update only A with its original state and metadata to revision 3, return A,
+and leave B unchanged. This verifies state, scope, revision, safe metadata
+scalars and return reads independently of application snapshots.
+
+Main owns remaining qualification in a new dedicated sandbox: confirm base
+`96b0b8b3`, run pinned formatter/lint, Prisma generation, feature typecheck/build,
+architecture and fresh full-migration PG. No node_modules or available
+Prettier/ESLint/TypeScript/Prisma/pg resolution exists here; no install was run.
+Before running repaired PG, keep the new tests and reverse only the three
+production edits in a separate baseline checkout using
+`production-baseline.patch`; require both new actual-adapter subtests to fail,
+then restore production repairs and run against a second new empty disposable
+PG database/cluster. Reusing the first populated database fails the deliberate
+empty-fixture guard. Never infer PG qualification from the skip receipt or the
+historical qualification above. Independent exact-patch model review and heavy
+checks are **NOT_RUN** in this attempt; no FAST claim.
+
+Git HEAD/base and Git lock absence are **UNVERIFIED**: `.git` points to unavailable
+`/srv/workers/jobs/review-router/account-gateway-v1/workspaces/source-c1-catalog-96b0b8b3/.git/worktrees/owner-binding-c1-input-repairs`.
+`git diff --check` exits 128; a negative lock-path probe cannot prove lock absence
+when that gitdir is unavailable. Main must verify HEAD and index locks before
+integration. No Git index/commit/push operation was attempted. No kernel/native,
+catalog, SQL/schema, auth, lockfile or workflow edit was made; no credential,
+provider, install, production or real-project launch occurred.
+
+Exact before/after SHA256 guards, the complete owned patch, a production-only
+reverse patch, an isolated original-source fixture, and failure/pass logs are at:
+
+`/srv/worker-state/jobs/review-router/account-gateway-v1/jobs/review-router-account-gateway-v1-owner-binding-c1-input-repairs/tmp/agent/input-lifetime-evidence/`
+
+Use `verify-patch.py` from that directory against main's dedicated base checkout
+before applying `input-repairs.patch`. It checks the requested base, source
+fingerprints, index lock and `git apply --check` without editing Git or sources.
+Workspace edits remain intact for the Project Integration controller. Overall
+qualification remains pending main's actual PG and pinned checks.
+
+## Primary input-lifetime qualification - 2026-10-03
+
+Guard58303820 on exact96b0b8b3 was applied in a new standalone hosted sandbox. Pinned pnpm10.33/Node24.21 frozen install, full Prisma generation, existing formatter/lint, feature typecheck/build and architecture passed. All16 auth/fixture cases passed, zero skips. The same new auth cases on unchanged96b production produced9 behavioral failures with7 prior cases passing.
+
+Two separate new PostgreSQL17.10 clusters applied all115 actual migration files with psql. Old production plus the new actual-Prisma tests produced exactly two nested R2 failures (binding CAS/state/scope and metadata CAS/state/scope); five existing nested scenarios passed. The repaired candidate passed all7 nested scenarios plus root (8/8), zero skips. An incorrect main receipt-name assertion stopped after the valid BEFORE failures; primary corrected only the receipt assertion and resumed the unrun AFTER phase on its separate new cluster, without replaying or relabeling the populated old fixture.
+
+Guarded producer output and primary formatting are distinct. This evidence qualifies the actual input lifetimes; a final owner commit, full exact-head CI and independent xhigh/default review still must pass. No routes/UI/native/provider/OIDC/publication or production migration is enabled.
