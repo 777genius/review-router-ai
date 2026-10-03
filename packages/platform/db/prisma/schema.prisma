@@ -13,6 +13,12 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Reserved explicit personal ownership. C1 does not provision or use it.
+  personalOwnerUserId String?
+  personalOwnerUser User? @relation("PersonalWorkspaceOwner", fields: [personalOwnerUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  ownedProviderAccountConnections ProviderAccountConnection[] @relation("WorkspaceProviderAccountOwner")
+  accountBindings WorkspaceAccountBinding[]
+
   members                      WorkspaceMember[]
   installations                GitHubInstallation[]
   gitLabInstallations          GitLabInstallation[]
@@ -36,6 +42,8 @@ model Workspace {
   reviewExecutionCheckpoints   ReviewExecutionCheckpoint[]
   hostedCodexPools             HostedCodexPool[]
   hostedCodexDeviceLogins      HostedCodexDeviceLogin[]
+
+  @@index([personalOwnerUserId])
 }
 
 model User {
@@ -54,8 +62,62 @@ model User {
   repositoryPermissionCaches RepositoryPermissionCache[]
   memoryItems                MemoryItem[]
   memorySuggestions          MemorySuggestion[]
+  personalWorkspaces Workspace[] @relation("PersonalWorkspaceOwner")
+  ownedProviderAccountConnections ProviderAccountConnection[] @relation("UserProviderAccountOwner")
 
   @@index([githubLogin])
+}
+
+// Product ownership and safe gateway status only; credentials stay in the gateway.
+model ProviderAccountConnection {
+  id String @id @default(cuid())
+  ownerUserId String?
+  ownerWorkspaceId String?
+  gatewayAccountRef String @unique
+  gatewayOperationRef String?
+  profileRef String?
+  displayName String
+  state ProviderAccountConnectionState @default(unknown)
+  metadataRevision Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownerUser User? @relation("UserProviderAccountOwner", fields: [ownerUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  ownerWorkspace Workspace? @relation("WorkspaceProviderAccountOwner", fields: [ownerWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  bindings WorkspaceAccountBinding[]
+
+  @@index([ownerUserId])
+  @@index([ownerWorkspaceId, state])
+}
+
+model WorkspaceAccountBinding {
+  id String @id @default(cuid())
+  workspaceId String
+  connectionId String
+  state WorkspaceAccountBindingState
+  revision Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  connection ProviderAccountConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([workspaceId, connectionId])
+  // Future repository config must reference this with its own workspaceId.
+  @@unique([id, workspaceId])
+}
+
+enum ProviderAccountConnectionState {
+  active
+  disabled
+  quarantined
+  pending
+  unknown
+}
+
+enum WorkspaceAccountBindingState {
+  active
+  revoked
 }
 
 model UserExternalIdentity {
