@@ -20,3 +20,20 @@ export const reviewInvestigationRolloutAuthorizationPublishedContract =
     exportName: "reviewInvestigationRolloutAuthorizationV3Contract",
     value: reviewInvestigationRolloutAuthorizationV3Contract,
   });
+
+export const reviewHostedRelayExtensionPrerequisiteV1Contract = Object.freeze({
+  extensionId: "review-investigation-hosted-relay.v1",
+  enabledByDefault: false,
+  admissionFlag: "REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED",
+  disposableCohortFlag: "REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID",
+  requiresCanonicalizerDigest: true,
+  requiresSchemaDigest: true,
+  paidDispatchBlockedPrerequisite:
+    "pinned_codex_transport_output_token_limit_unqualified",
+});
+
+export const reviewHostedRelayExtensionPrerequisitePublishedContract =
+  Object.freeze({
+    exportName: "reviewHostedRelayExtensionPrerequisiteV1Contract",
+    value: reviewHostedRelayExtensionPrerequisiteV1Contract,
+  });

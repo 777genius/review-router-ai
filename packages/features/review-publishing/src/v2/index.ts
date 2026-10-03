@@ -1,4 +1,6 @@
 export * from "./domain/review-publication-attempt";
+export * from "./domain/exclusive-test-publication";
+export * from "./application/ports/exclusive-test-publication-port";
 export * from "./domain/review-publication-operation-planning";
 export * from "./domain/canonical-review-publication-renderer";
 export * from "./domain/review-lifecycle-thread-state-witness";
@@ -10,6 +12,7 @@ export * from "./application/ports/review-command-ledger-verification-port";
 export * from "./application/services/review-publication-operation-planning-service";
 export * from "./application/use-cases/adjudicate-review-publication-outcome";
 export * from "./application/use-cases/begin-review-publication-operation";
+export * from "./application/use-cases/assert-current-review-publication";
 export * from "./application/use-cases/claim-review-publication";
 export * from "./application/use-cases/claim-review-publication-for-reconciliation";
 export * from "./application/use-cases/renew-review-publication-claim";

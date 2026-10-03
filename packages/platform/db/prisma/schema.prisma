@@ -2224,6 +2224,8 @@ model ReviewInvestigationTurn {
   state                 ReviewInvestigationTurnStateV1
   leasedAtVersion       BigInt
   dossierDigest         String
+  turnBudgetCanonicalJson String?                         @db.Text
+  turnBudgetHash         String?
   obligationIds         Json
   semanticTurnOrdinal   Int
   criticCycleOrdinal    Int
@@ -2525,6 +2527,28 @@ model ReviewSnapshotCommitReceiptV2 {
 
   @@unique([sourceExecutionId, sourceArtifactHash])
   @@index([retainUntil, receiptId])
+}
+
+// Dedicated NEWTEST intent is immutable; final artifact binding and consumption
+// are one-way. It deliberately has no FK to the not-yet-created attempt.
+model ExclusiveTestPublicationV2 {
+  executionId          String   @id
+  publicationIntentId  String   @unique
+  approvalHash         String   @unique
+  intent               Json
+  expiresAt            DateTime @db.Timestamptz(3)
+  publicationAttemptId String?  @unique
+  binding              Json?
+  closedAt             DateTime? @db.Timestamptz(3)
+}
+
+model ExclusiveTestPublicationDispatchV2 {
+  publicationAttemptId   String
+  publicationOperationId String
+  operationAttemptId     String @unique
+  consumedAt             DateTime @db.Timestamptz(3)
+
+  @@id([publicationAttemptId, publicationOperationId])
 }
 
 model ReviewPublicationAttemptV2 {
@@ -3281,6 +3305,7 @@ enum ReviewInvestigationTurnStateV1 {
 
 enum ReviewInvestigationLeasePurposeV1 {
   shadow_turn
+  relay_turn
 }
 
 enum ReviewInvestigationLeaseStateV1 {
@@ -3312,6 +3337,7 @@ enum ReviewContextGatewaySessionStateV1 {
 enum ReviewContextLeaseAuthorityKindV1 {
   standard_execution
   investigation_shadow
+  investigation_relay
 }
 
 enum ReviewTrustDomainV2 {

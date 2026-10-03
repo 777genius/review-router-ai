@@ -63,6 +63,7 @@ export type ReviewV2ProviderPublicationClientSession = {
 /** Production implementations may hold a token internally but never return it. */
 export interface ReviewV2ProviderCredentialPort {
   readonly provider: ReviewV2ScmProvider;
+  acquireClientNoRetry?: ReviewV2ProviderCredentialPort["acquireClient"];
   acquireClient(input: {
     readonly purpose: ReviewV2ScmCredentialPurpose;
     readonly permit: ReviewPublicationPermitIdentity;
@@ -71,6 +72,7 @@ export interface ReviewV2ProviderCredentialPort {
 }
 
 export class ProviderNeutralReviewV2ScmCredentialRouter implements ReviewV2ScmCredentialAcquisitionPort {
+  readonly acquireNoRetry?: ReviewV2ScmCredentialAcquisitionPort["acquire"];
   private readonly providers: ReadonlyMap<
     ReviewV2ScmProvider,
     ReviewV2ProviderCredentialPort
@@ -91,6 +93,52 @@ export class ProviderNeutralReviewV2ScmCredentialRouter implements ReviewV2ScmCr
       byProvider.set(provider.provider, provider);
     }
     this.providers = byProvider;
+    // Qualification cannot confuse a router method with backend support.
+    if (
+      providers.length > 0 &&
+      providers.every((provider) => provider.acquireClientNoRetry)
+    ) {
+      this.acquireNoRetry = async (input) => {
+        const provider = this.providers.get(input.provider);
+        if (!provider?.acquireClientNoRetry)
+          throw new Error("review_v2_scm_no_retry_credentials_unavailable");
+        await this.capabilityVerifier.verify({
+          signedCapability: input.signedCapability,
+          permit: input.permit,
+          operation: input.operation,
+          capability: input.capability,
+          claim: input.claim,
+        });
+        const session = await provider.acquireClientNoRetry({
+          purpose: input.purpose,
+          permit: input.permit,
+          capability: input.capability,
+        });
+        const gateway = createProviderGateway(input.provider, session.client);
+        const readOnly = {
+          findAllByMarker: (
+            request: Parameters<typeof gateway.findAllByMarker>[0],
+          ) => gateway.findAllByMarker(request),
+          markStaleOrDelete: async () => {
+            throw new Error("exclusive_test_publication_cleanup_forbidden");
+          },
+        };
+        return input.purpose === ReviewV2ScmCredentialPurpose.Mutate
+          ? {
+              purpose: input.purpose,
+              gateway: {
+                ...readOnly,
+                applyOperation: (request) => gateway.applyOperation(request),
+              },
+              close: () => session.close(),
+            }
+          : {
+              purpose: input.purpose,
+              gateway: readOnly,
+              close: () => session.close(),
+            };
+      };
+    }
   }
 
   async acquire(
@@ -401,12 +449,20 @@ export class GitHubAppReviewV2CredentialProvider
   private botLogin: string | null = null;
 
   constructor(
-    options: { readonly appId: string; readonly privateKey: string },
+    options: {
+      readonly appId: string;
+      readonly privateKey: string;
+      readonly Octokit?: ConstructorParameters<typeof App>[0]["Octokit"];
+    },
     private readonly repositories: ReviewV2GitHubRepositoryQueryPort,
     private readonly payloads: ReviewV2PublicationPayloadPort,
     private readonly assertCheckIdentityAllowed?: (name: string) => void,
   ) {
-    this.app = new App(options);
+    this.app = new App({
+      appId: options.appId,
+      privateKey: options.privateKey,
+      ...(options.Octokit === undefined ? {} : { Octokit: options.Octokit }),
+    });
   }
 
   async acquireClient(
@@ -453,6 +509,138 @@ export class GitHubAppReviewV2CredentialProvider
     return readGitHubReviewV2LiveRevision(octokit, repository, permit);
   }
 
+  /** Dedicated TEST transport: bypass auth/refresh/retry hooks, including the
+   * installation-token acquisition. Ordinary acquisition above is unchanged. */
+  async acquireClientNoRetry(
+    input: Parameters<ReviewV2ProviderCredentialPort["acquireClient"]>[0],
+  ): Promise<ReviewV2ProviderPublicationClientSession> {
+    const repository = await this.repositories.resolve(input.permit);
+    if (!repository) throw new Error("review_v2_github_repository_unavailable");
+    const installationId = Number(repository.githubInstallationId);
+    if (
+      !/^[1-9][0-9]*$/u.test(repository.githubInstallationId) ||
+      !Number.isSafeInteger(installationId)
+    )
+      throw new Error("review_v2_github_installation_invalid");
+    const appAuthentication: unknown = await redactedGitHubRequest(() =>
+      this.app.octokit.auth({ type: "app" }),
+    );
+    if (
+      !isRecord(appAuthentication) ||
+      appAuthentication.type !== "app" ||
+      typeof appAuthentication.token !== "string" ||
+      !appAuthentication.token
+    )
+      throw new Error("review_v2_github_app_identity_unavailable");
+    const appOptions = {
+      baseUrl: "https://api.github.com",
+      headers: { authorization: `bearer ${appAuthentication.token}` },
+      request: { hook: null, retries: 0, redirect: "error" as const },
+    };
+    const identity = await redactedGitHubRequest(() =>
+      this.app.octokit.request("GET /app", appOptions),
+    );
+    if (
+      !isRecord(identity.data) ||
+      typeof identity.data.slug !== "string" ||
+      !identity.data.slug
+    )
+      throw new Error("review_v2_github_app_identity_unavailable");
+    // No permission expansion: GitHub retains the existing installation's
+    // permission set, narrowed to the server-resolved repository.
+    const authentication = await redactedGitHubRequest(() =>
+      this.app.octokit.request(
+        "POST /app/installations/{installation_id}/access_tokens",
+        {
+          ...appOptions,
+          installation_id: installationId,
+          repositories: [repository.repo],
+        },
+      ),
+    );
+    if (
+      !isRecord(authentication.data) ||
+      typeof authentication.data.token !== "string" ||
+      !authentication.data.token ||
+      typeof authentication.data.expires_at !== "string" ||
+      !Number.isFinite(Date.parse(authentication.data.expires_at)) ||
+      Date.parse(authentication.data.expires_at) <= Date.now()
+    )
+      throw new Error("review_v2_github_installation_credential_unavailable");
+    let token: string | null = authentication.data.token;
+    const expiresAt = Date.parse(authentication.data.expires_at);
+    const options = (parameters: Readonly<Record<string, unknown>>) => {
+      if (!token || expiresAt <= Date.now())
+        throw new Error("review_v2_github_installation_credential_expired");
+      return {
+        ...parameters,
+        baseUrl: "https://api.github.com",
+        headers: {
+          ...(isRecord(parameters.headers) ? parameters.headers : {}),
+          authorization: `token ${token}`,
+        },
+        // hook:null is essential: auth-app retries fresh-token 401s even when
+        // retries:0 is supplied. It also bypasses plugin retry/throttle hooks.
+        request: {
+          ...(isRecord(parameters.request) ? parameters.request : {}),
+          hook: null,
+          retries: 0,
+          redirect: "error" as const,
+        },
+      };
+    };
+    const octokit: GitHubInstallationClient = {
+      request: async (route, parameters = {}) => {
+        const once = options(parameters);
+        return redactedGitHubRequest(() =>
+          this.app.octokit.request(route, once),
+        );
+      },
+      graphql: async <T>(
+        query: string,
+        variables: Readonly<Record<string, unknown>>,
+      ) => {
+        const once = options(variables);
+        return redactedGitHubRequest(() =>
+          this.app.octokit.graphql<T>(query, once),
+        );
+      },
+    };
+    const client = new GitHubReviewV2PublicationClient({
+      octokit,
+      repository,
+      permit: input.permit,
+      capability: input.capability,
+      payloads: this.payloads,
+      assertCheckIdentityAllowed: this.assertCheckIdentityAllowed,
+      botLogin: `${identity.data.slug.toLowerCase()}[bot]`,
+    });
+    return {
+      client: {
+        findAllByMarker: (request) => client.findAllByMarker(request),
+        applyOperation: async (request) => {
+          try {
+            return await client.applyOperation(request);
+          } catch (error) {
+            if (error instanceof ReviewV2ScmMutationError)
+              throw new ReviewV2ScmMutationError(
+                error.safeCode,
+                error.outcome,
+                false,
+              );
+            throw error;
+          }
+        },
+        markStaleOrDelete: async () => {
+          throw new Error("exclusive_test_publication_cleanup_forbidden");
+        },
+      },
+      close: async () => {
+        token = null;
+      },
+    };
+  }
+
   private async resolveBotLogin(): Promise<string> {
     if (this.botLogin) return this.botLogin;
     const response = await this.app.octokit.request("GET /app");
@@ -461,6 +649,23 @@ export class GitHubAppReviewV2CredentialProvider
     }
     this.botLogin = `${response.data.slug.toLowerCase()}[bot]`;
     return this.botLogin;
+  }
+}
+
+/** Native RequestError embeds authorization headers. Only the safe status may
+ * cross the credential boundary; never preserve its request, response or cause. */
+async function redactedGitHubRequest<T>(request: () => Promise<T>): Promise<T> {
+  try {
+    return await request();
+  } catch (error) {
+    const safe = new Error("review_v2_github_no_retry_transport_failed");
+    if (
+      isRecord(error) &&
+      typeof error.status === "number" &&
+      Number.isInteger(error.status)
+    )
+      Object.assign(safe, { status: error.status });
+    throw safe;
   }
 }
 

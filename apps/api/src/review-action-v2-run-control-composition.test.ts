@@ -1,4 +1,6 @@
 import { vi } from "vitest";
+import Fastify from "fastify";
+import { registerReviewRunControlV2Routes } from "@reviewrouter/features-action-control-plane/v2";
 import { createRepositoryReleaseSelector } from "./review-action-v2-repository-release-selection";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -45,6 +47,7 @@ import {
   canonicalizeReviewActionV2Request,
   reviewActionV2GoldenFixtures,
   reviewActionV2PublishedSchemaDigest,
+  reviewHostedRelayExtensionV1,
   reviewInvestigationExtensionV1,
   ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
@@ -60,6 +63,38 @@ import {
   type ReviewActionV2ResolvedRevision,
   type ReviewActionV2RunControlHandlerDependencies,
 } from "./review-action-v2-run-control-composition.js";
+import { hasAuthorizedHostedRelayExtension } from "./hosted-v4-relay-authority.js";
+
+it("admits the pinned v1.0.156 authorize wire at the real route parser", async () => {
+  const app = Fastify();
+  const execute = vi.fn().mockResolvedValue({
+    statusCode: 200,
+    result: { status: ReviewRunAuthorizationResultStatus.Authorized },
+  });
+  try {
+    await registerReviewRunControlV2Routes(app, {
+      readServerTime: async () => new Date("2026-01-01T00:00:00.000Z"),
+      createRequestId: () => "generated-request",
+      authorize: { capabilityEnabled: true, execute },
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/review-runs/authorize",
+      payload: {
+        ...reviewActionV2GoldenFixtures.review_run_authorize.request,
+        schemaDigest:
+          "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(execute).toHaveBeenCalledOnce();
+    expect(response.json().schemaDigest).toBe(
+      "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+    );
+  } finally {
+    await app.close();
+  }
+});
 
 const actionSha = "a".repeat(40);
 const runtimeSha = "b".repeat(40);
@@ -805,6 +840,13 @@ describe("Review Action v2 run-control composition", () => {
         reviewInvestigationExtensionV1.canonicalizerDigest,
       extensionId: reviewInvestigationExtensionV1.extensionId,
       extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
+      hostedRelayExtension: {
+        capability: "hosted_relay_turn_v1" as const,
+        extensionCanonicalizerDigest:
+          reviewHostedRelayExtensionV1.canonicalizerDigest,
+        extensionId: reviewHostedRelayExtensionV1.extensionId,
+        extensionSchemaDigest: reviewHostedRelayExtensionV1.schemaDigest,
+      },
       providerCapabilities: [
         {
           providerKind: "codex" as const,
@@ -823,6 +865,15 @@ describe("Review Action v2 run-control composition", () => {
       createReviewActionV2RunControlHandlers(selectedDependencies);
     const first = await handlers.authorize!.execute(authorizeRequest());
     expect(first.statusCode).toBe(201);
+    const combinedAuthorization = {
+      providerVoteLanes: facts.providerVoteLanes,
+      reviewInvestigationAuthorizationDescriptorCanonicalJson:
+        canonicalJson(descriptor),
+    };
+    expect(
+      hasAuthorizedCodexInvestigationRecording(combinedAuthorization),
+    ).toBe(true);
+    expect(hasAuthorizedHostedRelayExtension(combinedAuthorization)).toBe(true);
     expect(
       JSON.parse(first.result.authorizationFactsCanonicalJson!)
         .reviewInvestigation,
@@ -1149,6 +1200,43 @@ describe("Review Action v2 run-control composition", () => {
     expect(
       JSON.parse(result.result.authorizationFactsCanonicalJson!),
     ).not.toHaveProperty("reviewInvestigation");
+  });
+
+  it("does not advertise hosted relay from shadow extension admission alone", async () => {
+    const descriptor = {
+      authorizationDescriptorVersion: 3 as const,
+      capability: reviewInvestigationCapabilityV1,
+      coverageProfileHash: hash("5"),
+      extensionCanonicalizerDigest:
+        reviewInvestigationExtensionV1.canonicalizerDigest,
+      extensionId: reviewInvestigationExtensionV1.extensionId,
+      extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
+      policyHash: hash("6"),
+      providerCapabilities: [
+        {
+          providerKind: "codex" as const,
+          capabilities: [InvestigationRolloutCapability.Recording],
+        },
+      ],
+    } as const;
+    const handlers = createReviewActionV2RunControlHandlers({
+      ...dependencies,
+      reviewInvestigationCapability: { resolve: async () => descriptor },
+    });
+
+    const result = await handlers.authorize!.execute(authorizeRequest());
+    const facts = JSON.parse(result.result.authorizationFactsCanonicalJson!);
+    expect(facts.reviewInvestigation).toEqual(descriptor);
+    expect(facts.reviewInvestigation).not.toHaveProperty(
+      "hostedRelayExtension",
+    );
+    expect(
+      hasAuthorizedHostedRelayExtension({
+        reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson(
+          facts.reviewInvestigation,
+        ),
+      }),
+    ).toBe(false);
   });
 
   it("does not advertise investigation providers outside authorized vote lanes", async () => {

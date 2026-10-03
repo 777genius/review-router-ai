@@ -15,6 +15,7 @@ import {
   reviewActionV2PublishedSchemaDigest,
   reviewActionV2CanonicalizerDigest,
   reviewInvestigationExtensionV1,
+  reviewHostedRelayExtensionV1,
   reviewActionV2SchemaDigest,
   reviewRunAuthorizeNegotiationGoldenFixture,
   ReviewActionV2CallerAuthority,
@@ -47,6 +48,86 @@ import {
 } from "../../../../scripts/generate-review-action-v2-protocol.mjs";
 
 describe("generated Review Action v2 negotiation contract", () => {
+  it("accepts the pinned Action base and shadow wires while rejecting relay fields on legacy operations", () => {
+    const baseDigest =
+      "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3";
+    const shadowDigest =
+      "9ab22a39cc983b88ae50576ece6a777d72d904d09654d3f4c51a20fc13c29003";
+    expect(reviewActionV2PublishedSchemaDigest).toBe(baseDigest);
+    expect(reviewActionV2CanonicalizerDigest).toBe(
+      "95a43332ccff5c8ccf8f6f9cb67d901d5efd3e91522c047c48f83b65c70cb03a",
+    );
+    expect(reviewInvestigationExtensionV1.schemaDigest).toBe(shadowDigest);
+    expect(reviewInvestigationExtensionV1.canonicalizerDigest).toBe(
+      "20dc769dd28947fe6ee0c7770199fbb6c5cd490a7d7f71785159da99d793ff77",
+    );
+
+    const authorize = reviewActionV2GoldenFixtures.review_run_authorize.request;
+    expect(
+      parseReviewActionV2Request(ReviewActionV2OperationId.ReviewRunAuthorize, {
+        ...authorize,
+        schemaDigest: baseDigest,
+      }),
+    ).toMatchObject({ ok: true });
+    const shadow =
+      reviewActionV2GoldenFixtures.review_investigation_lease_acquire.request;
+    expect(
+      parseReviewActionV2Request(
+        ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire,
+        { ...shadow, schemaDigest: baseDigest },
+      ),
+    ).toMatchObject({ ok: true });
+    expect(
+      parseReviewActionV2Request(
+        ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire,
+        { ...shadow, schemaDigest: baseDigest, leasePurpose: "relay_turn" },
+      ),
+    ).toMatchObject({ ok: false, issues: ["unknown_field:leasePurpose"] });
+    expect(
+      parseReviewActionV2Request(
+        ReviewActionV2OperationId.ReviewInvestigationTurnPlan,
+        {
+          ...reviewActionV2GoldenFixtures.review_investigation_turn_plan
+            .request,
+          schemaDigest: baseDigest,
+          turnBudgetCanonicalJson: "{}",
+        },
+      ),
+    ).toMatchObject({
+      ok: false,
+      issues: ["unknown_field:turnBudgetCanonicalJson"],
+    });
+    const relayLease =
+      reviewActionV2GoldenFixtures.review_investigation_relay_lease_acquire
+        .request;
+    expect(
+      parseReviewActionV2Request(
+        ReviewActionV2OperationId.ReviewInvestigationRelayLeaseAcquire,
+        { ...relayLease, leasePurpose: "shadow_turn" },
+      ),
+    ).toMatchObject({ ok: false, issues: ["field_invalid:leasePurpose"] });
+    const relayLeaseWithoutPurpose = Object.fromEntries(
+      Object.entries(relayLease).filter(([key]) => key !== "leasePurpose"),
+    );
+    expect(
+      parseReviewActionV2Request(
+        ReviewActionV2OperationId.ReviewInvestigationRelayLeaseAcquire,
+        relayLeaseWithoutPurpose,
+      ),
+    ).toMatchObject({ ok: false, issues: ["field_invalid:leasePurpose"] });
+    const relayGateway =
+      reviewActionV2GoldenFixtures
+        .review_investigation_relay_context_gateway_open.request;
+    expect(
+      parseReviewActionV2Request(
+        ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewayOpen,
+        { ...relayGateway, sourceLeaseAuthorityKind: "investigation_shadow" },
+      ),
+    ).toMatchObject({
+      ok: false,
+      issues: ["field_invalid:sourceLeaseAuthorityKind"],
+    });
+  });
   it("publishes concrete request and response schemas for extension operations", async () => {
     for (const operationId of reviewInvestigationExtensionV1.operationIds) {
       const schema = JSON.parse(
@@ -64,6 +145,49 @@ describe("generated Review Action v2 negotiation contract", () => {
         true,
       );
     }
+  });
+
+  it("binds an issued v4 grant to the exact relay URL and finite policy", async () => {
+    const schema = JSON.parse(
+      await readFile(
+        new URL(
+          "../generated/schemas/review_investigation_relay_grant.schema.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as { readonly oneOf: readonly unknown[] };
+    const response = schema.oneOf[1] as { readonly oneOf: readonly unknown[] };
+    expect(response.oneOf[0]).toMatchObject({
+      properties: {
+        result: {
+          allOf: [
+            {
+              if: { properties: { status: { enum: ["issued", "restored"] } } },
+              then: {
+                required: ["grantResponse", "blockedPrerequisite"],
+                properties: {
+                  grantResponse: {
+                    properties: {
+                      protocolVersion: { const: 4 },
+                      relayUrl: { const: "/api/hosted/v4/codex/responses" },
+                      policy: {
+                        properties: {
+                          maxRequests: { const: 1 },
+                          maxConcurrentRequests: { const: 1 },
+                          maxOutputTokens: { maximum: 4_096 },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              else: { properties: { grantResponse: { type: "null" } } },
+            },
+          ],
+        },
+      },
+    });
   });
 
   it("keeps the generated schema digest and golden fixtures byte-consistent", async () => {
@@ -169,10 +293,29 @@ describe("generated Review Action v2 negotiation contract", () => {
       ),
     ) as { readonly $defs: Readonly<Record<string, unknown>> };
 
-    expect(reviewActionV2Operations).toHaveLength(36);
-    expect(Object.keys(reviewActionV2GoldenFixtures)).toHaveLength(36);
+    const relayExtensionSchema = JSON.parse(
+      await readFile(
+        new URL(
+          "../generated/review-hosted-relay-extension-v1.schema.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as { readonly $defs: Readonly<Record<string, unknown>> };
+    expect(reviewActionV2Operations).toHaveLength(42);
+    expect(Object.keys(reviewActionV2GoldenFixtures)).toHaveLength(42);
     expect(Object.keys(schema.$defs)).toHaveLength(58);
     expect(Object.keys(extensionSchema.$defs)).toHaveLength(14);
+    expect(Object.keys(relayExtensionSchema.$defs)).toHaveLength(12);
+    expect(
+      sha256(
+        canonicalJson({
+          baseSchemaDigest: reviewActionV2PublishedSchemaDigest,
+          extensionId: reviewHostedRelayExtensionV1.extensionId,
+          schema: relayExtensionSchema,
+        }),
+      ),
+    ).toBe(reviewHostedRelayExtensionV1.schemaDigest);
     expect(sha256(canonicalJson(schema))).toBe(
       reviewActionV2PublishedSchemaDigest,
     );
@@ -291,6 +434,8 @@ describe("generated Review Action v2 negotiation contract", () => {
       ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal,
       ReviewActionV2OperationId.ReviewContextReceiptReplayCommit,
       ReviewActionV2OperationId.ReviewContextReplayCommit,
+      ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewayOpen,
+      ReviewActionV2OperationId.ReviewInvestigationRelayContextGatewaySeal,
     ]);
 
     const open = reviewActionV2Operations.find(
@@ -447,6 +592,8 @@ describe("generated Review Action v2 negotiation contract", () => {
       ReviewActionV2OperationId.ReviewInvestigationOpen,
       ReviewActionV2OperationId.ReviewInvestigationOpenV2,
       ReviewActionV2OperationId.ReviewInvestigationRestore,
+      ReviewActionV2OperationId.ReviewInvestigationRelayGrant,
+      ReviewActionV2OperationId.ReviewInvestigationRelayStatus,
       ReviewActionV2OperationId.ReviewInvestigationTurnPlan,
       ReviewActionV2OperationId.ReviewInvestigationTurnCommit,
       ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire,
@@ -457,6 +604,8 @@ describe("generated Review Action v2 negotiation contract", () => {
       ReviewActionV2OperationId.ReviewInvestigationReplay,
       ReviewActionV2OperationId.ReviewInvestigationReplayV2,
       ReviewActionV2OperationId.ReviewInvestigationConclude,
+      ReviewActionV2OperationId.ReviewInvestigationRelayTurnPlan,
+      ReviewActionV2OperationId.ReviewInvestigationRelayLeaseAcquire,
     ]);
     expect(Object.values(ReviewInvestigationNextAction)).toEqual([
       "run_turn",

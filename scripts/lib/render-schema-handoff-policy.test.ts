@@ -19,6 +19,7 @@ import {
   assertRenderSchemaHandoffCatalog,
   assertRenderSchemaHandoffLedger,
   partitionRenderSchemaHandoffCheckout,
+  readRenderManagedCheckoutInventory,
   readRenderSchemaHandoffCatalog,
   renderSchemaHandoffCheckoutExtension,
   renderSchemaHandoffMigrationContract as contract,
@@ -31,7 +32,28 @@ import { canonicalPrismaMigrationNames } from "./canonical-prisma-migration-cata
 const requireFixtureModule = createRequire(import.meta.url);
 
 type CatalogRow = { migrationName: string; checksum: string };
-const catalog: readonly CatalogRow[] = readRenderSchemaHandoffCatalog();
+function sqlRow(migrationName: string): CatalogRow {
+  return {
+    migrationName,
+    checksum: createHash("sha256")
+      .update(
+        readFileSync(
+          new URL(
+            `../../packages/platform/db/prisma/migrations/${migrationName}/migration.sql`,
+            import.meta.url,
+          ),
+        ),
+      )
+      .digest("hex"),
+  };
+}
+// Independent SQL fixtures let the regression tests collect against the old
+// policy, which rejects the current checkout before returning managed rows.
+const catalog: readonly CatalogRow[] = Object.freeze(
+  canonicalPrismaMigrationNames
+    .slice(0, 92)
+    .map((name) => Object.freeze(sqlRow(name))),
+);
 const extension: readonly CatalogRow[] = renderSchemaHandoffCheckoutExtension;
 const expanded = [...catalog, ...extension];
 const migration96 = {
@@ -304,6 +326,20 @@ const migration115 = {
 };
 const checkout114 = [...checkout113, migration115];
 const migration116 = {
+  migrationName: "000116_hosted_v4_fenced_dispatch",
+  checksum: createHash("sha256")
+    .update(
+      readFileSync(
+        new URL(
+          "../../packages/platform/db/prisma/migrations/000116_hosted_v4_fenced_dispatch/migration.sql",
+          import.meta.url,
+        ),
+      ),
+    )
+    .digest("hex"),
+};
+const checkout115 = [...checkout114, migration116];
+const migration116Utc = {
   migrationName: "000116_hosted_codex_relay_admission_utc",
   checksum: createHash("sha256")
     .update(
@@ -316,13 +352,24 @@ const migration116 = {
     )
     .digest("hex"),
 };
-const checkout115 = [...checkout114, migration116];
-const canonicalThrough115 = canonicalPrismaMigrationNames.filter(
-  (name) => name !== migration116.migrationName,
+const checkout115Utc = [...checkout114, migration116Utc];
+const checkout116 = [...checkout115Utc, migration116];
+const migration117 = sqlRow("000117_hosted_v4_one_shot_dispatch");
+const migration118 = sqlRow("000118_exclusive_test_publication");
+const checkout117 = [...checkout116, migration117];
+const checkout118 = [...checkout117, migration118];
+const canonical116Names = canonicalPrismaMigrationNames.filter(
+  (name) =>
+    name !== migration117.migrationName && name !== migration118.migrationName,
+);
+const previousCanonicalPrismaMigrationNames = canonical116Names.filter(
+  (name) =>
+    name !== migration116.migrationName &&
+    name !== migration116Utc.migrationName,
 );
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("projects every admitted boundary through exactly113 to the same managed92 rows", () => {
+  it("projects every admitted boundary through exactly118 to the same managed92 rows", () => {
     for (const source of [
       catalog,
       expanded,
@@ -344,6 +391,12 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       checkout111,
       checkout112,
       checkout113,
+      checkout114,
+      checkout115,
+      checkout115Utc,
+      checkout116,
+      checkout117,
+      checkout118,
     ]) {
       const before = structuredClone(source);
       const managed = partitionRenderSchemaHandoffCheckout(source);
@@ -412,7 +465,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
 
   it("pins checkout96 to actual canonical SQL bytes", () => {
     expect(checkout96.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration110.migrationName &&
           name !== migration111.migrationName &&
@@ -453,7 +506,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "b90a4178f923d523ee0580ca3fc12279e6a1830ad54404b06c10e991fc12139f",
     );
     expect(checkout97.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration110.migrationName &&
           name !== migration111.migrationName &&
@@ -493,7 +546,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "c40a8c3ccdf14c5f84a79b5310dbf67c9306ac8c0a0cfb4f1090ced4c7c01fbd",
     );
     expect(checkout98.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration110.migrationName &&
           name !== migration111.migrationName &&
@@ -532,7 +585,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "495fd9321ffb92fc75aa60807ef644bd720778cd2529fb08d2a0a183fc7404b6",
     );
     expect(checkout99.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration110.migrationName &&
           name !== migration111.migrationName &&
@@ -570,7 +623,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "b6c7c4005bf3a521a1cbcf3579197b58c0c56c91056a02d01a17c60eb7bbf1b9",
     );
     expect(checkout100.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration110.migrationName &&
           name !== migration111.migrationName &&
@@ -607,7 +660,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "49757aeaab4ad1cf6b54f41b3768f7e4c8cdbd8beba9436ef4a3f4aa4c4e87cc",
     );
     expect(checkout101.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration110.migrationName &&
           name !== migration111.migrationName &&
@@ -643,7 +696,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "d6ae002a076c616d33ce854477096408b37e4285bb1c036dd2be13072786c8f9",
     );
     expect(checkout102.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration110.migrationName &&
           name !== migration111.migrationName &&
@@ -678,7 +731,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "7e63286c8bfab3c1cf7aa559c1515fa39a47ec3f8861eefcbf569a5d462039a7",
     );
     expect(checkout103.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration110.migrationName &&
           name !== migration111.migrationName &&
@@ -712,7 +765,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "d92d4368cc20c5217cdeaf18f1abbeec7c98efd873fc91110c6178eb1739848f",
     );
     expect(checkout104.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration110.migrationName &&
           name !== migration111.migrationName &&
@@ -748,7 +801,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "476184a558e47d23ee4127b7ff2221979b37e81faabf8ad66cba42dfd35aba9b",
     );
     expect(checkout106.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration110.migrationName &&
           name !== migration111.migrationName &&
@@ -806,7 +859,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "750038a865bced544ae9cca42060112a6479c05163c3dc05c41f504c993147ef",
     );
     expect(checkout109.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration111.migrationName &&
           name !== migration112.migrationName &&
@@ -883,7 +936,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "2d9b80ff0d894ba22602c4d84f7487a5343352e6bd2602f64c0b3cafdce048cd",
     );
     expect(checkout110.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration112.migrationName &&
           name !== migration113.migrationName &&
@@ -917,7 +970,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "0178f5198025c8e0f03bc995139940f9a2c9739f3c3ad000c857e8e0c8b425d0",
     );
     expect(checkout111.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter(
+      previousCanonicalPrismaMigrationNames.filter(
         (name) =>
           name !== migration113.migrationName &&
           name !== migration114.migrationName &&
@@ -950,7 +1003,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "1684eced3efccf7af153c4fd8e24a31a96aec20ddb2674b2764ba56796d8f6c2",
     );
     expect(checkout112.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.slice(0, -2),
+      previousCanonicalPrismaMigrationNames.slice(0, -2),
     );
     expect(
       createHash("sha256")
@@ -978,7 +1031,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "14d0dd69bdf596cbdfe39306965b08bd969a9d9b89b0a49ddcfe34fe43118d58",
     );
     expect(checkout113.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.slice(0, -1),
+      previousCanonicalPrismaMigrationNames.slice(0, -1),
     );
     expect(
       createHash("sha256")
@@ -1006,7 +1059,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       "07fdc348fe27d0ee1ddc15d97e6932cca3dc02cc920d856c4380f71cabb36db0",
     );
     expect(checkout114.map((row) => row.migrationName)).toEqual(
-      canonicalThrough115.filter((name) => name !== migration116.migrationName),
+      previousCanonicalPrismaMigrationNames,
     );
     expect(
       createHash("sha256")
@@ -1029,17 +1082,37 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       expect(() => partitionRenderSchemaHandoffCheckout(rows)).toThrow();
   });
 
-  it("admits exact SQL116 only as checkout evidence, retaining managed92", () => {
+  it("admits only the exact v4 extension after the complete main checkout", () => {
     expect(migration116.checksum).toBe(
-      "af399b3aea5cd73e0b65a46085bba2df216cd44888caf066baa02a6516f7d585",
+      "6175278da6c36b072ad8b35fa3df4d8f67e48a86127c45ce6202317ae2cdd451",
     );
     expect(checkout115.map((row) => row.migrationName)).toEqual(
-      canonicalPrismaMigrationNames,
+      canonical116Names.filter(
+        (name) => name !== migration116Utc.migrationName,
+      ),
     );
+    expect(
+      createHash("sha256")
+        .update(
+          checkout115
+            .map((row) => `${row.migrationName}:${row.checksum}`)
+            .join(","),
+        )
+        .digest("hex"),
+    ).toBe("1423415eefb158f298b3760f77ddc3dc3a38f13774c206b01df9a4a24b050a79");
     expect(partitionRenderSchemaHandoffCheckout(checkout115)).toEqual(catalog);
+    expect(() => assertRenderSchemaHandoffCatalog(checkout115)).toThrow(
+      "migration_catalog",
+    );
     for (const rows of [
       [...checkout114, { ...migration116, checksum: "0".repeat(64) }],
       [...checkout114, { ...migration116, migrationName: "000116_relabelled" }],
+      checkout115.filter(
+        (row) => row.migrationName !== migration110.migrationName,
+      ),
+      [...checkout109, migration116],
+      [...checkout115, migration116],
+      [...checkout114.slice(0, -1), migration116, migration115],
       [
         ...checkout115,
         { migrationName: "000117_unknown", checksum: "a".repeat(64) },
@@ -1047,6 +1120,109 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     ])
       expect(() => partitionRenderSchemaHandoffCheckout(rows)).toThrow();
   });
+
+  it("admits both exact SQL116 identities without merging their authority", () => {
+    expect(migration116Utc.checksum).toBe(
+      "af399b3aea5cd73e0b65a46085bba2df216cd44888caf066baa02a6516f7d585",
+    );
+    expect(checkout116.map((row) => row.migrationName)).toEqual(
+      canonical116Names,
+    );
+    expect(
+      createHash("sha256")
+        .update(
+          checkout116
+            .map((row) => `${row.migrationName}:${row.checksum}`)
+            .join(","),
+        )
+        .digest("hex"),
+    ).toBe("9eeace9d8fdb11a4052077e023dd5b895b5c25482b6776962a8886f2e5ec5182");
+    expect(partitionRenderSchemaHandoffCheckout(checkout115Utc)).toEqual(
+      catalog,
+    );
+    expect(partitionRenderSchemaHandoffCheckout(checkout116)).toEqual(catalog);
+    expect(() => assertRenderSchemaHandoffCatalog(checkout116)).toThrow(
+      "migration_catalog",
+    );
+    for (const rows of [
+      [
+        ...checkout114,
+        { ...migration116Utc, checksum: "0".repeat(64) },
+        migration116,
+      ],
+      [
+        ...checkout114,
+        { ...migration116Utc, migrationName: "000116_relabelled" },
+        migration116,
+      ],
+      checkout116.filter(
+        (row) => row.migrationName !== migration110.migrationName,
+      ),
+      [...checkout109, migration116Utc, migration116],
+      [...checkout115Utc, migration116Utc, migration116],
+      [...checkout114, migration116, migration116Utc],
+      [
+        ...checkout116,
+        { migrationName: "000117_unknown", checksum: "a".repeat(64) },
+      ],
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(rows)).toThrow();
+  });
+
+  it.each([migration117, migration118])(
+    "rejects changed SQL bytes for $migrationName at the explicit extension gate",
+    (migration) => {
+      const changed = checkout118.map((row) =>
+        row.migrationName === migration.migrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      );
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow(
+        "render_schema_handoff_rejected:checkout_extension",
+      );
+    },
+  );
+
+  it.each([checkout117, checkout118].map((source) => [source]))(
+    "admits only the complete SQL117/118 history or its exact historical predecessor %#",
+    (source) => {
+      expect(partitionRenderSchemaHandoffCheckout(source)).toEqual(catalog);
+      for (const [index, row] of source.entries()) {
+        const removed = source.filter((_, i) => i !== index);
+        if (index === source.length - 1)
+          expect(partitionRenderSchemaHandoffCheckout(removed)).toEqual(
+            catalog,
+          );
+        else
+          expect(() => partitionRenderSchemaHandoffCheckout(removed)).toThrow();
+        if (row === migration117 || row === migration118) {
+          const renamed = source.map((entry) =>
+            entry === row
+              ? { ...entry, migrationName: entry.migrationName + "_renamed" }
+              : entry,
+          );
+          expect(() => partitionRenderSchemaHandoffCheckout(renamed)).toThrow();
+          const duplicated = [
+            ...source.slice(0, index),
+            row,
+            ...source.slice(index),
+          ];
+          expect(() =>
+            partitionRenderSchemaHandoffCheckout(duplicated),
+          ).toThrow("checkout_catalog");
+        }
+      }
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout([
+          ...source,
+          { migrationName: "000119_alien", checksum: "a".repeat(64) },
+        ]),
+      ).toThrow();
+      expect(() => assertRenderSchemaHandoffCatalog(source)).toThrow(
+        "migration_catalog",
+      );
+    },
+  );
 
   it("rejects SQL098 with every incomplete predecessor extension set", () => {
     const predecessors = [...extension, migration96];
@@ -1236,6 +1412,26 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
 
 // Exercise the current inventory and all historical checkouts with actual SQL bytes.
 describe("complete filesystem checkout inventory", () => {
+  // CI 37129192907 rejected the full source tree before managed fixtures ran.
+  // The old reader throws checkout_manifest on this exact filesystem inventory.
+  it("reads the current 118-directory source inventory as the pinned checkout", () => {
+    const inventory = readRenderManagedCheckoutInventory();
+    expect(inventory).toEqual(checkout118);
+    expect(inventory).toHaveLength(118);
+    expect(inventory.map((row) => row.migrationName)).toEqual(
+      canonicalPrismaMigrationNames,
+    );
+    expect(
+      createHash("sha256")
+        .update(
+          inventory.map((r) => `${r.migrationName}:${r.checksum}`).join(","),
+        )
+        .digest("hex"),
+    ).toBe("84ce2adbefa80ba402eef62e6c8349887c214a3e2be2a332a741a98f1b5498e5");
+    expect(partitionRenderSchemaHandoffCheckout(inventory)).toEqual(catalog);
+    expect(readRenderSchemaHandoffCatalog()).toEqual(catalog);
+  });
+
   const directories: string[] = [];
   afterEach(() => {
     for (const path of directories.splice(0))
@@ -1275,13 +1471,27 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads checkout115 through original92 as identical frozen92 rows", async () => {
+  it("reads checkout118 through original92 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(115);
+    expect(inventory).toHaveLength(118);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, migration118.migrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(117);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, migration117.migrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(116);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, migration116.migrationName), {
+      recursive: true,
+    });
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, migration116Utc.migrationName), {
       recursive: true,
     });
     expect(fixture.read()).toEqual(catalog);
@@ -1420,7 +1630,10 @@ describe("complete filesystem checkout inventory", () => {
       migration113,
       migration114,
       migration115,
+      migration116Utc,
       migration116,
+      migration117,
+      migration118,
     ];
     const bytes = tail.map((row) =>
       readFileSync(
@@ -1430,6 +1643,7 @@ describe("complete filesystem checkout inventory", () => {
     const accepted = [
       0, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767,
       65535, 131071, 262143, 524287, 1048575, 2097151, 4194303, 8388607,
+      12582911, 16777215, 33554431, 67108863,
     ];
     const fullMask = (1 << tail.length) - 1;
     const masks = [
@@ -1508,7 +1722,7 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      if (name === migration116.migrationName)
+      if (name === migration118.migrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

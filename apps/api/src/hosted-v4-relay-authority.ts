@@ -1,11 +1,39 @@
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import type { HostedV4AuthorityBridge } from "@reviewrouter/features-hosted-account-pool";
+import { verifyRelayTurnBudget } from "@reviewrouter/features-review-investigations";
+import { createHash } from "node:crypto";
+import { parseInvestigationAuthorizationDescriptorJson } from "@reviewrouter/features-hosted-account-pool/v4-relay-descriptor";
+import {
+  hasAuthorizedReviewInvestigationExtension,
+  type ReviewInvestigationExtensionRequirement,
+} from "./review-action-v2-investigation-extension-admission.js";
+
+/** The relay bit must be in the saved server authorization descriptor. A
+ * recording-only descriptor cannot become paid authority via a request flag. */
+export function hasAuthorizedHostedRelayExtension(
+  authorization: {
+    reviewInvestigationAuthorizationDescriptorCanonicalJson: string | null;
+  },
+  requirement?: ReviewInvestigationExtensionRequirement,
+): boolean {
+  const descriptor = parseInvestigationAuthorizationDescriptorJson(
+    authorization.reviewInvestigationAuthorizationDescriptorCanonicalJson,
+  );
+  return (
+    descriptor?.hostedRelayExtension !== undefined &&
+    hasAuthorizedReviewInvestigationExtension(authorization, requirement)
+  );
+}
 
 /** A checked snapshot for a future relay lease admission, never a grant. */
 export type HostedV4RelayPreleaseAuthority = Readonly<{
   authorizationId: string;
   investigationId: string;
   turnId: string;
+  turnBudgetCanonicalJson: string;
+  turnBudgetHash: string;
+  planningInputDossierDigest: string;
+  currentDossierDigest: string;
   mutationEpoch: bigint;
   bindingId: string;
   bindingVersion: number;
@@ -86,7 +114,8 @@ export class PrismaHostedV4RelayAuthorityResolver {
       turn.investigationId !== investigation.investigationId ||
       turn.state !== "leased" ||
       turn.leasedAtVersion !== investigation.version ||
-      turn.dossierDigest !== investigation.dossierDigest ||
+      turn.turnBudgetCanonicalJson === null ||
+      turn.turnBudgetHash === null ||
       turn.expiresAt <= now ||
       binding.id !== live.bindingId ||
       binding.revision !== BigInt(live.bindingVersion) ||
@@ -99,19 +128,39 @@ export class PrismaHostedV4RelayAuthorityResolver {
     )
       throw denied();
 
-    const account = binding.pool.accounts.find(
-      (candidate) =>
-        candidate.workspaceId === authorization.workspaceId &&
-        candidate.poolId === binding.poolId &&
-        candidate.state === "healthy" &&
-        candidate.activeGeneration !== null &&
-        candidate.credentialVersions.some(
-          (credential) =>
-            credential.generation === candidate.activeGeneration &&
-            (credential.credentialExpiresAt === null ||
-              credential.credentialExpiresAt > now),
-        ),
-    );
+    try {
+      await verifyRelayTurnBudget({
+        canonicalJson: turn.turnBudgetCanonicalJson,
+        hash: turn.turnBudgetHash,
+        digestUtf8: async (value) =>
+          createHash("sha256").update(value).digest("hex"),
+        now,
+        turnExpiresAt: turn.expiresAt,
+      });
+    } catch {
+      throw denied();
+    }
+
+    const account = [...binding.pool.accounts]
+      .sort(
+        (left, right) =>
+          left.priority - right.priority ||
+          left.createdAt.getTime() - right.createdAt.getTime() ||
+          left.id.localeCompare(right.id),
+      )
+      .find(
+        (candidate) =>
+          candidate.workspaceId === authorization.workspaceId &&
+          candidate.poolId === binding.poolId &&
+          candidate.state === "healthy" &&
+          candidate.activeGeneration !== null &&
+          candidate.credentialVersions.some(
+            (credential) =>
+              credential.generation === candidate.activeGeneration &&
+              (credential.credentialExpiresAt === null ||
+                credential.credentialExpiresAt > now),
+          ),
+      );
     if (!account) throw denied();
 
     // Recheck the mutable authorization, SCM and binding after DB reads. This
@@ -177,6 +226,8 @@ export class PrismaHostedV4RelayAuthorityResolver {
       currentTurn.state !== "leased" ||
       currentTurn.leasedAtVersion !== turn.leasedAtVersion ||
       currentTurn.dossierDigest !== turn.dossierDigest ||
+      currentTurn.turnBudgetCanonicalJson !== turn.turnBudgetCanonicalJson ||
+      currentTurn.turnBudgetHash !== turn.turnBudgetHash ||
       currentTurn.expiresAt.getTime() !== turn.expiresAt.getTime() ||
       !currentBinding ||
       currentBinding.id !== binding.id ||
@@ -214,6 +265,10 @@ export class PrismaHostedV4RelayAuthorityResolver {
       authorizationId: authorization.authorizationId,
       investigationId: investigation.investigationId,
       turnId: turn.turnId,
+      turnBudgetCanonicalJson: turn.turnBudgetCanonicalJson,
+      turnBudgetHash: turn.turnBudgetHash,
+      planningInputDossierDigest: turn.dossierDigest,
+      currentDossierDigest: investigation.dossierDigest,
       mutationEpoch: authorization.mutationEpoch,
       bindingId: binding.id,
       bindingVersion: live.bindingVersion,
@@ -231,13 +286,109 @@ export class PrismaHostedV4RelayAuthorityResolver {
   }
 }
 
-/** The existing investigation lease domain is shadow_turn only. */
+/** Relay leases require their own purpose and both live capability fences. */
 export const hostedV4RelayLeaseRequirements = Object.freeze({
   purpose: "relay_turn" as const,
   acceptsShadowTurn: false as const,
   requiresVerifiedInvestigationLease: true as const,
   requiresVerifiedInvocationLease: true as const,
 });
+
+/** Selection is inert until the paid transport's output-token cap is qualified. */
+export function isHostedV4DisposableRelayCohort(input: {
+  env: Readonly<Record<string, string | undefined>>;
+  githubRepositoryId: string;
+}): boolean {
+  const configured = input.env.REVIEW_ROUTER_HOSTED_V4_DISPOSABLE_REPOSITORY_ID;
+  return (
+    input.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED === "1" &&
+    typeof configured === "string" &&
+    /^[1-9][0-9]*$/.test(configured) &&
+    configured === input.githubRepositoryId
+  );
+}
+
+/** Cheap server-side cohort fence for lease and gateway admission. */
+export async function isHostedV4RelayAdmissionCurrent(input: {
+  prisma: PrismaClient;
+  env: Readonly<Record<string, string | undefined>>;
+  authorization: {
+    workspaceId: string;
+    repositoryConnectionId: string;
+    trustDomain: string;
+    reviewInvestigationAuthorizationDescriptorCanonicalJson: string | null;
+  };
+  investigationId: string;
+  turnId: string;
+  now: Date;
+}): Promise<boolean> {
+  if (
+    input.env.REVIEW_ROUTER_HOSTED_V4_RELAY_ENABLED !== "1" ||
+    !hasAuthorizedHostedRelayExtension(input.authorization)
+  )
+    return false;
+  const [repository, binding, turn] = await Promise.all([
+    input.prisma.repositoryConnection.findUnique({
+      where: { id: input.authorization.repositoryConnectionId },
+      select: { githubRepositoryId: true, workspaceId: true },
+    }),
+    input.prisma.hostedCodexRepositoryBinding.findUnique({
+      where: {
+        repositoryConnectionId: input.authorization.repositoryConnectionId,
+      },
+      select: {
+        status: true,
+        workspaceId: true,
+        attestedGithubRepositoryId: true,
+      },
+    }),
+    input.prisma.reviewInvestigationTurn.findUnique({
+      where: { turnId: input.turnId },
+      select: {
+        investigationId: true,
+        state: true,
+        expiresAt: true,
+        turnBudgetCanonicalJson: true,
+        turnBudgetHash: true,
+      },
+    }),
+  ]);
+  if (
+    input.authorization.trustDomain !== "trusted_managed" ||
+    !repository?.githubRepositoryId ||
+    repository.workspaceId !== input.authorization.workspaceId ||
+    binding?.status !== "active" ||
+    binding.workspaceId !== input.authorization.workspaceId ||
+    binding.attestedGithubRepositoryId !== repository.githubRepositoryId ||
+    !turn ||
+    turn.investigationId !== input.investigationId ||
+    turn.state !== "leased" ||
+    turn.expiresAt <= input.now ||
+    !turn.turnBudgetCanonicalJson ||
+    !turn.turnBudgetHash ||
+    !isHostedV4DisposableRelayCohort({
+      env: input.env,
+      githubRepositoryId: repository.githubRepositoryId.toString(),
+    })
+  )
+    return false;
+  try {
+    await verifyRelayTurnBudget({
+      canonicalJson: turn.turnBudgetCanonicalJson,
+      hash: turn.turnBudgetHash,
+      digestUtf8: async (value) =>
+        createHash("sha256").update(value).digest("hex"),
+      now: input.now,
+      turnExpiresAt: turn.expiresAt,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const hostedV4PaidDispatchBlockedPrerequisite =
+  "pinned_codex_transport_output_token_limit_unqualified" as const;
 
 /** Explicit default-off boundary; no grant, token or provider adapter is exposed. */
 export function composeHostedV4RelayAuthority(input: {
@@ -246,10 +397,12 @@ export function composeHostedV4RelayAuthority(input: {
   now?: () => Date;
 }): Readonly<{
   enabled: false;
+  blockedPrerequisite: typeof hostedV4PaidDispatchBlockedPrerequisite;
   resolver: PrismaHostedV4RelayAuthorityResolver;
 }> {
   return {
     enabled: false,
+    blockedPrerequisite: hostedV4PaidDispatchBlockedPrerequisite,
     resolver: new PrismaHostedV4RelayAuthorityResolver(
       input.prisma,
       input.bridge,

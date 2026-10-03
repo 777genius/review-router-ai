@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  decodeDirectForkResponses,
   requestDirectForkReview,
   validateCertifiedForkModelOutputForPrompt,
   type DirectForkResponsesInput,
@@ -159,6 +160,250 @@ function streamed(bytes: Uint8Array, cuts: number[]) {
   );
 }
 afterEach(() => vi.useRealTimers());
+
+describe("pure measured Responses decoder", () => {
+  const measuredResponse = () => ({
+    ...completed(),
+    model: "gpt-5.6-sol",
+    usage: {
+      input_tokens: 30,
+      output_tokens: 12,
+      total_tokens: 42,
+      input_tokens_details: { cached_tokens: 7 },
+      output_tokens_details: { reasoning_tokens: 5 },
+    },
+  });
+  const decode = (text: string, contentType = "text/event-stream") =>
+    decodeDirectForkResponses({
+      body: new TextEncoder().encode(text),
+      contentType,
+    });
+  const measuredFrame = () =>
+    frame({ type: "response.completed", response: measuredResponse() });
+
+  it.each(["", "data: [DONE]\n\n"])(
+    "returns actual terminal metadata and measured body bytes with trailer %j",
+    (trailer) => {
+      const body = new TextEncoder().encode(measuredFrame() + trailer);
+      const original = body.slice();
+      const result = decodeDirectForkResponses({
+        body,
+        contentType: "text/event-stream; charset=utf-8",
+      });
+      expect(result).toEqual({
+        responseId: "resp_1",
+        model: "gpt-5.6-sol",
+        usage: {
+          inputTokens: 30,
+          cachedInputTokens: 7,
+          outputTokens: 12,
+          reasoningOutputTokens: 5,
+          totalTokens: 42,
+        },
+        outputText: JSON.stringify(envelope()),
+        completedResponse: measuredResponse(),
+        responseBytes: original.byteLength,
+      });
+      expect(body).toEqual(original);
+    },
+  );
+
+  it("decodes JSON and reconstructs store:false output from validated completed items", () => {
+    expect(
+      decode(JSON.stringify(measuredResponse()), "application/json").outputText,
+    ).toBe(JSON.stringify(envelope()));
+    const events = lifecycle();
+    events[events.length - 1] = {
+      type: "response.completed",
+      response: { ...measuredResponse(), output: [] },
+    };
+    const result = decode(wire(events) + "data: [DONE]\n\n");
+    expect(result.outputText).toBe(JSON.stringify(envelope()));
+    expect(result.completedResponse.output).toEqual([]);
+    expect(result.usage.reasoningOutputTokens).toBe(5);
+  });
+
+  it("defaults details only when absent, not when present but invalid", () => {
+    const response = {
+      ...measuredResponse(),
+      usage: { input_tokens: 30, output_tokens: 12, total_tokens: 42 },
+    };
+    expect(
+      decode(frame({ type: "response.completed", response })).usage,
+    ).toEqual({
+      inputTokens: 30,
+      cachedInputTokens: 0,
+      outputTokens: 12,
+      reasoningOutputTokens: 0,
+      totalTokens: 42,
+    });
+    for (const detail of ["input_tokens_details", "output_tokens_details"]) {
+      expect(() =>
+        decode(
+          frame({
+            type: "response.completed",
+            response: {
+              ...response,
+              usage: { ...response.usage, [detail]: {} },
+            },
+          }),
+        ),
+      ).toThrow("decode_invalid");
+    }
+  });
+
+  it.each([
+    { id: "" },
+    { status: "incomplete" },
+    { error: { code: "failed" } },
+    { incomplete_details: { reason: "max_output_tokens" } },
+    { model: "" },
+    { usage: null },
+    { usage: { input_tokens: 30, output_tokens: -1, total_tokens: 29 } },
+    { usage: { input_tokens: 30, output_tokens: 12, total_tokens: 43 } },
+    {
+      usage: {
+        input_tokens: 30,
+        output_tokens: 12,
+        total_tokens: 42,
+        input_tokens_details: { cached_tokens: 31 },
+      },
+    },
+    {
+      usage: {
+        input_tokens: 30,
+        output_tokens: 12,
+        total_tokens: 42,
+        output_tokens_details: { reasoning_tokens: 13 },
+      },
+    },
+  ])("rejects contradictory terminal or fabricated usage %j", (change) => {
+    for (const contentType of ["text/event-stream", "application/json"]) {
+      const response = { ...measuredResponse(), ...change };
+      const body =
+        contentType === "text/event-stream"
+          ? frame({ type: "response.completed", response })
+          : JSON.stringify(response);
+      expect(() => decode(body, contentType)).toThrow("decode_invalid");
+    }
+  });
+
+  it.each([
+    "data: [DONE]\n\n",
+    frame({ type: "response.failed" }),
+    frame({ type: "response.incomplete" }),
+    frame({ type: "error" }),
+  ])("never treats failed/DONE input as success %j", (wire) => {
+    expect(() => decode(wire)).toThrow("decode_invalid");
+    expect(() => decode(wire + measuredFrame())).toThrow("decode_invalid");
+  });
+
+  it.each([
+    { error: { code: "provider_failed" } },
+    { incomplete_details: { reason: "max_output_tokens" } },
+    { response_id: "other" },
+    { response_id: null },
+    { response_id: " " },
+    { response_id: 42 },
+  ])("rejects top-level terminal contradictions %j", (change) => {
+    const event = {
+      type: "response.completed",
+      response: measuredResponse(),
+      ...change,
+    };
+    expect(() => decode(frame(event))).toThrow("decode_invalid");
+  });
+
+  it("checks errors and response_id throughout the established lifecycle", () => {
+    for (const index of [0, 1, 4]) {
+      for (const change of [
+        { error: { code: "provider_failed" } },
+        { incomplete_details: { reason: "max_output_tokens" } },
+        { response_id: "other" },
+      ]) {
+        const events = lifecycle();
+        events[events.length - 1] = {
+          type: "response.completed",
+          response: measuredResponse(),
+        };
+        events[index] = { ...events[index], ...change };
+        expect(() => decode(wire(events))).toThrow("decode_invalid");
+      }
+    }
+  });
+
+  it("accepts absent/null error fields and matching supplied response_id", () => {
+    const fields = {
+      error: null,
+      incomplete_details: null,
+      response_id: "resp_1",
+    };
+    expect(
+      decode(
+        frame({
+          type: "response.completed",
+          response: measuredResponse(),
+          ...fields,
+        }),
+      ).responseId,
+    ).toBe("resp_1");
+    const events: Record<string, unknown>[] = lifecycle().map((event) => ({
+      ...event,
+      ...fields,
+    }));
+    events[events.length - 1] = {
+      type: "response.completed",
+      response: measuredResponse(),
+      ...fields,
+    };
+    expect(decode(wire(events)).outputText).toBe(JSON.stringify(envelope()));
+  });
+
+  it("rejects identity changes, partial frames, duplicate terminals and trailing failure", () => {
+    for (const wire of [
+      frame({
+        type: "response.created",
+        response: { id: "other", output: [] },
+      }) + measuredFrame(),
+      measuredFrame().slice(0, -1),
+      measuredFrame() + "data: [DONE]\n",
+      measuredFrame() + measuredFrame(),
+      measuredFrame() + frame({ type: "error" }),
+      measuredFrame() + "data: [DONE]\n\n" + frame({ type: "error" }),
+      measuredFrame() + "data: [DONE]\n\ndata: [DONE]\n\n",
+      "data: {broken}\n\n" + measuredFrame(),
+    ])
+      expect(() => decode(wire)).toThrow("decode_invalid");
+    for (const change of [
+      { status: "failed" },
+      { error: { code: "failed" } },
+      { incomplete_details: { reason: "max_output_tokens" } },
+    ]) {
+      expect(() =>
+        decode(
+          frame({
+            type: "response.created",
+            response: { id: "resp_1", output: [], ...change },
+          }) + measuredFrame(),
+        ),
+      ).toThrow("decode_invalid");
+    }
+  });
+
+  it("validates raw UTF8 and bounds total bytes and even fully framed comments", () => {
+    for (const body of [
+      new Uint8Array([0xc3, 0x28]),
+      new Uint8Array(2 * 1024 * 1024 + 1),
+    ]) {
+      expect(() =>
+        decodeDirectForkResponses({ body, contentType: "text/event-stream" }),
+      ).toThrow("decode_invalid");
+    }
+    expect(() =>
+      decode(":" + "x".repeat(512 * 1024) + "\n\n" + measuredFrame()),
+    ).toThrow("decode_invalid");
+  });
+});
 
 describe("unused direct fork model transport", () => {
   it.each(["\n", "\r\n", "\r"])(

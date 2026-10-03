@@ -503,6 +503,156 @@ describe("CommitAttestedInvestigationTurn", () => {
     );
   });
 
+  it("rejects accepted relay evidence above a reduced saved gateway limit", async () => {
+    const start = new Date();
+    const budgetJson = JSON.stringify({
+      deadline: new Date(start.getTime() + 240_000).toISOString(),
+      maxGatewayOperations: 1,
+      maxOutputFindings: 1,
+      maxOutputProposals: 1,
+      maxOutputTokens: 100,
+      maxRequestBytes: 1_000,
+      maxRequests: 1,
+      maxResponseBytes: 2_000,
+      version: 1,
+    });
+    const fixture = await createFixture({
+      clockAt: start,
+      turnBudgetCanonicalJson: budgetJson,
+      turnBudgetHash: await new NodeSha256InvestigationDigest().digestUtf8(
+        budgetJson,
+      ),
+    });
+    const observation = observationFixture({
+      turnId: fixture.turnId,
+      dossierVersion: fixture.planned.version,
+      obligationId: fixture.obligationId,
+      operationReceiptId: hash("9"),
+    });
+    fixture.evidence.verify.mockResolvedValue({
+      acceptedAttestationId: "attestation-1",
+      acceptedAttestationHash: hash("8"),
+      terminalOutcomeHash: await fixture.digest.digestUtf8(
+        canonicalInvestigationTerminalObservation(observation),
+      ),
+      gatewayPolicyVersion: "context-gateway-v4",
+      actualProviderKind: InvestigationTurnProviderKind.Codex,
+      operations: [
+        { operationReceiptId: hash("9") },
+        { operationReceiptId: hash("a") },
+      ],
+    } as never);
+    await expect(
+      fixture.commit.execute({
+        commandId: "commit-relay-over-budget",
+        investigationId: fixture.planned.investigationId,
+        expectedVersion: fixture.planned.version,
+        turnId: fixture.turnId,
+        sourceAttemptId: "attempt-1",
+        sourceLeaseId: "lease-1",
+        sourceFencingToken: "1",
+        acceptedAttestationId: "attestation-1",
+        acceptedAttestationHash: hash("8"),
+        turnObservationHash: await fixture.digest.digestUtf8(
+          canonicalInvestigationTurnObservation(observation),
+        ),
+        observation,
+      }),
+    ).rejects.toThrow("investigation_relay_turn_budget_exceeded");
+    expect(
+      (await fixture.store.findById(fixture.planned.investigationId))?.state,
+    ).toBe(ReviewInvestigationState.TurnLeased);
+  });
+
+  it.each(["findings", "proposals"] as const)(
+    "rejects accepted relay %s above the saved output limit",
+    async (kind) => {
+      const start = new Date();
+      const budgetJson = JSON.stringify({
+        deadline: new Date(start.getTime() + 240_000).toISOString(),
+        maxGatewayOperations: 16,
+        maxOutputFindings: 1,
+        maxOutputProposals: 1,
+        maxOutputTokens: 100,
+        maxRequestBytes: 1_000,
+        maxRequests: 1,
+        maxResponseBytes: 2_000,
+        version: 1,
+      });
+      const fixture = await createFixture({
+        clockAt: start,
+        turnBudgetCanonicalJson: budgetJson,
+        turnBudgetHash: await new NodeSha256InvestigationDigest().digestUtf8(
+          budgetJson,
+        ),
+      });
+      const base = observationFixture({
+        turnId: fixture.turnId,
+        dossierVersion: fixture.planned.version,
+        obligationId: fixture.obligationId,
+        operationReceiptId: hash("9"),
+      });
+      const source = (await fixture.store.findById(
+        fixture.planned.investigationId,
+      ))!.obligations[0]!;
+      const finding = {
+        severity: InvestigationFindingSeverity.Major,
+        title: "Bounded output",
+        body: "A concrete finding for the relay budget boundary.",
+        path: "src/file.ts",
+        line: 1,
+        evidenceOperationReceiptIds: [hash("9")],
+      } as const;
+      const proposal = {
+        kind: InvestigationObligationKind.DirectCaller,
+        canonicalSubject: source.canonicalSubject,
+        canonicalRequirement: source.canonicalRequirement,
+        riskPriority: 1,
+      } as const;
+      const observation: InvestigationTurnObservation = {
+        ...base,
+        findings:
+          kind === "findings"
+            ? [finding, { ...finding, title: "Second finding" }]
+            : [],
+        obligationProposals:
+          kind === "proposals"
+            ? [proposal, { ...proposal, riskPriority: 2 }]
+            : [],
+      };
+      fixture.evidence.verify.mockResolvedValue({
+        acceptedAttestationId: "attestation-1",
+        acceptedAttestationHash: hash("8"),
+        terminalOutcomeHash: await fixture.digest.digestUtf8(
+          canonicalInvestigationTerminalObservation(observation),
+        ),
+        gatewayPolicyVersion: "context-gateway-v4",
+        actualProviderKind: InvestigationTurnProviderKind.Codex,
+        operations: [],
+      });
+      await expect(
+        fixture.commit.execute({
+          commandId: `commit-relay-over-${kind}`,
+          investigationId: fixture.planned.investigationId,
+          expectedVersion: fixture.planned.version,
+          turnId: fixture.turnId,
+          sourceAttemptId: "attempt-1",
+          sourceLeaseId: "lease-1",
+          sourceFencingToken: "1",
+          acceptedAttestationId: "attestation-1",
+          acceptedAttestationHash: hash("8"),
+          turnObservationHash: await fixture.digest.digestUtf8(
+            canonicalInvestigationTurnObservation(observation),
+          ),
+          observation,
+        }),
+      ).rejects.toThrow("investigation_relay_turn_budget_exceeded");
+      expect(
+        (await fixture.store.findById(fixture.planned.investigationId))?.state,
+      ).toBe(ReviewInvestigationState.TurnLeased);
+    },
+  );
+
   it("preserves an attested provider result during bounded historical drain", async () => {
     const fixture = await createFixture();
     const observation = observationFixture({
@@ -1963,11 +2113,17 @@ function privateMaterialCipher() {
   );
 }
 
-async function createFixture() {
+async function createFixture(
+  options: {
+    clockAt?: Date;
+    turnBudgetCanonicalJson?: string;
+    turnBudgetHash?: string;
+  } = {},
+) {
   const store = new InMemoryInvestigationStore();
   const authority = new CurrentInvestigationExecutionAuthority();
   const clock = new FixedInvestigationClock(
-    new Date("2026-08-02T10:00:00.000Z"),
+    options.clockAt ?? new Date("2026-08-02T10:00:00.000Z"),
   );
   const digest = new NodeSha256InvestigationDigest();
   const opened = await new OpenReviewInvestigation(
@@ -2049,6 +2205,12 @@ async function createFixture() {
     expectedVersion: opened.version,
     leaseDurationMs: 300_000,
     maxObligationsForTurn: 8,
+    ...(options.turnBudgetCanonicalJson === undefined
+      ? {}
+      : {
+          turnBudgetCanonicalJson: options.turnBudgetCanonicalJson,
+          turnBudgetHash: options.turnBudgetHash!,
+        }),
   });
   const aggregate = await store.findById(opened.investigationId);
   const obligationId = aggregate!.obligations[0]!.obligationId;

@@ -200,6 +200,9 @@ export interface ReviewV2OperationCapabilityVerifierPort {
 
 /** Acquires an adapter-bound gateway. No raw SCM credential crosses this port. */
 export interface ReviewV2ScmCredentialAcquisitionPort {
+  /** Separate trusted acquisition with transport retries/failover disabled.
+   * Absence fails the exclusive TEST lane closed before provider admission. */
+  acquireNoRetry?: ReviewV2ScmCredentialAcquisitionPort["acquire"];
   acquire(input: {
     readonly provider: ReviewV2ScmProvider;
     readonly purpose: ReviewV2ScmCredentialPurpose;
@@ -234,6 +237,7 @@ export interface ReviewV2PublicationClockPort {
 }
 
 export type ReviewV2PublicationExecutorDependencies = {
+  readonly exclusivePublication?: import("@reviewrouter/features-review-publishing/v2").ExclusiveTestPublicationPort;
   readonly attempts: ReviewPublicationAttemptQueryPort;
   readonly application: ReviewV2PublicationApplicationPort;
   readonly freshness: ReviewV2PublicationFreshnessPort;

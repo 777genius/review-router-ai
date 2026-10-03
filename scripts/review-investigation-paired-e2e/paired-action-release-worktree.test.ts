@@ -29,6 +29,24 @@ describe("paired Action release worktree", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("rejects a dirty Action protocol manifest before release registration", async () => {
+    const fixture = await createActionRepository();
+    await writeFile(
+      path.join(
+        fixture.root,
+        "src/control-plane/generated/review-action-v2/manifest.json",
+      ),
+      JSON.stringify({
+        protocolVersion: "2",
+        schemaDigest: "3".repeat(64),
+        canonicalizerDigest: "4".repeat(64),
+      }),
+    );
+    await expect(
+      assertExactActionReleaseWorktree(fixture.root, fixture.head),
+    ).rejects.toThrow("paired_action_release_worktree_dirty");
+  });
+
   it("isolates the exact committed release from a dirty source worktree", async () => {
     const fixture = await createActionRepository();
     await mkdir(path.join(fixture.root, "node_modules"));
@@ -132,6 +150,19 @@ async function createActionRepository(): Promise<{
   temporaryRoots.push(root);
   await mkdir(path.join(root, "dist"), { recursive: true });
   await mkdir(path.join(root, "src"), { recursive: true });
+  const manifestDirectory = path.join(
+    root,
+    "src/control-plane/generated/review-action-v2",
+  );
+  await mkdir(manifestDirectory, { recursive: true });
+  await writeFile(
+    path.join(manifestDirectory, "manifest.json"),
+    JSON.stringify({
+      protocolVersion: "2",
+      schemaDigest: "1".repeat(64),
+      canonicalizerDigest: "2".repeat(64),
+    }),
+  );
   await writeFile(path.join(root, "dist/index.js"), "committed\n");
   await writeFile(path.join(root, "src/index.ts"), "export {};\n");
   await writeFile(path.join(root, "README.md"), "committed\n");

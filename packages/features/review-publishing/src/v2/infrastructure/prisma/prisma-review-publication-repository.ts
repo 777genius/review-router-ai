@@ -94,6 +94,16 @@ import {
 } from "./review-publication-prisma-mappers";
 
 type Transaction = Prisma.TransactionClient;
+import {
+  exclusivePublicationHash,
+  exclusivePublicationOperations,
+  exclusivePublicationPlanHash,
+} from "../exclusive-test-publication-hash";
+import {
+  lockExclusivePublicationExecution,
+  readExclusivePublication,
+  readExclusivePublicationExecution,
+} from "./prisma-exclusive-test-publication";
 
 export class PrismaReviewPublicationRepository
   implements
@@ -224,6 +234,32 @@ export class PrismaReviewPublicationRepository
     });
 
     return this.withSerializableTransaction(async (transaction) => {
+      await lockExclusivePublicationExecution(
+        transaction,
+        command.permit.executionId,
+      );
+      const exclusive = await readExclusivePublicationExecution(
+        transaction,
+        command.permit.executionId,
+      );
+      if (exclusive !== null) {
+        const binding = exclusive.binding;
+        if (
+          !binding ||
+          exclusive.closedAt !== null ||
+          new Date(exclusive.intent.expiresAt) <=
+            (await databaseNow(transaction)) ||
+          binding.publicationAttemptId !== command.publicationAttemptId ||
+          exclusivePublicationHash(command.permit) !== binding.permitHash ||
+          exclusivePublicationPlanHash(command.operations) !==
+            binding.planHash ||
+          exclusivePublicationHash(
+            exclusivePublicationOperations(command.operations),
+          ) !== exclusivePublicationHash(binding.operations)
+        ) {
+          return { status: RequestReviewPublicationStatus.IdentityConflict };
+        }
+      }
       const byRequest =
         await transaction.reviewPublicationRequestReceiptV2.findUnique({
           where: { requestIdHash: command.requestIdHash },
@@ -363,6 +399,17 @@ export class PrismaReviewPublicationRepository
     return this.withSerializableTransaction(async (transaction) => {
       if (!(await lockAttempt(transaction, command.publicationAttemptId))) {
         return { status: ClaimReviewPublicationStatus.Missing };
+      }
+      const exclusive = await readExclusivePublication(
+        transaction,
+        command.publicationAttemptId,
+      );
+      if (
+        exclusive &&
+        (exclusive.intent.ownerIdHash !== command.ownerIdHash ||
+          exclusive.closedAt !== null)
+      ) {
+        return { status: ClaimReviewPublicationStatus.AlreadyClaimed };
       }
       const existing =
         await transaction.reviewPublicationClaimTermV2.findUnique({
@@ -546,6 +593,25 @@ export class PrismaReviewPublicationRepository
     return this.withSerializableTransaction(async (transaction) => {
       if (!(await lockAttempt(transaction, command.publicationAttemptId))) {
         return { status: BeginReviewPublicationOperationStatus.Missing };
+      }
+      const exclusive = await readExclusivePublication(
+        transaction,
+        command.publicationAttemptId,
+      );
+      if (exclusive) {
+        const owner = await transaction.reviewPublicationClaimTermV2.findUnique(
+          { where: { claimId: command.claimId } },
+        );
+        if (
+          exclusive.closedAt !== null ||
+          !exclusive.binding?.operations.some(
+            (op) =>
+              op.publicationOperationId === command.publicationOperationId,
+          ) ||
+          owner?.ownerIdHash !== exclusive.intent.ownerIdHash
+        ) {
+          return { status: BeginReviewPublicationOperationStatus.StaleClaim };
+        }
       }
       const existing =
         await transaction.reviewPublicationOperationAttemptV2.findUnique({

@@ -60,6 +60,92 @@ export type DirectForkResponsesInput = Readonly<{
   timeoutMs?: number;
 }>;
 
+export type DecodedDirectForkResponses = Readonly<{
+  responseId: string;
+  model: string;
+  usage: Readonly<{
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+    reasoningOutputTokens: number;
+    totalTokens: number;
+  }>;
+  outputText: string;
+  completedResponse: Readonly<Record<string, unknown>>;
+  responseBytes: number;
+}>;
+
+/** Pure decoding of an already consumed body. No transport or authority effects.
+ * The caller retains the raw bytes as evidence; this decoder never mutates them.
+ */
+export function decodeDirectForkResponses(input: {
+  readonly body: Uint8Array;
+  readonly contentType: string | null;
+}): DecodedDirectForkResponses {
+  try {
+    if (isProxy(input.body) || !(input.body instanceof Uint8Array))
+      fail("shape_invalid");
+    if (input.body.byteLength > maxResponseBytes) fail("response_too_large");
+    const mediaType = certifiedForkResponseMediaType(input.contentType);
+    if (!mediaType) fail("content_type_rejected");
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(input.body);
+    const parsed =
+      mediaType === "text/event-stream"
+        ? parseSse(text, true)
+        : (() => {
+            const response = record(JSON.parse(text) as unknown);
+            return { outputText: completedOutput(response), response };
+          })();
+    const response = parsed.response;
+    if (
+      typeof response.model !== "string" ||
+      !response.model.trim() ||
+      response.model.length > 500
+    )
+      fail("model_invalid");
+    const usage = record(response.usage);
+    const measured = (value: unknown): number => {
+      if (!Number.isSafeInteger(value) || (value as number) < 0)
+        fail("usage_invalid");
+      return value as number;
+    };
+    const inputTokens = measured(usage.input_tokens);
+    const outputTokens = measured(usage.output_tokens);
+    const totalTokens = measured(usage.total_tokens);
+    const cachedInputTokens =
+      usage.input_tokens_details == null
+        ? 0
+        : measured(record(usage.input_tokens_details).cached_tokens);
+    const reasoningOutputTokens =
+      usage.output_tokens_details == null
+        ? 0
+        : measured(record(usage.output_tokens_details).reasoning_tokens);
+    if (
+      totalTokens !== inputTokens + outputTokens ||
+      cachedInputTokens > inputTokens ||
+      reasoningOutputTokens > outputTokens
+    )
+      fail("usage_invalid");
+    return Object.freeze({
+      responseId: response.id as string,
+      model: response.model,
+      usage: Object.freeze({
+        inputTokens,
+        cachedInputTokens,
+        outputTokens,
+        reasoningOutputTokens,
+        totalTokens,
+      }),
+      outputText: parsed.outputText,
+      completedResponse: Object.freeze(response),
+      responseBytes: input.body.byteLength,
+    });
+  } catch {
+    // Never include upstream output or attacker-controlled causes in failures.
+    fail("decode_invalid");
+  }
+}
+
 const transportCodes = new WeakMap<object, string>();
 class TransportError extends Error {
   constructor(code: string) {
@@ -290,7 +376,7 @@ async function requestWithinBoundary(
     const text = await readBody(response, controller.signal);
     const output =
       mediaType === "text/event-stream"
-        ? parseSse(text)
+        ? parseSse(text).outputText
         : completedOutput(JSON.parse(text.replace(/^\uFEFF/u, "")) as unknown);
     if (Buffer.byteLength(output, "utf8") > maxOutputBytes)
       fail("output_too_large");
@@ -418,7 +504,9 @@ function completedOutput(value: unknown): string {
     response.status !== "completed" ||
     typeof response.id !== "string" ||
     !response.id ||
-    response.id.length > 500
+    response.id.length > 500 ||
+    response.error != null ||
+    response.incomplete_details != null
   )
     fail("incomplete");
   if (!Array.isArray(response.output) || response.output.length === 0)
@@ -439,12 +527,17 @@ function completedOutput(value: unknown): string {
  * Require a dispatched final frame and EOF, including after completion. A DONE
  * marker is not completion and is intentionally rejected as post-terminal data.
  */
-function parseSse(text: string): string {
+function parseSse(
+  text: string,
+  allowDone = false,
+): { outputText: string; response: Record<string, unknown> } {
   let data: string[] = [];
   let eventName = "";
   let frameBytes = 0;
   let count = 0;
   let terminal: string | undefined;
+  let terminalResponse: Record<string, unknown> | undefined;
+  let done = false;
   type Content = {
     phase: "added" | "text_done" | "done";
     delta: string;
@@ -506,9 +599,14 @@ function parseSse(text: string): string {
     if (firstLine) line = line.replace(/^\uFEFF/u, "");
     firstLine = false;
     if (terminal !== undefined) {
-      // Even comments after completion are rejected (empty separators are OK).
-      if (line !== "") fail("post_terminal");
-      continue;
+      // The pure hosted-body decoder permits one framed relay trailer. V1 keeps
+      // its existing strict policy. Neither policy permits payload after it.
+      if (!allowDone || done) {
+        if (line !== "") fail("post_terminal");
+        continue;
+      }
+      if (line !== "" && line !== "data: [DONE]" && line !== "data:[DONE]")
+        fail("post_terminal");
     }
     frameBytes += Buffer.byteLength(rawLine, "utf8");
     if (frameBytes > maxEventBytes) fail("event_too_large");
@@ -530,14 +628,35 @@ function parseSse(text: string): string {
     }
     count += 1;
     if (count > maxEvents) fail("event_budget_exceeded");
-    const event = record(JSON.parse(data.join("\n")) as unknown);
+    const payload = data.join("\n");
     data = [];
+    if (terminal !== undefined) {
+      if (payload !== "[DONE]" || eventName) fail("post_terminal");
+      done = true;
+      continue;
+    }
+    const event = record(JSON.parse(payload) as unknown);
     if (
       typeof event.type !== "string" ||
       (eventName && eventName !== event.type)
     )
       fail("sse_invalid");
     eventName = "";
+    if (event.error != null || event.incomplete_details != null)
+      fail("incomplete");
+    if (event.response_id !== undefined) {
+      const nestedId =
+        event.response === undefined ? undefined : record(event.response).id;
+      if (
+        typeof event.response_id !== "string" ||
+        !event.response_id.trim() ||
+        event.response_id.length > 500 ||
+        (nestedId !== undefined && event.response_id !== nestedId) ||
+        (responseId !== undefined && event.response_id !== responseId) ||
+        (nestedId === undefined && responseId === undefined)
+      )
+        fail("response_mismatch");
+    }
     if (event.sequence_number !== undefined) {
       if (
         !Number.isSafeInteger(event.sequence_number) ||
@@ -559,7 +678,14 @@ function parseSse(text: string): string {
         if (
           typeof response.id !== "string" ||
           !response.id ||
-          response.id.length > 500
+          response.id.length > 500 ||
+          response.error != null ||
+          response.incomplete_details != null ||
+          (response.status != null &&
+            response.status !== "in_progress" &&
+            !(
+              event.type === "response.created" && response.status === "queued"
+            ))
         )
           fail("shape_invalid");
         if (responseId !== undefined && responseId !== response.id)
@@ -714,9 +840,12 @@ function parseSse(text: string): string {
           response.status !== "completed" ||
           typeof response.id !== "string" ||
           !response.id ||
-          response.id.length > 500
+          response.id.length > 500 ||
+          response.error != null ||
+          response.incomplete_details != null
         )
           fail("incomplete");
+        terminalResponse = response;
         // Terminal-only snapshots still require the full output array. ChatGPT
         // Codex store:false streams the items, then completes with output: [].
         if (phase === "initial") {
@@ -758,7 +887,12 @@ function parseSse(text: string): string {
         fail("event_rejected");
     }
   }
-  if (terminal === undefined || data.length || eventName)
+  if (
+    terminal === undefined ||
+    terminalResponse === undefined ||
+    data.length ||
+    eventName
+  )
     fail("stream_truncated");
-  return terminal;
+  return { outputText: terminal, response: terminalResponse };
 }

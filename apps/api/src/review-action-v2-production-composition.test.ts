@@ -62,6 +62,7 @@ describe("Review Action v2 production composition", () => {
       }),
     ).toEqual({
       hostedV4: { enabled: false },
+      hostedV4OneShot: { enabled: false },
       hostedV4Relay: { enabled: false },
       runControl: runtime,
       execution: runtime,
@@ -154,6 +155,7 @@ describe("Review Action v2 production composition", () => {
     expect(routes.hostedV4.enabled).toBe(true);
     // Regression: the v4 read flag must not imply relay grant admission.
     expect(routes.hostedV4Relay.enabled).toBe(false);
+    expect(routes.hostedV4OneShot.enabled).toBe(false);
     expect(routes.hostedV4Relay.resolver).toBeDefined();
   });
 

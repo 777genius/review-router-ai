@@ -159,3 +159,10 @@ class ConfiguredReviewPublicationCapabilityGate implements ReviewPublicationCapa
     }
   }
 }
+export { PrismaExclusiveTestPublication } from "../infrastructure/prisma/prisma-exclusive-test-publication";
+export {
+  exclusivePublicationHash,
+  exclusivePublicationOperationHash,
+  exclusivePublicationPlanHash,
+  exclusivePublicationOperations,
+} from "../infrastructure/exclusive-test-publication-hash";
