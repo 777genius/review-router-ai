@@ -35,7 +35,8 @@ const extensions = [
   "000113_sdk_growth_approval_ledger",
   "000114_sdk_growth_v3_tool_artifact",
   "000115_sdk_growth_v3_approved_manifest",
-  "000116_provider_accounts",
+  "000116_hosted_codex_relay_admission_utc",
+  "000117_provider_accounts",
 ];
 function body(name: string) {
   const match = source.match(
