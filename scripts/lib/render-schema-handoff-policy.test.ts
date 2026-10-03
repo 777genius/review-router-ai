@@ -24,7 +24,15 @@ import {
   renderSchemaHandoffMigrationContract as contract,
 } from "./render-schema-handoff-policy.mjs";
 
-import { canonicalPrismaMigrationNames } from "./canonical-prisma-migration-catalog.mjs";
+import { canonicalPrismaMigrationNames as currentCanonicalPrismaMigrationNames } from "./canonical-prisma-migration-catalog.mjs";
+
+// Existing immutable-history cases exclude the independently pinned key branch.
+// provider-key-checkout-admission.test.ts covers that branch against real SQL.
+const providerKeyMigrationName = "000110_provider_api_key_workspace_management";
+const canonicalPrismaMigrationNames =
+  currentCanonicalPrismaMigrationNames.filter(
+    (name) => name !== providerKeyMigrationName,
+  );
 
 // Node 24 can require these ESM files directly. This keeps copied fixtures
 // outside Vitest's source transform while preserving synchronous read calls.
@@ -1275,11 +1283,15 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads checkout115 through original92 as identical frozen92 rows", async () => {
+  it("reads the key-enabled checkout through original92 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(115);
+    expect(inventory).toHaveLength(116);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, providerKeyMigrationName), {
+      recursive: true,
+    });
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, migration116.migrationName), {
       recursive: true,
@@ -1399,6 +1411,9 @@ describe("complete filesystem checkout inventory", () => {
 
   it("admits only complete extension sets from actual filesystem bytes", async () => {
     const fixture = await checkout();
+    rmSync(join(fixture.migrations, providerKeyMigrationName), {
+      recursive: true,
+    });
     const tail = [
       ...extension,
       migration96,
@@ -1508,7 +1523,10 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      if (name === migration116.migrationName)
+      if (
+        name === migration116.migrationName ||
+        name === providerKeyMigrationName
+      )
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

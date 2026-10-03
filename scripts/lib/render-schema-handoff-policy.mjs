@@ -230,6 +230,27 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // This independently published checkout addition is not part of the old
+  // managed or historical manifests. Validate its exact bytes and predecessor,
+  // then validate the complete original history without changing those pins.
+  const providerKeyMigration = catalog.find(
+    (row) =>
+      row.migrationName === "000110_provider_api_key_workspace_management",
+  );
+  if (providerKeyMigration) {
+    if (
+      providerKeyMigration.checksum !==
+        "d69beaa182fd49ad231bb86b2af4b9d53af3c54cab3a12fa3ca910e7a4379208" ||
+      !catalog.some(
+        (row) =>
+          row.migrationName === "000109_sdk_growth_verifier_assignment_lock",
+      )
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== providerKeyMigration),
+    );
+  }
   const managed = [];
   let extensions = 0;
   for (const row of catalog) {

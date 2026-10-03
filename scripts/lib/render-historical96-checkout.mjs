@@ -19,6 +19,7 @@ const checkoutOnlyMigrations = Object.freeze([
   "000108_sdk_growth_verifier_assignment",
   "000109_sdk_growth_verifier_assignment_lock",
   "000110_historical_unknown_scope_barrier",
+  "000110_provider_api_key_workspace_management",
   "000111_sdk_growth_source_binding",
   "000112_sdk_growth_operator_credential",
   "000113_sdk_growth_approval_ledger",
@@ -34,7 +35,12 @@ export function readRenderHistorical96CheckoutInventory() {
     ![
       96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
       111, 112, 113, 114, 115,
-    ].includes(checkout.length)
+    ].includes(
+      checkout.filter(
+        (row) =>
+          row.migrationName !== "000110_provider_api_key_workspace_management",
+      ).length,
+    )
   )
     throw new Error("render_historical96_checkout_rejected:count");
   const historical = checkout.filter(

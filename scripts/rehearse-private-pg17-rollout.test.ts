@@ -1274,12 +1274,21 @@ describe("disposable dual-version rehearsal", () => {
     const previousCheckout = migrationNames.filter(
       (name) => name !== "000116_hosted_codex_relay_admission_utc",
     );
-    expect(previousCheckout).toHaveLength(114);
+    expect(previousCheckout).toHaveLength(115);
     expect(() =>
       resolvePreReleaseMigrationExclusions(previousCheckout),
     ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
-    expect(migrationNames).toHaveLength(115);
+    expect(migrationNames).toHaveLength(116);
     expect(migrationManifestIdentity(migrationNames)).toBe(
+      "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
+    );
+    expect(
+      migrationManifestIdentity(
+        migrationNames.filter(
+          (name) => name !== "000110_provider_api_key_workspace_management",
+        ),
+      ),
+    ).toBe(
       "sha256:30f68ffc62e0b46815bc007339d83aa7894b61b23f301c012b8990713cc0ad14",
     );
 
@@ -1317,6 +1326,7 @@ describe("disposable dual-version rehearsal", () => {
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
+      "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
       "000112_sdk_growth_operator_credential",
       "000113_sdk_growth_approval_ledger",
@@ -1373,6 +1383,7 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000108_sdk_growth_verifier_assignment" &&
             name !== "000109_sdk_growth_verifier_assignment_lock" &&
             name !== "000110_historical_unknown_scope_barrier" &&
+            name !== "000110_provider_api_key_workspace_management" &&
             name !== "000111_sdk_growth_source_binding" &&
             name !== "000112_sdk_growth_operator_credential" &&
             name !== "000113_sdk_growth_approval_ledger" &&
@@ -1402,6 +1413,7 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000108_sdk_growth_verifier_assignment" &&
             name !== "000109_sdk_growth_verifier_assignment_lock" &&
             name !== "000110_historical_unknown_scope_barrier" &&
+            name !== "000110_provider_api_key_workspace_management" &&
             name !== "000111_sdk_growth_source_binding" &&
             name !== "000112_sdk_growth_operator_credential" &&
             name !== "000113_sdk_growth_approval_ledger" &&
@@ -1462,6 +1474,7 @@ describe("disposable dual-version rehearsal", () => {
     "000108_sdk_growth_verifier_assignment",
     "000109_sdk_growth_verifier_assignment_lock",
     "000110_historical_unknown_scope_barrier",
+    "000110_provider_api_key_workspace_management",
     "000111_sdk_growth_source_binding",
     "000112_sdk_growth_operator_credential",
     "000113_sdk_growth_approval_ledger",
@@ -1508,6 +1521,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000108_sdk_growth_verifier_assignment" &&
                 name !== "000109_sdk_growth_verifier_assignment_lock" &&
                 name !== "000110_historical_unknown_scope_barrier" &&
+                name !== "000110_provider_api_key_workspace_management" &&
                 name !== "000111_sdk_growth_source_binding" &&
                 name !== "000112_sdk_growth_operator_credential" &&
                 name !== "000113_sdk_growth_approval_ledger" &&

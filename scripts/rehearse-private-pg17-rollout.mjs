@@ -316,6 +316,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000108_sdk_growth_verifier_assignment",
     "000109_sdk_growth_verifier_assignment_lock",
     "000110_historical_unknown_scope_barrier",
+    "000110_provider_api_key_workspace_management",
     "000111_sdk_growth_source_binding",
     "000112_sdk_growth_operator_credential",
     "000113_sdk_growth_approval_ledger",
