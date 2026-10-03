@@ -1,6 +1,6 @@
 import { parseInvestigationAuthorizationDescriptorJson } from "../../domain/hosted-v4-relay-descriptor";
 import { createHash, randomUUID } from "node:crypto";
-import { PostgresTransactionClock } from "../../../../../platform/db/src/postgres-transaction-clock.js";
+import { PostgresTransactionClock } from "@reviewrouter/platform-db";
 import {
   Prisma,
   type HostedCodexInvocationGrant,
