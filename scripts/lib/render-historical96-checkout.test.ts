@@ -34,8 +34,14 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full119 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(119);
+  it("validates the full120 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(120);
+    expect(full[119]?.migrationName).toBe(
+      "000121_review_run_gateway_execution_binding",
+    );
+    expect(manifest(full)).toBe(
+      "sha256:5f01c4416620cf984ffa5fee8dbb26bcf171ae3a89ec4e4b8615e4c7c8461c64",
+    );
     expect(full[118]?.migrationName).toBe("000120_review_run_runtime_snapshot");
     expect(full[117]?.migrationName).toBe(
       "000119_review_configuration_gateway_binding",
