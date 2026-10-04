@@ -41,15 +41,18 @@ export class PrismaProviderAccountRepository
     });
     return row ? mapConnection(row) : null;
   }
-  async findBinding(request: {
-    readonly workspaceId: string;
-    readonly bindingId: string;
-  }) {
+  async findBinding(
+    request: {
+      readonly workspaceId: string;
+      readonly bindingId: string;
+    },
+    reader: Pick<PrismaClient, "workspaceAccountBinding"> = this.prisma,
+  ) {
     const input = {
       workspaceId: request.workspaceId,
       bindingId: request.bindingId,
     };
-    const row = await this.prisma.workspaceAccountBinding.findUnique({
+    const row = await reader.workspaceAccountBinding.findUnique({
       where: {
         id_workspaceId: { id: input.bindingId, workspaceId: input.workspaceId },
       },

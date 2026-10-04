@@ -39,6 +39,7 @@ const extensions = [
   "000117_provider_accounts",
   "000118_workspace_binding_fences",
   "000119_review_configuration_gateway_binding",
+  "000120_review_run_runtime_snapshot",
 ];
 function body(name: string) {
   const match = source.match(
