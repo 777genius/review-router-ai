@@ -34,8 +34,11 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full117 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(117);
+  it("validates the full118 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(118);
+    expect(full[117]?.migrationName).toBe(
+      "000119_review_configuration_gateway_binding",
+    );
     expect(full[116]?.migrationName).toBe("000118_workspace_binding_fences");
     expect(full[115]?.migrationName).toBe("000117_provider_accounts");
     expect(full[114]?.migrationName).toBe(
@@ -111,9 +114,11 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: full.slice(0, 113) },
     { checkout: full.slice(0, 114) },
     { checkout: full.slice(0, 115) },
+    { checkout: full.slice(0, 116) },
+    { checkout: full.slice(0, 117) },
     { checkout: full },
   ])(
-    "accepts a complete validated checkout through 000117 (%#)",
+    "accepts a complete validated checkout through 000119 (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);

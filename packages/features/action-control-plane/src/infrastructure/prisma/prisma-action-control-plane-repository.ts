@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   parseReviewConfiguration,
+  reviewProviderConfigurationSchema,
   type ReviewProviderConfiguration,
   safeDefaultReviewConfiguration,
 } from "@reviewrouter/features-review-config";
@@ -276,6 +277,8 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
             schemaVersion: true,
             providerKind: true,
             providerAuthMode: true,
+            gatewayBindingId: true,
+            gatewayProfileRef: true,
             model: true,
             reasoningEffort: true,
             agenticContext: true,
@@ -298,6 +301,8 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
               select: {
                 providerKind: true,
                 providerAuthMode: true,
+                gatewayBindingId: true,
+                gatewayProfileRef: true,
                 model: true,
                 reasoningEffort: true,
                 agenticContext: true,
@@ -426,12 +431,14 @@ function toReviewProviderConfiguration(input: {
   readonly agenticContext: boolean;
   readonly fastMode: boolean;
   readonly requiredHealthy?: boolean;
+  readonly gatewayBindingId?: string | null;
+  readonly gatewayProfileRef?: string | null;
 }): ReviewProviderConfiguration {
   const authMode = toProviderAuthMode({
     providerAuthMode: input.providerAuthMode,
     providerKind: input.providerKind,
   });
-  return {
+  return reviewProviderConfigurationSchema.parse({
     kind: providerKindForAuthMode(authMode),
     authMode,
     model: input.model,
@@ -439,7 +446,9 @@ function toReviewProviderConfiguration(input: {
     agenticContext: input.agenticContext,
     fastMode: input.fastMode,
     requiredHealthy: input.requiredHealthy === true,
-  };
+    gatewayBindingId: input.gatewayBindingId ?? undefined,
+    gatewayProfileRef: input.gatewayProfileRef ?? undefined,
+  });
 }
 
 function toProviderAuthMode(input: {

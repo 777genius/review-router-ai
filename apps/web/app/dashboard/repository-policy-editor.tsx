@@ -11,9 +11,10 @@ import {
 } from "react";
 import * as RadixSelect from "@radix-ui/react-select";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import type {
-  ReviewConfiguration,
-  ReviewProviderConfiguration,
+import {
+  reviewProviderConfigurationSchema,
+  type ReviewConfiguration,
+  type ReviewProviderConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
   codexModelSupportsReasoningEffort,
@@ -79,6 +80,11 @@ const providerAuthModeOrder = [
 ] as const satisfies readonly ProviderAuthMode[];
 
 const providerAuthOptionCopyByAuthMode = {
+  codex_account_gateway: {
+    label: "Account Gateway",
+    description:
+      "Uses the saved workspace account. Credentials stay on the server.",
+  },
   codex_subscription_oauth_hosted_pool: {
     label: "Hosted workspace pool",
     description:
@@ -227,6 +233,12 @@ const defaultCodexProvider = {
 } satisfies ReviewProviderConfiguration;
 
 const secretCopyByAuthMode = {
+  codex_account_gateway: {
+    label: "Account Gateway",
+    description: "Credentials stay on the server.",
+    commandSuffix: "",
+    recovery: "Ask a workspace owner or admin to reconnect the saved account.",
+  },
   codex_subscription_oauth_hosted_pool: {
     label: "Hosted workspace pool",
     description:
@@ -296,13 +308,16 @@ function ProviderSecretNotice({
 }): React.ReactElement {
   const rotatingCodex = authMode === "codex_subscription_oauth_rotating";
   const hostedCodex = authMode === "codex_subscription_oauth_hosted_pool";
+  const gateway = authMode === "codex_account_gateway";
   const [secretStatus, setSecretStatus] = useState<ProviderSecretStatus>(
     secretCheckTarget ? "checking" : "missing",
   );
   const [refreshVersion, setRefreshVersion] = useState(0);
   const authMetadata = getProviderAuthModeMetadata(authMode);
   const metadata =
-    rotatingCodex || hostedCodex ? null : getSecretMetadata(authMode);
+    rotatingCodex || hostedCodex || gateway
+      ? null
+      : getSecretMetadata(authMode);
   const command = metadata
     ? repositoryFullName
       ? `gh secret set ${metadata.secretName} --repo ${repositoryFullName}${metadata.commandSuffix ? ` ${metadata.commandSuffix}` : ""}`
@@ -316,7 +331,7 @@ function ProviderSecretNotice({
       : null;
 
   useEffect(() => {
-    if (!secretWorkspaceId || !secretRepositoryId) {
+    if (gateway || !secretWorkspaceId || !secretRepositoryId) {
       setSecretStatus("missing");
       return;
     }
@@ -349,11 +364,21 @@ function ProviderSecretNotice({
     };
   }, [
     authMode,
+    gateway,
     authMetadata.providerKind,
     refreshVersion,
     secretRepositoryId,
     secretWorkspaceId,
   ]);
+
+  if (gateway) {
+    return (
+      <p role="note" className="text-sm text-slate-400">
+        Credentials stay on the server. The saved workspace account is checked
+        when a review starts.
+      </p>
+    );
+  }
 
   if (rotatingCodex) {
     return (
@@ -1145,6 +1170,8 @@ export function ReviewConfigForm({
     index: number,
     authMode: ReviewProviderConfiguration["authMode"],
   ): void {
+    // Selecting a gateway requires an explicit binding and profile, not a legacy default.
+    if (authMode === "codex_account_gateway") return;
     const kind = providerKindForAuthMode(authMode);
     const defaultProvider = getDefaultProviderConfigForAuthMode(authMode);
     const nextOptions = modelOptionsByProvider[kind];
@@ -1185,7 +1212,18 @@ export function ReviewConfigForm({
   function providerAuthOptionsForProvider(
     provider: ReviewProviderConfiguration,
   ): readonly DashboardSelectOption[] {
-    return providerAuthOptions.map((option) => {
+    const options =
+      provider.authMode === "codex_account_gateway"
+        ? [
+            ...providerAuthOptions,
+            {
+              value: "codex_account_gateway",
+              providerAuthMode: "codex_account_gateway" as const,
+              ...providerAuthOptionCopyByAuthMode.codex_account_gateway,
+            },
+          ]
+        : providerAuthOptions;
+    return options.map((option) => {
       if (
         option.providerAuthMode === "codex_subscription_oauth_rotating" &&
         codexRotatingSelected &&
@@ -1270,6 +1308,20 @@ export function ReviewConfigForm({
                     index > 0 ? "border-t border-cyan-200/10 pt-6" : ""
                   }`}
                 >
+                  {provider.authMode === "codex_account_gateway" ? (
+                    <>
+                      <input
+                        type="hidden"
+                        name={`providerGatewayBindingId.${index}`}
+                        value={provider.gatewayBindingId}
+                      />
+                      <input
+                        type="hidden"
+                        name={`providerGatewayProfileRef.${index}`}
+                        value={provider.gatewayProfileRef}
+                      />
+                    </>
+                  ) : null}
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="text-base font-semibold text-cyan-50">
@@ -1527,7 +1579,10 @@ function isDisabledCodexAuthMode(
 function replaceDisabledCodexProvider(
   provider: ReviewProviderConfiguration,
 ): ReviewProviderConfiguration {
-  if (!isDisabledCodexAuthMode(provider)) {
+  if (
+    provider.authMode !== "codex_subscription_oauth" &&
+    provider.authMode !== "codex_openai_api_key"
+  ) {
     return provider;
   }
   return {
@@ -1549,14 +1604,20 @@ function normalizeCodexRotatingProvidersForForm(
 
 function resolveProviderAfterAuthChange(input: {
   readonly provider: ReviewProviderConfiguration;
-  readonly authMode: ReviewProviderConfiguration["authMode"];
+  readonly authMode: Exclude<
+    ReviewProviderConfiguration["authMode"],
+    "codex_account_gateway"
+  >;
   readonly kind: ProviderKind;
   readonly defaultProvider: ReviewProviderConfiguration;
   readonly nextOptions: readonly ReviewModelOption[];
 }): ReviewProviderConfiguration {
   const { provider, authMode, kind, defaultProvider, nextOptions } = input;
-  return {
-    ...provider,
+  return reviewProviderConfigurationSchema.parse({
+    // A deliberate auth change discards the previous connection references.
+    // The shared domain schema rejects incomplete or cross-mode gateway rows.
+    gatewayBindingId: undefined,
+    gatewayProfileRef: undefined,
     kind,
     authMode,
     model:
@@ -1582,7 +1643,7 @@ function resolveProviderAfterAuthChange(input: {
       authMode === "codex_subscription_oauth_rotating"
         ? true
         : provider.requiredHealthy,
-  };
+  });
 }
 
 function supportsAgenticContext(kind: ProviderKind): boolean {

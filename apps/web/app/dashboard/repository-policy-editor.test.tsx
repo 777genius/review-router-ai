@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readReviewConfigurationForm } from "./dashboard-action-form-readers";
 import {
   safeDefaultReviewConfiguration,
   type ReviewConfiguration,
@@ -97,6 +98,54 @@ function pageText(): string {
 }
 
 describe("ReviewConfigForm", () => {
+  it("round-trips a saved gateway selection without a GitHub secret probe and clears refs when switching auth", () => {
+    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
+      status: "missing",
+    });
+    const provider = {
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      model: "mimo-v2-pro",
+      reasoningEffort: "xhigh",
+      agenticContext: true,
+      fastMode: false,
+      requiredHealthy: true,
+      gatewayBindingId: "binding-mimo",
+      gatewayProfileRef: "profile-mimo",
+    } satisfies ReviewProviderConfiguration;
+    renderReviewConfigForm({
+      config: {
+        ...safeDefaultReviewConfiguration,
+        provider,
+        providers: [provider],
+      },
+      repositoryFullName: "test/disposable-gateway",
+      repositorySecretCheckTarget: {
+        workspaceId: "workspace_1",
+        repositoryId: "repo_1",
+      },
+    });
+    const form = document.querySelector("form");
+    expect(form).not.toBeNull();
+    expect(
+      readReviewConfigurationForm(new FormData(form!)).provider,
+    ).toMatchObject({
+      authMode: "codex_account_gateway",
+      gatewayBindingId: "binding-mimo",
+      gatewayProfileRef: "profile-mimo",
+    });
+    expect(checkProviderRepositorySecretClientAction).not.toHaveBeenCalled();
+    expect(pageText()).toContain("Credentials stay on the server");
+    fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
+    fireEvent.click(
+      screen.getByRole("option", { name: /OpenRouter API key/i }),
+    );
+    const switched = readReviewConfigurationForm(new FormData(form!)).provider;
+    expect(switched.authMode).toBe("openrouter_api_key");
+    expect(switched.gatewayBindingId).toBeUndefined();
+    expect(switched.gatewayProfileRef).toBeUndefined();
+  });
+
   it("preserves configured investigation rollout values in dashboard submissions", () => {
     renderReviewConfigForm({
       config: {
