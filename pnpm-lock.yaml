@@ -159,6 +159,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@agent-teams/account-gateway':
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -1093,6 +1096,23 @@ importers:
         version: 3.2.2(tailwind-merge@3.5.0)(tailwindcss@4.2.4)
 
 packages:
+
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz':
+    resolution: {integrity: sha512-FN8fXQuUtjrNhd5W+E3zQtjs+cbU/qhS3XmMjuDbrMRzm2lrqGuKLDZdsDAiHzbqmx48ICCVt2pFtzWYss3G1Q==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz}
+    version: 0.1.0
+    engines: {node: '>=24.21.0 <25'}
+
+  '@get-modular/assembly@0.2.0':
+    resolution: {integrity: sha512-xZTgfMUzHnA8DR7wk/3mAdLppTlwAsm6pfW5bgoW6lvGh8hYGBJwcwzbdynJduRVBVW7aFmchsrLTP5w4rcmlw==}
+    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
+
+  '@get-modular/core@0.2.0':
+    resolution: {integrity: sha512-npn2dAR5TuVobDzuI7MRZS0p6/0qzTWbRbPo5y9EaDz4qFtBNF6+YBhU92QPwOkYzVjo9xAJtIgMkly7wlkdWw==}
+    engines: {node: '>=24.18.0 <25 || >=26.10.0 <27'}
+
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
   '@types/pg@8.23.1':
     resolution: {integrity: sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==}
 
@@ -4877,6 +4897,21 @@ packages:
     engines: {node: '>= 10.0.0'}
 
 snapshots:
+
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz':
+    dependencies:
+      '@get-modular/assembly': 0.2.0
+      '@get-modular/core': 0.2.0
+      zod: 4.6.5
+
+  '@get-modular/assembly@0.2.0':
+    dependencies:
+      '@get-modular/core': 0.2.0
+
+  '@get-modular/core@0.2.0': {}
+
+  zod@4.6.5: {}
+
   '@types/pg@8.23.1':
     dependencies:
       '@types/node': 22.20.1
