@@ -1051,39 +1051,31 @@ export function composeReviewActionV2ProductionRoutes(input: {
                 policyQueries: safetyQueries,
                 emergencyQueries: safetyQueries,
               });
-              const [current, authority, release, decision] = await Promise.all(
-                [
-                  tx.reviewRunAuthorization.findUnique({
-                    where: {
-                      authorizationId: authorization.authorizationId,
-                    },
-                  }),
-                  tx.reviewMutationAuthority.findUnique({
-                    where: {
-                      scmRepositoryIdentityId_laneKind: {
-                        scmRepositoryIdentityId:
-                          authorization.scmRepositoryIdentityId,
-                        laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
-                      },
-                    },
-                  }),
-                  tx.producerRelease.findUnique({
-                    where: {
-                      producerReleaseId: authorization.producerReleaseId,
-                    },
-                  }),
-                  safety.resolveReviewSafetyPolicy({
-                    decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
-                    target: safetyTarget(
-                      authorization,
-                      authorization.providerVoteLanes.map((lane) => ({
-                        providerKind: lane.providerKind,
-                        taskKind: ReviewTaskKind.CodeReview,
-                      })),
-                    ),
-                  }),
-                ],
-              );
+              const current = await tx.reviewRunAuthorization.findUnique({
+                where: { authorizationId: authorization.authorizationId },
+              });
+              const authority = await tx.reviewMutationAuthority.findUnique({
+                where: {
+                  scmRepositoryIdentityId_laneKind: {
+                    scmRepositoryIdentityId:
+                      authorization.scmRepositoryIdentityId,
+                    laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
+                  },
+                },
+              });
+              const release = await tx.producerRelease.findUnique({
+                where: { producerReleaseId: authorization.producerReleaseId },
+              });
+              const decision = await safety.resolveReviewSafetyPolicy({
+                decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
+                target: safetyTarget(
+                  authorization,
+                  authorization.providerVoteLanes.map((lane) => ({
+                    providerKind: lane.providerKind,
+                    taskKind: ReviewTaskKind.CodeReview,
+                  })),
+                ),
+              });
               const times = await tx.$queryRaw<
                 readonly { now: Date }[]
               >`SELECT clock_timestamp() AS "now"`;
