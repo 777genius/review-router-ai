@@ -1,4 +1,5 @@
 # C2C CI fixture repair handoff
+
 Supplied base: d8a3f45865834b74e9ee1255342d87934eda0a44.
 Observed HEAD unavailable: linked .git points to a missing source-run-preparation worktree.
 Normative53 unchanged: 66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0.
