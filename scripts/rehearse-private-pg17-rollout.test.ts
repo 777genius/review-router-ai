@@ -1272,7 +1272,9 @@ describe("disposable dual-version rehearsal", () => {
 
     const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
     const previousCheckout = migrationNames.filter(
-      (name) => name !== "000117_provider_accounts",
+      (name) =>
+        name !== "000117_provider_accounts" &&
+        name !== "000118_workspace_binding_fences",
     );
     expect(previousCheckout).toHaveLength(115);
     expect(migrationManifestIdentity(previousCheckout)).toBe(
@@ -1281,9 +1283,18 @@ describe("disposable dual-version rehearsal", () => {
     expect(() =>
       resolvePreReleaseMigrationExclusions(previousCheckout),
     ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
-    expect(migrationNames).toHaveLength(116);
-    expect(migrationManifestIdentity(migrationNames)).toBe(
+    expect(
+      migrationManifestIdentity(
+        migrationNames.filter(
+          (name) => name !== "000118_workspace_binding_fences",
+        ),
+      ),
+    ).toBe(
       "sha256:c5c0618f105799d06d21424433cec4a59fc052e63f594c2aace0657ebb52d1dd",
+    );
+    expect(migrationNames).toHaveLength(117);
+    expect(migrationManifestIdentity(migrationNames)).toBe(
+      "sha256:6bd2cd3c077f6cf56735c7192dd6e0f84a21bbec5a2657271cb5afaf1d2f20cf",
     );
 
     expect(exclusions).toEqual([
@@ -1327,6 +1338,7 @@ describe("disposable dual-version rehearsal", () => {
       "000115_sdk_growth_v3_approved_manifest",
       "000116_hosted_codex_relay_admission_utc",
       "000117_provider_accounts",
+      "000118_workspace_binding_fences",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1383,7 +1395,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000114_sdk_growth_v3_tool_artifact" &&
             name !== "000115_sdk_growth_v3_approved_manifest" &&
             name !== "000116_hosted_codex_relay_admission_utc" &&
-            name !== "000117_provider_accounts",
+            name !== "000117_provider_accounts" &&
+            name !== "000118_workspace_binding_fences",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1413,7 +1426,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000114_sdk_growth_v3_tool_artifact" &&
             name !== "000115_sdk_growth_v3_approved_manifest" &&
             name !== "000116_hosted_codex_relay_admission_utc" &&
-            name !== "000117_provider_accounts",
+            name !== "000117_provider_accounts" &&
+            name !== "000118_workspace_binding_fences",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1435,9 +1449,10 @@ describe("disposable dual-version rehearsal", () => {
   });
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
-    const exactTail = "000117_provider_accounts";
+    const exactTail = "000118_workspace_binding_fences";
     for (const candidate of [
       names.filter((name) => name !== exactTail),
+      names.filter((name) => name !== "000117_provider_accounts"),
       names.filter(
         (name) => name !== "000116_hosted_codex_relay_admission_utc",
       ),
@@ -1479,6 +1494,7 @@ describe("disposable dual-version rehearsal", () => {
     "000115_sdk_growth_v3_approved_manifest",
     "000116_hosted_codex_relay_admission_utc",
     "000117_provider_accounts",
+    "000118_workspace_binding_fences",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1525,7 +1541,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000114_sdk_growth_v3_tool_artifact" &&
                 name !== "000115_sdk_growth_v3_approved_manifest" &&
                 name !== "000116_hosted_codex_relay_admission_utc" &&
-                name !== "000117_provider_accounts",
+                name !== "000117_provider_accounts" &&
+                name !== "000118_workspace_binding_fences",
               "000102_sdk_growth_current_authority",
             ),
           ),

@@ -96,6 +96,12 @@ model WorkspaceAccountBinding {
   connectionId String
   state WorkspaceAccountBindingState
   revision Int @default(1)
+  policyRevision Int @default(1)
+  pendingFenceOperationId String?
+  pendingFencePolicySubject String?
+  pendingFencePolicyRevision Int?
+  fenceAckOperationId String?
+  fenceAckPolicyRevision Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

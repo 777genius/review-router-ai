@@ -114,12 +114,26 @@ export function bindWorkspaceAccount(
 ): Promise<WorkspaceAccountBinding> {
   return changeBinding(snapshotMutation(input), dependencies, "active");
 }
-/** Local denial only. This is not a remote gateway disable/fence acknowledgment. */
-export function revokeWorkspaceAccountBinding(
+/** Local denial and durable intent only; delivery is a separate trusted backend seam. */
+export async function revokeWorkspaceAccountBinding(
   input: MutationInput,
   dependencies: ProviderAccountDependencies,
-): Promise<WorkspaceAccountBinding> {
-  return changeBinding(snapshotMutation(input), dependencies, "revoked");
+): Promise<
+  WorkspaceAccountBinding & {
+    readonly localAuthorization: "local_denied";
+    readonly remoteFenceDelivery: "remote_pending";
+  }
+> {
+  const binding = await changeBinding(
+    snapshotMutation(input),
+    dependencies,
+    "revoked",
+  );
+  return {
+    ...binding,
+    localAuthorization: "local_denied",
+    remoteFenceDelivery: "remote_pending",
+  };
 }
 export async function resolveWorkspaceAccountBinding(
   request: {

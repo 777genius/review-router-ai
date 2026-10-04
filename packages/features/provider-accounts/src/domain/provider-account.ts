@@ -30,6 +30,23 @@ export type WorkspaceAccountBinding = {
   readonly connectionId: string;
   readonly state: BindingState;
   readonly revision: number;
+  /** Authorization version, persisted independently of the binding CAS version. */
+  readonly policyRevision: number;
+  readonly pendingFence: BindingFenceIntent | null;
+  readonly fenceAck: BindingFenceAck | null;
+};
+export type BindingFenceIntent = {
+  readonly operationId: string;
+  readonly policySubject: string;
+  readonly policyRevision: number;
+};
+export type BindingFenceAck = {
+  readonly operationId: string;
+  readonly policyRevision: number;
+};
+export type ScopedBindingFence = BindingFenceIntent & {
+  readonly bindingId: string;
+  readonly workspaceId: string;
 };
 export type BindingScope = {
   readonly workspaceId: string;
@@ -39,6 +56,8 @@ export type SafeBindingTuple = {
   readonly workspaceId: string;
   readonly bindingId: string;
   readonly bindingRevision: number;
+  readonly policySubject: string;
+  readonly policyRevision: number;
   readonly connectionId: string;
   readonly gatewayAccountRef: string;
   readonly profileRef: string | null;
@@ -81,6 +100,28 @@ export function assertExpectedRevision(
   ) {
     throw new ProviderAccountError("invalid_input");
   }
+}
+export function isPersistedRevision(value: number): boolean {
+  return Number.isInteger(value) && value >= 1 && value <= 2147483647;
+}
+export function snapshotBindingFence(
+  input: ScopedBindingFence,
+): ScopedBindingFence {
+  const intent = Object.freeze({
+    bindingId: input.bindingId,
+    workspaceId: input.workspaceId,
+    operationId: input.operationId,
+    policySubject: input.policySubject,
+    policyRevision: input.policyRevision,
+  });
+  for (const ref of [intent.bindingId, intent.workspaceId, intent.operationId])
+    assertOpaqueReference(ref);
+  if (
+    intent.policySubject !== intent.bindingId ||
+    !isPersistedRevision(intent.policyRevision)
+  )
+    throw new ProviderAccountError("invalid_input");
+  return intent;
 }
 export function assertMetadata(metadata: ConnectionMetadata): void {
   for (const ref of [metadata.gatewayOperationRef, metadata.profileRef]) {
@@ -131,9 +172,10 @@ export function selectBinding(
     selection.binding.id !== bindingId ||
     selection.binding.workspaceId !== workspaceId ||
     selection.binding.state !== "active" ||
+    selection.binding.pendingFence !== null ||
     selection.binding.connectionId !== selection.connection.id ||
-    !Number.isInteger(selection.binding.revision) ||
-    selection.binding.revision < 1
+    !isPersistedRevision(selection.binding.revision) ||
+    !isPersistedRevision(selection.binding.policyRevision)
   ) {
     throw new ProviderAccountError("binding_unavailable");
   }
@@ -143,6 +185,8 @@ export function selectBinding(
     workspaceId,
     bindingId,
     bindingRevision: selection.binding.revision,
+    policySubject: selection.binding.id,
+    policyRevision: selection.binding.policyRevision,
     connectionId: selection.connection.id,
     gatewayAccountRef: selection.connection.gatewayAccountRef,
     profileRef: selection.connection.profileRef,

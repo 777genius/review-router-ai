@@ -88,6 +88,16 @@ function fixture() {
         connectionId: input.connectionId,
         state: input.state,
         revision: (binding?.revision ?? 0) + 1,
+        policyRevision: (binding?.policyRevision ?? 0) + 1,
+        pendingFence:
+          input.state === "revoked"
+            ? {
+                operationId: "test-revoke-operation",
+                policySubject: "binding-test",
+                policyRevision: (binding?.policyRevision ?? 0) + 1,
+              }
+            : (binding?.pendingFence ?? null),
+        fenceAck: binding?.fenceAck ?? null,
       };
       return binding;
     },
@@ -130,6 +140,8 @@ test("live member reads, admin changes, and subsequent membership removal", asyn
     workspaceId: "test-workspace",
     bindingId: "binding-test",
     bindingRevision: 1,
+    policySubject: "binding-test",
+    policyRevision: 1,
     connectionId: "test-connection",
     gatewayAccountRef: "gateway-account-test",
     profileRef: "profile-test",
@@ -237,7 +249,7 @@ test("configured local override uses auth seam while owner policy remains closed
 });
 
 // Regression: a stale bind revives local revocation, or missing revision overwrites.
-test("CAS rejects stale/missing revisions; revoked selection stays denied until a fresh bind", async () => {
+test("CAS rejects stale/missing revisions; fresh rebind stays denied while its fence is pending", async () => {
   const f = fixture();
   await assert.rejects(bind(f, 1), denied("revision_conflict"));
   await assert.rejects(
@@ -262,7 +274,7 @@ test("CAS rejects stale/missing revisions; revoked selection stays denied until 
   await assert.rejects(bind(f, 1), denied("revision_conflict"));
   await assert.rejects(resolve(f), denied("binding_unavailable"));
   assert.equal((await bind(f, 2)).revision, 3);
-  assert.equal((await resolve(f)).bindingRevision, 3);
+  await assert.rejects(resolve(f), denied("binding_unavailable"));
 });
 
 // Regression: a gateway unknown/inactive state is treated as executable locally.
@@ -361,6 +373,9 @@ for (const operation of ["bind", "revoke", "selection"] as const) {
                   connectionId: "connection-b",
                   state: "active",
                   revision: 2,
+                  policyRevision: 2,
+                  pendingFence: null,
+                  fenceAck: null,
                 },
                 connection: {
                   ...connection,
@@ -378,6 +393,9 @@ for (const operation of ["bind", "revoke", "selection"] as const) {
                 id: "binding-b",
                 ...request,
                 revision: request.expectedRevision + 1,
+                policyRevision: 3,
+                pendingFence: null,
+                fenceAck: null,
               };
             }
             return f.dependencies.accounts.compareAndSetBinding(request);
@@ -458,3 +476,34 @@ for (const operation of ["bind", "revoke", "selection"] as const) {
     );
   }
 }
+
+// Regression: explicit revoke reports remote success locally or grant erases the
+// outstanding fence. This is application policy at its product-port boundary;
+// atomic durable persistence remains the responsibility of the actual PG suite.
+test("explicit revoke reports local denial and remote pending; fresh grant preserves the requirement", async () => {
+  const f = fixture();
+  await bind(f);
+  const revoked = await revokeWorkspaceAccountBinding(
+    { ...scope, actor, expectedRevision: 1 },
+    f.dependencies,
+  );
+  assert.equal(revoked.localAuthorization, "local_denied");
+  assert.equal(revoked.remoteFenceDelivery, "remote_pending");
+  assert.equal(revoked.state, "revoked");
+  assert.equal(revoked.revision, 2);
+  assert.equal(revoked.policyRevision, 2);
+  assert.deepEqual(revoked.pendingFence, {
+    operationId: "test-revoke-operation",
+    policySubject: "binding-test",
+    policyRevision: 2,
+  });
+  assert.equal(revoked.fenceAck, null);
+  const granted = await bind(f, 2);
+  assert.equal(granted.revision, 3);
+  assert.equal(granted.policyRevision, 3);
+  assert.deepEqual(granted.pendingFence, {
+    operationId: "test-revoke-operation",
+    policySubject: "binding-test",
+    policyRevision: 2,
+  });
+});
