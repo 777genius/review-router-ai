@@ -121,6 +121,7 @@ export function createReviewRunGatewayRelay(input: {
   const sessions = new Map<string, Session>();
   let inFlight = 0;
   let cleanupInFlight = 0;
+  let closeAuthorityInFlight = 0;
   const closing = new Map<string, ReturnType<typeof cleanup>>();
   let stopping = false;
   function reserve() {
@@ -563,8 +564,17 @@ export function createReviewRunGatewayRelay(input: {
         );
       }),
     close: async (token: string, reason: c.Close["reason"]) => {
-      const auth = await resolve(token);
-      return closeRun(auth.authorizationId, reason);
+      // Cancellation remains available while Responses is occupied, but its
+      // authority preflight must not create unbounded SCM/database work.
+      if (closeAuthorityInFlight >= policy.maxInFlight)
+        throw new RelayFailure("relay_saturated", 503);
+      closeAuthorityInFlight++;
+      try {
+        const auth = await resolve(token);
+        return await closeRun(auth.authorizationId, reason);
+      } finally {
+        closeAuthorityInFlight--;
+      }
     },
     shutdown: async () => {
       stopping = true;

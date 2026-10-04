@@ -649,6 +649,33 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           effect: "effect_unknown",
         });
 
+        // Public close has its own authority budget: Responses saturation must
+        // not prevent cancellation, but duplicate close SCM work stays bounded.
+        const closeEntered = gate(),
+          closeRelease = gate();
+        holdScm = async () => {
+          closeEntered.release();
+          await closeRelease.pending;
+          throw new Error("fixture_close_scm_aborted");
+        };
+        const pendingClose = relay
+          .close(first.authorizationToken, "cancelled")
+          .catch((error: unknown) => error);
+        await closeEntered.pending;
+        const readsBeforeCloseOverflow = scmReads;
+        try {
+          await expect(
+            relay.close(first.authorizationToken, "cancelled"),
+          ).rejects.toMatchObject({ code: "relay_saturated" });
+          expect(scmReads).toBe(readsBeforeCloseOverflow);
+        } finally {
+          holdScm = undefined;
+          closeRelease.release();
+        }
+        expect(await pendingClose).toMatchObject({
+          message: "fixture_close_scm_aborted",
+        });
+
         // The old concurrent authority projection survives both delays while
         // the authorization row stays active and unchanged: it dispatches HTTP.
         const authorityKey = {
