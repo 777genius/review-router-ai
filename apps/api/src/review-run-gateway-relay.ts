@@ -22,8 +22,21 @@ import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-co
 import type { RunAccessConfig } from "./account-gateway-run-access";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
 
+export type ReviewRunGatewayRelayPolicy = {
+  readonly profiles: readonly {
+    readonly profile: z.infer<typeof c.profile>;
+    readonly outputTokens: number;
+  }[];
+  readonly ingressBytes: number;
+  readonly requestTimeoutMs: number;
+  readonly waitBudgetMs: number;
+  readonly maxWaits: number;
+  readonly maxSessions: number;
+  readonly maxInFlight: number;
+};
+
 // Explicit server configuration; numbers are bounds, not qualification receipts.
-const relayPolicy = z.strictObject({
+const relayPolicy: z.ZodType<ReviewRunGatewayRelayPolicy> = z.strictObject({
   profiles: z
     .array(
       z.strictObject({
@@ -40,7 +53,6 @@ const relayPolicy = z.strictObject({
   maxSessions: z.number().int().min(1).max(10_000),
   maxInFlight: z.number().int().min(1).max(10_000),
 });
-export type ReviewRunGatewayRelayPolicy = z.infer<typeof relayPolicy>;
 export function readReviewRunGatewayRelayPolicy(raw: string) {
   try {
     if (Buffer.byteLength(raw) > 4096) throw new Error();
