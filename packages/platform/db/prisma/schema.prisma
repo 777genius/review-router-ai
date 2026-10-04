@@ -1043,6 +1043,7 @@ model ReviewRunAuthorization {
   mutationEpoch                                           BigInt
   providerVoteLanes                                       Json
   runtimeSnapshotCanonicalJson                            String?
+  gatewayExecutionCanonicalJson                           String?
   reviewInvestigationAuthorizationDescriptorCanonicalJson String?
   authorizationSafetyDecisionHash                         String
   protocolOfferHash                                       String

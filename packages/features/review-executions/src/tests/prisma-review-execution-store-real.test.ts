@@ -46,6 +46,7 @@ const sloProfileId = "slo-contract";
 // Current Prisma must not select a column first introduced by SQL120.
 const historicalAuthorizationOmit = {
   runtimeSnapshotCanonicalJson: true,
+  gatewayExecutionCanonicalJson: true,
 } as const;
 
 if (databaseUrl) {

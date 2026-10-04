@@ -1,5 +1,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createHash } from "node:crypto";
+import * as c from "@agent-teams/account-gateway/contracts";
+import { z } from "zod";
 import { PrismaActionControlPlaneRepository } from "@reviewrouter/features-action-control-plane";
 import {
   PrismaProviderAccountRepository,
@@ -16,6 +18,7 @@ import {
   parseReviewRunRuntimeSnapshot,
   type ReviewRunAuthorizationCandidate,
   type ReviewRunGatewaySelection,
+  type ReviewRunGatewayLimits,
   type ReviewRunRuntimeSnapshot,
   type ReviewRunRuntimeSnapshotPort,
   type VerifiedScmRunIdentity,
@@ -26,13 +29,66 @@ type RuntimeReader = Pick<
   "reviewConfiguration" | "workspaceAccountBinding"
 >;
 
+/** Backend configuration only. Never sourced from CI/OIDC/request DTOs. */
+export type ServerApprovedReviewRunGatewayPolicy = {
+  readonly profiles: readonly {
+    readonly profileRef: string;
+    readonly limits: ReviewRunGatewayLimits;
+  }[];
+};
+
+/** Trusted backend configuration. Absence never supplies a default allowance. */
+export function readServerApprovedReviewRunGatewayPolicy(
+  raw: string | undefined,
+): ServerApprovedReviewRunGatewayPolicy | undefined {
+  if (raw === undefined) return undefined;
+  try {
+    if (new TextEncoder().encode(raw).byteLength > 32_768) throw new Error();
+    return z
+      .strictObject({
+        profiles: z
+          .array(
+            z.strictObject({
+              profileRef: c.reference,
+              limits: c.limits,
+            }),
+          )
+          .min(1)
+          .max(128),
+      })
+      .parse(JSON.parse(raw));
+  } catch {
+    throw new Error("review_run_gateway_policy_invalid");
+  }
+}
+
 /** System-owned selection after real OIDC admission policy, without a user actor.
  * No Gateway HTTP call, credential, epoch inference or allowance is created here.
  */
 export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnapshotPort {
   private readonly repositories: PrismaActionControlPlaneRepository;
   private readonly accounts: PrismaProviderAccountRepository;
-  constructor(private readonly prisma: PrismaClient) {
+  private readonly approvedLimits: ReadonlyMap<string, ReviewRunGatewayLimits>;
+  constructor(
+    private readonly prisma: PrismaClient,
+    policy?: ServerApprovedReviewRunGatewayPolicy,
+  ) {
+    const profiles = new Map<string, ReviewRunGatewayLimits>();
+    try {
+      if (
+        policy &&
+        (policy.profiles.length < 1 || policy.profiles.length > 128)
+      )
+        throw new Error();
+      for (const entry of policy?.profiles ?? []) {
+        const profileRef = c.reference.parse(entry.profileRef);
+        if (profiles.has(profileRef)) throw new Error();
+        profiles.set(profileRef, Object.freeze(c.limits.parse(entry.limits)));
+      }
+    } catch {
+      throw new Error("review_run_gateway_policy_invalid");
+    }
+    this.approvedLimits = profiles;
     this.repositories = new PrismaActionControlPlaneRepository(prisma);
     this.accounts = new PrismaProviderAccountRepository(prisma);
   }
@@ -72,6 +128,10 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     const selected = selectedProviders[0];
     let gateway: ReviewRunGatewaySelection | null = null;
     if (selected?.provider.authMode === "codex_account_gateway") {
+      const limits = this.approvedLimits.get(
+        selected.provider.gatewayProfileRef,
+      );
+      if (!limits) return null;
       const bindingId = selected.provider.gatewayBindingId;
       const selection = await this.accounts.findBinding(
         { workspaceId: identity.workspaceId, bindingId },
@@ -96,6 +156,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         permittedAccountRef: binding.gatewayAccountRef,
         profileRef: selected.provider.gatewayProfileRef,
         ...reviewRunGatewayPreparationIdentity(identity),
+        limits: { ...limits },
       };
     }
     try {
@@ -114,11 +175,14 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     }
   }
 
-  async isLive(input: {
-    readonly snapshot: ReviewRunRuntimeSnapshot;
-    readonly identity: VerifiedScmRunIdentity;
-    readonly now: Date;
-  }): Promise<boolean> {
+  async isLive(
+    input: {
+      readonly snapshot: ReviewRunRuntimeSnapshot;
+      readonly identity: VerifiedScmRunIdentity;
+      readonly now: Date;
+    },
+    reader: RuntimeReader = this.prisma,
+  ): Promise<boolean> {
     const identity = { ...input.identity };
     const snapshot = parseReviewRunRuntimeSnapshot(
       canonicalJson(input.snapshot),
@@ -144,16 +208,19 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       provider.gatewayProfileRef !== original.profileRef
     )
       return false;
-    // This checks C1 local authority only. Gateway's own epoch/fence/permission
-    // checks are mandatory at prepare/dispatch, once that private lane is approved.
+    // Original C1 authority only; no current configuration or budget recalculation.
+    // Gateway independently enforces its actual epoch/fence at prepare/dispatch.
     try {
       const live = selectBinding(
         identity.workspaceId,
         original.bindingId,
-        await this.accounts.findBinding({
-          workspaceId: identity.workspaceId,
-          bindingId: original.bindingId,
-        }),
+        await this.accounts.findBinding(
+          {
+            workspaceId: identity.workspaceId,
+            bindingId: original.bindingId,
+          },
+          reader,
+        ),
       );
       const stable = reviewRunGatewayPreparationIdentity(identity);
       return (
