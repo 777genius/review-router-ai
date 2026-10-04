@@ -2,6 +2,12 @@ import {
   ProductionReviewRunRuntimeSnapshot,
   readServerApprovedReviewRunGatewayPolicy,
 } from "./review-run-runtime-snapshot";
+import { PrismaReviewRunGatewayExecutionBinding } from "./prisma-review-run-gateway-execution-binding";
+import {
+  createReviewRunGatewayRelay,
+  readReviewRunGatewayRelayPolicy,
+  type ReviewRunGatewayRelay,
+} from "./review-run-gateway-relay";
 import {
   createRepositoryReleaseSelector,
   repositoryReleaseBindingsEnv,
@@ -110,6 +116,8 @@ import {
   ProducerReleaseState,
   ProducerReleaseAttestationStatus,
   ReviewProviderKind,
+  ReviewMutationLaneKind,
+  ReviewMutationMode,
   ReviewRunAuthorizationState as RunAuthorizationState,
   ReviewSafetyDecisionKind,
   ReviewSafetyPolicyScope,
@@ -264,6 +272,7 @@ type ReviewActionV2RouteRuntime = Pick<
 >;
 
 export type ReviewActionV2ProductionRoutes = Readonly<{
+  accountGatewayRelay?: ReviewRunGatewayRelay;
   hostedV4: HostedV4ReadRoutesDependencies;
   hostedV4Relay: Readonly<{
     enabled: false;
@@ -468,6 +477,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     repositories,
     actionRepositories,
     prerequisites,
+    runtimeSnapshots,
     runControl,
     oidcAudience,
     providerVoteLanes,
@@ -964,7 +974,68 @@ export function composeReviewActionV2ProductionRoutes(input: {
     repositoryReleaseSelector,
     workflowInventory,
   });
+  const accountGatewayRelayPolicy =
+    input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED === "1"
+      ? readReviewRunGatewayRelayPolicy(
+          requiredEnv(input.env, "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY"),
+        )
+      : undefined;
+  const accountGatewayRelay = accountGatewayRelayPolicy
+    ? createReviewRunGatewayRelay({
+        policy: accountGatewayRelayPolicy,
+        runAccess: {
+          origin: requiredEnv(
+            input.env,
+            "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN",
+          ),
+          runControlBearer: requiredEnv(
+            input.env,
+            "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
+          ),
+          timeoutMs: accountGatewayRelayPolicy.requestTimeoutMs,
+        },
+        authorizations: runControl.authorizations,
+        queries: repositories.authorizations,
+        checkAuthority: async (authorization) => {
+          const [revision, authority, release, decision] = await Promise.all([
+            currentRevision.resolve(authorizationScope(authorization)),
+            repositories.mutationAuthorities.findReviewMutationAuthority({
+              scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
+              laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
+            }),
+            repositories.producerReleases.findProducerReleaseById(
+              authorization.producerReleaseId,
+            ),
+            runControl.safetyResolver.resolveReviewSafetyPolicy({
+              decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
+              target: safetyTarget(
+                authorization,
+                authorization.providerVoteLanes.map((lane) => ({
+                  providerKind: lane.providerKind,
+                  taskKind: ReviewTaskKind.CodeReview,
+                })),
+              ),
+            }),
+          ]);
+          return (
+            revision.status === CurrentReviewRevisionStatus.Found &&
+            canonicalJson(revision.revision) ===
+              canonicalJson(authorizationRevision(authorization)) &&
+            authority?.mode === ReviewMutationMode.V2Active &&
+            authority.epoch === authorization.mutationEpoch &&
+            release?.state === ProducerReleaseState.Registered &&
+            decision.effectAllowed
+          );
+        },
+        snapshots: runtimeSnapshots,
+        bindings: new PrismaReviewRunGatewayExecutionBinding(
+          prisma,
+          runtimeSnapshots,
+        ),
+      })
+    : undefined;
   return Object.freeze({
+    ...(accountGatewayRelay ? { accountGatewayRelay } : {}),
     hostedV4,
     hostedV4Relay: hostedV4.bridge
       ? composeHostedV4RelayAuthority({ prisma, bridge: hostedV4.bridge })
