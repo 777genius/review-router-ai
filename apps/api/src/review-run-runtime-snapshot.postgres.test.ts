@@ -11,6 +11,7 @@ import {
   ManageReviewRunAuthorizations,
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
+  ReviewRunAuthorizationState,
   ReviewRunAuthorizationUseCaseStatus,
   type ReviewRunAuthorization,
   type ReviewRunRuntimeSnapshotPort,
@@ -47,6 +48,8 @@ function disposableDatabase(): string {
 // settings switching to another live binding cannot replace or un-revoke the original;
 // settings/binding races fenced at INSERT; original revoke/foreign owner denial;
 // a live original-binding read that crosses the original deadline still denies;
+// renewal to version 2 currently seeks a nonexistent version-2 creation event;
+// a live binding read past token TTL but below the maximum currently returns valid;
 // negotiation/new-token/new-ID cannot produce another admitted allowance identity.
 // This is real RR PostgreSQL + existing synthetic OIDC/SCM fixture, no Gateway effect.
 describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
@@ -169,6 +172,12 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           },
         }),
       ).toBe(1);
+      const creationEvent = await fresh.outboxEvent.findFirstOrThrow({
+        where: {
+          aggregateId: first.authorizationId,
+          type: "review.run.authorized",
+        },
+      });
       const replay = await harness.authorize(); // New verified OIDC nonce, same owned tuple.
       expect(replay.authorizationId).toBe(first.authorizationId);
       const replacement = await prisma.providerAccountConnection.create({
@@ -230,19 +239,85 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         authorizationTtlMs: 60_000,
         maxAuthorizationLifetimeMs: 3_600_000,
       });
-      const renewed =
+      const retained =
         await production.runControl.authorizations.renewReviewRunAuthorization({
           authorizationId: original.authorizationId,
           verifiedIdentity: original,
           renewalReplayKeyHash: "a".repeat(64),
           requestedTtlMs: 1,
         });
+      if (!("authorization" in retained)) throw new Error("c2c_renewal_failed");
+      expect(retained.status).toBe(
+        ReviewRunAuthorizationUseCaseStatus.Restored,
+      );
+      expect(retained.authorization).toEqual(original);
+      // Observed regression: the sole creation event records version 1. A real
+      // TTL extension makes both restore paths seek an absent version-2 event.
+      const renewed =
+        await production.runControl.authorizations.renewReviewRunAuthorization({
+          authorizationId: original.authorizationId,
+          verifiedIdentity: original,
+          renewalReplayKeyHash: "8".repeat(64),
+          requestedTtlMs: 2 * 60 * 60_000,
+        });
       if (!("authorization" in renewed)) throw new Error("c2c_renewal_failed");
+      expect(renewed.status).toBe(ReviewRunAuthorizationUseCaseStatus.Renewed);
       expect(renewed.authorization.runtimeSnapshotCanonicalJson).toBe(
         row.runtimeSnapshotCanonicalJson,
       );
       expect(renewed.authorization.maxExpiresAt).toEqual(original.maxExpiresAt);
-      expect(renewed.authorization.version).toBe(original.version);
+      expect(renewed.authorization.version).toBe(2);
+      expect(renewed.authorization.version).toBe(original.version + 1);
+      expect(renewed.authorization.createdAt).toEqual(original.createdAt);
+      expect(renewed.authorization.expiresAt.getTime()).toBeGreaterThan(
+        original.expiresAt.getTime(),
+      );
+      expect(renewed.authorization.expiresAt.getTime()).toBeLessThan(
+        original.maxExpiresAt.getTime(),
+      );
+      for (const oidcReplayKeyHash of [
+        original.oidcReplayKeyHash,
+        "7".repeat(64),
+      ]) {
+        const restored =
+          await production.runControl.authorizations.authorizeReviewRun({
+            ...input(original),
+            oidcReplayKeyHash,
+          });
+        expect(restored.status).toBe(
+          ReviewRunAuthorizationUseCaseStatus.Restored,
+        );
+        if (!("authorization" in restored))
+          throw new Error("c2c_renewed_restore_failed");
+        expect(restored.authorization).toEqual(renewed.authorization);
+      }
+      expect(
+        (
+          await production.runControl.authorizations.resolveReviewRunAuthorizationToken(
+            {
+              token: first.authorizationToken,
+            },
+          )
+        ).status,
+      ).toBe("claim_drift");
+      expect((await harness.authorize()).authorizationId).toBe(
+        original.authorizationId,
+      );
+      expect(
+        await fresh.outboxEvent.findUniqueOrThrow({
+          where: { idempotencyKey: creationEvent.idempotencyKey },
+        }),
+      ).toEqual(creationEvent);
+      expect(creationEvent.payload).toMatchObject({ authorizationVersion: 1 });
+      expect(creationEvent.occurredAt).toEqual(original.createdAt);
+      expect(
+        await fresh.outboxEvent.count({
+          where: {
+            aggregateId: original.authorizationId,
+            type: "review.run.authorized",
+          },
+        }),
+      ).toBe(1);
       expect(
         (
           await production.runControl.authorizations.authorizeReviewRun({
@@ -332,7 +407,14 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       // Actual read/CAS/INSERT race: mutate the already captured config before the
       // existing atomic repository runs. No test-only production hook is added.
       let observedNow = production.clock.now();
-      let crossDeadlineDuringBindingRead = false;
+      const verifiedRenewedToken = await production.prerequisites.tokens.verify(
+        {
+          token: renewed.token.token,
+          now: observedNow,
+        },
+      );
+      let crossDuringBindingRead: "token_expiry" | "maximum_deadline" | null =
+        null;
       const runtimePort: ReviewRunRuntimeSnapshotPort = {
         capture: async (captureInput) => {
           const captured = await snapshotSource.capture(captureInput);
@@ -344,8 +426,17 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         },
         isLive: async (liveInput) => {
           const live = await snapshotSource.isLive(liveInput);
-          if (crossDeadlineDuringBindingRead)
-            observedNow = new Date(liveInput.snapshot.deadline);
+          if (crossDuringBindingRead) {
+            expect(live).toBe(true); // The original binding was actually read.
+            expect(liveInput.now.getTime()).toBeLessThan(
+              verifiedRenewedToken.expiresAt.getTime(),
+            );
+            observedNow = new Date(
+              crossDuringBindingRead === "token_expiry"
+                ? verifiedRenewedToken.expiresAt
+                : liveInput.snapshot.deadline,
+            );
+          }
           return live;
         },
       };
@@ -378,15 +469,40 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           where: { repositoryConnectionId },
         }),
       ).toBe(1);
-      crossDeadlineDuringBindingRead = true;
       expect(
         (
           await control.resolveReviewRunAuthorizationToken({
-            token: first.authorizationToken,
+            token: renewed.token.token,
           })
         ).status,
-      ).toBe("revoked");
-      crossDeadlineDuringBindingRead = false;
+      ).toBe("valid");
+      // Observed regression: the post-read check only compares maxExpiresAt;
+      // this actual live binding read finishes at token expiry, below that maximum.
+      crossDuringBindingRead = "token_expiry";
+      expect(
+        (
+          await control.resolveReviewRunAuthorizationToken({
+            token: renewed.token.token,
+          })
+        ).status,
+      ).toBe("expired");
+      expect(observedNow).toEqual(verifiedRenewedToken.expiresAt);
+      expect(observedNow.getTime()).toBeLessThanOrEqual(
+        renewed.authorization.expiresAt.getTime(),
+      );
+      expect(observedNow.getTime()).toBeLessThan(
+        new Date(pin.deadline).getTime(),
+      );
+      observedNow = production.clock.now();
+      crossDuringBindingRead = "maximum_deadline";
+      expect(
+        (
+          await control.resolveReviewRunAuthorizationToken({
+            token: renewed.token.token,
+          })
+        ).status,
+      ).toBe("expired");
+      crossDuringBindingRead = null;
       observedNow = production.clock.now();
       await accounts.compareAndSetBinding({
         workspaceId,
@@ -417,7 +533,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         (
           await production.runControl.authorizations.resolveReviewRunAuthorizationToken(
             {
-              token: first.authorizationToken,
+              token: renewed.token.token,
             },
           )
         ).status,
@@ -440,12 +556,51 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       expect(unchanged.runtimeSnapshotCanonicalJson).toBe(
         row.runtimeSnapshotCanonicalJson,
       );
-      expect(unchanged.version).toBe(row.version);
+      expect(unchanged.version).toBe(renewed.authorization.version);
+      expect(unchanged.expiresAt).toEqual(renewed.authorization.expiresAt);
+      expect(unchanged.maxExpiresAt).toEqual(row.maxExpiresAt);
       expect(
         await prisma.reviewRunAuthorization.count({
           where: { repositoryConnectionId },
         }),
       ).toBe(1);
+      // A terminal version advance must also validate the original creation,
+      // then return the current terminal row rather than recreating admission.
+      await production.runControl.authorizations.expireOrRevokeReviewRunAuthorization(
+        {
+          authorizationId: original.authorizationId,
+          state: ReviewRunAuthorizationState.Revoked,
+        },
+      );
+      for (const oidcReplayKeyHash of [
+        original.oidcReplayKeyHash,
+        "6".repeat(64),
+      ]) {
+        expect(
+          (
+            await production.runControl.authorizations.authorizeReviewRun({
+              ...input(original),
+              oidcReplayKeyHash,
+            })
+          ).status,
+        ).toBe(ReviewRunAuthorizationUseCaseStatus.Revoked);
+      }
+      const terminal = await fresh.reviewRunAuthorization.findUniqueOrThrow({
+        where: { authorizationId: original.authorizationId },
+      });
+      expect(terminal.version).toBe(renewed.authorization.version + 1);
+      expect(terminal.runtimeSnapshotCanonicalJson).toBe(
+        row.runtimeSnapshotCanonicalJson,
+      );
+      expect(terminal.maxExpiresAt).toEqual(row.maxExpiresAt);
+      expect(
+        await fresh.outboxEvent.findMany({
+          where: {
+            aggregateId: original.authorizationId,
+            type: "review.run.authorized",
+          },
+        }),
+      ).toEqual([creationEvent]);
     } finally {
       await fresh.$disconnect();
       await harness.close();

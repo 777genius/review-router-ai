@@ -495,7 +495,22 @@ export class ManageReviewRunAuthorizations {
     if (!(await this.tokenClaimsMatchAuthorization(token, authorization))) {
       return { status: ReviewRunAuthorizationTokenResolutionStatus.ClaimDrift };
     }
-    if (!(await this.runtimeSnapshotIsLive(authorization, now))) {
+    const live = await this.runtimeSnapshotIsLive(authorization, now);
+    const resolvedAt = this.dependencies.clock.now();
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      authorization.runtimeSnapshotCanonicalJson,
+    );
+    // The actual binding read can finish after a shorter token/renewal TTL.
+    // Use fresh time at every expiry boundary before returning valid.
+    if (
+      resolvedAt >= token.expiresAt ||
+      resolvedAt >= authorization.expiresAt ||
+      resolvedAt >= authorization.maxExpiresAt ||
+      (snapshot && resolvedAt >= new Date(snapshot.deadline))
+    ) {
+      return { status: ReviewRunAuthorizationTokenResolutionStatus.Expired };
+    }
+    if (!live) {
       return { status: ReviewRunAuthorizationTokenResolutionStatus.Revoked };
     }
     return {
