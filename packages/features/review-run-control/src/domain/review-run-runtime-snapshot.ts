@@ -11,6 +11,40 @@ export type ReviewRunRuntimeSnapshot = {
   readonly gateway: ReviewRunGatewaySelection | null;
 };
 
+/** Pure finite allowance data, independent of SDK/HTTP validation. */
+export type ReviewRunGatewayLimits = {
+  readonly requests: number;
+  readonly concurrency: number;
+  readonly requestBytes: number;
+  readonly outputBytes: number;
+  readonly tokens: number;
+};
+
+export function parseReviewRunGatewayLimits(
+  value: unknown,
+): ReviewRunGatewayLimits {
+  const names = [
+    "requests",
+    "concurrency",
+    "requestBytes",
+    "outputBytes",
+    "tokens",
+  ] as const;
+  if (!record(value) || !keys(value, names)) fail();
+  for (const name of names) {
+    const cap = value[name];
+    if (typeof cap !== "number" || !Number.isSafeInteger(cap) || cap < 1)
+      fail();
+  }
+  return {
+    requests: Number(value.requests),
+    concurrency: Number(value.concurrency),
+    requestBytes: Number(value.requestBytes),
+    outputBytes: Number(value.outputBytes),
+    tokens: Number(value.tokens),
+  };
+}
+
 /** Approved subset, not Gateway's selected-account/epoch result or a capability. */
 export type ReviewRunGatewaySelection = {
   readonly providerIndex: number;
@@ -24,6 +58,8 @@ export type ReviewRunGatewaySelection = {
   readonly invocationId: string;
   readonly attemptId: string;
   readonly operationId: string;
+  /** Absent only on legacy pins; absence cannot authorize preparation. */
+  readonly limits?: ReviewRunGatewayLimits;
 };
 
 export function parseReviewRunRuntimeSnapshot(
@@ -87,6 +123,7 @@ export function parseReviewRunRuntimeSnapshot(
         "invocationId",
         "attemptId",
         "operationId",
+        ...("limits" in row ? ["limits"] : []),
       ])
     )
       fail();
@@ -125,6 +162,9 @@ export function parseReviewRunRuntimeSnapshot(
       invocationId: String(row.invocationId),
       attemptId: String(row.attemptId),
       operationId: String(row.operationId),
+      ...("limits" in row
+        ? { limits: parseReviewRunGatewayLimits(row.limits) }
+        : {}),
     };
   }
   if (canonicalJson(parsed) !== value) fail();

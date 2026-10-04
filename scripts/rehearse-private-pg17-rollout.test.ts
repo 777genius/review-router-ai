@@ -1276,7 +1276,8 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000117_provider_accounts" &&
         name !== "000118_workspace_binding_fences" &&
         name !== "000119_review_configuration_gateway_binding" &&
-        name !== "000120_review_run_runtime_snapshot",
+        name !== "000120_review_run_runtime_snapshot" &&
+        name !== "000121_review_run_gateway_execution_binding",
     );
     expect(previousCheckout).toHaveLength(115);
     expect(migrationManifestIdentity(previousCheckout)).toBe(
@@ -1291,15 +1292,16 @@ describe("disposable dual-version rehearsal", () => {
           (name) =>
             name !== "000118_workspace_binding_fences" &&
             name !== "000119_review_configuration_gateway_binding" &&
-            name !== "000120_review_run_runtime_snapshot",
+            name !== "000120_review_run_runtime_snapshot" &&
+            name !== "000121_review_run_gateway_execution_binding",
         ),
       ),
     ).toBe(
       "sha256:c5c0618f105799d06d21424433cec4a59fc052e63f594c2aace0657ebb52d1dd",
     );
-    expect(migrationNames).toHaveLength(119);
+    expect(migrationNames).toHaveLength(120);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:f998e11bee1748adecf31dc07ec61d59b55ead60b2734a71f90065d3f9f4aa6b",
+      "sha256:5f01c4416620cf984ffa5fee8dbb26bcf171ae3a89ec4e4b8615e4c7c8461c64",
     );
 
     expect(exclusions).toEqual([
@@ -1346,6 +1348,7 @@ describe("disposable dual-version rehearsal", () => {
       "000118_workspace_binding_fences",
       "000119_review_configuration_gateway_binding",
       "000120_review_run_runtime_snapshot",
+      "000121_review_run_gateway_execution_binding",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1405,7 +1408,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000117_provider_accounts" &&
             name !== "000118_workspace_binding_fences" &&
             name !== "000119_review_configuration_gateway_binding" &&
-            name !== "000120_review_run_runtime_snapshot",
+            name !== "000120_review_run_runtime_snapshot" &&
+            name !== "000121_review_run_gateway_execution_binding",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1438,7 +1442,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000117_provider_accounts" &&
             name !== "000118_workspace_binding_fences" &&
             name !== "000119_review_configuration_gateway_binding" &&
-            name !== "000120_review_run_runtime_snapshot",
+            name !== "000120_review_run_runtime_snapshot" &&
+            name !== "000121_review_run_gateway_execution_binding",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1460,7 +1465,7 @@ describe("disposable dual-version rehearsal", () => {
   });
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
-    const exactTail = "000120_review_run_runtime_snapshot";
+    const exactTail = "000121_review_run_gateway_execution_binding";
     for (const candidate of [
       names.filter((name) => name !== exactTail),
       names.filter(
@@ -1511,6 +1516,7 @@ describe("disposable dual-version rehearsal", () => {
     "000118_workspace_binding_fences",
     "000119_review_configuration_gateway_binding",
     "000120_review_run_runtime_snapshot",
+    "000121_review_run_gateway_execution_binding",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1560,7 +1566,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000117_provider_accounts" &&
                 name !== "000118_workspace_binding_fences" &&
                 name !== "000119_review_configuration_gateway_binding" &&
-                name !== "000120_review_run_runtime_snapshot",
+                name !== "000120_review_run_runtime_snapshot" &&
+                name !== "000121_review_run_gateway_execution_binding",
               "000102_sdk_growth_current_authority",
             ),
           ),

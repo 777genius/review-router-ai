@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import type * as Gateway from "@agent-teams/account-gateway/contracts";
 import { createPrismaClient } from "@reviewrouter/platform-db";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import {
@@ -18,6 +21,8 @@ import {
 } from "@reviewrouter/features-review-run-control";
 import { createReviewActionV2E2EHarness } from "../../../scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness";
 import { composeReviewActionV2ProductionRunControl } from "./review-action-v2-production-composition";
+import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
+import { PrismaReviewRunGatewayExecutionBinding } from "./prisma-review-run-gateway-execution-binding";
 import {
   ProductionReviewRunRuntimeSnapshot,
   reviewRunGatewayPreparationIdentity,
@@ -51,11 +56,26 @@ function disposableDatabase(): string {
 // renewal to version 2 currently seeks a nonexistent version-2 creation event;
 // a live binding read past token TTL but below the maximum currently returns valid;
 // negotiation/new-token/new-ID cannot produce another admitted allowance identity.
-// This is real RR PostgreSQL + existing synthetic OIDC/SCM fixture, no Gateway effect.
+// Selected-result loss must recover the same intent and attach once, without a bearer in SQL.
+// This is real RR PostgreSQL + synthetic OIDC/SCM + controlled Gateway HTTP, no inference.
 describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
   it("retains one original across competing admissions, settings and revocation", async () => {
     const databaseUrl = disposableDatabase();
-    const harness = await createReviewActionV2E2EHarness(databaseUrl);
+    const limits = {
+      requests: 2,
+      concurrency: 1,
+      requestBytes: 4096,
+      outputBytes: 8192,
+      tokens: 128,
+    };
+    const networkFetch = globalThis.fetch;
+    const harness = await createReviewActionV2E2EHarness(databaseUrl, {
+      environmentOverrides: {
+        REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
+          profiles: [{ profileRef: "mimo-responses-v1", limits }],
+        }),
+      },
+    });
     const fresh = createPrismaClient({ databaseUrl, poolMax: 4 });
     try {
       const { prisma, workspaceId, repositoryConnectionId } = harness;
@@ -155,6 +175,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       );
       expect(pin.gateway?.bindingRevision).toBe(binding.revision);
       expect(pin.gateway?.policyRevision).toBe(binding.policyRevision);
+      expect(pin.gateway?.limits).toEqual(limits);
       expect(
         await prisma.reviewRunAuthorization.count({
           where: {
@@ -178,6 +199,180 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           type: "review.run.authorized",
         },
       });
+      const gatewayProduction = composeReviewActionV2ProductionRunControl({
+        env: harness.env,
+        prisma,
+      });
+      const gatewayRun =
+        await gatewayProduction.repositories.authorizations.findReviewRunAuthorizationById(
+          first.authorizationId,
+        );
+      if (!gatewayRun || !pin.gateway)
+        throw new Error("c2c_gateway_original_missing");
+      expect(
+        await new ProductionReviewRunRuntimeSnapshot(prisma).capture({
+          identity: gatewayRun,
+          deadline: gatewayRun.maxExpiresAt,
+        }),
+      ).toBeNull();
+      const attachments = new PrismaReviewRunGatewayExecutionBinding(
+        prisma,
+        gatewayProduction.runtimeSnapshots,
+      );
+      const owner = {
+        authorizationId: first.authorizationId,
+        identity: gatewayRun,
+        runtimeSnapshotCanonicalJson: row.runtimeSnapshotCanonicalJson!,
+      };
+      const intents: Gateway.Prepare[] = [];
+      const runControlToken = ["disposable", "control", "token"].join("-");
+      const executionBearer = ["disposable", "execution", "token"].join("-");
+      const selected = {
+        bindingVersion: 1 as const,
+        operationId: pin.gateway.operationId,
+        executionRef: "c2c-selected-execution",
+        accountRef: connection.gatewayAccountRef,
+        authorizationEpoch: 55,
+        deadline: pin.deadline,
+      };
+      const server = createServer(async (request, response) => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) chunks.push(Buffer.from(chunk));
+        const intent = JSON.parse(
+          Buffer.concat(chunks).toString(),
+        ) as Gateway.Prepare;
+        intents.push(intent);
+        if (
+          request.method !== "POST" ||
+          request.url !== "/internal/v1/run-access" ||
+          request.headers.authorization !== `Bearer ${runControlToken}`
+        ) {
+          response.writeHead(403).end();
+          return;
+        }
+        response.writeHead(200, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            operation: {
+              operationRef: intent.operationId,
+              state: "applied",
+              result: {
+                kind: "execution",
+                executionRef: selected.executionRef,
+                accountRef: selected.accountRef,
+                authorizationEpoch: selected.authorizationEpoch,
+                deadline: intent.deadline,
+                state: "active",
+              },
+            },
+            bearer: executionBearer,
+            admission: {
+              invocationRef: intent.invocationRef,
+              attemptRef: intent.attemptRef,
+              accountRef: selected.accountRef,
+              authorizationEpoch: selected.authorizationEpoch,
+              subjectRef: intent.subjectRef,
+              policyRevision: intent.policyRevision,
+              bindingRevision: intent.bindingRevision,
+              profileId: intent.profileId,
+              limits: intent.limits,
+              expiresAt: intent.deadline,
+            },
+          }),
+        );
+      });
+      await new Promise<void>((resolve) =>
+        server.listen(0, "127.0.0.1", resolve),
+      );
+      const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      const githubFetch = globalThis.fetch;
+      globalThis.fetch = (request, init) =>
+        new URL(request instanceof Request ? request.url : String(request))
+          .origin === origin
+          ? networkFetch(request, init)
+          : githubFetch(request, init);
+      try {
+        let loseAttachment = true;
+        const preparation = createReviewRunGatewayPreparation({
+          authorizationId: first.authorizationId,
+          identity: gatewayRun,
+          runAccess: {
+            origin,
+            runControlBearer: runControlToken,
+            timeoutMs: 5000,
+          },
+          authorizations: gatewayProduction.repositories.authorizations,
+          snapshots: gatewayProduction.runtimeSnapshots,
+          bindings: {
+            read: (value) => attachments.read(value),
+            attach: async (value, result) => {
+              if (loseAttachment) {
+                loseAttachment = false;
+                throw new Error("synthetic_attachment_loss");
+              }
+              const outcomes = await Promise.all([
+                attachments.attach(value, result),
+                attachments.attach(value, result),
+              ]);
+              expect(outcomes.map((outcome) => outcome.status).sort()).toEqual([
+                "attached",
+                "restored",
+              ]);
+              return outcomes.find((outcome) => outcome.status === "attached")!;
+            },
+          },
+        });
+        await expect(preparation.prepare()).rejects.toThrow(
+          "synthetic_attachment_loss",
+        );
+        expect(intents).toHaveLength(1);
+        expect(await preparation.prepare()).toEqual({ status: "denied" });
+        expect(intents).toHaveLength(1);
+        expect(await preparation.recoverSameOperation()).toEqual({
+          status: "prepared",
+          binding: selected,
+        });
+        expect(intents).toHaveLength(2);
+        expect(intents[1]).toEqual(intents[0]);
+        expect(intents[0]).toMatchObject({
+          operationId: pin.gateway.operationId,
+          limits,
+          deadline: pin.deadline,
+          accountRefs: [connection.gatewayAccountRef],
+        });
+        expect(await preparation.prepare()).toEqual({
+          status: "restored",
+          binding: selected,
+        });
+        expect(intents).toHaveLength(2);
+        expect(
+          await attachments.attach(owner, {
+            ...selected,
+            executionRef: "other-execution",
+          }),
+        ).toEqual({ status: "conflict" });
+        const saved = await prisma.reviewRunAuthorization.findUniqueOrThrow({
+          where: { authorizationId: first.authorizationId },
+        });
+        expect(saved.gatewayExecutionCanonicalJson).toBe(
+          canonicalJson(selected),
+        );
+        expect(saved.gatewayExecutionCanonicalJson).not.toContain(
+          executionBearer,
+        );
+        expect(JSON.stringify(creationEvent)).not.toContain(executionBearer);
+        await expect(
+          prisma.$executeRaw`UPDATE "ReviewRunAuthorization" SET "gatewayExecutionCanonicalJson" = NULL WHERE "authorizationId" = ${first.authorizationId}`,
+        ).rejects.toThrow("review_run_gateway_execution_immutable");
+        await expect(
+          prisma.$executeRaw`UPDATE "ReviewRunAuthorization" SET "gatewayExecutionCanonicalJson" = ${canonicalJson({ ...selected, bearer: executionBearer })} WHERE "authorizationId" = ${first.authorizationId}`,
+        ).rejects.toThrow();
+      } finally {
+        globalThis.fetch = githubFetch;
+        server.closeAllConnections();
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
       const replay = await harness.authorize(); // New verified OIDC nonce, same owned tuple.
       expect(replay.authorizationId).toBe(first.authorizationId);
       const replacement = await prisma.providerAccountConnection.create({
@@ -365,7 +560,9 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           },
         }),
       ).rejects.toThrow();
-      const snapshotSource = new ProductionReviewRunRuntimeSnapshot(prisma);
+      const snapshotSource = new ProductionReviewRunRuntimeSnapshot(prisma, {
+        profiles: [{ profileRef: "mimo-responses-v1", limits }],
+      });
       const deniedAfterDeadline = await snapshotSource.isLive({
         snapshot: pin,
         identity: original,

@@ -1,4 +1,7 @@
-import { ProductionReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
+import {
+  ProductionReviewRunRuntimeSnapshot,
+  readServerApprovedReviewRunGatewayPolicy,
+} from "./review-run-runtime-snapshot";
 import {
   createRepositoryReleaseSelector,
   repositoryReleaseBindingsEnv,
@@ -301,7 +304,12 @@ export function composeReviewActionV2ProductionRunControl(input: {
   }
   const clock = new SystemClock();
   const digest = new ProductionReviewActionV2Digest();
-  const runtimeSnapshots = new ProductionReviewRunRuntimeSnapshot(input.prisma);
+  const runtimeSnapshots = new ProductionReviewRunRuntimeSnapshot(
+    input.prisma,
+    readServerApprovedReviewRunGatewayPolicy(
+      input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY,
+    ),
+  );
   const repositories = createPrismaReviewRunControlRepositories(
     input.prisma,
     (transaction, candidate) =>
@@ -381,6 +389,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
     repositories,
     actionRepositories,
     prerequisites,
+    runtimeSnapshots,
     runControl,
     oidcAudience,
     providerVoteLanes,
