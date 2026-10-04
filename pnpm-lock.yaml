@@ -291,6 +291,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@agent-teams/account-gateway':
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -330,6 +333,9 @@ importers:
       '@reviewrouter/features-outbox':
         specifier: workspace:*
         version: link:../../packages/features/outbox
+      '@reviewrouter/features-provider-accounts':
+        specifier: workspace:*
+        version: link:../../packages/features/provider-accounts
       '@reviewrouter/features-provider-setup':
         specifier: workspace:*
         version: link:../../packages/features/provider-setup

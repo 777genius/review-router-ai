@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import type { WorkspaceBindingFenceRepositoryPort } from "../../application/ports/workspace-binding-fence-port";
-import type { ProviderAccountRepositoryPort } from "../../application/ports/provider-account-repository-port";
+import type { ProviderAccountAccountsQueryPort } from "../../application/ports/provider-account-repository-port";
 import {
   ProviderAccountError,
   assertExecutable,
@@ -20,11 +20,37 @@ import {
 } from "./connection-mapping";
 
 export class PrismaProviderAccountRepository
-  implements ProviderAccountRepositoryPort, WorkspaceBindingFenceRepositoryPort
+  implements
+    ProviderAccountAccountsQueryPort,
+    WorkspaceBindingFenceRepositoryPort
 {
   private readonly prisma: PrismaClient;
   constructor(prisma: PrismaClient) {
     this.prisma = prisma;
+  }
+
+  async findOwnedConnectionByGatewayRef(request: {
+    readonly workspaceId: string;
+    readonly gatewayAccountRef: string;
+  }) {
+    const row = await this.prisma.providerAccountConnection.findFirst({
+      where: {
+        ownerWorkspaceId: request.workspaceId,
+        ownerUserId: null,
+        gatewayAccountRef: request.gatewayAccountRef,
+      },
+    });
+    return row ? mapConnection(row) : null;
+  }
+
+  async findConnectionBinding(request: BindingScope) {
+    const row = await this.prisma.workspaceAccountBinding.findFirst({
+      where: {
+        workspaceId: request.workspaceId,
+        connectionId: request.connectionId,
+      },
+    });
+    return row ? mapBinding(row) : null;
   }
 
   async findOwnedConnection(request: BindingScope) {

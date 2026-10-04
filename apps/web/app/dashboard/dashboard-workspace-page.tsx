@@ -1,4 +1,5 @@
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
+import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
 import type { WorkspaceHealthSummary } from "../../src/server/repository-health-view";
 import {
   isCodexRotatingOAuthAllowedForRepository,
@@ -1814,6 +1815,10 @@ function WorkspaceCard({
             mode={selectedMemoryMode}
             modeLinks={dashboardMemoryModeLinks(workspaceKey)}
           />
+        ) : null}
+
+        {selectedSection === "setup" ? (
+          <AccountGatewayAccountsSection workspaceId={workspace.id} />
         ) : null}
 
         {selectedSection === "setup" ? (

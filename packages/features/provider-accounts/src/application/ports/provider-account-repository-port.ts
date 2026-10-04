@@ -27,3 +27,14 @@ export interface ProviderAccountRepositoryPort {
     },
   ): Promise<WorkspaceAccountBinding>;
 }
+
+/** Bounded Accounts display queries. They never authorize an account use. */
+export interface ProviderAccountAccountsQueryPort extends ProviderAccountRepositoryPort {
+  findOwnedConnectionByGatewayRef(input: {
+    readonly workspaceId: string;
+    readonly gatewayAccountRef: string;
+  }): Promise<ProviderAccountConnection | null>;
+  findConnectionBinding(
+    scope: BindingScope,
+  ): Promise<WorkspaceAccountBinding | null>;
+}
