@@ -1042,6 +1042,7 @@ model ReviewRunAuthorization {
   operationalSloProfileId                                 String
   mutationEpoch                                           BigInt
   providerVoteLanes                                       Json
+  runtimeSnapshotCanonicalJson                            String?
   reviewInvestigationAuthorizationDescriptorCanonicalJson String?
   authorizationSafetyDecisionHash                         String
   protocolOfferHash                                       String
