@@ -15,7 +15,7 @@ import {
   reviewProviderConfigurationSchema,
   type ReviewConfiguration,
   type ReviewProviderConfiguration,
-} from "@reviewrouter/features-review-config";
+} from "@reviewrouter/features-review-config/review-configuration";
 import {
   codexModelSupportsReasoningEffort,
   getDefaultProviderConfigForAuthMode,

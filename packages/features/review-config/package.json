@@ -13,6 +13,11 @@
       "types": "./src/domain/review-reasoning-effort.ts",
       "production": "./dist/domain/review-reasoning-effort.js",
       "default": "./src/domain/review-reasoning-effort.ts"
+    },
+    "./review-configuration": {
+      "types": "./src/domain/review-configuration.ts",
+      "production": "./dist/domain/review-configuration.js",
+      "default": "./src/domain/review-configuration.ts"
     }
   },
   "dependencies": {
