@@ -94,8 +94,12 @@ export function createReviewRunGatewayRelay(input: {
     | "expireOrRevokeReviewRunAuthorization"
   >;
   readonly queries: ReviewRunAuthorizationQueryPort;
-  // Existing live SCM/release/mutation/safety authority supplied by composition.
+  // Async SCM preflight; final protected local authority follows the binding read.
   readonly checkAuthority: (
+    authorization: ReviewRunAuthorization,
+  ) => Promise<boolean>;
+  readonly confirmAuthority: (
+    token: string,
     authorization: ReviewRunAuthorization,
   ) => Promise<boolean>;
   readonly snapshots: ReviewRunRuntimeSnapshotPort;
@@ -116,7 +120,29 @@ export function createReviewRunGatewayRelay(input: {
   Object.freeze(policy.profiles);
   const sessions = new Map<string, Session>();
   let inFlight = 0;
+  let cleanupInFlight = 0;
+  const closing = new Map<string, ReturnType<typeof cleanup>>();
   let stopping = false;
+  function reserve() {
+    if (stopping || inFlight >= policy.maxInFlight)
+      throw new RelayFailure("relay_saturated", 503);
+    inFlight++;
+    let finished = false;
+    return () => {
+      if (!finished) {
+        finished = true;
+        inFlight--;
+      }
+    };
+  }
+  async function bounded<T>(work: () => Promise<T>) {
+    const finish = reserve();
+    try {
+      return await work();
+    } finally {
+      finish();
+    }
+  }
   async function resolve(token: string) {
     const result =
       await input.authorizations.resolveReviewRunAuthorizationToken({ token });
@@ -139,22 +165,9 @@ export function createReviewRunGatewayRelay(input: {
     });
     if (owned.status !== "live")
       throw new RelayFailure("authorization_denied", 401);
-    // Live authority/SCM reads may cross a revoke/renewal/deadline. Read the row
-    // again; no capability is issued from the earlier projection.
-    const current = await input.queries.findReviewRunAuthorizationById(
-      auth.authorizationId,
-    );
-    if (
-      !current ||
-      current.state !== "active" ||
-      current.version !== auth.version ||
-      current.runtimeSnapshotCanonicalJson !==
-        auth.runtimeSnapshotCanonicalJson ||
-      canonicalJson(reviewRunGatewayOwnedIdentity(current)) !==
-        canonicalJson(reviewRunGatewayOwnedIdentity(auth)) ||
-      Date.now() >=
-        Math.min(current.expiresAt.getTime(), current.maxExpiresAt.getTime())
-    )
+    // Confirm current mutation/release/safety AND auth/deadline only after all
+    // SCM/binding awaits. The local protected read does not lock a network call.
+    if (!(await input.confirmAuthority(token, auth)))
       throw new RelayFailure("authorization_denied", 401);
     return auth;
   }
@@ -225,7 +238,7 @@ export function createReviewRunGatewayRelay(input: {
     sessions.set(auth.authorizationId, session);
     return session;
   }
-  async function closeRun(authorizationId: string, reason: c.Close["reason"]) {
+  function closeRun(authorizationId: string, reason: c.Close["reason"]) {
     const session = sessions.get(authorizationId);
     if (session) {
       session.closed = true;
@@ -234,6 +247,19 @@ export function createReviewRunGatewayRelay(input: {
       clearTimeout(session.timer);
       for (const controller of session.aborts) controller.abort();
     }
+    const pending = closing.get(authorizationId);
+    if (pending) return pending;
+    const work = cleanup(authorizationId, reason, session).finally(() => {
+      closing.delete(authorizationId);
+    });
+    closing.set(authorizationId, work);
+    return work;
+  }
+  async function cleanup(
+    authorizationId: string,
+    reason: c.Close["reason"],
+    session?: Session,
+  ) {
     // Existing RR lifecycle commits local denial first. Failure is never "closed".
     await input.authorizations.expireOrRevokeReviewRunAuthorization({
       authorizationId,
@@ -247,12 +273,21 @@ export function createReviewRunGatewayRelay(input: {
     if (row?.state === "active")
       throw new RelayFailure("close_pending", 409, "effect_unknown");
     if (!session) return { state: "unknown" as const };
-    const operation = await session.preparation.close(reason, {
-      signal: AbortSignal.timeout(policy.requestTimeoutMs),
-    });
-    // Retain unresolved evidence/capability for explicit same-close readback.
-    if (operation.state === "applied") sessions.delete(authorizationId);
-    return operation;
+    // Durable local denial above never waits for a response slot. Remote cleanup
+    // has its own bound; saturation retains the denied session for trusted retry.
+    if (cleanupInFlight >= policy.maxInFlight)
+      throw new RelayFailure("close_pending", 409, "effect_unknown");
+    cleanupInFlight++;
+    try {
+      const operation = await session.preparation.close(reason, {
+        signal: AbortSignal.timeout(policy.requestTimeoutMs),
+      });
+      // Retain unresolved evidence/capability for explicit same-close readback.
+      if (operation.state === "applied") sessions.delete(authorizationId);
+      return operation;
+    } finally {
+      cleanupInFlight--;
+    }
   }
   async function responses(
     token: string,
@@ -262,16 +297,7 @@ export function createReviewRunGatewayRelay(input: {
     if (raw.byteLength > policy.ingressBytes)
       throw new RelayFailure("invalid_request", 400);
     const bytes = new Uint8Array(raw); // Capture caller-owned bytes before any await.
-    if (stopping || inFlight >= policy.maxInFlight)
-      throw new RelayFailure("relay_saturated", 503);
-    inFlight++;
-    let finished = false;
-    const finish = () => {
-      if (!finished) {
-        finished = true;
-        inFlight--;
-      }
-    };
+    const finish = reserve();
     try {
       const auth = await resolve(token);
       const session = sessionFor(auth);
@@ -511,38 +537,39 @@ export function createReviewRunGatewayRelay(input: {
     policy,
     responses,
     closeRun,
-    recoverSameOperation: async (token: string) => {
-      const auth = await resolve(token);
-      const session = sessionFor(auth);
-      const result = await session.preparation.recoverSameOperation();
-      await check(token, auth, session);
-      return result;
-    },
-    status: async (token: string, requestRef: string) => {
-      const auth = await resolve(token);
-      const session = sessionFor(auth);
-      if (!session.preparation.hasSession())
-        throw new RelayFailure(
-          "same_operation_recovery_required",
-          409,
-          "effect_unknown",
+    recoverSameOperation: (token: string) =>
+      bounded(async () => {
+        const auth = await resolve(token);
+        const session = sessionFor(auth);
+        const result = await session.preparation.recoverSameOperation();
+        await check(token, auth, session);
+        return result;
+      }),
+    status: (token: string, requestRef: string) =>
+      bounded(async () => {
+        const auth = await resolve(token);
+        const session = sessionFor(auth);
+        if (!session.preparation.hasSession())
+          throw new RelayFailure(
+            "same_operation_recovery_required",
+            409,
+            "effect_unknown",
+            requestRef,
+          );
+        return await session.preparation.status(
           requestRef,
+          { signal: AbortSignal.timeout(policy.requestTimeoutMs) },
+          () => check(token, auth, session),
         );
-      return session.preparation.status(
-        requestRef,
-        { signal: AbortSignal.timeout(policy.requestTimeoutMs) },
-        () => check(token, auth, session),
-      );
-    },
+      }),
     close: async (token: string, reason: c.Close["reason"]) => {
       const auth = await resolve(token);
       return closeRun(auth.authorizationId, reason);
     },
     shutdown: async () => {
       stopping = true;
-      await Promise.allSettled(
-        [...sessions.keys()].map((id) => closeRun(id, "cancelled")),
-      );
+      for (const id of [...sessions.keys()])
+        await closeRun(id, "cancelled").catch(() => {});
     },
   });
 }
@@ -619,17 +646,15 @@ export async function registerReviewRunGatewayRelayRoutes(
           if (reply.raw.headersSent) reply.raw.destroy();
           else {
             const failure = safeFailure(error);
-            reply
-              .code(failure.statusCode)
-              .send({
-                error: {
-                  code: failure.code,
-                  effect: failure.effect,
-                  ...(failure.requestRef
-                    ? { requestRef: failure.requestRef }
-                    : {}),
-                },
-              });
+            reply.code(failure.statusCode).send({
+              error: {
+                code: failure.code,
+                effect: failure.effect,
+                ...(failure.requestRef
+                  ? { requestRef: failure.requestRef }
+                  : {}),
+              },
+            });
           }
         } finally {
           controller.abort();

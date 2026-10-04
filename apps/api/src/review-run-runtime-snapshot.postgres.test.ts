@@ -17,6 +17,8 @@ import {
   parseReviewRunRuntimeSnapshot,
   ReviewRunAuthorizationState,
   ReviewRunAuthorizationUseCaseStatus,
+  ReviewMutationLaneKind,
+  ReviewMutationMode,
   type ReviewRunAuthorization,
   type ReviewRunRuntimeSnapshotPort,
 } from "@reviewrouter/features-review-run-control";
@@ -71,6 +73,9 @@ function disposableDatabase(): string {
 // A stream failure must never create another request; cancelled held SSE must
 // not become clean EOF when SDK teardown resolves read(done=true).
 // Exact close must deny new calls.
+// P45: pause during delayed SCM, or epoch advance during a locked binding read,
+// must deny before SDK dispatch. Held status/recovery must consume the same slot
+// as Responses; excess calls must not reach SCM, run-access or status HTTP.
 // This is real RR PostgreSQL + synthetic OIDC/SCM + controlled Gateway HTTP, no inference.
 describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
   it("retains one original across competing admissions, settings and revocation", async () => {
@@ -83,7 +88,22 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       tokens: 128,
     };
     const networkFetch = globalThis.fetch;
+    const gate = () => {
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { pending, release };
+    };
+    let holdScm: (() => Promise<void>) | undefined;
+    let scmReads = 0;
     const harness = await createReviewActionV2E2EHarness(databaseUrl, {
+      beforeFakeGitHubRead: async () => {
+        scmReads++;
+        const hold = holdScm;
+        holdScm = undefined;
+        await hold?.();
+      },
       environmentOverrides: {
         REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
           profiles: [{ profileRef: "mimo-responses-v1", limits }],
@@ -268,6 +288,9 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         | "held"
       )[] = [];
       const sse = `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "x".repeat(150000) })}\n\ndata: {"type":"response.completed"}\n\n`;
+      let holdAccess: (() => Promise<void>) | undefined;
+      let holdStatus: (() => Promise<void>) | undefined;
+      let statusCalls = 0;
       const server = createServer(async (request, response) => {
         const chunks: Buffer[] = [];
         for await (const chunk of request) chunks.push(Buffer.from(chunk));
@@ -336,15 +359,15 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
               `/v1/executions/${selected.executionRef}/requests/`,
             )
           ) {
-            response
-              .writeHead(200, { "content-type": "application/json" })
-              .end(
-                JSON.stringify({
-                  requestRef: request.url.split("/").at(-1),
-                  effect: "effect_unknown",
-                  status: "unknown",
-                }),
-              );
+            statusCalls++;
+            await holdStatus?.();
+            response.writeHead(200, { "content-type": "application/json" }).end(
+              JSON.stringify({
+                requestRef: request.url.split("/").at(-1),
+                effect: "effect_unknown",
+                status: "unknown",
+              }),
+            );
             return;
           }
           if (
@@ -353,14 +376,12 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           ) {
             const close = JSON.parse(raw) as Gateway.Close;
             closes.push(close);
-            response
-              .writeHead(200, { "content-type": "application/json" })
-              .end(
-                JSON.stringify({
-                  operationRef: close.operationId,
-                  state: "applied",
-                }),
-              );
+            response.writeHead(200, { "content-type": "application/json" }).end(
+              JSON.stringify({
+                operationRef: close.operationId,
+                state: "applied",
+              }),
+            );
             return;
           }
           response.writeHead(403).end();
@@ -376,6 +397,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           response.writeHead(403).end();
           return;
         }
+        await holdAccess?.();
         response.writeHead(200, { "content-type": "application/json" }).end(
           JSON.stringify({
             operation: {
@@ -533,7 +555,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
               waitBudgetMs: 1000,
               maxWaits: 1,
               maxSessions: 4,
-              maxInFlight: 4,
+              maxInFlight: 1,
             }),
           },
         }).accountGatewayRelay!;
@@ -566,10 +588,152 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           },
         });
         expect(intents).toHaveLength(2); // Restart absence must be a SQL read only.
-        expect(
-          await relay.recoverSameOperation(first.authorizationToken),
-        ).toMatchObject({ status: "restored", binding: selected });
+        // Old recovery bypasses the budget: a second recovery/status reaches
+        // authority/HTTP while the first same-operation run-access is held.
+        const accessEntered = gate(),
+          accessRelease = gate();
+        holdAccess = async () => {
+          accessEntered.release();
+          await accessRelease.pending;
+        };
+        const recovery = relay.recoverSameOperation(first.authorizationToken);
+        await accessEntered.pending;
+        const readsBeforeRecoveryOverflow = scmReads;
+        try {
+          await expect(
+            relay.recoverSameOperation(first.authorizationToken),
+          ).rejects.toMatchObject({ code: "relay_saturated" });
+          await expect(
+            relay.status(first.authorizationToken, "held-status"),
+          ).rejects.toMatchObject({ code: "relay_saturated" });
+          expect((await call()).statusCode).toBe(503);
+          expect(scmReads).toBe(readsBeforeRecoveryOverflow);
+          expect(intents).toHaveLength(3);
+          expect(statusCalls).toBe(0);
+        } finally {
+          holdAccess = undefined;
+          accessRelease.release();
+        }
+        expect(await recovery).toMatchObject({
+          status: "restored",
+          binding: selected,
+        });
         expect(intents[2]).toEqual(intents[0]);
+        // Old status also bypasses the budget, allowing duplicate readback HTTP.
+        const statusEntered = gate(),
+          statusRelease = gate();
+        holdStatus = async () => {
+          statusEntered.release();
+          await statusRelease.pending;
+        };
+        const readback = relay.status(first.authorizationToken, "held-status");
+        await statusEntered.pending;
+        const readsBeforeStatusOverflow = scmReads;
+        try {
+          await expect(
+            relay.status(first.authorizationToken, "excess-status"),
+          ).rejects.toMatchObject({ code: "relay_saturated" });
+          await expect(
+            relay.recoverSameOperation(first.authorizationToken),
+          ).rejects.toMatchObject({ code: "relay_saturated" });
+          expect((await call()).statusCode).toBe(503);
+          expect(scmReads).toBe(readsBeforeStatusOverflow);
+          expect(statusCalls).toBe(1);
+          expect(intents).toHaveLength(3);
+        } finally {
+          holdStatus = undefined;
+          statusRelease.release();
+        }
+        expect(await readback).toMatchObject({
+          status: "unknown",
+          effect: "effect_unknown",
+        });
+
+        // The old concurrent authority projection survives both delays while
+        // the authorization row stays active and unchanged: it dispatches HTTP.
+        const authorityKey = {
+          scmRepositoryIdentityId: gatewayRun.scmRepositoryIdentityId,
+          laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
+        };
+        for (const delayAt of ["scm", "binding"] as const) {
+          const authority =
+            await gatewayProduction.repositories.mutationAuthorities.findReviewMutationAuthority(
+              authorityKey,
+            );
+          if (!authority) throw new Error("fixture_authority_missing");
+          const entered = gate(),
+            release = gate();
+          let lock: Promise<void> | undefined;
+          if (delayAt === "scm") {
+            holdScm = async () => {
+              entered.release();
+              await release.pending;
+            };
+          } else {
+            lock = fresh.$transaction(async (tx) => {
+              await tx.$queryRaw`SELECT "id" FROM "ProviderAccountConnection" WHERE "id" = ${connection.id} FOR UPDATE`;
+              entered.release();
+              await release.pending;
+            });
+            await entered.pending;
+          }
+          responses = ["unknown"];
+          const denied = Promise.resolve(call());
+          try {
+            if (delayAt === "scm") await entered.pending;
+            else
+              await expect
+                .poll(async () => {
+                  const waiting = await fresh.$queryRaw<
+                    readonly { count: bigint }[]
+                  >`SELECT count(*) FROM pg_stat_activity
+                WHERE datname = current_database() AND wait_event_type = 'Lock'
+                  AND query LIKE '%ProviderAccountConnection%FOR UPDATE%'`;
+                  return Number(waiting[0]?.count);
+                })
+                .toBe(1);
+            expect(
+              await gatewayProduction.repositories.mutationAuthorities.compareAndSetReviewMutationAuthority(
+                {
+                  expectedVersion: authority.version,
+                  authority: {
+                    ...authority,
+                    version: authority.version + 1,
+                    mode:
+                      delayAt === "scm"
+                        ? ReviewMutationMode.Paused
+                        : authority.mode,
+                    epoch:
+                      delayAt === "binding"
+                        ? authority.epoch + 1n
+                        : authority.epoch,
+                  },
+                },
+              ),
+            ).toMatchObject({ status: "updated" });
+          } finally {
+            holdScm = undefined;
+            release.release();
+          }
+          await lock;
+          expect((await denied).json()).toMatchObject({
+            error: { code: "authorization_denied" },
+          });
+          expect(requests).toHaveLength(0);
+          expect(intents).toHaveLength(3);
+          expect(
+            await fresh.reviewRunAuthorization.findUniqueOrThrow({
+              where: { authorizationId: first.authorizationId },
+            }),
+          ).toMatchObject({ state: "active", version: row.version });
+          // Restore only this disposable fixture for the remaining original-pin checks.
+          await gatewayProduction.repositories.mutationAuthorities.compareAndSetReviewMutationAuthority(
+            {
+              expectedVersion: authority.version + 1,
+              authority: { ...authority, version: authority.version + 2 },
+            },
+          );
+        }
         responses = ["limited", "stream"];
         const delivered = await call(
           '{"input":"fixture","max_output_tokens":256,"tools":[]}',

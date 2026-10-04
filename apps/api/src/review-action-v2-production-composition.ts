@@ -124,6 +124,7 @@ import {
   ResolveReviewSafetyPolicy,
   ReviewTaskKind,
   canonicalJson,
+  reviewRunGatewayOwnedIdentity,
   canonicalReviewOperationalSloProfile,
   canonicalReviewProtocolLimits,
   producerReleaseImmutableKey,
@@ -144,13 +145,17 @@ import {
   composeProductionReviewRunAuthorizationPrerequisites,
   composeReviewRunControl,
   createPrismaReviewRunControlRepositories,
+  PrismaReviewSafetyControlRepository,
 } from "@reviewrouter/features-review-run-control/composition";
 import { reviewActionV2AbsoluteProtocolMaxima } from "./review-action-v2-protocol-policy.js";
 import {
   readGitHubAppPrivateKey,
   resolveReviewRouterPublicApiUrl,
 } from "@reviewrouter/platform-config";
-import type { PrismaClient } from "@reviewrouter/platform-db";
+import {
+  acquireCurrentScopeGuards,
+  type PrismaClient,
+} from "@reviewrouter/platform-db";
 import {
   ConfiguredCapabilityKeyRing,
   JoseRotatingCapabilityCodec,
@@ -997,34 +1002,115 @@ export function composeReviewActionV2ProductionRoutes(input: {
         authorizations: runControl.authorizations,
         queries: repositories.authorizations,
         checkAuthority: async (authorization) => {
-          const [revision, authority, release, decision] = await Promise.all([
-            currentRevision.resolve(authorizationScope(authorization)),
-            repositories.mutationAuthorities.findReviewMutationAuthority({
-              scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
-              laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
-            }),
-            repositories.producerReleases.findProducerReleaseById(
-              authorization.producerReleaseId,
-            ),
-            runControl.safetyResolver.resolveReviewSafetyPolicy({
-              decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
-              target: safetyTarget(
-                authorization,
-                authorization.providerVoteLanes.map((lane) => ({
-                  providerKind: lane.providerKind,
-                  taskKind: ReviewTaskKind.CodeReview,
-                })),
-              ),
-            }),
-          ]);
+          const revision = await currentRevision.resolve(
+            authorizationScope(authorization),
+          );
           return (
             revision.status === CurrentReviewRevisionStatus.Found &&
             canonicalJson(revision.revision) ===
-              canonicalJson(authorizationRevision(authorization)) &&
-            authority?.mode === ReviewMutationMode.V2Active &&
-            authority.epoch === authorization.mutationEpoch &&
-            release?.state === ProducerReleaseState.Registered &&
-            decision.effectAllowed
+              canonicalJson(authorizationRevision(authorization))
+          );
+        },
+        confirmAuthority: async (token, authorization) => {
+          const verified = await prerequisites.tokens
+            .verify({ token, now: clock.now() })
+            .catch(() => undefined);
+          if (!verified) return false;
+          return prisma.$transaction(
+            async (tx) => {
+              await acquireCurrentScopeGuards(tx, [
+                {
+                  scope: "repository",
+                  mode: "shared",
+                  workspaceId: authorization.workspaceId,
+                  repositoryId: authorization.repositoryConnectionId,
+                },
+              ]);
+              // Row SHARE also protects against termination/sweep writers; acquire
+              // it only after scope guards, then reread on this connection.
+              await tx.$queryRaw`SELECT "authorizationId" FROM "ReviewRunAuthorization"
+              WHERE "authorizationId" = ${authorization.authorizationId} FOR SHARE`;
+              // Existing safety query adapter/resolver, with reads bound to this
+              // connection. No root queries or SCM/HTTP while guards are held.
+              const safetyQueries = new PrismaReviewSafetyControlRepository(
+                new Proxy(prisma, {
+                  get(_target, key) {
+                    if (key === "reviewSafetyPolicy")
+                      return tx.reviewSafetyPolicy;
+                    if (key === "reviewSafetyPolicySelector")
+                      return tx.reviewSafetyPolicySelector;
+                    if (key === "reviewSafetyEmergencyControl")
+                      return tx.reviewSafetyEmergencyControl;
+                    throw new Error("relay_safety_reader_scope_invalid");
+                  },
+                }),
+              );
+              const safety = new ResolveReviewSafetyPolicy({
+                clock,
+                digest,
+                policyQueries: safetyQueries,
+                emergencyQueries: safetyQueries,
+              });
+              const [current, authority, release, decision] = await Promise.all(
+                [
+                  tx.reviewRunAuthorization.findUnique({
+                    where: {
+                      authorizationId: authorization.authorizationId,
+                    },
+                  }),
+                  tx.reviewMutationAuthority.findUnique({
+                    where: {
+                      scmRepositoryIdentityId_laneKind: {
+                        scmRepositoryIdentityId:
+                          authorization.scmRepositoryIdentityId,
+                        laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
+                      },
+                    },
+                  }),
+                  tx.producerRelease.findUnique({
+                    where: {
+                      producerReleaseId: authorization.producerReleaseId,
+                    },
+                  }),
+                  safety.resolveReviewSafetyPolicy({
+                    decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
+                    target: safetyTarget(
+                      authorization,
+                      authorization.providerVoteLanes.map((lane) => ({
+                        providerKind: lane.providerKind,
+                        taskKind: ReviewTaskKind.CodeReview,
+                      })),
+                    ),
+                  }),
+                ],
+              );
+              const times = await tx.$queryRaw<
+                readonly { now: Date }[]
+              >`SELECT clock_timestamp() AS "now"`;
+              const dbNow = times[0]?.now.getTime();
+              if (dbNow === undefined) return false;
+              const now = Math.max(dbNow, clock.now().getTime());
+              return (
+                current?.state === "active" &&
+                verified.authorizationId === authorization.authorizationId &&
+                current.version === authorization.version &&
+                current.runtimeSnapshotCanonicalJson ===
+                  authorization.runtimeSnapshotCanonicalJson &&
+                Object.entries(
+                  reviewRunGatewayOwnedIdentity(authorization),
+                ).every(
+                  ([key, value]) => Reflect.get(current, key) === value,
+                ) &&
+                now < verified.expiresAt.getTime() &&
+                now < current.expiresAt.getTime() &&
+                now < current.maxExpiresAt.getTime() &&
+                authority?.mode === ReviewMutationMode.V2Active &&
+                authority.epoch === authorization.mutationEpoch &&
+                release?.state === ProducerReleaseState.Registered &&
+                decision.effectAllowed
+              );
+            },
+            { isolationLevel: "ReadCommitted" },
           );
         },
         snapshots: runtimeSnapshots,
