@@ -127,14 +127,14 @@ describe("renderReviewRouterWorkflow", () => {
     });
     for (const invalid of [
       workflow.replace(
-        /(- name: Checkout ReviewRouter runtime\n        if:) [^\n]+/,
+        /(- name: Checkout ReviewRouter runtime\n {8}if:) [^\n]+/,
         "$1 ${{ false }}",
       ),
       workflow.replace(
-        /(- name: Run ReviewRouter\n        if:) [^\n]+/,
+        /(- name: Run ReviewRouter\n {8}if:) [^\n]+/,
         "$1 ${{ false }}",
       ),
-      workflow.replace(/^    if: [^\n]+/m, "    if: ${{ false }}"),
+      workflow.replace(/^ {4}if: [^\n]+/m, "    if: ${{ false }}"),
     ]) {
       expect(workflowChecksOutReviewRouterRuntime(invalid, actionRef)).toBe(
         false,

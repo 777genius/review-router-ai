@@ -20,8 +20,10 @@ const base = {
 
 describe("createProvisionWorkflowPlan repository-bound Codex path", () => {
   it("preserves the reusable MiMo plan with conflict-review fallback through rendering", () => {
-    const { codexRotatingProviderInstanceId: _rotatingProvider, ...ordinary } =
-      base;
+    const ordinary: Omit<typeof base, "codexRotatingProviderInstanceId"> & {
+      codexRotatingProviderInstanceId?: string;
+    } = { ...base };
+    delete ordinary.codexRotatingProviderInstanceId;
     const plan = createProvisionWorkflowPlan({
       ...ordinary,
       actionRef: "777genius/review-router@v1",
