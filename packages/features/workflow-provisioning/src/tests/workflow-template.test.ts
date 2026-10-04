@@ -667,6 +667,36 @@ describe("renderReviewRouterWorkflow", () => {
     );
   });
 
+  it.each([undefined, {}])(
+    "forwards MiMo credentials when OIDC selects the provider without a static selection (%j)",
+    (staticRuntimeEnv) => {
+      const options = {
+        actionRef: workflowOptions.actionRef,
+        apiUrl: workflowOptions.apiUrl,
+        runtimeConfigMode: workflowOptions.runtimeConfigMode,
+        conflictReviewFallbackEnabled: false,
+        workflowStyle: "explicit" as const,
+      };
+      const workflow = renderReviewRouterWorkflow(
+        staticRuntimeEnv === undefined
+          ? options
+          : { ...options, staticRuntimeEnv },
+      );
+      expect(workflowStep(workflow, "Install Codex CLI")?.if).toContain(
+        "env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1'",
+      );
+      const runtimeStep = parseWorkflowSteps(workflow).find(
+        (step) => step.run === "node .reviewrouter-runtime/dist/index.js",
+      );
+      expect(runtimeStep?.env).toMatchObject({
+        MIMO_TOKEN_PLAN_API_KEY: "${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+      });
+      expect(
+        workflowStep(workflow, "Require MiMo Token Plan API key"),
+      ).toBeUndefined();
+    },
+  );
+
   it("includes configured fallback and synthesis providers in runtime prerequisite selection", () => {
     const fallbackRuntime = buildProviderRuntimePlan({
       schemaVersion: 2,

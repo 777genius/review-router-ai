@@ -136,11 +136,13 @@ export function renderReviewRouterWorkflow(
   const mimoTokenPlanSelected =
     providerSelection.mimoTokenPlanApiKeySecret === true;
   const providerSelectionKnown = providerSelection.selectionKnown;
+  const mimoTokenPlanMayBeSelected =
+    mimoTokenPlanSelected || !providerSelectionKnown;
   const codexCliSecretPresentExpression = providerSelectionKnown
     ? `(${
         providerSelection.codexCliWithoutSecret ? "true || " : ""
       }env.CODEX_AUTH_JSON_PRESENT == '1' && ${providerSelection.codexSubscriptionAuth} || env.OPENAI_API_KEY_PRESENT == '1' && ${providerSelection.codexApiKey} || env.OPENROUTER_API_KEY_PRESENT == '1' && ${providerSelection.openRouterApiKeySecret} || env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1' && ${providerSelection.mimoTokenPlanApiKeySecret})`
-    : `(env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.OPENROUTER_API_KEY_PRESENT == '1')`;
+    : `(env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.OPENROUTER_API_KEY_PRESENT == '1' || env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1')`;
   const codexSubscriptionAuthCondition = providerSelectionKnown
     ? String(providerSelection.codexSubscriptionAuth)
     : "true";
@@ -296,7 +298,7 @@ ${template.oidcStep}      - name: Run ReviewRouter
           CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
           OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}${mimoTokenPlanSelected ? `\n          MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}` : ""}
+          OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}${mimoTokenPlanMayBeSelected ? `\n          MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}` : ""}
 `;
 }
 
