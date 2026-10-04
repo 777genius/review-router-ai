@@ -1250,9 +1250,12 @@ describe("complete filesystem checkout inventory", () => {
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
     expect(inventory).toHaveLength(120);
     expect(fixture.read()).toEqual(catalog);
-    rmSync(join(fixture.migrations, "000121_review_run_gateway_execution_binding"), {
-      recursive: true,
-    });
+    rmSync(
+      join(fixture.migrations, "000121_review_run_gateway_execution_binding"),
+      {
+        recursive: true,
+      },
+    );
     rmSync(join(fixture.migrations, migration120.migrationName), {
       recursive: true,
     });

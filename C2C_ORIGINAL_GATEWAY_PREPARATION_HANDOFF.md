@@ -1,10 +1,12 @@
 # Original Gateway preparation: bounded source handoff
+
 Supplied source: 0d29516f6d9505961f569db45ffdf81721045955; observed Git identity UNAVAILABLE (linked metadata target inaccessible).
 One Git lock probe reported GIT_LOCK_PROBE_INACCESSIBLE before source writes; Git operations stopped. No add/commit/push/reverts.
 Full unchanged .spike-inputs/53-account-gateway-implementation-contract.md SHA256: 66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0 (verified).
 Source changes only (576 changed LOC across 12 owned paths); primary must qualify its existing pinned cache. No new tests or SDK/platform expansion; no relay/UI/provider/paid/admin/credential/workflow/deploy/release work.
 
 Changed owned paths:
+
 - apps/api/src/review-run-runtime-snapshot.ts; apps/api/src/review-run-gateway-preparation.ts; apps/api/src/prisma-review-run-gateway-execution-binding.ts
 - packages/features/review-run-control/src/domain/review-run-runtime-snapshot.ts; packages/features/review-run-control/src/application/ports/review-run-gateway-execution-binding-port.ts; packages/features/review-run-control/src/index.ts
 - packages/platform/db/prisma/schema.prisma; packages/platform/db/prisma/migrations/000121_review_run_gateway_execution_binding/migration.sql
@@ -28,18 +30,20 @@ Required unowned integration: apps/api/src/review-action-v2-production-compositi
 Other worker's manage-review-run-authorizations.ts, review-run-authorized-event.ts and existing PG scenario were not edited. Run the primary's scenario extension only after that nonoverlapping repair is terminal.
 
 Primary qualification, using existing pinned dependencies: regenerate Prisma; pnpm --filter @reviewrouter/features-review-run-control typecheck; pnpm --filter @reviewrouter/api typecheck; pnpm exec vitest run scripts/check-codex-rotating-migration-rehearsal-historical96.test.ts scripts/codex-rotating-release-migration-workflow.test.ts.
-Apply all120 SQL to the existing disposable PG17.10 fixture; set its existing RR_C2C_PG_TEST_URL (loopback rr_gateway_test_c2c_* database, no password), then RR_C2C_PG_TEST=1 RR_C2C_MIGRATED_DISPOSABLE_DATABASE=1 pnpm exec vitest run apps/api/src/review-run-runtime-snapshot.postgres.test.ts. Require zero skips; use actual current private /internal/v1/run-access HTTP and configured server-only control credential, without printing it.
+Apply all120 SQL to the existing disposable PG17.10 fixture; set its existing RR*C2C_PG_TEST_URL (loopback rr_gateway_test_c2c*\* database, no password), then RR_C2C_PG_TEST=1 RR_C2C_MIGRATED_DISPOSABLE_DATABASE=1 pnpm exec vitest run apps/api/src/review-run-runtime-snapshot.postgres.test.ts. Require zero skips; use actual current private /internal/v1/run-access HTTP and configured server-only control credential, without printing it.
 Extend that existing real PG/OIDC scenario, not mock/source-string tests. Minimal approved profile fixture: mimo-responses-v1; illustrative TEST-only caps {requests:2,concurrency:1,requestBytes:4096,outputBytes:8192,tokens:128}; exact owned gateway account/binding and original max deadline. These numbers are not qualified production defaults.
 Observable failures it must catch:
+
 - Settings/policy mutation, concurrent admission or renewed/restored OIDC must never replace original five caps/profile/IDs/deadline; real serializable admission must deny a changed recapture.
 - Unconfigured policy, malformed/partial/fractional/unbounded caps, caps-less legacy pins, foreign/head/attempt/snapshot mismatch, revoked/pending/unknown binding and expired authority must produce zero fresh preparation calls/attachments.
 - An actual applied HTTP selection must attach once on the existing authorization; selected account and Gateway epoch must match the HTTP result/admission, with epoch deliberately distinct from C1 revisions; bearer must be absent from DB/claims/outbox/safe return.
 - Competing SQL/CAS attachments must yield one selected tuple; identical readback restores, different execution/account/epoch/deadline/operation conflicts; raw SQL insert/reset/extra-key/owner-drift and legacy retrofit must reject.
 - Loss after HTTP/before attachment must not trigger an internal second call; explicit same-operation recovery must restore the same selected tuple/attachment and original deadline. Unknown/invalid/expired gateway result cannot attach.
 - Actual awaited reads/HTTP/attachment crossing the shorter current authorization expiry or original maximum must deny; non-UTC SQL sessions must enforce the same UTC instant; renewal and reconnect/revoke must preserve immutable selected identity.
-Qualification and unowned joins remain pending: no full E2E/readiness claim. Actual relay/Action/tools/final/parser/App is the immediate next lane. D-final/S/E/F/G remain required; H deferred.
+  Qualification and unowned joins remain pending: no full E2E/readiness claim. Actual relay/Action/tools/final/parser/App is the immediate next lane. D-final/S/E/F/G remain required; H deferred.
 
 ## Primary qualification, 2026-10-04
+
 The preceding worker handoff is historical; primary completed its stated joins without SDK changes.
 Production composition now reads explicit server-only REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY with all five caps; absent policy remains deny.
 Existing PG/OIDC scenario extended at the real migrated SQL + loopback HTTP boundary: same-operation recovery, write-once selection, distinct actual epoch, private capability exclusion.
