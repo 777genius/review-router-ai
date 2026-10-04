@@ -407,27 +407,29 @@ describe("hosted pool replay-fenced failover artifact", () => {
         });
         return server;
       });
-    const proxy = await actionBundle.startHostedCodexRelayProxy({
-      grant: "grant",
-      commentTokenRefreshCapability: "refresh",
-      invocationLeaseId: "lease",
-      bindingId: "binding",
-      bindingVersion: 1,
-      relayUrl: "https://relay.reviewrouter.test/v1/responses",
-      upstreamCommentTokenRefreshUrl:
-        "https://relay.reviewrouter.test/v1/comment-token",
-      policy: { maxRequests: 4 },
-      fetchImpl: jest.fn(async () => {
-        const call = relayCalls++;
-        relayStarted[call]?.();
-        if (call < 2) {
-          await new Promise<void>((resolve) => releases.push(resolve));
-        }
-        return new Response(completedResponseBody, {
-          headers: { "content-type": "text/event-stream" },
-        });
-      }) as typeof fetch,
-    }).finally(() => serverSpy.mockRestore());
+    const proxy = await actionBundle
+      .startHostedCodexRelayProxy({
+        grant: "grant",
+        commentTokenRefreshCapability: "refresh",
+        invocationLeaseId: "lease",
+        bindingId: "binding",
+        bindingVersion: 1,
+        relayUrl: "https://relay.reviewrouter.test/v1/responses",
+        upstreamCommentTokenRefreshUrl:
+          "https://relay.reviewrouter.test/v1/comment-token",
+        policy: { maxRequests: 4 },
+        fetchImpl: jest.fn(async () => {
+          const call = relayCalls++;
+          relayStarted[call]?.();
+          if (call < 2) {
+            await new Promise<void>((resolve) => releases.push(resolve));
+          }
+          return new Response(completedResponseBody, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }) as typeof fetch,
+      })
+      .finally(() => serverSpy.mockRestore());
     const active = [
       fetch(`${proxy.baseUrl}/responses`, { method: "POST", body: "{}" }),
       fetch(`${proxy.baseUrl}/responses`, { method: "POST", body: "{}" }),
