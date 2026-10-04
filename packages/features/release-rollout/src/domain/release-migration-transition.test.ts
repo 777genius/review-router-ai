@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps full117 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps full118 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,9 +107,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(117);
+    expect(full).toHaveLength(118);
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-10).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-11).map((row) => row.migrationName)).toEqual([
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
       "000111_sdk_growth_source_binding",
@@ -120,8 +120,12 @@ describe("canonical release migration transition", () => {
       "000116_hosted_codex_relay_admission_utc",
       "000117_provider_accounts",
       "000118_workspace_binding_fences",
+      "000119_review_configuration_gateway_binding",
     ]);
     expect(manifest(full)).toBe(
+      "sha256:2ee71e958dc9b4a564fd113a4983917ad6e3f7ea22cd19fa29bdb7dc72320e1c",
+    );
+    expect(manifest(full.slice(0, 117))).toBe(
       "sha256:6bd2cd3c077f6cf56735c7192dd6e0f84a21bbec5a2657271cb5afaf1d2f20cf",
     );
     expect(manifest(full.slice(0, 116))).toBe(

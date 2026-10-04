@@ -232,7 +232,7 @@ async function saveNextReviewConfigurationVersion(
         input.target.scope === "repository" ? input.target.repositoryId : null,
       targetKey,
     },
-    select: { id: true },
+    select: { id: true, workspaceId: true },
   });
 
   const latest = await prisma.reviewConfigurationVersion.findFirst({
@@ -246,10 +246,16 @@ async function saveNextReviewConfigurationVersion(
   ) {
     throw new WriteConflict();
   }
+  // Selection only. The safe product mirror cannot authorize execution;
+  // next relay admission must independently read live gateway/kernel authority.
+  await assertGatewaySelections(prisma, configuration.workspaceId, config);
   const nextVersion = (latest?.version ?? 0) + 1;
   const saved = await prisma.reviewConfigurationVersion.create({
     data: {
       configurationId: configuration.id,
+      workspaceId: configuration.workspaceId,
+      gatewayBindingId: config.provider.gatewayBindingId ?? null,
+      gatewayProfileRef: config.provider.gatewayProfileRef ?? null,
       version: nextVersion,
       schemaVersion: config.schemaVersion,
       providerKind: config.provider.kind,
@@ -278,7 +284,10 @@ async function saveNextReviewConfigurationVersion(
         config.investigationRollout.productionEffectsEnabled,
       providers: {
         create: config.providers.map((provider, index) => ({
+          // Composite parent relation supplies workspaceId from the version.
           order: index,
+          gatewayBindingId: provider.gatewayBindingId ?? null,
+          gatewayProfileRef: provider.gatewayProfileRef ?? null,
           providerKind: provider.kind,
           providerAuthMode: provider.authMode,
           model: provider.model,
@@ -315,6 +324,8 @@ const versionSelect = {
   schemaVersion: true,
   providerKind: true,
   providerAuthMode: true,
+  gatewayBindingId: true,
+  gatewayProfileRef: true,
   model: true,
   reasoningEffort: true,
   agenticContext: true,
@@ -337,6 +348,8 @@ const versionSelect = {
     select: {
       providerKind: true,
       providerAuthMode: true,
+      gatewayBindingId: true,
+      gatewayProfileRef: true,
       model: true,
       reasoningEffort: true,
       agenticContext: true,
@@ -352,6 +365,8 @@ type VersionRecord = {
   readonly schemaVersion: number;
   readonly providerKind: string;
   readonly providerAuthMode: string;
+  readonly gatewayBindingId: string | null;
+  readonly gatewayProfileRef: string | null;
   readonly model: string;
   readonly reasoningEffort: string;
   readonly agenticContext: boolean;
@@ -372,6 +387,8 @@ type VersionRecord = {
   readonly providers: readonly {
     readonly providerKind: string;
     readonly providerAuthMode: string;
+    readonly gatewayBindingId: string | null;
+    readonly gatewayProfileRef: string | null;
     readonly model: string;
     readonly reasoningEffort: string;
     readonly agenticContext: boolean;
@@ -392,6 +409,7 @@ function toPersistedConfiguration(
         ? version.providers.map((provider) => ({
             kind: provider.providerKind,
             authMode: provider.providerAuthMode,
+            ...gatewaySelectionFromRecord(provider),
             model: provider.model,
             reasoningEffort: provider.reasoningEffort,
             agenticContext: provider.agenticContext,
@@ -402,6 +420,7 @@ function toPersistedConfiguration(
             {
               kind: version.providerKind,
               authMode: version.providerAuthMode,
+              ...gatewaySelectionFromRecord(version),
               model: version.model,
               reasoningEffort: version.reasoningEffort,
               agenticContext: version.agenticContext,
@@ -412,6 +431,7 @@ function toPersistedConfiguration(
       provider: {
         kind: version.providerKind,
         authMode: version.providerAuthMode,
+        ...gatewaySelectionFromRecord(version),
         model: version.model,
         reasoningEffort: version.reasoningEffort,
         agenticContext: version.agenticContext,
@@ -443,4 +463,62 @@ function toPersistedConfiguration(
       },
     }),
   };
+}
+
+function gatewaySelectionFromRecord(record: {
+  readonly gatewayBindingId: string | null;
+  readonly gatewayProfileRef: string | null;
+}) {
+  return {
+    ...(record.gatewayBindingId != null
+      ? { gatewayBindingId: record.gatewayBindingId }
+      : {}),
+    ...(record.gatewayProfileRef != null
+      ? { gatewayProfileRef: record.gatewayProfileRef }
+      : {}),
+  };
+}
+
+async function assertGatewaySelections(
+  prisma: Prisma.TransactionClient,
+  workspaceId: string,
+  config: ReviewConfiguration,
+): Promise<void> {
+  for (const provider of config.providers) {
+    if (provider.authMode !== "codex_account_gateway") continue;
+    const binding = await prisma.workspaceAccountBinding.findUnique({
+      where: { id_workspaceId: { id: provider.gatewayBindingId, workspaceId } },
+      select: {
+        state: true,
+        pendingFenceOperationId: true,
+        pendingFencePolicySubject: true,
+        pendingFencePolicyRevision: true,
+        connection: {
+          select: {
+            ownerWorkspaceId: true,
+            ownerUserId: true,
+            state: true,
+            profileRef: true,
+            ownerWorkspace: { select: { personalOwnerUserId: true } },
+          },
+        },
+      },
+    });
+    if (
+      !binding ||
+      binding.state !== "active" ||
+      binding.pendingFenceOperationId !== null ||
+      binding.pendingFencePolicySubject !== null ||
+      binding.pendingFencePolicyRevision !== null ||
+      binding.connection.ownerWorkspaceId !== workspaceId ||
+      binding.connection.ownerUserId !== null ||
+      binding.connection.ownerWorkspace?.personalOwnerUserId !== null ||
+      binding.connection.state !== "active"
+    ) {
+      throw new Error("review_configuration_gateway_binding_unavailable");
+    }
+    if (binding.connection.profileRef !== provider.gatewayProfileRef) {
+      throw new Error("review_configuration_gateway_profile_mismatch");
+    }
+  }
 }

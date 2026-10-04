@@ -38,6 +38,7 @@ const extensions = [
   "000116_hosted_codex_relay_admission_utc",
   "000117_provider_accounts",
   "000118_workspace_binding_fences",
+  "000119_review_configuration_gateway_binding",
 ];
 function body(name: string) {
   const match = source.match(

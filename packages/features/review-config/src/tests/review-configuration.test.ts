@@ -899,3 +899,115 @@ describe("review configuration", () => {
     ).resolves.toBe(false);
   });
 });
+
+const gatewayProvider = {
+  kind: "codex",
+  authMode: "codex_account_gateway",
+  model: "mimo-v2-pro",
+  reasoningEffort: "high",
+  agenticContext: false,
+  fastMode: true,
+  gatewayBindingId: "binding-safe",
+  gatewayProfileRef: "profile-mimo",
+} as const;
+const gatewayConfigInput = (provider: unknown) => ({
+  schemaVersion: 2,
+  providers: [provider],
+  blockingPolicy: { failOnSeverity: "critical" },
+  limits: { inlineMaxComments: 50, targetTokensPerBatch: 50000 },
+});
+
+// Detects lost flat references, legacy coercion, OpenAI-only reasoning gates or primary drift.
+it("retains gateway references and upstream settings in v1 and v2 normalization", () => {
+  const first = parseReviewConfigurationStrict(
+    gatewayConfigInput(gatewayProvider),
+  );
+  expect(first.provider).toEqual({ ...gatewayProvider, requiredHealthy: true });
+  expect(first.provider).toBe(first.providers[0]);
+  const legacyShape = parseReviewConfiguration({
+    schemaVersion: 1,
+    provider: gatewayProvider,
+    blockingPolicy: {},
+    limits: {},
+  });
+  expect(legacyShape.provider).toEqual(first.provider);
+  const mixed = parseReviewConfigurationStrict({
+    ...gatewayConfigInput(gatewayProvider),
+    provider: { ...gatewayProvider, gatewayBindingId: "ignored-primary" },
+    providers: [
+      gatewayProvider,
+      {
+        ...gatewayProvider,
+        model: "openai/gpt-5.6-sol",
+        reasoningEffort: "ultra",
+        gatewayBindingId: "binding-second",
+        gatewayProfileRef: "profile-openrouter",
+      },
+    ],
+  });
+  expect(mixed.provider).toEqual(first.provider);
+  expect(mixed.providers[1]).toMatchObject({
+    model: "openai/gpt-5.6-sol",
+    reasoningEffort: "ultra",
+    fastMode: true,
+    gatewayBindingId: "binding-second",
+    gatewayProfileRef: "profile-openrouter",
+  });
+});
+
+// Detects silently deduplicating two selections that happen to use the same model.
+it("keeps distinct bindings ordered and rejects only exact duplicate selections", () => {
+  const second = { ...gatewayProvider, gatewayBindingId: "binding-second" };
+  const input = {
+    ...gatewayConfigInput(gatewayProvider),
+    providers: [gatewayProvider, second],
+  };
+  expect(parseReviewConfigurationStrict(input).providers).toHaveLength(2);
+  expect(() =>
+    parseReviewConfigurationStrict({
+      ...input,
+      providers: [gatewayProvider, gatewayProvider],
+    }),
+  ).toThrow("duplicate_review_provider");
+});
+
+// Detects missing/partial selections, URL/token references or unbounded identifiers being accepted.
+it.each([
+  { gatewayBindingId: undefined },
+  { gatewayProfileRef: undefined },
+  { gatewayBindingId: "" },
+  { gatewayProfileRef: " " },
+  { gatewayBindingId: "b".repeat(161) },
+  { gatewayProfileRef: "p".repeat(161) },
+  { gatewayBindingId: "https://private.example/binding" },
+  { gatewayProfileRef: "sk-secret-value" },
+  { model: "https://private.example/model" },
+])("rejects malformed gateway selection %j", (patch) => {
+  expect(() =>
+    parseReviewConfiguration(
+      gatewayConfigInput({ ...gatewayProvider, ...patch }),
+    ),
+  ).toThrow();
+});
+
+// Detects reference smuggling in a foreign/unknown auth mode or kind, and caller authority fields.
+it.each([
+  { kind: "claude" },
+  { kind: "openrouter" },
+  { kind: "mimo" },
+  { authMode: "unknown_gateway" },
+  { authMode: "codex_subscription_oauth_rotating" },
+  { authMode: "codex_subscription_oauth_hosted_pool" },
+  { authMode: "codex_openai_api_key" },
+  { ownerWorkspaceId: "caller-owner" },
+  { principal: "caller-user" },
+  { token: "secret" },
+  { relayUrl: "https://private.example" },
+  { nativeAccountId: 7 },
+])("rejects gateway mode misuse %j", (patch) => {
+  expect(() =>
+    parseReviewConfigurationStrict(
+      gatewayConfigInput({ ...gatewayProvider, ...patch }),
+    ),
+  ).toThrow();
+});
