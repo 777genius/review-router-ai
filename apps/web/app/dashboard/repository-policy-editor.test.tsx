@@ -98,6 +98,47 @@ function pageText(): string {
 }
 
 describe("ReviewConfigForm", () => {
+  it("preserves gateway ultra effort when a model edit only adds whitespace and offers max and ultra", () => {
+    const provider = {
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      model: "openai/gpt-5.6-sol",
+      reasoningEffort: "ultra",
+      agenticContext: true,
+      fastMode: false,
+      requiredHealthy: true,
+      gatewayBindingId: "binding-mimo",
+      gatewayProfileRef: "profile-mimo",
+    } satisfies ReviewProviderConfiguration;
+    renderReviewConfigForm({
+      config: {
+        ...safeDefaultReviewConfiguration,
+        provider,
+        providers: [provider],
+      },
+      repositoryFullName: "test/disposable-gateway",
+      repositorySecretCheckTarget: {
+        workspaceId: "workspace_1",
+        repositoryId: "repo_1",
+      },
+    });
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Model" }), {
+      target: { value: `${provider.model} ` },
+    });
+
+    const form = document.querySelector("form");
+    expect(form).not.toBeNull();
+    const serialized = readReviewConfigurationForm(new FormData(form!));
+    expect(serialized.provider).toEqual(provider);
+    expect(serialized.providers).toEqual([provider]);
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
+    expect(screen.getByRole("option", { name: /Max/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Ultra/ })).toBeTruthy();
+    expect(checkProviderRepositorySecretClientAction).not.toHaveBeenCalled();
+  });
+
   it("round-trips a saved gateway selection without a GitHub secret probe and clears refs when switching auth", () => {
     vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
       status: "missing",

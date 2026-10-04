@@ -152,7 +152,11 @@ const reasoningEffortOptions = [
   },
 ] as const;
 
-function reasoningEffortOptionsForModel(model: string) {
+function reasoningEffortOptionsForModel(
+  model: string,
+  authMode: ProviderAuthMode,
+) {
+  if (authMode === "codex_account_gateway") return reasoningEffortOptions;
   return reasoningEffortOptions.filter((option) =>
     codexModelSupportsReasoningEffort(model, option.value),
   );
@@ -1368,6 +1372,7 @@ export function ReviewConfigForm({
                       onValueChange={(value) =>
                         updateProvider(index, (current) => {
                           const reasoningEffort =
+                            current.authMode === "codex_account_gateway" ||
                             codexModelSupportsReasoningEffort(
                               value,
                               current.reasoningEffort,
@@ -1415,6 +1420,7 @@ export function ReviewConfigForm({
                           disabled={!mutationsEnabled}
                           options={reasoningEffortOptionsForModel(
                             provider.model,
+                            provider.authMode,
                           )}
                           onValueChange={(value) =>
                             updateProvider(index, (current) => ({
