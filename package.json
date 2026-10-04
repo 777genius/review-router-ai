@@ -1,6 +1,9 @@
 {
   "name": "review-router",
   "private": true,
+  "engines": {
+    "node": ">=24"
+  },
   "bin": {
     "reviewrouter": "./apps/api/dist/reviewrouter-operator-cli.js"
   },
@@ -105,9 +108,9 @@
     "release-witness:start": "pnpm --filter @reviewrouter/api release-witness:start",
     "worker:start": "node --conditions=production apps/worker/dist/worker.js",
     "runtime:smoke": "node scripts/run-with-env.mjs node scripts/check-production-runtime.mjs",
-    "action:build": "node scripts/build-codex-rotating-action.mjs",
-    "action:artifact:check": "node scripts/check-codex-rotating-action-artifact.mjs",
-    "action:artifact:check:smoke": "REVIEWROUTER_CODEX_ROTATING_ACTION_REQUIRE_BINARY=0 node scripts/check-codex-rotating-action-artifact.mjs",
+    "action:build": "node scripts/build-codex-rotating-action.mjs && node scripts/build-conflict-runtime.ts",
+    "action:artifact:check": "node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
+    "action:artifact:check:smoke": "REVIEWROUTER_CODEX_ROTATING_ACTION_REQUIRE_BINARY=0 node scripts/check-codex-rotating-action-artifact.mjs && node scripts/build-conflict-runtime.ts --check",
     "action:sync-public-runtime": "node scripts/sync-public-action-runtime.mjs",
     "subscription-runtime:contract": "node scripts/check-external-subscription-runtime.mjs",
     "subscription-runtime:redaction-canary": "node scripts/check-external-subscription-runtime.mjs",

@@ -10,6 +10,7 @@ import {
   writeSync,
 } from "node:fs";
 import path from "node:path";
+import { assertConflictRuntimeBundleMatchesSource } from "./build-conflict-runtime.ts";
 
 const args = parseArgs(process.argv.slice(2));
 const saasRepo = path.resolve(
@@ -26,6 +27,7 @@ const expectedActionBranch = args.expectedActionBranch ?? "main";
 const syncedFiles = [
   "action.yml",
   "action-dist/index.cjs",
+  "action-dist/conflict-runtime.cjs",
   "action-dist/codex/linux-x64/codex-linux-x64.tgz",
   "action-dist/codex/linux-x64/manifest.json",
   "scripts/seed-codex-rotating-auth.sh",
@@ -49,6 +51,7 @@ for (const file of syncedFiles) {
 assertFreshExternalSubscriptionRuntime(
   path.join(saasRepo, "action-dist/index.cjs"),
 );
+await assertConflictRuntimeBundleMatchesSource({ root: saasRepo });
 
 console.log(`SaaS repo: ${saasRepo}`);
 console.log(`Action repo: ${actionRepo}`);

@@ -89,9 +89,9 @@ export function evaluateFeatureEntitlement(input: {
   if (input.entitlement.status !== "active") {
     return { allowed: false, reason: "workspace_entitlement_not_active" };
   }
-  // Existing workspace records may retain old false bits. Provider-key management
-  // is available to active workspaces; MiMo is separately guarded by an explicit
-  // workspace grant before its key can be stored or applied.
+  // Existing workspace records may retain old false bits. Customer-owned
+  // provider-key management is available to active workspaces for both MiMo
+  // and OpenRouter, subject to workspace admin authorization.
   if (
     input.feature === "hosted_codex_pool" ||
     input.feature === "provider_key_management"

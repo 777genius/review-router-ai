@@ -3030,6 +3030,9 @@ type ProviderSecretGuidanceSet = {
   readonly codexOAuth: ReturnType<typeof buildProviderSecretSetupGuidance>;
   readonly codexApiKey: ReturnType<typeof buildProviderSecretSetupGuidance>;
   readonly claudeCodeOAuth: ReturnType<typeof buildProviderSecretSetupGuidance>;
+  readonly mimoTokenPlanApiKey: ReturnType<
+    typeof buildProviderSecretSetupGuidance
+  >;
   readonly openRouterApiKey: ReturnType<
     typeof buildProviderSecretSetupGuidance
   >;
@@ -3211,6 +3214,11 @@ function buildProviderSecretGuidanceSet({
     codexApiKey: buildDisabledLegacyCodexGuidance("openai_api_key"),
     claudeCodeOAuth: buildProviderSecretSetupGuidance({
       provider: "claude_code_oauth",
+      repoFullName: repositoryFullName,
+      organizationLogin,
+    }),
+    mimoTokenPlanApiKey: buildProviderSecretSetupGuidance({
+      provider: "mimo_token_plan_api_key",
       repoFullName: repositoryFullName,
       organizationLogin,
     }),

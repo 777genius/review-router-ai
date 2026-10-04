@@ -143,6 +143,7 @@ describe("RepositorySetupProgressPanel", () => {
               codexOAuth: guidance("CODEX_AUTH_JSON"),
               codexApiKey: guidance("OPENAI_API_KEY"),
               claudeCodeOAuth: guidance("CLAUDE_CODE_OAUTH_TOKEN"),
+              mimoTokenPlanApiKey: guidance("MIMO_TOKEN_PLAN_API_KEY"),
               openRouterApiKey: guidance("OPENROUTER_API_KEY"),
             }}
             triggerLabel="Enable review"
@@ -620,9 +621,11 @@ function guidance(secretName: string): ProviderSecretSetupGuidance {
         ? "codex_oauth"
         : secretName === "OPENAI_API_KEY"
           ? "openai_api_key"
-          : secretName === "CLAUDE_CODE_OAUTH_TOKEN"
-            ? "claude_code_oauth"
-            : "openrouter_api_key",
+          : secretName === "MIMO_TOKEN_PLAN_API_KEY"
+            ? "mimo_token_plan_api_key"
+            : secretName === "CLAUDE_CODE_OAUTH_TOKEN"
+              ? "claude_code_oauth"
+              : "openrouter_api_key",
     recommendedScope: "repository",
     commands: [
       {

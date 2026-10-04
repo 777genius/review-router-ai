@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
+import { buildProviderRuntimePlan } from "@reviewrouter/features-review-providers";
 import {
   areWorkflowDocumentsSemanticallyEqual,
   CodexRotatingReviewActionV2Mode,
@@ -10,6 +12,7 @@ import {
 import {
   analyzeConflictReviewWorkflowCapability,
   analyzeWorkflowProviderCompatibility,
+  codexRotatingProviderSecretInputsForRuntimeEnv,
   defaultCodexRotatingWorkflowPath,
   defaultInteractionWorkflowPath,
   defaultRequiredWorkflowPath,
@@ -23,12 +26,14 @@ import {
   renderReviewRouterRequiredWorkflow,
   renderReviewRouterWorkflow,
   renderReviewRouterWorkflowFiles,
+  reusableReviewWorkflowPath,
   renderCodexRotatingAdvisoryWorkflow,
   renderCanonicalCodexRotatingInteractionWorkflowV1,
   renderCanonicalCodexRotatingInteractionWorkflowV2,
   renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderCodexRotatingInteractionWorkflow,
   scanCodexRotatingAdvisoryWorkflow,
+  workflowChecksOutReviewRouterRuntime,
 } from "../domain/workflow-template";
 import {
   renderCodexRotatingAdvisoryWorkflow as renderExportedCodexRotatingAdvisoryWorkflow,
@@ -46,6 +51,28 @@ const workflowOptions = {
   },
 };
 
+type ParsedWorkflow = {
+  readonly jobs: Record<
+    string,
+    {
+      readonly steps: readonly (Record<string, unknown> & {
+        readonly name?: string;
+        readonly if?: string;
+        readonly run?: string;
+      })[];
+    }
+  >;
+};
+
+function parseWorkflowSteps(workflow: string) {
+  const parsed = parse(workflow) as ParsedWorkflow;
+  return parsed.jobs.review?.steps ?? [];
+}
+
+function workflowStep(workflow: string, name: string) {
+  return parseWorkflowSteps(workflow).find((step) => step.name === name);
+}
+
 function getWorkflowJobSection(workflow: string, jobId: string): string {
   const startMatch = new RegExp(`^ {2}${jobId}:\\s*$`, "m").exec(workflow);
   if (!startMatch) {
@@ -60,6 +87,113 @@ function getWorkflowJobSection(workflow: string, jobId: string): string {
 }
 
 describe("renderReviewRouterWorkflow", () => {
+  it("recognizes the pinned checkout and execution in a generated explicit review job", () => {
+    const actionRef =
+      "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
+    const workflow = renderReviewRouterWorkflow({
+      actionRef,
+      apiUrl: "https://reviewrouter.site",
+      runtimeConfigMode: "static",
+    });
+    expect(workflowChecksOutReviewRouterRuntime(workflow, actionRef)).toBe(
+      true,
+    );
+    for (const invalidWorkflow of [
+      workflow.replace(
+        "ref: 0123456789abcdef0123456789abcdef01234567",
+        "ref: main",
+      ),
+      workflow.replace(
+        "run: node .reviewrouter-runtime/dist/index.js",
+        "run: echo skipped",
+      ),
+      workflow.replace("path: .reviewrouter-runtime", "path: other-runtime"),
+      workflow.replace("  review:", "  unrelated:"),
+      workflow.replace("          repository:", "          # repository:"),
+    ]) {
+      expect(
+        workflowChecksOutReviewRouterRuntime(invalidWorkflow, actionRef),
+      ).toBe(false);
+    }
+  });
+
+  it("rejects unreachable runtime checkout, execution, and review job guards", () => {
+    const actionRef =
+      "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
+    const workflow = renderReviewRouterWorkflow({
+      actionRef,
+      apiUrl: "https://reviewrouter.site",
+      runtimeConfigMode: "static",
+    });
+    for (const invalid of [
+      workflow.replace(
+        /(- name: Checkout ReviewRouter runtime\n {8}if:) [^\n]+/,
+        "$1 ${{ false }}",
+      ),
+      workflow.replace(
+        /(- name: Run ReviewRouter\n {8}if:) [^\n]+/,
+        "$1 ${{ false }}",
+      ),
+      workflow.replace(/^ {4}if: [^\n]+/m, "    if: ${{ false }}"),
+    ]) {
+      expect(workflowChecksOutReviewRouterRuntime(invalid, actionRef)).toBe(
+        false,
+      );
+    }
+  });
+
+  it("does not accept runtime refs in comments when the checkout targets another ref", () => {
+    const actionRef =
+      "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
+    const workflow =
+      renderReviewRouterWorkflow({
+        actionRef,
+        apiUrl: "https://reviewrouter.site",
+        runtimeConfigMode: "static",
+      }).replace(
+        "ref: 0123456789abcdef0123456789abcdef01234567",
+        "ref: old-runtime",
+      ) +
+      "\n# repository: 777genius/review-router\n# ref: 0123456789abcdef0123456789abcdef01234567\n";
+    expect(
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml: workflow,
+        providerKind: "openrouter",
+        workflowStyle: "explicit",
+        expectedActionRef: actionRef,
+      }).missingRequirements,
+    ).toContain("action_ref_supports_provider");
+  });
+
+  it.each(["openrouter-api", "mimo-token-plan-api"])(
+    "gives %s generated workflows a bounded paid-provider budget",
+    (authMode) => {
+      const options = {
+        actionRef:
+          "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+        apiUrl: "https://reviewrouter.site",
+        runtimeConfigMode: "static" as const,
+        staticRuntimeEnv: { REVIEW_AUTH_MODE: authMode },
+      };
+
+      expect(renderReviewRouterWorkflow(options)).toContain(
+        'BUDGET_MAX_USD: "1"',
+      );
+      expect(renderReviewRouterReusableWorkflow(options)).toContain(
+        '"BUDGET_MAX_USD": "1"',
+      );
+      expect(
+        renderReviewRouterWorkflow({
+          ...options,
+          staticRuntimeEnv: {
+            ...options.staticRuntimeEnv,
+            BUDGET_MAX_USD: "0.25",
+          },
+        }),
+      ).toContain('BUDGET_MAX_USD: "0.25"');
+    },
+  );
+
   it("exports a dedicated advisory-only rotating Codex OAuth workflow", () => {
     const workflow = renderExportedCodexRotatingAdvisoryWorkflow({
       actionRef:
@@ -343,6 +477,300 @@ describe("renderReviewRouterWorkflow", () => {
     expect(scanCodexRotatingAdvisoryWorkflow(content)).toEqual({
       valid: true,
       errors: [],
+    });
+  });
+
+  it("wires the selected MiMo secret through rotating provider callers and readiness markers", () => {
+    expect(
+      codexRotatingProviderSecretInputsForRuntimeEnv({
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      }),
+    ).toEqual({
+      claudeCodeOAuthTokenSecret: false,
+      openRouterApiKeySecret: false,
+      mimoTokenPlanApiKeySecret: true,
+    });
+
+    const t0Markers = getCodexRotatingWorkflowSetupContentMarkerGroups({
+      providerInstanceId: "codex-rotating:123456",
+      mimoTokenPlanApiKeySecret: true,
+      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+      workflowSchemaVersion:
+        CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2,
+    });
+    expect(t0Markers[0]).toContain(
+      "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
+
+    const actionMarkers = getCodexRotatingWorkflowSetupContentMarkerGroups({
+      providerInstanceId: "codex-rotating:123456",
+      mimoTokenPlanApiKeySecret: true,
+    });
+    expect(actionMarkers[0]).toContain(
+      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
+  });
+
+  it("routes MiMo-only setup through the pinned reusable runtime with scoped key forwarding", () => {
+    const files = renderReviewRouterWorkflowFiles({
+      actionRef:
+        "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+      apiUrl: "https://reviewrouter.site",
+      runtimeConfigMode: "oidc",
+      workflowStyle: "reusable",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "mimo-token-plan-api",
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      },
+    });
+
+    expect(files.map((file) => file.path)).toEqual([
+      defaultWorkflowPath,
+      defaultInteractionWorkflowPath,
+    ]);
+    const workflow = workflowFileContent(files[0]);
+    expect(workflow).toContain(reusableReviewWorkflowPath);
+    expect(workflow).toContain(
+      '"REVIEW_PROVIDERS": "codex-mimo/mimo-v2.6-pro"',
+    );
+    expect(workflow).toContain(
+      "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
+    expect(workflow).not.toContain("mimo-token-plan-api-key:");
+    expect(workflow).not.toContain(
+      "OPENROUTER_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
+    expect(
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml: workflow,
+        providerKind: "codex-mimo",
+        workflowStyle: "reusable",
+        expectedActionRef:
+          "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+      }),
+    ).toEqual({
+      providerKind: "codex-mimo",
+      supported: true,
+      missingRequirements: [],
+    });
+    expect(
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml: workflow.replace(
+          "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+          "",
+        ),
+        providerKind: "codex-mimo",
+        workflowStyle: "reusable",
+      }),
+    ).toMatchObject({
+      supported: false,
+      missingRequirements: ["secret_pass_through"],
+    });
+  });
+
+  it.each(["mimo-token-plan-api", "codex-oauth"])(
+    "scopes reusable conflict and interaction secrets to selected auth mode %s",
+    (authMode) => {
+      const options = {
+        ...workflowOptions,
+        workflowStyle: "reusable" as const,
+        conflictReviewFallbackEnabled: true,
+        staticRuntimeEnv: { REVIEW_AUTH_MODE: authMode },
+      };
+      const review = parse(renderReviewRouterReusableWorkflow(options));
+      const interaction = parse(
+        renderReviewRouterReusableInteractionWorkflow(options),
+      );
+      if (authMode === "mimo-token-plan-api") {
+        expect(interaction.jobs.interaction.with.discussion_auth_mode).toBe(
+          "mimo-token-plan-api",
+        );
+        expect(interaction.jobs.interaction.with.discussion_model).toBe(
+          "${{ vars.REVIEW_CODEX_MODEL || 'mimo-v2.6-pro' }}",
+        );
+      } else {
+        expect(interaction.jobs.interaction.with).not.toHaveProperty(
+          "discussion_auth_mode",
+        );
+        expect(interaction.jobs.interaction.with.discussion_model).toBe(
+          "${{ vars.REVIEW_CODEX_MODEL || 'gpt-5.6-sol' }}",
+        );
+      }
+      for (const job of [
+        review.jobs.review,
+        review.jobs["conflict-review"],
+        interaction.jobs.interaction,
+      ]) {
+        expect(job).toBeDefined();
+        if (authMode === "mimo-token-plan-api") {
+          expect(job.secrets.MIMO_TOKEN_PLAN_API_KEY).toBe(
+            "${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+          );
+        } else {
+          expect(job.secrets).not.toHaveProperty("MIMO_TOKEN_PLAN_API_KEY");
+        }
+      }
+    },
+  );
+
+  it("keeps stale Codex auth inert for a MiMo-only explicit workflow", () => {
+    const workflow = renderReviewRouterWorkflow({
+      ...workflowOptions,
+      conflictReviewFallbackEnabled: false,
+      workflowStyle: "explicit",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "mimo-token-plan-api",
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      },
+    });
+
+    expect(workflowStep(workflow, "Install Codex CLI")?.run).toContain(
+      "@openai/codex@0.147.0",
+    );
+    expect(
+      workflowStep(workflow, "Restore Codex subscription auth")?.if,
+    ).toContain("env.CODEX_AUTH_JSON_PRESENT == '1' && false");
+    expect(
+      workflowStep(workflow, "Require MiMo Token Plan API key")?.if,
+    ).toContain("env.MIMO_TOKEN_PLAN_API_KEY_PRESENT != '1'");
+    expect(workflow).toContain(
+      "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
+    expect(workflow).toContain("run: node .reviewrouter-runtime/dist/index.js");
+  });
+
+  it("does not provision MiMo prerequisites for a Claude-only explicit workflow", () => {
+    const workflow = renderReviewRouterWorkflow({
+      ...workflowOptions,
+      conflictReviewFallbackEnabled: false,
+      workflowStyle: "explicit",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "claude-oauth",
+        REVIEW_PROVIDERS: "claude/sonnet",
+      },
+    });
+
+    expect(workflowStep(workflow, "Install Codex CLI")?.if).toContain(
+      "env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1' && false",
+    );
+    expect(
+      workflowStep(workflow, "Restore Codex subscription auth")?.if,
+    ).toContain("env.CODEX_AUTH_JSON_PRESENT == '1' && false");
+    expect(
+      workflowStep(workflow, "Require MiMo Token Plan API key"),
+    ).toBeUndefined();
+    expect(workflowStep(workflow, "Install Claude Code CLI")?.if).toContain(
+      "env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1'",
+    );
+    expect(workflow).not.toContain(
+      "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
+  });
+
+  it.each([undefined, {}])(
+    "forwards MiMo credentials when OIDC selects the provider without a static selection (%j)",
+    (staticRuntimeEnv) => {
+      const options = {
+        actionRef: workflowOptions.actionRef,
+        apiUrl: workflowOptions.apiUrl,
+        runtimeConfigMode: workflowOptions.runtimeConfigMode,
+        conflictReviewFallbackEnabled: false,
+        workflowStyle: "explicit" as const,
+      };
+      const workflow = renderReviewRouterWorkflow(
+        staticRuntimeEnv === undefined
+          ? options
+          : { ...options, staticRuntimeEnv },
+      );
+      expect(workflowStep(workflow, "Install Codex CLI")?.if).toContain(
+        "env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1'",
+      );
+      const runtimeStep = parseWorkflowSteps(workflow).find(
+        (step) => step.run === "node .reviewrouter-runtime/dist/index.js",
+      );
+      expect(runtimeStep?.env).toMatchObject({
+        MIMO_TOKEN_PLAN_API_KEY: "${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+      });
+      expect(
+        workflowStep(workflow, "Require MiMo Token Plan API key"),
+      ).toBeUndefined();
+    },
+  );
+
+  it("includes configured fallback and synthesis providers in runtime prerequisite selection", () => {
+    const fallbackRuntime = buildProviderRuntimePlan({
+      schemaVersion: 2,
+      providers: [
+        {
+          kind: "claude",
+          authMode: "claude_code_oauth",
+          model: "sonnet",
+          reasoningEffort: "high",
+          agenticContext: true,
+          fastMode: false,
+        },
+        {
+          kind: "codex-mimo",
+          authMode: "mimo_token_plan_api_key",
+          model: "mimo-v2.6-pro",
+          reasoningEffort: "high",
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+      execution: {
+        providerLimit: 2,
+        providerMaxParallel: 2,
+        inlineMinAgreement: 1,
+      },
+      blockingPolicy: { failOnSeverity: "major" },
+      limits: { inlineMaxComments: 20, targetTokensPerBatch: 60000 },
+    });
+
+    expect(fallbackRuntime.synthesisModel).toBe("claude/sonnet");
+    expect(
+      codexRotatingProviderSecretInputsForRuntimeEnv(
+        fallbackRuntime.runtimeEnv,
+      ),
+    ).toEqual({
+      claudeCodeOAuthTokenSecret: true,
+      openRouterApiKeySecret: false,
+      mimoTokenPlanApiKeySecret: true,
+    });
+
+    expect(
+      codexRotatingProviderSecretInputsForRuntimeEnv({
+        REVIEW_PROVIDERS: "claude/sonnet",
+        SYNTHESIS_MODEL: "codex-mimo/mimo-v2.6-pro",
+      }),
+    ).toEqual({
+      claudeCodeOAuthTokenSecret: true,
+      openRouterApiKeySecret: false,
+      mimoTokenPlanApiKeySecret: true,
+    });
+
+    expect(
+      codexRotatingProviderSecretInputsForRuntimeEnv({
+        REVIEW_PROVIDERS:
+          "codex/gpt-5.6-sol,claude/sonnet,openrouter/openai/gpt-5.3-codex",
+        SYNTHESIS_MODEL: "codex-mimo/mimo-v2.6-pro",
+      }),
+    ).toEqual({
+      claudeCodeOAuthTokenSecret: true,
+      openRouterApiKeySecret: true,
+      mimoTokenPlanApiKeySecret: true,
+    });
+  });
+
+  it("uses an explicitly selected auth mode when provider ids are not materialized", () => {
+    expect(
+      codexRotatingProviderSecretInputsForRuntimeEnv({
+        REVIEW_AUTH_MODE: "mimo-token-plan-api",
+      }),
+    ).toEqual({
+      claudeCodeOAuthTokenSecret: false,
+      openRouterApiKeySecret: false,
+      mimoTokenPlanApiKeySecret: true,
     });
   });
 
@@ -654,10 +1082,12 @@ describe("renderReviewRouterWorkflow", () => {
     expect(workflow).toContain(
       "github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false",
     );
-    expect(workflow).toContain("uses: 777genius/review-router@v1");
+    expect(workflow).toContain("repository: 777genius/review-router");
+    expect(workflow).toContain("ref: v1");
+    expect(workflow).toContain("run: node .reviewrouter-runtime/dist/index.js");
     expect(workflow).toContain("uses: actions/setup-node@v6");
     expect(workflow).toContain('node-version: "24"');
-    expect(workflow).toContain("npm install -g @openai/codex@0.144.0");
+    expect(workflow).toContain("npm install -g @openai/codex@0.147.0");
     expect(workflow).toContain("env.OPENROUTER_API_KEY_PRESENT == '1'");
     expect(workflow).toContain("github.event.pull_request.user.type != 'Bot'");
     expect(workflow).toContain(
@@ -984,7 +1414,11 @@ describe("renderReviewRouterWorkflow", () => {
     const workflow = files[0];
     const workflowContent =
       workflow && workflow.operation !== "delete" ? workflow.content : "";
-    expect(workflowContent).toContain("uses: 777genius/review-router@v1");
+    expect(workflowContent).toContain("repository: 777genius/review-router");
+    expect(workflowContent).toContain("ref: v1");
+    expect(workflowContent).toContain(
+      "run: node .reviewrouter-runtime/dist/index.js",
+    );
     expect(workflowContent).toContain("actions/setup-node@v6");
     expect(workflowContent).not.toContain(
       ".github/workflows/reviewrouter-reusable.yml",
@@ -1136,6 +1570,35 @@ describe("renderReviewRouterWorkflow", () => {
     ).toMatchObject({
       supported: false,
       missingRequirements: ["cli_install_step"],
+    });
+  });
+
+  it("rejects a MiMo workflow without a clear missing-secret fail-fast gate", () => {
+    const workflow = renderReviewRouterWorkflow({
+      ...workflowOptions,
+      conflictReviewFallbackEnabled: false,
+      workflowStyle: "explicit",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "mimo-token-plan-api",
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      },
+    });
+    const workflowWithoutGate = workflow
+      .replace("Require MiMo Token Plan API key", "Check MiMo credential")
+      .replace(
+        "MIMO_TOKEN_PLAN_API_KEY is missing.",
+        "MiMo credential check completed.",
+      );
+
+    expect(
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml: workflowWithoutGate,
+        providerKind: "codex-mimo",
+        workflowStyle: "explicit",
+      }),
+    ).toMatchObject({
+      supported: false,
+      missingRequirements: ["secret_fail_fast"],
     });
   });
 
