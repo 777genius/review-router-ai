@@ -87,6 +87,7 @@ function copyBuildInputs(sourceRoot: string, checkoutRoot: string) {
       "--",
       "packages/features/codex-oauth-rotating",
       "packages/shared",
+      "vendor/account-gateway",
     ],
     { cwd: sourceRoot },
   )
