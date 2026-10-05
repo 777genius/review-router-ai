@@ -1,6 +1,10 @@
-import { Buffer } from "node:buffer";
+import { Buffer, isUtf8 } from "node:buffer";
 import { performance } from "node:perf_hooks";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import {
+  canonicalCodexRotatingProviderId,
+  CodexRotatingT0WorkflowSchemaVersion,
+} from "@reviewrouter/features-codex-oauth-rotating";
 import {
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
@@ -34,6 +38,10 @@ type ReadIssuer = {
     };
   }>;
 };
+type CheckoutSelectors = Readonly<{
+  providerInstanceId: string;
+  workflowSchemaVersion: number;
+}>;
 class CheckoutFailure extends Error {
   constructor(
     readonly code: string,
@@ -76,6 +84,7 @@ export function createReviewRunGatewayCheckout(input: {
     async issue(
       token: string,
       signal: AbortSignal,
+      selectors: CheckoutSelectors,
     ): Promise<AccountGatewayCheckoutCapability> {
       const deadline = performance.now() + input.timeoutMs;
       const checkTime = () => {
@@ -130,6 +139,13 @@ export function createReviewRunGatewayCheckout(input: {
       )
         throw new CheckoutFailure("authorization_denied", 401);
       const savedTarget = Object.freeze({ ...target });
+      if (
+        selectors.providerInstanceId !==
+          canonicalCodexRotatingProviderId(savedTarget.githubRepositoryId) ||
+        selectors.workflowSchemaVersion !==
+          CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2
+      )
+        throw new CheckoutFailure("authorization_denied", 401);
       await liveBinding();
       if (
         !(await checked(() => input.confirmAuthority(token, auth, savedTarget)))
@@ -206,7 +222,7 @@ export async function registerReviewRunGatewayCheckoutRoute(
     scope.removeContentTypeParser("application/json");
     scope.addContentTypeParser(
       "application/json",
-      { parseAs: "buffer", bodyLimit: 64 },
+      { parseAs: "buffer", bodyLimit: 512 },
       (_request, body, done) => done(null, body),
     );
     scope.addHook("onRequest", async (request, reply) => {
@@ -255,17 +271,18 @@ export async function registerReviewRunGatewayCheckoutRoute(
     });
     scope.post(
       "/api/action/v2/account-gateway/checkout",
-      { bodyLimit: 64 },
+      { bodyLimit: 512 },
       async (request, reply) => {
         const reservation = reservations.get(request);
         try {
           if (!reservation || reservation.controller.signal.aborted)
             throw new CheckoutFailure("checkout_cancelled", 503);
           reservation.working = true;
-          const token = parseRequest(request);
+          const { token, selectors } = parseRequest(request);
           const result = await checkout.issue(
             token,
             reservation.controller.signal,
+            selectors,
           );
           if (reservation.controller.signal.aborted)
             throw new CheckoutFailure("checkout_cancelled", 503);
@@ -290,7 +307,10 @@ export async function registerReviewRunGatewayCheckoutRoute(
   });
 }
 
-function parseRequest(request: FastifyRequest): string {
+function parseRequest(request: FastifyRequest): {
+  token: string;
+  selectors: CheckoutSelectors;
+} {
   const raw = request.raw.rawHeaders;
   let bytes = 0;
   const counts = new Map<string, number>();
@@ -313,7 +333,8 @@ function parseRequest(request: FastifyRequest): string {
       request.headers["content-type"] ?? "",
     ) ||
     !Buffer.isBuffer(request.body) ||
-    !/^[ \t\r\n]*\{[ \t\r\n]*\}[ \t\r\n]*$/.test(request.body.toString("utf8"))
+    request.body.length > 512 ||
+    !isUtf8(request.body)
   )
     throw new CheckoutFailure("invalid_request", 400);
   const header = request.headers.authorization;
@@ -323,5 +344,36 @@ function parseRequest(request: FastifyRequest): string {
     !/^Bearer [A-Za-z0-9._~-]+$/.test(header)
   )
     throw new CheckoutFailure("authorization_denied", 401);
-  return header.slice(7);
+  // Exactly two JSON scalar members. Decode keys before checking uniqueness so
+  // escaped duplicate names cannot disappear through JSON.parse's last-wins rule.
+  const jsonString =
+    '"(?:[^"\\\\\\x00-\\x1f]|\\\\(?:["\\\\/bfnrt]|u[0-9a-fA-F]{4}))*"';
+  const jsonNumber = "-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?";
+  const whitespace = "[ \\t\\r\\n]*";
+  const member = `(${jsonString})${whitespace}:${whitespace}(${jsonString}|${jsonNumber})`;
+  const members = new RegExp(
+    `^${whitespace}\\{${whitespace}${member}${whitespace},${whitespace}${member}${whitespace}\\}${whitespace}$`,
+  ).exec(request.body.toString("utf8"));
+  if (!members || JSON.parse(members[1]!) === JSON.parse(members[3]!))
+    throw new CheckoutFailure("invalid_request", 400);
+  const selectors: unknown = JSON.parse(request.body.toString("utf8"));
+  if (
+    typeof selectors !== "object" ||
+    !selectors ||
+    Object.keys(selectors).sort().join(",") !==
+      "providerInstanceId,workflowSchemaVersion" ||
+    !("providerInstanceId" in selectors) ||
+    typeof selectors.providerInstanceId !== "string" ||
+    !("workflowSchemaVersion" in selectors) ||
+    typeof selectors.workflowSchemaVersion !== "number" ||
+    !Number.isFinite(selectors.workflowSchemaVersion)
+  )
+    throw new CheckoutFailure("invalid_request", 400);
+  return {
+    token: header.slice(7),
+    selectors: {
+      providerInstanceId: selectors.providerInstanceId,
+      workflowSchemaVersion: selectors.workflowSchemaVersion,
+    },
+  };
 }
