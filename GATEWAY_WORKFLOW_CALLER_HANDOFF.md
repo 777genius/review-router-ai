@@ -1,75 +1,50 @@
-# Gateway workflow caller handoff
+# PR503 gateway confirmation repair
 
-Status: local implementation saved; goal blocked on verification/integration prerequisites. No release.
+Saved guarded patch for supplied source `f7ce25fbf46e1de13ef8f88c9d17a4744400e3f7`; qualification pending. Sole normative authority: frozen `.spike-inputs/contract53.md`, independently hashed here as `66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0`. Read the frozen original P86 review and CI37304764316 failure list (47 existing failures in the two recovery suites).
 
-Dmin: first saved patch added a small keyless caller renderer before dependency inspection.
-Dfinal: changes remain in the worktree; no add/commit/push/deploy.
-Exact edited source scope (relative to this worktree):
+Only `actions.ts`, the two owned recovery suites, and this handoff changed. P85/P87 selectors and P88 service fixture retain their ownership. No SDK/platform/retirement/sharing changes. No commit, push, deployment, release, credential/session/auth JSON access, real-project probe, or paid call.
 
-- packages/features/workflow-provisioning/src/domain/workflow-template.ts
-- packages/features/workflow-provisioning/src/domain/workflow-provisioning.ts
-- packages/features/workflow-provisioning/src/application/use-cases/provision-reviewrouter-workflow.ts
-- packages/features/workflow-provisioning/src/application/use-cases/provision-repository-reviewrouter-workflow.ts
-- packages/features/workflow-provisioning/src/tests/workflow-template.test.ts
-- packages/features/workflow-provisioning/src/tests/provision-reviewrouter-workflow.test.ts
-- apps/web/app/dashboard/actions.ts (setup creation/currentness/confirmation selection only)
-- apps/web/src/server/workflow-setup-readiness.ts
-- apps/web/src/server/workflow-setup-readiness.test.ts
-- GATEWAY_WORKFLOW_CALLER_HANDOFF.md
+## Source repairs
 
-S: requested source 136cafcd5dc686332d574c857f4c6ca17cf41a1f.
-Requested sole norm53 authority: 66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0.
-HEAD cannot be verified: linked .git points to missing p80-server-source/.git/worktrees/p83-workflow-caller.
-Norm53 text was not found in the inspected workspace; its hash is recorded, not independently verified.
-All edits used the provided apply_patch API; no scanner was disabled.
-Action P78 reusable/main-preflight, Accounts, Models, relay, native, SDK and attestation contracts were not edited.
+1. Gateway confirmation skips legacy `activateConfirmedCodexNamespaceAfterWorkflowMerge` and `repository_secret` source switching. Existing setup/attempt/artifact checks, hosted binding checks, and final provisioning CAS remain. Hosted and client-triggered legacy activation paths retain their existing behavior.
+2. Gateway confirmation now enters the existing GitHub identity/default-branch, immutable commit/path/blob wrapper. It uses the existing keyless semantic readiness adapter, bypassing OAuth metadata/trusted-rotating-ref selection and namespace resolution. After readiness, fresh identity/head/pinned-blob reads use that same wrapper before the final setup fence/CAS. No duplicate verifier or production test hook was added.
 
-E: saved single Codex codex_account_gateway configuration selects a separate server renderer.
-Provisioning re-reads repository configuration through ReviewConfigurationRepositoryPort inside the existing setup lock.
-Workspace/default fallback, missing selection/mode, mixed or conflicting primary configuration fail closed.
-Existing trusted server GitHub repository ID feeds canonicalCodexRotatingProviderId through a provisioning dependency.
-Missing trusted identity or disagreement with the caller ID fails before setup; no binding/profile comes from the form.
-The existing discriminator is codex-rotating:<positive decimal GitHub repository ID>; it grants no OAuth/gateway authority.
-Caller: .github/workflows/reviewrouter-codex.yml, pull_request, schema 2/client-triggered T0,
-runtime_config_mode: oidc, codex_session_mode: account-gateway, id-token: write.
-Uses 777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@<full40 lowercase SHA>.
-runtime_ref matches that SHA; PR number/head come from the event; no secrets mapping/inherit or provider settings are emitted.
-Server pin: REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF=777genius/review-router@<paired P78 SHA>.
-Missing/mutable/wrong-repository/uppercase refs fail; generic main/v1 resolution is never a gateway fallback.
-This validated backend pin is temporary configuration, not product release proof.
-Inspected canonical provider identity, OIDC exchange/source policy, prelease binding checks and runtime-config gateway checks.
-The isolated quality repository is rejected because its admitted path/event differ from this PR caller.
+Production diff: 47 added / 27 removed lines, including indentation of the existing metadata block; 20 net added lines. Gateway always checks its canonical caller path.
 
-F: Dashboard loads resolved saved config, selects gateway mode/path/ref, omits static runtime env,
-passes configuration and trusted repository identity dependencies, and uses the existing App-first setup gateway.
-Membership, repository-role, entitlement, rate limit, setup lock and provisioning/confirmation CAS remain in place.
-Confirmation/currentness require semantic equality with the entire keyless caller; namespace/secret/token-backed variants fail.
-No pool grant, lease, auth JSON, namespace creation, configuration writeback or runtime permission is introduced.
-Non-gateway selection retains the existing renderer and guardrails; rotating/native templates are unchanged.
-Existing server admission/release/safety gates remain authoritative.
+## Recovery fixture diagnosis and observations
 
-G: added tests inspect parsed emitted/delivered YAML, pre-setup rejection boundaries and real workflow-probe bytes.
-The saved fixture uses gpt-6.1-sol/high/default, fastMode false, binding-account-v; model settings remain server-owned.
-Node v24.21.0 syntax checks PASS for all nine edited TypeScript files (syntax only).
-Vitest and meaningful TypeScript checks: NOT_RUN, pnpm wrapper exits 127 because configured corepack is missing.
-node_modules is absent. No typechecking or behavioral pass is claimed.
-Primary commands, on the pinned source with dependencies and the installed guard available:
+The old mocked resolved configurations supplied only `providers`. New saved-configuration selection calls `isAccountGatewayConfiguration`, which first reads `config.provider.authMode`. Those partial mocks therefore throw before the existing recovery assertions; production's real saved-config resolver returns a complete parsed configuration. Repair the fixture dependency, not the assertions: both suites now parse complete configurations using the existing safe defaults. Generic rows use current `openrouter_api_key` and an explicit model rather than the obsolete `api_key`/missing-model input. All existing recovery/race/source/activation assertions remain; none were removed or weakened. This diagnosis is source-traced, not a local behavioral rerun.
+
+Six added action-boundary observations reuse the existing recovery fixture, production saved-config Prisma adapter/resolver, real readiness adapter, decoded caller bytes, inspector, and final status authority:
+
+- Exact keyless caller: catches any invocation of legacy activation, namespace resolution, source switch, or configuration/binding mutation despite successful confirmation.
+- Existing rotating provider row: catches diversion into OAuth/namespace verification from stale provider state.
+- Active hosted binding: catches diversion into hosted verification or repository-secret switching; binding/configuration remain unchanged.
+- Head moved while readiness is deferred: catches acceptance of a superseded default-branch commit.
+- Caller removed while readiness is deferred: catches acceptance without a fresh pinned workflow read.
+- Caller blob replaced while readiness is deferred: catches acceptance of different bytes after the semantic probe.
+
+The deferred barrier runs the real semantic probe successfully before changing transport state. It permits both branch and commit reads as GitHub does, so the old source can reach the defective post-probe boundary. Failed source cases require unchanged setup state, zero configured writes, and zero audit publication. Saved gateway selection is repository-scoped, `binding-account-v`, `gpt-6.1-sol` / `high` / `default`, `fastMode: false`; these settings are not emitted into the caller.
+
+## Qualification limits and primary commands
+
+Web meaningful typechecking, both recovery suites, previous three nearest suites, and ESLint: **NOT_RUN**. Each requested command was attempted once and exited 127 before launching its checker: the pnpm wrapper's configured corepack binary is missing. `node_modules` is absent. No installation loop or syntax-only PASS. Old-RED → fixed-GREEN was not executed; historical P86 125-pass/TS5.9 evidence does not qualify this patch.
+
+The primary cache must use pinned SaaS TypeScript **6.0.3** and Vitest **4.1.10**:
 
 ```sh
-git rev-parse HEAD
-pnpm --filter @reviewrouter/features-workflow-provisioning typecheck
 pnpm --filter @reviewrouter/web typecheck
+pnpm exec vitest run apps/web/app/dashboard/actions-hosted-workflow-recovery.test.ts apps/web/app/dashboard/actions-workflow-provisioning-recovery.test.ts
 pnpm exec vitest run packages/features/workflow-provisioning/src/tests/workflow-template.test.ts packages/features/workflow-provisioning/src/tests/provision-reviewrouter-workflow.test.ts apps/web/src/server/workflow-setup-readiness.test.ts
+pnpm exec eslint apps/web/app/dashboard/actions.ts apps/web/app/dashboard/actions-hosted-workflow-recovery.test.ts apps/web/app/dashboard/actions-workflow-provisioning-recovery.test.ts
 ```
 
-Primary must inspect the final diff against the requested source/norm53 and run its installed scanner.
-Paired immutable P78 Action SHA and acceptance of codex_session_mode remain integration prerequisites.
-H: deferred; no runtime/canary, credential use, real-project smoke, deployment or release validation performed.
-Goal marked blocked after the same verification prerequisites persisted across three consecutive goal turns.
-Resume requires working dependency/toolchain and Git metadata, source/norm53 verification, and paired Action contract evidence.
+Also compare the patch against exact f7ce25 before integration, inspect the diff/whitespace, and run the primary's installed guard. Prefer old source with the same repaired fixtures/new observations in an isolated checkout to establish RED, then fixed source for GREEN. The previous three suites' historical total was 125; no current total is claimed.
 
-## Primary qualification
-- Exact raw patch base 136cafcd5dc686332d574c857f4c6ca17cf41a1f verified outside provider sandbox; the linked Git limitation does not invalidate this source identity.
-- Sole normative53 was verified at pre-start by the primary. Worker labels Dmin/Dfinal/S/E/F/G above are handoff headings, not acceptance of those delivery phases.
-- Full pinned TS5.9.3 feature and web checks PASS. Existing nearest suites:125PASS,0FAIL,0SKIP. ESLint on all nine edited TS files PASS.
-- This is not live OIDC, App, provider, publication or cleanup E2E evidence. The server-configured immutable paired Action pin and explicit selector companion remain required for D-min.
+Read-only Git/lock probe: `.git` references unavailable `p80-server-source/.git/worktrees/p89-caller-repair`. HEAD, index.lock, and HEAD.lock return ENOENT; this cannot establish either HEAD identity or an unlocked live repository. No lock/history was changed. PR503's draft/remote state was not independently queried.
+
+Patch/preimage artifacts: `/srv/worker-state/jobs/review-router/account-gateway-v1/jobs/review-router-account-gateway-v1-p89-caller-repair/tmp/agent/p89-caller-repair-artifacts/`. `minimal-production.patch` was saved before test repairs; `final.patch` contains the four owned paths. Preimages are local snapshot aids (actions preimage mechanically reconstructed from the first repair), not Git-authenticated source receipts. The controller owns apply/commit/push.
+
+## Remaining mandatory qualification
+
+D-min, D-final, S, E, F, and G remain mandatory and unqualified by this caller repair; H is deferred. D-min needs paired immutable Action/service integration, actual Codex tools/final review, and exact-approved-head App publication in a disposable fixture. D-final needs the full UI batch, measured/enforced numeric limits, cleanup, and long OIDC. S needs operator-pool grant/deny/revoke and account-global capacity evidence. E and F need actual OpenRouter and protected Codex OAuth profile tools/final/publication, with F custody/refresh qualification. G requires D+E+F and exact release gates. No real E2E, App publication, provider, rollout, or release acceptance is claimed here.

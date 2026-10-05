@@ -62,6 +62,10 @@ vi.mock("../../src/server/workflow-public-api-url", () => ({
 }));
 
 import { resolveReviewRouterActionRef } from "@reviewrouter/platform-config";
+import {
+  parseReviewConfiguration,
+  safeDefaultReviewConfiguration,
+} from "@reviewrouter/features-review-config";
 import { renderReviewRouterReusableWorkflow } from "@reviewrouter/features-workflow-provisioning";
 import {
   createProvisioningPrisma,
@@ -126,11 +130,16 @@ describe("dashboard setup PR recovery", () => {
       isWorkflowSetupAlreadyCurrent,
     );
     mocks.resolveReviewRuntimeEnv.mockResolvedValue({
-      config: {
+      config: parseReviewConfiguration({
+        ...safeDefaultReviewConfiguration,
         providers: [
-          { kind: "openrouter", authMode: "api_key", model: "openai/gpt-5" },
+          {
+            kind: "openrouter",
+            authMode: "openrouter_api_key",
+            model: "openai/gpt-5",
+          },
         ],
-      },
+      }),
     });
   });
 

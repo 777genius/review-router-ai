@@ -1641,8 +1641,9 @@ async function confirmSetupPullRequestMergedMutation(
       (provider) => provider.authMode === "codex_subscription_oauth_rotating",
     );
     const selectedCodexWorkflowPath =
-      setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
-      (!setupProvisioning?.workflowPath && rotatingWorkflowExpected)
+      !accountGateway &&
+      (setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
+        (!setupProvisioning?.workflowPath && rotatingWorkflowExpected))
         ? codexWorkflowPathForRepository({
             repositoryId: githubRepository.githubRepositoryId.toString(),
             repositoryFullName: repository.fullName,
@@ -1659,7 +1660,8 @@ async function confirmSetupPullRequestMergedMutation(
       readonly actionRef: string;
       readonly commitSha: string;
     } | null = null;
-    if (codexWorkflowExpected) {
+    let assertCurrentGatewaySource: (() => Promise<void>) | undefined;
+    if (accountGateway || codexWorkflowExpected) {
       const repositoryRoute = "GET /repos/{owner}/{repo}";
       const refRoute = "GET /repos/{owner}/{repo}/git/ref/{ref}";
       const contentRoute = "GET /repos/{owner}/{repo}/contents/{path}";
@@ -1704,30 +1706,32 @@ async function confirmSetupPullRequestMergedMutation(
       const blob = readGitHubWorkflowBlob(content.data);
       // Parsing selects a candidate only. The selected adapter must still verify
       // canonical content, trust, namespace/binding and immutable source identity.
-      try {
-        const metadata = readCanonicalHostedPoolWorkflowMetadata(blob.source);
-        codexWorkflow = {
-          hosted: true,
-          actionRef: metadata.actionRef,
-          commitSha,
-        };
-      } catch {
-        const metadata =
-          selectedCodexWorkflowPath === defaultCodexRotatingWorkflowPath
-            ? readCanonicalCodexRotatingT0WorkflowSourceMetadata(blob.source)
-            : readCanonicalIsolatedQualityWorkflowSourceMetadata(blob.source);
-        codexWorkflow = {
-          hosted: false,
-          actionRef: metadata.actionRef,
-          commitSha,
-        };
-      }
-      if (
-        !resolveReviewRouterCodexRotatingTrustedActionRefs().includes(
-          codexWorkflow.actionRef,
+      if (!accountGateway) {
+        try {
+          const metadata = readCanonicalHostedPoolWorkflowMetadata(blob.source);
+          codexWorkflow = {
+            hosted: true,
+            actionRef: metadata.actionRef,
+            commitSha,
+          };
+        } catch {
+          const metadata =
+            selectedCodexWorkflowPath === defaultCodexRotatingWorkflowPath
+              ? readCanonicalCodexRotatingT0WorkflowSourceMetadata(blob.source)
+              : readCanonicalIsolatedQualityWorkflowSourceMetadata(blob.source);
+          codexWorkflow = {
+            hosted: false,
+            actionRef: metadata.actionRef,
+            commitSha,
+          };
+        }
+        if (
+          !resolveReviewRouterCodexRotatingTrustedActionRefs().includes(
+            codexWorkflow.actionRef,
+          )
         )
-      )
-        throw new Error("workflow_provisioning_match_not_found");
+          throw new Error("workflow_provisioning_match_not_found");
+      }
       // Keep readiness and activation on the artifact that selected the route.
       // Repeated reads still reach GitHub; changed heads, identities or blobs fail.
       workflowOctokit = {
@@ -1762,6 +1766,17 @@ async function confirmSetupPullRequestMergedMutation(
       };
       await workflowOctokit.request(repositoryRoute, location);
       await workflowOctokit.request(refRoute, refParameters);
+      if (accountGateway) {
+        assertCurrentGatewaySource = async () => {
+          await workflowOctokit.request(repositoryRoute, location);
+          await workflowOctokit.request(refRoute, refParameters);
+          await workflowOctokit.request(contentRoute, {
+            ...location,
+            path: selectedCodexWorkflowPath,
+            ref: commitSha,
+          });
+        };
+      }
     }
     const hostedWorkflowRequired = codexWorkflow?.hosted === true;
     if (
@@ -2052,7 +2067,7 @@ async function confirmSetupPullRequestMergedMutation(
       if (activation.status === "not_configured")
         throw new Error("hosted_pool_binding_activation_conflict");
       verifiedWorkflowArtifact = activation;
-    } else {
+    } else if (!accountGateway) {
       await assertCurrentSetup(verifiedWorkflowArtifact);
       await assertCurrentBinding();
       const activation =
@@ -2093,6 +2108,11 @@ async function confirmSetupPullRequestMergedMutation(
       }
     }
 
+    if (accountGateway) {
+      await assertCurrentSetup(verifiedWorkflowArtifact);
+      await assertCurrentBinding();
+      await assertCurrentGatewaySource!();
+    }
     await assertCurrentSetup(verifiedWorkflowArtifact);
 
     const setupAuthority = new PrismaWorkflowProvisioningStatusAuthority(
