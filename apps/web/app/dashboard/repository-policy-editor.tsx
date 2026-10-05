@@ -39,6 +39,10 @@ import {
   type ProviderSecretAvailabilityStatus,
 } from "./provider-secret-status-cache";
 import { ProviderAuthLogoFrame } from "./provider-auth-logo";
+import type {
+  AccountsPage,
+  AccountsResult,
+} from "../../src/server/account-gateway-accounts";
 
 export { clearProviderSecretStatusCacheForTest };
 
@@ -83,7 +87,7 @@ const providerAuthOptionCopyByAuthMode = {
   codex_account_gateway: {
     label: "Account Gateway",
     description:
-      "Uses the saved workspace account. Credentials stay on the server.",
+      "Choose a workspace account and model. Credentials stay on the server.",
   },
   codex_subscription_oauth_hosted_pool: {
     label: "Hosted workspace pool",
@@ -583,6 +587,7 @@ export function RepositoryPolicyOverrideDetails({
   effectiveConfig,
   configVersion,
   modelOptions,
+  gatewayAccounts,
   mutationsEnabled,
   editDisabledReason,
   codexRotatingOAuthEnabled = false,
@@ -594,6 +599,7 @@ export function RepositoryPolicyOverrideDetails({
   readonly effectiveConfig: ReviewConfiguration;
   readonly configVersion: number;
   readonly modelOptions: readonly ReviewModelOption[];
+  readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
   readonly mutationsEnabled: boolean;
   readonly editDisabledReason?: string | undefined;
   readonly codexRotatingOAuthEnabled?: boolean;
@@ -668,6 +674,7 @@ export function RepositoryPolicyOverrideDetails({
               action={saveRepositoryOverride}
               config={effectiveConfig}
               modelOptions={modelOptions}
+              gatewayAccounts={gatewayAccounts}
               codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               hiddenFields={[
@@ -719,6 +726,7 @@ export function RepositoryPolicyEditor({
   repositoryConfig,
   effectiveConfig,
   modelOptions,
+  gatewayAccounts,
   mutationsEnabled,
   editDisabledReason,
   codexRotatingOAuthEnabled = false,
@@ -730,6 +738,7 @@ export function RepositoryPolicyEditor({
   readonly repositoryConfig: RepositoryPolicyEditorConfig;
   readonly effectiveConfig: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
+  readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
   readonly mutationsEnabled: boolean;
   readonly editDisabledReason?: string | undefined;
   readonly codexRotatingOAuthEnabled?: boolean;
@@ -807,6 +816,7 @@ export function RepositoryPolicyEditor({
             action={saveRepositorySettings}
             config={effectiveConfig}
             modelOptions={modelOptions}
+            gatewayAccounts={gatewayAccounts}
             codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
             claudeCodeProviderEnabled={claudeCodeProviderEnabled}
             hiddenFields={[
@@ -1003,6 +1013,7 @@ export function WorkspaceReviewConfigForm({
   workspaceId,
   config,
   modelOptions,
+  gatewayAccounts,
   codexRotatingOAuthEnabled = false,
   claudeCodeProviderEnabled = true,
   mutationsEnabled,
@@ -1010,6 +1021,7 @@ export function WorkspaceReviewConfigForm({
   readonly workspaceId: string;
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
+  readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
   readonly codexRotatingOAuthEnabled?: boolean;
   readonly claudeCodeProviderEnabled?: boolean;
   readonly mutationsEnabled: boolean;
@@ -1034,6 +1046,7 @@ export function WorkspaceReviewConfigForm({
         action={saveWorkspaceSettings}
         config={config}
         modelOptions={modelOptions}
+        gatewayAccounts={gatewayAccounts}
         codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
         claudeCodeProviderEnabled={claudeCodeProviderEnabled}
         hiddenFields={[{ name: "workspaceId", value: workspaceId }]}
@@ -1048,6 +1061,7 @@ export function ReviewConfigForm({
   action,
   config,
   modelOptions,
+  gatewayAccounts,
   codexRotatingOAuthEnabled = false,
   claudeCodeProviderEnabled = true,
   hiddenFields,
@@ -1059,6 +1073,7 @@ export function ReviewConfigForm({
   readonly action: DashboardFormAction;
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
+  readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
   readonly codexRotatingOAuthEnabled?: boolean;
   readonly claudeCodeProviderEnabled?: boolean;
   readonly hiddenFields: readonly {
@@ -1089,6 +1104,58 @@ export function ReviewConfigForm({
   const [inlineMinAgreement, setInlineMinAgreement] = useState(
     Math.min(config.execution.inlineMinAgreement, initialProviders.length),
   );
+  // Safe display choices from authorized RSC first paint, never binding authority.
+  const gatewayPage =
+    gatewayAccounts?.status === "ok" ? gatewayAccounts.value : null;
+  const eligibleGatewayAccounts = gatewayPage
+    ? gatewayPage.accounts.filter(
+        (account) =>
+          account.state === "active" &&
+          account.binding?.state === "active" &&
+          !account.binding.fencePending &&
+          gatewayPage.profiles.some(
+            (profile) =>
+              profile.id === account.profileId && profile.models.length > 0,
+          ),
+      )
+    : [];
+  const gatewayAvailabilityMessage = !gatewayPage
+    ? gatewayAccounts?.status === "denied"
+      ? "Workspace admin access is required to choose accounts."
+      : "Accounts are unavailable. Refresh to try again."
+    : eligibleGatewayAccounts.length === 0
+      ? gatewayPage.nextCursor
+        ? "No active accounts are available on the first page. Additional accounts are not available in this selection."
+        : "No active workspace accounts are available. Connect and activate an account in Accounts."
+      : null;
+  function gatewayAccountForProvider(provider: ReviewProviderConfiguration) {
+    return eligibleGatewayAccounts.find(
+      (account) =>
+        account.binding?.id === provider.gatewayBindingId &&
+        account.profileId === provider.gatewayProfileRef,
+    );
+  }
+  function gatewayModelsForProvider(
+    provider: ReviewProviderConfiguration,
+  ): string[] {
+    const account = gatewayAccountForProvider(provider);
+    return account
+      ? (gatewayPage?.profiles.find(
+          (profile) => profile.id === account.profileId,
+        )?.models ?? [])
+      : [];
+  }
+  const gatewaySelectionInvalid = providers.some(
+    (provider) =>
+      provider.authMode === "codex_account_gateway" &&
+      !gatewayModelsForProvider(provider).includes(provider.model.trim()),
+  );
+  const hasGateway = providers.some(
+    (provider) => provider.authMode === "codex_account_gateway",
+  );
+  const gatewaySingleProviderViolation = hasGateway && providers.length !== 1;
+  const gatewaySingleProviderMessage =
+    "Account Gateway currently supports only one provider. Remove extra providers or switch gateway providers to direct auth before saving.";
   const providerAuthOptions = useMemo(
     () =>
       buildProviderAuthOptions({
@@ -1137,6 +1204,12 @@ export function ReviewConfigForm({
       modelOptionsByProvider.openrouter,
     );
     setProviders((current) => {
+      if (
+        current.some(
+          (provider) => provider.authMode === "codex_account_gateway",
+        )
+      )
+        return current;
       const nextProvider: ReviewProviderConfiguration = openRouterDefault
         ? {
             kind: "openrouter",
@@ -1174,8 +1247,21 @@ export function ReviewConfigForm({
     index: number,
     authMode: ReviewProviderConfiguration["authMode"],
   ): void {
-    // Selecting a gateway requires an explicit binding and profile, not a legacy default.
-    if (authMode === "codex_account_gateway") return;
+    if (authMode === "codex_account_gateway") {
+      if (providers.length !== 1 || eligibleGatewayAccounts.length === 0)
+        return;
+      // Transitional empty fields cannot be submitted; account/model selection is explicit.
+      updateProvider(index, (provider) => ({
+        ...provider,
+        kind: "codex",
+        authMode,
+        gatewayBindingId: "",
+        gatewayProfileRef: "",
+        model: "",
+        fastMode: false,
+      }));
+      return;
+    }
     const kind = providerKindForAuthMode(authMode);
     const defaultProvider = getDefaultProviderConfigForAuthMode(authMode);
     const nextOptions = modelOptionsByProvider[kind];
@@ -1216,17 +1302,22 @@ export function ReviewConfigForm({
   function providerAuthOptionsForProvider(
     provider: ReviewProviderConfiguration,
   ): readonly DashboardSelectOption[] {
-    const options =
-      provider.authMode === "codex_account_gateway"
-        ? [
-            ...providerAuthOptions,
-            {
-              value: "codex_account_gateway",
-              providerAuthMode: "codex_account_gateway" as const,
-              ...providerAuthOptionCopyByAuthMode.codex_account_gateway,
-            },
-          ]
-        : providerAuthOptions;
+    const gatewayDisabledMessage =
+      providers.length > 1
+        ? gatewaySingleProviderMessage
+        : gatewayAvailabilityMessage;
+    const options = [
+      ...providerAuthOptions,
+      {
+        value: "codex_account_gateway",
+        providerAuthMode: "codex_account_gateway" as const,
+        ...providerAuthOptionCopyByAuthMode.codex_account_gateway,
+        disabled: providers.length > 1 || eligibleGatewayAccounts.length === 0,
+        ...(gatewayDisabledMessage
+          ? { description: gatewayDisabledMessage }
+          : {}),
+      },
+    ];
     return options.map((option) => {
       if (
         option.providerAuthMode === "codex_subscription_oauth_rotating" &&
@@ -1246,7 +1337,14 @@ export function ReviewConfigForm({
 
   return (
     <Tooltip.Provider delayDuration={180} skipDelayDuration={80}>
-      <form action={action} className="grid gap-5">
+      <form
+        action={action}
+        className="grid gap-5"
+        onSubmit={(event) => {
+          if (gatewaySelectionInvalid || gatewaySingleProviderViolation)
+            event.preventDefault();
+        }}
+      >
         {hiddenFields.map((field) => (
           <input
             key={`${field.name}:${field.value}`}
@@ -1295,6 +1393,8 @@ export function ReviewConfigForm({
           <div className="grid gap-4">
             {providers.map((provider, index) => {
               const providerOptions = modelOptionsByProvider[provider.kind];
+              const gatewayAccount = gatewayAccountForProvider(provider);
+              const gatewayModels = gatewayModelsForProvider(provider);
               const requiredProviderCount = providers.filter(
                 (candidate) => candidate.requiredHealthy,
               ).length;
@@ -1323,6 +1423,11 @@ export function ReviewConfigForm({
                         type="hidden"
                         name={`providerGatewayProfileRef.${index}`}
                         value={provider.gatewayProfileRef}
+                      />
+                      <input
+                        type="hidden"
+                        name={`providerModel.${index}`}
+                        value={provider.model}
                       />
                     </>
                   ) : null}
@@ -1362,31 +1467,101 @@ export function ReviewConfigForm({
                         )
                       }
                     />
-                    <DashboardModelField
-                      name={`providerModel.${index}`}
-                      label="Model"
-                      helpText={fieldHelp.model}
-                      value={provider.model}
-                      disabled={!mutationsEnabled}
-                      options={providerOptions}
-                      onValueChange={(value) =>
-                        updateProvider(index, (current) => {
-                          const reasoningEffort =
-                            current.authMode === "codex_account_gateway" ||
-                            codexModelSupportsReasoningEffort(
-                              value,
-                              current.reasoningEffort,
-                            )
-                              ? current.reasoningEffort
-                              : "xhigh";
-                          return {
-                            ...current,
-                            model: value,
-                            reasoningEffort,
-                          };
-                        })
-                      }
-                    />
+                    {provider.authMode === "codex_account_gateway" ? (
+                      <>
+                        <DashboardSelectField
+                          name={`gatewayAccountChoice.${index}`}
+                          label="Account"
+                          helpText="Choose an active account connected to this workspace."
+                          value={
+                            gatewayAccount ? provider.gatewayBindingId : ""
+                          }
+                          placeholder={
+                            provider.gatewayBindingId
+                              ? "Selected account unavailable"
+                              : "Choose an account"
+                          }
+                          disabled={
+                            !mutationsEnabled ||
+                            eligibleGatewayAccounts.length === 0
+                          }
+                          options={eligibleGatewayAccounts.map((account) => ({
+                            value: account.binding!.id,
+                            label: account.label,
+                            description: account.profileLabel,
+                          }))}
+                          onValueChange={(value) => {
+                            const account = eligibleGatewayAccounts.find(
+                              (choice) => choice.binding?.id === value,
+                            );
+                            if (!account) return;
+                            updateProvider(index, (current) =>
+                              current.authMode === "codex_account_gateway"
+                                ? {
+                                    ...current,
+                                    gatewayBindingId: account.binding!.id,
+                                    gatewayProfileRef: account.profileId,
+                                    model: "",
+                                  }
+                                : current,
+                            );
+                          }}
+                        />
+                        <DashboardSelectField
+                          name={`gatewayModelChoice.${index}`}
+                          label="Model"
+                          helpText="Choose a model available for the selected account."
+                          value={
+                            gatewayModels.includes(provider.model.trim())
+                              ? provider.model.trim()
+                              : ""
+                          }
+                          placeholder={
+                            provider.model
+                              ? "Selected model unavailable"
+                              : "Choose a model"
+                          }
+                          disabled={!mutationsEnabled || !gatewayAccount}
+                          options={gatewayModels.map((model) => ({
+                            value: model,
+                            label: model,
+                          }))}
+                          onValueChange={(model) => {
+                            if (gatewayModels.includes(model))
+                              updateProvider(index, (current) => ({
+                                ...current,
+                                model,
+                              }));
+                          }}
+                        />
+                      </>
+                    ) : (
+                      <DashboardModelField
+                        name={`providerModel.${index}`}
+                        label="Model"
+                        helpText={fieldHelp.model}
+                        value={provider.model}
+                        disabled={!mutationsEnabled}
+                        options={providerOptions}
+                        onValueChange={(value) =>
+                          updateProvider(index, (current) => {
+                            const reasoningEffort =
+                              current.authMode === "codex_account_gateway" ||
+                              codexModelSupportsReasoningEffort(
+                                value,
+                                current.reasoningEffort,
+                              )
+                                ? current.reasoningEffort
+                                : "xhigh";
+                            return {
+                              ...current,
+                              model: value,
+                              reasoningEffort,
+                            };
+                          })
+                        }
+                      />
+                    )}
                     <DashboardSwitchField
                       name={`providerRequiredHealthy.${index}`}
                       label="Required healthy"
@@ -1478,6 +1653,24 @@ export function ReviewConfigForm({
                       </>
                     )}
                   </div>
+                  {provider.authMode === "codex_account_gateway" ? (
+                    <div className="text-sm leading-6 text-slate-400">
+                      {gatewayAvailabilityMessage ? (
+                        <p>{gatewayAvailabilityMessage}</p>
+                      ) : null}
+                      {gatewayPage?.nextCursor ? (
+                        <p>
+                          Showing the first page of accounts. Additional
+                          accounts are not available in this selection.
+                        </p>
+                      ) : null}
+                      {!gatewayModels.includes(provider.model.trim()) ? (
+                        <p role="status">
+                          Choose an available account and model before saving.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {showProviderSecretNotice ? (
                     <ProviderSecretNotice
                       authMode={provider.authMode}
@@ -1496,13 +1689,20 @@ export function ReviewConfigForm({
           <button
             type="button"
             aria-label="Add provider"
-            disabled={!mutationsEnabled}
+            disabled={!mutationsEnabled || hasGateway}
             onClick={addProvider}
             className="inline-flex w-fit items-center gap-2 rounded-lg border border-cyan-300/50 px-3 py-2 text-sm font-semibold text-cyan-300 transition hover:border-cyan-200 hover:bg-cyan-300/[0.08] hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span className="text-lg leading-none">+</span>
             Add provider
           </button>
+          {hasGateway ? (
+            <p className="text-sm text-slate-400">
+              {gatewaySingleProviderViolation
+                ? gatewaySingleProviderMessage
+                : "Account Gateway currently supports only one provider. Switch to direct auth to add another provider."}
+            </p>
+          ) : null}
         </section>
 
         <section className="grid gap-3">
@@ -1557,7 +1757,11 @@ export function ReviewConfigForm({
           <FormSubmitButton
             variant="solid"
             className="w-full sm:w-auto sm:min-w-64"
-            disabled={!mutationsEnabled}
+            disabled={
+              !mutationsEnabled ||
+              gatewaySelectionInvalid ||
+              gatewaySingleProviderViolation
+            }
             idleLabel={submitLabel}
             pendingLabel="Saving..."
           />
@@ -1822,6 +2026,7 @@ function DashboardSelectField({
   disabled,
   options,
   onValueChange,
+  placeholder,
 }: {
   readonly name: string;
   readonly label: string;
@@ -1830,6 +2035,7 @@ function DashboardSelectField({
   readonly disabled: boolean;
   readonly options: readonly DashboardSelectOption[];
   readonly onValueChange?: (value: string) => void;
+  readonly placeholder?: string;
 }): React.ReactElement {
   const isControlled = onValueChange !== undefined;
   const [uncontrolledValue, setUncontrolledValue] = useState(value);
@@ -1859,7 +2065,7 @@ function DashboardSelectField({
             "flex items-center justify-between gap-3 text-left",
           ].join(" ")}
         >
-          <RadixSelect.Value>
+          <RadixSelect.Value placeholder={placeholder}>
             <span className="flex min-w-0 items-center gap-2">
               {selectedOption?.providerAuthMode ? (
                 <ProviderAuthLogoFrame
