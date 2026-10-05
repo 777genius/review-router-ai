@@ -20,6 +20,7 @@ import {
   PrismaWorkflowProvisioningRepository,
   OctokitWorkflowSetupGateway,
   renderReviewRouterWorkflowFiles,
+  renderAccountGatewayWorkflow,
 } from "@reviewrouter/features-workflow-provisioning";
 import {
   createProvisioningPrisma,
@@ -237,6 +238,15 @@ import { fingerprintDatabaseRecoveryWitness } from "@reviewrouter/features-provi
 
 import { confirmSetupPullRequestMergedClientAction } from "./actions";
 
+const { resolveReviewRuntimeEnv: resolveSavedReviewRuntimeEnv } =
+  await vi.importActual<typeof import("@reviewrouter/features-review-config")>(
+    "@reviewrouter/features-review-config",
+  );
+const { isWorkflowSetupAlreadyCurrent: checkWorkflowReadiness } =
+  await vi.importActual<
+    typeof import("../../src/server/workflow-setup-readiness")
+  >("../../src/server/workflow-setup-readiness");
+
 const actionRef = `777genius/review-router@${"a".repeat(40)}`;
 const commitSha = "d".repeat(40);
 const workflowPath = ".github/workflows/reviewrouter-codex.yml";
@@ -270,12 +280,15 @@ function matches(
 function fixture(
   baseBranch: "main" | "master",
   scenario = "valid",
-  mode?: "stored_active" | "rotating_hosted" | "generic",
+  mode?: "stored_active" | "rotating_hosted" | "generic" | "gateway",
 ) {
+  const gateway = mode === "gateway";
   const rotating =
     scenario.startsWith("rotating_") || mode === "rotating_hosted";
   const activeStored =
-    scenario.startsWith("stored_active_") || mode === "stored_active";
+    gateway ||
+    scenario.startsWith("stored_active_") ||
+    mode === "stored_active";
   const rotatingWithBinding =
     rotating &&
     (mode === "rotating_hosted" ||
@@ -343,6 +356,7 @@ function fixture(
       installation: { ...repository.installation, status: "suspended" },
     };
   let binding: Record<string, unknown> | null =
+    (gateway && scenario !== "active_binding") ||
     mode === "generic" ||
     scenario === "missing_binding" ||
     (rotating && !rotatingWithBinding)
@@ -385,6 +399,7 @@ function fixture(
     bindingId: scenario === "wrong_binding" ? "binding-2" : "binding-1",
     bindingRevision: scenario === "wrong_binding_revision" ? 4 : 3,
   });
+  const initialHostedSource = source;
   if (scenario === "invalid_workflow")
     source = source.replace("id-token: write", "id-token: read");
   if (scenario === "runtime_ref_mismatch")
@@ -402,7 +417,8 @@ function fixture(
     vi.stubEnv("REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH", "1");
     vi.stubEnv("REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS", "W".repeat(43));
     mocks.runtime.mockResolvedValue({
-      config: {
+      config: parseReviewConfiguration({
+        ...safeDefaultReviewConfiguration,
         providers: [
           {
             kind: "codex",
@@ -410,7 +426,7 @@ function fixture(
             model: "gpt-5.3-codex",
           },
         ],
-      },
+      }),
     });
     if (rotating)
       source = renderCodexRotatingAdvisoryWorkflow({
@@ -426,7 +442,8 @@ function fixture(
   }
   if (mode === "rotating_hosted" || scenario.includes("hosted_config"))
     mocks.runtime.mockResolvedValue({
-      config: {
+      config: parseReviewConfiguration({
+        ...safeDefaultReviewConfiguration,
         providers: [
           {
             kind: "codex",
@@ -434,7 +451,7 @@ function fixture(
             model: "gpt-5.3-codex",
           },
         ],
-      },
+      }),
     });
   if (rotating) {
     if (scenario === "invalid_workflow")
@@ -458,7 +475,16 @@ function fixture(
     vi.stubEnv("REVIEW_ROUTER_ENABLE_CONFLICT_REVIEW_FALLBACK", "1");
     vi.stubEnv("REVIEW_ROUTER_CONFLICT_REVIEW_FALLBACK_REPOSITORIES", "");
     mocks.runtime.mockResolvedValue({
-      config: { providers: [{ kind: "openrouter", authMode: "api_key" }] },
+      config: parseReviewConfiguration({
+        ...safeDefaultReviewConfiguration,
+        providers: [
+          {
+            kind: "openrouter",
+            authMode: "openrouter_api_key",
+            model: "openai/gpt-5",
+          },
+        ],
+      }),
     });
     source = renderReviewRouterReusableWorkflow({
       actionRef,
@@ -466,6 +492,15 @@ function fixture(
       runtimeConfigMode: "oidc",
       conflictReviewFallbackEnabled: true,
     });
+  }
+  if (gateway) {
+    vi.stubEnv("REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF", actionRef);
+    source = renderAccountGatewayWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.test",
+      githubRepositoryId: "456",
+    }).content;
+    mocks.runtime.mockImplementation(resolveSavedReviewRuntimeEnv);
   }
   if (scenario === "source_changed_after_selection")
     vi.stubEnv(
@@ -488,6 +523,18 @@ function fixture(
       attestedBindingRevision:
         scenario === "active_attestation_invalid" ? 2n : 3n,
       attestedGithubRepositoryId: 456n,
+    });
+  if (gateway && binding)
+    Object.assign(binding, {
+      workflowSourceBlobSha: createHash("sha1")
+        .update(`blob ${Buffer.byteLength(initialHostedSource)}\0`)
+        .update(initialHostedSource)
+        .digest("hex"),
+      workflowSourceSha256: createHash("sha256")
+        .update(initialHostedSource)
+        .digest("hex"),
+      workflowSemanticSha256:
+        hostedPoolWorkflowSemanticSha256(initialHostedSource),
     });
   const initialBinding = binding ? { ...binding } : null;
   let expectedCurrent = state.current();
@@ -609,6 +656,15 @@ function fixture(
     targetTokensPerBatch: 8000,
     reviewLanguage: null,
     providers: [],
+    ...(gateway
+      ? {
+          providerAuthMode: "codex_account_gateway",
+          gatewayBindingId: "binding-account-v",
+          gatewayProfileRef: "default",
+          model: "gpt-6.1-sol",
+          reasoningEffort: "high",
+        }
+      : {}),
   };
   const configWrites = vi.fn(
     async ({ data }: { data: Record<string, unknown> }) => {
@@ -895,7 +951,7 @@ function fixture(
             },
           };
         }
-        if (rotating) {
+        if (rotating && !gateway) {
           if (scenario.endsWith("_during_probe")) race();
           if (scenario === "workflow_absent")
             throw Object.assign(new Error("absent"), { status: 404 });
@@ -936,7 +992,10 @@ function fixture(
         if (scenario.endsWith("_during_probe")) race();
         if (parameters?.path !== workflowPath || scenario === "workflow_absent")
           throw Object.assign(new Error("absent"), { status: 404 });
-        if (parameters.ref !== commitSha)
+        if (
+          parameters.ref !== commitSha &&
+          !(gateway && parameters.ref === "main")
+        )
           throw new Error("workflow_not_pinned_to_current_main");
         return {
           data: {
@@ -1017,10 +1076,12 @@ function fixture(
 describe("hosted setup recovery composition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.readiness.mockImplementation(checkWorkflowReadiness);
     vi.stubEnv("REVIEW_ROUTER_ACTION_REF", actionRef);
     vi.stubEnv("REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF", actionRef);
     mocks.runtime.mockResolvedValue({
-      config: {
+      config: parseReviewConfiguration({
+        ...safeDefaultReviewConfiguration,
         providers: [
           {
             kind: "codex",
@@ -1028,11 +1089,122 @@ describe("hosted setup recovery composition", () => {
             model: "gpt-5.3-codex",
           },
         ],
-      },
+      }),
     });
     mocks.ledgerActivate.mockResolvedValue({ status: "activated" });
   });
   afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    "exact",
+    "rotating_provider",
+    "active_binding",
+    "head_moved",
+    "caller_removed",
+    "caller_replaced",
+  ] as const)(
+    "confirms the saved keyless caller with source fences: %s",
+    async (scenario) => {
+      const f = fixture("main", scenario, "gateway");
+      const sourceChanged = [
+        "head_moved",
+        "caller_removed",
+        "caller_replaced",
+      ].includes(scenario);
+      let changed = false;
+      const transport = f.request.getMockImplementation()!;
+      f.request.mockImplementation(async (route, parameters) => {
+        if (
+          changed &&
+          route === "GET /repos/{owner}/{repo}/git/ref/{ref}" &&
+          scenario === "head_moved"
+        )
+          return { data: { object: { sha: "e".repeat(40) } } };
+        if (changed && route === "GET /repos/{owner}/{repo}/contents/{path}") {
+          if (scenario === "caller_removed")
+            throw Object.assign(new Error("caller_removed"), { status: 404 });
+          if (scenario === "caller_replaced")
+            return {
+              data: {
+                type: "file",
+                path: workflowPath,
+                encoding: "base64",
+                content: Buffer.from(
+                  "name: replacement\non: pull_request\njobs: {}\n",
+                ).toString("base64"),
+                sha: "f".repeat(40),
+              },
+            };
+        }
+        return transport(route, parameters);
+      });
+      let markProbed!: () => void;
+      let releaseProbe!: () => void;
+      const probed = new Promise<void>((resolve) => {
+        markProbed = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        releaseProbe = resolve;
+      });
+      mocks.readiness.mockImplementation(
+        async (...args: Parameters<typeof checkWorkflowReadiness>) => {
+          const ready = await checkWorkflowReadiness(...args);
+          expect(ready).toBe(true);
+          markProbed();
+          await released;
+          return ready;
+        },
+      );
+      if (scenario === "rotating_provider")
+        expect(
+          await mocks.getPrisma().codexOAuthProviderInstance.findUnique(),
+        ).not.toBeNull();
+      const confirmation = confirmSetupPullRequestMergedClientAction(f.form);
+      try {
+        expect(
+          await Promise.race([
+            probed.then(() => true),
+            confirmation.then(() => false),
+          ]),
+        ).toBe(true);
+        changed = sourceChanged;
+      } finally {
+        releaseProbe();
+      }
+      const result = await confirmation;
+      if (sourceChanged) {
+        expect(result.params).toHaveProperty("error");
+        expect(result.params).not.toHaveProperty("notice");
+        expect(f.state.current()).toEqual(f.historical);
+        expect(f.state.workflowProvisioning.updateMany).not.toHaveBeenCalled();
+        expect(mocks.audit).not.toHaveBeenCalled();
+      } else {
+        expect(result.params).toHaveProperty("notice", "setup_pr_merged");
+        expect(f.state.current()).toMatchObject({
+          status: "configured",
+          workflowPath,
+          actionVersion: actionRef,
+        });
+        expect(f.events).toContain(`workflow:${workflowPath}:${commitSha}`);
+      }
+      expect(mocks.activateCodex).not.toHaveBeenCalled();
+      expect(mocks.namespace).not.toHaveBeenCalled();
+      expect(mocks.ledgerActivate).not.toHaveBeenCalled();
+      expect(mocks.setRepositorySource).not.toHaveBeenCalled();
+      expect(mocks.switchConfiguration).not.toHaveBeenCalled();
+      expect(f.configWrites).not.toHaveBeenCalled();
+      expect(f.updateBinding).not.toHaveBeenCalled();
+      expect(f.binding()).toEqual(f.initialBinding);
+      expect(f.configuration()).toMatchObject({
+        providerAuthMode: "codex_account_gateway",
+        gatewayBindingId: "binding-account-v",
+        gatewayProfileRef: "default",
+        model: "gpt-6.1-sol",
+        reasoningEffort: "high",
+        fastMode: false,
+      });
+    },
+  );
 
   it.each([
     ["explicit", "matching"],
@@ -1539,7 +1711,16 @@ describe("hosted setup recovery composition", () => {
     );
     if (scenario === "pending_generic_config")
       mocks.runtime.mockResolvedValue({
-        config: { providers: [{ kind: "openrouter", authMode: "api_key" }] },
+        config: parseReviewConfiguration({
+          ...safeDefaultReviewConfiguration,
+          providers: [
+            {
+              kind: "openrouter",
+              authMode: "openrouter_api_key",
+              model: "openai/gpt-5",
+            },
+          ],
+        }),
       });
     if (scenario === "trusted_overlap")
       vi.stubEnv(

@@ -87,6 +87,8 @@ import {
   workflowDocumentSemanticSha256,
   WorkflowSourceTrust,
   type ReviewRouterWorkflowStyle,
+  isAccountGatewayConfiguration,
+  validateAccountGatewayActionRef,
 } from "@reviewrouter/features-workflow-provisioning";
 import {
   confirmCodexRotatingSetupReadiness,
@@ -1202,6 +1204,22 @@ async function createSetupPullRequestMutation(
       workspaceId,
       repositoryId,
     });
+    const accountGateway = isAccountGatewayConfiguration(
+      resolvedRuntime.config,
+    );
+    if (
+      accountGateway &&
+      (resolvedRuntime.source !== "repository" ||
+        workflowStyle === "explicit" ||
+        discussionMode === "suggest")
+    ) {
+      throw new Error("account_gateway_workflow_options_not_supported");
+    }
+    const gatewayActionRef = accountGateway
+      ? validateAccountGatewayActionRef(
+          process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF,
+        )
+      : undefined;
     assertCodexProductionReviewConfigAllowed(resolvedRuntime.config);
     assertCodexRotatingReviewConfigAllowed({
       config: resolvedRuntime.config,
@@ -1253,28 +1271,34 @@ async function createSetupPullRequestMutation(
       name: repository.name,
       defaultBranch: repository.defaultBranch,
     });
-    const actionRef = codexRotatingProviderInstanceId
-      ? await resolveCodexRotatingProvisioningActionRef({
-          prisma,
-          inspection: codexRotatingWorkflowNamespaceInspection!,
-          octokit,
-          owner: repository.owner,
-          name: repository.name,
-          defaultBranch: repository.defaultBranch,
-          expectedRepositoryId: githubRepository.githubRepositoryId.toString(),
-          expectedRepositoryFullName: repository.fullName,
-          expectedProviderInstanceId: codexRotatingProviderInstanceId,
-        })
-      : resolveReviewRouterActionRef();
-    const conflictReviewFallbackAllowed = codexRotatingProviderInstanceId
-      ? false
-      : isConflictReviewFallbackAllowedForRepository(repository.fullName);
-    const workflowPath = codexRotatingProviderInstanceId
-      ? codexWorkflowPathForRepository({
-          repositoryId: githubRepository.githubRepositoryId.toString(),
-          repositoryFullName: repository.fullName,
-        })
-      : defaultWorkflowPath;
+    const actionRef =
+      gatewayActionRef ??
+      (codexRotatingProviderInstanceId
+        ? await resolveCodexRotatingProvisioningActionRef({
+            prisma,
+            inspection: codexRotatingWorkflowNamespaceInspection!,
+            octokit,
+            owner: repository.owner,
+            name: repository.name,
+            defaultBranch: repository.defaultBranch,
+            expectedRepositoryId:
+              githubRepository.githubRepositoryId.toString(),
+            expectedRepositoryFullName: repository.fullName,
+            expectedProviderInstanceId: codexRotatingProviderInstanceId,
+          })
+        : resolveReviewRouterActionRef());
+    const conflictReviewFallbackAllowed =
+      accountGateway || codexRotatingProviderInstanceId
+        ? false
+        : isConflictReviewFallbackAllowedForRepository(repository.fullName);
+    const workflowPath = accountGateway
+      ? defaultCodexRotatingWorkflowPath
+      : codexRotatingProviderInstanceId
+        ? codexWorkflowPathForRepository({
+            repositoryId: githubRepository.githubRepositoryId.toString(),
+            repositoryFullName: repository.fullName,
+          })
+        : defaultWorkflowPath;
     const workflowReady = await isWorkflowSetupAlreadyCurrent(
       {
         githubInstallationId:
@@ -1286,6 +1310,9 @@ async function createSetupPullRequestMutation(
         defaultBranch: setupBaseBranch,
         actionRef,
         discussionMode,
+        ...(accountGateway
+          ? { codexSessionMode: "account-gateway" as const }
+          : {}),
         conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
         ...(codexRotatingProviderInstanceId
           ? {
@@ -1374,7 +1401,9 @@ async function createSetupPullRequestMutation(
               actionRef,
               apiUrl: resolveWorkflowPublicApiUrl(),
               runtimeConfigMode: "oidc",
-              staticRuntimeEnv: resolvedRuntime.runtimeEnv,
+              ...(accountGateway
+                ? { codexSessionMode: "account-gateway" as const }
+                : { staticRuntimeEnv: resolvedRuntime.runtimeEnv }),
               workflowStyle,
               discussionMode,
               conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
@@ -1391,6 +1420,9 @@ async function createSetupPullRequestMutation(
             },
             {
               targets: new PrismaWorkflowProvisioningTarget(prisma),
+              configurations: new PrismaReviewConfigurationRepository(prisma),
+              trustedGithubRepositoryId:
+                githubRepository.githubRepositoryId.toString(),
               setupGateway,
               provisioning: new PrismaWorkflowProvisioningRepository(prisma),
               auditLog: new PrismaAuditLogRepository(prisma),
@@ -1586,19 +1618,32 @@ async function confirmSetupPullRequestMergedMutation(
     // A stored PR head binds the attempt, not the installed runtime. Both hosted
     // reconfirmation and an intentional rotating switch can start with the same
     // active binding and hosted configuration. Inspect the current artifact.
+    const accountGateway = isAccountGatewayConfiguration(
+      resolvedRuntime.config,
+    );
+    if (accountGateway && resolvedRuntime.source !== "repository") {
+      throw new Error("account_gateway_saved_config_required");
+    }
+    const gatewayActionRef = accountGateway
+      ? validateAccountGatewayActionRef(
+          process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF,
+        )
+      : undefined;
     const codexWorkflowExpected =
-      hostedBinding !== null ||
-      resolvedRuntime.config.providers.some(
-        (provider) =>
-          provider.authMode === "codex_subscription_oauth_hosted_pool" ||
-          provider.authMode === "codex_subscription_oauth_rotating",
-      );
+      !accountGateway &&
+      (hostedBinding !== null ||
+        resolvedRuntime.config.providers.some(
+          (provider) =>
+            provider.authMode === "codex_subscription_oauth_hosted_pool" ||
+            provider.authMode === "codex_subscription_oauth_rotating",
+        ));
     const rotatingWorkflowExpected = resolvedRuntime.config.providers.some(
       (provider) => provider.authMode === "codex_subscription_oauth_rotating",
     );
     const selectedCodexWorkflowPath =
-      setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
-      (!setupProvisioning?.workflowPath && rotatingWorkflowExpected)
+      !accountGateway &&
+      (setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
+        (!setupProvisioning?.workflowPath && rotatingWorkflowExpected))
         ? codexWorkflowPathForRepository({
             repositoryId: githubRepository.githubRepositoryId.toString(),
             repositoryFullName: repository.fullName,
@@ -1615,7 +1660,8 @@ async function confirmSetupPullRequestMergedMutation(
       readonly actionRef: string;
       readonly commitSha: string;
     } | null = null;
-    if (codexWorkflowExpected) {
+    let assertCurrentGatewaySource: (() => Promise<void>) | undefined;
+    if (accountGateway || codexWorkflowExpected) {
       const repositoryRoute = "GET /repos/{owner}/{repo}";
       const refRoute = "GET /repos/{owner}/{repo}/git/ref/{ref}";
       const contentRoute = "GET /repos/{owner}/{repo}/contents/{path}";
@@ -1660,30 +1706,32 @@ async function confirmSetupPullRequestMergedMutation(
       const blob = readGitHubWorkflowBlob(content.data);
       // Parsing selects a candidate only. The selected adapter must still verify
       // canonical content, trust, namespace/binding and immutable source identity.
-      try {
-        const metadata = readCanonicalHostedPoolWorkflowMetadata(blob.source);
-        codexWorkflow = {
-          hosted: true,
-          actionRef: metadata.actionRef,
-          commitSha,
-        };
-      } catch {
-        const metadata =
-          selectedCodexWorkflowPath === defaultCodexRotatingWorkflowPath
-            ? readCanonicalCodexRotatingT0WorkflowSourceMetadata(blob.source)
-            : readCanonicalIsolatedQualityWorkflowSourceMetadata(blob.source);
-        codexWorkflow = {
-          hosted: false,
-          actionRef: metadata.actionRef,
-          commitSha,
-        };
-      }
-      if (
-        !resolveReviewRouterCodexRotatingTrustedActionRefs().includes(
-          codexWorkflow.actionRef,
+      if (!accountGateway) {
+        try {
+          const metadata = readCanonicalHostedPoolWorkflowMetadata(blob.source);
+          codexWorkflow = {
+            hosted: true,
+            actionRef: metadata.actionRef,
+            commitSha,
+          };
+        } catch {
+          const metadata =
+            selectedCodexWorkflowPath === defaultCodexRotatingWorkflowPath
+              ? readCanonicalCodexRotatingT0WorkflowSourceMetadata(blob.source)
+              : readCanonicalIsolatedQualityWorkflowSourceMetadata(blob.source);
+          codexWorkflow = {
+            hosted: false,
+            actionRef: metadata.actionRef,
+            commitSha,
+          };
+        }
+        if (
+          !resolveReviewRouterCodexRotatingTrustedActionRefs().includes(
+            codexWorkflow.actionRef,
+          )
         )
-      )
-        throw new Error("workflow_provisioning_match_not_found");
+          throw new Error("workflow_provisioning_match_not_found");
+      }
       // Keep readiness and activation on the artifact that selected the route.
       // Repeated reads still reach GitHub; changed heads, identities or blobs fail.
       workflowOctokit = {
@@ -1718,6 +1766,17 @@ async function confirmSetupPullRequestMergedMutation(
       };
       await workflowOctokit.request(repositoryRoute, location);
       await workflowOctokit.request(refRoute, refParameters);
+      if (accountGateway) {
+        assertCurrentGatewaySource = async () => {
+          await workflowOctokit.request(repositoryRoute, location);
+          await workflowOctokit.request(refRoute, refParameters);
+          await workflowOctokit.request(contentRoute, {
+            ...location,
+            path: selectedCodexWorkflowPath,
+            ref: commitSha,
+          });
+        };
+      }
     }
     const hostedWorkflowRequired = codexWorkflow?.hosted === true;
     if (
@@ -1781,11 +1840,14 @@ async function confirmSetupPullRequestMergedMutation(
         }
       : null;
     const forkAgenticSandboxEnabled = false;
-    const conflictReviewFallbackAllowed = codexRotatingProviderInstanceId
-      ? false
-      : isConflictReviewFallbackAllowedForRepository(repository.fullName);
+    const conflictReviewFallbackAllowed =
+      accountGateway || codexRotatingProviderInstanceId
+        ? false
+        : isConflictReviewFallbackAllowedForRepository(repository.fullName);
     const verifiedWorkflowActionRef =
-      codexWorkflow?.actionRef ?? resolveReviewRouterActionRef();
+      gatewayActionRef ??
+      codexWorkflow?.actionRef ??
+      resolveReviewRouterActionRef();
     let genericWorkflowStyle: ReviewRouterWorkflowStyle | undefined;
     const workflowProbe = new OctokitRepositoryWorkflowProbe({
       createRequester: async () => workflowOctokit,
@@ -1804,6 +1866,9 @@ async function confirmSetupPullRequestMergedMutation(
             name: repository.name,
             defaultBranch: setupBaseBranch,
             actionRef: verifiedWorkflowActionRef,
+            ...(accountGateway
+              ? { codexSessionMode: "account-gateway" as const }
+              : {}),
             conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
             ...(codexRotatingProviderInstanceId
               ? {
@@ -1833,6 +1898,10 @@ async function confirmSetupPullRequestMergedMutation(
                             !input.expectedContentValidator(workflow)
                           )
                             return false;
+                          if (accountGateway) {
+                            genericWorkflowStyle = "reusable";
+                            return true;
+                          }
                           // Classify the same bytes the probe checks for action
                           // and provider markers, never the stored setup style.
                           const refs = workflow
@@ -1894,9 +1963,11 @@ async function confirmSetupPullRequestMergedMutation(
     if (!codexWorkflow && !genericWorkflowStyle)
       throw new Error("workflow_provisioning_match_not_found");
     let verifiedWorkflowArtifact = {
-      workflowPath: codexWorkflow
-        ? selectedCodexWorkflowPath
-        : defaultWorkflowPath,
+      workflowPath: accountGateway
+        ? defaultCodexRotatingWorkflowPath
+        : codexWorkflow
+          ? selectedCodexWorkflowPath
+          : defaultWorkflowPath,
       workflowStyle: codexWorkflow
         ? ("reusable" as const)
         : genericWorkflowStyle!,
@@ -1996,7 +2067,7 @@ async function confirmSetupPullRequestMergedMutation(
       if (activation.status === "not_configured")
         throw new Error("hosted_pool_binding_activation_conflict");
       verifiedWorkflowArtifact = activation;
-    } else {
+    } else if (!accountGateway) {
       await assertCurrentSetup(verifiedWorkflowArtifact);
       await assertCurrentBinding();
       const activation =
@@ -2037,6 +2108,11 @@ async function confirmSetupPullRequestMergedMutation(
       }
     }
 
+    if (accountGateway) {
+      await assertCurrentSetup(verifiedWorkflowArtifact);
+      await assertCurrentBinding();
+      await assertCurrentGatewaySource!();
+    }
     await assertCurrentSetup(verifiedWorkflowArtifact);
 
     const setupAuthority = new PrismaWorkflowProvisioningStatusAuthority(

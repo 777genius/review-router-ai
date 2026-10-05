@@ -20,6 +20,8 @@ import {
   renderCodexRotatingAdvisoryWorkflow,
   renderCanonicalIsolatedQualityWorkflow,
   isolatedQualityWorkflowPath,
+  isolatedQualityWorkflowRepositoryId,
+  canonicalCodexRotatingProviderId,
   scanCodexRotatingAdvisoryWorkflow,
 } from "@reviewrouter/features-codex-oauth-rotating";
 
@@ -86,6 +88,64 @@ export const defaultRequiredWorkflowPath =
   ".github/workflows/reviewrouter-required.yml";
 export const defaultSetupBranch = "reviewrouter/setup";
 export const reusableWorkflowRuntimeRepository = "777genius/review-router";
+export function validateAccountGatewayActionRef(
+  actionRef: string | undefined,
+): string {
+  if (
+    !actionRef ||
+    !/^777genius\/review-router@[a-f0-9]{40}$/.test(actionRef)
+  ) {
+    throw new Error("account_gateway_requires_immutable_action_ref");
+  }
+  return actionRef;
+}
+/** Keyless gateway caller; authority remains in server run admission. */
+export function renderAccountGatewayWorkflow(options: {
+  readonly actionRef: string;
+  readonly apiUrl: string;
+  readonly githubRepositoryId: string;
+}): ReviewRouterWorkflowUpsertFile {
+  const runtimeRef = extractReusableRuntimeRef(
+    validateAccountGatewayActionRef(options.actionRef),
+  );
+  assertSafeApiUrl(options.apiUrl);
+  const providerInstanceId = canonicalCodexRotatingProviderId(
+    options.githubRepositoryId,
+  );
+  if (options.githubRepositoryId === isolatedQualityWorkflowRepositoryId) {
+    throw new Error("account_gateway_workflow_path_not_supported");
+  }
+  return {
+    path: managedCodexWorkflowPath,
+    content: `name: ReviewRouter Codex
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+permissions: {}
+jobs:
+  codex-review:
+    if: \${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot' && github.event.pull_request.draft == false }}
+    concurrency:
+      group: reviewrouter-codex-\${{ github.repository_id }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    uses: ${reusableWorkflowRuntimeRepository}/.github/workflows/reviewrouter-t0-reusable.yml@${runtimeRef}
+    with:
+      runtime_ref: ${JSON.stringify(runtimeRef)}
+      api_url: ${JSON.stringify(options.apiUrl)}
+      pr_number: \${{ format('{0}', github.event.pull_request.number) }}
+      review_head_sha: \${{ github.event.pull_request.head.sha }}
+      provider_instance_id: ${JSON.stringify(providerInstanceId)}
+      runtime_config_mode: oidc
+      codex_session_mode: account-gateway
+      workflow_schema_version: 2
+      review_timeout_minutes: ${codexRotatingT0DefaultTimeoutMinutesForSchema(CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2)}
+`,
+  };
+}
 export const reusableReviewWorkflowPath =
   ".github/workflows/reviewrouter-reusable.yml";
 export const reusableInteractionWorkflowPath =
@@ -1303,6 +1363,13 @@ function inferWorkflowStyle(workflowYaml: string): ReviewRouterWorkflowStyle {
 export function renderReviewRouterWorkflowFiles(
   options: ReviewRouterWorkflowOptions,
 ): readonly ReviewRouterWorkflowFile[] {
+  if (
+    options.staticRuntimeEnv?.REVIEW_AUTH_MODE === "codex-account-gateway" ||
+    options.staticRuntimeEnv?.REVIEW_ROUTER_GATEWAY_BINDING_ID !== undefined ||
+    options.staticRuntimeEnv?.REVIEW_ROUTER_GATEWAY_PROFILE_REF !== undefined
+  ) {
+    throw new Error("account_gateway_saved_config_required");
+  }
   if (options.codexRotatingProviderInstanceId) {
     if (options.conflictReviewFallbackEnabled === true) {
       throw new Error("codex_rotating_conflict_review_unsupported");
