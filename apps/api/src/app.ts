@@ -1,4 +1,5 @@
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
+import { registerReviewRunGatewayRelayRoutes } from "./review-run-gateway-relay.js";
 import { createDefaultHostedPoolOperatorConnect } from "./hosted-pool-workflow-operator-composition.js";
 import {
   createHostedPoolOperatorComposition,
@@ -900,6 +901,12 @@ export async function createApiApp(
 
   if (reviewRunControlV2Dependencies) {
     await registerReviewRunControlV2Routes(app, reviewRunControlV2Dependencies);
+  }
+  if (productionReviewActionV2Dependencies?.accountGatewayRelay) {
+    await registerReviewRunGatewayRelayRoutes(
+      app,
+      productionReviewActionV2Dependencies.accountGatewayRelay,
+    );
   }
   await registerHostedV4ReadRoutes(
     app,
