@@ -12,6 +12,7 @@ The accepted tarball/path is unchanged. Its observed package.json version is 0.1
 (the prompt supplied 0.2.0; embedded Get Modular dependencies are 0.2.0). No SDK rewrite.
 
 Changed owned paths (navigation is intentionally untouched):
+
 - apps/web/src/server/account-gateway-accounts.ts
 - apps/web/src/server/account-gateway-accounts.integration.test.ts
 - apps/web/app/dashboard/account-gateway-accounts-section.tsx
@@ -51,6 +52,7 @@ Profile IDs are explicit server allowlist entries intersected with SDK API-key c
 The context signing secret can rotate without changing owner/operation namespaces.
 
 Checks:
+
 - PASS: contract/archive/all three frozen SDK-source digests match manifest.
 - PASS: Node 24.21.0 --check on new server/actions/integration .ts and both edited C1 .ts files.
   Syntax only: this is NOT typechecking, React/Next validation, or runtime qualification.
@@ -62,11 +64,13 @@ Checks:
 
 Primary: use pinned dependencies/generated Prisma and a NEW disposable migrated loopback PG.
 Run (replace the URL placeholder with that disposable credential-free target):
+
 ```sh
 RR_C3_ACCOUNTS_PG_TEST=1 RR_C3_ACCOUNTS_DISPOSABLE_CLUSTER=1 \
 RR_C3_ACCOUNTS_PG_TEST_URL='<loopback-rr_gateway_test_URL>' \
 pnpm exec vitest run apps/web/src/server/account-gateway-accounts.integration.test.ts
 ```
+
 The opt-in test uses actual SDK HTTP + actual C1 Prisma/PG and existing safe target validation;
 red means mutation-before-auth/foreign connection, stale CAS, invented pending account,
 credential in response/mirror, replay after lost ACK, or missing local binding denial.
@@ -75,6 +79,7 @@ It does not qualify real sessions/context signing in Next, browser cache behavio
 Primary owns commit/integration and separate exact-source gpt-6.1-sol/xhigh/default review.
 
 Primary qualification, 2026-10-04 UTC:
+
 - PASS: pinned full Web TypeScript check, formatting and architecture boundary check.
 - PASS: actual C3 SDK HTTP + Prisma/PostgreSQL scenario: 1 passed, 0 failed, 0 skipped.
   New isolated PostgreSQL 17.10 loopback fixture, all 120 SQL migrations applied;
@@ -127,6 +132,7 @@ lint/format and independent gpt-6.1-sol/xhigh/default exact-source review.
 Pinned node_modules (SDK/Prisma/tsc/Vitest/ESLint) are absent; no install attempts,
 ambient credentials/runtime/provider access or smoke/deploy/commit occurred.
 Primary gates with actual pinned dependencies before integration/merge:
+
 - pnpm --filter @reviewrouter/web typecheck (includes changed TS contracts/test).
 - pnpm architecture:check; focused ESLint + Prettier on six changed source files.
 - pnpm exec vitest run apps/web/app/dashboard/dashboard-section-tabs.test.tsx apps/web/app/dashboard/dashboard-shell.test.tsx
@@ -134,9 +140,9 @@ Primary gates with actual pinned dependencies before integration/merge:
   all 120 migrations, old source + new test RED then corrected source GREEN;
   require 1 PASS, 0 skip, retained receipts and exact fixture cleanup.
 - Independent 6.1 xhigh/default source review; no FAST. Controller owns Git.
-Sourceguard + exact preimages/unified patch exported outside the source tree:
-/srv/worker-state/jobs/review-router/account-gateway-v1/jobs/review-router-account-gateway-v1-p68-accounts-denial/tmp/agent/p68-accounts-denial-artifacts
-Full D-min/D-final/S/E/F/G remain; H sharing deferred. No release qualification.
+  Sourceguard + exact preimages/unified patch exported outside the source tree:
+  /srv/worker-state/jobs/review-router/account-gateway-v1/jobs/review-router-account-gateway-v1-p68-accounts-denial/tmp/agent/p68-accounts-denial-artifacts
+  Full D-min/D-final/S/E/F/G remain; H sharing deferred. No release qualification.
 
 Primary qualification 2026-10-05: full pinned API/Web TypeScript, architecture,
 focused ESLint and both existing navigation suites PASS. Existing label control
