@@ -43,6 +43,7 @@ export type AccountView = {
   gatewayRevision: number;
   mirrorRevision: number;
   binding: {
+    id: string;
     revision: number;
     state: "active" | "revoked";
     fencePending: boolean;
@@ -302,6 +303,7 @@ export function createAccountsAdapter(input: {
       mirrorRevision: mirror.metadataRevision,
       binding: binding
         ? {
+            id: binding.id,
             revision: binding.revision,
             state: binding.state,
             fencePending: binding.pendingFence !== null,

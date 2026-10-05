@@ -560,6 +560,17 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         "active",
       );
       displayed = ok(observe(await adapter.list("a"))).accounts[0]!;
+      const scopedBinding = await accounts.findConnectionBinding({
+        workspaceId,
+        connectionId: displayed.connectionId,
+      });
+      assert.ok(scopedBinding);
+      assert.deepEqual(displayed.binding, {
+        id: scopedBinding.id,
+        revision: scopedBinding.revision,
+        state: scopedBinding.state,
+        fencePending: scopedBinding.pendingFence !== null,
+      });
       const renamed = ok(
         observe(
           await adapter.mutate("a", {

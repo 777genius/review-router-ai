@@ -1,5 +1,10 @@
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
+import {
+  loadAccountsBootstrap,
+  type AccountsPage,
+  type AccountsResult,
+} from "../../src/server/account-gateway-accounts";
 import type { WorkspaceHealthSummary } from "../../src/server/repository-health-view";
 import {
   isCodexRotatingOAuthAllowedForRepository,
@@ -1307,7 +1312,7 @@ async function DashboardSectionContent({
           reason: "local_admin_override" as const,
         }
       : undefined;
-  const [data, modelOptions] = await Promise.all([
+  const [data, modelOptions, accountsBootstrap] = await Promise.all([
     loadDashboardSectionData(
       selectedWorkspace,
       selectedSection,
@@ -1318,6 +1323,9 @@ async function DashboardSectionContent({
     selectedSection === "repositories" || selectedSection === "policy"
       ? getReviewModelOptions()
       : Promise.resolve([]),
+    selectedSection === "repositories" || selectedSection === "policy"
+      ? loadAccountsBootstrap(selectedWorkspace.workspace.id)
+      : Promise.resolve(null),
   ]);
   return (
     <WorkspaceCard
@@ -1329,6 +1337,7 @@ async function DashboardSectionContent({
       workspaceKey={workspaceKey}
       appInstallUrl={getGitHubAppInstallUrl()}
       modelOptions={modelOptions}
+      gatewayAccounts={accountsBootstrap?.page}
       claudeCodeProviderEnabled={isClaudeCodeProviderEnabled()}
     />
   );
@@ -1625,6 +1634,7 @@ function WorkspaceCard({
   workspaceKey,
   appInstallUrl,
   modelOptions,
+  gatewayAccounts,
   claudeCodeProviderEnabled,
 }: {
   readonly data: DashboardWorkspaceData;
@@ -1635,6 +1645,7 @@ function WorkspaceCard({
   readonly workspaceKey: string;
   readonly appInstallUrl: string | null;
   readonly modelOptions: readonly ReviewModelOption[];
+  readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
   readonly claudeCodeProviderEnabled: boolean;
 }): React.ReactElement {
   const {
@@ -1767,6 +1778,7 @@ function WorkspaceCard({
               repositoryConfigs={repositoryConfigs}
               activeConfig={activeConfig}
               modelOptions={modelOptions}
+              gatewayAccounts={gatewayAccounts}
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               mutationsEnabled={mutationsEnabled}
               workspaceKey={workspaceKey}
@@ -1877,6 +1889,7 @@ function WorkspaceCard({
                   workspaceId={workspace.id}
                   config={activeConfig}
                   modelOptions={modelOptions}
+                  gatewayAccounts={gatewayAccounts}
                   codexRotatingOAuthEnabled={isCodexRotatingOAuthAllowedForWorkspaceDefault()}
                   claudeCodeProviderEnabled={claudeCodeProviderEnabled}
                   mutationsEnabled={mutationsEnabled}
@@ -1964,6 +1977,7 @@ function WorkspaceCard({
                         effectiveConfig={effectiveConfig}
                         configVersion={configVersion}
                         modelOptions={modelOptions}
+                        gatewayAccounts={gatewayAccounts}
                         codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
                           repository,
                         )}
@@ -2474,6 +2488,7 @@ function RepositoryTable({
   repositoryConfigs,
   activeConfig,
   modelOptions,
+  gatewayAccounts,
   claudeCodeProviderEnabled,
   mutationsEnabled,
   workspaceKey,
@@ -2494,6 +2509,7 @@ function RepositoryTable({
   readonly repositoryConfigs: DashboardWorkspaceData["repositoryConfigs"];
   readonly activeConfig: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
+  readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
   readonly claudeCodeProviderEnabled: boolean;
   readonly mutationsEnabled: boolean;
   readonly workspaceKey: string;
@@ -2826,6 +2842,7 @@ function RepositoryTable({
                     repositoryConfig={repositoryConfig}
                     effectiveConfig={effectiveConfig}
                     modelOptions={modelOptions}
+                    gatewayAccounts={gatewayAccounts}
                     codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
                       repository,
                     )}
