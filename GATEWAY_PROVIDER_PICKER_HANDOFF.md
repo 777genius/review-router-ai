@@ -58,6 +58,7 @@ Worker preparation is complete; primary goal remains ACTIVE. Initial hosted qual
 Primary qualification: pinned web TypeScript, ESLint, format and diff PASS; existing UI suite 39 PASS/0 FAIL. Old UI with the same two initial-choice cases: 2 FAIL because the gateway option is absent. NEW disposable PostgreSQL 17.10 with all 120 current SQL migrations: existing Accounts integration 1 PASS/0 FAIL, exact scoped binding ID assertion included. Containers stopped; zero provider/App effects. Original failed qualification attempts are retained. Independent source review and full CI remain pending.
 
 ## P101 - final P99 P2 repair, qualified by primary
+
 Final independent P99 report80e0681d requires a single provider when gateway auth is present.
 The form now rejects unsupported mixed/multiple gateway saves, blocks Add provider while gateway is selected,
 and disables/explains gateway auth in direct multi-provider configurations.
