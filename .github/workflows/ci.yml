@@ -74,7 +74,7 @@ jobs:
   release-authority-pg17-contract:
     name: Dedicated Release Authority PG17 contract
     if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.release_authority_pg17_contract) }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
@@ -139,7 +139,7 @@ jobs:
   private-pg16-to-pg17-rehearsal:
     name: Full private PG16 to PG17 rehearsal
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.private_pg16_to_pg17_rehearsal) || (github.event_name == 'workflow_dispatch' && inputs.activation_catalog_policy_capture) }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -259,7 +259,7 @@ jobs:
 
   self-hosted-e2e:
     name: Self-hosted E2E
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
 
     steps:
@@ -281,7 +281,7 @@ jobs:
 
   hosted-runtime-image:
     name: Hosted runtime OCI build
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 25
 
     steps:
@@ -304,7 +304,7 @@ jobs:
 
   quality:
     name: Quality Gates
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
