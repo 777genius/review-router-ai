@@ -189,7 +189,7 @@ export class ManageReviewRunAuthorizations {
       return denied(eligibility.denied);
     }
     const now = this.dependencies.clock.now();
-    const maxExpiresAt = new Date(
+    let maxExpiresAt = new Date(
       now.getTime() + input.maxAuthorizationLifetimeMs,
     );
     let expiresAt = new Date(
@@ -203,9 +203,15 @@ export class ManageReviewRunAuthorizations {
     let runtimeSnapshotCanonicalJson =
       original?.runtimeSnapshotCanonicalJson ?? null;
     if (!original && this.dependencies.runtimeSnapshots) {
+      // Signed capabilities encode whole seconds. Select the bounded deadline
+      // before capture so the frozen intent never promises a later instant.
+      const gatewayMaxExpiresAt = new Date(
+        Math.floor(maxExpiresAt.getTime() / 1000) * 1000,
+      );
       const captured = await this.dependencies.runtimeSnapshots.capture({
         identity: verifiedIdentity,
-        deadline: maxExpiresAt,
+        deadline:
+          gatewayMaxExpiresAt > now ? gatewayMaxExpiresAt : maxExpiresAt,
       });
       if (!captured)
         return denied(ReviewRunAuthorizationDenialReason.AdmissionFactsChanged);
@@ -214,6 +220,11 @@ export class ManageReviewRunAuthorizations {
         runtimeSnapshotCanonicalJson,
       );
       if (snapshot?.gateway?.limits) {
+        if (gatewayMaxExpiresAt <= now)
+          return denied(
+            ReviewRunAuthorizationDenialReason.AdmissionFactsChanged,
+          );
+        maxExpiresAt = gatewayMaxExpiresAt;
         if (snapshot.deadline !== maxExpiresAt.toISOString())
           return denied(
             ReviewRunAuthorizationDenialReason.AdmissionFactsChanged,
@@ -223,6 +234,12 @@ export class ManageReviewRunAuthorizations {
         // ordinary renewable TTL still applies to other admissions. Restores
         // retain the original row and never acquire a later deadline here.
         expiresAt = maxExpiresAt;
+      } else {
+        // Ordinary TTL admissions retain their original millisecond maximum.
+        runtimeSnapshotCanonicalJson = canonicalJson({
+          ...captured,
+          deadline: maxExpiresAt.toISOString(),
+        });
       }
     }
     const tokenProfile = this.dependencies.tokens.profile();

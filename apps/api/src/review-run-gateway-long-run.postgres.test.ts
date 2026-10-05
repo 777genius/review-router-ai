@@ -1,9 +1,9 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { setTimeout as delay } from "node:timers/promises";
 import Fastify from "fastify";
 import { decodeJwt } from "jose";
 import { describe, expect, it, vi } from "vitest";
+import { SystemClock } from "@reviewrouter/shared";
 import * as c from "@agent-teams/account-gateway/contracts";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import {
@@ -29,8 +29,8 @@ import { registerReviewRunGatewayRelayRoutes } from "./review-run-gateway-relay"
 // loses its ORIGINAL signed capability at the ordinary RR TTL. Exercise the
 // real production admission/relay + SQL121 attachment, signed synthetic OIDC
 // and controlled HTTP. There is no provider inference or product E2E claim.
-// Compress only SERVER timing at the existing use-case boundary; Date and PG
-// wall clocks, token validation, binding authority and HTTP stay real.
+// Compress SERVER timing and inject the existing SystemClock seam. PG and HTTP
+// stay real; the logical clock stays ahead of PG for SQL attachment liveness.
 describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
   "P115 original run capability",
   () => {
@@ -141,7 +141,7 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
           );
           if (
             canonicalJson(admission) !== canonicalJson(saved) ||
-            Date.now() >= Date.parse(saved.expiresAt)
+            now >= Date.parse(saved.expiresAt)
           ) {
             json(403, { error: "fixture_denied" });
             return;
@@ -169,6 +169,14 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
       let harness:
         | Awaited<ReturnType<typeof createReviewActionV2E2EHarness>>
         | undefined;
+      // OIDC mint/verification uses wall time; move the existing server clock
+      // only once verified admission enters the use case. Keep SQL wall-time
+      // expiry guards intact by choosing a bounded future fractional instant.
+      const admissionTime = Math.ceil(Date.now() / 1000) * 1000 + 60_750;
+      let now = Date.now();
+      const clock = vi
+        .spyOn(SystemClock.prototype, "now")
+        .mockImplementation(() => new Date(now));
       const originalAuthorize =
         ManageReviewRunAuthorizations.prototype.authorizeReviewRun;
       const timing = vi
@@ -177,6 +185,7 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
           this: ManageReviewRunAuthorizations,
           input,
         ) {
+          now = admissionTime;
           return originalAuthorize.call(this, {
             ...input,
             authorizationTtlMs: ttlMs,
@@ -307,6 +316,7 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
           const text = await response.text();
           return { status: response.status, text };
         };
+        now = Date.now();
         const first = await harness.authorize();
         expect(harness.generatedOidcTokenCount).toBe(1);
         expect((await send(first.authorizationToken)).status).toBe(200);
@@ -319,14 +329,12 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
         if (!pin?.gateway?.limits || !first.oidcExpiresAt)
           throw new Error("p115_pin_missing");
         const formerTtl = initial.createdAt.getTime() + ttlMs;
-        await delay(Math.max(0, formerTtl + 25 - Date.now()));
-        const dbTime = await prisma.$queryRaw<
-          readonly { now: Date }[]
-        >`SELECT clock_timestamp() AS "now"`;
-        expect(dbTime[0]!.now.getTime()).toBeGreaterThan(formerTtl);
-        expect(Date.now()).toBeGreaterThan(Date.parse(first.oidcExpiresAt));
+        expect(initial.createdAt.getTime()).toBe(admissionTime);
+        expect(initial.createdAt.getMilliseconds()).toBe(750);
+        now = formerTtl + 25;
+        expect(now).toBeGreaterThan(Date.parse(first.oidcExpiresAt));
         const long = await send(first.authorizationToken);
-        // Original source must RED here (401); fixed source must deliver real HTTP SSE.
+        // Retain the former-TTL regression with real HTTP SSE.
         expect(long.status).toBe(200);
         expect(long.text).toContain('"response.completed"');
         expect(preparations).toHaveLength(1);
@@ -338,10 +346,16 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
           accountRef: connection.gatewayAccountRef,
           expiresAt: pin.deadline,
         });
+        // a13 RED: fractional persisted maximum differs from signed exp.
+        expect(initial.maxExpiresAt.getTime()).toBe(
+          Math.floor((admissionTime + lifetimeMs) / 1000) * 1000,
+        );
+        expect(initial.maxExpiresAt.getMilliseconds()).toBe(0);
+        expect(preparations[0]?.deadline).toBe(pin.deadline);
         expect(initial.expiresAt).toEqual(initial.maxExpiresAt);
         expect(initial.maxExpiresAt.toISOString()).toBe(pin.deadline);
         expect(decodeJwt(first.authorizationToken).exp).toBe(
-          Math.floor(initial.maxExpiresAt.getTime() / 1000),
+          initial.maxExpiresAt.getTime() / 1000,
         );
         expect(harness.generatedOidcTokenCount).toBe(1);
         expect(await prisma.reviewRunAuthorizationRenewalReceipt.count()).toBe(
@@ -354,6 +368,7 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
         expect(unchanged.version).toBe(initial.version);
         expect(unchanged.renewedAt).toBeNull();
 
+        now = Date.now();
         const closed = await harness.authorize({ sourceRunAttempt: "2" });
         expect((await send(closed.authorizationToken)).status).toBe(200);
         expect(
@@ -368,6 +383,7 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
         expect(observations).toHaveLength(afterClose);
         expect(closes).toHaveLength(1);
 
+        now = Date.now();
         const revoked = await harness.authorize({ sourceRunAttempt: "3" });
         expect((await send(revoked.authorizationToken)).status).toBe(200);
         const control = composeReviewActionV2ProductionRunControl({
@@ -383,21 +399,25 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
         const afterRevoke = observations.length;
         expect((await send(revoked.authorizationToken)).status).toBe(401);
         expect(observations).toHaveLength(afterRevoke);
-        // First still has live authority; third's revoke cannot explain deadline denial.
+        // The exact final millisecond stays live with the ORIGINAL capability.
+        now = initial.maxExpiresAt.getTime() - 1;
         expect((await send(first.authorizationToken)).status).toBe(200);
         const beforeDeadline = observations.length;
-
-        await delay(
-          Math.max(0, initial.maxExpiresAt.getTime() + 25 - Date.now()),
+        for (const offset of [0, 1]) {
+          now = initial.maxExpiresAt.getTime() + offset;
+          expect((await send(first.authorizationToken)).status).toBe(401);
+          expect(observations).toHaveLength(beforeDeadline);
+        }
+        const final = await prisma.reviewRunAuthorization.findUniqueOrThrow({
+          where: { authorizationId: first.authorizationId },
+        });
+        expect(final.version).toBe(initial.version);
+        expect(final.expiresAt).toEqual(initial.expiresAt);
+        expect(final.maxExpiresAt).toEqual(initial.maxExpiresAt);
+        expect(final.runtimeSnapshotCanonicalJson).toBe(
+          initial.runtimeSnapshotCanonicalJson,
         );
-        expect(Date.now()).toBeGreaterThanOrEqual(
-          initial.maxExpiresAt.getTime(),
-        );
-        expect(
-          decodeJwt(first.authorizationToken).exp! * 1000,
-        ).toBeLessThanOrEqual(Date.now());
-        expect((await send(first.authorizationToken)).status).toBe(401);
-        expect(observations).toHaveLength(beforeDeadline);
+        expect(final.renewedAt).toBeNull();
         expect(preparations).toHaveLength(3);
         expect(await prisma.reviewRunAuthorizationRenewalReceipt.count()).toBe(
           0,
@@ -414,6 +434,7 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
         ).toMatchObject({ state: ReviewRunAuthorizationState.Revoked });
       } finally {
         timing.mockRestore();
+        clock.mockRestore();
         try {
           await app.close();
         } finally {
