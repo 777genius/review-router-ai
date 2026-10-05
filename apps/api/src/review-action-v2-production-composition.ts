@@ -1,4 +1,9 @@
 import {
+  createReviewRunGatewayCheckout,
+  type ReviewRunGatewayCheckout,
+  type ReviewRunGatewayCheckoutTarget,
+} from "./review-run-gateway-checkout.js";
+import {
   ProductionReviewRunRuntimeSnapshot,
   readServerApprovedReviewRunGatewayPolicy,
 } from "./review-run-runtime-snapshot";
@@ -124,6 +129,7 @@ import {
   ResolveReviewSafetyPolicy,
   ReviewTaskKind,
   canonicalJson,
+  parseReviewRunRuntimeSnapshot,
   reviewRunGatewayOwnedIdentity,
   canonicalReviewOperationalSloProfile,
   canonicalReviewProtocolLimits,
@@ -278,6 +284,7 @@ type ReviewActionV2RouteRuntime = Pick<
 
 export type ReviewActionV2ProductionRoutes = Readonly<{
   accountGatewayRelay?: ReviewRunGatewayRelay;
+  accountGatewayCheckout?: ReviewRunGatewayCheckout;
   hostedV4: HostedV4ReadRoutesDependencies;
   hostedV4Relay: Readonly<{
     enabled: false;
@@ -985,6 +992,195 @@ export function composeReviewActionV2ProductionRoutes(input: {
           requiredEnv(input.env, "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY"),
         )
       : undefined;
+  // Use the same local identity/selection rules before SCM and inside the
+  // checkout-only protected confirmation; transaction readers never do HTTP.
+  const readCheckoutTarget = async (
+    reader: Pick<
+      PrismaClient,
+      "scmRepositoryIdentity" | "repositoryConnection"
+    >,
+    authorization: ReviewRunAuthorization,
+  ): Promise<ReviewRunGatewayCheckoutTarget | null> => {
+    const identity = await reader.scmRepositoryIdentity.findUnique({
+      where: { scmRepositoryIdentityId: authorization.scmRepositoryIdentityId },
+    });
+    if (
+      !identity ||
+      identity.provider !== "github" ||
+      identity.normalizedSourceBaseUrl !== "https://github.com" ||
+      identity.currentWorkspaceId !== authorization.workspaceId ||
+      identity.currentRepositoryConnectionId !==
+        authorization.repositoryConnectionId ||
+      !identity.boundAt ||
+      identity.unboundAt
+    )
+      return null;
+    // The older Action inventory mapper does not filter archived/selected
+    // rows. Enforce the saved SCM identity and current installation here.
+    const repository = await reader.repositoryConnection.findFirst({
+      where: {
+        id: authorization.repositoryConnectionId,
+        workspaceId: authorization.workspaceId,
+        scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
+        provider: "github",
+        sourceBaseUrl: "https://github.com",
+        githubRepositoryId: BigInt(identity.externalRepositoryId),
+        externalRepositoryId: identity.externalRepositoryId,
+        selected: true,
+        archived: false,
+        installation: {
+          is: { workspaceId: authorization.workspaceId, status: "active" },
+        },
+      },
+      select: {
+        fullName: true,
+        githubRepositoryId: true,
+        installation: { select: { githubInstallationId: true } },
+      },
+    });
+    if (!repository?.githubRepositoryId || !repository.installation)
+      return null;
+    return {
+      githubInstallationId:
+        repository.installation.githubInstallationId.toString(),
+      githubRepositoryId: repository.githubRepositoryId.toString(),
+      repositoryFullName: repository.fullName,
+    };
+  };
+  // One protected local confirmation for relay and SCM checkout. Keep the relay
+  // callback's checks/order unchanged; no network operation enters this guard.
+  const confirmAccountGatewayAuthority = async (
+    token: string,
+    authorization: ReviewRunAuthorization,
+    checkoutTarget?: ReviewRunGatewayCheckoutTarget,
+  ): Promise<boolean> => {
+    const verified = await prerequisites.tokens
+      .verify({ token, now: clock.now() })
+      .catch(() => undefined);
+    if (!verified) return false;
+    return prisma.$transaction(
+      async (tx) => {
+        await acquireCurrentScopeGuards(tx, [
+          {
+            scope: "repository",
+            mode: "shared",
+            workspaceId: authorization.workspaceId,
+            repositoryId: authorization.repositoryConnectionId,
+          },
+        ]);
+        const checkoutSnapshot = checkoutTarget
+          ? parseReviewRunRuntimeSnapshot(
+              authorization.runtimeSnapshotCanonicalJson,
+            )
+          : null;
+        if (checkoutTarget) {
+          const original = checkoutSnapshot?.gateway;
+          if (!original?.limits) return false;
+          // Checkout keeps connection-before-binding-before-authorization order;
+          // all following local reads use this transaction, without HTTP.
+          await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation"
+            WHERE "githubInstallationId" = ${BigInt(checkoutTarget.githubInstallationId)} FOR SHARE`;
+          await tx.$queryRaw`SELECT "id" FROM "RepositoryConnection"
+            WHERE "id" = ${authorization.repositoryConnectionId} FOR SHARE`;
+          await tx.$queryRaw`SELECT "id" FROM "ProviderAccountConnection"
+            WHERE "id" = ${original.connectionId} FOR SHARE`;
+          await tx.$queryRaw`SELECT "id" FROM "WorkspaceAccountBinding"
+            WHERE "id" = ${original.bindingId} AND "workspaceId" = ${authorization.workspaceId} FOR SHARE`;
+        }
+        // Row SHARE also protects against termination/sweep writers; acquire
+        // it only after scope guards, then reread on this connection.
+        await tx.$queryRaw`SELECT "authorizationId" FROM "ReviewRunAuthorization"
+        WHERE "authorizationId" = ${authorization.authorizationId} FOR SHARE`;
+        // Existing safety query adapter/resolver, with reads bound to this
+        // connection. No root queries or SCM/HTTP while guards are held.
+        const safetyQueries = new PrismaReviewSafetyControlRepository(
+          new Proxy(prisma, {
+            get(_target, key) {
+              if (key === "reviewSafetyPolicy") return tx.reviewSafetyPolicy;
+              if (key === "reviewSafetyPolicySelector")
+                return tx.reviewSafetyPolicySelector;
+              if (key === "reviewSafetyEmergencyControl")
+                return tx.reviewSafetyEmergencyControl;
+              throw new Error("relay_safety_reader_scope_invalid");
+            },
+          }),
+        );
+        const safety = new ResolveReviewSafetyPolicy({
+          clock,
+          digest,
+          policyQueries: safetyQueries,
+          emergencyQueries: safetyQueries,
+        });
+        const current = await tx.reviewRunAuthorization.findUnique({
+          where: { authorizationId: authorization.authorizationId },
+        });
+        const authority = await tx.reviewMutationAuthority.findUnique({
+          where: {
+            scmRepositoryIdentityId_laneKind: {
+              scmRepositoryIdentityId: authorization.scmRepositoryIdentityId,
+              laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
+            },
+          },
+        });
+        const release = await tx.producerRelease.findUnique({
+          where: { producerReleaseId: authorization.producerReleaseId },
+        });
+        const decision = await safety.resolveReviewSafetyPolicy({
+          decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
+          target: safetyTarget(
+            authorization,
+            authorization.providerVoteLanes.map((lane) => ({
+              providerKind: lane.providerKind,
+              taskKind: ReviewTaskKind.CodeReview,
+            })),
+          ),
+        });
+        if (
+          checkoutTarget &&
+          (!checkoutSnapshot ||
+            canonicalJson(await readCheckoutTarget(tx, authorization)) !==
+              canonicalJson(checkoutTarget) ||
+            !(await runtimeSnapshots.isLive(
+              {
+                snapshot: checkoutSnapshot,
+                identity: authorization,
+                now: clock.now(),
+              },
+              tx,
+            )))
+        )
+          return false;
+        const times = await tx.$queryRaw<
+          readonly { now: Date }[]
+        >`SELECT clock_timestamp() AS "now"`;
+        const dbNow = times[0]?.now.getTime();
+        if (dbNow === undefined) return false;
+        const now = Math.max(dbNow, clock.now().getTime());
+        return (
+          current?.state === "active" &&
+          verified.authorizationId === authorization.authorizationId &&
+          current.version === authorization.version &&
+          current.runtimeSnapshotCanonicalJson ===
+            authorization.runtimeSnapshotCanonicalJson &&
+          Object.entries(reviewRunGatewayOwnedIdentity(authorization)).every(
+            ([key, value]) => Reflect.get(current, key) === value,
+          ) &&
+          now < verified.expiresAt.getTime() &&
+          now < current.expiresAt.getTime() &&
+          now < current.maxExpiresAt.getTime() &&
+          authority?.mode === ReviewMutationMode.V2Active &&
+          authority.epoch === authorization.mutationEpoch &&
+          release?.state === ProducerReleaseState.Registered &&
+          decision.effectAllowed
+        );
+      },
+      { isolationLevel: "ReadCommitted" },
+    );
+  };
+  const gatewayBindings = new PrismaReviewRunGatewayExecutionBinding(
+    prisma,
+    runtimeSnapshots,
+  );
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
@@ -1011,109 +1207,38 @@ export function composeReviewActionV2ProductionRoutes(input: {
               canonicalJson(authorizationRevision(authorization))
           );
         },
-        confirmAuthority: async (token, authorization) => {
-          const verified = await prerequisites.tokens
-            .verify({ token, now: clock.now() })
-            .catch(() => undefined);
-          if (!verified) return false;
-          return prisma.$transaction(
-            async (tx) => {
-              await acquireCurrentScopeGuards(tx, [
-                {
-                  scope: "repository",
-                  mode: "shared",
-                  workspaceId: authorization.workspaceId,
-                  repositoryId: authorization.repositoryConnectionId,
-                },
-              ]);
-              // Row SHARE also protects against termination/sweep writers; acquire
-              // it only after scope guards, then reread on this connection.
-              await tx.$queryRaw`SELECT "authorizationId" FROM "ReviewRunAuthorization"
-              WHERE "authorizationId" = ${authorization.authorizationId} FOR SHARE`;
-              // Existing safety query adapter/resolver, with reads bound to this
-              // connection. No root queries or SCM/HTTP while guards are held.
-              const safetyQueries = new PrismaReviewSafetyControlRepository(
-                new Proxy(prisma, {
-                  get(_target, key) {
-                    if (key === "reviewSafetyPolicy")
-                      return tx.reviewSafetyPolicy;
-                    if (key === "reviewSafetyPolicySelector")
-                      return tx.reviewSafetyPolicySelector;
-                    if (key === "reviewSafetyEmergencyControl")
-                      return tx.reviewSafetyEmergencyControl;
-                    throw new Error("relay_safety_reader_scope_invalid");
-                  },
-                }),
-              );
-              const safety = new ResolveReviewSafetyPolicy({
-                clock,
-                digest,
-                policyQueries: safetyQueries,
-                emergencyQueries: safetyQueries,
-              });
-              const current = await tx.reviewRunAuthorization.findUnique({
-                where: { authorizationId: authorization.authorizationId },
-              });
-              const authority = await tx.reviewMutationAuthority.findUnique({
-                where: {
-                  scmRepositoryIdentityId_laneKind: {
-                    scmRepositoryIdentityId:
-                      authorization.scmRepositoryIdentityId,
-                    laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
-                  },
-                },
-              });
-              const release = await tx.producerRelease.findUnique({
-                where: { producerReleaseId: authorization.producerReleaseId },
-              });
-              const decision = await safety.resolveReviewSafetyPolicy({
-                decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
-                target: safetyTarget(
-                  authorization,
-                  authorization.providerVoteLanes.map((lane) => ({
-                    providerKind: lane.providerKind,
-                    taskKind: ReviewTaskKind.CodeReview,
-                  })),
-                ),
-              });
-              const times = await tx.$queryRaw<
-                readonly { now: Date }[]
-              >`SELECT clock_timestamp() AS "now"`;
-              const dbNow = times[0]?.now.getTime();
-              if (dbNow === undefined) return false;
-              const now = Math.max(dbNow, clock.now().getTime());
-              return (
-                current?.state === "active" &&
-                verified.authorizationId === authorization.authorizationId &&
-                current.version === authorization.version &&
-                current.runtimeSnapshotCanonicalJson ===
-                  authorization.runtimeSnapshotCanonicalJson &&
-                Object.entries(
-                  reviewRunGatewayOwnedIdentity(authorization),
-                ).every(
-                  ([key, value]) => Reflect.get(current, key) === value,
-                ) &&
-                now < verified.expiresAt.getTime() &&
-                now < current.expiresAt.getTime() &&
-                now < current.maxExpiresAt.getTime() &&
-                authority?.mode === ReviewMutationMode.V2Active &&
-                authority.epoch === authorization.mutationEpoch &&
-                release?.state === ProducerReleaseState.Registered &&
-                decision.effectAllowed
-              );
-            },
-            { isolationLevel: "ReadCommitted" },
-          );
-        },
+        confirmAuthority: confirmAccountGatewayAuthority,
         snapshots: runtimeSnapshots,
-        bindings: new PrismaReviewRunGatewayExecutionBinding(
-          prisma,
-          runtimeSnapshots,
-        ),
+        bindings: gatewayBindings,
+      })
+    : undefined;
+  const accountGatewayCheckout = accountGatewayRelayPolicy
+    ? createReviewRunGatewayCheckout({
+        authorizations: runControl.authorizations,
+        bindings: gatewayBindings,
+        confirmAuthority: confirmAccountGatewayAuthority,
+        issuer: workflowInventory,
+        maxInFlight: Math.min(4, accountGatewayRelayPolicy.maxInFlight),
+        timeoutMs: Math.min(30_000, accountGatewayRelayPolicy.requestTimeoutMs),
+        resolveRepository: async (authorization) => {
+          const target = await readCheckoutTarget(prisma, authorization);
+          if (!target) return null;
+          const revision = await currentRevision.resolve(
+            authorizationScope(authorization),
+          );
+          if (
+            revision.status !== CurrentReviewRevisionStatus.Found ||
+            canonicalJson(revision.revision) !==
+              canonicalJson(authorizationRevision(authorization))
+          )
+            return null;
+          return target;
+        },
       })
     : undefined;
   return Object.freeze({
     ...(accountGatewayRelay ? { accountGatewayRelay } : {}),
+    ...(accountGatewayCheckout ? { accountGatewayCheckout } : {}),
     hostedV4,
     hostedV4Relay: hostedV4.bridge
       ? composeHostedV4RelayAuthority({ prisma, bridge: hostedV4.bridge })
