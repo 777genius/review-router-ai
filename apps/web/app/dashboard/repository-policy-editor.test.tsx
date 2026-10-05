@@ -144,6 +144,95 @@ function choose(label: string, option: RegExp): void {
 }
 
 describe("ReviewConfigForm", () => {
+  it.each(["remove-direct", "remove-gateway", "switch-to-direct"])(
+    "blocks unsupported saved gateway combinations until explicit %s repair",
+    async (repair) => {
+      const provider = {
+        ...safeDefaultReviewConfiguration.provider,
+        kind: "codex",
+        authMode: "codex_account_gateway",
+        gatewayBindingId: "binding-mimo",
+        gatewayProfileRef: "profile-mimo",
+        model: "mimo-v2-pro",
+        fastMode: false,
+        requiredHealthy: true,
+      } satisfies ReviewProviderConfiguration;
+      const extra =
+        repair === "remove-gateway"
+          ? { ...provider, model: "openai/gpt-5.6-sol", requiredHealthy: false }
+          : {
+              ...openRouterReviewConfiguration().provider,
+              model: "anthropic/claude-sonnet-4.5",
+            };
+      const action = vi.fn();
+      render(
+        <ReviewConfigForm
+          action={action}
+          config={{
+            ...safeDefaultReviewConfiguration,
+            provider,
+            providers: [provider, extra],
+          }}
+          gatewayAccounts={{ status: "ok", value: gatewayPage }}
+          modelOptions={modelOptions}
+          hiddenFields={[]}
+          mutationsEnabled={true}
+          submitLabel="Save"
+        />,
+      );
+      const form = document.querySelector("form")!;
+      const payload = () => readReviewConfigurationForm(new FormData(form));
+      const submit = screen.getByRole("button", { name: "Save" });
+      const add = screen.getByRole("button", { name: "Add provider" });
+      expect(payload().providers).toEqual([provider, extra]);
+      expect(submit.hasAttribute("disabled")).toBe(true);
+      fireEvent.submit(form);
+      expect(action).not.toHaveBeenCalled();
+      expect(pageText()).toContain(
+        "Account Gateway currently supports only one provider",
+      );
+
+      if (repair === "switch-to-direct") {
+        fireEvent.click(
+          screen.getAllByRole("combobox", { name: "Provider auth" })[0]!,
+        );
+        fireEvent.click(
+          screen.getByRole("option", { name: /OpenRouter API key/i }),
+        );
+        expect(payload().providers[1]).toEqual(extra);
+        expect(payload().provider.authMode).toBe("openrouter_api_key");
+        expect(payload().provider.gatewayBindingId).toBeUndefined();
+        expect(payload().provider.gatewayProfileRef).toBeUndefined();
+        expect(add.hasAttribute("disabled")).toBe(false);
+        fireEvent.click(add);
+        expect(new FormData(form).get("providerCount")).toBe("3");
+        fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[2]!);
+        expect(payload().providers).toHaveLength(2);
+        fireEvent.click(
+          screen.getAllByRole("combobox", { name: "Provider auth" })[0]!,
+        );
+        const gateway = screen.getByRole("option", { name: /Account Gateway/ });
+        expect(gateway.getAttribute("aria-disabled")).toBe("true");
+        expect(gateway.textContent).toContain("only one provider");
+        fireEvent.keyDown(gateway, { key: "Escape" });
+      } else {
+        fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[1]!);
+        expect(payload().providers).toEqual([provider]);
+        expect(add.hasAttribute("disabled")).toBe(true);
+        fireEvent.click(add);
+        expect(payload().providers).toEqual([provider]);
+      }
+      expect(submit.hasAttribute("disabled")).toBe(false);
+      fireEvent.click(submit);
+      await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+      const saved = readReviewConfigurationForm(action.mock.calls[0]![0]);
+      expect(saved.providers).toEqual(payload().providers);
+      expect(
+        saved.providers.some((candidate) => candidate.requiredHealthy),
+      ).toBe(true);
+    },
+  );
+
   // Regression: a newly configured provider could not enter gateway mode or submit a scoped tuple.
   it.each(["workspace", "repository"])(
     "chooses gateway account/profile/model in the %s form",

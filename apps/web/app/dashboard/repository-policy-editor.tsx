@@ -1150,6 +1150,12 @@ export function ReviewConfigForm({
       provider.authMode === "codex_account_gateway" &&
       !gatewayModelsForProvider(provider).includes(provider.model.trim()),
   );
+  const hasGateway = providers.some(
+    (provider) => provider.authMode === "codex_account_gateway",
+  );
+  const gatewaySingleProviderViolation = hasGateway && providers.length !== 1;
+  const gatewaySingleProviderMessage =
+    "Account Gateway currently supports only one provider. Remove extra providers or switch gateway providers to direct auth before saving.";
   const providerAuthOptions = useMemo(
     () =>
       buildProviderAuthOptions({
@@ -1198,6 +1204,12 @@ export function ReviewConfigForm({
       modelOptionsByProvider.openrouter,
     );
     setProviders((current) => {
+      if (
+        current.some(
+          (provider) => provider.authMode === "codex_account_gateway",
+        )
+      )
+        return current;
       const nextProvider: ReviewProviderConfiguration = openRouterDefault
         ? {
             kind: "openrouter",
@@ -1236,7 +1248,8 @@ export function ReviewConfigForm({
     authMode: ReviewProviderConfiguration["authMode"],
   ): void {
     if (authMode === "codex_account_gateway") {
-      if (eligibleGatewayAccounts.length === 0) return;
+      if (providers.length !== 1 || eligibleGatewayAccounts.length === 0)
+        return;
       // Transitional empty fields cannot be submitted; account/model selection is explicit.
       updateProvider(index, (provider) => ({
         ...provider,
@@ -1289,15 +1302,19 @@ export function ReviewConfigForm({
   function providerAuthOptionsForProvider(
     provider: ReviewProviderConfiguration,
   ): readonly DashboardSelectOption[] {
+    const gatewayDisabledMessage =
+      providers.length > 1
+        ? gatewaySingleProviderMessage
+        : gatewayAvailabilityMessage;
     const options = [
       ...providerAuthOptions,
       {
         value: "codex_account_gateway",
         providerAuthMode: "codex_account_gateway" as const,
         ...providerAuthOptionCopyByAuthMode.codex_account_gateway,
-        disabled: eligibleGatewayAccounts.length === 0,
-        ...(gatewayAvailabilityMessage
-          ? { description: gatewayAvailabilityMessage }
+        disabled: providers.length > 1 || eligibleGatewayAccounts.length === 0,
+        ...(gatewayDisabledMessage
+          ? { description: gatewayDisabledMessage }
           : {}),
       },
     ];
@@ -1324,7 +1341,8 @@ export function ReviewConfigForm({
         action={action}
         className="grid gap-5"
         onSubmit={(event) => {
-          if (gatewaySelectionInvalid) event.preventDefault();
+          if (gatewaySelectionInvalid || gatewaySingleProviderViolation)
+            event.preventDefault();
         }}
       >
         {hiddenFields.map((field) => (
@@ -1671,13 +1689,20 @@ export function ReviewConfigForm({
           <button
             type="button"
             aria-label="Add provider"
-            disabled={!mutationsEnabled}
+            disabled={!mutationsEnabled || hasGateway}
             onClick={addProvider}
             className="inline-flex w-fit items-center gap-2 rounded-lg border border-cyan-300/50 px-3 py-2 text-sm font-semibold text-cyan-300 transition hover:border-cyan-200 hover:bg-cyan-300/[0.08] hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span className="text-lg leading-none">+</span>
             Add provider
           </button>
+          {hasGateway ? (
+            <p className="text-sm text-slate-400">
+              {gatewaySingleProviderViolation
+                ? gatewaySingleProviderMessage
+                : "Account Gateway currently supports only one provider. Switch to direct auth to add another provider."}
+            </p>
+          ) : null}
         </section>
 
         <section className="grid gap-3">
@@ -1732,7 +1757,11 @@ export function ReviewConfigForm({
           <FormSubmitButton
             variant="solid"
             className="w-full sm:w-auto sm:min-w-64"
-            disabled={!mutationsEnabled || gatewaySelectionInvalid}
+            disabled={
+              !mutationsEnabled ||
+              gatewaySelectionInvalid ||
+              gatewaySingleProviderViolation
+            }
             idleLabel={submitLabel}
             pendingLabel="Saving..."
           />

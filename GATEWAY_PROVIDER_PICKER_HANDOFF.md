@@ -56,3 +56,17 @@ D-min/D-final/S/E/F/G remain required and unqualified by this patch; H is deferr
 Worker preparation is complete; primary goal remains ACTIVE. Initial hosted qualification found one discriminated-union TypeScript error and one unset legacy-secret mock. Both are corrected in the separately qualified candidate; original output and initial failing evidence retained. Final exact-source independent review/CI and live qualification remain required.
 
 Primary qualification: pinned web TypeScript, ESLint, format and diff PASS; existing UI suite 39 PASS/0 FAIL. Old UI with the same two initial-choice cases: 2 FAIL because the gateway option is absent. NEW disposable PostgreSQL 17.10 with all 120 current SQL migrations: existing Accounts integration 1 PASS/0 FAIL, exact scoped binding ID assertion included. Containers stopped; zero provider/App effects. Original failed qualification attempts are retained. Independent source review and full CI remain pending.
+
+## P101 - final P99 P2 repair, qualified by primary
+Final independent P99 report80e0681d requires a single provider when gateway auth is present.
+The form now rejects unsupported mixed/multiple gateway saves, blocks Add provider while gateway is selected,
+and disables/explains gateway auth in direct multi-provider configurations.
+Saved tuples remain available for explicit removal or direct-auth repair; runtime restriction is preserved.
+Three parameterized observable UI cases cover mixed/multiple selection, repair, direct add/remove and save.
+Primary corrected fixture identities to use distinct provider models; repeated identical models already violate
+the existing strict configuration contract. All original failed evidence is retained.
+Pinned TypeScript6.0.3, ESLint, Prettier and diff PASS. Existing UI42PASS/0FAIL.
+SAME three regression cases with the old339781 production form:3FAIL because unsupported saving remains enabled.
+No schema/PG change; previous real-PG120-migration receipt is retained without another run.
+Original rawf80911c50 archived NONPRODUCT. Qualified source needs independent review and current full CI.
+D-min/D-final/S/E/F/G remain unqualified; root goal ACTIVE, H deferred. No provider/App effects or release.
