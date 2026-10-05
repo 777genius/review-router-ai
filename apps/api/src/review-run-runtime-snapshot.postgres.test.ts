@@ -776,6 +776,8 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           deadline,
           ...originalAdmission
         } = intents[0]!;
+        void _operationId;
+        void _accounts;
         expect(requests[1]!.admission).toEqual({
           ...originalAdmission,
           accountRef: selected.accountRef,
