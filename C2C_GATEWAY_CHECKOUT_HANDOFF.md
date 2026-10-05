@@ -26,7 +26,7 @@ Observed final source SHA256:
 - checkout: `94aaa03371354bc578b979aa0e51bb88274b97e1f4efa282e54ecd1ad17b7818`.
 - composition: `4d09549957ab65ba7e390a8b1efe8232cfb2bc4792c08ca7c2cdee4dbf85778d`.
 - app: `b6175c41f0c5bf1d683f87e90f97acce5d29d954aa360ddbd7e7d22fe155567c`.
-Relay, existing PG scenario and UI files were not edited or reverted. No tests, harnesses, dependencies, packages or migrations added.
+  Relay, existing PG scenario and UI files were not edited or reverted. No tests, harnesses, dependencies, packages or migrations added.
 
 HTTP contract is exactly `POST /api/action/v2/account-gateway/checkout`, JSON empty object and current v2 run Bearer.
 Only the six frozen capability fields are returned, with literal read-only permissions and the issuer's actual expiry (>30 seconds remaining at return).
