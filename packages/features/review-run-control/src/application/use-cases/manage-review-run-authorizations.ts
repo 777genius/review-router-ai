@@ -192,7 +192,7 @@ export class ManageReviewRunAuthorizations {
     const maxExpiresAt = new Date(
       now.getTime() + input.maxAuthorizationLifetimeMs,
     );
-    const expiresAt = new Date(
+    let expiresAt = new Date(
       Math.min(
         now.getTime() + input.authorizationTtlMs,
         maxExpiresAt.getTime(),
@@ -210,6 +210,20 @@ export class ManageReviewRunAuthorizations {
       if (!captured)
         return denied(ReviewRunAuthorizationDenialReason.AdmissionFactsChanged);
       runtimeSnapshotCanonicalJson = canonicalJson(captured);
+      const snapshot = parseReviewRunRuntimeSnapshot(
+        runtimeSnapshotCanonicalJson,
+      );
+      if (snapshot?.gateway?.limits) {
+        if (snapshot.deadline !== maxExpiresAt.toISOString())
+          return denied(
+            ReviewRunAuthorizationDenialReason.AdmissionFactsChanged,
+          );
+        // One gateway capability covers the original server-approved run. The
+        // signed token and persisted row must agree through that deadline; the
+        // ordinary renewable TTL still applies to other admissions. Restores
+        // retain the original row and never acquire a later deadline here.
+        expiresAt = maxExpiresAt;
+      }
     }
     const tokenProfile = this.dependencies.tokens.profile();
     const write =
