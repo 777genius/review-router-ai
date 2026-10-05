@@ -27,3 +27,24 @@ export interface ProviderAccountRepositoryPort {
     },
   ): Promise<WorkspaceAccountBinding>;
 }
+
+/** Accounts management and bounded display queries. Never authorize an account use. */
+export interface ProviderAccountAccountsQueryPort extends ProviderAccountRepositoryPort {
+  /** Accounts-only local denial, after live server admin authorization.
+   * Lock the owned connection and check its mirror CAS before inspecting bindings.
+   * Absence creates + revokes in one transaction; retain a revoked pending fence.
+   * Never change remote metadata or relax interactive binding expectedRevision.
+   */
+  denyOwnedConnectionForDisable(
+    input: BindingScope & {
+      readonly expectedMetadataRevision: number;
+    },
+  ): Promise<WorkspaceAccountBinding>;
+  findOwnedConnectionByGatewayRef(input: {
+    readonly workspaceId: string;
+    readonly gatewayAccountRef: string;
+  }): Promise<ProviderAccountConnection | null>;
+  findConnectionBinding(
+    scope: BindingScope,
+  ): Promise<WorkspaceAccountBinding | null>;
+}
