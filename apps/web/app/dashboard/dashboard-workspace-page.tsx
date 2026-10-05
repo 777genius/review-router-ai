@@ -1,5 +1,7 @@
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
+import { GatewayRepositoryBatchRefreshBoundary } from "./gateway-repository-batch-controls";
+import { saveGatewayRepositoryBatch, readGatewayRepositoryBatch } from "./gateway-repository-batch-actions";
 import {
   loadAccountsBootstrap,
   type AccountsPage,
@@ -2522,19 +2524,6 @@ function RepositoryTable({
   readonly hostedPool: DashboardWorkspaceData["hostedPool"];
   readonly hostedPoolMutationsEnabled: boolean;
 }): React.ReactElement {
-  if (repositories.length === 0) {
-    return (
-      <div className="rounded-2xl border border-cyan-200/10 bg-slate-950/60 p-5">
-        <Badge tone="warning">No repositories yet</Badge>
-        <p className="mt-3 text-sm leading-6 text-slate-300">
-          No source repositories are connected to this workspace yet. Use
-          Connect source to add GitHub App repositories. GitLab is in
-          development and not available yet.
-        </p>
-      </div>
-    );
-  }
-
   const repositoryConfigById = new Map(
     repositoryConfigs.map((item) => [item.repositoryId, item.config] as const),
   );
@@ -2683,6 +2672,30 @@ function RepositoryTable({
       data-repository-table
       className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
     >
+      <GatewayRepositoryBatchRefreshBoundary
+        key={workspace.id}
+        workspaceId={workspace.id}
+        accounts={gatewayAccounts}
+        enabled={mutationsEnabled}
+        inventory={repositories.map((repository) => ({
+          repositoryId: repository.id,
+          fullName: repository.fullName,
+          expectedVersion: repositoryConfigById.get(repository.id)?.version ?? null,
+          eligible: repository.provider === "github" && repository.selected && !repository.archived &&
+            (directConfigRepositoryIds === null || directConfigRepositoryIds.has(repository.id)),
+        }))}
+        actions={{ save: saveGatewayRepositoryBatch, read: readGatewayRepositoryBatch }}
+      >
+      {repositories.length === 0 ? (
+        <div className="p-5">
+          <Badge tone="warning">No repositories yet</Badge>
+          <p className="mt-3 text-sm leading-6 text-slate-300">
+            No source repositories are connected to this workspace yet. Use
+            Connect source to add GitHub App repositories. GitLab is in
+            development and not available yet.
+          </p>
+        </div>
+      ) : (
       <RepositoryLiveSearch
         key={workspaceKey}
         workspaceKey={workspaceKey}
@@ -2873,6 +2886,8 @@ function RepositoryTable({
           },
         )}
       </RepositoryLiveSearch>
+      )}
+      </GatewayRepositoryBatchRefreshBoundary>
     </div>
   );
 }

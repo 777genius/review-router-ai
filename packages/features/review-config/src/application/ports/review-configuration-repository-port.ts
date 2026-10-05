@@ -7,6 +7,27 @@ export type PersistedReviewConfiguration = {
   readonly revisionToken?: string;
 };
 
+export type ReviewConfigurationOperationInput = Readonly<{
+  target: ReviewConfigurationTarget;
+  config: ReviewConfiguration;
+  expectedVersion: number | null;
+  operationId: string;
+}>;
+
+/** Callers must authorize the target against live membership on EVERY call.
+ * A receipt records a historical write; it never authorizes selection/execution.
+ */
+export interface ReviewConfigurationOperationRepositoryPort {
+  saveNextVersionWithOperation(
+    input: ReviewConfigurationOperationInput,
+  ): Promise<PersistedReviewConfiguration>;
+
+  findOperation(input: {
+    readonly target: ReviewConfigurationTarget;
+    readonly operationId: string;
+  }): Promise<PersistedReviewConfiguration | null>;
+}
+
 export type RepositoryReviewConfiguration = Readonly<{
   repositoryId: string;
   config: PersistedReviewConfiguration;
