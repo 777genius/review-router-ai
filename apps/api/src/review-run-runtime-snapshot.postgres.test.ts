@@ -31,6 +31,7 @@ import {
   registerReviewRunGatewayRelayRoutes,
   type ReviewRunGatewayRelay,
 } from "./review-run-gateway-relay";
+import { registerReviewRunGatewayCheckoutRoute } from "./review-run-gateway-checkout";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
 import { PrismaReviewRunGatewayExecutionBinding } from "./prisma-review-run-gateway-execution-binding";
 import {
@@ -76,6 +77,8 @@ function disposableDatabase(): string {
 // P45: pause during delayed SCM, or epoch advance during a locked binding read,
 // must deny before SDK dispatch. Held status/recovery must consume the same slot
 // as Responses; excess calls must not reach SCM, run-access or status HTTP.
+// Checkout: a read-only issuer result that returns after installation revocation
+// must never reach CI, and unknown caller authority fields must not mint.
 // This is real RR PostgreSQL + synthetic OIDC/SCM + controlled Gateway HTTP, no inference.
 describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
   it("retains one original across competing admissions, settings and revocation", async () => {
@@ -439,11 +442,46 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       };
       const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
       const githubFetch = globalThis.fetch;
-      globalThis.fetch = (request, init) =>
-        new URL(request instanceof Request ? request.url : String(request))
-          .origin === origin
-          ? networkFetch(request, init)
-          : githubFetch(request, init);
+      let holdCheckoutMint: (() => Promise<void>) | undefined;
+      let checkoutMints = 0;
+      const checkoutExpiry = new Date(Date.now() + 60 * 60_000).toISOString();
+      globalThis.fetch = async (request, init) => {
+        const value = new Request(request, init);
+        const url = new URL(value.url);
+        if (url.origin === origin) return networkFetch(request, init);
+        if (
+          value.method === "POST" &&
+          url.hostname === "api.github.com" &&
+          url.pathname === "/app/installations/123456/access_tokens"
+        ) {
+          const rawBody = await value.clone().text();
+          const body = (rawBody ? JSON.parse(rawBody) : {}) as {
+            repository_ids?: number[];
+            permissions?: Record<string, string>;
+          };
+          if (
+            body.permissions?.contents === "read" &&
+            body.permissions.pull_requests === "read" &&
+            Object.keys(body.permissions).length === 2
+          ) {
+            expect(body.repository_ids).toEqual([987654321]);
+            checkoutMints++;
+            const hold = holdCheckoutMint;
+            holdCheckoutMint = undefined;
+            await hold?.();
+            return Response.json(
+              {
+                token: "fake-checkout-read-token",
+                expires_at: checkoutExpiry,
+                permissions: { contents: "read", pull_requests: "read" },
+                repository_selection: "selected",
+              },
+              { status: 201 },
+            );
+          }
+        }
+        return githubFetch(request, init);
+      };
       restoreGatewayFetch = () => {
         globalThis.fetch = githubFetch;
       };
@@ -526,7 +564,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
 
         // Same nearest boundary: production RR authority + real PG + raw HTTP
         // fixture. No transport/client mocks or alternate authority stores.
-        relay = composeReviewActionV2ProductionRoutes({
+        const productionRoutes = composeReviewActionV2ProductionRoutes({
           enabled: true,
           prisma,
           runtime: {
@@ -558,14 +596,83 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
               maxInFlight: 1,
             }),
           },
-        }).accountGatewayRelay!;
+        });
+        relay = productionRoutes.accountGatewayRelay!;
         const app = Fastify();
         closeRelayApp = () => app.close();
         await registerReviewRunGatewayRelayRoutes(app, relay);
+        await registerReviewRunGatewayCheckoutRoute(
+          app,
+          productionRoutes.accountGatewayCheckout!,
+        );
         const headers = {
           authorization: `Bearer ${first.authorizationToken}`,
           "content-type": "application/json",
         };
+        const checkout = (payload = "{}") =>
+          app.inject({
+            method: "POST",
+            url: "/api/action/v2/account-gateway/checkout",
+            headers,
+            payload,
+          });
+        expect(
+          (await checkout('{"repository":"foreign/repo"}')).statusCode,
+        ).toBe(400);
+        expect(checkoutMints).toBe(0);
+        const enteredMint = gate();
+        const releaseMint = gate();
+        holdCheckoutMint = async () => {
+          enteredMint.release();
+          await releaseMint.pending;
+        };
+        const heldCheckout = Promise.resolve(checkout());
+        const installation = await prisma.gitHubInstallation.findUniqueOrThrow({
+          where: { githubInstallationId: 123456n },
+        });
+        try {
+          await Promise.race([
+            enteredMint.pending,
+            heldCheckout.then((response) => {
+              throw new Error(
+                `checkout_mint_fixture_not_entered:${response.statusCode}:${response.body}`,
+              );
+            }),
+          ]);
+          await prisma.gitHubInstallation.update({
+            where: { id: installation.id },
+            data: { status: "suspended" },
+          });
+          releaseMint.release();
+          const denied = await heldCheckout;
+          expect(denied.statusCode).toBe(401);
+          expect(denied.json()).toEqual({
+            error: { code: "authorization_denied" },
+          });
+          expect(denied.body).not.toContain("fake-checkout-read-token");
+        } finally {
+          releaseMint.release();
+          await heldCheckout;
+          await prisma.gitHubInstallation.update({
+            where: { id: installation.id },
+            data: { status: installation.status },
+          });
+        }
+        const readCapability = await checkout();
+        expect(readCapability.statusCode).toBe(200);
+        expect(readCapability.headers["cache-control"]).toBe("no-store");
+        const repository = await prisma.repositoryConnection.findUniqueOrThrow({
+          where: { id: repositoryConnectionId },
+        });
+        expect(readCapability.json()).toEqual({
+          protocolVersion: 1,
+          repository: repository.fullName,
+          headSha: row.headSha,
+          token: "fake-checkout-read-token",
+          expiresAt: checkoutExpiry,
+          permissions: { contents: "read", pullRequests: "read" },
+        });
+        expect(requests).toHaveLength(0);
         const call = (payload = '{"input":"fixture"}') =>
           app.inject({
             method: "POST",
@@ -776,6 +883,8 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           deadline,
           ...originalAdmission
         } = intents[0]!;
+        void _operationId;
+        void _accounts;
         expect(requests[1]!.admission).toEqual({
           ...originalAdmission,
           accountRef: selected.accountRef,
