@@ -8,7 +8,6 @@ import {
 import {
   bindWorkspaceAccount,
   resolveWorkspaceAccountBinding,
-  revokeWorkspaceAccountBinding,
   ProviderAccountError,
   PrismaProviderAccountRepository,
   type ProviderAccountAccountsQueryPort,
@@ -86,7 +85,12 @@ const label = z
   .trim()
   .min(1)
   .max(120)
-  .refine((v) => !/[\x00-\x1f\x7f]/.test(v));
+  .refine((v) =>
+    Array.from(v).every(
+      (character) =>
+        character.charCodeAt(0) > 31 && character.charCodeAt(0) !== 127,
+    ),
+  );
 const mirrorRevision = z.number().int().min(1).max(2147483646);
 const existing = {
   connectionId: c.reference,
@@ -195,6 +199,11 @@ export function createAccountsAdapter(input: {
       ) => checked(() => gateway.reconnect(ref, request), true),
       disable: (ref: string, request: c.Disable) =>
         checked(() => gateway.disable(ref, request), true),
+      denyForDisable: (
+        request: Parameters<
+          ProviderAccountAccountsQueryPort["denyOwnedConnectionForDisable"]
+        >[0],
+      ) => checked(() => accounts.denyOwnedConnectionForDisable(request)),
       operation: (ref: string) => checked(() => gateway.operation(ref)),
     };
   }
@@ -497,20 +506,11 @@ export function createAccountsAdapter(input: {
         };
         if (account.state === "tombstoned") throw new Denied();
         if (intent.kind === "disable") {
-          const binding = await accounts.findConnectionBinding({
+          await client.denyForDisable({
             workspaceId: authority.workspaceId,
             connectionId: prior.id,
+            expectedMetadataRevision: prior.metadataRevision,
           });
-          if (binding?.state === "active")
-            await revokeWorkspaceAccountBinding(
-              {
-                workspaceId: authority.workspaceId,
-                connectionId: prior.id,
-                actor: authority.actor,
-                expectedRevision: binding.revision,
-              },
-              bindingDependencies,
-            );
         }
         const revision = {
           operationId: id,

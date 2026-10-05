@@ -15,6 +15,8 @@ import {
   PrismaWorkspaceAccessRepository,
 } from "@reviewrouter/features-auth";
 import {
+  bindWorkspaceAccount,
+  resolveWorkspaceAccountBinding,
   PrismaProviderAccountRepository,
   type WorkspaceAccountActor,
 } from "@reviewrouter/features-provider-accounts";
@@ -237,6 +239,11 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
               state: "pending",
             };
             operations.set(operationId, receipt);
+            if (loseAck) {
+              loseAck = false;
+              response.destroy();
+              return;
+            }
             return json(response, 202, receipt);
           }
           account = {
@@ -445,6 +452,101 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         "conflict",
       );
       assert.equal(mutationEntries, before);
+      // P64: overlap initial bind's real SDK GET with disable on an unbound row.
+      // Old source leaves no denial row; releasing the active GET lets bind(0) succeed.
+      const originalAccount = account;
+      for (const outcome of ["pending", "unknown"] as const) {
+        account = { ...originalAccount, accountRef: `${prefix}-${outcome}` };
+        const unbound = ok(observe(await adapter.list("a"))).accounts[0]!;
+        const scope = { workspaceId, connectionId: unbound.connectionId };
+        const revisions = {
+          connectionId: unbound.connectionId,
+          gatewayRevision: unbound.gatewayRevision,
+          mirrorRevision: unbound.mirrorRevision,
+        };
+        assert.equal(await accounts.findConnectionBinding(scope), null);
+        holdNextGet = true;
+        const bindReadReady = new Promise<void>((resolve) => {
+          notifyHeld = resolve;
+        });
+        const concurrentBind = adapter.bind("a", {
+          ...revisions,
+          bindingRevision: 0,
+        });
+        await bindReadReady;
+        disablePending = true;
+        loseAck = outcome === "unknown";
+        const intent = {
+          kind: "disable" as const,
+          nonce: randomUUID(),
+          ...revisions,
+        };
+        assert.equal(
+          ok(observe(await adapter.mutate("a", intent))).state,
+          outcome,
+        );
+        const denied = await accounts.findConnectionBinding(scope);
+        assert.ok(
+          denied,
+          "P64 RED: absent binding must become retained local denial",
+        );
+        assert.equal(denied.state, "revoked");
+        assert.equal(denied.revision, 2);
+        assert.equal(denied.policyRevision, 2);
+        assert.equal(denied.pendingFence?.policySubject, denied.id);
+        assert.equal(denied.pendingFence?.policyRevision, 2);
+        assert.equal(denied.fenceAck, null);
+        assert.ok(held);
+        json(held, 200, account);
+        held = undefined;
+        assert.equal(observe(await concurrentBind).status, "conflict");
+        assert.equal(
+          observe(await adapter.bind("a", { ...revisions, bindingRevision: 0 }))
+            .status,
+          "conflict",
+        );
+        assert.equal(
+          observe(
+            await adapter.bind("a", {
+              ...revisions,
+              bindingRevision: denied.revision,
+            }),
+          ).status,
+          "denied",
+        );
+        await assert.rejects(
+          bindWorkspaceAccount(
+            { ...scope, actor, expectedRevision: 0 },
+            dependencies,
+          ),
+          { code: "revision_conflict" },
+        );
+        await assert.rejects(
+          resolveWorkspaceAccountBinding(
+            { workspaceId, bindingId: denied.id, actor },
+            dependencies,
+          ),
+          { code: "binding_unavailable" },
+        );
+        assert.equal(
+          ok(observe(await compose().operation("a", intent.nonce))).state,
+          "pending",
+        );
+        const stillActive = ok(observe(await adapter.list("a"))).accounts[0]!;
+        assert.equal(stillActive.state, "active");
+        assert.equal(stillActive.gatewayRevision, unbound.gatewayRevision);
+        assert.equal(stillActive.mirrorRevision, unbound.mirrorRevision);
+        const mirror = await accounts.findOwnedConnection(scope);
+        assert.equal(mirror?.state, "active");
+        assert.equal(mirror?.metadataRevision, unbound.mirrorRevision);
+        assert.equal(
+          ok(observe(await adapter.mutate("a", intent))).state,
+          "pending",
+        );
+        assert.deepEqual(await accounts.findConnectionBinding(scope), denied);
+      }
+      account = originalAccount;
+      disablePending = false;
       ok(
         observe(await adapter.bind("a", { ...existing(), bindingRevision: 0 })),
       );

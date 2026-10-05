@@ -89,3 +89,59 @@ D-min/D-final real tools/final/App publication, measured memory/capacity/retenti
 S operator pool, E actual OpenRouter, F OAuth custody/refresh, G explicit legacy retirement.
 H personal sharing remains deferred. No migration, SDK/kernel/native/relay/Action changes,
 GitHub mutation, commit/push, deployment, production credential use or full-goal qualification.
+
+## P68 finite P64 P1 repair — 2026-10-05 UTC
+
+Supplied candidate: d388f4884e82d8ca3d27c6fde48dd53840da304e.
+PASS: all seven owned preimages match .spike-inputs/manifest.json; frozen P64
+review digest matches; norm 53 remains exact SHA256
+66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0.
+Git HEAD/status/base verification is unavailable: linked gitdir target is missing.
+No prior qualification receipt above qualifies this delta.
+Changed exactly the seven manifest paths: Accounts adapter + existing integration
+scenario, Accounts repository port + Prisma adapter, two navigation assertion
+files, and this handoff. Navigation changes only the two expected accessible
+labels to current "Accounts / Workspace provider accounts"; assertions retained.
+Accounts now rechecks live session/admin before local denial and before remote
+POST. The consumer-owned denial seam locks C1's owned connection row, checks
+mirror expectedMetadataRevision under that lock, and retains revoked+pending.
+Absent binding is inserted active at revision 1 then revoked with independent
+binding/policy revisions 2 and pending fence in the SAME Prisma transaction.
+Initial C1 CAS uses the same connection lock: bind-first is subsequently revoked;
+disable-first rejects stale bind(0). No committed active gap in absent denial.
+Revoked pending retry preserves the exact operation/required revision; other
+revokes advance both counters and retain monotonic required policy authority.
+No mirror writes, invented remote disabled state, ACK, erasure or cleanup proof.
+Interactive expectedRevision and owner checks remain unchanged. C1 resolve and
+C2 snapshot/admission use existing selectBinding, denying revoked/pending rows
+(inspected, not executed here); no fake actor or API/relay change.
+Existing single actual SDK HTTP + Prisma/PG scenario now covers pending and
+lost-disable-ACK unknown before binding, a held real HTTP initial-bind GET,
+subsequent bind(0), exact-revision pending denial, C1 grant/resolve denial,
+reload readback, active unchanged mirror and exact retained fence on retry.
+Expected old-source RED: findConnectionBinding returns null after pending
+unbound disable; assertion "P64 RED: absent binding must become retained local
+denial" fails. Without that assertion, released GET permits active bind(0).
+NOT_RUN: RED/GREEN PG, two CI tests, full Web meaningful typecheck, architecture,
+lint/format and independent gpt-6.1-sol/xhigh/default exact-source review.
+Pinned node_modules (SDK/Prisma/tsc/Vitest/ESLint) are absent; no install attempts,
+ambient credentials/runtime/provider access or smoke/deploy/commit occurred.
+Primary gates with actual pinned dependencies before integration/merge:
+- pnpm --filter @reviewrouter/web typecheck (includes changed TS contracts/test).
+- pnpm architecture:check; focused ESLint + Prettier on six changed source files.
+- pnpm exec vitest run apps/web/app/dashboard/dashboard-section-tabs.test.tsx apps/web/app/dashboard/dashboard-shell.test.tsx
+- Run existing integration command above, new disposable loopback PG17.10,
+  all 120 migrations, old source + new test RED then corrected source GREEN;
+  require 1 PASS, 0 skip, retained receipts and exact fixture cleanup.
+- Independent 6.1 xhigh/default source review; no FAST. Controller owns Git.
+Sourceguard + exact preimages/unified patch exported outside the source tree:
+/srv/worker-state/jobs/review-router/account-gateway-v1/jobs/review-router-account-gateway-v1-p68-accounts-denial/tmp/agent/p68-accounts-denial-artifacts
+Full D-min/D-final/S/E/F/G remain; H sharing deferred. No release qualification.
+
+Primary qualification 2026-10-05: full pinned API/Web TypeScript, architecture,
+focused ESLint and both existing navigation suites PASS. Existing label control
+regex replaced with equivalent character-code check to satisfy ESLint. Actual
+NEW disposable PG17.10/all120 migrations: old d388 source plus new scenario RED
+on absent denial assertion; corrected source GREEN, 1 PASS/0 skips. Both exact
+containers removed. Independent current source review and CI pending. Checkout
+qualification is separate and currently not accepted. No provider/App E2E claim.
