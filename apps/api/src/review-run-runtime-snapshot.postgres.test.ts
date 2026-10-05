@@ -609,15 +609,81 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           authorization: `Bearer ${first.authorizationToken}`,
           "content-type": "application/json",
         };
-        const checkout = (payload = "{}") =>
+        // Synthetic IDs from the existing disposable PG/fake GitHub fixture only.
+        const checkoutSelectors = {
+          providerInstanceId: "codex-rotating:987654321",
+          workflowSchemaVersion: 2,
+        };
+        const checkout = (
+          payload: string | Buffer = JSON.stringify(checkoutSelectors),
+        ) =>
           app.inject({
             method: "POST",
             url: "/api/action/v2/account-gateway/checkout",
             headers,
             payload,
           });
+        for (const selectors of [
+          {
+            ...checkoutSelectors,
+            providerInstanceId: "codex-rotating:987654322",
+          },
+          { ...checkoutSelectors, workflowSchemaVersion: 1 },
+          { ...checkoutSelectors, workflowSchemaVersion: 3 },
+        ]) {
+          const denied = await checkout(JSON.stringify(selectors));
+          expect(checkoutMints).toBe(0);
+          expect(denied.statusCode).toBe(401);
+          expect(denied.json()).toEqual({
+            error: { code: "authorization_denied" },
+          });
+        }
+        for (const payload of [
+          "{}",
+          JSON.stringify({
+            providerInstanceId: checkoutSelectors.providerInstanceId,
+          }),
+          '{"workflowSchemaVersion":2}',
+          JSON.stringify({
+            ...checkoutSelectors,
+            repository: "fake-foreign/repo",
+          }),
+          JSON.stringify({
+            ...checkoutSelectors,
+            providerInstanceId: 987654321,
+          }),
+          JSON.stringify({ ...checkoutSelectors, workflowSchemaVersion: "2" }),
+          JSON.stringify(checkoutSelectors).replace(
+            '"providerInstanceId":',
+            '"providerInstanceId":"codex-rotating:987654321","providerInstanceId":',
+          ),
+          JSON.stringify(checkoutSelectors).replace(
+            '"workflowSchemaVersion":2',
+            '"workflowSchemaVersion":1,"workflowSchemaVersion":2',
+          ),
+          JSON.stringify(checkoutSelectors).replace(
+            '"providerInstanceId":',
+            '"providerInstance\\u0049d":"codex-rotating:987654321","providerInstanceId":',
+          ),
+          Buffer.concat([
+            Buffer.from('{"providerInstanceId":"codex-rotating:'),
+            Buffer.from([0xff]),
+            Buffer.from('987654321","workflowSchemaVersion":2}'),
+          ]),
+          `${" ".repeat(513)}${JSON.stringify(checkoutSelectors)}`,
+        ]) {
+          expect((await checkout(payload)).statusCode).toBe(400);
+          expect(checkoutMints).toBe(0);
+        }
         expect(
-          (await checkout('{"repository":"foreign/repo"}')).statusCode,
+          (
+            await app.inject({
+              method: "POST",
+              url: "/api/action/v2/account-gateway/checkout",
+              headers: { ...headers, "content-encoding": "gzip" },
+              payload: JSON.stringify(checkoutSelectors),
+            })
+          ).statusCode,
         ).toBe(400);
         expect(checkoutMints).toBe(0);
         const enteredMint = gate();
