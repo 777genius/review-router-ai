@@ -72,6 +72,7 @@ function safeOperation(
 function row(state: AccountView["state"] = "staging"): AccountView {
   return {
     connectionId: "codex-connection",
+    canManage: true,
     label: "Workspace Codex",
     profileId: oauthProfileId,
     profileLabel: "Codex",
