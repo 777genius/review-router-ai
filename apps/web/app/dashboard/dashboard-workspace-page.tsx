@@ -1,7 +1,10 @@
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
 import { GatewayRepositoryBatchRefreshBoundary } from "./gateway-repository-batch-controls";
-import { saveGatewayRepositoryBatch, readGatewayRepositoryBatch } from "./gateway-repository-batch-actions";
+import {
+  saveGatewayRepositoryBatch,
+  readGatewayRepositoryBatch,
+} from "./gateway-repository-batch-actions";
 import {
   loadAccountsBootstrap,
   type AccountsPage,
@@ -2680,213 +2683,228 @@ function RepositoryTable({
         inventory={repositories.map((repository) => ({
           repositoryId: repository.id,
           fullName: repository.fullName,
-          expectedVersion: repositoryConfigById.get(repository.id)?.version ?? null,
-          eligible: repository.provider === "github" && repository.selected && !repository.archived &&
-            (directConfigRepositoryIds === null || directConfigRepositoryIds.has(repository.id)),
+          expectedVersion:
+            repositoryConfigById.get(repository.id)?.version ?? null,
+          eligible:
+            repository.provider === "github" &&
+            repository.selected &&
+            !repository.archived &&
+            (directConfigRepositoryIds === null ||
+              directConfigRepositoryIds.has(repository.id)),
         }))}
-        actions={{ save: saveGatewayRepositoryBatch, read: readGatewayRepositoryBatch }}
+        actions={{
+          save: saveGatewayRepositoryBatch,
+          read: readGatewayRepositoryBatch,
+        }}
       >
-      {repositories.length === 0 ? (
-        <div className="p-5">
-          <Badge tone="warning">No repositories yet</Badge>
-          <p className="mt-3 text-sm leading-6 text-slate-300">
-            No source repositories are connected to this workspace yet. Use
-            Connect source to add GitHub App repositories. GitLab is in
-            development and not available yet.
-          </p>
-        </div>
-      ) : (
-      <RepositoryLiveSearch
-        key={workspaceKey}
-        workspaceKey={workspaceKey}
-        initialWorkspaceParam={initialWorkspaceParam}
-        selectedRepositoryFullName={selectedRepositoryFullName}
-        selectedRepositoryId={selectedRow?.repository.id ?? null}
-        initialQuery={searchQuery}
-        initialFilter={searchFilter}
-        searchIndex={searchIndex}
-        totalRepositoryCount={rows.length}
-        rowLimit={MAX_RENDERED_REPOSITORY_ROWS}
-        richRowIds={displayRows.map((row) => row.repository.id)}
-      >
-        {displayRows.map(
-          (
-            {
-              repository,
-              setupPullRequestUrl,
-              setupIssue,
-              workflowCurrent,
-              setupProgressStep,
-            },
-            rowIndex,
-          ) => {
-            const repositoryConfig =
-              repositoryConfigById.get(repository.id) ?? null;
-            const effectiveConfig = repositoryConfig?.config ?? activeConfig;
-            const canEditRepositorySettings =
-              directConfigRepositoryIds === null ||
-              directConfigRepositoryIds.has(repository.id);
-            const repositoryUrl = repositorySourceUrl(repository);
-            const hostedRepository = hostedPool.repositories.find(
-              (candidate) => candidate.id === repository.id,
-            );
-            const setupDisclosureId = `repo-setup-${repository.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-            const isSelectedRepository =
-              repository.fullName === selectedRepositoryFullName;
-            const rowStripeClass = (() => {
-              if (isSelectedRepository) {
-                return setupProgressStep === 4
-                  ? "bg-emerald-400/[0.075]"
-                  : "bg-cyan-300/[0.045]";
-              }
-              if (setupProgressStep === 4) {
-                return rowIndex % 2 === 0
-                  ? "bg-emerald-400/[0.04] hover:bg-emerald-400/[0.07]"
-                  : "bg-emerald-300/[0.07] hover:bg-emerald-300/[0.095]";
-              }
-              return rowIndex % 2 === 0
-                ? "bg-slate-950/[0.2] hover:bg-cyan-300/[0.035]"
-                : "bg-cyan-300/[0.035] hover:bg-cyan-300/[0.06]";
-            })();
+        {repositories.length === 0 ? (
+          <div className="p-5">
+            <Badge tone="warning">No repositories yet</Badge>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              No source repositories are connected to this workspace yet. Use
+              Connect source to add GitHub App repositories. GitLab is in
+              development and not available yet.
+            </p>
+          </div>
+        ) : (
+          <RepositoryLiveSearch
+            key={workspaceKey}
+            workspaceKey={workspaceKey}
+            initialWorkspaceParam={initialWorkspaceParam}
+            selectedRepositoryFullName={selectedRepositoryFullName}
+            selectedRepositoryId={selectedRow?.repository.id ?? null}
+            initialQuery={searchQuery}
+            initialFilter={searchFilter}
+            searchIndex={searchIndex}
+            totalRepositoryCount={rows.length}
+            rowLimit={MAX_RENDERED_REPOSITORY_ROWS}
+            richRowIds={displayRows.map((row) => row.repository.id)}
+          >
+            {displayRows.map(
+              (
+                {
+                  repository,
+                  setupPullRequestUrl,
+                  setupIssue,
+                  workflowCurrent,
+                  setupProgressStep,
+                },
+                rowIndex,
+              ) => {
+                const repositoryConfig =
+                  repositoryConfigById.get(repository.id) ?? null;
+                const effectiveConfig =
+                  repositoryConfig?.config ?? activeConfig;
+                const canEditRepositorySettings =
+                  directConfigRepositoryIds === null ||
+                  directConfigRepositoryIds.has(repository.id);
+                const repositoryUrl = repositorySourceUrl(repository);
+                const hostedRepository = hostedPool.repositories.find(
+                  (candidate) => candidate.id === repository.id,
+                );
+                const setupDisclosureId = `repo-setup-${repository.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+                const isSelectedRepository =
+                  repository.fullName === selectedRepositoryFullName;
+                const rowStripeClass = (() => {
+                  if (isSelectedRepository) {
+                    return setupProgressStep === 4
+                      ? "bg-emerald-400/[0.075]"
+                      : "bg-cyan-300/[0.045]";
+                  }
+                  if (setupProgressStep === 4) {
+                    return rowIndex % 2 === 0
+                      ? "bg-emerald-400/[0.04] hover:bg-emerald-400/[0.07]"
+                      : "bg-emerald-300/[0.07] hover:bg-emerald-300/[0.095]";
+                  }
+                  return rowIndex % 2 === 0
+                    ? "bg-slate-950/[0.2] hover:bg-cyan-300/[0.035]"
+                    : "bg-cyan-300/[0.035] hover:bg-cyan-300/[0.06]";
+                })();
 
-            return (
-              <div
-                key={repository.id}
-                data-repository-row-id={repository.id}
-                data-repository-setup-row
-                data-disclosure-id={setupDisclosureId}
-                className={[
-                  "grid cursor-pointer gap-3 border-t border-cyan-200/10 px-4 py-3 transition-colors lg:px-6 lg:py-3.5",
-                  rowStripeClass,
-                ].join(" ")}
-              >
-                <input
-                  id={setupDisclosureId}
-                  type="checkbox"
-                  defaultChecked={isSelectedRepository}
-                  className="repository-setup-disclosure peer sr-only"
-                />
-                {repository.setupStatus === "setup_pr_open" ? (
-                  <RepositorySetupStatusRefresher
-                    enabled
-                    workspaceId={workspace.id}
-                    repositoryId={repository.id}
-                    disclosureId={setupDisclosureId}
-                  />
-                ) : null}
-                <div className="repository-setup-row-header grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span
-                      title={`${
-                        repository.provider === "gitlab" ? "GitLab" : "GitHub"
-                      } repository`}
-                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-cyan-200/15 bg-cyan-300/[0.07]"
+                return (
+                  <div
+                    key={repository.id}
+                    data-repository-row-id={repository.id}
+                    data-repository-setup-row
+                    data-disclosure-id={setupDisclosureId}
+                    className={[
+                      "grid cursor-pointer gap-3 border-t border-cyan-200/10 px-4 py-3 transition-colors lg:px-6 lg:py-3.5",
+                      rowStripeClass,
+                    ].join(" ")}
+                  >
+                    <input
+                      id={setupDisclosureId}
+                      type="checkbox"
+                      defaultChecked={isSelectedRepository}
+                      className="repository-setup-disclosure peer sr-only"
+                    />
+                    {repository.setupStatus === "setup_pr_open" ? (
+                      <RepositorySetupStatusRefresher
+                        enabled
+                        workspaceId={workspace.id}
+                        repositoryId={repository.id}
+                        disclosureId={setupDisclosureId}
+                      />
+                    ) : null}
+                    <div className="repository-setup-row-header grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span
+                          title={`${
+                            repository.provider === "gitlab"
+                              ? "GitLab"
+                              : "GitHub"
+                          } repository`}
+                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-cyan-200/15 bg-cyan-300/[0.07]"
+                        >
+                          <SourceProviderLogo
+                            provider={
+                              repository.provider === "gitlab"
+                                ? "gitlab"
+                                : "github"
+                            }
+                            className="h-3.5 w-3.5"
+                          />
+                        </span>
+                        <RepositoryNameLink
+                          fullName={repository.fullName}
+                          repositoryUrl={repositoryUrl}
+                          className="min-w-0 break-words text-sm font-semibold leading-snug text-cyan-50 sm:text-[0.95rem]"
+                        />
+                        <Badge tone="neutral">
+                          {repository.provider === "gitlab"
+                            ? "GitLab"
+                            : "GitHub"}
+                        </Badge>
+                        {repository.provider === "github" ? (
+                          <RepositoryStarsBadge
+                            stargazersCount={repository.stargazersCount}
+                          />
+                        ) : null}
+                      </div>
+                      <div className="repository-setup-toggle-row flex flex-wrap items-center gap-2 peer-focus-visible:[&_.setup-toggle]:outline peer-focus-visible:[&_.setup-toggle]:outline-2 peer-focus-visible:[&_.setup-toggle]:outline-offset-2 peer-focus-visible:[&_.setup-toggle]:outline-cyan-200 sm:justify-end">
+                        <RepositoryVisibilityBadge
+                          visibility={repository.visibility}
+                        />
+                        {repository.archived ? (
+                          <Badge tone="warning">Archived</Badge>
+                        ) : null}
+                        <RepositorySetupDisclosureToggle
+                          repositoryId={repository.id}
+                          disclosureId={setupDisclosureId}
+                          currentStep={setupProgressStep}
+                          expectedProviderAuthModes={effectiveConfig.providers.map(
+                            (provider) => provider.authMode,
+                          )}
+                        />
+                      </div>
+                    </div>
+
+                    <div
+                      className="hidden peer-checked:block"
+                      data-repository-setup-panel
                     >
-                      <SourceProviderLogo
-                        provider={
-                          repository.provider === "gitlab" ? "gitlab" : "github"
-                        }
-                        className="h-3.5 w-3.5"
-                      />
-                    </span>
-                    <RepositoryNameLink
-                      fullName={repository.fullName}
-                      repositoryUrl={repositoryUrl}
-                      className="min-w-0 break-words text-sm font-semibold leading-snug text-cyan-50 sm:text-[0.95rem]"
-                    />
-                    <Badge tone="neutral">
-                      {repository.provider === "gitlab" ? "GitLab" : "GitHub"}
-                    </Badge>
-                    {repository.provider === "github" ? (
-                      <RepositoryStarsBadge
-                        stargazersCount={repository.stargazersCount}
-                      />
-                    ) : null}
-                  </div>
-                  <div className="repository-setup-toggle-row flex flex-wrap items-center gap-2 peer-focus-visible:[&_.setup-toggle]:outline peer-focus-visible:[&_.setup-toggle]:outline-2 peer-focus-visible:[&_.setup-toggle]:outline-offset-2 peer-focus-visible:[&_.setup-toggle]:outline-cyan-200 sm:justify-end">
-                    <RepositoryVisibilityBadge
-                      visibility={repository.visibility}
-                    />
-                    {repository.archived ? (
-                      <Badge tone="warning">Archived</Badge>
-                    ) : null}
-                    <RepositorySetupDisclosureToggle
+                      <div className="rounded-2xl border border-cyan-200/10 bg-slate-950/45 px-4 pb-1 pt-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:px-5">
+                        <RepositorySetupProgressPanel
+                          workspace={workspace}
+                          repository={repository}
+                          setupPullRequestUrl={setupPullRequestUrl}
+                          setupIssue={setupIssue}
+                          workflowCurrent={workflowCurrent}
+                          mutationsEnabled={mutationsEnabled}
+                          claudeCodeProviderEnabled={claudeCodeProviderEnabled}
+                          allowOrganizationSecrets={
+                            directConfigRepositoryIds === null
+                          }
+                          effectiveConfig={effectiveConfig}
+                          currentStep={setupProgressStep}
+                        />
+                      </div>
+                    </div>
+                    <RepositorySetupReadyGate
                       repositoryId={repository.id}
-                      disclosureId={setupDisclosureId}
                       currentStep={setupProgressStep}
                       expectedProviderAuthModes={effectiveConfig.providers.map(
                         (provider) => provider.authMode,
                       )}
-                    />
+                    >
+                      <RepositoryPolicyEditor
+                        workspaceId={workspace.id}
+                        repository={repository}
+                        repositoryConfig={repositoryConfig}
+                        effectiveConfig={effectiveConfig}
+                        modelOptions={modelOptions}
+                        gatewayAccounts={gatewayAccounts}
+                        codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
+                          repository,
+                        )}
+                        claudeCodeProviderEnabled={claudeCodeProviderEnabled}
+                        mutationsEnabled={
+                          mutationsEnabled && canEditRepositorySettings
+                        }
+                        editDisabledReason={
+                          canEditRepositorySettings
+                            ? undefined
+                            : "Maintain or admin access is required to change repo settings directly."
+                        }
+                      />
+                    </RepositorySetupReadyGate>
+                    {hostedPool.gate === "enabled" && hostedRepository ? (
+                      <RepositorySessionSourceSelector
+                        workspaceId={workspace.id}
+                        repository={hostedRepository}
+                        action={setHostedRepositorySessionSourceClientAction}
+                        mutationsEnabled={hostedPoolMutationsEnabled}
+                        hostedPoolReady={
+                          (hostedPool.pool?.healthyAccountCount ?? 0) > 0
+                        }
+                      />
+                    ) : null}
                   </div>
-                </div>
-
-                <div
-                  className="hidden peer-checked:block"
-                  data-repository-setup-panel
-                >
-                  <div className="rounded-2xl border border-cyan-200/10 bg-slate-950/45 px-4 pb-1 pt-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:px-5">
-                    <RepositorySetupProgressPanel
-                      workspace={workspace}
-                      repository={repository}
-                      setupPullRequestUrl={setupPullRequestUrl}
-                      setupIssue={setupIssue}
-                      workflowCurrent={workflowCurrent}
-                      mutationsEnabled={mutationsEnabled}
-                      claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-                      allowOrganizationSecrets={
-                        directConfigRepositoryIds === null
-                      }
-                      effectiveConfig={effectiveConfig}
-                      currentStep={setupProgressStep}
-                    />
-                  </div>
-                </div>
-                <RepositorySetupReadyGate
-                  repositoryId={repository.id}
-                  currentStep={setupProgressStep}
-                  expectedProviderAuthModes={effectiveConfig.providers.map(
-                    (provider) => provider.authMode,
-                  )}
-                >
-                  <RepositoryPolicyEditor
-                    workspaceId={workspace.id}
-                    repository={repository}
-                    repositoryConfig={repositoryConfig}
-                    effectiveConfig={effectiveConfig}
-                    modelOptions={modelOptions}
-                    gatewayAccounts={gatewayAccounts}
-                    codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
-                      repository,
-                    )}
-                    claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-                    mutationsEnabled={
-                      mutationsEnabled && canEditRepositorySettings
-                    }
-                    editDisabledReason={
-                      canEditRepositorySettings
-                        ? undefined
-                        : "Maintain or admin access is required to change repo settings directly."
-                    }
-                  />
-                </RepositorySetupReadyGate>
-                {hostedPool.gate === "enabled" && hostedRepository ? (
-                  <RepositorySessionSourceSelector
-                    workspaceId={workspace.id}
-                    repository={hostedRepository}
-                    action={setHostedRepositorySessionSourceClientAction}
-                    mutationsEnabled={hostedPoolMutationsEnabled}
-                    hostedPoolReady={
-                      (hostedPool.pool?.healthyAccountCount ?? 0) > 0
-                    }
-                  />
-                ) : null}
-              </div>
-            );
-          },
+                );
+              },
+            )}
+          </RepositoryLiveSearch>
         )}
-      </RepositoryLiveSearch>
-      )}
       </GatewayRepositoryBatchRefreshBoundary>
     </div>
   );
