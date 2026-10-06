@@ -566,7 +566,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     digest,
     absoluteProtocolMaxima: reviewActionV2AbsoluteProtocolMaxima,
     authorizationTtlMs: productionTiming.authorizationTtlMs,
-    maxAuthorizationLifetimeMs: productionTiming.maxAuthorizationLifetimeMs,
+    maxAuthorizationLifetimeMs: readMaxAuthorizationLifetimeMs(input.env),
     reviewInvestigationCapability:
       new ProductionReviewInvestigationAuthorizationCapability(
         investigationRolloutGuard,
@@ -2608,6 +2608,23 @@ function requiredEnv(
 ): string {
   const value = env[name]?.trim();
   if (!value) throw new Error(`review_action_v2_env_missing:${name}`);
+  return value;
+}
+
+function readMaxAuthorizationLifetimeMs(
+  env: Readonly<Record<string, string | undefined>>,
+): number {
+  const raw = env.REVIEW_ROUTER_REVIEW_V2_MAX_AUTHORIZATION_LIFETIME_MS;
+  if (raw === undefined) return productionTiming.maxAuthorizationLifetimeMs;
+  const value = Number(raw);
+  if (
+    !/^[0-9]+$/.test(raw) ||
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > productionTiming.maxAuthorizationLifetimeMs
+  ) {
+    throw new Error("review_action_v2_max_authorization_lifetime_invalid");
+  }
   return value;
 }
 
