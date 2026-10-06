@@ -24,7 +24,12 @@ export class PrismaReviewConfigurationRepository
     ReviewConfigurationRepositoryPort,
     ReviewConfigurationBatchReaderPort
 {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly operatorWorkspaceId?: string,
+  ) {
+    assertOperatorWorkspaceId(operatorWorkspaceId);
+  }
 
   async findLatest(
     target: ReviewConfigurationTarget,
@@ -47,7 +52,12 @@ export class PrismaReviewConfigurationRepository
     for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
       try {
         return await this.prisma.$transaction(
-          (tx) => saveNextReviewConfigurationVersion(tx, input),
+          (tx) =>
+            saveNextReviewConfigurationVersion(
+              tx,
+              input,
+              this.operatorWorkspaceId,
+            ),
           { isolationLevel: "Serializable" },
         );
       } catch (error) {
@@ -92,7 +102,12 @@ export class PrismaReviewConfigurationTransactionRepository
     ReviewConfigurationRepositoryPort,
     ReviewConfigurationBatchReaderPort
 {
-  constructor(private readonly prisma: Prisma.TransactionClient) {}
+  constructor(
+    private readonly prisma: Prisma.TransactionClient,
+    private readonly operatorWorkspaceId?: string,
+  ) {
+    assertOperatorWorkspaceId(operatorWorkspaceId);
+  }
 
   findLatest(target: ReviewConfigurationTarget) {
     return findLatestReviewConfiguration(this.prisma, target);
@@ -108,7 +123,11 @@ export class PrismaReviewConfigurationTransactionRepository
   saveNextVersion(
     input: Parameters<ReviewConfigurationRepositoryPort["saveNextVersion"]>[0],
   ) {
-    return saveNextReviewConfigurationVersion(this.prisma, input);
+    return saveNextReviewConfigurationVersion(
+      this.prisma,
+      input,
+      this.operatorWorkspaceId,
+    );
   }
 
   deleteTarget(target: ReviewConfigurationTarget) {
@@ -135,6 +154,18 @@ function hasPrismaErrorCode(error: unknown, code: string): boolean {
     "code" in error &&
     error.code === code
   );
+}
+
+function assertOperatorWorkspaceId(
+  operatorWorkspaceId: string | undefined,
+): void {
+  if (
+    operatorWorkspaceId !== undefined &&
+    /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/.exec(operatorWorkspaceId)?.[0] !==
+      operatorWorkspaceId
+  ) {
+    throw new Error("review_configuration_operator_workspace_id_invalid");
+  }
 }
 
 const MAX_TRANSACTION_ATTEMPTS = 3;
@@ -211,6 +242,7 @@ async function findLatestReviewConfigurationsForRepositories(
 async function saveNextReviewConfigurationVersion(
   prisma: Prisma.TransactionClient,
   input: Parameters<ReviewConfigurationRepositoryPort["saveNextVersion"]>[0],
+  operatorWorkspaceId?: string,
 ): Promise<PersistedReviewConfiguration> {
   await acquireReviewConfigurationWriteScope(prisma, input.target);
   const config = parseReviewConfiguration(input.config);
@@ -248,7 +280,12 @@ async function saveNextReviewConfigurationVersion(
   }
   // Selection only. The safe product mirror cannot authorize execution;
   // next relay admission must independently read live gateway/kernel authority.
-  await assertGatewaySelections(prisma, configuration.workspaceId, config);
+  await assertGatewaySelections(
+    prisma,
+    configuration.workspaceId,
+    config,
+    operatorWorkspaceId,
+  );
   const nextVersion = (latest?.version ?? 0) + 1;
   const saved = await prisma.reviewConfigurationVersion.create({
     data: {
@@ -483,6 +520,7 @@ async function assertGatewaySelections(
   prisma: Prisma.TransactionClient,
   workspaceId: string,
   config: ReviewConfiguration,
+  operatorWorkspaceId?: string,
 ): Promise<void> {
   for (const provider of config.providers) {
     if (provider.authMode !== "codex_account_gateway") continue;
@@ -510,7 +548,9 @@ async function assertGatewaySelections(
       binding.pendingFenceOperationId !== null ||
       binding.pendingFencePolicySubject !== null ||
       binding.pendingFencePolicyRevision !== null ||
-      binding.connection.ownerWorkspaceId !== workspaceId ||
+      (binding.connection.ownerWorkspaceId !== workspaceId &&
+        (operatorWorkspaceId === undefined ||
+          binding.connection.ownerWorkspaceId !== operatorWorkspaceId)) ||
       binding.connection.ownerUserId !== null ||
       binding.connection.ownerWorkspace?.personalOwnerUserId !== null ||
       binding.connection.state !== "active"

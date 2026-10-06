@@ -7,6 +7,9 @@ import {
 } from "@agent-teams/account-gateway/http";
 import {
   bindWorkspaceAccount,
+  changeOperatorWorkspaceAccountGrant,
+  revokeWorkspaceAccountBinding,
+  reconcileWorkspaceBindingFences,
   resolveWorkspaceAccountBinding,
   ProviderAccountError,
   PrismaProviderAccountRepository,
@@ -14,6 +17,8 @@ import {
   type ProviderAccountConnection,
   type ProviderAccountDependencies,
   type WorkspaceAccountActor,
+  type WorkspaceBindingFenceRepositoryPort,
+  type ScopedBindingFence,
 } from "@reviewrouter/features-provider-accounts";
 import {
   PrismaProviderAccountSynchronization,
@@ -39,6 +44,7 @@ export type AccountProfileView = {
   canReconnect?: boolean;
 };
 export type AccountView = {
+  canManage?: boolean;
   connectionId: string;
   label: string;
   profileId: string;
@@ -55,6 +61,7 @@ export type AccountView = {
   } | null;
 };
 export type AccountsPage = {
+  canGrantOperatorUse?: boolean;
   accounts: AccountView[];
   profiles: AccountProfileView[];
   nextCursor: string | null;
@@ -170,6 +177,7 @@ export function createAccountsAdapter(input: {
   accounts: ProviderAccountAccountsQueryPort;
   synchronization: ProviderAccountSynchronizationPort;
   bindingDependencies: ProviderAccountDependencies;
+  fences?: WorkspaceBindingFenceRepositoryPort;
   apiKeyProfiles: ReadonlyMap<string, "MiMo" | "OpenRouter">;
   codexOAuthProfileId?: typeof codexOAuthProfileId;
 }) {
@@ -197,6 +205,54 @@ export function createAccountsAdapter(input: {
       canReconnect: false,
     });
   }
+  async function deliverBindingFence(scope: {
+    workspaceId: string;
+    connectionId: string;
+  }) {
+    const binding = await accounts.findConnectionBinding(scope);
+    if (!binding) return "remote_pending" as const;
+    if (!binding.pendingFence)
+      return binding.state === "revoked" &&
+        binding.fenceAck?.policyRevision === binding.policyRevision
+        ? ("remote_applied" as const)
+        : ("remote_pending" as const);
+    if (!input.fences) return "remote_pending" as const;
+    const receipt = (operation: c.Operation, intent: ScopedBindingFence) => {
+      const ack = c.acknowledgementOperation.parse(operation);
+      return ack.state === "applied" && ack.operationRef === intent.operationId
+        ? {
+            state: "applied" as const,
+            operationId: intent.operationId,
+            policySubject: intent.policySubject,
+            policyRevision: intent.policyRevision,
+          }
+        : { state: "unknown" as const };
+    };
+    const result = await reconcileWorkspaceBindingFences(
+      { limit: 1 },
+      {
+        accounts: {
+          listPendingBindingFences: async () => [binding],
+          acknowledgeBindingFence: (intent) =>
+            input.fences!.acknowledgeBindingFence(intent),
+        },
+        delivery: {
+          submitFence: async (intent) =>
+            receipt(
+              await gateway.fence({
+                operationId: intent.operationId,
+                subjectRef: intent.policySubject,
+                revision: intent.policyRevision,
+              }),
+              intent,
+            ),
+          readFenceOperation: async (intent) =>
+            receipt(await gateway.operation(intent.operationId), intent),
+        },
+      },
+    );
+    return result.results[0]?.remoteFenceDelivery ?? "remote_pending";
+  }
   async function authorize(context: string) {
     try {
       const authority = await input.authorize(
@@ -210,6 +266,24 @@ export function createAccountsAdapter(input: {
     } catch {
       throw new Denied();
     }
+  }
+  async function isOperatorAdmin(
+    authority: Awaited<ReturnType<typeof authorize>>,
+  ) {
+    if (authority.workspaceId !== bindingDependencies.operatorWorkspaceId)
+      return false;
+    const role = authority.actor.userId
+      ? await bindingDependencies.workspaceAccess.findWorkspaceRoleByUserId({
+          workspaceId: authority.workspaceId,
+          userId: authority.actor.userId,
+        })
+      : await bindingDependencies.workspaceAccess.findWorkspaceRoleByGitHubUserId(
+          {
+            workspaceId: authority.workspaceId,
+            githubUserId: authority.actor.githubUserId,
+          },
+        );
+    return role === "owner" || role === "admin";
   }
   function scoped(
     context: string,
@@ -345,6 +419,9 @@ export function createAccountsAdapter(input: {
       connectionId: mirror.id,
     });
     return {
+      canManage:
+        mirror.owner.kind === "workspace" &&
+        mirror.owner.workspaceId === authority.workspaceId,
       connectionId: mirror.id,
       label: account.displayName,
       profileId: account.profileId,
@@ -454,11 +531,16 @@ export function createAccountsAdapter(input: {
       const authority = await authorize(context);
       const client = scoped(context, authority);
       const catalogue = await profiles(client);
-      const page = await client.list({
-        ownerRef: authority.owner,
-        limit: 25,
-        ...(savedCursor ? { cursor: savedCursor } : {}),
-      });
+      const grantCursor = savedCursor?.startsWith("rrgrant_")
+        ? savedCursor.slice(8)
+        : undefined;
+      const page = grantCursor
+        ? { accounts: [], nextCursor: null }
+        : await client.list({
+            ownerRef: authority.owner,
+            limit: 25,
+            ...(savedCursor ? { cursor: savedCursor } : {}),
+          });
       if (page.accounts.length > 25) throw new Denied();
       // Refuse the whole page on an unexpected owner; never project foreign metadata.
       for (const account of page.accounts)
@@ -491,12 +573,87 @@ export function createAccountsAdapter(input: {
           ),
         );
       }
+      let nextCursor = page.nextCursor ?? null;
+      const operatorWorkspaceId = bindingDependencies.operatorWorkspaceId;
+      if (
+        !nextCursor &&
+        operatorWorkspaceId &&
+        accounts.listOperatorGrantedBindings
+      ) {
+        const grants = await accounts.listOperatorGrantedBindings({
+          workspaceId: authority.workspaceId,
+          limit: 25,
+          ...(grantCursor ? { afterBindingId: grantCursor } : {}),
+        });
+        if (grants.length > 25) throw new Denied();
+        for (const grant of grants) {
+          // Only explicit live bindings discover foreign metadata. Never list the
+          // operator owner's accounts or expose its private owner/native identity.
+          if (
+            grant.connection.owner.kind !== "workspace" ||
+            grant.connection.owner.workspaceId !== operatorWorkspaceId
+          )
+            throw new Denied();
+          if (grant.connection.state !== "active") continue;
+          try {
+            await resolveWorkspaceAccountBinding(
+              {
+                workspaceId: authority.workspaceId,
+                bindingId: grant.binding.id,
+                actor: authority.actor,
+              },
+              bindingDependencies,
+            );
+          } catch (error) {
+            if (
+              error instanceof ProviderAccountError &&
+              ["binding_unavailable", "connection_unavailable"].includes(
+                error.code,
+              )
+            )
+              continue;
+            throw error;
+          }
+          const operatorAuthority = {
+            ...authority,
+            workspaceId: operatorWorkspaceId,
+            owner: ownerRef(operatorWorkspaceId),
+          };
+          const account = verified(
+            await client.get(grant.connection.gatewayAccountRef),
+            operatorAuthority,
+            catalogue,
+          );
+          if (
+            account.accountRef !== grant.connection.gatewayAccountRef ||
+            account.profileId !== grant.connection.profileRef
+          )
+            throw new Denied();
+          const mirror = await synchronize(
+            operatorAuthority,
+            account,
+            grant.connection,
+            null,
+          );
+          // GET can discover owner disable while refreshing the safe mirror.
+          if (mirror.state !== "active") continue;
+          const projected = await view(authority, account, mirror, catalogue);
+          if (
+            projected.binding?.state === "active" &&
+            !projected.binding.fencePending
+          )
+            rows.push(projected);
+        }
+        if (grants.length === 25)
+          nextCursor = `rrgrant_${grants[24]!.binding.id}`;
+      }
       return {
         status: "ok",
         value: {
+          canGrantOperatorUse: await isOperatorAdmin(authority),
           accounts: rows,
           profiles: catalogue,
-          nextCursor: page.nextCursor ?? null,
+          nextCursor,
         },
       };
     } catch (error) {
@@ -730,6 +887,68 @@ export function createAccountsAdapter(input: {
       const authority = await authorize(context);
       const client = scoped(context, authority);
       const catalogue = await profiles(client);
+      const owned = await accounts.findOwnedConnection({
+        workspaceId: authority.workspaceId,
+        connectionId: intent.connectionId,
+      });
+      if (!owned && bindingDependencies.operatorWorkspaceId) {
+        const binding = await accounts.findConnectionBinding({
+          workspaceId: authority.workspaceId,
+          connectionId: intent.connectionId,
+        });
+        if (!binding || binding.revision !== intent.bindingRevision)
+          throw new Denied();
+        const selected = await resolveWorkspaceAccountBinding(
+          {
+            workspaceId: authority.workspaceId,
+            bindingId: binding.id,
+            actor: authority.actor,
+          },
+          bindingDependencies,
+        );
+        if (selected.bindingRevision !== intent.bindingRevision)
+          return { status: "conflict" };
+        const selection = await accounts.findBinding({
+          workspaceId: authority.workspaceId,
+          bindingId: binding.id,
+        });
+        if (!selection) throw new Denied();
+        const operatorAuthority = {
+          ...authority,
+          workspaceId: bindingDependencies.operatorWorkspaceId,
+          owner: ownerRef(bindingDependencies.operatorWorkspaceId),
+        };
+        const account = verified(
+          await client.get(selection.connection.gatewayAccountRef),
+          operatorAuthority,
+          catalogue,
+        );
+        if (
+          account.accountRef !== selection.connection.gatewayAccountRef ||
+          account.state !== "active" ||
+          account.profileId !== selection.connection.profileRef
+        )
+          throw new Denied();
+        if (
+          account.metadataRevision !== intent.gatewayRevision ||
+          selection.connection.metadataRevision !== intent.mirrorRevision
+        )
+          return { status: "conflict" };
+        const live = await resolveWorkspaceAccountBinding(
+          {
+            workspaceId: authority.workspaceId,
+            bindingId: binding.id,
+            actor: authority.actor,
+          },
+          bindingDependencies,
+        );
+        if (
+          live.bindingRevision !== selected.bindingRevision ||
+          live.policyRevision !== selected.policyRevision
+        )
+          return { status: "conflict" };
+        return { status: "ok", value: { label: account.displayName } };
+      }
       const { prior, account } = await current(
         authority,
         intent.connectionId,
@@ -773,7 +992,144 @@ export function createAccountsAdapter(input: {
       return safeFailure(error);
     }
   }
-  return { list, mutate, beginOAuth, operation, bind };
+  async function changeGrant(
+    context: string,
+    raw: {
+      workspaceId: string;
+      connectionId: string;
+      expectedRevision: number;
+      state: "active" | "revoked";
+    },
+  ): Promise<
+    AccountsResult<{
+      bindingId: string;
+      revision: number;
+      remoteFenceDelivery: "remote_pending" | "remote_applied" | "not_required";
+    }>
+  > {
+    try {
+      const intent = z
+        .strictObject({
+          workspaceId: c.reference,
+          connectionId: c.reference,
+          expectedRevision: z.number().int().min(0).max(2147483646),
+          state: z.enum(["active", "revoked"]),
+        })
+        .parse(raw);
+      const authority = await authorize(context);
+      if (!(await isOperatorAdmin(authority))) throw new Denied();
+      if (intent.state === "active") {
+        // New authority requires a live owned account read. Revocation commits
+        // local denial without waiting on Gateway availability or its catalogue.
+        const client = scoped(context, authority);
+        const { prior, account } = await current(
+          authority,
+          intent.connectionId,
+          await profiles(client),
+          client,
+        );
+        if (account.state !== "active") throw new Denied();
+        await synchronize(authority, account, prior, null);
+      }
+      const binding = await changeOperatorWorkspaceAccountGrant(
+        { ...intent, actor: authority.actor },
+        bindingDependencies,
+      );
+      return {
+        status: "ok",
+        value: {
+          bindingId: binding.id,
+          revision: binding.revision,
+          remoteFenceDelivery: binding.pendingFence
+            ? await deliverBindingFence(intent)
+            : "not_required",
+        },
+      };
+    } catch (error) {
+      return safeFailure(error);
+    }
+  }
+  async function detach(
+    context: string,
+    raw: { connectionId: string; expectedRevision: number },
+  ): Promise<
+    AccountsResult<{ remoteFenceDelivery: "remote_pending" | "remote_applied" }>
+  > {
+    try {
+      const intent = z
+        .strictObject({
+          connectionId: c.reference,
+          expectedRevision: mirrorRevision,
+        })
+        .parse(raw);
+      const authority = await authorize(context);
+      await revokeWorkspaceAccountBinding(
+        {
+          ...intent,
+          workspaceId: authority.workspaceId,
+          actor: authority.actor,
+        },
+        bindingDependencies,
+      );
+      return {
+        status: "ok",
+        value: {
+          remoteFenceDelivery: await deliverBindingFence({
+            ...intent,
+            workspaceId: authority.workspaceId,
+          }),
+        },
+      };
+    } catch (error) {
+      return safeFailure(error);
+    }
+  }
+  async function reconcileFence(
+    context: string,
+    raw: { workspaceId: string; connectionId: string },
+  ): Promise<
+    AccountsResult<{ remoteFenceDelivery: "remote_pending" | "remote_applied" }>
+  > {
+    try {
+      const scope = z
+        .strictObject({ workspaceId: c.reference, connectionId: c.reference })
+        .parse(raw);
+      const authority = await authorize(context);
+      if (scope.workspaceId !== authority.workspaceId) {
+        if (!(await isOperatorAdmin(authority))) throw new Denied();
+        if (
+          !(await accounts.findOwnedConnection({
+            ...scope,
+            workspaceId: authority.workspaceId,
+          }))
+        )
+          throw new Denied();
+      }
+      const binding = await accounts.findConnectionBinding(scope);
+      if (!binding) throw new Denied();
+      if (!binding.pendingFence && !binding.fenceAck) throw new Denied();
+      return {
+        status: "ok",
+        value: {
+          remoteFenceDelivery: binding.pendingFence
+            ? await deliverBindingFence(scope)
+            : "remote_applied",
+        },
+      };
+    } catch (error) {
+      return safeFailure(error);
+    }
+  }
+  return {
+    list,
+    mutate,
+    beginOAuth,
+    operation,
+    bind,
+    changeGrant,
+    detach,
+    reconcileFence,
+  };
 }
 
 // One server-configured origin/management role. Never read a caller URL/token/native ID.
@@ -808,6 +1164,13 @@ function configuration() {
     throw new Error("accounts_unavailable");
   return {
     contextKey,
+    ...(process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID !== undefined
+      ? {
+          operatorWorkspaceId: c.reference.parse(
+            process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+          ),
+        }
+      : {}),
     apiKeyProfiles,
     ...(oauthProfile ? { codexOAuthProfileId: oauthProfile } : {}),
     gateway: createManagementClient({
@@ -830,14 +1193,22 @@ async function production() {
   const { assertDashboardWorkspaceAdminAllowed, getDashboardSignedInActor } =
     await import("./dashboard-mutations");
   const prisma = getPrisma();
-  const accounts = new PrismaProviderAccountRepository(prisma);
+  const accounts = new PrismaProviderAccountRepository(
+    prisma,
+    settings.operatorWorkspaceId,
+  );
   const access = new PrismaWorkspaceAccessRepository(prisma);
   const adapter = createAccountsAdapter({
     ...settings,
     accounts,
+    fences: accounts,
     synchronization: new PrismaProviderAccountSynchronization(prisma),
     bindingDependencies: {
       accounts,
+      operatorGrants: accounts,
+      ...(settings.operatorWorkspaceId
+        ? { operatorWorkspaceId: settings.operatorWorkspaceId }
+        : {}),
       workspaceAccess: access,
       localAdminGithubLogins: (
         process.env.REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS ?? ""

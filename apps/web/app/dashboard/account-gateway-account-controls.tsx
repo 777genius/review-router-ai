@@ -21,6 +21,8 @@ import type {
 import {
   bindGatewayAccount,
   beginGatewayOAuth,
+  detachGatewayAccount,
+  changeGatewayOperatorGrant,
   listGatewayAccounts,
   mutateGatewayAccount,
   readGatewayOperation,
@@ -279,10 +281,27 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
       setMessage("Binding status is unavailable. Refresh Accounts."),
   });
   const data = page.data;
+  const detachMutation = useMutation({
+    mutationFn: (account: AccountView) =>
+      detachGatewayAccount(context, {
+        connectionId: account.connectionId,
+        expectedRevision: account.binding!.revision,
+      }),
+    retry: false,
+    onSuccess: async (result) => {
+      setMessage(
+        result.status === "ok"
+          ? `Workspace use detached; ${result.value.remoteFenceDelivery === "remote_applied" ? "gateway fence acknowledged" : "gateway fence pending"}.`
+          : statusText(result.status),
+      );
+      await refresh();
+    },
+  });
   const disabled =
     busy ||
     !ready ||
     bindingMutation.isPending ||
+    detachMutation.isPending ||
     page.isFetching ||
     data?.status !== "ok";
   return (
@@ -370,7 +389,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                   account={account}
                   mode="rename"
                   profiles={data.value.profiles}
-                  disabled={disabled}
+                  disabled={disabled || account.canManage !== true}
                   submit={submit}
                 />
                 {account.authKind === "api_key" &&
@@ -380,14 +399,22 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                     account={account}
                     mode="reconnect"
                     profiles={data.value.profiles}
-                    disabled={disabled || account.state === "tombstoned"}
+                    disabled={
+                      disabled ||
+                      account.canManage !== true ||
+                      account.state === "tombstoned"
+                    }
                     submit={submit}
                   />
                 ) : null}
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={disabled || account.state === "tombstoned"}
+                  disabled={
+                    disabled ||
+                    account.canManage !== true ||
+                    account.state === "tombstoned"
+                  }
                   onClick={() =>
                     void submit({
                       kind: "disable",
@@ -405,7 +432,9 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                   disabled={
                     disabled ||
                     account.state !== "active" ||
-                    Boolean(account.binding?.fencePending)
+                    Boolean(account.binding?.fencePending) ||
+                    (account.canManage !== true &&
+                      account.binding?.state !== "active")
                   }
                   onClick={() => bindingMutation.mutate(account)}
                 >
@@ -413,6 +442,25 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                     ? "Select workspace binding"
                     : "Create workspace binding"}
                 </Button>
+                {account.binding?.state === "active" ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={disabled}
+                    onClick={() => detachMutation.mutate(account)}
+                  >
+                    Detach workspace use
+                  </Button>
+                ) : null}
+                {data.value.canGrantOperatorUse &&
+                account.canManage === true ? (
+                  <OperatorGrantForm
+                    context={context}
+                    account={account}
+                    disabled={disabled}
+                    refresh={refresh}
+                  />
+                ) : null}
               </div>
             </div>
           ))}
@@ -466,6 +514,121 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function OperatorGrantForm({
+  context,
+  account,
+  disabled,
+  refresh,
+}: {
+  context: string;
+  account: AccountView;
+  disabled: boolean;
+  refresh(): Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const [pending, setPending] = useState(false);
+  const submitting = useRef(false);
+  async function applyGrant(intent: {
+    workspaceId: string;
+    expectedRevision: number;
+    state: "active" | "revoked";
+  }) {
+    if (submitting.current) return;
+    submitting.current = true;
+    setPending(true);
+    try {
+      const result = await changeGatewayOperatorGrant(context, {
+        ...intent,
+        connectionId: account.connectionId,
+      });
+      setMessage(
+        result.status === "ok"
+          ? `Use ${intent.state === "active" ? "granted" : "revoked"} at binding revision ${result.value.revision}.${result.value.remoteFenceDelivery === "remote_pending" ? " Gateway fence pending." : result.value.remoteFenceDelivery === "remote_applied" ? " Gateway fence acknowledged." : ""}`
+          : statusText(result.status),
+      );
+      await refresh();
+    } catch {
+      setMessage(
+        "Grant status is unavailable. Check the current binding before submitting another change.",
+      );
+    } finally {
+      submitting.current = false;
+      setPending(false);
+    }
+  }
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger
+        render={<Button variant="outline" size="sm" disabled={disabled} />}
+      >
+        Manage operator grant
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Backdrop />
+        <Dialog.Popup>
+          <Dialog.Title>Workspace use grant</Dialog.Title>
+          <Dialog.Description>
+            Grant or revoke use of {account.label} for a workspace by its stable
+            ID.
+          </Dialog.Description>
+          <form
+            className="mt-4 grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const values = new FormData(event.currentTarget);
+              void applyGrant({
+                workspaceId: String(values.get("workspaceId")),
+                expectedRevision: Number(values.get("revision")),
+                state: values.get("state") === "revoked" ? "revoked" : "active",
+              });
+            }}
+          >
+            <label className="grid gap-2 text-sm">
+              Workspace ID
+              <input
+                className={inputClass}
+                name="workspaceId"
+                required
+                maxLength={128}
+              />
+            </label>
+            <label className="grid gap-2 text-sm">
+              Expected binding revision (0 for new use)
+              <input
+                className={inputClass}
+                name="revision"
+                type="number"
+                min={0}
+                max={2147483646}
+                defaultValue={0}
+                required
+              />
+            </label>
+            <SelectField
+              name="state"
+              label="Use"
+              defaultValue="active"
+              options={[
+                { value: "active", label: "Grant" },
+                { value: "revoked", label: "Revoke" },
+              ]}
+            />
+            <Button type="submit" disabled={disabled || pending}>
+              Apply
+            </Button>
+            {message ? (
+              <p role="status" className="text-sm text-slate-300">
+                {message}
+              </p>
+            ) : null}
+          </form>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

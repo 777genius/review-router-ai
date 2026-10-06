@@ -2776,7 +2776,10 @@ async function saveWorkspaceReviewConfigMutation(
         config,
       },
       {
-        configurations: new PrismaReviewConfigurationRepository(prisma),
+        configurations: new PrismaReviewConfigurationRepository(
+          prisma,
+          process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+        ),
       },
     );
 
@@ -2876,7 +2879,10 @@ async function saveRepositoryReviewConfigMutation(
         config,
       },
       {
-        configurations: new PrismaReviewConfigurationRepository(prisma),
+        configurations: new PrismaReviewConfigurationRepository(
+          prisma,
+          process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+        ),
       },
     );
 

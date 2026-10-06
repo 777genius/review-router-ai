@@ -159,6 +159,23 @@ export function assertExecutable(connection: ProviderAccountConnection): void {
   if (connection.state !== "active")
     throw new ProviderAccountError("connection_unavailable");
 }
+/** Use authority is separate from credential management. An ordinary binding is
+ * the explicit grant record; only trusted composition can designate its owner.
+ */
+export function assertWorkspaceUseOwner(
+  connection: ProviderAccountConnection | null,
+  workspaceId: string,
+  operatorWorkspaceId?: string,
+): asserts connection is ProviderAccountConnection {
+  if (
+    !connection ||
+    connection.owner.kind !== "workspace" ||
+    (connection.owner.workspaceId !== workspaceId &&
+      (!operatorWorkspaceId ||
+        connection.owner.workspaceId !== operatorWorkspaceId))
+  )
+    throw new ProviderAccountError("connection_unavailable");
+}
 export function selectBinding(
   workspaceId: string,
   bindingId: string,
@@ -166,6 +183,7 @@ export function selectBinding(
     readonly binding: WorkspaceAccountBinding;
     readonly connection: ProviderAccountConnection;
   } | null,
+  operatorWorkspaceId?: string,
 ): SafeBindingTuple {
   if (
     !selection ||
@@ -179,7 +197,11 @@ export function selectBinding(
   ) {
     throw new ProviderAccountError("binding_unavailable");
   }
-  assertWorkspaceOwner(selection.connection, workspaceId);
+  assertWorkspaceUseOwner(
+    selection.connection,
+    workspaceId,
+    operatorWorkspaceId,
+  );
   assertExecutable(selection.connection);
   return {
     workspaceId,

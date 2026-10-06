@@ -1,12 +1,16 @@
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import type { WorkspaceBindingFenceRepositoryPort } from "../../application/ports/workspace-binding-fence-port";
-import type { ProviderAccountAccountsQueryPort } from "../../application/ports/provider-account-repository-port";
+import type {
+  ProviderAccountAccountsQueryPort,
+  OperatorAccountGrantRepositoryPort,
+} from "../../application/ports/provider-account-repository-port";
 import {
   ProviderAccountError,
   assertExecutable,
   assertExpectedRevision,
   assertWorkspaceOwner,
+  assertWorkspaceUseOwner,
   assertOpaqueReference,
   snapshotBindingFence,
   type ScopedBindingFence,
@@ -22,10 +26,16 @@ import {
 export class PrismaProviderAccountRepository
   implements
     ProviderAccountAccountsQueryPort,
+    OperatorAccountGrantRepositoryPort,
     WorkspaceBindingFenceRepositoryPort
 {
   private readonly prisma: PrismaClient;
-  constructor(prisma: PrismaClient) {
+  constructor(
+    prisma: PrismaClient,
+    private readonly operatorWorkspaceId?: string,
+  ) {
+    if (operatorWorkspaceId !== undefined)
+      assertOpaqueReference(operatorWorkspaceId);
     this.prisma = prisma;
   }
 
@@ -173,34 +183,95 @@ export class PrismaProviderAccountRepository
       readonly state: BindingState;
     },
   ) {
+    return this.changeBinding(request);
+  }
+
+  async compareAndSetOperatorBinding(
+    request: Parameters<
+      OperatorAccountGrantRepositoryPort["compareAndSetOperatorBinding"]
+    >[0],
+  ) {
+    if (!this.operatorWorkspaceId)
+      throw new ProviderAccountError("workspace_forbidden");
+    return this.changeBinding(request, { ...request.actor });
+  }
+
+  private async changeBinding(
+    request: BindingScope & {
+      readonly expectedRevision: number;
+      readonly state: BindingState;
+    },
+    operatorActor?: {
+      readonly userId?: string | undefined;
+      readonly githubUserId: string;
+    },
+  ) {
     const input = {
       workspaceId: request.workspaceId,
       connectionId: request.connectionId,
       expectedRevision: request.expectedRevision,
       state: request.state,
     };
+    assertOpaqueReference(input.workspaceId);
+    assertOpaqueReference(input.connectionId);
+    if (input.state !== "active" && input.state !== "revoked")
+      throw new ProviderAccountError("invalid_input");
     assertExpectedRevision(input.expectedRevision, input.state === "active");
     try {
       return await this.prisma.$transaction(
         async (tx) => {
+          if (operatorActor) {
+            if (operatorActor.userId !== undefined)
+              assertOpaqueReference(operatorActor.userId);
+            else if (!/^[0-9]+$/.test(operatorActor.githubUserId))
+              throw new ProviderAccountError("invalid_input");
+            const members = operatorActor.userId
+              ? await tx.$queryRaw<readonly { id: string }[]>`
+                  SELECT "id" FROM "WorkspaceMember"
+                  WHERE "workspaceId" = ${this.operatorWorkspaceId!}
+                    AND "userId" = ${operatorActor.userId}
+                    AND "role" IN ('owner', 'admin') FOR SHARE`
+              : await tx.$queryRaw<readonly { id: string }[]>`
+                  SELECT m."id" FROM "WorkspaceMember" m JOIN "User" u ON u."id" = m."userId"
+                  WHERE m."workspaceId" = ${this.operatorWorkspaceId!}
+                    AND u."githubUserId" = ${BigInt(operatorActor.githubUserId)}
+                    AND m."role" IN ('owner', 'admin') FOR SHARE OF m, u`;
+            if (members.length !== 1)
+              throw new ProviderAccountError("workspace_forbidden");
+          }
+          const ownerWorkspaceId = operatorActor
+            ? this.operatorWorkspaceId!
+            : input.workspaceId;
+          const detachOperatorUse =
+            !operatorActor &&
+            input.state === "revoked" &&
+            !!this.operatorWorkspaceId;
           // Lock the owned connection before inspecting status or the binding.
           // Synchronization UPDATEs use this same row lock. Initial bind/bind and
           // bind/revoke races are serialized without an absent-row lock gap.
           const locked = await tx.$queryRaw<readonly { id: string }[]>`
           SELECT "id" FROM "ProviderAccountConnection"
-          WHERE "id" = ${input.connectionId} AND "ownerWorkspaceId" = ${input.workspaceId}
+          WHERE "id" = ${input.connectionId}
+            AND ("ownerWorkspaceId" = ${ownerWorkspaceId}
+              OR (${detachOperatorUse} AND "ownerWorkspaceId" = ${this.operatorWorkspaceId ?? input.workspaceId}))
             AND "ownerUserId" IS NULL FOR UPDATE`;
           if (locked.length !== 1)
             throw new ProviderAccountError("connection_unavailable");
           const record = await tx.providerAccountConnection.findFirst({
             where: {
               id: input.connectionId,
-              ownerWorkspaceId: input.workspaceId,
               ownerUserId: null,
             },
           });
           const connection = record ? mapConnection(record) : null;
-          assertWorkspaceOwner(connection, input.workspaceId);
+          if (operatorActor) assertWorkspaceOwner(connection, ownerWorkspaceId);
+          else if (detachOperatorUse)
+            assertWorkspaceUseOwner(
+              connection,
+              input.workspaceId,
+              this.operatorWorkspaceId,
+            );
+          else assertWorkspaceOwner(connection, input.workspaceId);
           if (input.state === "active") assertExecutable(connection);
           const pair = {
             workspaceId: input.workspaceId,
@@ -209,6 +280,20 @@ export class PrismaProviderAccountRepository
           const current = await tx.workspaceAccountBinding.findUnique({
             where: { workspaceId_connectionId: pair },
           });
+          // A recipient can revoke an existing operator grant, never manufacture one.
+          if (
+            !operatorActor &&
+            connection.owner.kind === "workspace" &&
+            connection.owner.workspaceId !== input.workspaceId &&
+            !current
+          )
+            throw new ProviderAccountError("binding_unavailable");
+          if (
+            operatorActor &&
+            input.state === "active" &&
+            current?.pendingFenceOperationId
+          )
+            throw new ProviderAccountError("binding_unavailable");
           if (!current) {
             if (input.expectedRevision !== 0 || input.state !== "active") {
               throw new ProviderAccountError("revision_conflict");
@@ -254,6 +339,43 @@ export class PrismaProviderAccountRepository
     } catch (error) {
       return rethrowProductStorageError(error);
     }
+  }
+
+  async listOperatorGrantedBindings(request: {
+    readonly workspaceId: string;
+    readonly limit: number;
+    readonly afterBindingId?: string;
+  }) {
+    const input = { ...request };
+    assertOpaqueReference(input.workspaceId);
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 25)
+      throw new ProviderAccountError("invalid_input");
+    if (input.afterBindingId !== undefined)
+      assertOpaqueReference(input.afterBindingId);
+    if (
+      !this.operatorWorkspaceId ||
+      input.workspaceId === this.operatorWorkspaceId
+    )
+      return [];
+    const rows = await this.prisma.workspaceAccountBinding.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        state: "active",
+        pendingFenceOperationId: null,
+        ...(input.afterBindingId ? { id: { gt: input.afterBindingId } } : {}),
+        connection: {
+          ownerWorkspaceId: this.operatorWorkspaceId,
+          ownerUserId: null,
+        },
+      },
+      orderBy: { id: "asc" },
+      take: input.limit,
+      include: { connection: true },
+    });
+    return rows.map((row) => ({
+      binding: mapBinding(row),
+      connection: mapConnection(row.connection),
+    }));
   }
 
   async listPendingBindingFences(request: {
