@@ -34,12 +34,20 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full120 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(120);
+  it("validates the full121 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(121);
+    expect(full[120]).toEqual({
+      migrationName: "000122_review_configuration_operation_receipt",
+      checksum:
+        "89f9f4eadeb88733adddb051bca5e50bdc86bbb06e45905d3bdf18eedbd1386e",
+    });
     expect(full[119]?.migrationName).toBe(
       "000121_review_run_gateway_execution_binding",
     );
     expect(manifest(full)).toBe(
+      "sha256:858537d185e32ef6258ddf674b5a201e6cc0c4e44fa948a18af23d6dd55905ec",
+    );
+    expect(manifest(full.slice(0, 120))).toBe(
       "sha256:5f01c4416620cf984ffa5fee8dbb26bcf171ae3a89ec4e4b8615e4c7c8461c64",
     );
     expect(full[118]?.migrationName).toBe("000120_review_run_runtime_snapshot");
@@ -124,9 +132,11 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: full.slice(0, 116) },
     { checkout: full.slice(0, 117) },
     { checkout: full.slice(0, 118) },
+    { checkout: full.slice(0, 119) },
+    { checkout: full.slice(0, 120) },
     { checkout: full },
   ])(
-    "accepts a complete validated checkout through 000120 (%#)",
+    "accepts a complete validated checkout through 000122 (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);
@@ -156,6 +166,13 @@ describe("trusted historical96 checkout reader", () => {
       [...historical, { ...full[96]!, migrationName: "000099_unknown" }],
     ],
     ["duplicate extension", [...full, full[96]!]],
+    [
+      "relabelled 122",
+      [
+        ...full.slice(0, 120),
+        { ...full[120]!, migrationName: "000122_relabelled" },
+      ],
+    ],
     [
       "relabelled 110",
       [
@@ -196,7 +213,7 @@ describe("trusted historical96 checkout reader", () => {
 
   it.each([
     96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
-    112, 113, 114, 115, 116, 117, 118,
+    112, 113, 114, 115, 116, 117, 118, 119, 120,
   ])(
     "does not hide a rejected checkout-only SQL checksum at %i",
     (extensionIndex) => {

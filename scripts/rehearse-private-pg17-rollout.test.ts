@@ -1277,7 +1277,8 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000118_workspace_binding_fences" &&
         name !== "000119_review_configuration_gateway_binding" &&
         name !== "000120_review_run_runtime_snapshot" &&
-        name !== "000121_review_run_gateway_execution_binding",
+        name !== "000121_review_run_gateway_execution_binding" &&
+        name !== "000122_review_configuration_operation_receipt",
     );
     expect(previousCheckout).toHaveLength(115);
     expect(migrationManifestIdentity(previousCheckout)).toBe(
@@ -1293,15 +1294,32 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000118_workspace_binding_fences" &&
             name !== "000119_review_configuration_gateway_binding" &&
             name !== "000120_review_run_runtime_snapshot" &&
-            name !== "000121_review_run_gateway_execution_binding",
+            name !== "000121_review_run_gateway_execution_binding" &&
+            name !== "000122_review_configuration_operation_receipt",
         ),
       ),
     ).toBe(
       "sha256:c5c0618f105799d06d21424433cec4a59fc052e63f594c2aace0657ebb52d1dd",
     );
-    expect(migrationNames).toHaveLength(120);
+    expect(migrationNames).toHaveLength(121);
     expect(migrationManifestIdentity(migrationNames)).toBe(
+      "sha256:858537d185e32ef6258ddf674b5a201e6cc0c4e44fa948a18af23d6dd55905ec",
+    );
+    expect(
+      migrationManifestIdentity(
+        migrationNames.filter(
+          (name) => name !== "000122_review_configuration_operation_receipt",
+        ),
+      ),
+    ).toBe(
       "sha256:5f01c4416620cf984ffa5fee8dbb26bcf171ae3a89ec4e4b8615e4c7c8461c64",
+    );
+    const receiptSql = readFileSync(
+      "packages/platform/db/prisma/migrations/000122_review_configuration_operation_receipt/migration.sql",
+    );
+    expect(receiptSql).toHaveLength(997);
+    expect(createHash("sha256").update(receiptSql).digest("hex")).toBe(
+      "89f9f4eadeb88733adddb051bca5e50bdc86bbb06e45905d3bdf18eedbd1386e",
     );
 
     expect(exclusions).toEqual([
@@ -1349,6 +1367,7 @@ describe("disposable dual-version rehearsal", () => {
       "000119_review_configuration_gateway_binding",
       "000120_review_run_runtime_snapshot",
       "000121_review_run_gateway_execution_binding",
+      "000122_review_configuration_operation_receipt",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1409,7 +1428,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000118_workspace_binding_fences" &&
             name !== "000119_review_configuration_gateway_binding" &&
             name !== "000120_review_run_runtime_snapshot" &&
-            name !== "000121_review_run_gateway_execution_binding",
+            name !== "000121_review_run_gateway_execution_binding" &&
+            name !== "000122_review_configuration_operation_receipt",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1443,7 +1463,8 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000118_workspace_binding_fences" &&
             name !== "000119_review_configuration_gateway_binding" &&
             name !== "000120_review_run_runtime_snapshot" &&
-            name !== "000121_review_run_gateway_execution_binding",
+            name !== "000121_review_run_gateway_execution_binding" &&
+            name !== "000122_review_configuration_operation_receipt",
           "000102_sdk_growth_current_authority",
         ),
       ),
@@ -1466,7 +1487,12 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
+    const currentTail = "000122_review_configuration_operation_receipt";
     for (const candidate of [
+      names.filter((name) => name !== currentTail),
+      [...names, currentTail],
+      names.map((name) => (name === currentTail ? "000122_relabelled" : name)),
+      [...names, "000123_future_migration"],
       names.filter((name) => name !== exactTail),
       names.filter(
         (name) => name !== "000119_review_configuration_gateway_binding",
@@ -1517,6 +1543,7 @@ describe("disposable dual-version rehearsal", () => {
     "000119_review_configuration_gateway_binding",
     "000120_review_run_runtime_snapshot",
     "000121_review_run_gateway_execution_binding",
+    "000122_review_configuration_operation_receipt",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1567,7 +1594,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000118_workspace_binding_fences" &&
                 name !== "000119_review_configuration_gateway_binding" &&
                 name !== "000120_review_run_runtime_snapshot" &&
-                name !== "000121_review_run_gateway_execution_binding",
+                name !== "000121_review_run_gateway_execution_binding" &&
+                name !== "000122_review_configuration_operation_receipt",
               "000102_sdk_growth_current_authority",
             ),
           ),
