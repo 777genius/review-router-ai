@@ -75,6 +75,24 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
     const sentinel = `synthetic-write-only-${randomUUID()}`;
     const profileId = "fixture-mimo-responses";
     const foreignProfileId = "fixture-openrouter-chat";
+    const oauthProfileId = "openai-codex-oauth-responses-v1";
+    const oauthState = `oauth-state-${randomUUID()}`;
+    const authorizationURL = `https://auth.openai.com/oauth/authorize?${new URLSearchParams(
+      {
+        client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
+        response_type: "code",
+        redirect_uri: "http://localhost:1455/auth/callback",
+        code_challenge_method: "S256",
+        code_challenge: "a".repeat(43),
+        scope: "openid profile email offline_access",
+        state: oauthState,
+      },
+    )}`;
+    c.oauthAuthorizationURL.parse(authorizationURL);
+    let oauthBeginEntries = 0;
+    const genericReadRefs: string[] = [];
+    let selectedWorkspace = workspaceId;
+    let afterOAuthBegin: (() => Promise<void>) | undefined;
     let httpReads = 0;
     let mutationEntries = 0;
     let owner = "";
@@ -118,6 +136,12 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
                   authKinds: ["oauth"],
                   modelIds: ["fixture-codex"],
                 },
+                {
+                  profileId: oauthProfileId,
+                  protocol: "openai-responses",
+                  authKinds: ["oauth"],
+                  modelIds: ["fixture-codex"],
+                },
               ],
             });
           if (url.pathname === "/v1/accounts") {
@@ -130,6 +154,9 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
             });
           }
           if (url.pathname.startsWith("/v1/operations/")) {
+            genericReadRefs.push(
+              decodeURIComponent(url.pathname.slice("/v1/operations/".length)),
+            );
             const receipt = operations.get(
               decodeURIComponent(url.pathname.slice("/v1/operations/".length)),
             );
@@ -166,6 +193,28 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         }
         const raw: unknown = JSON.parse(body);
         mutationEntries++;
+        if (url.pathname === "/v1/accounts/oauth/begin") {
+          assert.equal(request.method, "POST");
+          const input = c.oauthBegin.parse(raw);
+          assert.equal(input.profileId, oauthProfileId);
+          assert.notEqual(input.ownerRef, workspaceId);
+          assert.equal(input.ownerRef, owner);
+          oauthBeginEntries++;
+          const receipt: c.Operation = {
+            operationRef: input.operationId,
+            state: "pending",
+          };
+          operations.set(input.operationId, receipt);
+          const effectHook = afterOAuthBegin;
+          afterOAuthBegin = undefined;
+          await effectHook?.();
+          if (loseAck) {
+            loseAck = false;
+            response.destroy();
+            return;
+          }
+          return json(response, 202, { operation: receipt, authorizationURL });
+        }
         if (url.pathname === "/v1/accounts") {
           const input = secretSubmission.connect.parse(raw);
           assert.equal(input.credential.kind, "api_key");
@@ -286,7 +335,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       timeoutMs: 2000,
     });
     const dependencies = { accounts, workspaceAccess: access };
-    const compose = () =>
+    const compose = (oauthEnabled = false) =>
       createAccountsAdapter({
         gateway,
         accounts,
@@ -296,11 +345,14 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
           [profileId, "MiMo"],
           [foreignProfileId, "OpenRouter"],
         ]),
+        ...(oauthEnabled
+          ? { codexOAuthProfileId: oauthProfileId as typeof oauthProfileId }
+          : {}),
         async authorize(context) {
           // Trusted test session selection, followed by ACTUAL live stable-ID membership assertion.
           const currentActor = context === "member" ? member : actor;
           const currentWorkspace =
-            context === "b" ? otherWorkspaceId : workspaceId;
+            context === "b" ? otherWorkspaceId : selectedWorkspace;
           if (!["a", "b", "member"].includes(context))
             throw new Error("invalid_session");
           await assertWorkspaceAdminAllowed(
@@ -696,6 +748,238 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         "pending",
       );
       assert.equal(mutationEntries, afterLost);
+      // OAuth RED: exposing a merely advertised/unconfigured profile, forwarding
+      // caller ownership, or allowing a member to Begin would release a capability.
+      const oauthAdapter = compose(true);
+      const oauthIntent = {
+        nonce: randomUUID(),
+        profileId: oauthProfileId,
+        label: "Synthetic Codex",
+      };
+      const beforeOAuth = mutationEntries;
+      assert.equal(
+        observe(await adapter.beginOAuth("a", oauthIntent)).status,
+        "denied",
+      );
+      assert.equal(
+        observe(await oauthAdapter.beginOAuth("member", oauthIntent)).status,
+        "denied",
+      );
+      assert.equal(
+        observe(
+          await oauthAdapter.beginOAuth("a", {
+            ...oauthIntent,
+            profileId: "fixture-oauth",
+          }),
+        ).status,
+        "denied",
+      );
+      assert.equal(
+        observe(
+          await oauthAdapter.mutate(
+            "a",
+            {
+              kind: "connect",
+              ...oauthIntent,
+            },
+            sentinel,
+          ),
+        ).status,
+        "denied",
+      );
+      assert.equal(mutationEntries, beforeOAuth);
+      const catalogue = ok(observe(await oauthAdapter.list("a"))).profiles;
+      assert.deepEqual(
+        catalogue.map((p) => [p.id, p.authKind, p.canReconnect]),
+        [
+          [profileId, "api_key", true],
+          [foreignProfileId, "api_key", true],
+          [oauthProfileId, "oauth", false],
+        ],
+      );
+      const original = account;
+      const mirrorCount = await db.providerAccountConnection.count({
+        where: { ownerWorkspaceId: workspaceId },
+      });
+      const fresh = ok(await oauthAdapter.beginOAuth("a", oauthIntent));
+      assert.equal(fresh.authorizationURL, authorizationURL);
+      observe(fresh.operation); // one-off capability is deliberately outside the safe-data set
+      assert.equal(fresh.operation.state, "pending");
+      assert.equal(fresh.operation.account, undefined);
+      assert.equal(
+        await db.providerAccountConnection.count({
+          where: { ownerWorkspaceId: workspaceId },
+        }),
+        mirrorCount,
+      );
+      const oauthOp = [...operations.keys()].at(-1)!;
+      // RED: readback replaying Begin or projecting a URL/account from pending ACK.
+      assert.equal(
+        ok(observe(await compose(true).operation("a", oauthIntent.nonce)))
+          .state,
+        "pending",
+      );
+      assert.equal(oauthBeginEntries, 1);
+      assert.equal(genericReadRefs.at(-1), oauthOp);
+      account = {
+        accountRef: `${prefix}-oauth`,
+        ownerRef: owner,
+        profileId: oauthProfileId,
+        displayName: "Synthetic Codex",
+        state: "staging",
+        metadataRevision: 1,
+        authorizationEpoch: 1,
+      };
+      let oauthRow = ok(observe(await oauthAdapter.list("a"))).accounts[0]!;
+      const oauthRevisions = () => ({
+        connectionId: oauthRow.connectionId,
+        gatewayRevision: oauthRow.gatewayRevision,
+        mirrorRevision: oauthRow.mirrorRevision,
+      });
+      assert.equal(oauthRow.authKind, "oauth");
+      assert.equal(
+        observe(
+          await oauthAdapter.bind("a", {
+            ...oauthRevisions(),
+            bindingRevision: 0,
+          }),
+        ).status,
+        "denied",
+      );
+      const beforeReconnect = mutationEntries;
+      assert.equal(
+        observe(
+          await oauthAdapter.mutate(
+            "a",
+            {
+              kind: "reconnect",
+              nonce: randomUUID(),
+              ...oauthRevisions(),
+            },
+            sentinel,
+          ),
+        ).status,
+        "denied",
+      );
+      assert.equal(mutationEntries, beforeReconnect);
+      account = { ...account, state: "active", metadataRevision: 2 };
+      operations.set(oauthOp, {
+        operationRef: oauthOp,
+        state: "applied",
+        result: {
+          kind: "account",
+          accountRef: account.accountRef,
+          metadataRevision: 2,
+          authorizationEpoch: 1,
+        },
+      });
+      oauthRow = ok(
+        observe(await oauthAdapter.operation("a", oauthIntent.nonce)),
+      ).account!;
+      assert.equal(oauthRow.state, "active");
+      ok(
+        observe(
+          await oauthAdapter.bind("a", {
+            ...oauthRevisions(),
+            bindingRevision: 0,
+          }),
+        ),
+      );
+      assert.equal(
+        (
+          await accounts.findConnectionBinding({
+            workspaceId,
+            connectionId: oauthRow.connectionId,
+          })
+        )?.state,
+        "active",
+      );
+      // RED: lost Begin ACK treated as non-entry, or a reload/manual read repeating Begin.
+      loseAck = true;
+      const lostOAuthNonce = randomUUID();
+      const lostOAuth = ok(
+        observe(
+          await oauthAdapter.beginOAuth("a", {
+            ...oauthIntent,
+            nonce: lostOAuthNonce,
+          }),
+        ),
+      );
+      assert.equal(lostOAuth.operation.state, "unknown");
+      assert.equal(lostOAuth.authorizationURL, undefined);
+      assert.equal(
+        ok(observe(await compose(true).operation("a", lostOAuthNonce))).state,
+        "pending",
+      );
+      assert.equal(oauthBeginEntries, 2);
+      // RED: checking admin only BEFORE awaited Begin leaks its URL after role loss.
+      afterOAuthBegin = async () => {
+        await db.workspaceMember.updateMany({
+          where: { workspaceId, userId: actor.userId! },
+          data: { role: "member" },
+        });
+      };
+      const revokedNonce = randomUUID();
+      const revoked = ok(
+        observe(
+          await oauthAdapter.beginOAuth("a", {
+            ...oauthIntent,
+            nonce: revokedNonce,
+          }),
+        ),
+      );
+      assert.equal(revoked.operation.nonce, revokedNonce);
+      assert.equal(revoked.operation.state, "unknown");
+      assert.equal(revoked.authorizationURL, undefined);
+      const afterRevoked = mutationEntries;
+      assert.equal(
+        observe(await oauthAdapter.operation("a", revokedNonce)).status,
+        "denied",
+      );
+      assert.equal(
+        observe(
+          await oauthAdapter.beginOAuth("a", {
+            ...oauthIntent,
+            nonce: randomUUID(),
+          }),
+        ).status,
+        "denied",
+      );
+      assert.equal(mutationEntries, afterRevoked);
+      await db.workspaceMember.updateMany({
+        where: { workspaceId, userId: actor.userId! },
+        data: { role: "admin" },
+      });
+      assert.equal(
+        ok(observe(await oauthAdapter.operation("a", revokedNonce))).state,
+        "pending",
+      );
+      // RED: a different currently-admin workspace after Begin passes an unbound recheck.
+      afterOAuthBegin = async () => {
+        selectedWorkspace = otherWorkspaceId;
+      };
+      const switchedNonce = randomUUID();
+      const switched = ok(
+        observe(
+          await oauthAdapter.beginOAuth("a", {
+            ...oauthIntent,
+            nonce: switchedNonce,
+          }),
+        ),
+      );
+      assert.equal(switched.operation.state, "unknown");
+      assert.equal(switched.authorizationURL, undefined);
+      assert.equal(
+        ok(observe(await oauthAdapter.operation("a", switchedNonce))).state,
+        "unknown",
+      );
+      selectedWorkspace = workspaceId;
+      assert.equal(
+        ok(observe(await oauthAdapter.operation("a", switchedNonce))).state,
+        "pending",
+      );
+      assert.equal(oauthBeginEntries, 4);
+      account = original;
       await db.workspaceMember.updateMany({
         where: { workspaceId, userId: actor.userId! },
         data: { role: "member" },
@@ -710,7 +994,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         ).status,
         "denied",
       );
-      assert.equal(mutationEntries, afterLost);
+      assert.equal(mutationEntries, afterRevoked + 1);
       const rows = await db.providerAccountConnection.findMany({
         where: { ownerWorkspaceId: workspaceId },
       });
@@ -724,6 +1008,23 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         JSON.stringify({ observed, rows }).includes(sentinel),
         false,
       );
+      for (const secret of [
+        authorizationURL,
+        oauthState,
+        "code_challenge",
+        "authorizationURL",
+        "refresh_token",
+        "access_token",
+      ]) {
+        assert.equal(
+          JSON.stringify({
+            observed,
+            rows,
+            operations: [...operations.values()],
+          }).includes(secret),
+          false,
+        );
+      }
       assert.equal(
         wireFailure,
         false,

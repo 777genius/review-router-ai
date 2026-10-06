@@ -517,7 +517,7 @@ it.each([
     "literal auth secret",
     (source: string) =>
       source +
-      "    secrets:\n      CODEX_AUTH_JSON: \${{ secrets.REVIEWROUTER_CODEX_AUTH_JSON }}\n",
+      "    secrets:\n      CODEX_AUTH_JSON: ${{ secrets.REVIEWROUTER_CODEX_AUTH_JSON }}\n",
   ],
   [
     "quoted secrets mapping",
@@ -716,7 +716,7 @@ it.each([
     "unbound PR",
     (source: string) =>
       source.replace(
-        "pr_number: \${{ format('{0}', github.event.pull_request.number) }}",
+        "pr_number: ${{ format('{0}', github.event.pull_request.number) }}",
         'pr_number: "42"',
       ),
   ],
@@ -724,7 +724,7 @@ it.each([
     "unbound head",
     (source: string) =>
       source.replace(
-        "review_head_sha: \${{ github.event.pull_request.head.sha }}",
+        "review_head_sha: ${{ github.event.pull_request.head.sha }}",
         `review_head_sha: "${otherCallerSha}"`,
       ),
   ],
