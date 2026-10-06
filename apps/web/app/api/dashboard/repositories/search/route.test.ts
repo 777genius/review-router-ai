@@ -408,6 +408,7 @@ describe("dashboard repository search route", () => {
         where: {
           workspaceId: "workspace_1",
           repositoryId: { in: ["repo_missing"] },
+          active: true,
         },
       }),
     );

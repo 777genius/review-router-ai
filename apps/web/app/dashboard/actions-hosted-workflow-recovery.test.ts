@@ -230,10 +230,6 @@ vi.mock("../../src/server/prisma-hosted-pool-mutations", async () => {
     },
   };
 });
-vi.mock("../../src/server/workflow-public-api-url", () => ({
-  resolveWorkflowPublicApiUrl: () => "https://api.reviewrouter.test",
-}));
-
 import { fingerprintDatabaseRecoveryWitness } from "@reviewrouter/features-provider-setup";
 
 import { confirmSetupPullRequestMergedClientAction } from "./actions";
@@ -637,6 +633,9 @@ function fixture(
   };
   let configurationVersion: Record<string, unknown> | null = {
     id: "configuration-version-0",
+    workspaceId: "workspace_1",
+    gatewayBindingId: null,
+    gatewayProfileRef: null,
     version: 1,
     schemaVersion: 2,
     providerKind: "codex",
@@ -666,12 +665,38 @@ function fixture(
         }
       : {}),
   };
+  if (gateway)
+    configurationVersion.providers = [
+      {
+        providerKind: configurationVersion.providerKind,
+        providerAuthMode: configurationVersion.providerAuthMode,
+        gatewayBindingId: configurationVersion.gatewayBindingId,
+        gatewayProfileRef: configurationVersion.gatewayProfileRef,
+        model: configurationVersion.model,
+        reasoningEffort: configurationVersion.reasoningEffort,
+        agenticContext: configurationVersion.agenticContext,
+        fastMode: configurationVersion.fastMode,
+        requiredHealthy: true,
+      },
+    ];
+  const configuration = {
+    id: "configuration-1",
+    workspaceId: "workspace_1",
+    repositoryId: "repository_1",
+    targetKey: "repo:repository_1",
+    active: true,
+  };
   const configWrites = vi.fn(
     async ({ data }: { data: Record<string, unknown> }) => {
+      if (
+        data.configurationId !== configuration.id ||
+        data.workspaceId !== configuration.workspaceId
+      )
+        throw new Error("fixture_configuration_scope_mismatch");
       events.push(`configuration_write:${data.providerAuthMode}`);
       configurationVersion = {
         ...data,
-        id: "configuration-version-1",
+        id: `configuration-version-${data.version}`,
         providers: (data.providers as { create: unknown[] }).create,
       };
       return configurationVersion;
@@ -858,13 +883,63 @@ function fixture(
     hostedCodexRepositoryBinding,
     hostedCodexPool: { findFirst: vi.fn(async () => ({ id: "pool-1" })) },
     reviewConfiguration: {
-      findUnique: vi.fn(async () =>
-        configurationVersion ? { versions: [configurationVersion] } : null,
+      findUnique: vi.fn(
+        async ({
+          where,
+        }: {
+          where: {
+            workspaceId_targetKey: { workspaceId: string; targetKey: string };
+          };
+        }) =>
+          matches(configuration, where.workspaceId_targetKey)
+            ? {
+                active: configuration.active,
+                versions: configurationVersion ? [configurationVersion] : [],
+              }
+            : null,
       ),
-      upsert: vi.fn(async () => ({ id: "configuration-1" })),
+      upsert: vi.fn(
+        async ({
+          where,
+          update,
+        }: {
+          where: {
+            workspaceId_targetKey: { workspaceId: string; targetKey: string };
+          };
+          update: { repositoryId: string | null };
+        }) => {
+          if (!matches(configuration, where.workspaceId_targetKey))
+            throw new Error("unexpected_fixture_configuration_target");
+          Object.assign(configuration, update);
+          return {
+            id: configuration.id,
+            workspaceId: configuration.workspaceId,
+            active: configuration.active,
+          };
+        },
+      ),
+      update: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: { id: string };
+          data: { active: boolean };
+        }) => {
+          if (where.id !== configuration.id)
+            throw new Error("fixture_configuration_not_found");
+          configuration.active = data.active;
+          return { ...configuration };
+        },
+      ),
     },
     reviewConfigurationVersion: {
-      findFirst: vi.fn(async () => configurationVersion),
+      findFirst: vi.fn(
+        async ({ where }: { where: { configurationId: string } }) =>
+          where.configurationId === configuration.id && configurationVersion
+            ? { version: configurationVersion.version }
+            : null,
+      ),
       create: configWrites,
     },
     codexOAuthSecretNamespace: {
@@ -1077,6 +1152,9 @@ describe("hosted setup recovery composition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.readiness.mockImplementation(checkWorkflowReadiness);
+    // Exercise the real URL reader with controlled public facts, independent of CI env.
+    vi.stubEnv("REVIEW_ROUTER_PUBLIC_API_URL", "https://api.reviewrouter.test");
+    vi.stubEnv("REVIEW_ROUTER_API_URL", "https://api.reviewrouter.test");
     vi.stubEnv("REVIEW_ROUTER_ACTION_REF", actionRef);
     vi.stubEnv("REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF", actionRef);
     mocks.runtime.mockResolvedValue({
