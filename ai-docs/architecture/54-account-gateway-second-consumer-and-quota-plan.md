@@ -11,7 +11,23 @@
 
 ## 1. Принятый контекст и рекомендуемый путь
 
-Пользователь хочет обслуживать разнообразных агентов на компьютерах клиентов через наш backend:
+### Уточнение владельца, 2026-10-06
+
+**Пулы двух продуктов не объединяются.** В Review Router каждый пользователь/workspace
+добавляет собственные аккаунты и управляет ими по существующим правилам RR. Во втором
+продукте один пул разных провайдеров принадлежит нам; подключение и обслуживание аккаунтов
+доступны только администраторам, пользователи получают ограниченное использование по тарифу.
+Ранее предложенное обязательное совместное использование operator pool между RR и вторым
+продуктом было неверной интерпретацией. Оно не принято и не требуется.
+
+Переиспользуем **код, SDK, HTTP-контракт и образы backend-сервисов**, а не credential rows,
+права или сами upstream accounts. Минимальный путь - отдельный service deployment второго
+продукта с его собственным consumer, секретами и данными, использующий те же реализации.
+Это один gateway/Sub2API на продукт, не отдельный engine на пользователя. Общий физический
+service deployment возможен позднее после отдельной проверки межпродуктовой изоляции;
+сейчас он не является целью или зависимостью RR.
+
+Пользователь хочет во втором продукте обслуживать разнообразных агентов на компьютерах клиентов через наш backend:
 мы владеем upstream accounts, выдаём свои планы и индивидуальные квоты; upstream API/OAuth секреты остаются на сервере.
 BYOK клиента возможен позднее, в этот V1 не входит. Backend занимается inference; файлы, команды,
 tools, agent loop и взаимодействие агентов остаются в локальном runtime.
@@ -23,11 +39,12 @@ MiMo ordinary API и Token Plan, админку Sub2API и TS backend рядом
 Живой spike тогда не запускался. Наличие custom endpoint ниже проверено по исходникам;
 полноценная совместимость клиентов этим не доказана.
 
-✅ **Рекомендуемый V1:** один существующий Account Gateway service unit, один Sub2API,
-один canonical operator custody consumer и узкий operator-access adapter внутри TS facade.
-На его входе остаются разные доверенные product identities: RR и Agent Teams.
-Adapter проверяет разрешённый product grant и переводит его в существующий saved execution/admission.
-Снаружи второй продукт имеет собственные login/device sessions, планы и quota reservations.
+✅ **Рекомендуемый V1:** второй продукт развёртывает те же Account Gateway/Sub2API
+и использует существующий SDK в своём backend. Его единственный canonical operator pool
+не связан с личными/workspace аккаунтами RR. Backend второго продукта проверяет user/device,
+plan и quota, затем обращается к существующему saved execution/admission контракту.
+RR продолжает свой owner/use и OIDC путь. Режим владения задаётся продуктовой policy,
+не глобальным флагом внутри transport/kernel.
 
 Резервировать для одного local agent run/profile конечное число **request credits**;
 все inference requests tool loop используют одну gateway execution. Это сохраняет существующее
@@ -52,9 +69,9 @@ RR source: наблюдённый integration HEAD `60d7ff1a922f18d09036485c9820
 | SDK HTTP server-only; transport errors conservatively unknown; inference без retry         | тот же feature `http/index.ts:29-49,70-98,174-184`                                                         | SDK используется backend, локальному агенту выдаётся только product relay capability                |
 | Static Get Modular management/execution composition                                        | `packages/account-gateway/src/get-modular/index.ts:16-49,52-75`                                            | Существующая optional composition пригодна; quota/login в neutral Core не переносить                |
 | Durable request claim и account occupancy                                                  | `services/account-gateway/src/postgres.ts:424-500`                                                         | Повторно использовать claim, эффекты, fence, exact closure; не добавлять account mutex в продукт    |
-| Account capacity scoped **consumer/account**                                               | `postgres.ts:450-480`; `domain.ts:108-110`; SQL001 `accounts:16-24`, SQL002 `32-33`                        | Второй consumer namespace не разделяет автоматически capacity первого                               |
+| Account capacity scoped **consumer/account**                                               | `postgres.ts:450-480`; `domain.ts:108-110`; SQL001 `accounts:16-24`, SQL002 `32-33`                        | У каждого продукта свои accounts; внутри operator pool второго продукта одна capacity на account    |
 | Consumer связана с credential custody                                                      | native `native_gateway_credentials.go:25-30,180-197`; `native_gateway_identity.go:195-211,258-268,329-355` | Нельзя переписать consumer в запросе или повторно enroll тот же upstream account как второй pool    |
-| Deployable composition имеет одну consumer                                                 | `service.ts:26-38,67-74,122-123`; `service-config.ts:24-28`                                                | Требуется bounded outer adapter для двух product callers; не второй engine instance                 |
+| Deployable composition имеет одну consumer                                                 | `service.ts:26-38,67-74,122-123`; `service-config.ts:24-28`                                                | Отдельный deployment второго продукта переиспользует контракт без обязательного multi-product adapter |
 | Run-control выдаёт saved execution bearer; mapping bounded in memory                       | `facade.ts:38-46,61-67,116-133,390-438`                                                                    | Это reusable mechanism, но текущие 128 entries не доказывают длительную работу многих пользователей |
 | Protocol enum шире реально скомпонованного сервиса                                         | SDK contracts `6`; `service.ts:60-63`; `service-config.ts:109-123`                                         | Enum Anthropic/chat не означает private transport qualification этих протоколов                     |
 | Spent count есть в SQL, safe execution DTO его не отдаёт                                   | SQL001 `72-79`; `postgres.ts:491-500`; SDK contracts `76`                                                  | Нужен маленький final allowance readback для освобождения только unclaimed quota reservation        |
@@ -68,18 +85,17 @@ RR source: наблюдённый integration HEAD `60d7ff1a922f18d09036485c9820
 
 ```mermaid
 flowchart LR
-  RR[RR: GitHub OIDC, repo/run/head, workspace grants] --> OA
+  RR[RR: собственные пользовательские accounts и OIDC] --> RRG[RR Gateway/Sub2API]
   LOCAL[Локальный agent: loop, files, tools] --> RELAY
-  RELAY[Agent Teams backend: user/device auth, plan, quota, public protocol relay] --> OA
-  OA[TS operator-access adapter: authenticated caller + bounded use grant] --> K
-  K[Существующий kernel: canonical operator consumer/account, claim, effects, occupancy] --> GO
-  GO[Один private Sub2API: credential custody, transport, refresh] --> P[Upstream]
+  RELAY[Второй backend: user/device auth, plan, quota] --> ATG[Второй Gateway/Sub2API: наш admin pool]
+  SHARED[Общие SDK, HTTP-контракт и implementation] -.-> RRG
+  SHARED -.-> ATG
 ```
 
 | Понятие                  | Authority                                  | Значение                                                                           |
 | ------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------- |
-| Account owner            | Operator, canonical opaque owner в gateway | Наш upstream account; клиент его владельцем не становится                          |
-| Product caller           | Gateway operator adapter                   | Доверенный backend RR или Agent Teams, установленный service credential            |
+| Account owner            | Policy каждого продукта                    | RR: User/Workspace; второй продукт: operator, клиент владельцем не становится       |
+| Product caller           | Отдельная service identity/deployment      | Доверенный backend соответствующего продукта, не общая admin authority             |
 | Workspace use            | RR                                         | Текущий WorkspaceAccountBinding и отдельный explicit operator grant                |
 | User/device identity     | Agent Teams backend                        | Stable User ID, session/device ID; не machine hostname, email или клиентский actor |
 | Quota subject            | Agent Teams backend                        | User + immutable quota period; общий для его устройств и агентов                   |
@@ -97,7 +113,16 @@ Product policy: кто платит, период квоты, device login, та
 Foundation остаётся dev-only. Get Modular остаётся static composition helper;
 он не выдаёт entitlement, не закрывает provider transport и не создаёт scheduler.
 
-## 4. Общий operator pool: три реальных пути
+## 4. Отдельные пулы и необязательная будущая межпродуктовая sharing boundary
+
+**Текущий выбор после уточнения:** независимые пулы, общий код сервиса и SDK.
+Обязательный adapter для доступа двух продуктов к одному физическому account не нужен.
+Оценка **350-650 production LOC** ниже относится только к такому дополнительному sharing,
+не к минимальному переиспользованию нашей системы во втором продукте. Она отозвана как
+обязательная стоимость подключения. Shared operator pool не включён в текущий RR scope.
+
+Следующий анализ сохранён как альтернативы, если владелец позднее явно попросит двум
+продуктам использовать одни и те же upstream accounts. Он не является выбранным V1.
 
 Оценки сложности: 10 = сложнее. LOC = новый/изменённый handwritten production code,
 без повторного счёта общих SDK/quotas/UI из §10.
@@ -108,16 +133,17 @@ Foundation остаётся dev-only. Get Modular остаётся static compos
 | 2. Отдельный operator broker process перед неизменным gateway, один custody consumer | 🎯 7/10 🛡️ 8/10 🧠 6/10     |                       550-950 | Те же инварианты, ещё deploy/recovery hop и наблюдаемая availability dependency; оправдан при отдельном operator API/lifecycle            |
 | 3. Разделить execution consumer и canonical account custody в kernel/native contract | 🎯 7/10 🛡️ 9/10 🧠 8/10     |                   1,000-1,900 | Прямой cross-consumer sharing; затрагивает FK, locks, AAD context, callbacks, cleanup, epoch/revoke/readback, шире review и qualification |
 
-Выбран **1**. Два продукта уже реальны, поэтому маленькая caller/use boundary оправдана $q.
+При будущем запросе именно общего физического пула предпочтителен **1**.
+Само наличие второго продукта сейчас оправдывает reusable SDK/service boundary, а не shared pool.
 Generic tenancy platform, per-user Sub2API и новый universal scheduler не нужны.
 Третий путь остаётся возможной эволюцией, когда shared consumer serialization измеренно мешает нагрузке;
 сейчас global fact-budget lock `postgres.ts:90-97` тоже ограничивает пользу раннего lock redesign.
 
-### Контракт adapter, который нельзя заменить общим bearer
+### Отложенный контракт sharing adapter, который нельзя заменить общим bearer
 
-1. Operator canonical accounts остаются **в одном** уже выбранном custody consumer. Если RR accounts
-   уже enrolled под `rr`, это значение можно сохранить как технический namespace; оно не должно
-   означать, что второй backend получает RR authority. Никакого повторного native enrollment или копии credential.
+1. Только явно выбранные operator accounts будущего shared pool остаются в одном custody
+   consumer. Пользовательские RR accounts не передаются второму продукту. Никакого повторного
+   native enrollment, копирования credential или переименования owner ради sharing.
 2. Каждому product backend - отдельный role-specific service credential, fixed origin и allowlist
    безопасных возможностей. Operator account connect/reconnect/disable остаётся только operator role.
 3. Adapter получает `callerProduct` из authenticated configuration, не JSON. Product передаёт своё
@@ -132,16 +158,16 @@ Generic tenancy platform, per-user Sub2API и новый universal scheduler н�
    mapping, native callback/proof и OAuth AAD остаются в том же namespace. Native permit не содержит
    клиентских owner/quota claims и по-прежнему выдаётся единственным kernel claim.
 7. Auth revocation/fence относится к generated use subject, с source revision CAS. Revoke X
-   не отзывает Y. Global disable/reconnect canonical account меняет auth epoch для обоих продуктов.
+   не отзывает Y. Global disable/reconnect влияет только на реально разрешённые uses того же
+   canonical account; при отдельных пулах другого продукта этот account отсутствует.
 8. Перевод IDs не должен стирать attribution: safe audit/usage связывает kernel execution с product
    и его opaque use/run. Prompts и результаты другого продукта не выдаются; kernel/native refs не публичны.
 9. Product не получает canonical management/run-control credential. Execution bearer остаётся на
    backend. Разрешённые профили/caps и grants берутся server-side до каждого создания run.
 
-Это новое gateway use delegation, которое потребуется принять как bounded extension 53 **после**
-first slice. RR WorkspaceAccountBinding остаётся RR authority и не переносится в gateway SQL.
-RR owned BYOK по-прежнему проходит свой существующий путь. Для shared operator use RR adapter
-использует новый вход; текущие OIDC/run/head/App checks остаются перед ним.
+Это необязательное будущее gateway use delegation. Его не требуется принимать или реализовывать
+для текущего RR и второго продукта с отдельным admin pool. RR WorkspaceAccountBinding остаётся
+RR authority; existing account owner/use, saved execution и SDK не переписываются.
 
 ## 5. Квота V1 и граница с биллингом
 
@@ -195,7 +221,7 @@ Payment webhook/debit adjustment idempotency использовать из фа�
    product user run-concurrency. Клиент может попросить меньший budget; повысить серверный budget не может.
 2. Product DB transaction фиксирует period/price version, `N` и reservation, original intent,
    stable operation, source invocation/attempt. Concurrent devices не резервируют последний credit дважды.
-3. После commit backend вызывает operator adapter одним stable operation. Он создаёт/readbacks существующий
+3. После commit backend вызывает gateway через существующий SDK одним stable operation. Он создаёт/readbacks существующий
    gateway execution и возвращает тот же original tuple. Потерянный prepare ACK не создаёт второй run.
 4. Product фиксирует selected tuple через CAS, проверяет live authority ещё раз, затем выдаёт короткую
    opaque **product relay run capability**. Native execution bearer остаётся только backend.
@@ -243,18 +269,18 @@ unknown fencing между executions. Для произвольного кли�
 | Offline client / tool выполняется долго        | Inference недоступен без сети; capability deadline серверная, offline queue/replay отсутствует. Здоровый tool loop не держит account occupancy между HTTP calls                                                           |
 | Local retry / replay / multiagent              | Gateway request ID + exact intent replay protection; all run calls share invocation/attempt. User quota и concurrent run counter общие для устройств. Новый ID не снимает unknown fence                                   |
 | Ручное копирование proxy capability            | Владелец машины может его читать и использовать. Все его calls всё равно ограничены saved profile/caps/run budget; device label и env scrub не доказывают секретность                                                     |
-| User/device revoke                             | Product denies новые calls немедленно; run close/fence ACK tracked до applied. Уже admitted effect не отменяется. User suspend закрывает все его run; account disable охватывает оба продукта                             |
+| User/device revoke                             | Product denies новые calls немедленно; run close/fence ACK tracked до applied. Уже admitted effect не отменяется. User suspend закрывает все его run; account disable охватывает uses этого account только в его продукте |
 | Plan downgrade / upgrade                       | Server entitlement revision CAS. Уже reserved runs сохраняют pinned caps до срока либо явно revoke по принятой policy; новые runs считают новый limit. Downgrade ниже consumed даёт remaining0, не negative spend rewrite |
 | Period reset / boundary race                   | Period выбирается server transaction time. Старый reservation и settlement остаются в старом immutable period. Новый период - новая строка; reset не обнуляет in-flight reservations                                      |
 | Last credits / concurrent checkout             | Один quota-row lock; checked arithmetic; reservation + run record atomically. Overdraft запрещён. HTTP outcome не меняет limit                                                                                            |
-| Operator account reconnect                     | Один canonical reconnect повышает epoch; оба продукта deny stale tuple. Credentials не копируются, user entitlement остаётся отдельным                                                                                    |
-| X revoke, Y active, два consumer               | Generated caller/use-scoped IDs и reads; X fence не влияет на Y, global account fence влияет на обоих. Одна physical account capacity во всех uses                                                                        |
+| Operator account reconnect                     | Один canonical reconnect повышает epoch; все его users/runs deny stale tuple. Пул другого продукта не меняется, user entitlement остаётся отдельным |
+| X revoke, Y active, один operator pool          | Use-scoped IDs и reads; X fence не влияет на Y, global account fence влияет на всех uses этого account. Одна physical account capacity внутри пула |
 | Prompt injection / malicious local tool        | Upstream master/admin отсутствуют; proxy grant доступен authorized local code. Не обещать предотвращение вывода/контекста exfiltration самим агентом                                                                      |
 | Saturation                                     | Reject admission до claim, не вытеснять unresolved receipts/fences. Клиент видит busy/quota/pending cleanup reason. Weighted fairness/queues отложены                                                                     |
 
 В V1 profile switching требует нового явно созданного run. Shared user quota ограничивает его независимо
-от устройства/количества local agents. Одновременная модельная fairness между RR и desktop остаётся без
-guaranteed SLA; при подтверждённом starvation добавить маленький product admission share, не framework.
+от устройства/количества local agents. Fairness пользователей второго продукта остаётся без
+guaranteed SLA; при подтверждённом starvation добавить маленький user admission share, не framework.
 
 **Session vs run capability:** device/user session можно штатно refresh и отозвать; она лишь разрешает
 запросить новый budget. Refresh не продлевает существующую gateway execution, auth epoch или approved deadline.
@@ -264,7 +290,7 @@ Credential store/Keychain защищает от случайного утека�
 Backend session proof подтверждает человека/устройство, GitHub OIDC подтверждает workflow/run;
 оба переводятся в один trusted saved execution после своей product policy.
 
-**Memory/lifecycle:** один shared Node/Go unit, ни engine на user, ни процесс на inference run.
+**Memory/lifecycle:** один Node/Go unit на продукт, ни engine на user, ни процесс на inference run.
 Запросы/SSE/buffers bounded по 53; local runtime не добавляет второй agent engine. Run bearer cache
 не ledger: добавить bounded eviction только expired/closed/revoked authority, с kernel denial сохранённым.
 Pending/native receipts остаются до ACK. Перезапуск remints только execution access к исходному saved tuple
@@ -333,24 +359,24 @@ Read-only source `777genius/agent-teams-ai` local HEAD `07e7d8e0d44f4a3999e2693d
 ## 10. Implementation-ready последовательность и стоимость
 
 Все оценки - дополнительные handwritten changed LOC от текущих accepted foundations, без переносимых
-неизменённых строк, generated Wire/Prisma, lockfiles, документов и fixtures. Confidence total **5/10**:
+неизменённых строк, generated Wire/Prisma, lockfiles, документов и fixtures. Confidence total **4/10**:
 точный backend второго продукта и payment/session authority ещё не выбраны. Это диапазон, не потолок.
+После уточнения владельца исключены обязательные shared-pool adapter, multi-product composition и
+RR operator bridge. Оставшийся диапазон ниже - пересчёт прежней инженерной оценки, не новый LOC audit.
 
 | Этап / ownership                                                     | Конкретный результат                                                                                                              |  Production LOC |        Test LOC |
 | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------: | --------------: |
 | **NOW: main docs coordinator**                                       | Review54, ссылка52; сохранить sole53; никакой second-consumer реализации в текущем E2E                                            |           **0** |           **0** |
-| L1: gateway TS operator use adapter                                  | Caller credentials/mappings, product-scoped run/read/close/fence, canonical shared custody                                        |         350-650 |         300-500 |
-| L1: gateway service composition                                      | Один custody consumer + authenticated logical caller entries; separate operator/control roles                                     |         100-180 |         120-200 |
-| L1: SDK server capability                                            | Вынести existing RR run-access wire/client в один server-only SDK export; operator use mapping fields только после freeze schemas |         100-180 |         100-180 |
+| L1: отдельный deployment existing service                            | Те же implementation/образы, собственные consumer/секреты/данные; configuration в отдельной оценке ниже                            |               0 |               0 |
+| L1: SDK server capability                                            | Переиспользовать existing run-access wire/client в server-only SDK; только недостающие safe capabilities после freeze schemas        |         100-180 |         100-180 |
 | L1: kernel final allowance readback                                  | Closed admission + immutable spentRequests + occupancy; небольшой additive SQL/DTO, claim semantics не меняются                   |          60-120 |         100-170 |
 | L1: facade lifecycle                                                 | Bounded expired/closed authority eviction, no unresolved evidence eviction                                                        |          60-110 |          80-130 |
-| L1: RR operator bridge                                               | Только shared S use через operator adapter; original live RR authority/binding/head остаётся                                      |          80-160 |          80-150 |
 | L2: Agent Teams backend quota                                        | Atomic user/period reservation, run CAS, final settlement/recovery, plan event idempotency                                        |       650-1,000 |         550-850 |
 | L2: Agent Teams backend session/run                                  | Existing user/device auth adapter, issuance/revoke/status, user concurrent-run bound                                              |       600-1,000 |         400-700 |
 | L2: public Responses relay                                           | Server catalog/policy, stable saved envelope, bounded SSE/cancel, no native/master access                                         |         200-400 |         200-350 |
 | L3: local provider adapter                                           | Existing Codex/custom provider seams, run capability lifecycle, retry0; bounded OpenCode protocol selection                       |         150-300 |         150-250 |
 | L3: product safe UI                                                  | Plan credits/held/spent, profile, device/run revoke, busy/unknown cleanup status                                                  |         100-250 |         100-180 |
-| **Итого выбранный Responses V1 при existing auth/payment authority** | **Один полноценный второй consumer; Claude/Chat не включены**                                                                     | **2,450-4,350** | **2,180-3,660** |
+| **Итого выбранный Responses V1 при existing auth/payment authority** | **Второй продукт с отдельным admin pool; Claude/Chat и межпродуктовый sharing не включены**                                         | **1,920-3,360** | **1,680-2,810** |
 | Если auth/payment backend ещё отсутствует                            | Минимальный accepted session/payment adapter prerequisite, отдельно bounded scope                                                 |      +800-1,600 |        +400-800 |
 
 Отдельные config/SQL изменения оценивать после frozen wire и выбранного backend; ориентир 150-350 LOC,
@@ -358,7 +384,7 @@ Read-only source `777genius/agent-teams-ai` local HEAD `07e7d8e0d44f4a3999e2693d
 schema authority, не новый retry/HTTP stack. Исторический RR private client может содержать дополнительные
 qualified limits; перенос сохраняет их поведение и identity receipt.
 
-**Порядок PR:** L1 adapter+composition после завершения текущего RR slice; SDK/readback как bounded
+**Порядок PR:** L1 отдельная service configuration после завершения текущего RR slice; SDK/readback как bounded
 зависимости, затем L2 quota+server auth vertical slice, затем L3 один реальный local Responses agent.
 Цель примерно до2000 changed LOC на coherent PR; общий invariant не разрезать ради количества.
 Каждый PR имеет exact source review/CI и ближайший meaningful gate. Следующий этап использует accepted
@@ -369,9 +395,11 @@ receipts неизменённых kernel/native paths; requalification нужн�
 
 Новые tests добавляются для конкретной поломки, каждый на ближайшей сильной границе:
 
-1. **Operator adapter + real SQL/controlled native:** одновременно RR и desktop берут один account/cap1;
-   один admitted transport, другой busy. Wrong product run/read/fence denied. X revoke/Y active;
-   reconnect denies stale обоих. Красным делает duplicate pool/caller collision/mis-scoped revoke.
+1. **Product policy + real SQL/controlled native:** два пользователя второго продукта берут один
+   operator account/cap1; один admitted transport, другой busy. Чужой user run/read/revoke denied.
+   X revoke/Y active; reconnect denies stale всех его uses. Account connect/reconnect/disable
+   доступен только admin. RR user-owned accounts отсутствуют в каталоге/данных второго deployment.
+   Красным делает неверная ownership policy, duplicate account capacity или mis-scoped revoke.
 2. **Product DB concurrency:** два устройства расходуют последний budget, duplicate start и смена
    period/plan racing reservation. Exactly one permitted reservation, original period retained,
    charged/reserved не отрицательны. Красным делает overspend или двойное credit award.
@@ -390,10 +418,10 @@ custody, launcher, OIDC/App evidence остаются собственными g
 
 | Решение / timing                                             |                                                      Цена сейчас | Цена позднее / что затронет                                                                                                                         |
 | ------------------------------------------------------------ | ---------------------------------------------------------------: | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Назвать caller/use/quota/account owner границы документально |                                                 0 production LOC | Adapter L1 стоимость та же; не нужна переделка current E2E                                                                                          |
-| Не копировать operator account между consumers               |                                                 0 production LOC | L1 создаёт grants к existing canonical account; без credential/history migration                                                                    |
+| Назвать use/quota/account owner границы документально         |                                                 0 production LOC | Existing SDK/service reuse; не нужна переделка current E2E |
+| Разделить пользовательские RR accounts и второй admin pool    |                                                 0 production LOC | Отдельная service configuration и canonical operator accounts; без переноса RR credential/history |
 | Сохранить stable full envelope и no-retry                    |                                                          Уже в53 | Reuse; любые изменения только нового caller adapter/client configuration                                                                            |
-| Добавить L1 до второго consumer                              |                           750-1,400 production / 780-1,330 tests | Если пропустить и вручную раздвоить pool: estimate +300-700 cleanup/reconnect integration, evidence старых неизвестных эффектов всё равно сохранить |
+| Shared-pool adapter между продуктами                         |                                                         Отложено | Только при новом явном запросе на одни и те же upstream accounts; альтернативные оценки §4, не prerequisite второго продукта |
 | После request credits перейти на token credits               | Сейчас только поля pinned unit/weight version внутри product run | +800-1,500 production / +600-1,100 tests; отдельный usage receipt path, provider pricing; не переписывает старые ledger periods                     |
 | После request credits перейти на money wallet                |         Сейчас payment events/plan entitlement только в продукте | +1,200-2,200 production / +900-1,600 tests; payout/refund rules отдельно, без изменения native claim/closure                                        |
 | Реальное cross-consumer custody split при нагрузке           |                                                         Отложено | +1,000-1,900 production и +900-1,600 tests; review FK/native context/cleanup/AAD, без обещания live credential migration                            |
@@ -402,18 +430,23 @@ Later increments - engineering forecasts confidence **4/10**, не автома�
 альтернативам §5 и не денежная оценка. Нулевой NOW production delta означает отсутствующую новую
 реализацию, а не бесплатную готовность второго продукта.
 
-**DEFERRED:** BYOK клиентов, персональные cross-org shares H, exact token/USD billing, общий user quota
+**DEFERRED для второго продукта:** межпродуктовый общий upstream pool, BYOK клиентов второго продукта, exact token/USD billing, общий user quota
 между разными продуктами, protocol translation, Claude/Chat, multimodal/media billing, automatic account
 backup, dynamic plugin host, fair scheduler/queue, offline inference, grandfathered credential migration.
 Один global upstream capacity не означает один global user wallet. Если позже нужен общий wallet,
 его authority надо явно выбрать; две независимые product DB не обеспечат его атомарно.
+
+Личный каталог RR с прикреплением к нескольким организациям теперь разрешён
+владельцем как отдельный параллельный lane H. Его подробный план проходит два
+независимых xhigh-ревью перед реализацией. Это не добавляет общий пул между
+продуктами и не расширяет scope этого второго продукта.
 
 **Решения до второго implementation packet, без вопросов пользователю сейчас:**
 
 - Выбрать authoritative Agent Teams backend/user IDs и существующий session/payment adapter.
 - Принять request credits wording/cap bands; до этого использовать рабочее предположение §5.
 - Выбрать коммерчески разрешённый provider supply/profile; наличие engine OAuth support недостаточно.
-- Freeze minimal operator caller/use/run wire и safe final allowance snapshot в SDK authority.
+- Freeze только недостающий safe final allowance snapshot в existing SDK authority; не добавлять multi-product operator wire без реального запроса.
 - Принять policy для plan downgrade: по умолчанию existing pinned runs до deadline, explicit revoke при suspension.
 
 🔒 Незатронутые инварианты: sole durable claim, exact saved envelope/deadline, no inference replay,
@@ -441,6 +474,6 @@ GitHub прочитан только `gh` CLI; public source snapshots сохр�
   [Claude Code gateway boundary](https://code.claude.com/docs/en/llm-gateway).
 - Provider contract/license primary links стоят рядом с соответствующими фактическими ограничениями §9.
 
-📌 **Результат:** сохраняем current RR delivery, затем переиспользуем тот же kernel/native/SDK через
-маленькую operator caller/use boundary. Plans/auth/quota остаются в Agent Teams. Первый paid consumer
-имеет bounded run/request credits и qualified Responses, без duplicate upstream pool или второго billing authority.
+📌 **Результат:** RR сохраняет пользовательские/рабочие accounts. Второй продукт получает свой
+единый admin pool, используя тот же код kernel/native, SDK и service images в отдельном deployment.
+Plans/auth/quota остаются в его backend. Межпродуктовое объединение accounts не требуется.

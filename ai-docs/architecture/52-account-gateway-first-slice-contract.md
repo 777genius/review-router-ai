@@ -55,7 +55,58 @@ Reuse existing disposable repositories after fresh App/permission inspection:
 Both were freshly read through `gh` as unarchived E2E sandboxes on 2026-10-02.
 No inference, workflow dispatch or repository mutation occurred in this review.
 
-## Current primary evidence - 2026-10-03
+## Current primary evidence - 2026-10-04
+
+### 2026-10-05 delivery continuation
+
+- Accounts PR500 is merged into integration PR490 at `9e3a1360`, preserving its
+  reviewed checkpoints. Full current CI `37294738338` passed. Independent P72
+  approved production; the final `0c1a11dd` changed handoff whitespace only.
+  This is an integration-branch checkpoint, not production deployment.
+- Action PR241 current `cfbac4d7` passed full CI `37296954336` and independent
+  P79 source review. Meaningful types/build/artifact metadata passed; the two
+  nearest suites passed 84/84, zero skips, including nine actual HTTP/process
+  lifecycle cases. Three SCM cancellation probes fail under mechanically
+  extracted old constructor/hook/sleep behavior and pass current source; this
+  comparison is not a full old-checkout run. Full provider/App E2E is unproved.
+- Server runtime-config PR502 `136cafcd` passed independent P80 source review,
+  meaningful feature types/lint/format and 99/99 nearest tests, zero skips.
+  Old production rejects the new valid saved-gateway acceptance scenario.
+  Current full CI remains pending. The allowed workflow path issues no run
+  capability and cannot replace OIDC, binding or executable release checks.
+- P78 keyless Action workflow and P81 generated server caller are isolated
+  hosted writers on account-v, `gpt-6.1-sol/high/default`, without fast mode.
+  Their output has not yet been accepted. D-min/D-final/S/E/F/G remain required;
+  H sharing remains deferred. No release is published.
+
+- The SDK remains 341 physical TypeScript lines. Accepted package/kernel/native/
+  Node/RR ownership/config foundations do not imply product E2E completion.
+- Native bootstrap/closure is accepted at `045c24ce`; the independently reviewed
+  CI-only SKIP-guard correction is merged at `0a88c37f`. Production Go is unchanged
+  between qualified source `7253363a` and that correction's merge tree.
+- Gateway transport/authority PR8 is merged at `b7948792`. Actual native Responses
+  Go/Node/PostgreSQL assembly source `5faa7702` passed controlled qualification:
+  1/1, zero skips, encrypted create/readback/erasure, two requests in the SAME OPEN
+  execution at concurrency one, authenticated physical-close ACK, wrong-role denial
+  and exact launcher retirement. Independent source APPROVE and current CI passed;
+  PR9 is merged at `da8b8030` with the same tree. This upstream is controlled,
+  not a real Codex/MiMo/OIDC/parser/App publication receipt.
+- RR C2b source `daf0141b` has independent source APPROVE and current CI success;
+  PR495 is merged into the integration stack at `4540552f`, preserving ancestry
+  and tree. Actual effort preservation: BEFORE 27/28 with one failure, AFTER
+  28/28 without skips; web typecheck passed. Guarded private PG16-to-PG17 rehearsal
+  was SKIPPED, not accepted as passed.
+- Live backend App credential/HTTP component qualification on 2026-10-04 used the
+  production `@octokit/app@16.1.2` dependency and strict typecheck. App `3586778`
+  authenticated; both listed E2E repositories have active installation `130833075`
+  with PR/issue write permission. Zero installation tokens, dispatches, repository
+  writes or model requests. The earlier helper's JWT via GH_TOKEN HTTP401 was a
+  diagnostic auth-scheme error, not evidence of an invalid private key.
+- D-min remains unqualified: actual T0/OIDC, agent tools, nonempty parsed final
+  review and same-approved-head App publication are still required. D-final/S/E/F/G
+  remain required; H sharing is deferred. Full goal remains active, no release.
+
+## Historical primary evidence - 2026-10-03
 
 - Native W5 raw guard6008eaa5, main-qualified postformat patch7be954dc and owner ef36a8a9:
   four pinned Go suites PASS; same new tests fail behavior on oldfa16 with successful compilation.
@@ -72,7 +123,7 @@ No inference, workflow dispatch or repository mutation occurred in this review.
 - Root490 remains draft; all product/D acceptance scenarios remain unqualified.
   No provider key, auth bytes, inference, deployment or legacy retirement occurred here.
 
-## Current gate interpretation
+## Historical gate interpretation - 2026-10-03
 
 A/package-static graph is accepted source/installed-artifact evidence; no new
 product scenario is marked PASS. Merged kernel1ea is a private foundation.
@@ -142,6 +193,13 @@ PostgreSQL 17.10, numbered SQL migrations and pg/@types/pg 8.23.1, verified from
 the registry. No ORM or shared RR writes. The domain owns account/effect policy;
 the PostgreSQL adapter owns atomic claims, CAS and durable cleanup. Real parallel
 connection tests are required before acceptance; the choice alone is not proof.
+
+Deployment clarification: the dedicated persistence boundary does not require
+a separate PostgreSQL server. Reuse one shared PostgreSQL instance; do not create
+a database per worker, user or workspace. Use a separate logical test database
+only when an empty-schema or destructive test would otherwise interfere with
+another run. Reuse populated fixtures for continuation; do not reset or replay
+their migrations. There is no legacy user-data migration requirement for this MVP.
 
 Native B candidate uses opt-in private `RegisterGatewayNativeRoutes`, an
 immutable native UUID/generation and creation identity, plus a fresh exact-row
@@ -391,3 +449,248 @@ license/distribution support is still a release gate, not legal approval.
 Historical C inspection source: `f0c18bf7759c030f311cf21050d6a61718e9dcd4`
 (2026-10-03); its schema/catalog/config source comparison matched earlier99f5e97c.
 This retains the original full identifier, not a fresh HEAD observation.
+
+#### Second-consumer architecture research, 2026-10-06
+
+Independent `gpt-6.1-sol/xhigh` research is recorded in
+[plan 54](./54-account-gateway-second-consumer-and-quota-plan.md).
+Owner clarification: RR retains user/workspace-owned accounts; the second
+product has a separate administrator-owned pool. Reuse covers service code,
+images and SDK, not upstream accounts or cross-product grants. Separate service
+configuration is the initial path; a shared-pool adapter is deferred. The second
+product owns user/device authentication and quota reservations. Request
+credits remain a proposal, not an accepted billing unit. This is a follow-up
+after the current RR slice: no runtime or product gate is qualified, and contract
+53 plus the RR provider/tools/final/App critical path remain unchanged.
+
+#### Actual execution update, 2026-10-06 14:50 UTC
+
+- RR PR512 merged as `9322ca52a971b8e766450c4ad715c7f4adbb0c2a` into the
+  integration branch. Merge preserves parents `589a9700` and `d94f938d`,
+  independently reviewed source checkpoints, owner identity and `Refs #490`.
+  Current CI `37474111598` passed all six applicable jobs. This is an
+  integration checkpoint, not provider or production acceptance.
+- Native PR21 merged as `ad74e5318a6cafb7cfbe61e83176f34b13f853d1` after
+  current CI and the real populated-PG SQL247 provider-profile rollback case.
+  No production migration or provider inference follows from that proof.
+- Action PR241 head `cac00289fdadc6e10a59ff4193967324d682a749` has independent
+  xhigh PASS and current CI `37480158659` SUCCESS. The sole whole-PR finding,
+  inconsistent MiMo reasoning effort in runtime/manifest identity, is fixed.
+  One new ready-event canary `37481750236` is queued for disposable PR3 at
+  approved head `47b30f3401ce3a505584116d95dd14a7c5731825`. Its original
+  witness is configured under fresh nonce `d7fc4b1d-c0a6-4773-be3e-7e3953dcf7b1`;
+  producer `rr-dmin-mimo-effort-cac-oct6` received an actual registration ACK.
+  Old witness retired with typed ACK and exit0. No new tools/final/App receipt
+  exists yet; old CodeRabbit/App comments cannot qualify this canary.
+- ROOT service fixture nonce `60f74746e89fc589464a35dceb8216c9` passed source,
+  SDK and canonical Go bridge compilation, then failed before creating its
+  database pair. Read-only same-PG diagnosis proved PostgreSQL's address text
+  is `127.0.0.1/32`; `host(inet_server_addr())` yields the expected
+  `127.0.0.1`. Only the two address projections are being repaired. The failed
+  nonce and compiler output remain retained; no migration/test PASS is claimed.
+- Full UI public closure now has genuine distribution bytes built from locked
+  upstream commit `83a7329f4383b05ac5c39356b79f82f029182d42`, with independently
+  accepted helper delta `53fd83f3`. Actual ROOT preparation and browser flow
+  remain pending. OAuth refresh source candidates are frozen for independent
+  review; composed operator-pool tests are repairing premature-closure
+  observation and unsafe fixture deletion findings.
+
+Full profile-specific tools + nonempty final + same-head App qualification
+remains **0/3**. Norm53 is unchanged; D-final, S, E, F and G remain required.
+
+#### Actual execution update, 2026-10-06 15:20 UTC
+
+- Canary `37481750236` at approved `47b30f34` actually ran Codex, then failed
+  on HTTP502. App bot `reviewrouter-local-777genius[bot]` published the failed
+  advisory `6019123928` and an error status for that same head. No tools/final
+  qualification follows. Gateway close readback was UNKNOWN; no inference
+  replay has been issued. Read-only current-DSN binding matched the live service
+  to the inspected kernel, which contained zero executions/requests/occupancy;
+  exact failure-layer and closure classification remain under investigation.
+- Gateway PR18 merged as `1d62e5ef89caabd6217eb5daf73ec6d7b9e6da4b` with accepted
+  source and current CI. Its tiny test-import repair subsequently received the
+  required independent xhigh PASS, report SHA256
+  `0bf517110e3afa09c5f03662b63006819d409b0bd8e5aadd8d5c82b1531619bb`.
+  This does not qualify the composed S scenario.
+- TS refresh `0d91f094` received independent xhigh source PASS. Native refresh
+  fixture repair `65df7101` received xhigh PASS after using the actual descriptor
+  qualification proof. Actual credential-free native repository and service
+  compilation passed; bootstrap compilation failed on a test-local identifier
+  collision. Only that collision is being repaired; actual PG refresh remains
+  pending and product OAuth is not qualified.
+- UI ROOT preparation materialized its dependency closure, then failed at final
+  module resolution: CommonJS resolution rejected import-only and CLI package
+  entry points. Read-only Node24 ESM/actual-CLI resolution proved the finite
+  existing dependency set; a bounded resolver correction is under review.
+  No full browser flow or private UI/provider acceptance is claimed.
+- The ROOT service fixture address correction is source-reviewed. Before a new
+  execution, a second exact pin issue was caught by a real read-only PG query:
+  `server_version` contains a Debian suffix, while `server_version_num` is exactly
+  `170010`. The bridge guard is being changed to that exact numeric pin, without
+  widening the accepted PostgreSQL version or creating another fixture yet.
+
+Full provider tools/final/App qualification remains **0/3**. These source and
+controlled-test checkpoints keep the full goal active; no production deploy,
+release, legacy retirement or second-consumer implementation is implied.
+
+#### Actual execution update, 2026-10-06 15:30 UTC
+
+- Trusted PRIMARY qualification of native refresh `65df7101` actually passed
+  at 15:23:40 on existing populated F4 PostgreSQL, with the isolated refresh
+  case and controlled signed-HTTP containment case. No skip, database creation,
+  migration replay or paid provider call occurred. Original-attempt/lost-ACK,
+  no-second-entry and held-COMMIT assertions ran; source remained frozen.
+- TS refresh composed `144d862f` / tree `60d39b11` passed all three selected
+  real-PG/HTTP F-refresh cases, with zero failed/skipped/cancelled tests. They
+  proved transaction release before callback, current generation, and grant
+  replacement during a real SQL wait. Public PRIMARY projection is retained
+  at `/tmp/rr-ts-refresh-pg-primary-receipt-oct6.json`; existing rows remained.
+- MiMo pre-preparation failure now has a concrete policy mismatch: the approved
+  authorization deadline spans six hours, but the actual run-control grant
+  permits one hour. At CLI entry the remaining deadline exceeded the grant by
+  17,972,545 ms. Current source rejects this before kernel preparation; no
+  successful prepared session explains the UNKNOWN close result. The old
+  captured authorization is immutable and revoked; new server deadline policy
+  is being aligned before a fresh capture. No old inference was replayed.
+- Owner corrected second-consumer scope: RR user/workspace accounts and the
+  second product's administrator-owned accounts stay in separate pools. Reuse
+  is the SDK, service implementation and images, initially separate product
+  deployments. The 350-650 LOC shared-pool adapter is optional deferred scope,
+  not a prerequisite. Corrected54 consistency was independently read and checked.
+
+Native/TS controlled refresh PASS is not live protected OAuth qualification.
+Full provider tools/final/App remains **0/3**, with D-final/S/E/F/G unfinished.
+
+#### Actual execution update, 2026-10-06 15:55 UTC
+
+- Native refresh bootstrap `a0f21a07` passed the two existing controlled HTTP
+  cases after the test-only identifier correction. Native refresh PR22 is
+  separately under current-head CI and independent review of its lint-only
+  correction; controlled refresh evidence does not establish live OAuth E2E.
+- PRIMARY ROOT service fixture `89eec684`, nonce
+  `bd55d00490fc4b22be859d91496c79f6`, passed source/bridge/migration preparation
+  then failed the real lifecycle test after 31.6 seconds. Retained SQL readback
+  shows cleanup done, old occupancy released and `effect_unknown` preserved.
+  Those facts do not make the whole fixture PASS. Diagnosis is checking the
+  saved fenced-session remint assertion against the facade admission guard;
+  no production repair or provider replay is qualified by that diagnosis.
+- PRIMARY public UI closure preparation actually passed with resolver candidate
+  `c76436f1` and the required Node ESM resolver flag. The previous partial and
+  all 28 module directories were retained before placement. This is dependency
+  preparation, not browser interaction, private product UI or provider E2E.
+
+Full provider tools/nonempty final/same-head App qualification remains **0/3**.
+Owner pool clarification remains in corrected54; no shared upstream pool or
+second-product implementation was added to this RR scope.
+
+
+#### Actual execution update, 2026-10-06 16:35 UTC
+
+- Native refresh PR22 merged as `1fc9840b69b9e5076c51c1c9c9824e1c198dea9d`
+  after accepted independent review and current CI. The ordinary
+  `cmd/account-gateway` daemon was actually built from accepted source
+  `32a7014edd422be4ad81875288ad1139eabfcb03`, whose tree equals the merge.
+  ELF SHA256 `1fb04340e90bb31e332631c7842fa7e43dd05d4c13b0a66ffeb2d08d23df9e8a`;
+  build1823 exited 0. This is a normal daemon artifact, not a test binary,
+  and no new daemon/provider execution follows from the build.
+- Gateway PR21 fenced-original readback first candidate received independent
+  REQUEST_CHANGES: restored issuer eligibility, a fabricated fixture close
+  transition, and an existing SQL regression expectation. The three-path
+  repair is active; existing failures and old effect facts remain retained.
+  Gateway PR20 current CI passed, but its concrete shutdown/refresh race
+  finding is being fixed before merge. Neither component is declared ready.
+- Authorization deadline correction passed 13 nearest cases and actual API
+  typecheck, retaining old six-hour and tiny-max RED evidence. Independent
+  current-source review is active; no fresh paid canary has been launched.
+- [Research55](./55-account-ui-reuse-and-personal-sharing-review.md) recommends
+  finishing the existing RR React UI. The general Sub2API Vue admin panel
+  uses engine-admin authority and does not supply RR workspace authorization
+  or serve protected gateway accounts. Personal-catalog/org attachment stays
+  the explicit H follow-up; provider source forms do not prove runtime support.
+  The research created documentation only, not another UI implementation.
+
+Full tools + nonempty final + approved-head App publication remains **0/3**.
+No production deploy/release, shared cross-product pool, or H implementation
+is implied. Native macOS notification for completed research was submitted
+once; actual visible banner delivery was not independently observed.
+
+
+#### Owner sharing scope update, 2026-10-06
+
+The owner now authorizes a separate parallel personal-account organization
+sharing lane H. First deliver a detailed q-based plan, independently reviewed
+in two gpt-6.1-sol/xhigh rounds with findings corrected, then implement in its
+own bounded PRs. Canonical user-owned accounts may be attached to several
+organizations; rename/reauthorization updates the canonical source, not copies.
+This extends the previously deferred H work explicitly. It does not silently
+change Norm53, delay the existing D/S/E/F/G acceptance, or merge RR accounts
+with the separate second-product administrator pool. Planning starts from
+current source9322, with documentation owned by its separate coordinator.
+
+#### Actual execution update, 2026-10-06 17:47 UTC
+
+- Gateway PR21 merged as `e7a09cb5cc3ece67c4fad453b8bfdf8db58802ed`
+  after all three independent findings were corrected, current CI passed,
+  and final delta review accepted. Saved fenced-session readback preserves
+  original authority; restored issuer eligibility is checked again before
+  a capability is returned. Admission remains denied for fenced sessions.
+- Gateway PR20 merged as `363e4d426ffc5a7bb7dd9b0c8d76dbbd9dd7002f`,
+  retaining parent e7 and independently accepted source e2aac3. The new
+  shutdown regression actually failed against old production on retained
+  PostgreSQL/controlled HTTP (five requests instead of four) and passed
+  against the repair, including real SQL lock-release assertion. No new
+  database, migration replay or paid inference was needed. Current six
+  checks passed and the review thread was resolved before merge.
+- D PRIMARY nonce `7e5c4078c5b9eb1725680fdab7eb8bad` failed during
+  `native_canonical_migration_build`: compiler stderr explicitly reports
+  `no space left on device`. This is not a lifecycle-test failure or a
+  timeout diagnosis. The owned build scope exited; artifacts and logs remain
+  retained. Database presence has not been read. A minimal helper repair
+  is being prepared to make the migration bridge independent of embedded
+  database names/connection targets and reusable by exact source/artifact pins.
+  Source inspection confirms that its historical DSN is passwordless; the
+  blocker is the fixed old database target, not an embedded password.
+- S preparer is receiving the three concrete source-review repairs: manifest
+  authentication of the native archive, executable dependency custody, and
+  a bounded temporary HTTPS enrollment peer. Its composed real SQL test
+  remains unchanged and has not run. The E six-file fixture passed eleven
+  nearest cases/typecheck/format checks; independent full-source review is
+  actually running. Neither fact qualifies live provider E2E.
+- H remains plan-only. The dedicated planner is actually running through
+  account u with gpt-6.1-sol/xhigh and default service tier. Two independent
+  review rounds and corrections remain required before implementation.
+
+Full provider tools + nonempty final + same-head App publication stays **0/3**.
+No production deployment, release or legacy retirement follows from these
+source and controlled regression checkpoints.
+
+#### Current execution checkpoint, 2026-10-06 18:30 UTC
+
+- RR PR513 merged as `90472623e8857d28d97cc4cbfa2a6e0507c92039` after
+  independent source review and all six applicable current-head CI jobs passed.
+  Its tree equals qualified `6decf911`; merge preserves the integration ancestry.
+  Optional `REVIEW_ROUTER_REVIEW_V2_MAX_AUTHORIZATION_LIFETIME_MS=3600000`
+  applies before a new authorization capture. Previous captures are immutable;
+  no new provider attempt or runtime update has occurred.
+- D retained read-only database-catalog check found neither database of failed
+  nonce `7e5c4078c5b9eb1725680fdab7eb8bad`. The reusable migration helper's first
+  review requires two repairs: verify dependencies before public compilation,
+  and prove compiler/process closure before publishing artifacts. Neither
+  public compilation nor another ROOT SQL fixture is approved yet.
+- S source repair passed types but review found that plain Node cannot load
+  the unchanged Vitest/source-import graph. A single authenticated recipe
+  using existing Vitest/Vite dependencies is being prepared; no new test matrix
+  or database is required. Full composed S acceptance remains pending.
+- E management-profile capability preserves existing unrestricted RR callers
+  and can restrict a fixture token to OpenRouter before account effects.
+  The nearest HTTP case genuinely failed against old production, then passed
+  with the repair; exact source review is active. Current-source fixture
+  initialization is also being repaired to reject unsupported historical
+  closures before protected writes. Live OpenRouter acceptance remains pending.
+- H first plan exceeded the requested core scope. Its original draft is
+  retained; the same xhigh planner is separating required sharing from optional
+  lifecycle/platform features. Two independent xhigh reviews and corrections
+  remain mandatory before its separate plan PR and implementation.
+
+Full provider tools, nonempty final and approved-head App publication: **0/3**.
+Norm53 is unchanged; no production deployment or release is qualified here.
