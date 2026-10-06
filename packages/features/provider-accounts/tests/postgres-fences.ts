@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import type { AuthenticatedPrincipal } from "../../auth/src/domain/authenticated-principal";
+import { PrismaWorkspaceMembershipRepository } from "../../auth/src/infrastructure/prisma/prisma-workspace-membership-repository";
+import { PrismaInstallationWorkspaceOwnerGrant } from "../../github-installations/src/infrastructure/prisma/prisma-installation-workspace-owner-grant";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { TestContext } from "node:test";
@@ -30,6 +34,405 @@ const denied = (code: string) => (e: unknown) =>
 const sqlCode = (code: string) => (e: unknown) =>
   typeof e === "object" && e !== null && "code" in e && e.code === code;
 
+// Accept only the existing disposable fixture's clients and persisted actor.
+// Separately callable on its pre-migrated store: no migration/role/bootstrap work.
+export async function runPersonalWorkspaceIdentityPostgresTests(
+  t: TestContext,
+  context: {
+    db: PrismaClient;
+    secondDb: PrismaClient;
+    sql: Client;
+    actor: WorkspaceAccountActor;
+  },
+) {
+  const { db, secondDb, sql, actor } = context;
+  const mirror = new PrismaProviderAccountSynchronization(db);
+  // RED: two external principals of one User provision two scopes, adopt a
+  // legacy gh-user scope, or concurrent provisioning leaves an orphan P.
+  await t.test(
+    "stable User provisioning is atomic across external identities",
+    async () => {
+      const suffix = randomUUID();
+      const userId = `identity-${suffix}`;
+      const legacyId = `legacy-${suffix}`;
+      const legacySlug = `gh-user-${suffix}`;
+      const connectionId = `legacy-source-${suffix}`;
+      await db.user.create({ data: { id: userId } });
+      await db.userExternalIdentity.createMany({
+        data: [
+          {
+            userId,
+            provider: "github",
+            externalUserId: suffix,
+            login: "first-label",
+          },
+          {
+            userId,
+            provider: "gitlab",
+            externalUserId: `different-${suffix}`,
+            login: "second-label",
+          },
+        ],
+      });
+      const legacy = await db.workspace.create({
+        data: {
+          id: legacyId,
+          slug: legacySlug,
+          name: "Legacy remains independent",
+        },
+      });
+      await mirror.recordWorkspaceConnection({
+        id: connectionId,
+        workspaceId: legacyId,
+        gatewayAccountRef: `legacy-account-${suffix}`,
+        gatewayOperationRef: null,
+        profileRef: "c2a-profile",
+        displayName: "Legacy source",
+        state: "active",
+      });
+      const originalSource =
+        await db.providerAccountConnection.findUniqueOrThrow({
+          where: { id: connectionId },
+        });
+      const github: AuthenticatedPrincipal = {
+        userId,
+        provider: "github",
+        externalUserId: suffix,
+        login: "first-label",
+        githubUserId: suffix,
+        githubLogin: "first-label",
+        primaryEmail: null,
+        avatarUrl: null,
+      };
+      const gitlab: AuthenticatedPrincipal = {
+        ...github,
+        provider: "gitlab",
+        externalUserId: `different-${suffix}`,
+        login: "second-label",
+        githubUserId: null,
+        githubLogin: null,
+      };
+      const repositories = [
+        new PrismaWorkspaceMembershipRepository(db),
+        new PrismaWorkspaceMembershipRepository(secondDb),
+      ];
+      try {
+        const results = await Promise.all([
+          repositories[0]!.ensurePersonalWorkspaceOwner(github),
+          repositories[1]!.ensurePersonalWorkspaceOwner(gitlab),
+          repositories[0]!.ensurePersonalWorkspaceOwner(gitlab),
+          repositories[1]!.ensurePersonalWorkspaceOwner(github),
+        ]);
+        const first = results[0]!;
+        for (const result of results) assert.deepEqual(result, first);
+        assert.equal(first.role, "owner");
+        assert.equal(first.source, "personal");
+        assert.match(first.workspaceSlug!, /^personal-[0-9a-f-]{36}$/);
+        assert.notEqual(first.workspaceId, legacyId);
+        const scopes = await db.workspace.findMany({
+          where: { personalOwnerUserId: userId },
+        });
+        assert.equal(scopes.length, 1);
+        assert.equal(scopes[0]!.id, first.workspaceId);
+        assert.equal(scopes[0]!.slug, first.workspaceSlug);
+        assert.equal(
+          await db.workspace.count({
+            where: { members: { some: { userId } } },
+          }),
+          1,
+        );
+        assert.equal(
+          await db.workspaceMember.count({
+            where: { workspaceId: first.workspaceId },
+          }),
+          1,
+        );
+        assert.deepEqual(
+          await db.workspace.findUnique({ where: { id: legacyId } }),
+          legacy,
+        );
+        assert.deepEqual(
+          await db.providerAccountConnection.findUnique({
+            where: { id: connectionId },
+          }),
+          originalSource,
+        );
+        assert.equal(
+          await db.workspaceAccountBinding.count({
+            where: { workspaceId: first.workspaceId },
+          }),
+          0,
+        );
+        assert.equal(
+          await db.providerAccountConnection.count({
+            where: { ownerUserId: userId },
+          }),
+          0,
+        );
+        const repeated = await repositories[0]!.ensurePersonalWorkspaceOwner({
+          ...github,
+          login: "new-label",
+        });
+        assert.deepEqual(repeated, first);
+        assert.equal(
+          (
+            await db.workspace.findUniqueOrThrow({
+              where: { id: first.workspaceId },
+            })
+          ).name,
+          "@new-label",
+        );
+
+        // RED: a caller invents User authority; transaction creates P despite
+        // nonexistent persisted User. Counts must remain unchanged on failure.
+        const count = await db.workspace.count();
+        await assert.rejects(
+          repositories[0]!.ensurePersonalWorkspaceOwner({
+            ...github,
+            userId: `missing-${suffix}`,
+          }),
+          /personal_workspace_user_not_found/,
+        );
+        assert.equal(await db.workspace.count(), count);
+
+        // RED: SQL permits duplicate owners, transfer/removal, adoption of a
+        // NULL-owned legacy scope, or mutable personal slug even without ORM.
+        await assert.rejects(
+          sql.query(
+            `INSERT INTO "Workspace" ("id", "slug", "name", "personalOwnerUserId", "updatedAt") VALUES ($1, $1, 'Duplicate', $2, now())`,
+            [`duplicate-${suffix}`, userId],
+          ),
+          sqlCode("23505"),
+        );
+        await assert.rejects(
+          sql.query(
+            `UPDATE "Workspace" SET "personalOwnerUserId" = $1 WHERE "id" = $2`,
+            [actor.userId, first.workspaceId],
+          ),
+          sqlCode("23514"),
+        );
+        await assert.rejects(
+          sql.query(
+            `UPDATE "Workspace" SET "personalOwnerUserId" = NULL WHERE "id" = $1`,
+            [first.workspaceId],
+          ),
+          sqlCode("23514"),
+        );
+        await assert.rejects(
+          sql.query(
+            `UPDATE "Workspace" SET "personalOwnerUserId" = $1 WHERE "id" = $2`,
+            [userId, legacyId],
+          ),
+          sqlCode("23514"),
+        );
+        await assert.rejects(
+          sql.query(`UPDATE "Workspace" SET "slug" = $1 WHERE "id" = $2`, [
+            `renamed-${suffix}`,
+            first.workspaceId,
+          ]),
+          sqlCode("23514"),
+        );
+        await assert.rejects(
+          sql.query(`UPDATE "Workspace" SET "id" = $1 WHERE "id" = $2`, [
+            `replaced-${suffix}`,
+            first.workspaceId,
+          ]),
+          sqlCode("23514"),
+        );
+        assert.deepEqual(
+          await db.workspace.findUnique({ where: { id: legacyId } }),
+          legacy,
+        );
+        assert.equal(
+          (
+            await db.workspace.findUniqueOrThrow({
+              where: { personalOwnerUserId: userId },
+            })
+          ).id,
+          first.workspaceId,
+        );
+      } finally {
+        await db.providerAccountConnection.deleteMany({
+          where: { id: connectionId },
+        });
+        await db.workspace.deleteMany({
+          where: { OR: [{ id: legacyId }, { personalOwnerUserId: userId }] },
+        });
+        await db.user.delete({ where: { id: userId } });
+      }
+    },
+  );
+
+  // RED: login implicitly enrolls an absent installation membership; explicit
+  // re-grant/login promotes a demoted User, deletes duplicates or reassigns a
+  // login-only/other-User row. Exercise both real production repositories.
+  await t.test(
+    "installation enrollment is explicit and preserves existing roles",
+    async () => {
+      const suffix = randomUUID();
+      const installWorkspace = `install-${suffix}`;
+      const userId = `install-user-${suffix}`;
+      const githubId = BigInt(
+        800000000 + Number.parseInt(suffix.slice(0, 8), 16),
+      );
+      const installationId = githubId + 10000000000n;
+      const login = `login-${suffix}`;
+      const principal: AuthenticatedPrincipal = {
+        userId,
+        provider: "github",
+        externalUserId: String(githubId),
+        login,
+        githubUserId: String(githubId),
+        githubLogin: login,
+        primaryEmail: null,
+        avatarUrl: null,
+      };
+      const repository = new PrismaWorkspaceMembershipRepository(db);
+      const grants = new PrismaInstallationWorkspaceOwnerGrant(db);
+      const grant = {
+        githubInstallationId: String(installationId),
+        githubUserId: String(githubId),
+        githubLogin: login,
+      };
+      await db.workspace.create({
+        data: {
+          id: installWorkspace,
+          slug: installWorkspace,
+          name: "Disposable installation",
+        },
+      });
+      await db.user.create({
+        data: { id: userId, githubUserId: githubId, githubLogin: login },
+      });
+      await db.gitHubInstallation.create({
+        data: {
+          workspaceId: installWorkspace,
+          githubInstallationId: installationId,
+          accountLogin: login.toUpperCase(),
+          accountType: "User",
+          repositorySelection: "all",
+          status: "active",
+        },
+      });
+      try {
+        assert.deepEqual(
+          await repository.ensureGitHubUserInstallationWorkspaceOwners(
+            principal,
+          ),
+          [],
+        );
+        assert.equal(
+          await db.workspaceMember.count({
+            where: { workspaceId: installWorkspace },
+          }),
+          0,
+        );
+        await grants.grantInstallationActorOwner(grant);
+        const member = await db.workspaceMember.findUniqueOrThrow({
+          where: {
+            workspaceId_userId: { workspaceId: installWorkspace, userId },
+          },
+        });
+        assert.equal(member.role, "owner");
+        for (const role of ["member", "admin"] as const) {
+          await db.workspaceMember.update({
+            where: { id: member.id },
+            data: { role },
+          });
+          const before = await db.workspaceMember.findUniqueOrThrow({
+            where: { id: member.id },
+          });
+          assert.deepEqual(
+            await repository.ensureGitHubUserInstallationWorkspaceOwners(
+              principal,
+            ),
+            [
+              {
+                workspaceId: installWorkspace,
+                workspaceSlug: installWorkspace,
+                role,
+                source: "github_user_installation",
+              },
+            ],
+          );
+          await grants.grantInstallationActorOwner(grant);
+          assert.deepEqual(
+            await db.workspaceMember.findUnique({ where: { id: member.id } }),
+            before,
+          );
+        }
+        await db.workspaceMember.update({
+          where: { id: member.id },
+          data: { githubLogin: `old-${suffix}` },
+        });
+        const legacy = await db.workspaceMember.create({
+          data: {
+            workspaceId: installWorkspace,
+            githubLogin: login,
+            role: "member",
+          },
+        });
+        const before = await db.workspaceMember.findMany({
+          where: { workspaceId: installWorkspace },
+          orderBy: { id: "asc" },
+        });
+        await grants.grantInstallationActorOwner(grant);
+        assert.deepEqual(
+          await db.workspaceMember.findMany({
+            where: { workspaceId: installWorkspace },
+            orderBy: { id: "asc" },
+          }),
+          before,
+        );
+        await db.workspaceMember.delete({ where: { id: member.id } });
+        assert.deepEqual(
+          await repository.ensureGitHubUserInstallationWorkspaceOwners(
+            principal,
+          ),
+          [],
+        );
+        await assert.rejects(
+          grants.grantInstallationActorOwner(grant),
+          /installation_owner_grant_identity_ambiguous/,
+        );
+        assert.deepEqual(
+          await db.workspaceMember.findMany({
+            where: { workspaceId: installWorkspace },
+          }),
+          [legacy],
+        );
+        await db.workspaceMember.update({
+          where: { id: legacy.id },
+          data: { userId: actor.userId! },
+        });
+        await assert.rejects(
+          grants.grantInstallationActorOwner(grant),
+          /installation_owner_grant_identity_ambiguous/,
+        );
+        assert.equal(
+          (
+            await db.workspaceMember.findUniqueOrThrow({
+              where: { id: legacy.id },
+            })
+          ).userId,
+          actor.userId,
+        );
+        assert.deepEqual(
+          await repository.ensureGitHubUserInstallationWorkspaceOwners({
+            ...principal,
+            provider: "gitlab",
+            githubLogin: null,
+          }),
+          [],
+        );
+      } finally {
+        await db.workspace.delete({ where: { id: installWorkspace } });
+        await db.user.delete({ where: { id: userId } });
+      }
+    },
+  );
+}
+
 export async function runBindingFencePostgresTests(
   t: TestContext,
   context: {
@@ -60,6 +463,13 @@ export async function runBindingFencePostgresTests(
   let original!: ScopedBindingFence;
   let replacement!: ScopedBindingFence;
   try {
+    await runPersonalWorkspaceIdentityPostgresTests(t, {
+      db,
+      secondDb,
+      sql,
+      actor,
+    });
+
     await db.workspaceMember.upsert({
       where: { workspaceId_userId: { workspaceId, userId: actor.userId! } },
       create: { workspaceId, userId: actor.userId!, role: "admin" },

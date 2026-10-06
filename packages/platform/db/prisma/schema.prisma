@@ -13,8 +13,8 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Reserved explicit personal ownership. C1 does not provision or use it.
-  personalOwnerUserId String?
+  // Stable identity only; personal account management/use remains disabled.
+  personalOwnerUserId String? @unique
   personalOwnerUser User? @relation("PersonalWorkspaceOwner", fields: [personalOwnerUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   ownedProviderAccountConnections ProviderAccountConnection[] @relation("WorkspaceProviderAccountOwner")
   accountBindings WorkspaceAccountBinding[]
@@ -43,7 +43,6 @@ model Workspace {
   hostedCodexPools             HostedCodexPool[]
   hostedCodexDeviceLogins      HostedCodexDeviceLogin[]
 
-  @@index([personalOwnerUserId])
 }
 
 model User {
@@ -62,7 +61,7 @@ model User {
   repositoryPermissionCaches RepositoryPermissionCache[]
   memoryItems                MemoryItem[]
   memorySuggestions          MemorySuggestion[]
-  personalWorkspaces Workspace[] @relation("PersonalWorkspaceOwner")
+  personalWorkspaces Workspace? @relation("PersonalWorkspaceOwner")
   ownedProviderAccountConnections ProviderAccountConnection[] @relation("UserProviderAccountOwner")
 
   @@index([githubLogin])

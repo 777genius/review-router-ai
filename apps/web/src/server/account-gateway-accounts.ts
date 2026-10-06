@@ -1236,9 +1236,10 @@ async function production() {
         throw new Denied();
       const workspace = await prisma.workspace.findUnique({
         where: { id: saved.workspaceId },
-        select: { id: true },
+        select: { id: true, personalOwnerUserId: true },
       });
-      if (!workspace) throw new Denied();
+      if (!workspace || workspace.personalOwnerUserId !== null)
+        throw new Denied();
       const actor = await assertDashboardWorkspaceAdminAllowed(workspace.id);
       if (actor.userId !== saved.userId) throw new Denied();
       return {
@@ -1262,9 +1263,10 @@ export async function loadAccountsBootstrap(
     // RSC's selected Workspace.id is authoritative, never a slug/login-derived owner.
     const workspace = await prisma.workspace.findUnique({
       where: { id: workspaceId },
-      select: { id: true },
+      select: { id: true, personalOwnerUserId: true },
     });
-    if (!workspace) throw new Denied();
+    if (!workspace || workspace.personalOwnerUserId !== null)
+      throw new Denied();
     const actor = await assertDashboardWorkspaceAdminAllowed(
       workspace.id,
     ).catch(() => {
