@@ -64,8 +64,8 @@ function disposableDatabase(): string {
 // settings switching to another live binding cannot replace or un-revoke the original;
 // settings/binding races fenced at INSERT; original revoke/foreign owner denial;
 // a live original-binding read that crosses the original deadline still denies;
-// renewal to version 2 currently seeks a nonexistent version-2 creation event;
-// a live binding read past token TTL but below the maximum currently returns valid;
+// ordinary TTL renewal to version 2 must preserve the version-1 creation event;
+// authority reads crossing the token TTL or original maximum must deny;
 // negotiation/new-token/new-ID cannot produce another admitted allowance identity.
 // Selected-result loss must recover the same intent and attach once, without a bearer in SQL.
 // Relay regressions: an ordinary retry could bypass LOCAL-only wait, lost process
@@ -1081,8 +1081,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         ReviewRunAuthorizationUseCaseStatus.Restored,
       );
       expect(retained.authorization).toEqual(original);
-      // Observed regression: the sole creation event records version 1. A real
-      // TTL extension makes both restore paths seek an absent version-2 event.
+      // A full gateway run already owns its entire original six-hour maximum.
       const renewed =
         await production.runControl.authorizations.renewReviewRunAuthorization({
           authorizationId: original.authorizationId,
@@ -1091,20 +1090,17 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           requestedTtlMs: 2 * 60 * 60_000,
         });
       if (!("authorization" in renewed)) throw new Error("c2c_renewal_failed");
-      expect(renewed.status).toBe(ReviewRunAuthorizationUseCaseStatus.Renewed);
+      expect(renewed.status).toBe(ReviewRunAuthorizationUseCaseStatus.Restored);
       expect(renewed.authorization.runtimeSnapshotCanonicalJson).toBe(
         row.runtimeSnapshotCanonicalJson,
       );
       expect(renewed.authorization.maxExpiresAt).toEqual(original.maxExpiresAt);
-      expect(renewed.authorization.version).toBe(2);
-      expect(renewed.authorization.version).toBe(original.version + 1);
-      expect(renewed.authorization.createdAt).toEqual(original.createdAt);
-      expect(renewed.authorization.expiresAt.getTime()).toBeGreaterThan(
-        original.expiresAt.getTime(),
+      expect(original.expiresAt).toEqual(original.maxExpiresAt);
+      expect(original.maxExpiresAt.getTime()).toBe(
+        Math.floor((original.createdAt.getTime() + 6 * 60 * 60_000) / 1000) *
+          1000,
       );
-      expect(renewed.authorization.expiresAt.getTime()).toBeLessThan(
-        original.maxExpiresAt.getTime(),
-      );
+      expect(renewed.authorization).toEqual(original);
       for (const oidcReplayKeyHash of [
         original.oidcReplayKeyHash,
         "7".repeat(64),
@@ -1129,7 +1125,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
             },
           )
         ).status,
-      ).toBe("claim_drift");
+      ).toBe("valid");
       expect((await harness.authorize()).authorizationId).toBe(
         original.authorizationId,
       );
@@ -1245,8 +1241,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           now: observedNow,
         },
       );
-      let crossDuringBindingRead: "token_expiry" | "maximum_deadline" | null =
-        null;
+      let crossDuringBindingRead = false;
       const runtimePort: ReviewRunRuntimeSnapshotPort = {
         capture: async (captureInput) => {
           const captured = await snapshotSource.capture(captureInput);
@@ -1263,11 +1258,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
             expect(liveInput.now.getTime()).toBeLessThan(
               verifiedRenewedToken.expiresAt.getTime(),
             );
-            observedNow = new Date(
-              crossDuringBindingRead === "token_expiry"
-                ? verifiedRenewedToken.expiresAt
-                : liveInput.snapshot.deadline,
-            );
+            observedNow = new Date(liveInput.snapshot.deadline);
           }
           return live;
         },
@@ -1308,9 +1299,8 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           })
         ).status,
       ).toBe("valid");
-      // Observed regression: the post-read check only compares maxExpiresAt;
-      // this actual live binding read finishes at token expiry, below that maximum.
-      crossDuringBindingRead = "token_expiry";
+      // The original gateway capability and pin share the exact deadline.
+      crossDuringBindingRead = true;
       expect(
         (
           await control.resolveReviewRunAuthorizationToken({
@@ -1318,23 +1308,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           })
         ).status,
       ).toBe("expired");
-      expect(observedNow).toEqual(verifiedRenewedToken.expiresAt);
-      expect(observedNow.getTime()).toBeLessThanOrEqual(
-        renewed.authorization.expiresAt.getTime(),
-      );
-      expect(observedNow.getTime()).toBeLessThan(
-        new Date(pin.deadline).getTime(),
-      );
-      observedNow = production.clock.now();
-      crossDuringBindingRead = "maximum_deadline";
-      expect(
-        (
-          await control.resolveReviewRunAuthorizationToken({
-            token: renewed.token.token,
-          })
-        ).status,
-      ).toBe("expired");
-      crossDuringBindingRead = null;
+      crossDuringBindingRead = false;
       observedNow = production.clock.now();
       await accounts.compareAndSetBinding({
         workspaceId,
@@ -1445,6 +1419,173 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           new AbortController(),
         ),
       ).rejects.toMatchObject({ code: "authorization_denied" });
+      // Separate ordinary-TTL fixture in this same PG lifecycle case: real
+      // configuration capture, admission, renewal, restore and SQL/outbox reads.
+      await saveReviewConfiguration(
+        { target, config: safeDefaultReviewConfiguration, expectedVersion: 4 },
+        { configurations },
+      );
+      const ordinaryAdmission =
+        await production.runControl.authorizations.authorizeReviewRun({
+          ...input(original),
+          verifiedIdentity: {
+            ...original,
+            sourceRunId: `${original.sourceRunId}-ordinary`,
+          },
+          oidcReplayKeyHash: "1".repeat(64),
+        });
+      if (!("authorization" in ordinaryAdmission))
+        throw new Error("c2c_ordinary_admission_failed");
+      expect(ordinaryAdmission.status).toBe(
+        ReviewRunAuthorizationUseCaseStatus.Authorized,
+      );
+      const ordinary = ordinaryAdmission.authorization;
+      expect(ordinary.expiresAt.getTime()).toBe(
+        ordinary.createdAt.getTime() + 60_000,
+      );
+      expect(ordinary.maxExpiresAt.getTime()).toBe(
+        ordinary.createdAt.getTime() + 3_600_000,
+      );
+      const ordinaryPin = parseReviewRunRuntimeSnapshot(
+        ordinary.runtimeSnapshotCanonicalJson,
+      )!;
+      expect(ordinaryPin.gateway).toBeNull();
+      const ordinaryCreation = await fresh.outboxEvent.findFirstOrThrow({
+        where: {
+          aggregateId: ordinary.authorizationId,
+          type: "review.run.authorized",
+        },
+      });
+      const shortToken = await production.prerequisites.tokens.verify({
+        token: ordinaryAdmission.token.token,
+        now: production.clock.now(),
+      });
+      observedNow = production.clock.now();
+      let crossOrdinaryExpiry = false;
+      const ordinaryControl = new ManageReviewRunAuthorizations({
+        runtimeSnapshots: {
+          capture: (captureInput) => snapshotSource.capture(captureInput),
+          isLive: async (liveInput) => {
+            const live = await snapshotSource.isLive(liveInput);
+            expect(live).toBe(true);
+            return live;
+          },
+        },
+        clock: { now: () => observedNow },
+        digest: production.digest,
+        identifiers: { nextId: () => `${harness.prefix}-ordinary-unused` },
+        identities: production.repositories.repositoryIdentities,
+        authorities: production.repositories.mutationAuthorities,
+        releases: production.repositories.producerReleases,
+        limits: production.repositories.producerReleases,
+        slos: production.repositories.producerReleases,
+        safetyDecisions: production.runControl.safetyResolver,
+        authorizationQueries: {
+          findReviewRunAuthorizationForAdmission: (admissionInput) =>
+            production.repositories.authorizations.findReviewRunAuthorizationForAdmission(
+              admissionInput,
+            ),
+          findReviewRunAuthorizationById: async (authorizationId) => {
+            const authorization =
+              await production.repositories.authorizations.findReviewRunAuthorizationById(
+                authorizationId,
+              );
+            if (crossOrdinaryExpiry) observedNow = shortToken.expiresAt;
+            return authorization;
+          },
+        },
+        authorizationCommands: production.repositories.authorizations,
+        tokens: production.prerequisites.tokens,
+      });
+      expect(
+        (
+          await ordinaryControl.resolveReviewRunAuthorizationToken({
+            token: ordinaryAdmission.token.token,
+          })
+        ).status,
+      ).toBe("valid");
+      crossOrdinaryExpiry = true;
+      expect(
+        (
+          await ordinaryControl.resolveReviewRunAuthorizationToken({
+            token: ordinaryAdmission.token.token,
+          })
+        ).status,
+      ).toBe("expired");
+      crossOrdinaryExpiry = false;
+      expect(observedNow).toEqual(shortToken.expiresAt);
+      expect(observedNow.getTime()).toBeLessThanOrEqual(
+        ordinary.expiresAt.getTime(),
+      );
+      expect(observedNow.getTime()).toBeLessThan(
+        Date.parse(ordinaryPin.deadline),
+      );
+      observedNow = production.clock.now();
+      const ordinaryRenewed =
+        await production.runControl.authorizations.renewReviewRunAuthorization({
+          authorizationId: ordinary.authorizationId,
+          verifiedIdentity: ordinary,
+          renewalReplayKeyHash: "2".repeat(64),
+          requestedTtlMs: 120_000,
+        });
+      if (!("authorization" in ordinaryRenewed))
+        throw new Error("c2c_ordinary_renewal_failed");
+      expect(ordinaryRenewed.status).toBe(
+        ReviewRunAuthorizationUseCaseStatus.Renewed,
+      );
+      expect(ordinaryRenewed.authorization.version).toBe(2);
+      expect(ordinaryRenewed.authorization.createdAt).toEqual(
+        ordinary.createdAt,
+      );
+      expect(ordinaryRenewed.authorization.maxExpiresAt).toEqual(
+        ordinary.maxExpiresAt,
+      );
+      expect(ordinaryRenewed.authorization.runtimeSnapshotCanonicalJson).toBe(
+        ordinary.runtimeSnapshotCanonicalJson,
+      );
+      expect(ordinaryRenewed.authorization.expiresAt.getTime()).toBeGreaterThan(
+        ordinary.expiresAt.getTime(),
+      );
+      expect(ordinaryRenewed.authorization.expiresAt.getTime()).toBeLessThan(
+        ordinary.maxExpiresAt.getTime(),
+      );
+      for (const oidcReplayKeyHash of [
+        ordinary.oidcReplayKeyHash,
+        "3".repeat(64),
+      ]) {
+        const restored =
+          await production.runControl.authorizations.authorizeReviewRun({
+            ...input(ordinary),
+            oidcReplayKeyHash,
+          });
+        if (!("authorization" in restored))
+          throw new Error("c2c_ordinary_restore_failed");
+        expect(restored.status).toBe(
+          ReviewRunAuthorizationUseCaseStatus.Restored,
+        );
+        expect(restored.authorization).toEqual(ordinaryRenewed.authorization);
+      }
+      expect(
+        (
+          await production.runControl.authorizations.resolveReviewRunAuthorizationToken(
+            {
+              token: ordinaryAdmission.token.token,
+            },
+          )
+        ).status,
+      ).toBe("claim_drift");
+      expect(
+        await fresh.outboxEvent.findMany({
+          where: {
+            aggregateId: ordinary.authorizationId,
+            type: "review.run.authorized",
+          },
+        }),
+      ).toEqual([ordinaryCreation]);
+      expect(ordinaryCreation.payload).toMatchObject({
+        authorizationVersion: 1,
+      });
+      expect(ordinaryCreation.occurredAt).toEqual(ordinary.createdAt);
     } finally {
       await closeRelayApp?.();
       await closeGateway?.();

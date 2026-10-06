@@ -15,6 +15,7 @@ Accounts lists paginate explicit grants with safe metadata and `canManage: false
 Owner reconnect/disable retain the existing Gateway authEpoch authority across all uses. No schema, SDK, kernel, native, issuer, migration or release changes were made.
 
 Changed paths (all manifest-owned):
+
 - `packages/features/provider-accounts/src/domain/provider-account.ts`
 - `packages/features/provider-accounts/src/application/ports/provider-account-repository-port.ts`
 - `packages/features/provider-accounts/src/application/use-cases/workspace-account-bindings.ts`

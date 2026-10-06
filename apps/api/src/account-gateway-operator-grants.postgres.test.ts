@@ -469,9 +469,10 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
             connectionId: connection.id,
           }),
         ).toBeNull();
-        const canonicalBeforeConsumerSync = await db.providerAccountConnection.findUniqueOrThrow({
-          where: { id: connection.id },
-        });
+        const canonicalBeforeConsumerSync =
+          await db.providerAccountConnection.findUniqueOrThrow({
+            where: { id: connection.id },
+          });
         await expect(
           new PrismaProviderAccountSynchronization(db).synchronizeMetadata({
             workspaceId: x,
@@ -483,10 +484,15 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
             state: "active",
           }),
         ).rejects.toMatchObject({ code: "revision_conflict" });
-        expect(await db.providerAccountConnection.findUniqueOrThrow({ where: { id: connection.id } })).toEqual(
-          canonicalBeforeConsumerSync,
+        expect(
+          await db.providerAccountConnection.findUniqueOrThrow({
+            where: { id: connection.id },
+          }),
+        ).toEqual(canonicalBeforeConsumerSync);
+        const configurations = new PrismaReviewConfigurationRepository(
+          db,
+          operator,
         );
-        const configurations = new PrismaReviewConfigurationRepository(db, operator);
         const snapshots = new ProductionReviewRunRuntimeSnapshot(
           db,
           { profiles: [{ profileRef: profile, limits }] },
@@ -547,7 +553,10 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
           "review_configuration_gateway_binding_unavailable",
         );
         expect(
-          await configurations.findLatest({ scope: "workspace", workspaceId: y }),
+          await configurations.findLatest({
+            scope: "workspace",
+            workspaceId: y,
+          }),
         ).toBeNull();
         await configure(x, gx.id);
         await configure(y, gy.id);
