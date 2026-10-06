@@ -159,10 +159,31 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
   }
   async function beginOAuth(intent: Omit<AccountOAuthIntent, "nonce">) {
     if (submitting.current) return;
-    const nonce = reserveNonce();
-    if (!nonce) return;
+    let tab: Window | null = null;
+    let nonce: string | null;
+    try {
+      tab = window.open("about:blank", "_blank");
+      if (!tab) throw new Error();
+      tab.opener = null;
+      const referrer = tab.document.createElement("meta");
+      referrer.name = "referrer";
+      referrer.content = "no-referrer";
+      tab.document.head.append(referrer);
+      nonce = reserveNonce();
+    } catch {
+      tab?.close();
+      setMessage(
+        "Could not open a safe authorization tab. Allow popups and try again. Nothing was submitted.",
+      );
+      return;
+    }
+    if (!nonce) {
+      tab.close();
+      return;
+    }
     submitting.current = true;
     setBusy(true);
+    let navigated = false;
     try {
       // Direct ingress: neither the Begin response nor its temporary URL enters
       // a query/mutation cache, component state, storage or a readback request.
@@ -172,14 +193,26 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
           ? { status: "ok", value: fresh.value.operation }
           : fresh;
       // The browser gets one fresh handoff. Readback never contains/rebuilds a URL.
-      if (fresh.status === "ok" && fresh.value.authorizationURL)
-        window.open(
-          fresh.value.authorizationURL,
-          "_blank",
-          "noopener,noreferrer",
-        );
+      if (
+        fresh.status === "ok" &&
+        fresh.value.authorizationURL &&
+        !tab.closed
+      ) {
+        const link = tab.document.createElement("a");
+        link.target = "_self";
+        link.rel = "noreferrer";
+        link.referrerPolicy = "no-referrer";
+        link.href = fresh.value.authorizationURL;
+        try {
+          link.click();
+          navigated = true;
+        } finally {
+          link.removeAttribute("href");
+        }
+      } else tab.close();
       await accept(nonce, safe);
     } catch {
+      if (!navigated) tab.close();
       await accept(nonce, {
         status: "ok",
         value: { nonce, state: "unknown", cleanup: "unresolved" },

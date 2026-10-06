@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -17,6 +18,7 @@ import {
   type MockInstance,
 } from "vitest";
 import type {
+  AccountOAuthBeginView,
   AccountOperationView,
   AccountView,
   AccountsPage,
@@ -52,6 +54,14 @@ const cacheSnapshots: string[] = [];
 let page: AccountsPage;
 let storageWrites: MockInstance<Storage["setItem"]>;
 let handoff: MockInstance<Window["open"]>;
+let anchors: HTMLAnchorElement[];
+let reserved: {
+  opener: Window | null;
+  document: Document;
+  location: Pick<Location, "replace">;
+  close: ReturnType<typeof vi.fn<() => void>>;
+  closed: boolean;
+};
 
 function safeOperation(
   nonce: string,
@@ -124,7 +134,6 @@ async function startEnrollment() {
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Authorize Codex" }),
   );
-  await waitFor(() => expect(beginGatewayOAuth).toHaveBeenCalledTimes(1));
 }
 
 beforeEach(() => {
@@ -166,9 +175,35 @@ beforeEach(() => {
     mountClient.call(this);
   });
   storageWrites = vi.spyOn(Storage.prototype, "setItem");
+  reserved = {
+    opener: window,
+    document: document.implementation.createHTMLDocument(),
+    location: { replace: vi.fn() },
+    close: vi.fn(),
+    closed: false,
+  };
+  anchors = [];
+  const createElement = reserved.document.createElement.bind(reserved.document);
+  vi.spyOn(reserved.document, "createElement").mockImplementation(
+    (name, options) => {
+      const element = createElement(name, options);
+      if (name === "a") {
+        const anchor = element as HTMLAnchorElement;
+        anchors.push(anchor);
+        vi.spyOn(anchor, "click").mockImplementation(() => {
+          expect(anchor.target).toBe("_self");
+          expect(anchor.rel).toBe("noreferrer");
+          expect(anchor.referrerPolicy).toBe("no-referrer");
+          reserved.location.replace(anchor.href);
+        });
+      }
+      return element;
+    },
+  );
   handoff = vi.spyOn(window, "open").mockImplementation(() => {
     assertNoCapability();
-    return null;
+    // A narrow WindowProxy double: no real browser or provider navigation.
+    return reserved as unknown as Window;
   });
   vi.mocked(listGatewayAccounts).mockImplementation(async () => ({
     status: "ok",
@@ -195,17 +230,33 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// RED regression: caching the entire fresh Begin result (or mutation variables),
-// persisting its URL, or auto-replaying enrollment on a manual status read.
+// Reserve and protect a usable tab during submit, before the awaited server
+// boundary; only the fresh response can navigate it, never cache or readback.
 test("fresh OAuth handoff bypasses caches/storage and pending readback never reopens it", async () => {
+  let releaseBegin!: (response: AccountsResult<AccountOAuthBeginView>) => void;
+  let protectionAtBegin: unknown;
+  vi.mocked(beginGatewayOAuth).mockImplementationOnce(() => {
+    protectionAtBegin = {
+      reservations: [...handoff.mock.calls],
+      opener: reserved.opener,
+      referrer: reserved.document.querySelector<HTMLMetaElement>(
+        'meta[name="referrer"]',
+      )?.content,
+    };
+    return new Promise((resolve) => {
+      releaseBegin = resolve;
+    });
+  });
   const view = await mount();
   await startEnrollment();
-  await waitFor(() => expect(handoff).toHaveBeenCalledTimes(1));
-  expect(handoff).toHaveBeenCalledWith(
-    capability,
-    "_blank",
-    "noopener,noreferrer",
-  );
+  await waitFor(() => expect(beginGatewayOAuth).toHaveBeenCalledTimes(1));
+  expect(protectionAtBegin).toEqual({
+    reservations: [["about:blank", "_blank"]],
+    opener: null,
+    referrer: "no-referrer",
+  });
+  expect(reserved.location.replace).not.toHaveBeenCalled();
+  expect(reserved.close).not.toHaveBeenCalled();
   const request = vi.mocked(beginGatewayOAuth).mock.calls[0]!;
   expect(request[0]).toBe(context);
   expect(request[1]).toEqual({
@@ -214,6 +265,22 @@ test("fresh OAuth handoff bypasses caches/storage and pending readback never reo
     label: "New Codex",
   });
   const nonce = request[1].nonce;
+  await act(async () =>
+    releaseBegin({
+      status: "ok",
+      value: {
+        operation: { nonce, state: "pending", cleanup: "unresolved" },
+        authorizationURL: capability,
+      },
+    }),
+  );
+  await waitFor(() =>
+    expect(reserved.location.replace).toHaveBeenCalledTimes(1),
+  );
+  expect(reserved.location.replace).toHaveBeenCalledWith(capability);
+  expect(anchors).toHaveLength(1);
+  expect(anchors[0]!.getAttribute("href")).toBeNull();
+  expect(reserved.close).not.toHaveBeenCalled();
   expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual([nonce]);
   expect(
     storageWrites.mock.calls.every(([, value]) => {
@@ -231,6 +298,7 @@ test("fresh OAuth handoff bypasses caches/storage and pending readback never reo
   );
   expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
   expect(handoff).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).toHaveBeenCalledTimes(1);
   expect(submitGatewayApiKey).not.toHaveBeenCalled();
   assertNoCapability();
   view.unmount();
@@ -238,6 +306,7 @@ test("fresh OAuth handoff bypasses caches/storage and pending readback never reo
   await screen.findByText("Operation 1: pending");
   expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
   expect(handoff).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).toHaveBeenCalledTimes(1);
   assertNoCapability();
 });
 
@@ -255,7 +324,9 @@ test("lost Begin ACK retains unknown nonce and reconciles only through safe read
   await screen.findByText("Operation 1: unknown");
   const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
   expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual([nonce]);
-  expect(handoff).not.toHaveBeenCalled();
+  expect(handoff).toHaveBeenCalledWith("about:blank", "_blank");
+  expect(reserved.close).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).not.toHaveBeenCalled();
   vi.mocked(readGatewayOperation).mockImplementation(async (_context, nonce) =>
     safeOperation(nonce),
   );
@@ -263,7 +334,126 @@ test("lost Begin ACK retains unknown nonce and reconciles only through safe read
   await screen.findByText("Operation 1: pending");
   expect(readGatewayOperation).toHaveBeenCalledWith(context, nonce);
   expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
+  expect(handoff).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).not.toHaveBeenCalled();
   expect(submitGatewayApiKey).not.toHaveBeenCalled();
+  assertNoCapability();
+});
+
+test("blocked tab skips Begin and leaves no phantom operation nonce", async () => {
+  handoff.mockReturnValueOnce(null);
+  await mount();
+  await startEnrollment();
+  await screen.findByText(/Allow popups.*Nothing was submitted/);
+  expect(handoff).toHaveBeenCalledWith("about:blank", "_blank");
+  expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(storageWrites).not.toHaveBeenCalled();
+  expect(sessionStorage.getItem(storageKey)).toBeNull();
+  expect(screen.queryByText("Operation readback")).toBeNull();
+  expect(readGatewayOperation).not.toHaveBeenCalled();
+  expect(reserved.location.replace).not.toHaveBeenCalled();
+  assertNoCapability();
+});
+
+test("blank protection failure closes the tab before Begin or nonce reservation", async () => {
+  vi.spyOn(reserved.document.head, "append").mockImplementationOnce(() => {
+    throw new Error("synthetic document failure");
+  });
+  await mount();
+  await startEnrollment();
+  await screen.findByText(/Nothing was submitted/);
+  expect(reserved.opener).toBeNull();
+  expect(reserved.close).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).not.toHaveBeenCalled();
+  expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(storageWrites).not.toHaveBeenCalled();
+  expect(sessionStorage.getItem(storageKey)).toBeNull();
+  expect(screen.queryByText("Operation readback")).toBeNull();
+  assertNoCapability();
+});
+
+test("failed nonce persistence closes the reserved tab without Begin", async () => {
+  await mount();
+  storageWrites.mockImplementationOnce(() => {
+    throw new Error("storage denied");
+  });
+  await startEnrollment();
+  await screen.findByText(
+    "Could not preserve operation readback. Nothing was submitted.",
+  );
+  expect(handoff).toHaveBeenCalledWith("about:blank", "_blank");
+  expect(reserved.close).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).not.toHaveBeenCalled();
+  expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(sessionStorage.getItem(storageKey)).toBeNull();
+  expect(screen.queryByText("Operation readback")).toBeNull();
+  assertNoCapability();
+});
+
+test("denied Begin closes the blank and dismisses its safe operation nonce", async () => {
+  vi.mocked(beginGatewayOAuth).mockResolvedValueOnce({ status: "denied" });
+  await mount();
+  await startEnrollment();
+  await screen.findByText(/Accounts are available only/);
+  expect(reserved.close).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).not.toHaveBeenCalled();
+  expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual([]);
+  expect(screen.queryByText("Operation readback")).toBeNull();
+  expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
+  assertNoCapability();
+});
+
+test("missing fresh URL closes the blank and retains pending readback without replay", async () => {
+  vi.mocked(beginGatewayOAuth).mockImplementationOnce(
+    async (_context, intent) => ({
+      status: "ok",
+      value: {
+        operation: {
+          nonce: intent.nonce,
+          state: "pending",
+          cleanup: "unresolved",
+        },
+      },
+    }),
+  );
+  await mount();
+  await startEnrollment();
+  await screen.findByText("Operation 1: pending");
+  expect(reserved.close).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).not.toHaveBeenCalled();
+  const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
+  expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual([nonce]);
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  await waitFor(() =>
+    expect(readGatewayOperation).toHaveBeenCalledWith(context, nonce),
+  );
+  expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
+  expect(handoff).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).not.toHaveBeenCalled();
+  assertNoCapability();
+});
+
+test("failed fresh navigation closes the tab and retains unknown readback without retry", async () => {
+  vi.mocked(reserved.location.replace).mockImplementationOnce(() => {
+    throw new Error("synthetic navigation failure");
+  });
+  vi.mocked(readGatewayOperation).mockImplementation(async (_context, nonce) =>
+    safeOperation(nonce, "unknown"),
+  );
+  await mount();
+  await startEnrollment();
+  await screen.findByText("Operation 1: unknown");
+  expect(reserved.close).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).toHaveBeenCalledExactlyOnceWith(capability);
+  const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
+  expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual([nonce]);
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  await waitFor(() =>
+    expect(readGatewayOperation).toHaveBeenCalledWith(context, nonce),
+  );
+  expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
+  expect(handoff).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).toHaveBeenCalledTimes(1);
   assertNoCapability();
 });
 
