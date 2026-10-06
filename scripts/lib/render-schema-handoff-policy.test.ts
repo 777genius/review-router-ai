@@ -1244,11 +1244,16 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads checkout121 through previous120/118 and original92 as identical frozen92 rows", async () => {
+  it("reads checkout122 through previous121/120/118 and original92 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(121);
+    expect(inventory).toHaveLength(122);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, "000123_personal_workspace_identity"), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(121);
     expect(fixture.read()).toEqual(catalog);
     rmSync(
       join(fixture.migrations, "000122_review_configuration_operation_receipt"),
@@ -1512,7 +1517,7 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      if (name === "000122_review_configuration_operation_receipt")
+      if (name === "000123_personal_workspace_identity")
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
