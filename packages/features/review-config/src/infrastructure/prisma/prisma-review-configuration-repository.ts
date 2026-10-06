@@ -53,7 +53,11 @@ export class PrismaReviewConfigurationRepository
       try {
         return await this.prisma.$transaction(
           (tx) =>
-            saveNextReviewConfigurationVersion(tx, input, this.operatorWorkspaceId),
+            saveNextReviewConfigurationVersion(
+              tx,
+              input,
+              this.operatorWorkspaceId,
+            ),
           { isolationLevel: "Serializable" },
         );
       } catch (error) {
@@ -152,7 +156,9 @@ function hasPrismaErrorCode(error: unknown, code: string): boolean {
   );
 }
 
-function assertOperatorWorkspaceId(operatorWorkspaceId: string | undefined): void {
+function assertOperatorWorkspaceId(
+  operatorWorkspaceId: string | undefined,
+): void {
   if (
     operatorWorkspaceId !== undefined &&
     /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/.exec(operatorWorkspaceId)?.[0] !==
