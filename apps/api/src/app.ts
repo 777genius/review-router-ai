@@ -624,16 +624,13 @@ export async function createApiApp(
             );
           }
           const codexRotatingOAuth = codexRotatingOAuthEnabled
-            ? new PrismaCodexRotatingOAuthRepository(
-                prisma,
-                {
-                  actionRef: codexRotatingActionRef,
-                  allowedActionRefs: codexRotatingTrustedActionRefs,
-                  actionOwnerRepo: resolveActionOwnerRepo(codexRotatingActionRef),
-                  databaseRecoveryWitness: databaseRecoveryWitness!,
-                  databaseEffectAuthority: codexEffectAuthorityPrisma!,
-                },
-              )
+            ? new PrismaCodexRotatingOAuthRepository(prisma, {
+                actionRef: codexRotatingActionRef,
+                allowedActionRefs: codexRotatingTrustedActionRefs,
+                actionOwnerRepo: resolveActionOwnerRepo(codexRotatingActionRef),
+                databaseRecoveryWitness: databaseRecoveryWitness!,
+                databaseEffectAuthority: codexEffectAuthorityPrisma!,
+              })
             : undefined;
           const hostedReviewStateAccess = new PrismaHostedReviewStateAccess(
             prisma,
@@ -751,19 +748,18 @@ export async function createApiApp(
               assertAdmitted(input: { readonly repositoryFullName: string }) {
                 assertCodexRotatingNewWorkAdmitted({
                   enabledValue:
-                    reviewActionV2Env
-                      .REVIEW_ROUTER_CODEX_ROTATING_NEW_WORK_ADMISSION_ENABLED,
+                    reviewActionV2Env.REVIEW_ROUTER_CODEX_ROTATING_NEW_WORK_ADMISSION_ENABLED,
                   approvedRepositories: normalizeApprovedRepositories(
                     parseCommaSeparatedEnv(
-                      reviewActionV2Env
-                        .REVIEW_ROUTER_CODEX_ROTATING_OAUTH_REPOSITORIES,
+                      reviewActionV2Env.REVIEW_ROUTER_CODEX_ROTATING_OAUTH_REPOSITORIES,
                     ),
                   ),
                   repositoryFullName: input.repositoryFullName,
                 });
               },
             },
-            ...(codexRotatingGitHubSecretGateway && codexRotatingVersionedWriteback
+            ...(codexRotatingGitHubSecretGateway &&
+            codexRotatingVersionedWriteback
               ? {
                   codexRotatingSecretsReadTokens:
                     codexRotatingGitHubSecretGateway,
