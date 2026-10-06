@@ -288,6 +288,7 @@ describe("default production action-session composition", () => {
             workspaceId: "workspace-1",
             targetKey: "repo:repository-1",
           },
+          active: true,
         },
       }),
     );
