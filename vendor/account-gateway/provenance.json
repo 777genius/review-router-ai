@@ -48,10 +48,7 @@
     "node": "24.21.0",
     "typescript": "7.0.2",
     "sourceInstall": "pnpm@11.28.2 install --frozen-lockfile",
-    "commands": [
-      "node scripts/build.mjs",
-      "npm pack --ignore-scripts"
-    ]
+    "commands": ["node scripts/build.mjs", "npm pack --ignore-scripts"]
   },
   "qualificationRuns": [
     "https://github.com/agent-teams-ai/account-gateway/actions/runs/37525751783",
