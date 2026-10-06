@@ -25,6 +25,8 @@ export interface ReviewConfigurationOperationRepositoryPort {
   findOperation(input: {
     readonly target: ReviewConfigurationTarget;
     readonly operationId: string;
+    /** Original CAS intent, independent of the retained result version. */
+    readonly expectedVersion: number | null;
   }): Promise<PersistedReviewConfiguration | null>;
 }
 

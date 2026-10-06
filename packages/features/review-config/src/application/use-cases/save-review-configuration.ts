@@ -26,14 +26,29 @@ export async function findReviewConfigurationOperation(
   input: {
     readonly target: ReviewConfigurationTarget;
     readonly operationId: string;
+    readonly expectedVersion: number | null;
   },
   dependencies: {
     readonly configurations: ReviewConfigurationOperationRepositoryPort;
   },
 ): Promise<PersistedReviewConfiguration | null> {
-  return dependencies.configurations.findOperation({
+  return dependencies.configurations.findOperation(
+    snapshotReviewConfigurationOperationLookup(input),
+  );
+}
+
+/** Capture original lookup intent before any repository I/O, including direct ingress. */
+export function snapshotReviewConfigurationOperationLookup(
+  input: Parameters<
+    ReviewConfigurationOperationRepositoryPort["findOperation"]
+  >[0],
+): Parameters<ReviewConfigurationOperationRepositoryPort["findOperation"]>[0] {
+  return Object.freeze({
     target: snapshotOperationTarget(input.target),
     operationId: validateReviewConfigurationOperationId(input.operationId),
+    expectedVersion: validateReviewConfigurationExpectedVersion(
+      input.expectedVersion,
+    ),
   });
 }
 
@@ -41,18 +56,27 @@ export async function findReviewConfigurationOperation(
 export function snapshotReviewConfigurationOperation(
   input: ReviewConfigurationOperationInput,
 ): ReviewConfigurationOperationInput {
-  if (
-    input.expectedVersion !== null &&
-    (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
-  ) {
-    throw new Error("review_configuration_expected_version_invalid");
-  }
+  const expectedVersion = validateReviewConfigurationExpectedVersion(
+    input.expectedVersion,
+  );
   return freezeOperationIntent({
     target: snapshotOperationTarget(input.target),
     config: parseReviewConfigurationStrict(input.config),
-    expectedVersion: input.expectedVersion,
+    expectedVersion,
     operationId: validateReviewConfigurationOperationId(input.operationId),
   });
+}
+
+function validateReviewConfigurationExpectedVersion(
+  expectedVersion: number | null,
+): number | null {
+  if (
+    expectedVersion !== null &&
+    (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1)
+  ) {
+    throw new Error("review_configuration_expected_version_invalid");
+  }
+  return expectedVersion;
 }
 
 export function validateReviewConfigurationOperationId(

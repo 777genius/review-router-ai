@@ -19,7 +19,7 @@ import type {
 } from "../../application/ports/review-configuration-repository-port";
 import {
   snapshotReviewConfigurationOperation,
-  validateReviewConfigurationOperationId,
+  snapshotReviewConfigurationOperationLookup,
 } from "../../application/use-cases/save-review-configuration";
 import {
   isReviewConfigurationWriteConflictError,
@@ -61,7 +61,11 @@ export class PrismaReviewConfigurationRepository
       try {
         return await this.prisma.$transaction(
           (tx) =>
-            saveNextReviewConfigurationVersion(tx, input, this.operatorWorkspaceId),
+            saveNextReviewConfigurationVersion(
+              tx,
+              input,
+              this.operatorWorkspaceId,
+            ),
           { isolationLevel: "Serializable" },
         );
       } catch (error) {
@@ -89,12 +93,27 @@ export class PrismaReviewConfigurationRepository
   }
 
   async findOperation(
-    input: Parameters<ReviewConfigurationOperationRepositoryPort["findOperation"]>[0],
+    input: Parameters<
+      ReviewConfigurationOperationRepositoryPort["findOperation"]
+    >[0],
   ): Promise<PersistedReviewConfiguration | null> {
-    const target = { ...input.target };
-    const operationId = validateReviewConfigurationOperationId(input.operationId);
-    const receipt = await findOperationReceipt(this.prisma, target, operationId);
-    return receipt ? toPersistedConfiguration(receipt) : null;
+    const intent = snapshotReviewConfigurationOperationLookup(input);
+    const receipt = await findOperationReceipt(
+      this.prisma,
+      intent.target,
+      intent.operationId,
+    );
+    if (!receipt) return null;
+    // Verify the caller's original CAS against the durable complete intent.
+    // Clear retains history, so a null-CAS write may have any result version.
+    return matchOperationReceipt(
+      receipt,
+      operationIntentHash({
+        target: intent.target,
+        expectedVersion: intent.expectedVersion,
+        config: toPersistedConfiguration(receipt).config,
+      }),
+    );
   }
 
   async saveNextVersionWithOperation(
@@ -103,20 +122,17 @@ export class PrismaReviewConfigurationRepository
     const intent = snapshotReviewConfigurationOperation(input);
     const receipt = {
       operationId: intent.operationId,
-      operationIntentHash: createHash("sha256")
-        .update(canonicalIntent({
-          target: intent.target,
-          expectedVersion: intent.expectedVersion,
-          config: intent.config,
-        }))
-        .digest("hex"),
+      operationIntentHash: operationIntentHash(intent),
     };
     for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
       try {
         return await this.prisma.$transaction(
           (tx) =>
             saveNextReviewConfigurationVersion(
-              tx, intent, this.operatorWorkspaceId, receipt,
+              tx,
+              intent,
+              this.operatorWorkspaceId,
+              receipt,
             ),
           { isolationLevel: "Serializable" },
         );
@@ -127,12 +143,15 @@ export class PrismaReviewConfigurationRepository
           isPrismaReviewConfigurationSerializationConflict(error)
         ) {
           const original = await findOperationReceipt(
-            this.prisma, intent.target, intent.operationId,
+            this.prisma,
+            intent.target,
+            intent.operationId,
           );
           if (original) {
             return matchOperationReceipt(original, receipt.operationIntentHash);
           }
-          if (isPrismaReviewConfigurationWriteConflict(error)) throw new WriteConflict();
+          if (isPrismaReviewConfigurationWriteConflict(error))
+            throw new WriteConflict();
         }
         if (
           !isPrismaReviewConfigurationSerializationConflict(error) ||
@@ -146,6 +165,23 @@ export class PrismaReviewConfigurationRepository
   }
 }
 
+function operationIntentHash(
+  intent: Pick<
+    ReviewConfigurationOperationInput,
+    "target" | "expectedVersion" | "config"
+  >,
+): string {
+  return createHash("sha256")
+    .update(
+      canonicalIntent({
+        target: intent.target,
+        expectedVersion: intent.expectedVersion,
+        config: intent.config,
+      }),
+    )
+    .digest("hex");
+}
+
 function canonicalIntent(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalIntent).join(",")}]`;
   if (value !== null && typeof value === "object") {
@@ -156,7 +192,8 @@ function canonicalIntent(value: unknown): string {
       .join(",")}}`;
   }
   const encoded = JSON.stringify(value);
-  if (encoded === undefined) throw new Error("review_configuration_intent_invalid");
+  if (encoded === undefined)
+    throw new Error("review_configuration_intent_invalid");
   return encoded;
 }
 
@@ -256,7 +293,9 @@ function hasPrismaErrorCode(error: unknown, code: string): boolean {
   );
 }
 
-function assertOperatorWorkspaceId(operatorWorkspaceId: string | undefined): void {
+function assertOperatorWorkspaceId(
+  operatorWorkspaceId: string | undefined,
+): void {
   if (
     operatorWorkspaceId !== undefined &&
     /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/.exec(operatorWorkspaceId)?.[0] !==
@@ -343,14 +382,20 @@ async function saveNextReviewConfigurationVersion(
   prisma: Prisma.TransactionClient,
   input: Parameters<ReviewConfigurationRepositoryPort["saveNextVersion"]>[0],
   operatorWorkspaceId?: string,
-  receipt?: { readonly operationId: string; readonly operationIntentHash: string },
+  receipt?: {
+    readonly operationId: string;
+    readonly operationIntentHash: string;
+  },
 ): Promise<PersistedReviewConfiguration> {
   await acquireReviewConfigurationWriteScope(prisma, input.target);
   if (receipt) {
     const original = await findOperationReceipt(
-      prisma, input.target, receipt.operationId,
+      prisma,
+      input.target,
+      receipt.operationId,
     );
-    if (original) return matchOperationReceipt(original, receipt.operationIntentHash);
+    if (original)
+      return matchOperationReceipt(original, receipt.operationIntentHash);
   }
   const config = parseReviewConfiguration(input.config);
   const targetKey = reviewConfigurationTargetKey(input.target);
@@ -379,7 +424,9 @@ async function saveNextReviewConfigurationVersion(
     orderBy: { version: "desc" },
     select: { version: true },
   });
-  const currentVersion = configuration.active ? (latest?.version ?? null) : null;
+  const currentVersion = configuration.active
+    ? (latest?.version ?? null)
+    : null;
   if (
     input.expectedVersion !== undefined &&
     currentVersion !== input.expectedVersion
