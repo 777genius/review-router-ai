@@ -33,12 +33,17 @@ export type AccountProfileView = {
   label: string;
   protocol: c.Profile["protocol"];
   models: string[];
+  // Additive display fields; older safe bootstrap consumers may omit them.
+  // The authorized adapter always supplies both from its configured catalog.
+  authKind?: c.Profile["authKinds"][number];
+  canReconnect?: boolean;
 };
 export type AccountView = {
   connectionId: string;
   label: string;
   profileId: string;
   profileLabel: string;
+  authKind?: NonNullable<AccountProfileView["authKind"]>;
   state: c.Account["state"];
   gatewayRevision: number;
   mirrorRevision: number;
@@ -60,6 +65,15 @@ export type AccountOperationView = {
   account?: AccountView;
   // Management disable is logical denial. This SDK supplies no erasure/transport cleanup proof.
   cleanup: "unresolved";
+};
+export type AccountOAuthIntent = Pick<c.OAuthBegin, "profileId"> & {
+  nonce: string;
+  label: string;
+};
+// A fresh Begin response is a one-off handoff, never list/operation/cache metadata.
+export type AccountOAuthBeginView = {
+  operation: AccountOperationView;
+  authorizationURL?: string;
 };
 export type AccountIntent = {
   kind: "connect" | "rename" | "reconnect" | "disable";
@@ -98,6 +112,12 @@ const existing = {
   gatewayRevision: c.revision,
   mirrorRevision,
 };
+const codexOAuthProfileId = "openai-codex-oauth-responses-v1";
+const oauthIntentSchema = z.strictObject({
+  nonce: uuid,
+  profileId: c.reference,
+  label,
+});
 const intentSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("connect"),
@@ -151,9 +171,32 @@ export function createAccountsAdapter(input: {
   synchronization: ProviderAccountSynchronizationPort;
   bindingDependencies: ProviderAccountDependencies;
   apiKeyProfiles: ReadonlyMap<string, "MiMo" | "OpenRouter">;
+  codexOAuthProfileId?: typeof codexOAuthProfileId;
 }) {
   const { gateway, accounts, synchronization, bindingDependencies } = input;
-  const approved = new Map(input.apiKeyProfiles);
+  const approved = new Map<
+    string,
+    Required<Pick<AccountProfileView, "label" | "authKind" | "canReconnect">>
+  >(
+    [...input.apiKeyProfiles].map(([id, name]) => [
+      id,
+      {
+        label: name,
+        authKind: "api_key",
+        canReconnect: true,
+      },
+    ]),
+  );
+  if (input.codexOAuthProfileId !== undefined) {
+    z.literal(codexOAuthProfileId).parse(input.codexOAuthProfileId);
+    if (approved.has(codexOAuthProfileId))
+      throw new Error("accounts_unavailable");
+    approved.set(codexOAuthProfileId, {
+      label: "Codex",
+      authKind: "oauth",
+      canReconnect: false,
+    });
+  }
   async function authorize(context: string) {
     try {
       const authority = await input.authorize(
@@ -192,6 +235,9 @@ export function createAccountsAdapter(input: {
       get: (ref: string) => checked(() => gateway.get(ref)),
       connect: (request: Parameters<ManagementClient["connect"]>[0]) =>
         checked(() => gateway.connect(request), true),
+      beginOAuth: (request: c.OAuthBegin) =>
+        checked(() => gateway.beginOAuth(request), true),
+      reauthorize: () => checked(async () => undefined),
       rename: (ref: string, request: c.Rename) =>
         checked(() => gateway.rename(ref, request), true),
       reconnect: (
@@ -212,12 +258,17 @@ export function createAccountsAdapter(input: {
   async function profiles(client: ScopedClient): Promise<AccountProfileView[]> {
     const catalogue = await client.profiles();
     return catalogue.profiles
-      .filter(
-        (p) => approved.has(p.profileId) && p.authKinds.includes("api_key"),
-      )
+      .filter((p) => {
+        const configured = approved.get(p.profileId);
+        return (
+          configured &&
+          p.authKinds.includes(configured.authKind) &&
+          (configured.authKind !== "oauth" || p.protocol === "openai-responses")
+        );
+      })
       .map((p) => ({
         id: p.profileId,
-        label: approved.get(p.profileId)!,
+        ...approved.get(p.profileId)!,
         protocol: p.protocol,
         models: [...p.modelIds],
       }));
@@ -298,6 +349,7 @@ export function createAccountsAdapter(input: {
       label: account.displayName,
       profileId: account.profileId,
       profileLabel: catalogue.find((p) => p.id === account.profileId)!.label,
+      authKind: catalogue.find((p) => p.id === account.profileId)!.authKind!,
       state: account.state,
       gatewayRevision: account.metadataRevision,
       mirrorRevision: mirror.metadataRevision,
@@ -478,7 +530,11 @@ export function createAccountsAdapter(input: {
       let operation: c.Operation;
       let expected: { accountRef?: string; profileId: string } | undefined;
       if (intent.kind === "connect") {
-        if (!catalogue.some((p) => p.id === intent.profileId))
+        if (
+          !catalogue.some(
+            (p) => p.id === intent.profileId && p.authKind === "api_key",
+          )
+        )
           throw new Denied();
         expected = { profileId: intent.profileId };
         operation = await client.connect({
@@ -507,6 +563,11 @@ export function createAccountsAdapter(input: {
           profileId: account.profileId,
         };
         if (account.state === "tombstoned") throw new Denied();
+        if (
+          intent.kind === "reconnect" &&
+          !catalogue.find((p) => p.id === account.profileId)?.canReconnect
+        )
+          throw new Denied();
         if (intent.kind === "disable") {
           await client.denyForDisable({
             workspaceId: authority.workspaceId,
@@ -556,6 +617,64 @@ export function createAccountsAdapter(input: {
           value: { nonce: savedNonce, state: "unknown", cleanup: "unresolved" },
         };
       }
+      return safeFailure(error);
+    }
+  }
+  async function beginOAuth(
+    context: string,
+    raw: AccountOAuthIntent,
+  ): Promise<AccountsResult<AccountOAuthBeginView>> {
+    let entered = false;
+    let nonce: string | undefined;
+    try {
+      const intent = oauthIntentSchema.parse(raw); // snapshot before any await
+      nonce = intent.nonce;
+      const authority = await authorize(context);
+      const client = scoped(context, authority, async () => {
+        entered = true;
+      });
+      const catalogue = await profiles(client);
+      if (
+        !catalogue.some(
+          (p) => p.id === intent.profileId && p.authKind === "oauth",
+        )
+      )
+        throw new Denied();
+      const fresh = await client.beginOAuth({
+        operationId: operationRef(authority.owner, intent.nonce),
+        ownerRef: authority.owner,
+        profileId: intent.profileId,
+        displayName: intent.label,
+      });
+      const operation = await projectOperation(
+        authority,
+        intent.nonce,
+        fresh.operation,
+        catalogue,
+        client,
+        { profileId: intent.profileId },
+      );
+      // Pending projection performs no reads. Explicitly recheck the ORIGINAL live
+      // workspace/admin after Begin and all awaited projection before releasing its capability.
+      await client.reauthorize();
+      return {
+        status: "ok",
+        value: {
+          operation,
+          ...(fresh.authorizationURL === undefined
+            ? {}
+            : { authorizationURL: fresh.authorizationURL }),
+        },
+      };
+    } catch (error) {
+      // Permission loss/transport loss after entry cannot claim no effect or lose readback.
+      if (entered && nonce)
+        return {
+          status: "ok",
+          value: {
+            operation: { nonce, state: "unknown", cleanup: "unresolved" },
+          },
+        };
       return safeFailure(error);
     }
   }
@@ -654,7 +773,7 @@ export function createAccountsAdapter(input: {
       return safeFailure(error);
     }
   }
-  return { list, mutate, operation, bind };
+  return { list, mutate, beginOAuth, operation, bind };
 }
 
 // One server-configured origin/management role. Never read a caller URL/token/native ID.
@@ -679,10 +798,18 @@ function configuration() {
       if (apiKeyProfiles.has(value)) throw new Error("accounts_unavailable");
       apiKeyProfiles.set(value, name);
     }
-  if (!apiKeyProfiles.size) throw new Error("accounts_unavailable");
+  const configuredOAuth =
+    process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CODEX_OAUTH_PROFILE_ID;
+  const oauthProfile =
+    configuredOAuth === undefined || configuredOAuth === ""
+      ? undefined
+      : z.literal(codexOAuthProfileId).parse(configuredOAuth);
+  if (!apiKeyProfiles.size && !oauthProfile)
+    throw new Error("accounts_unavailable");
   return {
     contextKey,
     apiKeyProfiles,
+    ...(oauthProfile ? { codexOAuthProfileId: oauthProfile } : {}),
     gateway: createManagementClient({
       role: "management",
       origin,

@@ -11,6 +11,7 @@ import {
 import { Badge, Button, Dialog, SelectField } from "@reviewrouter/ui";
 import type {
   AccountIntent,
+  AccountOAuthIntent,
   AccountOperationView,
   AccountProfileView,
   AccountView,
@@ -19,6 +20,7 @@ import type {
 } from "../../src/server/account-gateway-accounts";
 import {
   bindGatewayAccount,
+  beginGatewayOAuth,
   listGatewayAccounts,
   mutateGatewayAccount,
   readGatewayOperation,
@@ -92,7 +94,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
       setReady(true);
     } catch {
       setMessage(
-        "Operation readback storage is unavailable. Enable session storage before submitting a key.",
+        "Operation readback storage is unavailable. Enable session storage before starting an operation.",
       );
     }
   }, [storageKey]);
@@ -150,10 +152,42 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
           ? "Gateway acknowledged the operation. Cleanup remains unverified; bindings require an active current account."
           : result.value.state === "rejected"
             ? "The gateway rejected the operation."
-            : "The operation is unresolved. Check its status; the key will not be submitted again."
+            : "The operation is unresolved. Check its status; enrollment or credentials will not be submitted again."
         : statusText(result.status),
     );
     await refresh();
+  }
+  async function beginOAuth(intent: Omit<AccountOAuthIntent, "nonce">) {
+    if (submitting.current) return;
+    const nonce = reserveNonce();
+    if (!nonce) return;
+    submitting.current = true;
+    setBusy(true);
+    try {
+      // Direct ingress: neither the Begin response nor its temporary URL enters
+      // a query/mutation cache, component state, storage or a readback request.
+      const fresh = await beginGatewayOAuth(context, { ...intent, nonce });
+      const safe: AccountsResult<AccountOperationView> =
+        fresh.status === "ok"
+          ? { status: "ok", value: fresh.value.operation }
+          : fresh;
+      // The browser gets one fresh handoff. Readback never contains/rebuilds a URL.
+      if (fresh.status === "ok" && fresh.value.authorizationURL)
+        window.open(
+          fresh.value.authorizationURL,
+          "_blank",
+          "noopener,noreferrer",
+        );
+      await accept(nonce, safe);
+    } catch {
+      await accept(nonce, {
+        status: "ok",
+        value: { nonce, state: "unknown", cleanup: "unresolved" },
+      });
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
   }
   const metadataMutation = useMutation({
     mutationKey: ["gateway-accounts", scope, "metadata"] as const,
@@ -221,11 +255,22 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
-        {data?.status === "ok" && data.value.profiles.length ? (
+        {data?.status === "ok" &&
+        data.value.profiles.some((p) => p.authKind === "api_key") ? (
           <AccountForm
-            profiles={data.value.profiles}
+            profiles={data.value.profiles.filter(
+              (p) => p.authKind === "api_key",
+            )}
             disabled={disabled}
             submit={submit}
+          />
+        ) : null}
+        {data?.status === "ok" &&
+        data.value.profiles.some((p) => p.authKind === "oauth") ? (
+          <OAuthForm
+            profiles={data.value.profiles.filter((p) => p.authKind === "oauth")}
+            disabled={disabled}
+            begin={beginOAuth}
           />
         ) : null}
         <Button
@@ -250,7 +295,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
         <div className="divide-y divide-cyan-200/10">
           {!data.value.accounts.length ? (
             <p className="py-4 text-sm text-slate-400">
-              No workspace API-key accounts on this page.
+              No workspace accounts on this page.
             </p>
           ) : null}
           {data.value.accounts.map((account) => (
@@ -295,13 +340,17 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                   disabled={disabled}
                   submit={submit}
                 />
-                <AccountForm
-                  account={account}
-                  mode="reconnect"
-                  profiles={data.value.profiles}
-                  disabled={disabled || account.state === "tombstoned"}
-                  submit={submit}
-                />
+                {account.authKind === "api_key" &&
+                data.value.profiles.find((p) => p.id === account.profileId)
+                  ?.canReconnect ? (
+                  <AccountForm
+                    account={account}
+                    mode="reconnect"
+                    profiles={data.value.profiles}
+                    disabled={disabled || account.state === "tombstoned"}
+                    submit={submit}
+                  />
+                ) : null}
                 <Button
                   variant="outline"
                   size="sm"
@@ -366,7 +415,9 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
             Only operation nonces are retained in this tab. Keys are cleared
             after submission. Pending or unknown operations are never
             automatically resubmitted. Acknowledgment does not prove credential
-            erasure or transport cleanup.
+            erasure or transport cleanup. OAuth authorization is offered only
+            once after a fresh enrollment; status readback cannot reopen it.
+            Allow the authorization tab if your browser blocks popups.
           </p>
           {nonces.map((nonce, index) => (
             <OperationReadback
@@ -382,6 +433,79 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function OAuthForm({
+  profiles,
+  disabled,
+  begin,
+}: {
+  profiles: AccountProfileView[];
+  disabled: boolean;
+  begin(intent: Omit<AccountOAuthIntent, "nonce">): Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger
+        render={<Button variant="outline" size="sm" disabled={disabled} />}
+      >
+        Connect Codex OAuth
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Backdrop />
+        <Dialog.Popup>
+          <Dialog.Title className="text-lg font-semibold">
+            Connect Codex OAuth
+          </Dialog.Title>
+          <Dialog.Description className="mt-2 text-sm text-slate-400">
+            Authorize Codex in a new browser tab. No API key is needed.
+            Enrollment stays pending until confirmed; an unresolved result
+            requires status readback. Reconnecting an existing OAuth account is
+            unavailable.
+          </Dialog.Description>
+          <form
+            className="mt-4 grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const values = new FormData(form);
+              const intent = {
+                profileId: String(values.get("profileId") ?? ""),
+                label: String(values.get("label") ?? ""),
+              };
+              form.reset();
+              setOpen(false);
+              void begin(intent);
+            }}
+          >
+            <SelectField
+              name="profileId"
+              label="Provider profile"
+              defaultValue={profiles[0]?.id ?? ""}
+              options={profiles.map((p) => ({
+                value: p.id,
+                label: `${p.label} · ${p.protocol}`,
+                description: p.models.join(", "),
+              }))}
+            />
+            <label className="grid gap-2 text-sm">
+              Account label
+              <input
+                className={inputClass}
+                name="label"
+                required
+                maxLength={120}
+              />
+            </label>
+            <Button type="submit" disabled={disabled}>
+              Authorize Codex
+            </Button>
+          </form>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

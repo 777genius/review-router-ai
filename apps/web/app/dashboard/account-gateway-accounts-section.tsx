@@ -17,15 +17,17 @@ export async function AccountGatewayAccountsSection({
           id="gateway-accounts-title"
           className="text-lg font-semibold text-cyan-50"
         >
-          Workspace API-key accounts
+          Workspace accounts
         </h3>
         <p className="mt-2 text-sm text-slate-400">
-          Connect a MiMo or OpenRouter key for this workspace. Workspace admins
-          can manage these accounts. Keys are stored on our server and are never
-          returned here or copied to repository secrets.
+          Connect a MiMo or OpenRouter key, or enroll Codex when OAuth is
+          enabled for this workspace. Workspace admins can manage these
+          accounts. Credentials are stored on our server and are never returned
+          here or copied to repository secrets.
         </p>
         <p className="mt-2 text-sm text-slate-400">
-          Codex accounts will be available here later.
+          Codex authorization opens once after a fresh enrollment. Enrollment
+          remains pending until the gateway confirms an active account.
         </p>
       </div>
       <AccountGatewayControls
