@@ -527,6 +527,8 @@ function queryFixture() {
   const version = {
     id: "config-version-7",
     configurationId: "config-1",
+    operationId: null,
+    operationIntentHash: null,
     workspaceId: "workspace-1",
     version: 7,
     schemaVersion: 2,
