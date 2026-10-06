@@ -593,6 +593,11 @@ describe("review configuration", () => {
       investigationProductionEffectsEnabled: boolean;
       providers: ProviderRow[];
     };
+    type ConfigurationRow = {
+      id: string;
+      workspaceId: string;
+      active: boolean;
+    };
     type PrismaStub = {
       $transaction<T>(
         callback: (
@@ -602,8 +607,12 @@ describe("review configuration", () => {
         ) => Promise<T>,
       ): Promise<T>;
       reviewConfiguration: {
-        upsert(): Promise<{ id: string }>;
-        findUnique(): Promise<{ versions: VersionRow[] }>;
+        upsert(): Promise<ConfigurationRow>;
+        findUnique(): Promise<{ active: boolean; versions: VersionRow[] }>;
+        update(input: {
+          where: { id: string };
+          data: { active: boolean };
+        }): Promise<ConfigurationRow>;
         deleteMany(): Promise<{ count: number }>;
       };
       reviewConfigurationVersion: {
@@ -614,6 +623,11 @@ describe("review configuration", () => {
           };
         }): Promise<VersionRow>;
       };
+    };
+    const configuration: ConfigurationRow = {
+      id: "review_config_1",
+      workspaceId: "workspace_1",
+      active: true,
     };
     const versions: VersionRow[] = [];
     let transactionAttempts = 0;
@@ -636,10 +650,18 @@ describe("review configuration", () => {
         });
       },
       reviewConfiguration: {
-        upsert: async () => ({ id: "review_config_1" }),
+        upsert: async () => ({ ...configuration }),
         findUnique: async () => ({
+          active: configuration.active,
           versions: versions.length ? [versions[versions.length - 1]!] : [],
         }),
+        update: async ({ where, data }) => {
+          if (where.id !== configuration.id) {
+            throw new Error("review_configuration_not_found");
+          }
+          configuration.active = data.active;
+          return { ...configuration };
+        },
         deleteMany: async () => ({ count: 1 }),
       },
       reviewConfigurationVersion: {
