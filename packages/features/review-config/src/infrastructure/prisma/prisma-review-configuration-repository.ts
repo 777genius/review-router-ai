@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
@@ -13,7 +14,13 @@ import type {
   RepositoryReviewConfiguration,
   ReviewConfigurationBatchReaderPort,
   ReviewConfigurationRepositoryPort,
+  ReviewConfigurationOperationInput,
+  ReviewConfigurationOperationRepositoryPort,
 } from "../../application/ports/review-configuration-repository-port";
+import {
+  snapshotReviewConfigurationOperation,
+  snapshotReviewConfigurationOperationLookup,
+} from "../../application/use-cases/save-review-configuration";
 import {
   isReviewConfigurationWriteConflictError,
   ReviewConfigurationWriteConflictError as WriteConflict,
@@ -22,6 +29,7 @@ import {
 export class PrismaReviewConfigurationRepository
   implements
     ReviewConfigurationRepositoryPort,
+    ReviewConfigurationOperationRepositoryPort,
     ReviewConfigurationBatchReaderPort
 {
   constructor(
@@ -83,6 +91,135 @@ export class PrismaReviewConfigurationRepository
       deleteReviewConfigurationTarget(tx, target),
     );
   }
+
+  async findOperation(
+    input: Parameters<
+      ReviewConfigurationOperationRepositoryPort["findOperation"]
+    >[0],
+  ): Promise<PersistedReviewConfiguration | null> {
+    const intent = snapshotReviewConfigurationOperationLookup(input);
+    const receipt = await findOperationReceipt(
+      this.prisma,
+      intent.target,
+      intent.operationId,
+    );
+    if (!receipt) return null;
+    // Verify the caller's original CAS against the durable complete intent.
+    // Clear retains history, so a null-CAS write may have any result version.
+    return matchOperationReceipt(
+      receipt,
+      operationIntentHash({
+        target: intent.target,
+        expectedVersion: intent.expectedVersion,
+        config: toPersistedConfiguration(receipt).config,
+      }),
+    );
+  }
+
+  async saveNextVersionWithOperation(
+    input: ReviewConfigurationOperationInput,
+  ): Promise<PersistedReviewConfiguration> {
+    const intent = snapshotReviewConfigurationOperation(input);
+    const receipt = {
+      operationId: intent.operationId,
+      operationIntentHash: operationIntentHash(intent),
+    };
+    for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          (tx) =>
+            saveNextReviewConfigurationVersion(
+              tx,
+              intent,
+              this.operatorWorkspaceId,
+              receipt,
+            ),
+          { isolationLevel: "Serializable" },
+        );
+      } catch (error) {
+        // Resolve races only after rollback, from the original scoped receipt.
+        if (
+          isPrismaReviewConfigurationWriteConflict(error) ||
+          isPrismaReviewConfigurationSerializationConflict(error)
+        ) {
+          const original = await findOperationReceipt(
+            this.prisma,
+            intent.target,
+            intent.operationId,
+          );
+          if (original) {
+            return matchOperationReceipt(original, receipt.operationIntentHash);
+          }
+          if (isPrismaReviewConfigurationWriteConflict(error))
+            throw new WriteConflict();
+        }
+        if (
+          !isPrismaReviewConfigurationSerializationConflict(error) ||
+          attempt === MAX_TRANSACTION_ATTEMPTS
+        ) {
+          throw error;
+        }
+      }
+    }
+    throw new Error("review_configuration_transaction_retry_exhausted");
+  }
+}
+
+function operationIntentHash(
+  intent: Pick<
+    ReviewConfigurationOperationInput,
+    "target" | "expectedVersion" | "config"
+  >,
+): string {
+  return createHash("sha256")
+    .update(
+      canonicalIntent({
+        target: intent.target,
+        expectedVersion: intent.expectedVersion,
+        config: intent.config,
+      }),
+    )
+    .digest("hex");
+}
+
+function canonicalIntent(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalIntent).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, v]) => `${JSON.stringify(k)}:${canonicalIntent(v)}`)
+      .join(",")}}`;
+  }
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined)
+    throw new Error("review_configuration_intent_invalid");
+  return encoded;
+}
+
+async function findOperationReceipt(
+  prisma: ReviewConfigurationPrismaClient,
+  target: ReviewConfigurationTarget,
+  operationId: string,
+) {
+  return prisma.reviewConfigurationVersion.findFirst({
+    where: {
+      operationId,
+      configuration: {
+        workspaceId: target.workspaceId,
+        targetKey: reviewConfigurationTargetKey(target),
+      },
+    },
+    select: { ...versionSelect, operationIntentHash: true },
+  });
+}
+
+function matchOperationReceipt(
+  original: VersionRecord & { readonly operationIntentHash: string | null },
+  intentHash: string,
+): PersistedReviewConfiguration {
+  if (original.operationIntentHash !== intentHash) throw new WriteConflict();
+  return toPersistedConfiguration(original);
 }
 
 /** Acquire at transaction entry, before any earlier advisory/row locks or reads.
@@ -187,6 +324,7 @@ async function findLatestReviewConfiguration(
       },
     },
     select: {
+      active: true,
       versions: {
         orderBy: { version: "desc" },
         take: 1,
@@ -194,7 +332,7 @@ async function findLatestReviewConfiguration(
       },
     },
   });
-  const version = record?.versions[0];
+  const version = record?.active ? record.versions[0] : undefined;
   return version ? toPersistedConfiguration(version) : null;
 }
 
@@ -214,6 +352,7 @@ async function findLatestReviewConfigurationsForRepositories(
     where: {
       workspaceId: input.workspaceId,
       repositoryId: { in: repositoryIds },
+      active: true,
     },
     orderBy: { repositoryId: "asc" },
     select: {
@@ -243,8 +382,21 @@ async function saveNextReviewConfigurationVersion(
   prisma: Prisma.TransactionClient,
   input: Parameters<ReviewConfigurationRepositoryPort["saveNextVersion"]>[0],
   operatorWorkspaceId?: string,
+  receipt?: {
+    readonly operationId: string;
+    readonly operationIntentHash: string;
+  },
 ): Promise<PersistedReviewConfiguration> {
   await acquireReviewConfigurationWriteScope(prisma, input.target);
+  if (receipt) {
+    const original = await findOperationReceipt(
+      prisma,
+      input.target,
+      receipt.operationId,
+    );
+    if (original)
+      return matchOperationReceipt(original, receipt.operationIntentHash);
+  }
   const config = parseReviewConfiguration(input.config);
   const targetKey = reviewConfigurationTargetKey(input.target);
   const configuration = await prisma.reviewConfiguration.upsert({
@@ -264,7 +416,7 @@ async function saveNextReviewConfigurationVersion(
         input.target.scope === "repository" ? input.target.repositoryId : null,
       targetKey,
     },
-    select: { id: true, workspaceId: true },
+    select: { id: true, workspaceId: true, active: true },
   });
 
   const latest = await prisma.reviewConfigurationVersion.findFirst({
@@ -272,9 +424,12 @@ async function saveNextReviewConfigurationVersion(
     orderBy: { version: "desc" },
     select: { version: true },
   });
+  const currentVersion = configuration.active
+    ? (latest?.version ?? null)
+    : null;
   if (
     input.expectedVersion !== undefined &&
-    (latest?.version ?? null) !== input.expectedVersion
+    currentVersion !== input.expectedVersion
   ) {
     throw new WriteConflict();
   }
@@ -286,10 +441,19 @@ async function saveNextReviewConfigurationVersion(
     config,
     operatorWorkspaceId,
   );
+  if (!configuration.active) {
+    // Reactivate only a NEW, CAS-valid, eligible write. Receipt replay returned
+    // above without changing the active override or its retained history.
+    await prisma.reviewConfiguration.update({
+      where: { id: configuration.id },
+      data: { active: true },
+    });
+  }
   const nextVersion = (latest?.version ?? 0) + 1;
   const saved = await prisma.reviewConfigurationVersion.create({
     data: {
       configurationId: configuration.id,
+      ...receipt,
       workspaceId: configuration.workspaceId,
       gatewayBindingId: config.provider.gatewayBindingId ?? null,
       gatewayProfileRef: config.provider.gatewayProfileRef ?? null,
@@ -346,13 +510,28 @@ async function deleteReviewConfigurationTarget(
   target: ReviewConfigurationTarget,
 ): Promise<boolean> {
   await acquireReviewConfigurationWriteScope(prisma, target);
+  const scope = {
+    workspaceId: target.workspaceId,
+    targetKey: reviewConfigurationTargetKey(target),
+  };
+  // Clear the active override without destroying committed operation receipts.
+  // History stays scoped to the same parent; a later new write continues its
+  // sequence while CAS sees null for an inactive override.
+  const retained = await prisma.reviewConfiguration.updateMany({
+    where: {
+      ...scope,
+      active: true,
+      versions: { some: { operationId: { not: null } } },
+    },
+    data: { active: false },
+  });
   const result = await prisma.reviewConfiguration.deleteMany({
     where: {
-      workspaceId: target.workspaceId,
-      targetKey: reviewConfigurationTargetKey(target),
+      ...scope,
+      versions: { none: { operationId: { not: null } } },
     },
   });
-  return result.count > 0;
+  return retained.count + result.count > 0;
 }
 
 const versionSelect = {
