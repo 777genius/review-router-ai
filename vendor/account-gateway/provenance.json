@@ -2,9 +2,9 @@
   "package": "@agent-teams/account-gateway",
   "version": "0.1.0",
   "sourceRepository": "https://github.com/agent-teams-ai/account-gateway",
-  "sourceCommit": "bdba815f83e326726441ddbe7ade51d7d2974e07",
-  "sha256": "b6a4b79a1e026e585a23118c6661dd995fa124b061de86f2c0ca18ad71bf74a9",
-  "integrity": "sha512-FN8fXQuUtjrNhd5W+E3zQtjs+cbU/qhS3XmMjuDbrMRzm2lrqGuKLDZdsDAiHzbqmx48ICCVt2pFtzWYss3G1Q==",
+  "sourceCommit": "0d12d3a81336944a92ff29ad637cd233b44554aa",
+  "sha256": "33ed728dd7ceeadc462520a8504cfc02370b6af6b233dc124fa75a9e702e521e",
+  "integrity": "sha512-ouvfzIThYs4RsFVWjxnCi9Htamn2BBuJF2VFK+8xDtOfHMzheDUeRL1BW+uv9STjJhHAYFnH85rOCgAcL3iYcg==",
   "private": true,
   "published": false,
   "sourceFiles": [
@@ -26,19 +26,19 @@
     },
     {
       "path": "packages/account-gateway/src/contracts/index.ts",
-      "sha256": "c2946d2cf41a1df3b1342ea2def6341c7baf9f5125a5ff9a1d571209b47a9f62"
+      "sha256": "369f38b536e5eb8a1ddb2644b8e7a4869fcfb6df68e5ae6d2da5fd9a7e5fbc1b"
     },
     {
       "path": "packages/account-gateway/src/features/facade-client/http/ingress.ts",
-      "sha256": "cf3513cb872aabc7b745e97e18e52278522a5e5f61c6b1044c79c7fa99a9d1a1"
+      "sha256": "48324f85e7d32886f229618742615b608cd2f1423f6c9ee9b6d086438736708f"
     },
     {
       "path": "packages/account-gateway/src/features/facade-client/http/index.ts",
-      "sha256": "721f85b6ae90d6d8523647465a9919372dadb6424401ec8bc61f5941fa088c76"
+      "sha256": "b9c57f267607efa6fa624e4e9b1406196deb8d77ce80a2cd4abc1f02582baed0"
     },
     {
       "path": "packages/account-gateway/src/features/facade-client/contracts/index.ts",
-      "sha256": "fde258b0f17cfec792f2fa1cc96dacf6f5742ccdf8796118e19dfc0aefef079c"
+      "sha256": "6970e0650d607298be29893132a9d6f8bbf442f4ebd8bd9a780334c2826fe7a8"
     }
   ]
 }
