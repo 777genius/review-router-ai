@@ -330,6 +330,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
     readServerApprovedReviewRunGatewayPolicy(
       input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY,
     ),
+    input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
   );
   const repositories = createPrismaReviewRunControlRepositories(
     input.prisma,

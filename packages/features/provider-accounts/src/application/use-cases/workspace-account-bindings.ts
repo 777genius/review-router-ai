@@ -9,12 +9,16 @@ import {
   assertExpectedRevision,
   assertOpaqueReference,
   assertWorkspaceOwner,
+  assertWorkspaceUseOwner,
   selectBinding,
   type BindingScope,
   type SafeBindingTuple,
   type WorkspaceAccountBinding,
 } from "../../domain/provider-account";
-import type { ProviderAccountRepositoryPort } from "../ports/provider-account-repository-port";
+import type {
+  ProviderAccountRepositoryPort,
+  OperatorAccountGrantRepositoryPort,
+} from "../ports/provider-account-repository-port";
 
 export type WorkspaceAccountActor = Pick<
   AssertWorkspaceAdminAllowedInput,
@@ -25,6 +29,8 @@ export type ProviderAccountDependencies = {
   readonly workspaceAccess: WorkspaceAccessRepositoryPort;
   // Trusted composition config, never a caller-controlled permission input.
   readonly localAdminGithubLogins?: readonly string[];
+  readonly operatorWorkspaceId?: string;
+  readonly operatorGrants?: OperatorAccountGrantRepositoryPort;
 };
 
 function assertActor(actor: WorkspaceAccountActor): void {
@@ -98,8 +104,26 @@ async function changeBinding(
   assertExpectedRevision(input.expectedRevision, state === "active");
   // Always query live auth at the application boundary; no cached role/paid-pool grant.
   await assertAdmin(input.workspaceId, input.actor, dependencies);
-  const connection = await dependencies.accounts.findOwnedConnection(input);
-  assertWorkspaceOwner(connection, input.workspaceId);
+  const ownerWorkspaceId =
+    state === "revoked" && dependencies.operatorWorkspaceId
+      ? dependencies.operatorWorkspaceId
+      : input.workspaceId;
+  const owned = await dependencies.accounts.findOwnedConnection(input);
+  const connection =
+    owned ??
+    (state === "revoked"
+      ? await dependencies.accounts.findOwnedConnection({
+          ...input,
+          workspaceId: ownerWorkspaceId,
+        })
+      : null);
+  if (state === "active") assertWorkspaceOwner(connection, input.workspaceId);
+  else
+    assertWorkspaceUseOwner(
+      connection,
+      input.workspaceId,
+      dependencies.operatorWorkspaceId,
+    );
   if (state === "active") assertExecutable(connection);
   return dependencies.accounts.compareAndSetBinding({
     workspaceId: input.workspaceId,
@@ -107,6 +131,29 @@ async function changeBinding(
     expectedRevision: input.expectedRevision,
     state,
   });
+}
+/** Explicit operator grant/revoke. Recipient authority can only detach existing use. */
+export async function changeOperatorWorkspaceAccountGrant(
+  request: MutationInput & { readonly state: "active" | "revoked" },
+  dependencies: ProviderAccountDependencies,
+): Promise<WorkspaceAccountBinding> {
+  const input = { ...snapshotMutation(request), state: request.state };
+  assertActor(input.actor);
+  assertOpaqueReference(input.workspaceId);
+  assertOpaqueReference(input.connectionId);
+  assertExpectedRevision(input.expectedRevision, input.state === "active");
+  if (input.state !== "active" && input.state !== "revoked")
+    throw new ProviderAccountError("invalid_input");
+  const operatorWorkspaceId = dependencies.operatorWorkspaceId;
+  if (!operatorWorkspaceId || !dependencies.operatorGrants)
+    throw new ProviderAccountError("workspace_forbidden");
+  assertOpaqueReference(operatorWorkspaceId);
+  // Deliberately exclude local login overrides: real live membership is required.
+  await assertAdmin(operatorWorkspaceId, input.actor, {
+    accounts: dependencies.accounts,
+    workspaceAccess: dependencies.workspaceAccess,
+  });
+  return dependencies.operatorGrants.compareAndSetOperatorBinding(input);
 }
 export function bindWorkspaceAccount(
   input: MutationInput,
@@ -171,5 +218,10 @@ export async function resolveWorkspaceAccountBinding(
     workspaceId: input.workspaceId,
     bindingId: input.bindingId,
   });
-  return selectBinding(input.workspaceId, input.bindingId, selection);
+  return selectBinding(
+    input.workspaceId,
+    input.bindingId,
+    selection,
+    dependencies.operatorWorkspaceId,
+  );
 }

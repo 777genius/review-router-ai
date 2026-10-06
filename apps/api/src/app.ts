@@ -491,8 +491,14 @@ export async function createApiApp(
             operatorCredentialSha256,
           ),
           repositories: new PrismaReviewConfigurationOperatorRepository(prisma),
-          configurations: new PrismaReviewConfigurationRepository(prisma),
-          mutations: new PrismaReviewConfigurationOperatorMutation(prisma),
+          configurations: new PrismaReviewConfigurationRepository(
+            prisma,
+            reviewActionV2Env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+          ),
+          mutations: new PrismaReviewConfigurationOperatorMutation(
+            prisma,
+            reviewActionV2Env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+          ),
           rateLimits: new ReviewConfigurationOperatorRateLimit(
             new PrismaRateLimitStore(prisma),
             clock,
