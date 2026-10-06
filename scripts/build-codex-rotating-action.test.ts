@@ -59,6 +59,13 @@ describe("Codex rotating Action bundle reproducibility", () => {
       );
       expect(hashes[1]).toBe(hashes[0]);
 
+      const committedBundle = readFileSync(
+        join(sourceRoot, "action-dist/index.cjs"),
+      );
+      for (const bundle of bundles) {
+        expect(bundle.equals(committedBundle)).toBe(true);
+      }
+
       const bundleText = bundles[0].toString("utf8");
       for (const forbidden of [
         "/var/data",
