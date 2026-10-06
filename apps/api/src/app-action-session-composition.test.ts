@@ -401,16 +401,34 @@ function queryFixture() {
     investigationProductionEffectsEnabled: false, createdAt: boundAt,
   } satisfies ReviewConfigurationVersion;
   const entitlement = { plan: "free_beta", status: "active", flags: { action_control_plane: true }, limits: {} };
-  const repositoryFind = vi.fn(async (_args: Prisma.RepositoryConnectionFindFirstArgs) => repository);
-  const configFind = vi.fn(async (_args: Prisma.ReviewConfigurationFindUniqueArgs) => ({
-    versions: [{ ...version, providers: [] }],
-  }));
-  const entitlementFind = vi.fn(async (_args: Prisma.WorkspaceEntitlementFindUniqueArgs) => entitlement);
-  const snapshotFind = vi.fn(async (_args: Prisma.ReviewSnapshotFindUniqueArgs) => null);
-  const checkpointFind = vi.fn(async (_args: Prisma.ReviewExecutionCheckpointFindUniqueArgs) => null);
+  const repositoryFind = vi.fn(async (_args: Prisma.RepositoryConnectionFindFirstArgs) => {
+    void _args;
+    return repository;
+  });
+  const configFind = vi.fn(async (_args: Prisma.ReviewConfigurationFindUniqueArgs) => {
+    void _args;
+    return {
+      versions: [{ ...version, providers: [] }],
+    };
+  });
+  const entitlementFind = vi.fn(async (_args: Prisma.WorkspaceEntitlementFindUniqueArgs) => {
+    void _args;
+    return entitlement;
+  });
+  const snapshotFind = vi.fn(async (_args: Prisma.ReviewSnapshotFindUniqueArgs) => {
+    void _args;
+    return null;
+  });
+  const checkpointFind = vi.fn(async (_args: Prisma.ReviewExecutionCheckpointFindUniqueArgs) => {
+    void _args;
+    return null;
+  });
   const identityFind = vi.fn(async (
     _args: Prisma.ScmRepositoryIdentityFindUniqueArgs,
-  ): Promise<ScmRepositoryIdentity | null> => identity);
+  ): Promise<ScmRepositoryIdentity | null> => {
+    void _args;
+    return identity;
+  });
   const unexpectedAccess: string[] = [];
   const nonceKeys = new Set<string>();
   const rateKeys: unknown[] = [];
