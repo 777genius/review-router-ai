@@ -7,6 +7,8 @@ import {
   createVersionedProviderSecretNamespace,
   isolatedQualityWorkflowPath,
   workflowDocumentSemanticSha256,
+  readCanonicalCodexRotatingT0WorkflowSourceMetadata,
+  renderCanonicalAccountGatewayWorkflow,
 } from "@reviewrouter/features-codex-oauth-rotating";
 import {
   analyzeConflictReviewWorkflowCapability,
@@ -1562,3 +1564,50 @@ function workflowFileContent(
 ): string {
   return file && file.operation !== "delete" ? file.content : "";
 }
+
+it("delegates gateway production rendering to the single canonical domain representation", () => {
+  const options = {
+    actionRef:
+      "777genius/review-router@9d30879b333c6474d104f5911f548419702b758b",
+    apiUrl: "https://aberdeen-say-beverages-testimony.trycloudflare.com",
+    githubRepositoryId: "1317214237",
+  };
+  const file = renderAccountGatewayWorkflow(options);
+  expect(file.content).toBe(renderCanonicalAccountGatewayWorkflow(options));
+  expect(
+    readCanonicalCodexRotatingT0WorkflowSourceMetadata(file.content),
+  ).toMatchObject({
+    actionRef: options.actionRef,
+    apiUrl: options.apiUrl,
+    providerInstanceId: `codex-rotating:${options.githubRepositoryId}`,
+    workflowSchemaVersion: 2,
+    codexSessionMode: "account-gateway",
+  });
+  expect(scanCodexRotatingAdvisoryWorkflow(file.content)).toEqual({
+    valid: true,
+    errors: [],
+  });
+  expect(() =>
+    renderAccountGatewayWorkflow({
+      ...options,
+      githubRepositoryId: "1228051727",
+    }),
+  ).toThrow("account_gateway_workflow_path_not_supported");
+});
+
+it.each([
+  "777genius/review-router@v1",
+  `attacker/runtime@${"a".repeat(40)}`,
+  `777genius/review-router@${"a".repeat(39)}`,
+])(
+  "preserves immutable canonical gateway action validation for %s",
+  (actionRef) => {
+    expect(() =>
+      renderAccountGatewayWorkflow({
+        actionRef,
+        apiUrl: "https://api.reviewrouter.site",
+        githubRepositoryId: "123456",
+      }),
+    ).toThrow("account_gateway_requires_immutable_action_ref");
+  },
+);
