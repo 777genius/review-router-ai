@@ -978,13 +978,14 @@ type CodexWorkflowSourceIdentity = {
   readonly providerInstanceId: string;
 };
 
-export type AccountGatewayWorkflowSourceMetadata = CodexWorkflowSourceIdentity & {
-  readonly workflowSchemaVersion: CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2;
-  readonly codexSessionMode: "account-gateway";
-  readonly runtimeConfigMode: "oidc";
-  readonly runtimeRef: string;
-  readonly secretNamespace?: never;
-};
+export type AccountGatewayWorkflowSourceMetadata =
+  CodexWorkflowSourceIdentity & {
+    readonly workflowSchemaVersion: CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2;
+    readonly codexSessionMode: "account-gateway";
+    readonly runtimeConfigMode: "oidc";
+    readonly runtimeRef: string;
+    readonly secretNamespace?: never;
+  };
 
 export type CodexRotatingWorkflowSourceMetadata =
   | AccountGatewayWorkflowSourceMetadata
@@ -1106,7 +1107,9 @@ export function scanCodexRotatingAdvisoryWorkflow(
     return {
       valid: false,
       errors: [
-        error instanceof Error ? error.message : "account_gateway_workflow_invalid",
+        error instanceof Error
+          ? error.message
+          : "account_gateway_workflow_invalid",
       ],
     };
   }

@@ -286,6 +286,7 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
           workspaceId: input.workspaceId,
           targetKey: input.targetKey,
         },
+        active: true,
       },
       select: {
         versions: {
