@@ -3,6 +3,8 @@
 import {
   accountsServerAdapter,
   type AccountIntent,
+  type AccountOAuthIntent,
+  type AccountOAuthBeginView,
   type AccountOperationView,
   type AccountsPage,
   type AccountsResult,
@@ -53,6 +55,16 @@ export async function readGatewayOperation(
 ): Promise<AccountsResult<AccountOperationView>> {
   try {
     return await (await accountsServerAdapter()).operation(context, nonce);
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+export async function beginGatewayOAuth(
+  context: string,
+  intent: AccountOAuthIntent,
+): Promise<AccountsResult<AccountOAuthBeginView>> {
+  try {
+    return await (await accountsServerAdapter()).beginOAuth(context, intent);
   } catch {
     return { status: "unavailable" };
   }

@@ -160,8 +160,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -292,8 +292,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -1103,8 +1103,8 @@ importers:
 
 packages:
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz':
-    resolution: {integrity: sha512-FN8fXQuUtjrNhd5W+E3zQtjs+cbU/qhS3XmMjuDbrMRzm2lrqGuKLDZdsDAiHzbqmx48ICCVt2pFtzWYss3G1Q==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz':
+    resolution: {integrity: sha512-ouvfzIThYs4RsFVWjxnCi9Htamn2BBuJF2VFK+8xDtOfHMzheDUeRL1BW+uv9STjJhHAYFnH85rOCgAcL3iYcg==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25'}
 
@@ -4904,7 +4904,7 @@ packages:
 
 snapshots:
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0

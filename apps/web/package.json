@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-bdba815.tgz",
+    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz",
     "@octokit/app": "^16.1.2",
     "@radix-ui/react-dropdown-menu": "2.1.16",
     "@radix-ui/react-select": "^2.2.6",
