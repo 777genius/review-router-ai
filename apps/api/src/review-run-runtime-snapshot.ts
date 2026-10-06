@@ -7,6 +7,7 @@ import {
   PrismaProviderAccountRepository,
   selectBinding,
   ProviderAccountError,
+  assertOpaqueReference,
 } from "@reviewrouter/features-provider-accounts";
 import {
   parseReviewConfigurationStrict,
@@ -72,7 +73,10 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
   constructor(
     private readonly prisma: PrismaClient,
     policy?: ServerApprovedReviewRunGatewayPolicy,
+    private readonly operatorWorkspaceId?: string,
   ) {
+    if (operatorWorkspaceId !== undefined)
+      assertOpaqueReference(operatorWorkspaceId);
     const profiles = new Map<string, ReviewRunGatewayLimits>();
     try {
       if (
@@ -90,7 +94,10 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     }
     this.approvedLimits = profiles;
     this.repositories = new PrismaActionControlPlaneRepository(prisma);
-    this.accounts = new PrismaProviderAccountRepository(prisma);
+    this.accounts = new PrismaProviderAccountRepository(
+      prisma,
+      operatorWorkspaceId,
+    );
   }
 
   async capture(
@@ -139,7 +146,12 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       );
       let binding: ReturnType<typeof selectBinding>;
       try {
-        binding = selectBinding(identity.workspaceId, bindingId, selection);
+        binding = selectBinding(
+          identity.workspaceId,
+          bindingId,
+          selection,
+          this.operatorWorkspaceId,
+        );
       } catch (error) {
         if (error instanceof ProviderAccountError) return null;
         throw error;
@@ -221,6 +233,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           },
           reader,
         ),
+        this.operatorWorkspaceId,
       );
       const stable = reviewRunGatewayPreparationIdentity(identity);
       return (

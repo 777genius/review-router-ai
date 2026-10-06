@@ -72,3 +72,49 @@ export async function bindGatewayAccount(
     return { status: "unavailable" };
   }
 }
+
+export async function changeGatewayOperatorGrant(
+  context: string,
+  intent: {
+    workspaceId: string;
+    connectionId: string;
+    expectedRevision: number;
+    state: "active" | "revoked";
+  },
+) {
+  try {
+    return await (await accountsServerAdapter()).changeGrant(context, intent);
+  } catch {
+    return { status: "unavailable" as const };
+  }
+}
+
+export async function detachGatewayAccount(
+  context: string,
+  intent: {
+    connectionId: string;
+    expectedRevision: number;
+  },
+) {
+  try {
+    return await (await accountsServerAdapter()).detach(context, intent);
+  } catch {
+    return { status: "unavailable" as const };
+  }
+}
+
+export async function reconcileGatewayAccountFence(
+  context: string,
+  intent: {
+    workspaceId: string;
+    connectionId: string;
+  },
+) {
+  try {
+    return await (
+      await accountsServerAdapter()
+    ).reconcileFence(context, intent);
+  } catch {
+    return { status: "unavailable" as const };
+  }
+}

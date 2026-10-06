@@ -28,8 +28,35 @@ export interface ProviderAccountRepositoryPort {
   ): Promise<WorkspaceAccountBinding>;
 }
 
+/** Trusted server capability. Rechecks actual operator membership under lock;
+ * no login override, entitlement, or recipient-admin authority can issue grants.
+ */
+export interface OperatorAccountGrantRepositoryPort {
+  compareAndSetOperatorBinding(
+    input: BindingScope & {
+      readonly expectedRevision: number;
+      readonly state: BindingState;
+      readonly actor: {
+        readonly userId?: string | undefined;
+        readonly githubUserId: string;
+      };
+    },
+  ): Promise<WorkspaceAccountBinding>;
+}
+
 /** Accounts management and bounded display queries. Never authorize an account use. */
 export interface ProviderAccountAccountsQueryPort extends ProviderAccountRepositoryPort {
+  /** Bounded safe discovery of explicit grants; never a source of use authority. */
+  listOperatorGrantedBindings?(input: {
+    readonly workspaceId: string;
+    readonly limit: number;
+    readonly afterBindingId?: string;
+  }): Promise<
+    readonly {
+      readonly binding: WorkspaceAccountBinding;
+      readonly connection: ProviderAccountConnection;
+    }[]
+  >;
   /** Accounts-only local denial, after live server admin authorization.
    * Lock the owned connection and check its mirror CAS before inspecting bindings.
    * Absence creates + revokes in one transaction; retain a revoked pending fence.
