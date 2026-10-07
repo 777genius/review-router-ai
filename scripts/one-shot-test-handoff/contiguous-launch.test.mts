@@ -1,4 +1,10 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 import {
   authenticateAssignment,
@@ -28,6 +34,60 @@ const plan: PreparedLaunch = {
     sha256: "c".repeat(64),
   },
 };
+
+test("malformed owner stops CLI preparation before any GitHub command", async () => {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "rr-handoff-owner-NEWTEST-")),
+  );
+  try {
+    const calls = join(root, "calls");
+    const ownerPath = join(root, "owner");
+    const contents = "synthetic owner fixture";
+    await writeFile(ownerPath, contents);
+    await writeFile(calls, "");
+    // This fixture replaces gh entirely. Even the old CLI cannot access network.
+    await writeFile(
+      join(root, "gh"),
+      `#!/bin/sh\nprintf 'called\\n' >> "$RR_HANDOFF_TEST_CALLS"\nprintf '%s' '${JSON.stringify({ draft: true, state: "open", head: { sha: plan.head } })}'\n`,
+      { mode: 0o700 },
+    );
+    const preparedPath = join(root, "plan.json");
+    await writeFile(
+      preparedPath,
+      JSON.stringify({
+        ...plan,
+        owner: {
+          path: ownerPath,
+          sha256: createHash("sha256").update(contents).digest("hex"),
+          // Missing node used to reach GH/READY before failing in the owner phase.
+        },
+      }),
+    );
+    const child = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        fileURLToPath(new URL("./contiguous-launch.mts", import.meta.url)),
+        preparedPath,
+      ],
+      {
+        encoding: "utf8",
+        timeout: 2_000,
+        env: { PATH: root, RR_HANDOFF_TEST_CALLS: calls },
+      },
+    );
+    assert.equal(child.error, undefined);
+    assert.equal(child.status, 1);
+    assert.equal(child.stdout, "");
+    assert.equal(await readFile(calls, "utf8"), "");
+    assert.equal(
+      child.stderr.trim(),
+      "contiguous_launch_preparation_unconfirmed",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 function harness(
   failure?: Phase,
   invalidMint = false,

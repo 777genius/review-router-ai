@@ -37,3 +37,9 @@ qualified sources were rr290 SHA-256 `bd5eb5d18fa55568b1113d3399a0d9a1e93b933965
 and test `76d2091b1ab469a40f07896c0bf1e8e2362ba71a2918522ff7fadb251a87ef3f`.
 Formatting and the portable typecheck configuration are repository delivery
 changes; operational semantics are preserved.
+
+Repository review additionally found that a missing owner executable could fail
+only after consuming the earlier phases. CLI preparation now validates every
+owner field before resolving its pin or making any GitHub call. An isolated CLI
+fixture with a local fake `gh` proves that malformed owner input makes zero
+GitHub commands; no real credentials, network or operation are available to it.

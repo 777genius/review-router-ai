@@ -278,6 +278,16 @@ if (
       !plan.expectedStepName.trim()
     )
       throw Error("prepared_plan_invalid");
+    if (
+      !plan.owner ||
+      typeof plan.owner.node !== "string" ||
+      !plan.owner.node.trim() ||
+      typeof plan.owner.path !== "string" ||
+      !plan.owner.path.trim() ||
+      typeof plan.owner.sha256 !== "string" ||
+      !/^[a-f0-9]{64}$/.test(plan.owner.sha256)
+    )
+      throw Error("owner_pin_invalid");
     const ownerPath = await realpath(plan.owner.path);
     const ownerStat = await lstat(ownerPath);
     if (
