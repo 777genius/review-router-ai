@@ -8,6 +8,7 @@ export default defineConfig({
       "packages/**/*.test.ts",
       "packages/**/*.test.tsx",
       "scripts/**/*.test.ts",
+      "scripts/**/*.test.mts",
       "spikes/**/*.test.ts",
     ],
     exclude: [
