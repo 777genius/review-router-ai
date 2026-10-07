@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import http from "node:http";
 import { z } from "zod";
+import { HostedSseCompletion } from "./hosted-sse-completion";
 
 const defaultOidcAudience = "reviewrouter";
 export const forkAgenticSandboxHostedPoolActionMode =
@@ -12,6 +13,8 @@ const maxCommentTokenRefreshes = 8;
 const oidcRequestTimeoutMs = 20_000;
 const grantRequestTimeoutMs = 30_000;
 const grantExchangeTotalTimeoutMs = 75_000;
+const completionDrainTimeoutMs = 10_000;
+const maxCompletionDrainBytes = 2_000_000;
 class RetryableHostedRelayExchangeError extends Error {}
 
 const hostedRelayGrantSchema = z
@@ -47,6 +50,7 @@ export type HostedRelayProxy = {
   readonly baseUrl: string;
   readonly commentTokenRefreshUrl: string;
   readonly failoverReason: () => HostedRelayFailoverReason;
+  readonly settle: () => Promise<void>;
   readonly close: () => Promise<void>;
 };
 
@@ -122,8 +126,10 @@ export async function runHostedCodexRelayTransport(
         commentTokenRefreshUrl: proxy.commentTokenRefreshUrl,
       });
     } catch (error) {
+      await proxy.settle();
       throwHostedRelayFailover(proxy.failoverReason(), error);
     }
+    await proxy.settle();
     throwHostedRelayFailover(proxy.failoverReason());
   } finally {
     await proxy.close();
@@ -243,9 +249,17 @@ export async function startHostedCodexRelayProxy(input: {
   let commentTokenRefreshCount = 0;
   let inFlightRelayRequests = 0;
   let closing = false;
-  let failoverReason: HostedRelayFailoverReason;
+  let fencedReason: HostedRelayFailoverReason;
+  const fenceFurtherResponses = (
+    reason: Exclude<HostedRelayFailoverReason, undefined>,
+  ) => {
+    if (fencedReason === undefined || reason === "ambiguous") {
+      fencedReason = reason;
+    }
+  };
   let replayFenced = false;
   const activeUpstreamRequests = new Set<AbortController>();
+  const settlementWaiters = new Set<() => void>();
   const relaySlotWaiters: Array<() => void> = [];
   const notifyRelaySlot = () => {
     const waiter = relaySlotWaiters.shift();
@@ -269,10 +283,13 @@ export async function startHostedCodexRelayProxy(input: {
   const server = http.createServer((req, res) => {
     void (async () => {
       let downstreamClosed = false;
+      let terminalForwarded = false;
       let upstreamController: AbortController | undefined;
       const abortUpstream = () => {
         downstreamClosed = true;
-        upstreamController?.abort(new Error("downstream_closed"));
+        if (!terminalForwarded && !res.writableFinished) {
+          upstreamController?.abort(new Error("downstream_closed"));
+        }
       };
       req.once("aborted", abortUpstream);
       res.once("close", abortUpstream);
@@ -337,7 +354,7 @@ export async function startHostedCodexRelayProxy(input: {
             writeProxyError(res, 503, "proxy_closing");
             return;
           }
-          if (replayFenced) {
+          if (replayFenced || fencedReason !== undefined) {
             writeProxyError(res, 409, "proxy_replay_fenced");
             return;
           }
@@ -367,6 +384,13 @@ export async function startHostedCodexRelayProxy(input: {
           }
           return;
         }
+        if (fencedReason !== undefined) {
+          body.fill(0);
+          replayFenced = false;
+          notifyRelaySlot();
+          writeProxyError(res, 409, "proxy_replay_fenced");
+          return;
+        }
         if (requestCount >= input.policy.maxRequests) {
           body.fill(0);
           replayFenced = false;
@@ -381,7 +405,6 @@ export async function startHostedCodexRelayProxy(input: {
         if (inFlightRelayRequests < maxConcurrentRelayRequests) {
           notifyRelaySlot();
         }
-        failoverReason = "ambiguous";
         try {
           upstreamController = new AbortController();
           activeUpstreamRequests.add(upstreamController);
@@ -404,34 +427,43 @@ export async function startHostedCodexRelayProxy(input: {
           if (!downstreamClosed) {
             let responseCompletion: "successful" | "non_successful";
             try {
-              responseCompletion = await writeUpstreamResponse(res, upstream);
+              responseCompletion = await writeUpstreamResponse(
+                res,
+                upstream,
+                () => {
+                  terminalForwarded = true;
+                },
+              );
             } catch (writeError) {
               if (
                 (isDownstreamCloseError(writeError) || downstreamClosed) &&
                 upstream.status >= 200 &&
                 upstream.status < 300
               ) {
-                failoverReason = undefined;
+                fenceFurtherResponses("ambiguous");
                 return;
               }
               throw writeError;
             }
-            if (upstream.status === 401 || upstream.status === 429) {
-              failoverReason =
-                upstream.status === 401
-                  ? "authentication_failed"
-                  : "quota_exhausted";
-            } else if (responseCompletion === "successful") {
-              failoverReason = undefined;
+            // A relay 401 or 429 can mean an invalid or exhausted grant as
+            // well as an upstream account failure. The Action cannot prove
+            // that an earlier request on this grant had no effect, so a
+            // non-successful response must not trigger account fallback.
+            if (responseCompletion !== "successful") {
+              fenceFurtherResponses("ambiguous");
             }
           } else {
             await upstream.body?.cancel().catch(() => undefined);
-            if (upstream.status >= 200 && upstream.status < 300) {
-              failoverReason = undefined;
-            }
+            fenceFurtherResponses("ambiguous");
           }
+        } catch (error) {
+          fenceFurtherResponses("ambiguous");
+          throw error;
         } finally {
           inFlightRelayRequests -= 1;
+          if (inFlightRelayRequests === 0) {
+            for (const waiter of settlementWaiters) waiter();
+          }
           notifyRelaySlot();
         }
       } catch (error) {
@@ -476,7 +508,26 @@ export async function startHostedCodexRelayProxy(input: {
   return {
     baseUrl: `http://127.0.0.1:${address.port}/${nonce}/v1`,
     commentTokenRefreshUrl: `http://127.0.0.1:${address.port}/${nonce}/control/comment-token`,
-    failoverReason: () => failoverReason,
+    failoverReason: () =>
+      fencedReason ?? (inFlightRelayRequests > 0 ? "ambiguous" : undefined),
+    settle: async () => {
+      if (inFlightRelayRequests === 0) return;
+      await new Promise<void>((resolve) => {
+        const settled = () => {
+          clearTimeout(timer);
+          settlementWaiters.delete(settled);
+          resolve();
+        };
+        const timer = setTimeout(() => {
+          fenceFurtherResponses("ambiguous");
+          for (const controller of activeUpstreamRequests) {
+            controller.abort(new Error("relay_settlement_timeout"));
+          }
+          settled();
+        }, completionDrainTimeoutMs);
+        settlementWaiters.add(settled);
+      });
+    },
     close: async () => {
       if (closing) return;
       closing = true;
@@ -707,6 +758,7 @@ async function fetchWithZeroizedBody(
 async function writeUpstreamResponse(
   res: http.ServerResponse,
   upstream: Response,
+  terminalWritten?: () => void,
 ): Promise<"successful" | "non_successful"> {
   const headers: Record<string, string> = {};
   for (const name of ["content-type", "cache-control", "x-request-id"]) {
@@ -726,12 +778,31 @@ async function writeUpstreamResponse(
       .split(";", 1)[0]
       ?.trim() ?? "";
   let completionTail = "";
+  const sse =
+    mediaType === "text/event-stream" ? new HostedSseCompletion() : undefined;
+  let terminalForwarded = false;
+  let drainBytes = 0;
+  let drainTimer: ReturnType<typeof setTimeout> | undefined;
+  let drainDeadline: Promise<never> | undefined;
   const jsonCompletionChunks: Buffer[] = [];
   let readerDone = false;
   let combinedJson: Buffer | undefined;
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const reading = reader.read();
+      let abandoned = false;
+      void reading.then(
+        (result) => {
+          if (abandoned && !result.done) result.value.fill(0);
+        },
+        () => undefined,
+      );
+      const { done, value } = await (drainDeadline
+        ? Promise.race([reading, drainDeadline]).catch((error: unknown) => {
+            abandoned = true;
+            throw error;
+          })
+        : reading);
       if (done) {
         readerDone = true;
         break;
@@ -745,23 +816,48 @@ async function writeUpstreamResponse(
       try {
         if (mediaType === "application/json") {
           jsonCompletionChunks.push(buffer);
-        } else {
-          completionTail = `${completionTail}${buffer.toString("utf8")}`.slice(
-            -8_192,
-          );
+        } else if (sse) {
+          sse.push(buffer);
         }
-        await writeResponseBuffer(res, buffer);
+        if (terminalForwarded) {
+          drainBytes += buffer.byteLength;
+          if (drainBytes > maxCompletionDrainBytes)
+            throw new Error("relay_completion_drain_limit");
+        }
+        if (!terminalForwarded && !res.destroyed) {
+          await writeResponseBuffer(res, buffer, () => {
+            if (!terminalForwarded && sse?.completed && upstream.ok) {
+              // Set custody synchronously in the write callback, before a
+              // client's close can race the promise continuation.
+              terminalForwarded = true;
+              terminalWritten?.();
+              drainDeadline = new Promise<never>((_resolve, reject) => {
+                drainTimer = setTimeout(
+                  () => reject(new Error("relay_completion_drain_timeout")),
+                  completionDrainTimeoutMs,
+                );
+              });
+            }
+          });
+        } else if (!terminalForwarded) {
+          throw new Error("downstream_closed");
+        }
       } finally {
         if (mediaType !== "application/json") buffer.fill(0);
       }
     }
-    res.end();
+    if (!res.destroyed) res.end();
     if (mediaType === "application/json") {
       combinedJson = Buffer.concat(jsonCompletionChunks);
       completionTail = combinedJson.toString("utf8");
     }
+    if (sse)
+      return upstream.ok && terminalForwarded && sse.finish()
+        ? "successful"
+        : "non_successful";
     return isProvablySuccessfulRelayResponse(upstream, completionTail);
   } finally {
+    clearTimeout(drainTimer);
     if (!readerDone) await reader.cancel().catch(() => undefined);
     reader.releaseLock();
     combinedJson?.fill(0);
@@ -778,11 +874,6 @@ function isProvablySuccessfulRelayResponse(
   }
   const contentType = upstream.headers.get("content-type")?.toLowerCase() ?? "";
   const mediaType = contentType.split(";", 1)[0]?.trim();
-  if (mediaType === "text/event-stream") {
-    return isSuccessfulHostedSseTail(completionTail)
-      ? "successful"
-      : "non_successful";
-  }
   if (mediaType === "application/json") {
     try {
       JSON.parse(completionTail);
@@ -792,12 +883,6 @@ function isProvablySuccessfulRelayResponse(
     }
   }
   return "non_successful";
-}
-
-function isSuccessfulHostedSseTail(completionTail: string): boolean {
-  const normalized = completionTail.replace(/\r\n/g, "\n").trimEnd();
-  const lastLine = normalized.split("\n").at(-1)?.trim();
-  return lastLine === "data: [DONE]";
 }
 
 function throwHostedRelayFailover(
@@ -819,6 +904,7 @@ function throwHostedRelayFailover(
 async function writeResponseBuffer(
   res: http.ServerResponse,
   buffer: Buffer,
+  written?: () => void,
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
@@ -839,7 +925,10 @@ async function writeResponseBuffer(
       res.write(buffer, (error) => {
         cleanup();
         if (error) reject(error);
-        else resolve();
+        else {
+          written?.();
+          resolve();
+        }
       });
     } catch (error) {
       cleanup();

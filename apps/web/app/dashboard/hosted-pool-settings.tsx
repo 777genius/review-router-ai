@@ -1,4 +1,8 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
 import { Badge, SelectField } from "@reviewrouter/ui";
+import type { HostedAccountSafeSummary } from "@reviewrouter/features-hosted-account-pool";
 import type {
   HostedPoolDashboardView,
   HostedPoolRepositoryView,
@@ -15,7 +19,6 @@ import {
   type HostedPoolDeviceLoginPollResult,
   type HostedPoolDeviceLoginStartResult,
 } from "./hosted-pool-device-login";
-import { HostedSessionEncryptionBadge } from "./hosted-session-encryption-mark";
 
 type HostedPoolSettingsActions = Readonly<{
   importAccount: DashboardActionFormAction;
@@ -46,36 +49,66 @@ export function HostedPoolSettingsPanel({
   readonly mutationsEnabled: boolean;
   readonly previewDeviceLoginFlight?: HostedPoolDeviceLoginFlight | undefined;
 }): React.ReactElement | null {
-  if (view.gate === "feature_disabled") return null;
+  const [accounts, setAccounts] = useState(view.accounts);
+  useEffect(() => setAccounts(view.accounts), [view.accounts]);
+  const addImportedAccount = useCallback(
+    (account: HostedAccountSafeSummary) => {
+      setAccounts((current) =>
+        [...current.filter((item) => item.id !== account.id), account].sort(
+          (left, right) =>
+            left.priority - right.priority ||
+            left.createdAt.getTime() - right.createdAt.getTime() ||
+            String(left.id).localeCompare(String(right.id)),
+        ),
+      );
+    },
+    [],
+  );
+
+  if (view.gate === "feature_disabled") {
+    return (
+      <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+        <h3 className="text-sm font-semibold text-cyan-50">
+          ChatGPT accounts are not enabled
+        </h3>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
+          This deployment is not accepting hosted ChatGPT accounts yet.
+          Repository reviews continue to use credentials configured in each
+          repository, so there is nothing to manage on this page right now.
+        </p>
+      </section>
+    );
+  }
   if (view.gate === "entitlement_denied") {
     return (
-      <section className="border-t border-cyan-200/10 pt-5">
+      <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
         <h3 className="text-sm font-semibold text-cyan-50">
           ChatGPT accounts for reviews
         </h3>
         <p className="mt-3 text-sm leading-6 text-slate-400">
-          Hosted session custody is not enabled for this workspace plan.
-          Repository-owned GitHub secrets remain unchanged.
+          This workspace is not active. Hosted account management is available
+          when the workspace is active.
         </p>
       </section>
     );
   }
 
-  const healthy = view.pool?.healthyAccountCount ?? 0;
-  const total = view.pool?.accountCount ?? view.accounts.length;
-  const enrolled = view.accounts.length > 0;
+  const healthy = accounts.filter(
+    (account) => account.availability.status === "healthy",
+  ).length;
+  const total = Math.max(view.pool?.accountCount ?? 0, accounts.length);
+  const enrolled = accounts.length > 0;
   const hasHealthyAccount =
     healthy > 0 ||
-    view.accounts.some((account) => account.availability.status === "healthy");
+    accounts.some((account) => account.availability.status === "healthy");
   return (
-    <section className="border-t border-cyan-200/10 pt-5">
+    <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-sm font-semibold text-cyan-50">
               ChatGPT accounts for reviews
             </h3>
-            <HostedSessionEncryptionBadge size="xs" label="Encrypted at rest" />
             <Badge tone={hasHealthyAccount ? "success" : "warning"}>
               {poolStatusLabel({
                 enrolled,
@@ -89,24 +122,19 @@ export function HostedPoolSettingsPanel({
             {enrolled ? (
               hasHealthyAccount ? (
                 <>
-                  We encrypt each ChatGPT session before it is stored. Sessions
-                  never go to the browser, and a session is decrypted only to
-                  run a review. Add more accounts for capacity. Pause or remove
-                  one without affecting the others.
+                  Add more accounts for capacity. Pause or remove one without
+                  affecting the others.
                 </>
               ) : (
                 <>
                   None of these accounts are ready for reviews right now. Use
-                  one again or sign in with ChatGPT again. We keep sessions
-                  encrypted on the server; they never go to the browser.
+                  one again or sign in with ChatGPT again.
                 </>
               )
             ) : (
               <>
-                Connect ChatGPT so ReviewRouter can run hosted reviews. We
-                encrypt each session before it is stored. Sessions never go to
-                the browser, and we only decrypt a session to run a review.
-                Upload a local{" "}
+                Connect ChatGPT so ReviewRouter can run hosted reviews. Upload a
+                local{" "}
                 <span className="whitespace-nowrap font-mono">auth.json</span>{" "}
                 only if ChatGPT sign-in is unavailable.
               </>
@@ -122,6 +150,7 @@ export function HostedPoolSettingsPanel({
           enrolled
           startAction={actions.startDeviceLogin}
           pollAction={actions.pollDeviceLogin}
+          onImported={addImportedAccount}
           previewFlight={previewDeviceLoginFlight}
           header={
             <div>
@@ -138,7 +167,7 @@ export function HostedPoolSettingsPanel({
         >
           <HostedPoolAccountCards
             workspaceId={workspaceId}
-            accounts={view.accounts}
+            accounts={accounts}
             setAccountState={actions.setAccountState}
             removeAccount={actions.removeAccount}
             mutationsEnabled={mutationsEnabled}
@@ -150,6 +179,7 @@ export function HostedPoolSettingsPanel({
           mutationsEnabled={mutationsEnabled}
           startAction={actions.startDeviceLogin}
           pollAction={actions.pollDeviceLogin}
+          onImported={addImportedAccount}
           previewFlight={previewDeviceLoginFlight}
         />
       )}
@@ -202,7 +232,8 @@ function HostedPoolAuthJsonFallback({
       <p className="mt-3 text-xs leading-5 text-slate-500">
         Run <span className="font-mono">codex login</span> locally, then upload{" "}
         <span className="font-mono">~/.codex/auth.json</span>. We encrypt the
-        file before it is stored. Sessions never go to the browser.
+        file before it is stored. Stored sessions are never returned to the
+        browser.
       </p>
       <DashboardActionForm
         action={importAccount}

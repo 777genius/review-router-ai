@@ -7,6 +7,23 @@ export type PersistedReviewConfiguration = {
   readonly revisionToken?: string;
 };
 
+export type RepositoryReviewConfiguration = Readonly<{
+  repositoryId: string;
+  config: PersistedReviewConfiguration;
+}>;
+
+/**
+ * Read-only batch boundary kept separate from the mutable repository port so
+ * existing single-target consumers and adapters do not need the dashboard's
+ * broader query capability.
+ */
+export interface ReviewConfigurationBatchReaderPort {
+  findLatestForRepositories(input: {
+    readonly workspaceId: string;
+    readonly repositoryIds: readonly string[];
+  }): Promise<readonly RepositoryReviewConfiguration[]>;
+}
+
 export class ReviewConfigurationWriteConflictError extends Error {
   readonly code = "review_configuration_write_conflict";
 

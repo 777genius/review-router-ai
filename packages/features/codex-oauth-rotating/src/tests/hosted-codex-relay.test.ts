@@ -9,7 +9,165 @@ import {
   startHostedCodexRelayProxy,
 } from "../action/hosted-codex-relay";
 
+const completedFrame =
+  'data: {"type":"response.completed","response":{"id":"response-test","status":"completed"}}\n\n';
+
+async function disconnectAfterData(url: string, frame: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const request = httpRequest(url, { method: "POST" }, (response) => {
+      let text = "";
+      response.on("error", () => undefined);
+      response.on("data", (chunk: Buffer) => {
+        text += chunk.toString("utf8");
+        if (text.includes(frame)) response.destroy();
+      });
+      response.once("close", () => {
+        if (text.includes(frame)) resolve();
+        else reject(new Error("closed_before_test_frame"));
+      });
+    });
+    request.once("error", reject);
+    request.end("{}");
+  });
+}
+
 describe("hosted Codex relay transport", () => {
+  it.each(["response.failed", "response.incomplete", "error", "DONE alone"])(
+    "does not accept %s followed by DONE as completion",
+    async (type) => {
+      const wire =
+        (type === "DONE alone" ? "" : `data: ${JSON.stringify({ type })}\n\n`) +
+        "data: [DONE]\n\n";
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(wire, {
+            headers: { "content-type": "text/event-stream" },
+          }),
+      );
+      const proxy = await startHostedCodexRelayProxy({
+        grant: "test-grant",
+        commentTokenRefreshCapability: "test-refresh",
+        invocationLeaseId: "test-lease",
+        bindingId: "test-binding",
+        bindingVersion: 1,
+        relayUrl: "https://relay.reviewrouter.test/v1/responses",
+        upstreamCommentTokenRefreshUrl:
+          "https://relay.reviewrouter.test/v1/comment-token",
+        policy: { maxRequests: 2 },
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+      try {
+        const first = await fetch(`${proxy.baseUrl}/responses`, {
+          method: "POST",
+          body: "{}",
+        });
+        expect(first.status).toBe(200);
+        expect(await first.text()).toBe(wire);
+        await proxy.settle();
+        const replay = await fetch(`${proxy.baseUrl}/responses`, {
+          method: "POST",
+          body: "{}",
+        });
+        expect(replay.status).toBe(409);
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+        expect(proxy.failoverReason()).toBe("ambiguous");
+      } finally {
+        await proxy.close();
+      }
+    },
+  );
+
+  it.each([
+    ["completed then bounded settlement", completedFrame, "eof", undefined],
+    [
+      "preterminal close",
+      'data: {"type":"response.output_text.delta","delta":"partial"}\n\n',
+      "eof",
+      "ambiguous",
+    ],
+    ["upstream failure after completed", completedFrame, "error", "ambiguous"],
+    ["postterminal payload", completedFrame, "payload", "ambiguous"],
+  ] as const)(
+    "handles a real HTTP %s without waiving settlement",
+    async (_name, firstFrame, ending, reason) => {
+      let source!: ReadableStreamDefaultController<Uint8Array>;
+      let signal!: AbortSignal;
+      let aborted = false;
+      const proxy = await startHostedCodexRelayProxy({
+        grant: "test-grant",
+        commentTokenRefreshCapability: "test-refresh",
+        invocationLeaseId: "test-lease",
+        bindingId: "test-binding",
+        bindingVersion: 1,
+        relayUrl: "https://relay.reviewrouter.test/v1/responses",
+        upstreamCommentTokenRefreshUrl:
+          "https://relay.reviewrouter.test/v1/comment-token",
+        policy: { maxRequests: 2 },
+        fetchImpl: vi.fn(async (_url, init) => {
+          signal = init!.signal!;
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              source = controller;
+              controller.enqueue(new TextEncoder().encode(firstFrame));
+              signal.addEventListener(
+                "abort",
+                () => {
+                  aborted = true;
+                  controller.error(new Error("upstream_aborted"));
+                },
+                { once: true },
+              );
+            },
+          });
+          return new Response(stream, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }) as typeof fetch,
+      });
+      try {
+        await disconnectAfterData(`${proxy.baseUrl}/responses`, firstFrame);
+        if (reason === "ambiguous" && firstFrame !== completedFrame) {
+          await vi.waitFor(() => expect(aborted).toBe(true));
+        } else {
+          expect(signal.aborted).toBe(false);
+          // Logical terminal completion does not prematurely release custody.
+          expect(proxy.failoverReason()).toBe("ambiguous");
+          let settled = false;
+          const settling = proxy.settle().then(() => {
+            settled = true;
+          });
+          await Promise.resolve();
+          expect(settled).toBe(false);
+          if (ending === "error")
+            source.error(new Error("actual_upstream_failure"));
+          else {
+            source.enqueue(
+              new TextEncoder().encode(
+                ending === "payload"
+                  ? 'data: {"type":"response.output_text.delta","delta":"late"}\n\n'
+                  : "data: [DONE]\n\n",
+              ),
+            );
+            source.close();
+          }
+          await settling;
+          expect(settled).toBe(true);
+        }
+        await proxy.settle();
+        expect(proxy.failoverReason()).toBe(reason);
+        if (reason === "ambiguous") {
+          const replay = await fetch(`${proxy.baseUrl}/responses`, {
+            method: "POST",
+            body: "{}",
+          });
+          expect(replay.status).toBe(409);
+        }
+      } finally {
+        await proxy.close();
+      }
+    },
+  );
+
   it("zeroizes oversized request chunks while safely draining a socket error", async () => {
     const stream = new PassThrough();
     const request = stream as unknown as IncomingMessage;
@@ -322,8 +480,12 @@ describe("hosted Codex relay transport", () => {
         return new Response(
           new ReadableStream({
             start(controller) {
-              controller.enqueue(encoder.encode("data: first\n\n"));
-              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.enqueue(
+                encoder.encode(
+                  'data: {"type":"response.output_text.delta","delta":"first"}\n\n',
+                ),
+              );
+              controller.enqueue(encoder.encode(completedFrame));
               controller.close();
             },
           }),
@@ -346,7 +508,10 @@ describe("hosted Codex relay transport", () => {
         expect(response.headers.get("content-type")).toContain(
           "text/event-stream",
         );
-        expect(await response.text()).toBe("data: first\n\ndata: [DONE]\n\n");
+        expect(await response.text()).toBe(
+          'data: {"type":"response.output_text.delta","delta":"first"}\n\n' +
+            completedFrame,
+        );
         expect(observed.at(-1)?.ordinal).toBe(String(ordinal));
       }
       expect(observed[0]?.idempotencyKey).toMatch(/:1$/);
@@ -440,7 +605,7 @@ describe("hosted Codex relay transport", () => {
         upstreamCalls += 1;
         if (upstreamCalls === 2) secondUpstreamStarted();
         if (upstreamCalls <= 2) await held;
-        return new Response("data: [DONE]\n\n", {
+        return new Response(completedFrame, {
           status: 200,
           headers: { "content-type": "text/event-stream" },
         });
@@ -508,7 +673,7 @@ describe("hosted Codex relay transport", () => {
           firstUpstreamStarted();
           await firstHeld;
         }
-        return new Response("data: [DONE]\n\n", {
+        return new Response(completedFrame, {
           status: 200,
           headers: { "content-type": "text/event-stream" },
         });
@@ -527,12 +692,12 @@ describe("hosted Codex relay transport", () => {
         keepalive: false,
       });
       expect(second.status).toBe(200);
-      expect(await second.text()).toBe("data: [DONE]\n\n");
+      expect(await second.text()).toBe(completedFrame);
       expect(upstreamCalls).toBe(2);
       releaseFirst();
       const firstResponse = await first;
       expect(firstResponse.status).toBe(200);
-      expect(await firstResponse.text()).toBe("data: [DONE]\n\n");
+      expect(await firstResponse.text()).toBe(completedFrame);
       expect(proxy.failoverReason()).toBeUndefined();
     } finally {
       releaseFirst();
@@ -540,7 +705,7 @@ describe("hosted Codex relay transport", () => {
     }
   });
 
-  it("keeps failover ambiguous after a 200 SSE without the DONE sentinel", async () => {
+  it("fences new turns after a bare completed event without a valid response", async () => {
     let upstreamCalls = 0;
     const proxy = await startHostedCodexRelayProxy({
       grant: "opaque-relay-grant",
@@ -571,15 +736,15 @@ describe("hosted Codex relay transport", () => {
         method: "POST",
         body: "{}",
       });
-      expect(nextTurn.status).toBe(200);
-      expect(upstreamCalls).toBe(2);
+      expect(nextTurn.status).toBe(409);
+      expect(upstreamCalls).toBe(1);
       expect(proxy.failoverReason()).toBe("ambiguous");
     } finally {
       await proxy.close();
     }
   });
 
-  it("admits the next Codex turn after a completed 5xx", async () => {
+  it("fences new turns after a completed 5xx with uncertain effects", async () => {
     let upstreamCalls = 0;
     const proxy = await startHostedCodexRelayProxy({
       grant: "opaque-relay-grant",
@@ -607,8 +772,82 @@ describe("hosted Codex relay transport", () => {
         method: "POST",
         body: "{}",
       });
-      expect(nextTurn.status).toBe(500);
+      expect(nextTurn.status).toBe(409);
+      expect(upstreamCalls).toBe(1);
+      expect(proxy.failoverReason()).toBe("ambiguous");
+    } finally {
+      await proxy.close();
+    }
+  });
+
+  it("keeps an ambiguous fence when another in-flight turn succeeds", async () => {
+    let firstStarted!: () => void;
+    let secondStarted!: () => void;
+    let releaseFirst!: (response: Response) => void;
+    let releaseSecond!: (response: Response) => void;
+    const firstStart = new Promise<void>((resolve) => (firstStarted = resolve));
+    const secondStart = new Promise<void>(
+      (resolve) => (secondStarted = resolve),
+    );
+    const firstReply = new Promise<Response>(
+      (resolve) => (releaseFirst = resolve),
+    );
+    const secondReply = new Promise<Response>(
+      (resolve) => (releaseSecond = resolve),
+    );
+    let upstreamCalls = 0;
+    const proxy = await startHostedCodexRelayProxy({
+      grant: "opaque-relay-grant",
+      commentTokenRefreshCapability: "comment-refresh-capability",
+      invocationLeaseId: "invocation-lease-1",
+      bindingId: "binding-1",
+      bindingVersion: 7,
+      relayUrl: "https://relay.reviewrouter.test/v1/responses",
+      upstreamCommentTokenRefreshUrl:
+        "https://relay.reviewrouter.test/v1/comment-token",
+      policy: { maxRequests: 3 },
+      fetchImpl: vi.fn(async () => {
+        upstreamCalls += 1;
+        if (upstreamCalls === 1) {
+          firstStarted();
+          return firstReply;
+        }
+        secondStarted();
+        return secondReply;
+      }) as unknown as typeof fetch,
+    });
+    try {
+      const first = fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      await firstStart;
+      const second = fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      await secondStart;
+      releaseFirst(new Response("failed", { status: 500 }));
+      const firstResponse = await first;
+      expect(firstResponse.status).toBe(500);
+      await firstResponse.text();
+      expect(proxy.failoverReason()).toBe("ambiguous");
+      releaseSecond(
+        new Response(completedFrame, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        }),
+      );
+      const secondResponse = await second;
+      expect(secondResponse.status).toBe(200);
+      await secondResponse.text();
+      const replay = await fetch(`${proxy.baseUrl}/responses`, {
+        method: "POST",
+        body: "{}",
+      });
+      expect(replay.status).toBe(409);
       expect(upstreamCalls).toBe(2);
+      expect(proxy.failoverReason()).toBe("ambiguous");
     } finally {
       await proxy.close();
     }
@@ -665,7 +904,7 @@ describe("hosted Codex relay transport", () => {
         },
         () => 0,
       );
-      expect(replay).not.toBe(409);
+      expect(replay).toBe(409);
     } finally {
       await proxy.close();
     }

@@ -90,3 +90,4 @@ This checklist is used to verify that the planning docs captured the current dir
 - payment model
 - exact production deployment topology for web/API split
 - exact chart/table usage once dashboard analytics screens exist
+- Martian Code Review Bench smoke (5 PRs on Codex OAuth, then 50 only if useful) — [operations/14-martian-code-review-bench.md](../operations/14-martian-code-review-bench.md)

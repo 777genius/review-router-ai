@@ -28,22 +28,21 @@ export const dashboardSectionMeta: Record<
     eyebrow: "Repository setup",
     title: "Repositories",
     description:
-      "Create setup PRs, confirm runtime health, and see what needs attention before reviews run.",
+      "This page lists repositories from the GitHub App or GitLab group or project attached to this workspace. Create setup PRs and confirm runtime health here. ChatGPT logins for reviews are on Accounts.",
     navDescription: "Setup PRs and health",
   },
   memory: {
-    eyebrow: "Memory management",
+    eyebrow: "In development",
     title: "Memory",
-    description:
-      "Confirm suggested memories, manage approved knowledge, and keep runtime context scoped to this workspace.",
-    navDescription: "Suggestions and knowledge",
+    description: "Memory management is in development and not available yet.",
+    navDescription: "In development",
   },
   setup: {
     eyebrow: "ChatGPT",
     title: "Accounts",
     description:
-      "We encrypt every ChatGPT session before it is stored. Sessions never go to the browser, and we decrypt only to run a review.",
-    navDescription: "Encrypted ChatGPT sessions",
+      "We encrypt ChatGPT sessions at rest. Stored sessions are never returned to the browser.",
+    navDescription: "Encrypted subscription accounts",
   },
   policy: {
     eyebrow: "Review behavior",
@@ -114,6 +113,16 @@ export function dashboardSectionHref(
   })}#dashboard-section-content`;
 }
 
+/**
+ * Persistent dashboard navigation keeps the shell mounted, so client-side
+ * transitions do not need a fragment jump. Keeping the fragment out of the
+ * Next Link also prevents revisiting a cached route from duplicating it.
+ */
+export function dashboardClientNavigationHref(href: string): string {
+  const fragmentIndex = href.indexOf("#");
+  return fragmentIndex === -1 ? href : href.slice(0, fragmentIndex);
+}
+
 export function resolveDashboardSection(
   params: Record<string, string | string[] | undefined>,
 ): DashboardSection {
@@ -136,7 +145,7 @@ export function resolveDashboardSection(
     return "repositories";
   }
   if (notice === "org_ruleset_queued") {
-    return "setup";
+    return "repositories";
   }
   if (
     [

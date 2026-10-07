@@ -36,6 +36,8 @@ export type OpenRouterCatalogModel = {
 
 const openRouterModelsUrl = "https://openrouter.ai/api/v1/models";
 const cacheTtlMs = 30 * 60 * 1000;
+// A failed refresh serves stale or static models before another network attempt.
+const failureCooldownMs = 5 * 60 * 1000;
 const fetchTimeoutMs = 4000;
 
 const recommendedCodexAgentOpenRouterModelIds = [
@@ -124,6 +126,10 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
     readonly expiresAt: number;
     readonly models: readonly OpenRouterCatalogModel[];
   } | null = null;
+  private pendingOpenRouterCatalog: Promise<
+    readonly OpenRouterCatalogModel[]
+  > | null = null;
+  private failureCooldownUntil = 0;
 
   constructor(
     private readonly dependencies: {
@@ -146,9 +152,8 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
   async getOpenRouterCatalog(
     signal?: AbortSignal,
   ): Promise<readonly OpenRouterCatalogModel[]> {
-    const now = this.dependencies.now?.() ?? Date.now();
     const useDefaultFetch = !this.dependencies.fetchImpl;
-
+    const now = this.dependencies.now?.() ?? Date.now();
     if (
       useDefaultFetch &&
       this.cachedOpenRouterCatalog &&
@@ -156,22 +161,64 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
     ) {
       return this.cachedOpenRouterCatalog.models;
     }
+    if (!useDefaultFetch) {
+      try {
+        return await fetchOpenRouterCatalog(
+          this.dependencies.fetchImpl!,
+          signal,
+        );
+      } catch {
+        return fallbackOpenRouterCatalog;
+      }
+    }
 
-    try {
-      const models = await fetchOpenRouterCatalog(
-        this.dependencies.fetchImpl ?? fetch,
-        signal,
-      );
-      if (useDefaultFetch) {
+    const stale =
+      this.cachedOpenRouterCatalog?.models ?? fallbackOpenRouterCatalog;
+    if (this.failureCooldownUntil > now) return stale;
+    if (signal) {
+      try {
+        const models = await fetchOpenRouterCatalog(fetch, signal);
         this.cachedOpenRouterCatalog = {
           models,
-          expiresAt: now + cacheTtlMs,
+          expiresAt: (this.dependencies.now?.() ?? Date.now()) + cacheTtlMs,
         };
+        this.failureCooldownUntil = 0;
+        return models;
+      } catch {
+        if (!signal.aborted) {
+          this.failureCooldownUntil =
+            (this.dependencies.now?.() ?? Date.now()) + failureCooldownMs;
+        }
+        return stale;
       }
-      return models;
-    } catch {
-      return fallbackOpenRouterCatalog;
     }
+    if (this.pendingOpenRouterCatalog) {
+      return this.pendingOpenRouterCatalog;
+    }
+
+    const pending = fetchOpenRouterCatalog(fetch)
+      .then((models) => {
+        this.cachedOpenRouterCatalog = {
+          models,
+          expiresAt: (this.dependencies.now?.() ?? Date.now()) + cacheTtlMs,
+        };
+        this.failureCooldownUntil = 0;
+        return models;
+      })
+      .catch(() => {
+        this.failureCooldownUntil =
+          (this.dependencies.now?.() ?? Date.now()) + failureCooldownMs;
+        return (
+          this.cachedOpenRouterCatalog?.models ?? fallbackOpenRouterCatalog
+        );
+      })
+      .finally(() => {
+        if (this.pendingOpenRouterCatalog === pending) {
+          this.pendingOpenRouterCatalog = null;
+        }
+      });
+    this.pendingOpenRouterCatalog = pending;
+    return pending;
   }
 }
 

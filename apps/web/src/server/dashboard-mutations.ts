@@ -1,6 +1,7 @@
 import { App } from "@octokit/app";
 import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
+import { cache } from "react";
 import {
   assertWorkspaceAdminAllowed,
   assertWorkspaceMutationAllowed,
@@ -19,6 +20,25 @@ import {
 import { getValidGitHubUserAccessToken } from "./github-user-authorization";
 import { updateRepositoryPermissionCacheFromLiveCheck } from "./github-user-repository-access";
 import { getPrisma } from "./prisma";
+
+// Both the persistent shell and the section ask for identity during one RSC
+// request. React's request-scoped cache avoids repeating the session and
+// identity database reads without sharing authorization state across users.
+const getDashboardServerSession = cache(() => getServerSession(authOptions));
+const findDashboardUserBySource = cache(
+  async (sourceProvider: "github" | "gitlab", externalUserId: string) => {
+    const identity = await getPrisma().userExternalIdentity.findUnique({
+      where: {
+        provider_externalUserId: {
+          provider: sourceProvider,
+          externalUserId,
+        },
+      },
+      select: { userId: true },
+    });
+    return identity ? { id: identity.userId } : null;
+  },
+);
 
 export type DashboardMutationActor = {
   readonly userId: string;
@@ -87,7 +107,7 @@ export async function getDashboardMutationStatus(): Promise<DashboardMutationSta
     };
   }
 
-  const session = await getServerSession(authOptions);
+  const session = await getDashboardServerSession();
   const identity = readSessionSourceIdentity(session);
   const signedIn = Boolean(identity);
   if (!dashboardMutationsEnabled()) {
@@ -242,7 +262,7 @@ export async function getDashboardSignedInActor(): Promise<DashboardMutationActo
     return null;
   }
 
-  const session = await getServerSession(authOptions);
+  const session = await getDashboardServerSession();
   const identity = readSessionSourceIdentity(session);
   if (!identity) {
     return null;
@@ -346,7 +366,7 @@ async function readDashboardMutationActor(): Promise<DashboardMutationActor> {
     throw new Error("dashboard_mutations_disabled");
   }
 
-  const session = await getServerSession(authOptions);
+  const session = await getDashboardServerSession();
   const identity = readSessionSourceIdentity(session);
   if (!identity) {
     throw new Error("dashboard_mutation_requires_sign_in");
@@ -568,7 +588,7 @@ export async function assertDashboardWorkspaceAdminAllowed(
     throw new Error("dashboard_auth_misconfigured");
   }
 
-  const session = await getServerSession(authOptions);
+  const session = await getDashboardServerSession();
   const identity = readSessionSourceIdentity(session);
   if (!identity) {
     throw new Error("dashboard_admin_requires_sign_in");
@@ -610,7 +630,7 @@ export async function getDashboardWorkspaceScope(): Promise<DashboardWorkspaceSc
     return { kind: "none", reason: "signed_out" };
   }
 
-  const session = await getServerSession(authOptions);
+  const session = await getDashboardServerSession();
   const identity = readSessionSourceIdentity(session);
   if (!identity) {
     return { kind: "none", reason: "signed_out" };
@@ -912,16 +932,7 @@ async function findUserForSourceIdentity(input: {
   readonly sourceProvider: "github" | "gitlab";
   readonly externalUserId: string;
 }): Promise<{ readonly id: string } | null> {
-  const identity = await getPrisma().userExternalIdentity.findUnique({
-    where: {
-      provider_externalUserId: {
-        provider: input.sourceProvider,
-        externalUserId: input.externalUserId,
-      },
-    },
-    select: { userId: true },
-  });
-  return identity ? { id: identity.userId } : null;
+  return findDashboardUserBySource(input.sourceProvider, input.externalUserId);
 }
 
 function dashboardMutationsEnabled(): boolean {

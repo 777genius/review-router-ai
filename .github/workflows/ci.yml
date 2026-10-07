@@ -54,17 +54,17 @@ env:
   REVIEW_ROUTER_PUBLIC_API_URL: https://api.reviewrouter.test
   REVIEW_ROUTER_ACTION_REF: 777genius/review-router@main
   REVIEW_ROUTER_ACTION_VERSION: main
-  REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: 777genius/review-router@fb23a8ca207039880dfd7f14e0dc33bbc515a608
+  REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: 777genius/review-router@b951d16fb0a96cc377578a6f69be7112badd8e33
   REVIEW_ROUTER_CODEX_ROTATING_ALLOWED_ACTION_REFS: ""
   # Public test fixture only; production uses one secret-manager value shared
   # by every database writer.
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: fb23a8ca207039880dfd7f14e0dc33bbc515a608
-  REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.148
-  REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: fb23a8ca207039880dfd7f14e0dc33bbc515a608
-  REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: fce5e0e38b05eefe5c512437b8bb68e95d07a0f0ce293554bb41418be612fa3d
+  REVIEW_ROUTER_PAIRED_ACTION_REF: b951d16fb0a96cc377578a6f69be7112badd8e33
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.156
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: b951d16fb0a96cc377578a6f69be7112badd8e33
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: a223c40ed5953428bf1b12c83308d783f3357bc369130b8245310a3aad5aebc5
   REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: "0"
   REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING: "0"
   REVIEW_ROUTER_PG_DUMP: /usr/lib/postgresql/17/bin/pg_dump
@@ -305,10 +305,10 @@ jobs:
   quality:
     name: Quality Gates
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 75
     env:
-      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci_test?schema=public
-      REVIEW_ROUTER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci_test?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
+      REVIEW_ROUTER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
 
     services:
       postgres:
@@ -317,6 +317,17 @@ jobs:
           POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres-app-test:
+        image: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5433:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s
@@ -351,6 +362,10 @@ jobs:
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
+      # Source/bundle parity needs installed dependencies, not app builds or databases.
+      - name: Codex rotating action artifact smoke
+        run: pnpm action:artifact:check:smoke
+
       - name: Generate Prisma client
         run: pnpm db:generate
 
@@ -367,13 +382,29 @@ jobs:
       - name: Review Action v2 handoff contract tests
         run: pnpm protocol:handoff:test
 
+      - name: Disposable release-role catalog PG17 fixture (no skips)
+        env:
+          REVIEW_ROUTER_REQUIRE_SELF_HOSTED_ROLE_FIXTURE_PG17: "1"
+        run: pnpm exec vitest run scripts/self-hosted-e2e/disposable-release-role-fixture.pg17.real.test.ts
+
       - name: Create CI databases
         env:
           PGPASSWORD: postgres
         run: |
           psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci'
-          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci_test'
           psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_provider_scope_ci_test'
+          psql -h 127.0.0.1 -p 5433 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci_test'
+
+      # Application suites need the stock, role-free schema. Keep it in its own
+      # cluster because the combined rehearsal provisions release roles globally.
+      - name: Apply ordinary test database migrations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN ('reviewrouter_release_migration', 'reviewrouter_release_schema_owner')")" = 0
+          DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
 
       - name: Rotating Codex PostgreSQL 17 combined migration rehearsal (no skips)
         env:
@@ -386,68 +417,118 @@ jobs:
       - name: Apply dev database migrations
         run: pnpm db:migrate:deploy
 
-      - name: Apply ordinary test database migrations
-        run: DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
+      # Dev reached 110 without a release pair. The provider fixture shares its
+      # cluster; reject its dirty catalog before creating the restricted login.
+      - name: Complete disposable CI release-role catalog
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          for database in review_router_provider_scope_ci_test; do
+            node --input-type=module -e 'import { disposableFreshDatabasePreflightSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+              psql -XqAt -h 127.0.0.1 -U postgres -d "$database" -v ON_ERROR_STOP=1
+          done
+          node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci
+
+      - name: SDK authority and outbox PostgreSQL contracts (zero skips)
+        env:
+          REVIEW_ROUTER_REQUIRE_SDK_GROWTH_SCHEMA_PG17: "1"
+        run: |
+          export SDK_GROWTH_TEST_DATABASE_URL="$REVIEW_ROUTER_TEST_DATABASE_URL"
+          test -n "$SDK_GROWTH_TEST_DATABASE_URL"
+          test -n "$REVIEW_ROUTER_TEST_DATABASE_URL"
+          results="$RUNNER_TEMP/sdk-growth-authority-outbox-results.json"
+          if ! pnpm exec vitest run \
+            packages/features/sdk-growth-authority/src/tests/prisma-receipt-repository.test.ts \
+            packages/features/sdk-growth-authority/src/tests/prisma-current-authority.test.ts \
+            packages/features/sdk-growth-authority/src/tests/prisma-lane-a.test.ts \
+            packages/features/sdk-growth-authority/src/tests/prisma-approval-ledger.real.test.ts \
+            packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts \
+            apps/api/src/sdk-growth-verifier-custody.pg.test.ts \
+            apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts \
+            scripts/sdk-growth-application-schema-checkpoint.test.ts \
+            --reporter=json --outputFile="$results"; then
+            RESULTS_PATH="$results" node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const report = JSON.parse(readFileSync(process.env.RESULTS_PATH, "utf8"));
+          for (const suite of report.testResults ?? []) {
+            if (suite.status === "failed" && !suite.assertionResults?.length) {
+              console.error(JSON.stringify({
+                suite: suite.name,
+                failure: (suite.message ?? "suite failed before assertions")
+                  .replaceAll(/postgres(?:ql)?:\/\/[^@\s]+@/giu, "postgresql://[redacted]@")
+                  .slice(0, 2000),
+              }));
+            }
+            for (const assertion of suite.assertionResults ?? []) {
+              if (assertion.status !== "failed") continue;
+              console.error(JSON.stringify({
+                suite: suite.name,
+                test: assertion.fullName,
+                failure: (assertion.failureMessages?.[0] ?? "unknown failure")
+                  .replaceAll(/postgres(?:ql)?:\/\/[^@\s]+@/giu, "postgresql://[redacted]@")
+                  .slice(0, 2000),
+              }));
+            }
+          }
+          NODE
+            exit 1
+          fi
+          RESULTS_PATH="$results" EXPECTED_HEAD="$GITHUB_SHA" node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const report = JSON.parse(readFileSync(process.env.RESULTS_PATH, "utf8"));
+          const expected = [
+            "packages/features/sdk-growth-authority/src/tests/prisma-receipt-repository.test.ts",
+            "packages/features/sdk-growth-authority/src/tests/prisma-current-authority.test.ts",
+            "packages/features/sdk-growth-authority/src/tests/prisma-lane-a.test.ts",
+            "packages/features/sdk-growth-authority/src/tests/prisma-approval-ledger.real.test.ts",
+            "packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts",
+            "apps/api/src/sdk-growth-verifier-custody.pg.test.ts",
+            "apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts",
+            "scripts/sdk-growth-application-schema-checkpoint.test.ts",
+          ];
+          const suites = report.testResults.map((suite) =>
+            suite.name.replaceAll("\\", "/"),
+          );
+          for (const file of expected) {
+            if (!suites.some((suite) => suite.endsWith(file))) {
+              throw new Error(`required PostgreSQL suite missing: ${file}`);
+            }
+          }
+          if (
+            report.numTotalTests <= 0 ||
+            report.numFailedTests !== 0 ||
+            report.numPendingTests !== 0 ||
+            report.numTodoTests !== 0 ||
+            report.numPassedTests !== report.numTotalTests
+          ) {
+            throw new Error("PostgreSQL contract result counts are not zero-skip");
+          }
+          console.log(JSON.stringify({
+            head: process.env.EXPECTED_HEAD,
+            command: "pnpm exec vitest run <seven required PostgreSQL suites> --reporter=json",
+            executed: report.numTotalTests,
+            passed: report.numPassedTests,
+            skipped: report.numPendingTests + report.numTodoTests,
+          }));
+          NODE
 
       - name: Build provider-scope migration catalogs
         run: |
           PROVIDER_SCOPE_FIXTURE_ROOT="$RUNNER_TEMP/provider-scope-migrations"
           export PROVIDER_SCOPE_FIXTURE_ROOT
+          mkdir -p "$PROVIDER_SCOPE_FIXTURE_ROOT"
           node --input-type=module <<'NODE'
-          import { cpSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-          import { join, resolve } from "node:path";
+          import { writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          import { writeDisposableMigrationCatalog } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs";
 
-          const source = resolve("packages/platform/db/prisma");
-          const fixtureRoot = resolve(process.env.PROVIDER_SCOPE_FIXTURE_ROOT);
-          const phases = [
-            { name: "pre-000079", firstExcludedMigration: "000079_" },
-            { name: "through-000079", firstExcludedMigration: "000080_" },
-          ];
-          for (const phase of phases) {
-            const target = join(fixtureRoot, phase.name);
-            cpSync(source, target, { recursive: true });
-            const migrations = join(target, "migrations");
-            for (const entry of readdirSync(migrations, {
-              withFileTypes: true,
-            })) {
-              if (
-                entry.isDirectory() &&
-                entry.name >= phase.firstExcludedMigration
-              ) {
-                rmSync(join(migrations, entry.name), { recursive: true });
-              }
-            }
-            writeFileSync(
-              `${target}.config.mjs`,
-              `export default { schema: ${JSON.stringify(
-                join(target, "schema.prisma"),
-              )}, migrations: { path: ${JSON.stringify(
-                migrations,
-              )} }, datasource: { url: process.env.DATABASE_URL } };\n`,
-            );
-          }
-
-          const preMigrations = readdirSync(
-            join(fixtureRoot, "pre-000079", "migrations"),
-          );
-          const postMigrations = readdirSync(
-            join(fixtureRoot, "through-000079", "migrations"),
-          );
-          const expectedBoundary = [
-            "000079_hosted_codex_output_limits",
-            "000079_remove_account_wide_provider_lane_serialization",
-          ];
-          if (preMigrations.some((name) => name >= "000079_")) {
-            throw new Error("pre-000079 catalog crossed its upper boundary");
-          }
-          if (postMigrations.some((name) => name >= "000080_")) {
-            throw new Error("through-000079 catalog crossed its upper boundary");
-          }
-          const actualBoundary = postMigrations
-            .filter((name) => name.startsWith("000079_"))
-            .sort();
-          if (JSON.stringify(actualBoundary) !== JSON.stringify(expectedBoundary)) {
-            throw new Error("through-000079 catalog has an unexpected boundary");
+          const root = process.env.PROVIDER_SCOPE_FIXTURE_ROOT;
+          for (const [phase, label] of [["pre79", "pre-000079"], ["through79", "through-000079"]]) {
+            const config = writeDisposableMigrationCatalog(phase, root);
+            writeFileSync(join(root, `${label}.config-path`), `${config}\n`);
           }
           NODE
 
@@ -457,40 +538,21 @@ jobs:
         run: |
           DATABASE_URL="$REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL" \
             pnpm --filter @reviewrouter/platform-db exec prisma migrate deploy \
-            --config "$RUNNER_TEMP/provider-scope-migrations/pre-000079.config.mjs"
-
-      - name: Provision provider-scope transition test roles
-        env:
-          PGPASSWORD: postgres
-        run: |
-          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE ROLE reviewrouter_release_migration LOGIN PASSWORD 'postgres' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
-          CREATE ROLE reviewrouter_release_schema_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
-          SQL
+            --config "$(cat "$RUNNER_TEMP/provider-scope-migrations/pre-000079.config-path")"
 
       - name: Apply provider-scope database through 000079 and hand off relations
         env:
           PGPASSWORD: postgres
           REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_provider_scope_ci_test?schema=public
         run: |
+          set -o pipefail
           DATABASE_URL="$REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL" \
             pnpm --filter @reviewrouter/platform-db exec prisma migrate deploy \
-            --config "$RUNNER_TEMP/provider-scope-migrations/through-000079.config.mjs"
-          psql -h 127.0.0.1 -U postgres -d review_router_provider_scope_ci_test \
-            -v ON_ERROR_STOP=1 <<'SQL'
-          -- The provider-scope SECURITY DEFINER routines update the rollout
-          -- control and drop/restore an index on the lease table. Those are
-          -- the only application relations they must own.
-          ALTER TABLE public."ReviewProviderScopeConcurrencyControl"
-            OWNER TO reviewrouter_release_schema_owner;
-          ALTER TABLE public."ReviewInvocationLeaseV2"
-            OWNER TO reviewrouter_release_schema_owner;
-          -- The restricted migration login can resolve the rollout routines,
-          -- while only their NOLOGIN owner can recreate the reversible index.
-          GRANT USAGE ON SCHEMA public TO reviewrouter_release_migration;
-          GRANT USAGE, CREATE ON SCHEMA public
-            TO reviewrouter_release_schema_owner;
-          SQL
+            --config "$(cat "$RUNNER_TEMP/provider-scope-migrations/through-000079.config-path")"
+          node --input-type=module -e 'import { disposableProvider79HandoffSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+            psql -XqAt -h 127.0.0.1 -U postgres -d review_router_provider_scope_ci_test -v ON_ERROR_STOP=1
+          node --input-type=module -e 'import { disposableProvider79VerificationSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+            psql -XqAt -h 127.0.0.1 -U postgres -d review_router_provider_scope_ci_test -v ON_ERROR_STOP=1
 
       - name: Provider-scope real database tests
         env:
@@ -499,7 +561,7 @@ jobs:
           pnpm exec vitest run \
             packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts
 
-      - name: Tear down provider-scope database and roles
+      - name: Tear down provider-scope database
         if: always()
         env:
           PGPASSWORD: postgres
@@ -510,8 +572,6 @@ jobs:
           WHERE datname = 'review_router_provider_scope_ci_test'
             AND pid <> pg_backend_pid();
           DROP DATABASE IF EXISTS review_router_provider_scope_ci_test;
-          DROP ROLE IF EXISTS reviewrouter_release_migration;
-          DROP ROLE IF EXISTS reviewrouter_release_schema_owner;
           SQL
 
       - name: Bind hosted certification input bytes
@@ -710,14 +770,52 @@ jobs:
           GITHUB_APP_CLIENT_SECRET: ci-client-secret
           GITHUB_APP_ID: "1"
           GITHUB_APP_SLUG: reviewrouter-ci
-          GITHUB_APP_PRIVATE_KEY: |
-            -----BEGIN PRIVATE KEY-----
-            ci-placeholder
-            -----END PRIVATE KEY-----
-        run: pnpm local:check
+        run: |
+          # Construct the deliberately invalid CI fixture, never an App credential.
+          export GITHUB_APP_PRIVATE_KEY="$(printf '%s %s\n%s\n%s %s\n' \
+            '-----BEGIN' 'PRIVATE KEY-----' 'ci-placeholder' '-----END' 'PRIVATE KEY-----')"
+          pnpm local:check
 
       - name: Unit tests
         run: pnpm test
+
+      - name: EF v3 SDK growth contract
+        run: pnpm --filter @reviewrouter/features-sdk-growth-authority test:ef-v3
+
+      - name: Checkout exact EF v3 candidate source
+        uses: actions/checkout@v6
+        with:
+          repository: agent-teams-ai/engineering-foundation
+          ref: 243b99abbd89216fca55a1ffe4a1b83a1b7efc2e
+          path: .candidate/engineering-foundation
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Qualify source-built EF v3 request decoder fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate=.candidate/engineering-foundation
+          test "$(git -C "$candidate" rev-parse HEAD)" = 243b99abbd89216fca55a1ffe4a1b83a1b7efc2e
+          source_tree="$(git -C "$candidate" rev-parse 'HEAD^{tree}')"
+          printf '%s' "$source_tree" | grep -Eq '^[a-f0-9]{40}$'
+          (cd "$candidate" && corepack pnpm install --frozen-lockfile)
+          (cd "$candidate" && corepack pnpm --filter @agent-teams/engineering-foundation build)
+          archive="$RUNNER_TEMP/agent-teams-engineering-foundation-1.6.1.tgz"
+          (cd "$candidate/packages/engineering-foundation" && corepack pnpm pack --pack-destination "$RUNNER_TEMP") >"$RUNNER_TEMP/ef-candidate-pack.log"
+          test -s "$archive"
+          npm install --prefix "$RUNNER_TEMP/ef-candidate-installed" --ignore-scripts --no-audit --no-fund "$archive"
+          EF_V3_CANDIDATE_PACKAGE_ROOT="$RUNNER_TEMP/ef-candidate-installed/node_modules/@agent-teams/engineering-foundation" \
+          EF_V3_CANDIDATE_ARCHIVE="$archive" \
+          EF_V3_CANDIDATE_SOURCE_COMMIT=243b99abbd89216fca55a1ffe4a1b83a1b7efc2e \
+          EF_V3_CANDIDATE_SOURCE_TREE="$source_tree" \
+          SDK_GROWTH_TEST_DATABASE_URL="$REVIEW_ROUTER_TEST_DATABASE_URL" \
+            node --import tsx --test packages/features/sdk-growth-authority/src/tests/v3-approved-manifest.ef-candidate.node-test.mjs
+
+      - name: Remove EF candidate checkout
+        if: always()
+        run: |
+          node -e "require('node:fs').rmSync('.candidate', { recursive: true, force: true })"
 
       - name: Architecture boundaries
         run: pnpm architecture:check
@@ -757,9 +855,6 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-      - name: Codex rotating action artifact smoke
-        run: pnpm action:artifact:check:smoke
 
       - name: Codex secret-write boundary
         run: pnpm codex-rotating:secret-write-boundary

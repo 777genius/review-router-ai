@@ -13,6 +13,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("node:fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:fs")>()),
+}));
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+}));
+
 vi.mock("node:fs/promises", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:fs/promises")>()),
   statfs: vi.fn(async () => ({
@@ -42,6 +49,7 @@ import {
   isReviewRouterTargetRevisionMismatchFailure,
   postPullRequestComment,
   readActionAuthJson,
+  readCertifiedForkApiResponse,
   readActionInputs,
   resolveCodexBinary,
   resolveCodexProxyUpstreamResponsesUrl,
@@ -377,6 +385,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     );
     expect(actionYml).toContain("claude-code-oauth-token:\n    description:");
     expect(actionYml).toContain("openrouter-api-key:\n    description:");
+    expect(actionYml).toContain("mimo-token-plan-api-key:\n    description:");
     expect(actionYml).not.toContain("codex-package-version");
     expect(actionYml).not.toContain("codex-binary");
     expect(actionYml).not.toMatch(/\bpre:/);
@@ -491,6 +500,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
       "INPUT_CLAUDE-CODE-OAUTH-TOKEN": " sk-ant-oat01-provider-secret\n",
       "INPUT_OPENROUTER-API-KEY": "sk-or-provider-secret",
+      "INPUT_MIMO-TOKEN-PLAN-API-KEY": "tp-provider-secret",
     });
 
     expect(inputs).toMatchObject({
@@ -503,6 +513,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       providerSecrets: {
         claudeCodeOAuthToken: "sk-ant-oat01-provider-secret",
         openRouterApiKey: "sk-or-provider-secret",
+        mimoTokenPlanApiKey: "tp-provider-secret",
       },
     });
   });
@@ -525,6 +536,92 @@ describe("Codex rotating GitHub Action runtime", () => {
     });
 
     expect(inputs.apiUrl).toBe("https://control-plane.internal");
+  });
+
+  it("wires the MiMo Token Plan key into the full review runtime only when codex-mimo/ is selected", () => {
+    const baseInput = {
+      sourceEnv: { PATH: "/usr/bin" },
+      inputs: {
+        mode: "codex-oauth-rotating",
+        apiUrl: "https://api.reviewrouter.site",
+        providerInstanceId: "codex-rotating:123456",
+        workflowSchemaVersion: 1,
+        reviewDrafts: false,
+        maxChangedLines: 0,
+        reviewTimeoutMinutes: 60,
+        providerSecrets: { mimoTokenPlanApiKey: "tp-provider-secret" },
+      },
+      leaseId: "lease-123",
+      event: {
+        number: 118,
+        repository: "777genius/agent-teams-ai",
+        owner: "777genius",
+        repo: "agent-teams-ai",
+        headSha: "head-sha",
+        baseSha: "base-sha",
+      },
+      workspace: "/tmp/workspace",
+      tempHome: "/tmp/home",
+      tempCodexHome: "/tmp/codex-home",
+      codexBinDir: "/tmp/codex-bin",
+      commentToken: "comment-token",
+      runtimeConfigVersion: 7,
+    } as const;
+
+    const withMimoProvider = buildFullReviewRuntimeEnv({
+      ...baseInput,
+      runtimeEnv: { REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro" },
+    });
+    expect(withMimoProvider.MIMO_TOKEN_PLAN_API_KEY).toBe("tp-provider-secret");
+
+    const withoutMimoProvider = buildFullReviewRuntimeEnv({
+      ...baseInput,
+      runtimeEnv: { REVIEW_PROVIDERS: "codex/gpt-5.5" },
+    });
+    expect(withoutMimoProvider.MIMO_TOKEN_PLAN_API_KEY).toBeUndefined();
+  });
+
+  it("fails before emitting provider env when codex-mimo lacks its explicit key", () => {
+    const input = {
+      sourceEnv: { PATH: "/usr/bin" },
+      inputs: {
+        mode: "codex-oauth-rotating",
+        apiUrl: "https://api.reviewrouter.site",
+        providerInstanceId: "codex-rotating:123456",
+        workflowSchemaVersion: 1,
+        reviewDrafts: false,
+        maxChangedLines: 0,
+        reviewTimeoutMinutes: 60,
+        providerSecrets: { openRouterApiKey: "sk-or-fallback" },
+      },
+      leaseId: "lease-123",
+      event: {
+        number: 118,
+        repository: "777genius/agent-teams-ai",
+        owner: "777genius",
+        repo: "agent-teams-ai",
+        headSha: "head-sha",
+        baseSha: "base-sha",
+      },
+      workspace: "/tmp/workspace",
+      tempHome: "/tmp/home",
+      tempCodexHome: "/tmp/codex-home",
+      codexBinDir: "/tmp/codex-bin",
+      commentToken: "comment-token",
+      runtimeConfigVersion: 7,
+      runtimeEnv: {
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      },
+    } as const;
+
+    expect(() => buildFullReviewRuntimeEnv(input)).toThrow(
+      "missing_mimo_token_plan_api_key",
+    );
+    expect(
+      formatTopLevelActionErrorMessage(
+        new Error("missing_mimo_token_plan_api_key"),
+      ),
+    ).toContain("ChatGPT and OpenRouter credentials are not substitutes");
   });
 
   it("reads an exact boolean draft review action input", () => {
@@ -629,6 +726,8 @@ describe("Codex rotating GitHub Action runtime", () => {
       "codex",
     );
     const requestBodies: string[] = [];
+    const invokedUrls: string[] = [];
+    const pullRequestAuthorizationHeaders: string[] = [];
     await mkdir(join(tempDir, "action-dist", "codex", "linux-x64"), {
       recursive: true,
     });
@@ -660,6 +759,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     );
     const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const href = String(url);
+      invokedUrls.push(href);
       if (typeof init?.body === "string") requestBodies.push(init.body);
       if (
         href.startsWith(
@@ -689,6 +789,39 @@ describe("Codex rotating GitHub Action runtime", () => {
           policy: { maxRequests: 16 },
         });
       }
+      if (href.endsWith("/api/action/v1/codex-oauth/review-snapshot/restore")) {
+        return jsonResponse({
+          protocolVersion: 1,
+          status: "missing",
+          expectedVersion: 0,
+        });
+      }
+      if (
+        href ===
+        "https://api.github.com/repos/777genius/agent-teams-ai/pulls/118"
+      ) {
+        pullRequestAuthorizationHeaders.push(
+          new Headers(init?.headers).get("authorization") ?? "",
+        );
+        return jsonResponse({
+          head: { sha: "0123456789abcdef0123456789abcdef01234567" },
+        });
+      }
+      if (href.endsWith("/api/action/v1/codex-oauth/review-snapshot/commit")) {
+        return jsonResponse({
+          protocolVersion: 1,
+          status: "committed",
+          version: 1,
+          reviewedHeadSha: "0123456789abcdef0123456789abcdef01234567",
+        });
+      }
+      if (
+        href.endsWith(
+          "/api/action/v1/codex-oauth/review-execution-checkpoint/clear",
+        )
+      ) {
+        return jsonResponse({ protocolVersion: 1, status: "cleared" });
+      }
       if (
         href ===
         "https://api.github.com/repos/777genius/agent-teams-ai/issues/118/comments?per_page=100"
@@ -708,17 +841,50 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(input.sessionBindingId).toBe("binding-123");
       expect(input.sessionBindingVersion).toBe(4);
       expect(input.runtimeEnv.REVIEWROUTER_FORK_AGENTIC_SANDBOX).toBe("true");
+      expect(input.reviewSnapshotInputPath).toBeTruthy();
+      expect(input.reviewSnapshotOutputPath).toBeTruthy();
+      expect(input.reviewCheckpointFinalizationPath).toBeTruthy();
+      expect(
+        JSON.parse(readFileSync(input.reviewSnapshotInputPath!, "utf8")),
+      ).toEqual({
+        protocolVersion: 1,
+        status: "missing",
+        expectedVersion: 0,
+      });
       expect(() =>
         readFileSync(join(input.tempCodexHome, "auth.json"), "utf8"),
       ).toThrow();
       expect(
         readFileSync(join(input.tempCodexHome, "config.toml"), "utf8"),
       ).not.toContain("opaque-hosted-grant");
+      await writeFile(
+        input.reviewSnapshotOutputPath!,
+        JSON.stringify({
+          protocolVersion: 1,
+          expectedVersion: 0,
+          pullRequestNumber: 118,
+          schemaVersion: 1,
+          reviewedHeadSha: "0123456789abcdef0123456789abcdef01234567",
+          baseSha: "abcdef0123456789abcdef0123456789abcdef01",
+          compatibilityKey: "c".repeat(64),
+          payload: { reviewSummary: "Hosted review complete", findings: [] },
+        }),
+      );
+      await writeFile(
+        input.reviewCheckpointFinalizationPath!,
+        JSON.stringify({
+          protocolVersion: 1,
+          pullRequestNumber: 118,
+          headSha: "0123456789abcdef0123456789abcdef01234567",
+          planHash: "d".repeat(64),
+          expectedVersion: 3,
+        }),
+      );
     });
     const env: NodeJS.ProcessEnv = {
       INPUT_MODE: "fork-agentic-sandbox-hosted-pool",
       "INPUT_API-URL": "https://api.reviewrouter.site/",
-      "INPUT_PROVIDER-INSTANCE-ID": "codex-hosted:123456",
+      "INPUT_PROVIDER-INSTANCE-ID": "hosted-pool:repository:777",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "5",
       "INPUT_SESSION-BINDING-ID": "binding-123",
       "INPUT_SESSION-BINDING-VERSION": "4",
@@ -753,13 +919,36 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(JSON.parse(requestBodies[0] ?? "{}")).toMatchObject({
         bindingId: "binding-123",
         bindingVersion: 4,
-        providerInstanceId: "codex-hosted:123456",
+        providerInstanceId: "hosted-pool:repository:777",
         workflowSchemaVersion: 5,
       });
       expect(requestBodies.join("\n")).not.toContain("opaque-hosted-grant");
       expect(requestBodies.join("\n")).not.toContain(
         "auth-json-must-not-be-read",
       );
+      expect(
+        invokedUrls.some((url) => url.endsWith("/review-snapshot/commit")),
+      ).toBe(true);
+      expect(
+        invokedUrls.some((url) =>
+          url.endsWith("/review-execution-checkpoint/clear"),
+        ),
+      ).toBe(true);
+      expect(
+        invokedUrls.some((url) => url.endsWith("/review-snapshot/head-token")),
+      ).toBe(false);
+      expect(pullRequestAuthorizationHeaders).toEqual([
+        "Bearer ghs_hosted_comment_token",
+      ]);
+      expect(
+        requestBodies
+          .map((body) => JSON.parse(body) as Record<string, unknown>)
+          .find((body) => body.compatibilityKey === "c".repeat(64)),
+      ).toMatchObject({
+        leaseId: "hosted-lease-1",
+        providerInstanceId: "hosted-pool:repository:777",
+        pullRequestNumber: 118,
+      });
       expect(env).not.toHaveProperty("INPUT_AUTH_JSON");
       expect(env).not.toHaveProperty("REVIEWROUTER_CODEX_AUTH_JSON");
     } finally {
@@ -2395,6 +2584,7 @@ describe("Codex rotating GitHub Action runtime", () => {
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_CLAUDE-CODE-OAUTH-TOKEN": "sk-ant-oat01-claude-input",
           "INPUT_OPENROUTER-API-KEY": "sk-or-input",
+          "INPUT_MIMO-TOKEN-PLAN-API-KEY": "tp-mimo-input",
           "INPUT_AUTH-JSON": JSON.stringify({
             auth_mode: "chatgpt",
             tokens: {
@@ -2509,7 +2699,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     }
   }, 60_000);
 
-  it("runs the local action E2E with only explicit hybrid provider secrets in child runtime env", async () => {
+  it("runs the local Action transport with MiMo and existing provider keys isolated and masked", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "reviewrouter-action-e2e-"));
     const binDir = join(tempDir, "bin");
     const eventPath = join(tempDir, "event.json");
@@ -2583,6 +2773,9 @@ describe("Codex rotating GitHub Action runtime", () => {
         "      configIncludesShellSnapshotDisabled: config.includes('shell_snapshot = false'),",
         "      configIncludesToken: config.includes('refreshed-access-token'),",
         "      inheritedOpenAi: process.env.OPENAI_API_KEY,",
+        "      mimoKey: process.env.MIMO_TOKEN_PLAN_API_KEY,",
+        "      openrouterKey: process.env.OPENROUTER_API_KEY,",
+        "      inheritedInputMimo: process.env['INPUT_MIMO-TOKEN-PLAN-API-KEY'] || process.env.INPUT_MIMO_TOKEN_PLAN_API_KEY,",
         "    }));",
         "    writeFileSync(args[outputIndex + 1], 'Review done without blockers. access_token: should-be-redacted');",
         "    process.exit(2);",
@@ -2671,6 +2864,9 @@ describe("Codex rotating GitHub Action runtime", () => {
         "  configIncludesShellSnapshotDisabled: config.includes('shell_snapshot = false'),",
         "  configIncludesToken: config.includes('refreshed-access-token'),",
         "  inheritedOpenAi: process.env.OPENAI_API_KEY,",
+        "  mimoKey: process.env.MIMO_TOKEN_PLAN_API_KEY,",
+        "  openrouterKey: process.env.OPENROUTER_API_KEY,",
+        "  inheritedInputMimo: process.env['INPUT_MIMO-TOKEN-PLAN-API-KEY'] || process.env.INPUT_MIMO_TOKEN_PLAN_API_KEY,",
         "  claudeToken: process.env.CLAUDE_CODE_OAUTH_TOKEN,",
         "  openrouterKey: process.env.OPENROUTER_API_KEY,",
         "  inheritedInputClaude: process.env['INPUT_CLAUDE-CODE-OAUTH-TOKEN'] || process.env.INPUT_CLAUDE_CODE_OAUTH_TOKEN,",
@@ -2768,7 +2964,7 @@ describe("Codex rotating GitHub Action runtime", () => {
           runtimeEnv: {
             REVIEW_AUTH_MODE: "codex-oauth-rotating",
             REVIEW_PROVIDERS:
-              "codex/gpt-5.5,claude/sonnet,openrouter/openai/gpt-5.3-codex",
+              "codex/gpt-5.5,codex-mimo/mimo-v2.6-pro,claude/sonnet,openrouter/openai/gpt-5.3-codex",
             REQUIRED_HEALTHY_PROVIDERS: "codex/gpt-5.5",
             SYNTHESIS_MODEL: "codex/gpt-5.5",
             PROVIDER_LIMIT: "3",
@@ -2915,6 +3111,7 @@ describe("Codex rotating GitHub Action runtime", () => {
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_CLAUDE-CODE-OAUTH-TOKEN": "sk-ant-oat01-claude-input",
           "INPUT_OPENROUTER-API-KEY": "sk-or-input",
+          "INPUT_MIMO-TOKEN-PLAN-API-KEY": "tp-mimo-input",
           "INPUT_AUTH-JSON": JSON.stringify({
             auth_mode: "chatgpt",
             tokens: {
@@ -2944,6 +3141,7 @@ describe("Codex rotating GitHub Action runtime", () => {
           OPENAI_API_KEY: "sk-runner-openai-key",
           CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-inherited",
           OPENROUTER_API_KEY: "sk-or-inherited",
+          MIMO_TOKEN_PLAN_API_KEY: "tp-mimo-inherited",
           REVIEW_ROUTER_USE_SUBSCRIPTION_RUNTIME_CODEX: "1",
           PATH: `${binDir}:${process.env.PATH ?? ""}`,
         },
@@ -2959,6 +3157,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(serializedRequests).not.toContain("refreshed-refresh-token");
       expect(serializedRequests).not.toContain("sk-ant-oat01-claude-input");
       expect(serializedRequests).not.toContain("sk-or-input");
+      expect(serializedRequests).not.toContain("tp-mimo-input");
       expect(
         invokedUrls.some(
           (url) =>
@@ -3047,7 +3246,7 @@ describe("Codex rotating GitHub Action runtime", () => {
         codexAgenticAudit: "rerun",
         failOnNoHealthyProviders: "true",
         providers:
-          "codex/gpt-5.5,claude/sonnet,openrouter/openai/gpt-5.3-codex",
+          "codex/gpt-5.5,codex-mimo/mimo-v2.6-pro,claude/sonnet,openrouter/openai/gpt-5.3-codex",
         runtimeMode: "static",
         commentTokenMode: "codex-oauth-rotating",
         commentTokenRefreshUrl:
@@ -3075,6 +3274,8 @@ describe("Codex rotating GitHub Action runtime", () => {
         snapshotRequired: "true",
       });
       expect(reviewEnv.inheritedOpenAi).toBeUndefined();
+      expect(reviewEnv.mimoKey).toBe("tp-mimo-input");
+      expect(reviewEnv.inheritedInputMimo).toBeUndefined();
       expect(reviewEnv.claudeToken).toBe("sk-ant-oat01-claude-input");
       expect(reviewEnv.openrouterKey).toBe("sk-or-input");
       expect(reviewEnv.inheritedInputClaude).toBeUndefined();
@@ -3101,6 +3302,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       expect(childStderr).toContain("runtime stderr marker");
       expect(childStdout).toContain("::add-mask::sk-ant-oat01-claude-input");
       expect(childStdout).toContain("::add-mask::sk-or-input");
+      expect(childStdout).toContain("::add-mask::tp-mimo-input");
       expect(runtimeStdout).not.toContain("refreshed-refresh-token");
       expect(runtimeStdout).not.toContain("refreshed-access-token");
       expect(childStderr).not.toContain("refreshed-access-token");
@@ -3767,3 +3969,316 @@ async function expectProcessToExit(pid: number): Promise<void> {
   }
   throw new Error(`process_still_alive:${pid}`);
 }
+
+describe("default-off certified fork Action ingress", () => {
+  it("cancels a certified API stream as soon as its byte budget is exceeded", async () => {
+    const encoder = new TextEncoder();
+    let cancelled = false;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode("abc"));
+          controller.enqueue(encoder.encode("def"));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      }),
+    );
+
+    await expect(readCertifiedForkApiResponse(response, 4)).rejects.toThrow(
+      "certified_fork_api_response_too_large",
+    );
+    expect(cancelled).toBe(true);
+  });
+
+  it("reads the explicit mode/schema contract without changing ordinary defaults", () => {
+    const config = {
+      "INPUT_API-URL": "https://api.reviewrouter.site",
+      "INPUT_PROVIDER-INSTANCE-ID": "provider",
+    };
+    expect(readActionInputs(config).mode).toBe("codex-oauth-rotating");
+    expect(
+      readActionInputs({
+        ...config,
+        INPUT_MODE: "fork_prompt_only_v2",
+        "INPUT_WORKFLOW-SCHEMA-VERSION": "6",
+      }),
+    ).toMatchObject({ mode: "fork_prompt_only_v2", workflowSchemaVersion: 6 });
+    for (const schema of ["5", "06", "6.0", " 6", ""]) {
+      expect(() =>
+        readActionInputs({
+          ...config,
+          INPUT_MODE: "fork_prompt_only_v2",
+          "INPUT_WORKFLOW-SCHEMA-VERSION": schema,
+        }),
+      ).toThrow("certified-fork-admission-unavailable");
+    }
+    expect(() =>
+      readActionInputs({ ...config, "INPUT_WORKFLOW-SCHEMA-VERSION": "6" }),
+    ).toThrow("certified-fork-admission-unavailable");
+  });
+
+  it("requests OIDC, waits for the certified API result, and never enters ordinary runtime", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "certified-fork-live-"));
+    const path = join(directory, "event.json");
+    const repo = { id: 123, full_name: "base/project", private: false };
+    await writeFile(
+      path,
+      JSON.stringify({
+        action: "synchronize",
+        number: 7,
+        repository: repo,
+        pull_request: {
+          number: 7,
+          state: "open",
+          draft: false,
+          merge_commit_sha: "c".repeat(40),
+          base: { repo, sha: "a".repeat(40) },
+          head: {
+            repo: {
+              id: 456,
+              full_name: "source/project",
+              private: false,
+              fork: true,
+            },
+            sha: "b".repeat(40),
+          },
+        },
+      }),
+    );
+    const env: NodeJS.ProcessEnv = {
+      INPUT_MODE: "fork_prompt_only_v2",
+      "INPUT_WORKFLOW-SCHEMA-VERSION": "6",
+      "INPUT_API-URL": "https://api.reviewrouter.site",
+      GITHUB_EVENT_NAME: "pull_request_target",
+      GITHUB_EVENT_PATH: path,
+      GITHUB_REPOSITORY: "base/project",
+      GITHUB_REPOSITORY_ID: "123",
+      ACTIONS_ID_TOKEN_REQUEST_URL:
+        "https://vstoken.actions.githubusercontent.com/oidc/token",
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-request-token",
+    };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ value: "fresh-oidc-token" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          `: accepted\n\nevent: result\ndata: ${JSON.stringify({
+            status: "published",
+            commentId: "1234",
+          })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream; charset=utf-8" },
+          },
+        ),
+      );
+    const fullReviewRuntimeRunner = vi.fn();
+    const stdout = { write: vi.fn() };
+    const stderr = { write: vi.fn() };
+    try {
+      await runCodexRotatingGitHubAction({
+        env,
+        fetchImpl,
+        fullReviewRuntimeRunner,
+        io: { stdout, stderr },
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(fetchImpl.mock.calls[1]?.[0]).toBe(
+        "https://api.reviewrouter.site/api/action/v1/certified-fork/review",
+      );
+      const body = JSON.parse(
+        String((fetchImpl.mock.calls[1]?.[1] as RequestInit).body),
+      ) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        oidcToken: "fresh-oidc-token",
+        binding: {
+          sourceRepository: "source/project",
+          baseRepository: "base/project",
+          pullRequestNumber: 7,
+        },
+      });
+      expect(fullReviewRuntimeRunner).not.toHaveBeenCalled();
+      expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+      expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+      expect(stdout.write).toHaveBeenCalledWith(
+        expect.stringContaining("certified fork review published"),
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["fork_prompt_only_v2", "6", "draft"],
+    ["fork_prompt_only_v2", "6", "oversized"],
+    ["fork_prompt_only_v2", "6", "utf8"],
+    ["fork_prompt_only_v2", "6", "directory"],
+    ["fork_prompt_only_v2", "6", "symlink"],
+    ["fork_prompt_only_v2", "6", "wrong-event"],
+    ["fork_prompt_only_v2", "6", "identity"],
+    ["fork_prompt_only_v2", "6", "schema-alias"],
+    ["fork_prompt_only_v2", "6", "malformed"],
+    ["fork_prompt_only_v2", "6", "missing"],
+    ["fork_prompt_only_v2", "5", "valid"],
+    ["fork_prompt_only_v2", "06", "valid"],
+    ["fork_prompt_only_v2", "6.0", "valid"],
+    ["fork_prompt_only_v2", "", "valid"],
+    ["fork_prompt_only_v2 ", "6", "valid"],
+    ["fork-agentic-sandbox", "6", "valid"],
+    ["fork-agentic-sandbox-hosted-pool", "6", "valid"],
+    ["codex-oauth-rotating", "6", "valid"],
+    ["", "6", "valid"],
+  ])(
+    "terminates %s/%s/%s without effects and cleans every secret",
+    async (mode, schema, kind) => {
+      const fs = await import("node:fs");
+      const fsAsync = await import("node:fs/promises");
+      const processes = await import("node:child_process");
+      const directory = await mkdtemp(
+        join(tmpdir(), "certified-fork-ingress-"),
+      );
+      const path = join(directory, "event.json");
+      const repo = { id: 123, full_name: "base/project", private: false };
+      const event = {
+        action: "synchronize",
+        number: 7,
+        repository: repo,
+        pull_request: {
+          number: 7,
+          state: "open",
+          draft: kind === "draft",
+          title: "$(touch /pwned)\n::error::untrusted secret",
+          body: "../../AGENTS.md",
+          merge_commit_sha: "c".repeat(40),
+          base: { repo, sha: "a".repeat(40) },
+          head: {
+            repo: {
+              id: 456,
+              full_name: "source/project",
+              private: false,
+              fork: true,
+            },
+            sha: "b".repeat(40),
+          },
+        },
+      };
+      await writeFile(
+        path,
+        kind === "malformed" ? "secret{invalid" : JSON.stringify(event),
+      );
+      await writeFile(join(directory, "AGENTS.md"), "$(touch /pwned)");
+      await writeFile(
+        join(directory, "package.json"),
+        '{"scripts":{"preinstall":"touch /pwned"}}',
+      );
+      const env: NodeJS.ProcessEnv = {
+        INPUT_MODE: mode,
+        "INPUT_WORKFLOW-SCHEMA-VERSION": schema,
+        GITHUB_EVENT_NAME: "pull_request_target",
+        GITHUB_EVENT_PATH:
+          kind === "missing" ? join(directory, "missing") : path,
+        GITHUB_REPOSITORY: "base/project",
+        GITHUB_REPOSITORY_ID: "123",
+        GITHUB_WORKSPACE: directory,
+      };
+      if (kind === "oversized")
+        await writeFile(path, " ".repeat(1024 * 1024 + 1));
+      if (kind === "utf8") await writeFile(path, Buffer.from([0xff]));
+      if (kind === "directory") env.GITHUB_EVENT_PATH = directory;
+      if (kind === "symlink") {
+        await fsAsync.symlink(path, join(directory, "link"));
+        env.GITHUB_EVENT_PATH = join(directory, "link");
+      }
+      if (kind === "wrong-event") env.GITHUB_EVENT_NAME = "pull_request";
+      if (kind === "identity") env.GITHUB_REPOSITORY_ID = "999";
+      if (kind === "schema-alias") env.INPUT_WORKFLOW_SCHEMA_VERSION = "5";
+      const secrets = [
+        "INPUT_AUTH-JSON",
+        "INPUT_AUTH_JSON",
+        "CODEX_AUTH_JSON",
+        "REVIEWROUTER_CODEX_AUTH_JSON",
+        "INPUT_CLAUDE-CODE-OAUTH-TOKEN",
+        "INPUT_CLAUDE_CODE_OAUTH_TOKEN",
+        "INPUT_OPENROUTER-API-KEY",
+        "INPUT_OPENROUTER_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "OPENROUTER_API_KEY",
+        "ACTIONS_ID_TOKEN_REQUEST_URL",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+      ];
+      const credentialRead = vi.fn(() => {
+        throw new Error("credential access forbidden");
+      });
+      for (const key of secrets)
+        Object.defineProperty(env, key, {
+          configurable: true,
+          get: credentialRead,
+        });
+      const spies = [
+        vi.spyOn(fs, "readFileSync"),
+        vi.spyOn(fs, "readdirSync"),
+        vi.spyOn(fsAsync, "readFile"),
+        vi.spyOn(fsAsync, "readdir"),
+        vi.spyOn(fsAsync, "realpath"),
+        vi.spyOn(fsAsync, "mkdtemp"),
+        vi.spyOn(fsAsync, "writeFile"),
+        vi.spyOn(processes, "spawn"),
+        vi.spyOn(processes, "spawnSync"),
+        vi.spyOn(processes, "execFile"),
+        vi.spyOn(processes, "execFileSync"),
+        vi.spyOn(globalThis, "fetch"),
+      ];
+      const open = vi.spyOn(fs, "openSync");
+      const fetchImpl = vi.fn();
+      const fullReviewRuntimeRunner = vi.fn();
+      const now = vi.fn();
+      const stdout = { write: vi.fn() };
+      const stderr = { write: vi.fn() };
+      try {
+        await expect(
+          runCodexRotatingGitHubAction({
+            env,
+            fetchImpl,
+            fullReviewRuntimeRunner,
+            now,
+            io: { stdout, stderr },
+          }),
+        ).rejects.toEqual(
+          new Error(
+            "certified-fork-admission-unavailable: certified fork admission unavailable; no review performed",
+          ),
+        );
+        for (const spy of [
+          ...spies,
+          fetchImpl,
+          fullReviewRuntimeRunner,
+          now,
+          credentialRead,
+          stdout.write,
+          stderr.write,
+        ])
+          expect(spy).not.toHaveBeenCalled();
+        expect(
+          open.mock.calls.every(([file]) => file === env.GITHUB_EVENT_PATH),
+        ).toBe(true);
+        if (
+          kind === "valid" &&
+          mode === "fork_prompt_only_v2" &&
+          schema === "6"
+        )
+          expect(open).toHaveBeenCalledTimes(1);
+        for (const key of secrets) expect(Object.hasOwn(env, key)).toBe(false);
+      } finally {
+        vi.restoreAllMocks();
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+});

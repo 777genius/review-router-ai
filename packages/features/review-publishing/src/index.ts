@@ -2,6 +2,7 @@ export * from "./domain/review-publication";
 export * from "./domain/review-findings-artifact";
 export * from "./domain/review-model-output-artifact";
 export * from "./domain/review-publication-markdown";
+export * from "./domain/review-publication-summary";
 export * from "./application/ports/review-publisher-port";
 export * from "./application/use-cases/publish-review";
 export * from "./application/use-cases/publish-review-findings-artifact";

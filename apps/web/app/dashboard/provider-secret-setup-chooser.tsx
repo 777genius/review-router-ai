@@ -20,6 +20,7 @@ import { providerSetupConfirmedEvent } from "./repository-setup-optimistic-event
 type ProviderChoice =
   | "codex_oauth_rotating"
   | "claude_code_oauth"
+  | "mimo_token_plan_api_key"
   | "openrouter_api_key";
 type VerificationFallbackError =
   | "repository_not_visible_to_github_app"
@@ -56,6 +57,12 @@ const providerChoices: readonly {
     body: "Use CLAUDE_CODE_OAUTH_TOKEN from Claude Code.",
   },
   {
+    value: "mimo_token_plan_api_key",
+    testId: "provider-choice-mimo-token-plan-api-key",
+    title: "MiMo Token Plan",
+    body: "Use MIMO_TOKEN_PLAN_API_KEY through codex-mimo.",
+  },
+  {
     value: "openrouter_api_key",
     testId: "provider-choice-openrouter-api-key",
     title: "OpenRouter API key",
@@ -74,6 +81,7 @@ export type ProviderSecretSetupChooserProps = {
   readonly codexOAuthGuidance: ProviderSecretSetupGuidance;
   readonly codexApiKeyGuidance: ProviderSecretSetupGuidance;
   readonly claudeCodeOAuthGuidance: ProviderSecretSetupGuidance;
+  readonly mimoTokenPlanApiKeyGuidance: ProviderSecretSetupGuidance;
   readonly openRouterApiKeyGuidance: ProviderSecretSetupGuidance;
   readonly codexRotatingOAuthEnabled?: boolean;
   readonly claudeCodeProviderEnabled?: boolean;
@@ -95,6 +103,7 @@ export function ProviderSecretSetupChooser({
   organizationSecretPolicy,
   codexOAuthRotatingGuidance,
   claudeCodeOAuthGuidance,
+  mimoTokenPlanApiKeyGuidance,
   openRouterApiKeyGuidance,
   codexRotatingOAuthEnabled = true,
   claudeCodeProviderEnabled = true,
@@ -207,7 +216,9 @@ export function ProviderSecretSetupChooser({
       ? codexOAuthRotatingGuidance
       : providerChoice === "claude_code_oauth"
         ? claudeCodeOAuthGuidance
-        : openRouterApiKeyGuidance;
+        : providerChoice === "mimo_token_plan_api_key"
+          ? mimoTokenPlanApiKeyGuidance
+          : openRouterApiKeyGuidance;
   const repositoryCommand = activeGuidance.commands.find(
     (command) => command.scope === "repository",
   );
@@ -252,45 +263,49 @@ export function ProviderSecretSetupChooser({
     [claudeCodeProviderEnabled, rotatingPreparationOnly],
   );
 
-  const providerDetails = useMemo(
-    () =>
-      providerChoice === "codex_oauth_rotating"
-        ? {
-            badge: "Codex rotating OAuth",
-            title: "Use your ChatGPT Codex subscription with refresh",
-            body: `Run this from any terminal on your own computer. The command targets ${repositoryFullName}, creates a dedicated ReviewRouter Codex session, and writes only the server-authorized versioned credential to this repository's GitHub Actions secrets.`,
-            footnote:
-              "GitHub-hosted runs refresh the dedicated session and write the encrypted update back before review starts.",
-            apiKey: null as {
-              readonly label: string;
-              readonly url: string;
-            } | null,
-          }
-        : providerChoice === "claude_code_oauth"
-          ? {
-              badge: "Claude Code subscription",
-              title: "Use your Claude Code subscription",
-              body: `Run claude setup-token on a trusted machine, then run this GitHub CLI command from your own computer. Store only the printed token value as CLAUDE_CODE_OAUTH_TOKEN for ${repositoryFullName}.`,
-              footnote:
-                "Do not paste the shell command, ANTHROPIC_API_KEY, Claude keychain files, or local Claude config files.",
-              apiKey: null as {
-                readonly label: string;
-                readonly url: string;
-              } | null,
-            }
-          : {
-              badge: "OpenRouter API key",
-              title: "Use OpenRouter billing",
-              body: `Run this from any terminal on your own computer. The command targets ${repositoryFullName}, prompts you to paste your OpenRouter API key, then stores it as the OPENROUTER_API_KEY secret in GitHub Actions for this repository.`,
-              footnote:
-                "This does not use Codex OAuth. It uses your OpenRouter API key from GitHub Actions secrets.",
-              apiKey: {
-                label: "Get an OpenRouter API key",
-                url: "https://openrouter.ai/workspaces/default/keys",
-              },
-            },
-    [providerChoice, repositoryFullName],
-  );
+  const providerDetails = useMemo(() => {
+    if (providerChoice === "codex_oauth_rotating") {
+      return {
+        badge: "Codex rotating OAuth",
+        title: "Use your ChatGPT Codex subscription with refresh",
+        body: `Run this from any terminal on your own computer. The command targets ${repositoryFullName}, creates a dedicated ReviewRouter Codex session, and writes only the server-authorized versioned credential to this repository's GitHub Actions secrets.`,
+        footnote:
+          "GitHub-hosted runs refresh the dedicated session and write the encrypted update back before review starts.",
+        apiKey: null as { readonly label: string; readonly url: string } | null,
+      };
+    }
+    if (providerChoice === "claude_code_oauth") {
+      return {
+        badge: "Claude Code subscription",
+        title: "Use your Claude Code subscription",
+        body: `Run claude setup-token on a trusted machine, then run this GitHub CLI command from your own computer. Store only the printed token value as CLAUDE_CODE_OAUTH_TOKEN for ${repositoryFullName}.`,
+        footnote:
+          "Do not paste the shell command, ANTHROPIC_API_KEY, Claude keychain files, or local Claude config files.",
+        apiKey: null as { readonly label: string; readonly url: string } | null,
+      };
+    }
+    if (providerChoice === "mimo_token_plan_api_key") {
+      return {
+        badge: "MiMo Token Plan",
+        title: "Use the MiMo Token Plan public engine",
+        body: `Run this interactive GitHub CLI command from your own computer. It targets ${repositoryFullName}; enter the key only when prompted, and it is stored as MIMO_TOKEN_PLAN_API_KEY for this repository.`,
+        footnote:
+          "This uses codex-mimo/mimo-v2.6-pro and never silently falls back to Codex or OpenRouter.",
+        apiKey: null as { readonly label: string; readonly url: string } | null,
+      };
+    }
+    return {
+      badge: "OpenRouter API key",
+      title: "Use OpenRouter billing",
+      body: `Run this from any terminal on your own computer. The command targets ${repositoryFullName}, prompts you to paste your OpenRouter API key, then stores it as the OPENROUTER_API_KEY secret in GitHub Actions for this repository.`,
+      footnote:
+        "This does not use Codex OAuth. It uses your OpenRouter API key from GitHub Actions secrets.",
+      apiKey: {
+        label: "Get an OpenRouter API key",
+        url: "https://openrouter.ai/workspaces/default/keys",
+      },
+    };
+  }, [providerChoice, repositoryFullName]);
 
   return (
     <div className="grid gap-5">
@@ -312,7 +327,11 @@ export function ProviderSecretSetupChooser({
           activateOnFocus
           className={[
             "grid overflow-hidden rounded-2xl border border-cyan-200/15 bg-slate-950/70 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
-            claudeCodeProviderEnabled ? "sm:grid-cols-3" : "sm:grid-cols-2",
+            visibleProviderChoices.length > 3
+              ? "sm:grid-cols-4"
+              : visibleProviderChoices.length > 2
+                ? "sm:grid-cols-3"
+                : "sm:grid-cols-2",
           ].join(" ")}
         >
           {visibleProviderChoices.map((choice) => {
@@ -979,6 +998,11 @@ function providerChoiceToSetupSelection(value: ProviderChoice): {
       return {
         providerKind: "claude",
         authMode: "claude_code_oauth",
+      };
+    case "mimo_token_plan_api_key":
+      return {
+        providerKind: "codex-mimo",
+        authMode: "mimo_token_plan_api_key",
       };
     case "openrouter_api_key":
       return {

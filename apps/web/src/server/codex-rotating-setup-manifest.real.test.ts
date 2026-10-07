@@ -909,6 +909,66 @@ describeDatabase("Codex rotating setup serialization", () => {
           WHERE "id" = ${prepared.claimId}
         `,
     ).rejects.toThrow();
+    const forcedClaims = new PrismaCodexRotatingSetupPayloadClaim(
+      prisma,
+      "w".repeat(43),
+      { now: async () => recoveryNow },
+      process.env,
+      prisma,
+    );
+    const forcedPrepared = await prepareCodexRotatingSetup(
+      {
+        payloadVersion: 2,
+        canonicalizationVersion: 1,
+        operationId: `operation:${randomUUID()}`,
+        repositoryId: recoveryGithubRepositoryId,
+        providerInstanceId: original.providerInstanceId,
+        setupNonce: forcedManifest.setupNonce,
+        manifestDigest: createHash("sha256")
+          .update(JSON.stringify(routedManifest), "utf8")
+          .digest("hex"),
+        recoveryEpoch: firstFetched.recoveryEpoch,
+        generationHash: "h".repeat(43),
+        accountIdentityHash: "i".repeat(43),
+        accountIdentityAlgorithm: "provider_issuer_subject_account_v1",
+        authByteSize: 100,
+        installerVersion: routedManifest.installer.version,
+        installerDigest: routedManifest.installer.sha256.toLowerCase(),
+      },
+      { claims: forcedClaims },
+    );
+    const forcedAuthorized = await authorizeCodexRotatingSetupDispatch(
+      {
+        claimId: forcedPrepared.claimId,
+        idempotencyKey: `dispatch:${randomUUID()}`,
+      },
+      { claims: forcedClaims },
+    );
+    await expect(
+      recordCodexRotatingSetupDispatchOutcome(
+        {
+          claimId: forcedPrepared.claimId,
+          attemptId: forcedAuthorized.attemptId,
+          outcome: "definite_success",
+          responseCode: 204,
+        },
+        { claims: forcedClaims },
+      ),
+    ).resolves.toEqual({ status: "confirmed_candidate" });
+    await expect(
+      recoverCodexRotatingSetup(
+        {
+          workspaceId,
+          repositoryId: recoveryRepositoryId,
+          githubRepositoryId: recoveryGithubRepositoryId,
+          recoveryRequestId: `recovery:${randomUUID()}`,
+          actor: "user:github:premature-retry",
+          acknowledgement: codexRotatingSetupRecoveryAcknowledgement,
+          now: new Date(recoveryNow.getTime() + 1),
+        },
+        { recovery: recoveryAdapter },
+      ),
+    ).rejects.toThrow("codex_rotating_setup_recovery_request_conflict");
     const reseedRetryRequestId = `recovery:${randomUUID()}`;
     const reseedRetryRecovery = await recoverCodexRotatingSetup(
       {
@@ -923,6 +983,25 @@ describeDatabase("Codex rotating setup serialization", () => {
       { recovery: recoveryAdapter },
     );
     expect(reseedRetryRecovery).toMatchObject({ status: "recovered" });
+    await expect(
+      prisma.$queryRaw`
+        SELECT claim."status" AS "claimStatus",
+               attempt."status" AS "attemptStatus",
+               namespace."status" AS "namespaceStatus"
+        FROM "CodexOAuthSetupPayloadClaim" claim
+        JOIN "CodexOAuthSetupDispatchAttempt" attempt
+          ON attempt."id" = claim."confirmedAttemptId"
+        JOIN "CodexOAuthSecretNamespace" namespace
+          ON namespace."id" = attempt."namespaceId"
+        WHERE claim."id" = ${forcedPrepared.claimId}
+      `,
+    ).resolves.toEqual([
+      {
+        claimStatus: "retired_confirmed",
+        attemptStatus: "retired_confirmed",
+        namespaceStatus: "retired_ambiguous",
+      },
+    ]);
     await expect(
       prisma.codexOAuthSetupRecoveryRequest.findMany({
         where: {

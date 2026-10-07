@@ -39,6 +39,7 @@ export interface CurrentRelayRequestFailoverPort {
       grant: InvocationGrant,
       failedAccount: HostedPoolAccount,
       backupAccount: HostedPoolAccount | null,
+      currentRequestSuccessfulResponseStarted: boolean,
     ) => CurrentRelayRequestFailover;
   }): Promise<CurrentRelayRequestFailover>;
 }

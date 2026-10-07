@@ -11,6 +11,7 @@
     }
   },
   "dependencies": {
+    "@reviewrouter/protocol-review-action-v2": "workspace:*",
     "@reviewrouter/shared": "workspace:*",
     "libsodium-wrappers": "^0.8.4",
     "yaml": "^2.9.0",

@@ -84,7 +84,12 @@ export function buildProviderRuntimePlan(
       Math.min(input.execution.providerMaxParallel, providers.length),
     ),
     INLINE_MIN_AGREEMENT: String(input.execution.inlineMinAgreement),
-    INLINE_MAX_COMMENTS: String(input.limits.inlineMaxComments),
+    INLINE_MAX_COMMENTS: String(
+      input.limits.inlineMaxComments === 5
+        ? 50
+        : input.limits.inlineMaxComments,
+    ),
+    INLINE_MIN_SEVERITY: "minor",
     TARGET_TOKENS_PER_BATCH: String(input.limits.targetTokensPerBatch),
     FAIL_ON_SEVERITY: input.blockingPolicy.failOnSeverity,
   };
@@ -186,6 +191,7 @@ export function isCodexBackedProvider(
 ): boolean {
   return (
     provider.kind === "openrouter" ||
+    provider.kind === "codex-mimo" ||
     getProviderCatalogEntry(provider.kind).runtimeProviderPrefix.startsWith(
       "codex",
     )

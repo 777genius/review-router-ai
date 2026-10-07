@@ -29,12 +29,18 @@ export function failoverCurrentRelayRequestBeforeEffect(
     requestId: input.requestId,
     now: input.now,
     ...(input.effect ? { effect: input.effect } : {}),
-    transition: (grant, failedAccount, backupAccount) =>
+    transition: (
+      grant,
+      failedAccount,
+      backupAccount,
+      currentRequestSuccessfulResponseStarted,
+    ) =>
       failoverCurrentRelayRequest({
         grant,
         requestId: input.requestId,
         failedAccount,
         backupAccount,
+        currentRequestSuccessfulResponseStarted,
         failure: input.failure,
         effectFence: input.effectFence,
         cooldownUntil: input.cooldownUntil,

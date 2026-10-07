@@ -475,6 +475,48 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     );
   });
 
+  it("fetches the repository Actions public key with a repository-scoped Secrets: read token", async () => {
+    mocks.auth.mockResolvedValueOnce({
+      token: "ghs_secret_read_token",
+      expiresAt: "2026-05-25T12:15:00.000Z",
+      permissions: { secrets: "read" },
+    });
+    mocks.request.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        key_id: "github-key-id",
+        key: Buffer.from("0123456789abcdef0123456789abcdef").toString("base64"),
+      },
+    });
+
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+
+    await expect(
+      gateway.getRepositoryActionsPublicKey({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        owner: "777genius",
+        repo: "example",
+      }),
+    ).resolves.toEqual({
+      keyId: "github-key-id",
+      key: Buffer.from("0123456789abcdef0123456789abcdef").toString("base64"),
+    });
+    expect(mocks.request).toHaveBeenCalledWith(
+      "GET /repos/{owner}/{repo}/actions/secrets/public-key",
+      {
+        owner: "777genius",
+        repo: "example",
+        headers: {
+          authorization: "Bearer ghs_secret_read_token",
+        },
+      },
+    );
+  });
+
   it("mints a repository-scoped read token for safe checkout and PR loading", async () => {
     mocks.auth.mockResolvedValueOnce({
       token: "ghs_contents_read_token",
@@ -505,6 +547,26 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       repositoryIds: [123456],
       permissions: { contents: "read", pull_requests: "read" },
     });
+  });
+
+  // A GitHub response with issues:write would otherwise turn a read bearer into write authority.
+  it("rejects a read token response with an extra write permission", async () => {
+    mocks.auth.mockResolvedValueOnce({
+      token: "overprivileged-token",
+      expiresAt: "2026-05-25T12:15:00.000Z",
+      permissions: { contents: "read", pull_requests: "read", issues: "write" },
+    });
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+    await expect(
+      gateway.issueContentsReadToken({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        repositoryFullName: "777genius/example",
+      }),
+    ).rejects.toThrow("codex_rotating_installation_token_permissions_mismatch");
   });
 
   it("rejects unexpected GitHub secret write statuses", async () => {

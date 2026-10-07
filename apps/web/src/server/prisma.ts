@@ -13,11 +13,7 @@ const prismaGlobal = globalThis as PrismaGlobal;
 
 export function getPrisma(): PrismaClient {
   const prisma = prismaGlobal.reviewRouterPrisma ?? createPrismaClient();
-
-  if (process.env.NODE_ENV !== "production") {
-    prismaGlobal.reviewRouterPrisma = prisma;
-  }
-
+  prismaGlobal.reviewRouterPrisma = prisma;
   return prisma;
 }
 
@@ -32,8 +28,6 @@ export function getCodexEffectAuthorityPrisma(): PrismaClient {
   const prisma =
     prismaGlobal.reviewRouterCodexEffectAuthorityPrisma ??
     createPrismaClient({ databaseUrl, poolMax: 2 });
-  if (process.env.NODE_ENV !== "production") {
-    prismaGlobal.reviewRouterCodexEffectAuthorityPrisma = prisma;
-  }
+  prismaGlobal.reviewRouterCodexEffectAuthorityPrisma = prisma;
   return prisma;
 }

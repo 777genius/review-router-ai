@@ -30,6 +30,7 @@ import {
   PrismaHostedPoolBindingRepository,
   PrismaHostedPoolRepository,
   PrismaInvocationGrantRepository,
+  PrismaHostedHistoricalScopeBarrier,
 } from "@reviewrouter/features-hosted-account-pool";
 import {
   assertExactHostedPoolCallerWorkflow,
@@ -39,7 +40,13 @@ import {
   type HostedPoolWorkflowSourceAttestation,
   hostedPoolWorkflowSchemaVersion,
 } from "@reviewrouter/features-workflow-provisioning";
-import { resolveReviewRouterCodexRotatingTrustedActionRefs } from "@reviewrouter/platform-config";
+import { App } from "@octokit/app";
+import {
+  isFullShaActionRef,
+  readGitHubAppPrivateKey,
+  resolveReviewRouterHostedTrustedActionRefs,
+  resolveReviewRouterMutableActionChannel,
+} from "@reviewrouter/platform-config";
 import { SystemClock, type Clock } from "@reviewrouter/shared";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
@@ -115,6 +122,10 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       readonly bindings: HostedPoolBindingRepositoryPort;
       readonly accounts: HostedAccountRepositoryPort;
       readonly grants: InvocationGrantRepositoryPort;
+      readonly historicalScopes?: Pick<
+        PrismaHostedHistoricalScopeBarrier,
+        "assertAdmissionAllowed" | "assertGrantAllowed"
+      >;
       readonly grantCapabilities: InvocationGrantCapabilityPort;
       readonly refreshCapabilities: CommentTokenRefreshCapabilityPort;
       readonly commentTokens: Pick<
@@ -125,6 +136,7 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       readonly relayUrl: string;
       readonly oidcAudience?: string;
       readonly trustedActionRefs?: readonly string[];
+      readonly resolveChannelActionRefs?: () => Promise<readonly string[]>;
       readonly policy: HostedCodexGrantPolicy;
     },
   ) {}
@@ -147,9 +159,10 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       bindingVersion: input.bindingVersion,
       now,
     });
-    const jobIdentities = resolveAllowlistedHostedJobIdentities(
+    const jobIdentities = await resolveAllowlistedHostedJobIdentities(
       admission,
       this.dependencies.trustedActionRefs ?? [],
+      this.dependencies.resolveChannelActionRefs,
     );
     validateOidcClaimsAgainstRepository({
       claims,
@@ -204,6 +217,15 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       ]),
     );
     const grantId = invocationGrantId(`hosted-grant-${invocationIdentity}`);
+    await this.dependencies.historicalScopes?.assertAdmissionAllowed({
+      workspaceId: admission.workspaceId,
+      repositoryConnectionId: admission.repositoryId,
+      reviewRequestId: admission.reviewRequestId,
+      grantId,
+      invocationId: invocationIdentity,
+      providerInvocationKey: admission.providerInvocationKey,
+      runId: claims.run_id,
+    });
     const existing = await this.dependencies.grants.findByInvocationId(
       invocationId(invocationIdentity),
     );
@@ -225,6 +247,7 @@ export class HostedCodexGrantIssuer implements HostedCodexGrantIssuerPort {
       authzEpoch: admission.authzEpoch,
     };
     if (existing) {
+      await this.dependencies.historicalScopes?.assertGrantAllowed(existing.id);
       assertRetryMatches(existing, admission, authority, now);
       const [grantCapability, refreshCapability] = await Promise.all([
         this.dependencies.grantCapabilities.issue({
@@ -378,9 +401,26 @@ export function createProductionHostedCodexGrantIssuer(input: {
   readonly relayUrl: string;
   readonly workflowSources: HostedWorkflowSourceReaderPort;
   readonly commentTokens: Pick<HostedCodexCommentTokenIssuer, "issueInitial">;
+  readonly historicalScopes?: PrismaHostedHistoricalScopeBarrier;
   readonly clock?: Clock;
 }): HostedCodexGrantIssuer {
   const clock = input.clock ?? new SystemClock();
+  const resourceIdentity =
+    input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY?.trim();
+  const incarnation =
+    input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_INCARNATION?.trim();
+  if (!resourceIdentity || resourceIdentity.length < 16 || !incarnation) {
+    throw new Error("hosted_historical_destination_identity_missing");
+  }
+  const historicalScopes =
+    input.historicalScopes ??
+    new PrismaHostedHistoricalScopeBarrier(input.prisma, {
+      required:
+        input.env.REVIEW_ROUTER_HOSTED_HISTORICAL_SCOPE_DESTINATION_REQUIRED ===
+        "1",
+      resourceIdentity,
+      incarnation,
+    });
   const grants = new PrismaInvocationGrantRepository(input.prisma);
   const capabilityKey = readCapabilityKey(input.env);
   const grantCapabilities = new HmacHostedCodexCapabilityIssuer(
@@ -394,7 +434,11 @@ export function createProductionHostedCodexGrantIssuer(input: {
   return new HostedCodexGrantIssuer({
     oidcVerifier: new JoseGitHubActionsOidcTokenVerifier(),
     replayNonces: new PrismaActionOidcReplayNonceStore(input.prisma),
-    trustedActionRefs: resolveTrustedHostedActionRefs(input.env),
+    trustedActionRefs: resolveReviewRouterHostedTrustedActionRefs(input.env),
+    resolveChannelActionRefs: createHostedActionChannelRefResolver({
+      env: input.env,
+      getAccessToken: createHostedActionChannelTokenReader({ env: input.env }),
+    }),
     admissions: new PrismaHostedCodexGrantAdmission(
       input.prisma,
       input.workflowSources,
@@ -404,6 +448,7 @@ export function createProductionHostedCodexGrantIssuer(input: {
     bindings: new PrismaHostedPoolBindingRepository(input.prisma),
     accounts: new PrismaHostedAccountRepository(input.prisma),
     grants,
+    historicalScopes,
     grantCapabilities,
     refreshCapabilities: {
       issue: (scope) => refreshCapabilityIssuer.issue(scope),
@@ -471,7 +516,7 @@ export function createProductionHostedCodexGrantIssuer(input: {
   });
 }
 
-class HmacHostedCodexCapabilityIssuer implements InvocationGrantCapabilityPort {
+export class HmacHostedCodexCapabilityIssuer implements InvocationGrantCapabilityPort {
   constructor(
     private readonly key: Buffer,
     private readonly namespace: string,
@@ -560,10 +605,11 @@ function hostedJobIdentityFromActionRef(actionRef: string): HostedJobIdentity {
   };
 }
 
-function resolveAllowlistedHostedJobIdentities(
+async function resolveAllowlistedHostedJobIdentities(
   admission: HostedCodexGrantAdmission,
   trustedActionRefs: readonly string[],
-): readonly HostedJobIdentity[] {
+  resolveChannelActionRefs?: () => Promise<readonly string[]>,
+): Promise<readonly HostedJobIdentity[]> {
   const binding: HostedJobIdentity = {
     workflowJobSource: admission.workflowJobSource,
     workflowExecutionSource: admission.workflowExecutionSource,
@@ -577,8 +623,13 @@ function resolveAllowlistedHostedJobIdentities(
   ) {
     return [binding];
   }
+  const channelRefs = resolveChannelActionRefs
+    ? await resolveChannelActionRefs()
+    : [];
   const allowed = new Set(
-    trustedActionRefs.map((ref) => ref.trim().toLowerCase()),
+    [...trustedActionRefs, ...channelRefs]
+      .map((ref) => ref.trim().toLowerCase())
+      .filter((ref) => isFullShaActionRef(ref)),
   );
   if (!allowed.has(live.actionRef.toLowerCase())) {
     throw new Error("hosted_workflow_action_ref_not_allowed");
@@ -593,6 +644,214 @@ function resolveAllowlistedHostedJobIdentities(
     add(hostedJobIdentityFromActionRef(ref));
   }
   return [...identities.values()];
+}
+
+const hostedActionChannelResolverTtlMs = 60_000;
+const hostedActionChannelLookupTimeoutMs = 8_000;
+const hostedActionChannelTransientTtlMs = 5_000;
+const hostedActionChannelTokenRefreshSkewMs = 60_000;
+
+export function createHostedActionChannelTokenReader(input: {
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly now?: () => number;
+  readonly requestInstallationToken?: (
+    repository: string,
+  ) => Promise<{ readonly token: string; readonly expiresAtMs: number }>;
+}): (repository: string) => Promise<string | undefined> {
+  const now = input.now ?? Date.now;
+  const requestInstallationToken =
+    input.requestInstallationToken ??
+    requestGithubAppInstallationToken(input.env);
+  let cached:
+    | {
+        readonly repository: string;
+        readonly token: string;
+        readonly expiresAtMs: number;
+      }
+    | undefined;
+  return async (repository) => {
+    const explicit =
+      input.env.GITHUB_TOKEN?.trim() || input.env.GH_TOKEN?.trim();
+    if (explicit) {
+      return explicit;
+    }
+    if (
+      cached &&
+      cached.repository === repository &&
+      cached.expiresAtMs - hostedActionChannelTokenRefreshSkewMs > now()
+    ) {
+      return cached.token;
+    }
+    try {
+      const issued = await requestInstallationToken(repository);
+      cached = { repository, ...issued };
+      return issued.token;
+    } catch {
+      return undefined;
+    }
+  };
+}
+
+function requestGithubAppInstallationToken(
+  env: Readonly<Record<string, string | undefined>>,
+): (
+  repository: string,
+) => Promise<{ readonly token: string; readonly expiresAtMs: number }> {
+  return async (repository) => {
+    const appId = env.GITHUB_APP_ID?.trim();
+    const privateKey = readGitHubAppPrivateKey(env);
+    if (!appId || !privateKey) {
+      throw new Error("hosted_action_channel_github_app_not_configured");
+    }
+    const separator = repository.indexOf("/");
+    const owner = repository.slice(0, separator);
+    const repo = repository.slice(separator + 1);
+    const app = new App({ appId, privateKey });
+    const installation = await app.octokit.request(
+      "GET /repos/{owner}/{repo}/installation",
+      { owner, repo },
+    );
+    const octokit = await app.getInstallationOctokit(installation.data.id);
+    const auth = (await octokit.auth({ type: "installation" })) as {
+      readonly token?: unknown;
+      readonly expiresAt?: unknown;
+    };
+    const token = typeof auth.token === "string" ? auth.token.trim() : "";
+    if (!token) {
+      throw new Error("hosted_action_channel_github_app_token_missing");
+    }
+    const expiresAtMs =
+      typeof auth.expiresAt === "string"
+        ? Date.parse(auth.expiresAt)
+        : Number.NaN;
+    return {
+      token,
+      expiresAtMs: Number.isFinite(expiresAtMs)
+        ? expiresAtMs
+        : Date.now() + 50 * 60_000,
+    };
+  };
+}
+
+export function createHostedActionChannelRefResolver(input: {
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly fetchImpl?: typeof fetch;
+  readonly now?: () => number;
+  readonly ttlMs?: number;
+  readonly getAccessToken?: (repository: string) => Promise<string | undefined>;
+}): () => Promise<readonly string[]> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const now = input.now ?? Date.now;
+  const ttlMs = input.ttlMs ?? hostedActionChannelResolverTtlMs;
+  let cached:
+    | { readonly expiresAt: number; readonly refs: readonly string[] }
+    | undefined;
+  let inflight: Promise<readonly string[]> | undefined;
+  return async () => {
+    const channel = resolveReviewRouterMutableActionChannel(input.env);
+    if (!channel) {
+      return [];
+    }
+    const at = now();
+    if (cached && cached.expiresAt > at) {
+      return cached.refs;
+    }
+    if (inflight) {
+      return inflight;
+    }
+    inflight = resolveChannelRefs();
+    try {
+      return await inflight;
+    } finally {
+      inflight = undefined;
+    }
+  };
+
+  async function resolveChannelRefs(): Promise<readonly string[]> {
+    const channel = resolveReviewRouterMutableActionChannel(input.env);
+    if (!channel) {
+      return [];
+    }
+    const at = now();
+    try {
+      const resolved = await resolveMutableActionChannelToSha(
+        channel,
+        fetchImpl,
+        input.getAccessToken,
+      );
+      const refs = resolved ? [resolved] : [];
+      cached = { expiresAt: at + ttlMs, refs };
+      return refs;
+    } catch {
+      cached = {
+        expiresAt: at + Math.min(ttlMs, hostedActionChannelTransientTtlMs),
+        refs: [],
+      };
+      return [];
+    }
+  }
+}
+
+async function resolveMutableActionChannelToSha(
+  actionRef: string,
+  fetchImpl: typeof fetch,
+  getAccessToken:
+    | ((repository: string) => Promise<string | undefined>)
+    | undefined,
+): Promise<string | undefined> {
+  const separator = actionRef.lastIndexOf("@");
+  if (separator <= 0) {
+    return undefined;
+  }
+  const repository = actionRef.slice(0, separator).trim();
+  const ref = actionRef.slice(separator + 1).trim();
+  if (
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository) ||
+    !ref ||
+    /[^\w./-]/u.test(ref)
+  ) {
+    return undefined;
+  }
+  const token = (await getAccessToken?.(repository))?.trim();
+  if (!token) {
+    throw new Error("hosted_action_channel_lookup_unauthenticated");
+  }
+  const response = await fetchImpl(
+    `https://api.github.com/repos/${repository}/commits/${encodeURIComponent(ref)}`,
+    {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "User-Agent": "review-router-hosted-grant",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      redirect: "error",
+      signal: AbortSignal.timeout(hostedActionChannelLookupTimeoutMs),
+    },
+  );
+  if (
+    response.status === 401 ||
+    response.status === 403 ||
+    response.status === 429 ||
+    response.status >= 500
+  ) {
+    throw new Error("hosted_action_channel_lookup_transient");
+  }
+  if (!response.ok) {
+    return undefined;
+  }
+  const payload: unknown = await response.json();
+  const sha =
+    payload &&
+    typeof payload === "object" &&
+    "sha" in payload &&
+    typeof payload.sha === "string"
+      ? payload.sha.trim().toLowerCase()
+      : "";
+  if (!/^[a-f0-9]{40}$/u.test(sha)) {
+    return undefined;
+  }
+  return `${repository.toLowerCase()}@${sha}`;
 }
 
 function assertExactWorkflowClaims(
@@ -694,16 +953,6 @@ function readCapabilityKey(
     throw new Error("hosted_capability_hmac_key_invalid");
   }
   return key;
-}
-
-function resolveTrustedHostedActionRefs(
-  env: Readonly<Record<string, string | undefined>>,
-): readonly string[] {
-  try {
-    return resolveReviewRouterCodexRotatingTrustedActionRefs(env);
-  } catch {
-    return [];
-  }
 }
 
 function definedString<K extends string>(key: K, value: string | undefined) {

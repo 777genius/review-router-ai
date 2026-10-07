@@ -156,6 +156,47 @@ afterAll(async () => {
 describe.skipIf(!enabled)(
   "public eligibility on actual PostgreSQL guards",
   () => {
+    // The timestamptz decoder used to shift wall time by the session offset.
+    // These assertions run the real custody adapter, not a mocked Date query.
+    it.each(["UTC", "Europe/Berlin", "America/New_York"])(
+      "uses the actual database instant for mint authority in %s",
+      async (timezone) => {
+        const url = new URL(custodyUrl!);
+        url.searchParams.set("options", `-c timezone=${timezone}`);
+        const timezoneCustody = createPrismaClient({
+          databaseUrl: url.toString(),
+          poolMax: 1,
+        });
+        try {
+          const setting = await timezoneCustody.$queryRaw<
+            Array<{ timezone: string }>
+          >`SELECT current_setting('TimeZone') AS timezone`;
+          expect(setting[0]?.timezone).toBe(timezone);
+          const fresh = await repositoryFixture("public");
+          expect((await prepare(fresh, 1, timezoneCustody)).state).toBe(
+            "prepared",
+          );
+          const restored = await timezoneCustody.$queryRaw<
+            Array<{ timezone: string }>
+          >`SELECT current_setting('TimeZone') AS timezone`;
+          expect(restored[0]?.timezone).toBe(timezone);
+
+          const expired = await repositoryFixture("public", 1_000);
+          await new Promise((resolve) => setTimeout(resolve, 1_100));
+          await expect(prepare(expired, 1, timezoneCustody)).rejects.toThrow(
+            "hosted_comment_mint_authority_mismatch",
+          );
+          expect(
+            await prisma.hostedCodexCommentTokenMint.count({
+              where: { grantId: expired.grantId },
+            }),
+          ).toBe(0);
+        } finally {
+          await timezoneCustody.$disconnect();
+        }
+      },
+    );
+
     it.each(["public", "private", "internal"] as const)(
       "authorizes binding, comment mint, and model relay for %s",
       async (visibility) => {
@@ -293,6 +334,7 @@ describe.skipIf(!enabled)(
 
 async function repositoryFixture(
   visibility: "public" | "private" | "internal",
+  grantLifetimeMs = 600_000,
 ) {
   const id = `${prefix}-${++ordinal}`;
   const repo = repositoryId(`${id}-repo`);
@@ -356,7 +398,7 @@ async function repositoryFixture(
     },
   });
   const issuedAt = new Date();
-  const expiresAt = new Date(issuedAt.getTime() + 600_000);
+  const expiresAt = new Date(issuedAt.getTime() + grantLifetimeMs);
   const grants = new PrismaInvocationGrantRepository(prisma);
   const issued = await issueHostedPoolInvocationGrant(
     {
@@ -408,9 +450,10 @@ async function repositoryFixture(
 async function prepare(
   fixture: Awaited<ReturnType<typeof repositoryFixture>>,
   bindingVersion = 1,
+  custodyClient = custody,
 ) {
   const instant = new Date();
-  return new PrismaHostedCommentTokenMintLedger(custody).prepare({
+  return new PrismaHostedCommentTokenMintLedger(custodyClient).prepare({
     mintId: `${fixture.id}-mint`,
     purpose: "initial",
     ownerIdHash: sha256(fixture.id),

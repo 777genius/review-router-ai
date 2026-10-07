@@ -29,6 +29,8 @@ import {
   encodeCodexRotatingSetupManifest,
   encryptCodexRotatingAuthForGitHubSecret,
   InMemoryCodexRotatingLeaseStore,
+  isCertifiedForkCodexWorkflowSchemaVersion,
+  isVersionedSecretNamespaceCodexWorkflowSchemaVersion,
   isClientTriggeredT0WorkflowSchemaVersion,
   parseCodexRotatingEncryptedWritebackRequest,
   pruneCodexRotatingChildEnv,
@@ -243,6 +245,30 @@ function writeExecutable(path: string, content: string): void {
 }
 
 describe("Codex rotating auth domain", () => {
+  it("recognizes only the reserved certified-fork v6 schema", () => {
+    expect(
+      isCertifiedForkCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.CertifiedForkReviewV6,
+      ),
+    ).toBe(true);
+    expect(isCertifiedForkCodexWorkflowSchemaVersion(99)).toBe(false);
+    expect(
+      isCertifiedForkCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+      ),
+    ).toBe(false);
+    expect(
+      isVersionedSecretNamespaceCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
+      ),
+    ).toBe(true);
+    expect(
+      isVersionedSecretNamespaceCodexWorkflowSchemaVersion(
+        CodexRotatingT0WorkflowSchemaVersion.CertifiedForkReviewV6,
+      ),
+    ).toBe(false);
+    expect(CodexRotatingT0WorkflowSchemaVersion.DurableDispatchV1).toBe(1);
+  });
   it("classifies only client-triggered T0 schema versions", () => {
     expect(
       isClientTriggeredT0WorkflowSchemaVersion(
@@ -1152,13 +1178,14 @@ exit 17
     });
   });
 
-  it("allows only explicit hybrid provider secret inputs in rotating workflow", () => {
+  it("keeps MiMo and existing provider secrets on their literal Action inputs", () => {
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: "777genius/review-router@main",
       apiUrl: "https://reviewrouter.site",
       providerInstanceId: "codex-rotating:123456",
       claudeCodeOAuthTokenSecret: true,
       openRouterApiKeySecret: true,
+      mimoTokenPlanApiKeySecret: true,
     });
 
     expect(workflow).toContain(
@@ -1166,6 +1193,9 @@ exit 17
     );
     expect(workflow).toContain(
       "openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}",
+    );
+    expect(workflow).toContain(
+      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
     );
     expect(scanCodexRotatingAdvisoryWorkflow(workflow)).toEqual({
       valid: true,
@@ -1178,6 +1208,17 @@ exit 17
     );
     expect(scanCodexRotatingAdvisoryWorkflow(unsafe).errors).toContain(
       "unknown_secret_reference:SOME_OTHER_SECRET",
+    );
+
+    const unsafeMimo = workflow.replace(
+      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+      "mimo-token-plan-api-key: ${{ secrets.SOME_OTHER_SECRET }}",
+    );
+    expect(scanCodexRotatingAdvisoryWorkflow(unsafeMimo).errors).toContain(
+      "unknown_secret_reference:SOME_OTHER_SECRET",
+    );
+    expect(scanCodexRotatingAdvisoryWorkflow(unsafeMimo).errors).toContain(
+      "mimo_secret_must_be_literal_input",
     );
   });
 
@@ -1636,4 +1677,15 @@ exit 17
       chatgptAccountId: "account:456",
     });
   });
+});
+
+it("keeps certified-fork schema 6 rendering disabled", () => {
+  expect(() =>
+    renderCodexRotatingAdvisoryWorkflow({
+      actionRef: `777genius/review-router@${"a".repeat(40)}`,
+      apiUrl: "https://api.reviewrouter.site",
+      providerInstanceId: "codex-rotating:123456",
+      workflowSchemaVersion: 6,
+    }),
+  ).toThrow("codex_rotating_t0_workflow_schema_unsupported");
 });

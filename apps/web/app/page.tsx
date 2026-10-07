@@ -16,6 +16,7 @@ import {
   defaultSeoTitle,
   siteName,
 } from "./seo";
+import { GitLabBetaConnectButton } from "./gitlab-beta-connect-button";
 import { SourceProviderLabel } from "./source-provider-logo";
 
 export const metadata: Metadata = createPublicPageMetadata({
@@ -66,7 +67,7 @@ const setupSignals = [
   },
   {
     title: "Secrets synced",
-    body: "Stored in GitHub Actions secrets",
+    body: "Stored in GitHub Actions secrets. Or use the encrypted account pool.",
     className: "setup-blueprint__signal--secrets",
     icon: KeyRound,
   },
@@ -245,18 +246,12 @@ export default async function HomePage(): Promise<React.ReactElement> {
               />
             </LoadingLinkButton>
           )}
-          <LoadingLinkButton
-            href="/setup/gitlab"
+          <GitLabBetaConnectButton
             size="lg"
+            variant="solid"
             className="home-install-cta home-install-cta--gitlab setup-blueprint__source-cta"
-            pendingLabel="Opening GitLab setup..."
-          >
-            <SourceProviderLabel
-              provider="gitlab"
-              label="Connect GitLab"
-              className="setup-blueprint__source-cta-label"
-            />
-          </LoadingLinkButton>
+            labelClassName="setup-blueprint__source-cta-label"
+          />
         </div>
 
         <span aria-hidden="true" className="setup-blueprint__version">

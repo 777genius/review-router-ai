@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps full101 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps full116 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,13 +107,32 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(101);
+    expect(full).toHaveLength(116);
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.at(-1)?.migrationName).toBe(
-      "000102_sdk_growth_current_authority",
-    );
+    expect(full.slice(-9).map((row) => row.migrationName)).toEqual([
+      "000109_sdk_growth_verifier_assignment_lock",
+      "000110_historical_unknown_scope_barrier",
+      "000110_provider_api_key_workspace_management",
+      "000111_sdk_growth_source_binding",
+      "000112_sdk_growth_operator_credential",
+      "000113_sdk_growth_approval_ledger",
+      "000114_sdk_growth_v3_tool_artifact",
+      "000115_sdk_growth_v3_approved_manifest",
+      "000116_hosted_codex_relay_admission_utc",
+    ]);
     expect(manifest(full)).toBe(
-      "sha256:dfcbd39f6b18377d7da5b4c1cd1351ae058ade6dc08ba2ebf33ffec5506c9804",
+      "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
+    );
+    expect(
+      manifest(
+        full.filter(
+          (row) =>
+            row.migrationName !==
+            "000110_provider_api_key_workspace_management",
+        ),
+      ),
+    ).toBe(
+      "sha256:30f68ffc62e0b46815bc007339d83aa7894b61b23f301c012b8990713cc0ad14",
     );
     const historical = readRenderHistorical96CheckoutInventory();
     expect(historical).toHaveLength(96);

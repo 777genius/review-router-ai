@@ -1718,6 +1718,87 @@ describe("API app", () => {
     ]);
   });
 
+  it("accepts a signed GitHub push above Fastify's default 1 MiB limit", async () => {
+    const secret = "webhook-secret";
+    const deliveries = new InMemoryDeliveries();
+    const handledDeliveryIds: string[] = [];
+    const app = await createApiApp({
+      githubWebhookDependencies: {
+        webhookSecret: secret,
+        installations: new InMemoryInstallations(),
+        deliveries,
+        pushes: {
+          async handleGitHubPushWebhook(envelope) {
+            handledDeliveryIds.push(envelope.deliveryId);
+            return { processed: true };
+          },
+        },
+        clock: fixedClock,
+      },
+    });
+    const payload = JSON.stringify({
+      ref: "refs/heads/main",
+      deleted: false,
+      installation: { id: 129154876 },
+      repository: {
+        id: 123456,
+        name: "example",
+        full_name: "777genius/example",
+      },
+      commits: [{ message: "x".repeat(1_100_000) }],
+    });
+    expect(Buffer.byteLength(payload)).toBeGreaterThan(1024 * 1024);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/webhooks/github",
+      payload,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-large-push",
+        "x-github-event": "push",
+        "x-hub-signature-256": signGitHubWebhookPayload(payload, secret),
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ processed: true });
+    expect(handledDeliveryIds).toEqual(["delivery-large-push"]);
+    expect(deliveries.deliveries.get("delivery-large-push")?.status).toBe(
+      "processed",
+    );
+
+    const unsignedResponse = await app.inject({
+      method: "POST",
+      url: "/webhooks/github",
+      payload,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-large-unsigned-push",
+        "x-github-event": "push",
+        "x-hub-signature-256": "sha256=invalid",
+      },
+    });
+    expect(unsignedResponse.statusCode).toBe(401);
+    expect(handledDeliveryIds).toEqual(["delivery-large-push"]);
+    expect(deliveries.deliveries.has("delivery-large-unsigned-push")).toBe(
+      false,
+    );
+
+    const oversizedResponse = await app.inject({
+      method: "POST",
+      url: "/webhooks/github",
+      payload: "x".repeat(25 * 1024 * 1024 + 1),
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-oversized-push",
+        "x-github-event": "push",
+      },
+    });
+    expect(oversizedResponse.statusCode).toBe(413);
+    expect(deliveries.deliveries.has("delivery-oversized-push")).toBe(false);
+  });
+
   it("rejects signed GitHub webhooks with invalid payload shape safely", async () => {
     const secret = "webhook-secret";
     const app = await createApiApp({

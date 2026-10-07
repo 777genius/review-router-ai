@@ -453,6 +453,7 @@ export function canaryPhaseFixture(options: { refreshBackup?: boolean } = {}) {
         failedAccount: accounts.find((a) => a.id === grant.activeAccountId)!,
         backupAccount:
           accounts.find((a) => a.id === grant.backupAccountId) ?? null,
+        currentRequestSuccessfulResponseStarted: false,
         failure:
           phase === "unauthorized" ? "credential_invalid" : "rate_limited",
         effectFence: "before_refresh_or_upstream_effect",

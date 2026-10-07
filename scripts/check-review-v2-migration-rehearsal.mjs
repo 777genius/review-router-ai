@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import dotenv from "dotenv";
@@ -17,6 +25,12 @@ import {
   reviewV2MigrationVersion,
   reviewV2RepositoryBackfillStep,
 } from "./lib/review-v2-migration-contract.mjs";
+import {
+  disposableBefore87HandoffSql,
+  disposableFreshDatabasePreflightSql,
+  disposableFullChainVerificationSql,
+  writeDisposableMigrationCatalog,
+} from "./self-hosted-e2e/disposable-release-role-fixture.mjs";
 
 if (existsSync(".env.local")) {
   dotenv.config({ path: ".env.local", override: false });
@@ -62,14 +76,66 @@ const completedMigrationSteps = reviewV2MigrationSteps
   .join(",");
 
 let created = false;
+let catalogDirectory;
 try {
   psql(adminUrl, `CREATE DATABASE ${quoteIdentifier(databaseName)}`);
   created = true;
+  // The release pair is cluster-wide, but this database has a fresh implicit
+  // owner. Stock 000087 requires the same guarded handoff as CI's test DB.
+  const releaseRoleCount = Number(
+    psql(
+      adminUrl,
+      "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN ('reviewrouter_release_schema_owner', 'reviewrouter_release_migration')",
+      true,
+    ),
+  );
+  if (releaseRoleCount !== 0 && releaseRoleCount !== 2) {
+    fail("review_v2_rehearsal_release_role_catalog_incomplete");
+  }
+  if (releaseRoleCount === 2) {
+    psql(databaseUrl, disposableFreshDatabasePreflightSql);
+    catalogDirectory = mkdtempSync(join(tmpdir(), "rr-review-v2-catalog-"));
+    const catalogConfig = writeDisposableMigrationCatalog(
+      "before87",
+      catalogDirectory,
+    );
+    const catalogRoot = dirname(catalogConfig);
+    const credentialConfig = join(catalogRoot, "rehearsal.config.mjs");
+    writeFileSync(
+      credentialConfig,
+      `import { readFileSync } from "node:fs";
+export default {
+  schema: ${JSON.stringify(join(catalogRoot, "prisma/schema.prisma"))},
+  migrations: { path: ${JSON.stringify(join(catalogRoot, "prisma/migrations"))} },
+  datasource: { url: readFileSync(process.env.REVIEW_ROUTER_DATABASE_URL_FILE, "utf8").trim() },
+};
+`,
+      { mode: 0o600, flag: "wx" },
+    );
+    run(
+      "pnpm",
+      [
+        "--filter",
+        "@reviewrouter/platform-db",
+        "exec",
+        "prisma",
+        "migrate",
+        "deploy",
+        "--config",
+        credentialConfig,
+      ],
+      childEnvironment,
+    );
+    psql(databaseUrl, disposableBefore87HandoffSql);
+  }
   run(
     "pnpm",
     ["--filter", "@reviewrouter/platform-db", "db:migrate:deploy"],
     childEnvironment,
   );
+  if (releaseRoleCount === 2) {
+    psql(databaseUrl, disposableFullChainVerificationSql);
+  }
   psql(
     databaseUrl,
     `
@@ -439,13 +505,21 @@ try {
     `Review v2 migration rehearsal passed for ${totalRepositoryCount} repositories; checkpoint resume, collision quarantine, FK definition validation, and unrelated NOT VALID isolation were verified.`,
   );
 } finally {
-  if (created) {
-    psql(
-      adminUrl,
-      `DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)} WITH (FORCE)`,
-    );
+  try {
+    if (created) {
+      psql(
+        adminUrl,
+        `DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)} WITH (FORCE)`,
+      );
+    }
+  } finally {
+    try {
+      if (catalogDirectory)
+        rmSync(catalogDirectory, { recursive: true, force: true });
+    } finally {
+      databaseCredential.cleanup();
+    }
   }
-  databaseCredential.cleanup();
 }
 
 function psql(url, sql, capture = false) {
@@ -506,6 +580,5 @@ function quoteIdentifier(value) {
 }
 
 function fail(message) {
-  console.error(`ERROR: ${message}`);
-  process.exit(1);
+  throw new Error(`ERROR: ${message}`);
 }

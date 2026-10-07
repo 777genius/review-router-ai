@@ -42,6 +42,8 @@ describe("provider runtime plan", () => {
       PROVIDER_MAX_PARALLEL: "1",
       INLINE_MIN_AGREEMENT: "1",
     });
+    expect(plan.runtimeEnv.INLINE_MAX_COMMENTS).toBe("50");
+    expect(plan.runtimeEnv.INLINE_MIN_SEVERITY).toBe("minor");
     expect(plan.requiredSecretNames).toEqual(["CODEX_AUTH_JSON"]);
     expect(plan.requiredCliTools).toEqual(["codex"]);
   });
@@ -178,6 +180,34 @@ describe("provider runtime plan", () => {
     });
     expect(plan.runtimeEnv).not.toHaveProperty("CODEX_MODEL");
     expect(plan.requiredSecretNames).toEqual(["OPENROUTER_API_KEY"]);
+    expect(plan.requiredCliTools).toEqual(["codex"]);
+  });
+
+  it("plans the exact MiMo public-engine provider without Codex or OpenRouter fallback", () => {
+    const plan = buildProviderRuntimePlan({
+      ...baseInput,
+      providers: [
+        {
+          kind: "codex-mimo",
+          authMode: "mimo_token_plan_api_key",
+          model: "mimo-v2.6-pro",
+          reasoningEffort: "xhigh",
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+    });
+
+    expect(plan.runtimeEnv).toMatchObject({
+      REVIEW_AUTH_MODE: "mimo-token-plan-api",
+      REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      REQUIRED_HEALTHY_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      SYNTHESIS_MODEL: "codex-mimo/mimo-v2.6-pro",
+      CODEX_REASONING_EFFORT: "xhigh",
+      CODEX_AGENTIC_CONTEXT: "true",
+      CODEX_FAST_MODE: "false",
+    });
+    expect(plan.requiredSecretNames).toEqual(["MIMO_TOKEN_PLAN_API_KEY"]);
     expect(plan.requiredCliTools).toEqual(["codex"]);
   });
 

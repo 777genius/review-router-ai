@@ -48,6 +48,9 @@ export interface Grant {
   readonly binding: Binding;
   readonly ownerEvidence: OwnerEvidence;
   readonly fence: number;
+  /** Monotonic generation observed under the commit lock. Zero is reserved
+   * for decoded historical v1 bytes and is never current authority. */
+  readonly authorityEpoch: number;
   readonly issuedAt: number;
   readonly expiresAt: number;
 }
@@ -68,6 +71,7 @@ export interface Receipt {
   readonly identity: Identity;
   readonly binding: Binding;
   readonly fence: number;
+  readonly authorityEpoch: number;
   readonly completedAt: number;
   readonly reportDigest: string;
   readonly admitted: boolean;

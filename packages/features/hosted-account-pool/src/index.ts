@@ -1,6 +1,8 @@
 export * from "./domain/identifiers";
 export * from "./domain/account-pool";
 export * from "./domain/invocation-grant";
+export * from "./domain/hosted-v4-relay-grant";
+export * from "./application/ports/hosted-v4-relay-turn-port";
 export * from "./application/ports/hosted-pool-repository-port";
 export * from "./application/ports/hosted-account-repository-port";
 export * from "./application/ports/invocation-grant-repository-port";
@@ -26,6 +28,8 @@ export * from "./infrastructure/runtime/hosted-codex-session-runtime";
 export * from "./infrastructure/prisma/prisma-hosted-codex-session-persistence";
 export * from "./infrastructure/prisma/prisma-hosted-codex-mutation-fence";
 export * from "./infrastructure/prisma/prisma-invocation-grant-repository";
+export * from "./infrastructure/prisma/prisma-hosted-historical-scope-barrier";
+export * from "./infrastructure/prisma/prisma-hosted-v4-relay-turn";
 export * from "./infrastructure/prisma/prisma-hosted-comment-token-mint-ledger";
 export * from "./infrastructure/prisma/prisma-hosted-codex-upstream-effect-ledger";
 export * from "./infrastructure/prisma/prisma-hosted-codex-restore-reconciler";
@@ -45,6 +49,7 @@ export * from "./application/use-cases/manage-comment-token-refresh-capability";
 export * from "./application/use-cases/reconcile-expired-invocation-grants";
 export * from "./application/use-cases/reconcile-hosted-comment-token-closure";
 export * from "./application/use-cases/hosted-comment-token-mint-protocol";
+export * from "./application/use-cases/hosted-v4-authority-bridge";
 export * from "./application/use-cases/failover-current-relay-request";
 export {
   admitRelayRequest as admitHostedPoolRelayRequest,

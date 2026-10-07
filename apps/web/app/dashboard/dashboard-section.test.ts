@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  dashboardClientNavigationHref,
   dashboardPath,
   dashboardSectionHref,
   resolveDashboardSection,
@@ -30,6 +31,15 @@ describe("dashboard section routing", () => {
     );
   });
 
+  it("removes the content fragment from persistent client navigation", () => {
+    expect(
+      dashboardClientNavigationHref(dashboardSectionHref("policy", "acme")),
+    ).toBe("/dashboard?section=policy&workspace=acme");
+    expect(dashboardClientNavigationHref("/dashboard?section=memory")).toBe(
+      "/dashboard?section=memory",
+    );
+  });
+
   it("redirects legacy section=setup links without dropping notices", () => {
     expect(
       dashboardPath({
@@ -40,9 +50,9 @@ describe("dashboard section routing", () => {
     ).toBe("/dashboard/setup?workspace=acme&notice=org_ruleset_queued");
   });
 
-  it("resolves org-ruleset notices to Setup", () => {
+  it("resolves org-ruleset notices to Repositories", () => {
     expect(resolveDashboardSection({ notice: "org_ruleset_queued" })).toBe(
-      "setup",
+      "repositories",
     );
   });
 });

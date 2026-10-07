@@ -178,6 +178,8 @@ limits must not be raised outside these ranges by bypassing validation.
    all flags remain `0`.
 5. Set `POOL=1` and `CUSTODY=1` for controlled account onboarding. Keep
    `ADMISSION=0`, `RELAY=0`, and `FAILOVER=0`; no Action traffic may run yet.
+   Enrollment is available to admins of every active workspace at this point;
+   repositories remain on their current auth mode until explicitly bound.
 6. Provision and attest the disposable/private allowlisted workflow against the
    companion Action SHA. The hosted caller uses `pull_request` (never
    `pull_request_target`), client-triggered T0 schema 2, and the immutable

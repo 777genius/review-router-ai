@@ -409,3 +409,21 @@ jobs:
     ).toThrow("codex_rotating_t0_workflow_source_not_canonical");
   });
 });
+
+it("rejects schema 6 source even when every other byte is canonical V5", () => {
+  const source = renderCanonicalCodexRotatingT0WorkflowV5({
+    actionRef: `777genius/review-router@${"a".repeat(40)}`,
+    apiUrl: "https://api.reviewrouter.site",
+    providerInstanceId: "codex-rotating:123456",
+    activeSecretNamespace: namespace,
+  });
+  expect(source).toContain("workflow_schema_version: 5");
+  expect(() =>
+    readCanonicalCodexRotatingT0WorkflowSourceMetadata(
+      source.replace(
+        "workflow_schema_version: 5",
+        "workflow_schema_version: 6",
+      ),
+    ),
+  ).toThrow("codex_rotating_t0_workflow_metadata_missing");
+});

@@ -162,6 +162,7 @@ export async function runGitLabReviewCli(
         readOptionalEnv(env, "REVIEWROUTER_REVIEW_MARKER") ??
         `reviewrouter:gitlab:review`,
       ...readMaxInlineCommentsFromEnv(env),
+      ...readOutputLanguageFromEnv(env),
     },
     {
       publisher: new GitLabReviewPublisher({
@@ -582,6 +583,15 @@ function readMaxInlineCommentsFromEnv(
         ),
       }
     : {};
+}
+
+function readOutputLanguageFromEnv(
+  env: Readonly<Record<string, string | undefined>>,
+): { readonly outputLanguage?: string | undefined } {
+  const value =
+    readOptionalEnv(env, "REVIEW_OUTPUT_LANGUAGE") ??
+    readOptionalEnv(env, "REVIEWROUTER_OUTPUT_LANGUAGE");
+  return value ? { outputLanguage: value } : {};
 }
 
 function parseNonNegativeInteger(value: string, errorCode: string): number {

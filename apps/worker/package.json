@@ -30,7 +30,8 @@
     "@reviewrouter/platform-logger": "workspace:*",
     "@reviewrouter/platform-signed-capabilities": "workspace:*",
     "@reviewrouter/shared": "workspace:*",
-    "@octokit/app": "^16.1.2"
+    "@octokit/app": "^16.1.2",
+    "@reviewrouter/features-sdk-growth-authority": "workspace:*"
   },
   "scripts": {
     "dev": "tsx watch src/worker.ts",

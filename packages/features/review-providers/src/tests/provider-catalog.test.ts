@@ -20,6 +20,7 @@ describe("provider catalog", () => {
   it("has exhaustive provider and auth mode metadata", () => {
     expect(allProviderCatalogEntries().map((entry) => entry.kind)).toEqual([
       "codex",
+      "codex-mimo",
       "claude",
       "openrouter",
     ]);
@@ -30,6 +31,7 @@ describe("provider catalog", () => {
       "codex_subscription_oauth_rotating",
       "codex_subscription_oauth_hosted_pool",
       "codex_openai_api_key",
+      "mimo_token_plan_api_key",
       "claude_code_oauth",
       "openrouter_api_key",
     ]);
@@ -50,6 +52,9 @@ describe("provider catalog", () => {
       providerKindForAuthMode("codex_subscription_oauth_hosted_pool"),
     ).toBe("codex");
     expect(providerKindForAuthMode("codex_openai_api_key")).toBe("codex");
+    expect(providerKindForAuthMode("mimo_token_plan_api_key")).toBe(
+      "codex-mimo",
+    );
     expect(providerKindForAuthMode("claude_code_oauth")).toBe("claude");
     expect(providerKindForAuthMode("openrouter_api_key")).toBe("openrouter");
 
@@ -82,6 +87,12 @@ describe("provider catalog", () => {
       getProviderSecretNames("codex_subscription_oauth_hosted_pool"),
     ).toEqual([]);
     expect(toLegacyRuntimeAuthMode("codex_openai_api_key")).toBe("openai-api");
+    expect(getProviderSecretNames("mimo_token_plan_api_key")).toEqual([
+      "MIMO_TOKEN_PLAN_API_KEY",
+    ]);
+    expect(toLegacyRuntimeAuthMode("mimo_token_plan_api_key")).toBe(
+      "mimo-token-plan-api",
+    );
     expect(toLegacyRuntimeAuthMode("openrouter_api_key")).toBe(
       "openrouter-api",
     );
@@ -100,6 +111,9 @@ describe("provider catalog", () => {
     );
     expect(fromProviderSetupKind("codex_oauth_hosted_pool")).toBe(
       "codex_subscription_oauth_hosted_pool",
+    );
+    expect(toProviderSetupKind("mimo_token_plan_api_key")).toBe(
+      "mimo_token_plan_api_key",
     );
   });
 
@@ -139,5 +153,19 @@ describe("provider catalog", () => {
       "openrouter",
     );
     expect(cliToolsForProvider("openrouter")).toEqual(["codex"]);
+    expect(
+      getDefaultProviderConfigForAuthMode("mimo_token_plan_api_key"),
+    ).toEqual({
+      kind: "codex-mimo",
+      authMode: "mimo_token_plan_api_key",
+      model: "mimo-v2.6-pro",
+      reasoningEffort: "xhigh",
+      agenticContext: true,
+      fastMode: false,
+    });
+    expect(getProviderCatalogEntry("codex-mimo").runtimeProviderPrefix).toBe(
+      "codex-mimo",
+    );
+    expect(cliToolsForProvider("codex-mimo")).toEqual(["codex"]);
   });
 });

@@ -132,6 +132,7 @@ export interface MemoryItemRepositoryPort {
   listForDashboard(input: {
     readonly workspaceId: string;
     readonly repositoryId?: string | null;
+    readonly repositoryIds?: readonly string[];
     readonly scope?: MemoryScope;
     readonly statuses: readonly MemoryItemStatus[];
     readonly limit: number;

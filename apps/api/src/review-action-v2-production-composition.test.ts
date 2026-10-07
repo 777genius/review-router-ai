@@ -22,6 +22,8 @@ import {
   reviewActionV2CapabilityKeysEnv,
   reviewActionV2ProjectionPolicyVersionEnv,
   reviewActionV2ProviderVoteLanesEnv,
+  hostedV4ReadEnabledEnv,
+  hostedV4ReadSigningKeyEnv,
   reviewInvestigationContextCriticEnabledEnv,
   reviewInvestigationEmergencyDisabledEnv,
   reviewInvestigationPrivateMaterialActiveKeyIdEnv,
@@ -59,6 +61,8 @@ describe("Review Action v2 production composition", () => {
         runtime,
       }),
     ).toEqual({
+      hostedV4: { enabled: false },
+      hostedV4Relay: { enabled: false },
       runControl: runtime,
       execution: runtime,
       investigation: runtime,
@@ -127,6 +131,32 @@ describe("Review Action v2 production composition", () => {
     ).toThrow();
   });
 
+  // An enabled v4 route without its own signing key could reuse unrelated credentials.
+  it("requires a dedicated key before enabling hosted v4 reads", () => {
+    const env = { ...productionEnv(), [hostedV4ReadEnabledEnv]: "1" };
+    expect(() =>
+      composeReviewActionV2ProductionRoutes({
+        enabled: true,
+        env,
+        runtime,
+        prisma: inertPrisma(),
+      }),
+    ).toThrow("hosted_v4_read_signing_key_invalid");
+    const routes = composeReviewActionV2ProductionRoutes({
+      enabled: true,
+      env: {
+        ...env,
+        [hostedV4ReadSigningKeyEnv]: Buffer.alloc(32, 8).toString("base64url"),
+      },
+      runtime,
+      prisma: inertPrisma(),
+    });
+    expect(routes.hostedV4.enabled).toBe(true);
+    // Regression: the v4 read flag must not imply relay grant admission.
+    expect(routes.hostedV4Relay.enabled).toBe(false);
+    expect(routes.hostedV4Relay.resolver).toBeDefined();
+  });
+
   it("constructs Prisma-backed enabled handlers only with complete production config", () => {
     expect(() =>
       composeReviewActionV2ProductionRoutes({
@@ -152,6 +182,8 @@ describe("Review Action v2 production composition", () => {
     });
 
     expect(routes.runControl.authorize?.capabilityEnabled).toBe(true);
+    expect(routes.hostedV4.enabled).toBe(false);
+    expect(routes.hostedV4Relay).toEqual({ enabled: false });
     expect(routes.runControl.renew?.capabilityEnabled).toBe(true);
     expect(routes.execution.start?.capabilityEnabled).toBe(true);
     expect(routes.execution.acquireLease?.capabilityEnabled).toBe(true);

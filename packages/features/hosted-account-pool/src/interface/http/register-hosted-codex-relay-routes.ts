@@ -2,6 +2,7 @@ import { pipeline } from "node:stream/promises";
 import type { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import type { HostedV4RelayGrantContract } from "../../domain/hosted-v4-relay-grant.js";
 import {
   hostedCommentTokenDelivery,
   type HostedCommentTokenDeliveryCarrier,
@@ -41,6 +42,54 @@ export type HostedCodexGrantResponse = HostedCommentTokenDeliveryCarrier & {
     readonly maxRequests: number;
     readonly maxRequestBodyBytes?: number;
   };
+};
+
+/** Private PR2 contract; PR1 registers no v4 routes or dispatch adapter. */
+export type HostedV4RelayGrantResponse = {
+  readonly protocolVersion: 4;
+  readonly grant: string;
+  readonly grantId: string;
+  readonly relayUrl: "/api/hosted/v4/codex/responses";
+  readonly grantExpiresAt: string;
+  readonly policy: Pick<
+    HostedV4RelayGrantContract,
+    | "maxRequests"
+    | "maxConcurrentRequests"
+    | "maxRequestBytes"
+    | "maxResponseBytes"
+    | "maxOutputTokens"
+  >;
+};
+
+export interface HostedV4RelayGrantIssuerPort {
+  /** Resolve v2 authorization and both distinct lease capabilities server-side. */
+  issue(input: {
+    readonly authorizationToken: string;
+    readonly investigationLeaseCapability: string;
+    readonly invocationLeaseCapability: string;
+    readonly investigationId: string;
+    readonly turnId: string;
+    readonly idempotencyKey: string;
+  }): Promise<HostedV4RelayGrantResponse>;
+}
+
+export interface HostedV4RelayAuthorizationPort {
+  /** Re-resolve every saved scope/fence before admission and dispatch. */
+  authorize(input: {
+    readonly opaqueGrant: string;
+    readonly requestOrdinal: number;
+    readonly idempotencyKey: string;
+    readonly requestHash: string;
+    readonly requestBytes: number;
+  }): Promise<AuthorizedHostedV4Relay>;
+}
+
+export type AuthorizedHostedV4Relay = {
+  readonly authorityKind: "v4_relay_turn";
+  readonly contract: HostedV4RelayGrantContract;
+  readonly grantId: string;
+  readonly requestId: string;
+  readonly accountId: string;
 };
 
 export interface HostedCodexGrantIssuerPort {

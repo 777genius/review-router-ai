@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { DashboardCollapsibleShell } from "./dashboard-collapsible-shell";
 
@@ -8,46 +8,17 @@ afterEach(() => {
 });
 
 describe("DashboardCollapsibleShell", () => {
-  it("starts collapsed when requested and lets users reopen the dashboard sidebar", () => {
+  it("keeps the dashboard sidebar visible without a hide control", () => {
     render(
-      <DashboardCollapsibleShell
-        defaultCollapsed
-        nav={<nav>Current account</nav>}
-      >
+      <DashboardCollapsibleShell nav={<nav>Current workspace</nav>}>
         <main>Memory content</main>
       </DashboardCollapsibleShell>,
     );
 
     expect(screen.getByText("Memory content")).toBeTruthy();
-    expect(
-      document
-        .getElementById("dashboard-section-sidebar")
-        ?.className.includes("hidden"),
-    ).toBe(true);
-
-    const toggle = screen.getByRole("button", {
-      name: "Show sidebar",
-      hidden: true,
-    });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-
-    fireEvent.click(toggle);
-
-    expect(screen.getByText("Current account")).toBeTruthy();
-    expect(
-      document
-        .getElementById("dashboard-section-sidebar")
-        ?.className.includes("block"),
-    ).toBe(true);
-    const hide = screen.getByRole("button", {
-      name: "Hide sidebar",
-      hidden: true,
-    });
-    expect(hide.getAttribute("aria-expanded")).toBe("true");
-    expect(
-      hide.compareDocumentPosition(
-        document.getElementById("dashboard-section-sidebar")!,
-      ) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(screen.getByText("Current workspace")).toBeTruthy();
+    expect(document.getElementById("dashboard-section-sidebar")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Hide sidebar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show sidebar" })).toBeNull();
   });
 });

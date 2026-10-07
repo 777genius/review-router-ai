@@ -25,6 +25,7 @@ export const codexRotatingRuntimeAuthMode = "codex-oauth-rotating";
 export const codexRotatingRefreshRuntimeMode = "codex-oauth-refresh";
 export const codexForkAgenticSandboxRuntimeMode = "fork-agentic-sandbox";
 export const codexRotatingSecretName = legacyCodexRotatingSecretName;
+export const mimoTokenPlanApiKeySecretName = "MIMO_TOKEN_PLAN_API_KEY";
 export const codexRotatingProtocolVersion = 2 as const;
 export const codexRotatingReviewDraftsVariableName =
   "REVIEW_ROUTER_REVIEW_DRAFTS";
@@ -38,10 +39,13 @@ export enum CodexRotatingT0WorkflowSchemaVersion {
   ClientTriggeredLifecycleV3 = 3,
   VersionedSecretNamespaceV4 = 4,
   VersionedSecretNamespaceV5 = 5,
+  /** Reserved contract; no certified external-fork renderer is available yet. */
+  CertifiedForkReviewV6 = 6,
 }
 
 export const codexRotatingWorkflowSchemaVersion =
   CodexRotatingT0WorkflowSchemaVersion.DurableDispatchV1;
+// Only implemented canonical workflows may enter provisioning/attestation.
 export const codexRotatingCanonicalT0WorkflowSchemaVersions = [
   CodexRotatingT0WorkflowSchemaVersion.DurableDispatchV1,
   CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2,
@@ -49,6 +53,13 @@ export const codexRotatingCanonicalT0WorkflowSchemaVersions = [
   CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV4,
   CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
 ] as const;
+
+/** Contract recognition does not authorize rendering or provisioning. */
+export function isCertifiedForkCodexWorkflowSchemaVersion(
+  value: number | null | undefined,
+): value is CodexRotatingT0WorkflowSchemaVersion.CertifiedForkReviewV6 {
+  return value === CodexRotatingT0WorkflowSchemaVersion.CertifiedForkReviewV6;
+}
 
 export function isClientTriggeredT0WorkflowSchemaVersion(
   value: number | null | undefined,
@@ -553,6 +564,7 @@ export type CodexRotatingWorkflowOptions = {
   readonly providerInstanceId: string;
   readonly claudeCodeOAuthTokenSecret?: boolean;
   readonly openRouterApiKeySecret?: boolean;
+  readonly mimoTokenPlanApiKeySecret?: boolean;
   readonly forkAgenticSandboxEnabled?: boolean;
   readonly runnerLabel?: string;
   readonly timeoutMinutes?: number;
@@ -585,6 +597,9 @@ export function renderCodexRotatingAdvisoryWorkflow(
       : JSON.stringify(String(timeoutMinutes));
   const schemaVersion =
     options.workflowSchemaVersion ?? codexRotatingWorkflowSchemaVersion;
+  if (isCertifiedForkCodexWorkflowSchemaVersion(schemaVersion)) {
+    throw new Error("codex_rotating_t0_workflow_schema_unsupported");
+  }
   if (
     options.activeSecretNamespace &&
     options.activeSecretNamespace.mode !==
@@ -614,6 +629,17 @@ export function renderCodexRotatingAdvisoryWorkflow(
   const concurrencyGroup = renderCodexRotatingConcurrencyGroup(
     options.providerInstanceId,
   );
+  const providerSecretInputs = [
+    options.claudeCodeOAuthTokenSecret === true
+      ? "          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
+      : "",
+    options.openRouterApiKeySecret === true
+      ? "          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}\n"
+      : "",
+    options.mimoTokenPlanApiKeySecret === true
+      ? `          mimo-token-plan-api-key: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}\n`
+      : "",
+  ].join("");
   const reviewActionV2Mode =
     options.reviewActionV2Mode ?? CodexRotatingReviewActionV2Mode.Disabled;
   if (
@@ -717,7 +743,7 @@ export function renderCodexRotatingAdvisoryWorkflow(
           max-changed-lines: \${{ vars.${codexRotatingMaxChangedLinesVariableName} }}
           review-timeout-minutes: ${reviewActionTimeout}
           auth-json: \${{ secrets.${codexRotatingSecretName} }}
-${options.claudeCodeOAuthTokenSecret === true ? "          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n" : ""}${options.openRouterApiKeySecret === true ? "          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}\n" : ""}`;
+${providerSecretInputs}`;
   const triggers =
     reviewActionV2Mode === CodexRotatingReviewActionV2Mode.T0
       ? `  workflow_dispatch:
@@ -830,7 +856,7 @@ ${reviewJob}${
           workflow-schema-version: "${schemaVersion}"
           review-timeout-minutes: ${reviewActionTimeout}
           auth-json: \${{ secrets.${codexRotatingSecretName} }}
-${options.claudeCodeOAuthTokenSecret === true ? "          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n" : ""}${options.openRouterApiKeySecret === true ? "          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}\n" : ""}        env:
+${providerSecretInputs}        env:
           REVIEW_ROUTER_PR_WORKSPACE: \${{ github.workspace }}/safe-workspace
           REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN: \${{ secrets.REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN }}
 `
@@ -1090,6 +1116,7 @@ export function scanCodexRotatingAdvisoryWorkflow(
     codexRotatingSecretName,
     "CLAUDE_CODE_OAUTH_TOKEN",
     "OPENROUTER_API_KEY",
+    mimoTokenPlanApiKeySecretName,
     "REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN",
   ]);
   for (const secretName of secretReferences) {
@@ -1113,6 +1140,14 @@ export function scanCodexRotatingAdvisoryWorkflow(
     !workflow.includes("openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}")
   ) {
     errors.push("openrouter_secret_must_be_literal_input");
+  }
+  if (
+    workflow.includes("mimo-token-plan-api-key:") &&
+    !workflow.includes(
+      `mimo-token-plan-api-key: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}`,
+    )
+  ) {
+    errors.push("mimo_secret_must_be_literal_input");
   }
   for (const [pattern, code] of [
     [/\bmerge_group\s*:/, "merge_group_not_allowed"],
@@ -2322,6 +2357,26 @@ export async function encryptCodexRotatingAuthForGitHubSecret(input: {
       authJsonBytes: compact.compactAuthJsonBytes,
       generationHashSalt: input.generationHashSalt,
     }),
+    encryptedValue: Buffer.from(encrypted).toString("base64"),
+    keyId: input.githubKeyId,
+  };
+}
+
+export async function encryptApiKeyForGitHubSecret(input: {
+  readonly apiKey: string;
+  readonly githubPublicKeyBase64: string;
+  readonly githubKeyId: string;
+}): Promise<{ readonly encryptedValue: string; readonly keyId: string }> {
+  await sodium.ready;
+  const publicKey = Buffer.from(input.githubPublicKeyBase64, "base64");
+  if (publicKey.length !== sodium.crypto_box_PUBLICKEYBYTES) {
+    throw new Error("github_secret_public_key_invalid");
+  }
+  const encrypted = sodium.crypto_box_seal(
+    Buffer.from(input.apiKey, "utf8"),
+    publicKey,
+  );
+  return {
     encryptedValue: Buffer.from(encrypted).toString("base64"),
     keyId: input.githubKeyId,
   };

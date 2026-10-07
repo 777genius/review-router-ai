@@ -779,6 +779,33 @@ function restoreInvestigationCapabilitySnapshot(
   return bound;
 }
 
+/** Reuse the v2 snapshot validator before granting hosted context reads. */
+export function hasAuthorizedCodexInvestigationRecording(
+  authorization: Pick<
+    ReviewRunAuthorization,
+    | "reviewInvestigationAuthorizationDescriptorCanonicalJson"
+    | "providerVoteLanes"
+  >,
+): boolean {
+  try {
+    const snapshot = restoreInvestigationCapabilitySnapshot(
+      authorization.reviewInvestigationAuthorizationDescriptorCanonicalJson,
+      authorization.providerVoteLanes,
+    );
+    return (
+      snapshot?.providerCapabilities.some(
+        (provider) =>
+          provider.providerKind === "codex" &&
+          provider.capabilities.includes(
+            InvestigationRolloutCapability.Recording,
+          ),
+      ) === true
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function renewReviewRun(
   request: ReviewRunRenewRequest,
   dependencies: ReviewActionV2RunControlHandlerDependencies,

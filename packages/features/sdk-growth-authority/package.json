@@ -19,18 +19,52 @@
       "production": "./dist/infrastructure/prisma/prisma-receipt-repository.js",
       "default": "./src/infrastructure/prisma/prisma-receipt-repository.ts"
     },
+    "./infrastructure/custody": {
+      "types": "./src/infrastructure/prisma/prisma-authority-custody.ts",
+      "production": "./dist/infrastructure/prisma/prisma-authority-custody.js",
+      "default": "./src/infrastructure/prisma/prisma-authority-custody.ts"
+    },
     "./infrastructure/current-authority": {
       "types": "./src/infrastructure/prisma/prisma-current-authority.ts",
       "production": "./dist/infrastructure/prisma/prisma-current-authority.js",
       "default": "./src/infrastructure/prisma/prisma-current-authority.ts"
+    },
+    "./infrastructure/operator-credential": {
+      "types": "./src/infrastructure/prisma/prisma-operator-credential.ts",
+      "production": "./dist/infrastructure/prisma/prisma-operator-credential.js",
+      "default": "./src/infrastructure/prisma/prisma-operator-credential.ts"
+    },
+    "./infrastructure/approval-ledger": {
+      "types": "./src/infrastructure/prisma/prisma-approval-ledger.ts",
+      "production": "./dist/infrastructure/prisma/prisma-approval-ledger.js",
+      "default": "./src/infrastructure/prisma/prisma-approval-ledger.ts"
+    },
+    "./infrastructure/publication": {
+      "types": "./src/infrastructure/prisma/prisma-publication-effect.ts",
+      "production": "./dist/infrastructure/prisma/prisma-publication-effect.js",
+      "default": "./src/infrastructure/prisma/prisma-publication-effect.ts"
+    },
+    "./infrastructure/outbox": {
+      "types": "./src/infrastructure/outbox/sdk-growth-publication.ts",
+      "production": "./dist/infrastructure/outbox/sdk-growth-publication.js",
+      "default": "./src/infrastructure/outbox/sdk-growth-publication.ts"
+    },
+    "./infrastructure/github-policy": {
+      "types": "./src/infrastructure/github/octokit-effective-github-policy-observer.ts",
+      "production": "./dist/infrastructure/github/octokit-effective-github-policy-observer.js",
+      "default": "./src/infrastructure/github/octokit-effective-github-policy-observer.ts"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run --root ../../.. packages/features/sdk-growth-authority/src/tests"
+    "test": "cd ../../.. && vitest run packages/features/sdk-growth-authority/src/tests && pnpm --filter @reviewrouter/features-sdk-growth-authority test:ef-v3",
+    "test:ef-v3": "cd ../../.. && node --import tsx --test packages/features/sdk-growth-authority/src/tests/ef-v3-host-transport.node-test.mjs"
   },
   "dependencies": {
     "@prisma/client": "7.8.0"
+  },
+  "devDependencies": {
+    "@agent-teams/engineering-foundation": "1.6.0"
   }
 }

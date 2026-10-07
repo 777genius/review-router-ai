@@ -58,6 +58,8 @@ describe("review output language", () => {
     });
     const env = mapConfigToRuntimeEnv(config);
     expect(env.REVIEW_OUTPUT_LANGUAGE).toBe("Русский");
+    expect(env.INLINE_MAX_COMMENTS).toBe("50");
+    expect(env.INLINE_MIN_SEVERITY).toBe("minor");
   });
 
   it("omits REVIEW_OUTPUT_LANGUAGE for the default English configuration", () => {

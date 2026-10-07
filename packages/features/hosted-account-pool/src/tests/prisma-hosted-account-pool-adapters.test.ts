@@ -378,6 +378,56 @@ describe("Prisma hosted pool admin adapters", () => {
     expect(select.credentialVersions.select).not.toHaveProperty("id");
   });
 
+  it("loads repository binding summaries in one query without credential fields", async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        id: "binding-2",
+        repositoryConnectionId: "repository-2",
+        poolId: "pool-1",
+        status: "active",
+        revision: 2n,
+        stateVersion: 3n,
+        activatedAt: now,
+        updatedAt: now,
+        tombstonedAt: null,
+      },
+    ]);
+    const findUnique = vi.fn();
+    const query = new PrismaHostedPoolQuery({
+      hostedCodexRepositoryBinding: { findMany, findUnique },
+    } as unknown as PrismaClient);
+
+    await expect(
+      query.listRepositoryBindingSummaries([
+        repositoryId("repository-1"),
+        repositoryId("repository-2"),
+        repositoryId("repository-2"),
+      ]),
+    ).resolves.toMatchObject([
+      {
+        bindingId: "binding-2",
+        repositoryId: "repository-2",
+        revision: 2,
+        stateVersion: 3,
+      },
+    ]);
+    expect(findMany).toHaveBeenCalledOnce();
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          repositoryConnectionId: {
+            in: ["repository-1", "repository-2"],
+          },
+          tombstonedAt: null,
+        },
+      }),
+    );
+    expect(findMany.mock.calls[0]?.[0]?.select).not.toHaveProperty(
+      "credentialRef",
+    );
+  });
+
   it("does not mutate binding when review-config authority is absent", async () => {
     const transactionRunner = vi.fn();
     const authSwitch = new PrismaRepositoryAuthModeSwitch({

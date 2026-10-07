@@ -36,6 +36,8 @@ model Workspace {
   reviewExecutionCheckpoints   ReviewExecutionCheckpoint[]
   hostedCodexPools             HostedCodexPool[]
   hostedCodexDeviceLogins      HostedCodexDeviceLogin[]
+  providerApiKeyConnections    ProviderApiKeyConnection[]
+  providerApiKeyGrants         ProviderApiKeyWorkspaceGrant[]
 }
 
 model User {
@@ -201,6 +203,7 @@ model RepositoryConnection {
   reviewSnapshots              ReviewSnapshot[]
   reviewExecutionCheckpoints   ReviewExecutionCheckpoint[]
   hostedCodexBindings          HostedCodexRepositoryBinding[]
+  providerApiKeyLinks          ProviderApiKeyRepositoryLink[]
 
   @@unique([provider, externalRepositoryId, sourceBaseUrl])
   @@unique([workspaceId, provider, fullName, sourceBaseUrl])
@@ -210,6 +213,62 @@ model RepositoryConnection {
   @@index([gitlabInstallationId])
   @@index([workspaceId, setupStatus])
   @@index([workspaceId, provider, sourceBaseUrl, selected, fullName])
+}
+
+model ProviderApiKeyConnection {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  providerType      String
+  encryptedApiKey   String
+  keyVersion        Int
+  latestOperationId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace       Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repositoryLinks ProviderApiKeyRepositoryLink[]
+
+  @@unique([workspaceId, providerType])
+  @@unique([id, workspaceId])
+  @@index([workspaceId])
+}
+
+model ProviderApiKeyWorkspaceGrant {
+  id          String   @id @default(cuid())
+  workspaceId String   @unique
+  grantedBy   String?
+  grantReason String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model ProviderApiKeyRepositoryLink {
+  id                         String    @id @default(cuid())
+  workspaceId                String
+  providerApiKeyConnectionId String
+  repositoryId               String
+  status                     String    @default("pending")
+  operationId                String?
+  attemptedKeyVersion        Int
+  appliedKeyVersion          Int?
+  attemptCount               Int       @default(0)
+  reconciliationNeeded       Boolean   @default(false)
+  lastErrorReason            String?
+  lastErrorSummary           String?
+  lastAttemptAt              DateTime?
+  appliedAt                  DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  connection ProviderApiKeyConnection @relation(fields: [providerApiKeyConnectionId, workspaceId], references: [id, workspaceId], onDelete: Cascade, map: "ProviderApiKeyRepositoryLink_connection_workspace_fkey")
+  repository RepositoryConnection     @relation(fields: [repositoryId, workspaceId], references: [id, workspaceId], onDelete: Cascade, map: "ProviderApiKeyRepositoryLink_repository_workspace_fkey")
+
+  @@unique([providerApiKeyConnectionId, repositoryId])
+  @@index([repositoryId])
+  @@index([providerApiKeyConnectionId, status])
+  @@index([providerApiKeyConnectionId, appliedKeyVersion], map: "ProviderApiKeyRepositoryLink_appliedKeyVersion_idx")
 }
 
 model RepositoryPermissionCache {
@@ -426,10 +485,10 @@ model CodexOAuthSecretNamespace {
   activatedAt             DateTime? @db.Timestamptz(3)
   retiredAt               DateTime? @db.Timestamptz(3)
 
-  providerInstance  CodexOAuthProviderInstance      @relation(fields: [providerInstanceRowId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "CodexOAuthSecretNamespace_provider_fkey")
-  activeForProvider CodexOAuthProviderInstance?     @relation("CodexOAuthActiveSecretNamespace")
-  dispatchAttempt   CodexOAuthSetupDispatchAttempt?
-  runtimeWritebacks CodexOAuthWritebackIntent[]
+  providerInstance      CodexOAuthProviderInstance       @relation(fields: [providerInstanceRowId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "CodexOAuthSecretNamespace_provider_fkey")
+  activeForProvider     CodexOAuthProviderInstance?      @relation("CodexOAuthActiveSecretNamespace")
+  dispatchAttempt       CodexOAuthSetupDispatchAttempt?
+  runtimeWritebacks     CodexOAuthWritebackIntent[]
   workflowCompatibility CodexOAuthWorkflowCompatibility?
 
   @@unique([providerInstanceRowId, namespaceEpoch], map: "CodexOAuthSecretNamespace_provider_epoch_key")
@@ -440,17 +499,17 @@ model CodexOAuthSecretNamespace {
 /// advances to V5. Runtime admission still requires the exact active namespace
 /// and provider pointer, and stops at retireAt.
 model CodexOAuthWorkflowCompatibility {
-  namespaceId                String   @id
-  workflowPath               String
-  workflowSourceCommitSha    String
-  workflowSourceBlobSha      String
-  workflowSourceSha256       String
-  workflowSemanticSha256     String
-  workflowSourceTrust        String
-  workflowSchemaVersion      Int
-  attestedRepositoryId       String
-  retireAt                   DateTime @db.Timestamptz(3)
-  createdAt                  DateTime @default(now()) @db.Timestamptz(3)
+  namespaceId             String   @id
+  workflowPath            String
+  workflowSourceCommitSha String
+  workflowSourceBlobSha   String
+  workflowSourceSha256    String
+  workflowSemanticSha256  String
+  workflowSourceTrust     String
+  workflowSchemaVersion   Int
+  attestedRepositoryId    String
+  retireAt                DateTime @db.Timestamptz(3)
+  createdAt               DateTime @default(now()) @db.Timestamptz(3)
 
   namespace CodexOAuthSecretNamespace @relation(fields: [namespaceId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "CodexOAuthWorkflowCompatibility_namespace_fkey")
 
@@ -1470,6 +1529,68 @@ model HostedCodexRuntimeGate {
   @@index([status, authzEpoch, revision], map: "HostedCodexRuntimeGate_authority_idx")
 }
 
+// Offline verified-set projection for the bounded v1 historical unknown cohort.
+// Runtime roles have read access only; no generated client is emitted here.
+model HostedHistoricalScopePolicy {
+  id                       String @id
+  mode                     String
+  databaseResourceIdentity String
+  databaseIncarnation      String
+  receiptDigest            String
+  archiveDigest            String
+  expectedCount            Int
+  expectedSetDigest        String
+}
+
+model HostedHistoricalUnknownScope {
+  id                            String @id
+  githubRepositoryId            BigInt
+  pullRequestNumber             Int
+  headSha                       String
+  providerFamily                String
+  sourceWorkspaceId             String
+  sourceRepositoryConnectionId  String
+  sourceScmRepositoryIdentityId String
+  sourceBaseSha                 String
+  sourceMergeBaseSha            String
+  sourceReviewRevisionHash      String
+  sourceProviderInstanceId      String
+  sourceRunId                   String
+  sourceRunAttempt              String
+  sourceWorkflowRef             String
+  sourceBindingId               String
+  sourceBindingRevision         BigInt
+  sourceRuntimeAuthzEpoch       BigInt?
+  sourceDatabaseIncarnation     String?
+  sourceRelayId                 String @unique
+  sourceAttemptId               String? @unique
+  cohort                        String
+  receiptDigest                 String
+  aliases                       HostedHistoricalScopeAlias[]
+
+  @@index([githubRepositoryId, pullRequestNumber, headSha, providerFamily], map: "HostedHistoricalUnknownScope_match_idx")
+}
+
+model HostedHistoricalScopeAlias {
+  scopeId String
+  kind    String
+  value   String
+  scope   HostedHistoricalUnknownScope @relation(fields: [scopeId], references: [id], onDelete: Restrict)
+
+  @@id([scopeId, kind, value])
+  @@index([kind, value], map: "HostedHistoricalScopeAlias_lookup_idx")
+}
+
+model HostedHistoricalScopeComplete {
+  id                       String @id
+  databaseResourceIdentity String
+  databaseIncarnation      String
+  receiptDigest            String
+  archiveDigest            String
+  memberCount              Int
+  setDigest                String
+}
+
 model HostedCodexCommentTokenMint {
   id                      String                             @id
   purpose                 HostedCodexCommentTokenMintPurpose
@@ -1525,7 +1646,7 @@ model HostedCodexCommentTokenMint {
   terminalEvidenceHash    String?
   revocationEvidenceHash  String?
   revocationFailureCount  Int                                @default(0)
-  nextRevocationAt        DateTime                            @default(dbgenerated("'1970-01-01 00:00:00+00'::timestamp with time zone")) @db.Timestamptz(3)
+  nextRevocationAt        DateTime                           @default(dbgenerated("'1970-01-01 00:00:00+00'::timestamp with time zone")) @db.Timestamptz(3)
   errorCode               String?
   createdAt               DateTime                           @default(now())
   updatedAt               DateTime                           @updatedAt
@@ -1780,6 +1901,9 @@ model HostedCodexRepositoryBinding {
 
 model HostedCodexInvocationGrant {
   id                        String                           @id @default(cuid())
+  authorityKind             String                           @default("v1_comment")
+  v4TurnKey                 String?                          @unique
+  v4ScopeHash               String?
   invocationId              String                           @unique
   workspaceId               String
   poolId                    String
@@ -1790,6 +1914,9 @@ model HostedCodexInvocationGrant {
   backupAccountId           String?
   reviewRequestId           String
   providerInvocationKey     String
+  historicalGithubRepositoryId BigInt?
+  historicalPullRequestNumber  Int?
+  historicalHeadSha            String?
   runId                     String
   runAttempt                Int
   model                     String
@@ -1812,6 +1939,7 @@ model HostedCodexInvocationGrant {
   inFlight                  Int                              @default(0)
   firstSuccessfulResponseAt DateTime?
   failoverCount             Int                              @default(0)
+  failoverRequestId         String?                          @unique
   revision                  BigInt                           @default(1)
   revokedAt                 DateTime?
   createdAt                 DateTime                         @default(now())
@@ -1821,10 +1949,12 @@ model HostedCodexInvocationGrant {
   account                  HostedCodexAccount                   @relation("HostedCodexGrantAccount", fields: [activeAccountId, workspaceId, poolId], references: [id, workspaceId, poolId], onDelete: Restrict, map: "HostedCodexInvocationGrant_account_tenant_fkey")
   primaryAccount           HostedCodexAccount                   @relation("HostedCodexGrantPrimaryAccount", fields: [primaryAccountId, workspaceId, poolId], references: [id, workspaceId, poolId], onDelete: Restrict, map: "HostedCodexInvocationGrant_primary_account_tenant_fkey")
   backupAccount            HostedCodexAccount?                  @relation("HostedCodexGrantBackupAccount", fields: [backupAccountId, workspaceId, poolId], references: [id, workspaceId, poolId], onDelete: Restrict, map: "HostedCodexInvocationGrant_backup_account_tenant_fkey")
+  failoverRequest          HostedCodexRelayRequest?             @relation("HostedCodexGrantFailoverRequest", fields: [failoverRequestId], references: [id], onDelete: Restrict, map: "HostedCodexInvocationGrant_failover_request_fkey")
   relayRequests            HostedCodexRelayRequest[]
   upstreamAttempts         HostedCodexUpstreamEffectAttempt[]
   commentRefreshCapability HostedCodexCommentRefreshCapability?
   commentTokenMints        HostedCodexCommentTokenMint[]
+  v4Turn                   HostedCodexV4RelayTurn?              @relation(fields: [v4TurnKey], references: [logicalTurnKey], onDelete: Restrict)
 
   @@unique([id, workspaceId, poolId])
   @@unique([id, invocationId, repositoryBindingId, workspaceId, poolId, repositoryConnectionId], map: "HostedCodexInvocationGrant_comment_refresh_scope_key")
@@ -1837,6 +1967,7 @@ model HostedCodexInvocationGrant {
 
 model HostedCodexRelayRequest {
   id                          String                        @id @default(cuid())
+  authorityKind               String                        @default("v1_comment")
   grantId                     String
   ordinal                     Int
   idempotencyKeyHash          String
@@ -1853,6 +1984,7 @@ model HostedCodexRelayRequest {
   updatedAt                   DateTime                      @updatedAt
 
   grant            HostedCodexInvocationGrant         @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  failoverGrant    HostedCodexInvocationGrant?        @relation("HostedCodexGrantFailoverRequest")
   upstreamAttempts HostedCodexUpstreamEffectAttempt[]
 
   @@unique([grantId, ordinal])
@@ -1865,6 +1997,7 @@ model HostedCodexRelayRequest {
 
 model HostedCodexUpstreamEffectAttempt {
   id                     String                         @id @default(cuid())
+  authorityKind          String                         @default("v1_comment")
   relayRequestId         String
   grantId                String
   workspaceId            String
@@ -1896,6 +2029,29 @@ model HostedCodexUpstreamEffectAttempt {
   @@unique([relayRequestId, attemptOrdinal], map: "HostedCodexUpstreamEffectAttempt_request_attempt_key")
   @@index([state, leaseExpiresAt, id], map: "HostedCodexUpstreamEffectAttempt_sweep_idx")
   @@index([workspaceId, poolId, accountId, state], map: "HostedCodexUpstreamEffectAttempt_account_idx")
+}
+
+/** Sticky logical turn record survives grant replacement and unknown effect recovery. */
+model HostedCodexV4RelayTurn {
+  logicalTurnKey  String   @id
+  scopeHash       String
+  scopeCanonical  String   @db.Text
+  expiresAt       DateTime
+  maxRequests     Int
+  maxRequestBytes Int
+  maxResponseBytes Int
+  maxOutputTokens Int
+  authorizationId String
+  investigationId String
+  turnId          String
+  state           String   @default("open")
+  unknownAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  grant           HostedCodexInvocationGrant?
+
+  @@unique([investigationId, turnId], map: "HostedCodexV4RelayTurn_scope_key")
+  @@index([state, unknownAt], map: "HostedCodexV4RelayTurn_state_unknown_idx")
 }
 
 model HostedCodexCommentRefreshCapability {
@@ -2726,22 +2882,22 @@ model ConflictReviewPostingIntent {
 }
 
 model WorkflowProvisioning {
-  id             String                     @id @default(cuid())
-  attemptId      String                     @default(cuid())
-  revision       Int                        @default(0)
-  installationId String?
-  workspaceId    String
-  repositoryId   String
-  status         WorkflowProvisioningStatus @default(not_started)
-  branch         String
-  workflowPath   String
-  workflowStyle  String                     @default("explicit")
-  actionVersion  String
+  id                 String                     @id @default(cuid())
+  attemptId          String                     @default(cuid())
+  revision           Int                        @default(0)
+  installationId     String?
+  workspaceId        String
+  repositoryId       String
+  status             WorkflowProvisioningStatus @default(not_started)
+  branch             String
+  workflowPath       String
+  workflowStyle      String                     @default("explicit")
+  actionVersion      String
   pullRequestHeadSha String?
-  pullRequestUrl String?
-  errorMessage   String?
-  createdAt      DateTime                   @default(now())
-  updatedAt      DateTime                   @updatedAt
+  pullRequestUrl     String?
+  errorMessage       String?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
 
   workspace  Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   repository RepositoryConnection @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
@@ -3768,8 +3924,8 @@ model CertifiedForkCheckpoint {
 // Immutable retained producer material; protected writer custody authenticates it.
 // Digest indexes avoid Btree key limits. Readers also compare full identities.
 model CertifiedForkProofFact {
-  proofSha256            Bytes  @id
-  sourceSha256           Bytes  @unique
+  proofSha256            Bytes   @id
+  sourceSha256           Bytes   @unique
   proofId                String
   formatVersion          Int
   kind                   String
@@ -3787,7 +3943,7 @@ model CertifiedForkProofFact {
   payload                Json
   canonicalBytes         String
   payloadHash            String
-  createdAtMs            BigInt @default(dbgenerated("(floor((EXTRACT(epoch FROM clock_timestamp()) * (1000)::numeric)))::bigint"))
+  createdAtMs            BigInt  @default(dbgenerated("(floor((EXTRACT(epoch FROM clock_timestamp()) * (1000)::numeric)))::bigint"))
 }
 
 // Durable RR-1 custody. No cascade/TTL: request and completion tombstones survive expiry.
@@ -3818,13 +3974,83 @@ model SdkGrowthAuthorityRecord {
 model SdkGrowthCurrentAuthority {
   scopeKey String                    @id
   epoch    BigInt
+  lastWriteXid BigInt?
   bindings SdkGrowthBindingVersion[]
+}
+
+// Append-only G1 administrative facts, written with an authority epoch advance.
+model SdkGrowthApprovalFact {
+  scopeKey             String
+  epoch                BigInt
+  action               String
+  approvalEpoch        BigInt?
+  proposalReference    String?   @db.VarChar(256)
+  credentialId         String    @db.VarChar(64)
+  credentialGeneration BigInt
+  bindingDigest        String    @db.VarChar(71)
+  decisionDigest       String    @db.VarChar(71)
+  record               Json?
+  v3ManifestId         String?   @db.VarChar(64)
+  recordedAt           DateTime  @default(now()) @db.Timestamptz(6)
+  owner                SdkGrowthOwnerVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  credential           SdkGrowthOperatorCredential @relation(fields: [credentialId], references: [credentialId], onDelete: Restrict, onUpdate: NoAction)
+  approval             SdkGrowthApprovalFact? @relation("SdkGrowthApprovalRevocations", fields: [scopeKey, approvalEpoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  revocations          SdkGrowthApprovalFact[] @relation("SdkGrowthApprovalRevocations")
+  v3Manifest           SdkGrowthV3ApprovedManifest? @relation(fields: [v3ManifestId], references: [manifestId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([scopeKey, epoch])
+  @@index([scopeKey, epoch(sort: Desc)], map: "SdkGrowthApprovalFact_latest_idx")
+}
+
+model SdkGrowthV3ApprovedManifest {
+  manifestId                   String   @id @db.VarChar(64)
+  scopeKey                     String
+  epoch                        BigInt
+  manifestVersion              Int      @default(1)
+  manifestWire                 Bytes
+  manifestByteLength           Int
+  manifestSha256               String   @db.VarChar(71)
+  requestWire                  Bytes
+  requestByteLength            Int
+  requestWireSha256            String   @db.VarChar(71)
+  validationEvidenceWire       Bytes
+  validationEvidenceByteLength Int
+  validationEvidenceSha256     String   @db.VarChar(71)
+  toolArtifactId               String   @db.VarChar(64)
+  recordedAt                   DateTime @default(now()) @db.Timestamptz(6)
+  owner                        SdkGrowthOwnerVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  toolArtifact                 SdkGrowthV3ToolArtifact @relation(fields: [toolArtifactId], references: [artifactId], onDelete: Restrict, onUpdate: NoAction)
+  approvalFacts                SdkGrowthApprovalFact[]
+
+  @@unique([scopeKey, epoch])
+}
+
+// Dormant G1 operator identity. Only a verifier is durable; later authority
+// mutations must lock and recheck credential generation and disabled state.
+model SdkGrowthOperatorCredential {
+  credentialId       String   @id @db.VarChar(64)
+  generation         BigInt
+  verifierSha256     String   @db.VarChar(64)
+  disabled           Boolean  @default(true)
+  expiresAtMs        BigInt
+  tenantId           String   @db.VarChar(256)
+  repositoryId       String   @db.VarChar(256)
+  pullRequest        BigInt
+  githubRepositoryId String   @db.VarChar(256)
+  installationId     String   @db.VarChar(256)
+  issuer             String   @db.VarChar(256)
+  subject            String   @db.VarChar(256)
+  allowedOperations  String[]
+  approvalFacts      SdkGrowthApprovalFact[]
+
+  @@index([tenantId, repositoryId, pullRequest], map: "SdkGrowthOperatorCredential_scope_idx")
 }
 
 model SdkGrowthBindingVersion {
   scopeKey String
   epoch    BigInt
   binding  Json
+  lastWriteXid BigInt?
   current  SdkGrowthCurrentAuthority @relation(fields: [scopeKey], references: [scopeKey], onDelete: Restrict, onUpdate: NoAction)
   owner    SdkGrowthOwnerVersion?
 
@@ -3839,7 +4065,164 @@ model SdkGrowthOwnerVersion {
   installationActive Boolean
   verifierActive     Boolean
   reason             String
+  lastWriteXid       BigInt?
   binding            SdkGrowthBindingVersion @relation(fields: [scopeKey, epoch], references: [scopeKey, epoch], onDelete: Restrict, onUpdate: NoAction)
+  approvalFact       SdkGrowthApprovalFact?
+  v3Manifest         SdkGrowthV3ApprovedManifest?
 
   @@id([scopeKey, epoch])
+}
+
+// Bounded immutable EF wire/archive/report custody, separate from the compact ledger.
+model SdkGrowthAuthorityCustody {
+  custodyId                   String                      @id
+  tenantId                    String                      @db.VarChar(256)
+  repositoryId                String                      @db.VarChar(256)
+  pullRequest                 BigInt
+  githubRepositoryId          String                      @db.VarChar(256)
+  installationId              String                      @db.VarChar(256)
+  subject                     String                      @db.VarChar(256)
+  runId                       String                      @db.VarChar(256)
+  runAttempt                  String                      @db.VarChar(256)
+  verifierRevision            String                      @db.VarChar(256)
+  sourceCommit                String                      @db.VarChar(40)
+  sourceTree                  String                      @db.VarChar(40)
+  sourceBinding               Json?
+  requestDigest               String                      @db.VarChar(71)
+  requestWire                 Bytes
+  grantDigest                 String                      @db.VarChar(71)
+  grantWire                   Bytes
+  candidateArchive            Bytes
+  candidateArchiveSha256      String                      @db.VarChar(71)
+  candidateArchiveSha512Sri   String                      @db.VarChar(95)
+  releasedArchive             Bytes
+  releasedArchiveSha256       String                      @db.VarChar(71)
+  releasedArchiveSha512Sri    String                      @db.VarChar(95)
+  toolArchive                 Bytes
+  toolArchiveSha256           String                      @db.VarChar(71)
+  toolArchiveSha512Sri        String                      @db.VarChar(95)
+  installedDistributionWire   Bytes
+  installedDistributionDigest String                      @db.VarChar(71)
+  completionDigest            String?                     @db.VarChar(71)
+  completionWire              Bytes?
+  reportDigest                String?                     @db.VarChar(71)
+  finalizedReport             Bytes?
+  receiptDigest               String?                     @db.VarChar(71)
+  receiptWire                 Bytes?
+  createdAt                   DateTime                    @default(now()) @db.Timestamptz(3)
+  completedAt                 DateTime?                   @db.Timestamptz(3)
+  publication                 SdkGrowthPublicationEffect?
+
+  @@unique([tenantId, repositoryId, pullRequest, runId, runAttempt, verifierRevision, requestDigest], map: "SdkGrowthAuthorityCustody_request_key")
+  @@index([tenantId, repositoryId, pullRequest, runId, runAttempt], map: "SdkGrowthAuthorityCustody_execution_idx")
+}
+
+// Lane A owns only this durable shape. Lane B owns claims, dispatch and provider effects.
+model SdkGrowthPublicationEffect {
+  custodyId           String                    @id
+  intentId            String                    @unique
+  envelopeDigest      String                    @db.VarChar(64)
+  intent              Json
+  state               String
+  claimId             String?
+  claimVersion        BigInt                    @default(0)
+  attemptId           String?
+  attemptStartedAt    DateTime?                 @db.Timestamptz(3)
+  reconciliationCount Int                       @default(0)
+  lastEvidence        Json?
+  outboxEventId       String?                   @unique(map: "SdkGrowthPublicationEffect_outbox_event_key")
+  completedAt         DateTime?                 @db.Timestamptz(3)
+  createdAt           DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime                  @default(now()) @updatedAt @db.Timestamptz(3)
+  custody             SdkGrowthAuthorityCustody @relation(fields: [custodyId], references: [custodyId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([state, createdAt], map: "SdkGrowthPublicationEffect_pending_idx")
+}
+
+// Verifier-owned immutable producer custody. The authority API has read access only.
+model SdkGrowthVerifierAssignment {
+  assignmentId String    @id
+  jobKey       String    @db.VarChar(64)
+  execution    Json
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt    DateTime  @db.Timestamptz(3)
+  revokedAt    DateTime? @db.Timestamptz(3)
+  efToolArtifactId String? @db.VarChar(64)
+  efToolArtifact SdkGrowthV3ToolArtifact? @relation(fields: [efToolArtifactId], references: [artifactId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([expiresAt], map: "SdkGrowthVerifierAssignment_expires_idx")
+  // SQL migration has a partial unique index on jobKey WHERE revokedAt IS NULL.
+}
+
+model SdkGrowthV3ToolArtifact {
+  artifactId                  String   @id @db.VarChar(64)
+  packageName                 String   @db.VarChar(128)
+  packageVersion              String   @db.VarChar(128)
+  sourceCommit                String   @db.VarChar(40)
+  sourceTree                  String   @db.VarChar(40)
+  installedDistributionDigest String   @db.VarChar(71)
+  provenanceKind              String   @db.VarChar(32)
+  archive                     Bytes
+  archiveByteLength           Int
+  archiveSha256               String   @db.VarChar(71)
+  archiveSha512Sri            String   @db.VarChar(128)
+  recordedAt                  DateTime @default(now()) @db.Timestamptz(6)
+  assignments                 SdkGrowthVerifierAssignment[]
+  manifests                   SdkGrowthV3ApprovedManifest[]
+}
+
+model SdkGrowthVerifierEvidence {
+  evidenceId                   String   @id
+  tenantId                    String   @db.VarChar(256)
+  repositoryId                String   @db.VarChar(256)
+  pullRequest                 BigInt
+  githubRepositoryId          String   @db.VarChar(256)
+  installationId              String   @db.VarChar(256)
+  subject                     String   @db.VarChar(256)
+  runId                       String   @db.VarChar(256)
+  runAttempt                  String   @db.VarChar(256)
+  verifierRevision            String   @db.VarChar(40)
+  sourceCommit                String   @db.VarChar(40)
+  sourceTree                  String   @db.VarChar(40)
+  sourceBinding               Json?
+  producer                    String
+  candidateWritable           Boolean  @default(false)
+  authorityBinding            Json
+  candidateArchive            Bytes
+  candidateArchiveSha256      String   @db.VarChar(71)
+  candidateArchiveSha512Sri   String   @db.VarChar(95)
+  releasedArchive             Bytes
+  releasedArchiveSha256       String   @db.VarChar(71)
+  releasedArchiveSha512Sri    String   @db.VarChar(95)
+  toolArchive                 Bytes
+  toolArchiveSha256           String   @db.VarChar(71)
+  toolArchiveSha512Sri        String   @db.VarChar(95)
+  installedDistributionWire   Bytes
+  installedDistributionDigest String   @db.VarChar(71)
+  createdAt                    DateTime @default(now()) @db.Timestamptz(3)
+  reports                      SdkGrowthFinalizedReportEvidence[]
+
+  @@index([tenantId, repositoryId, pullRequest, runId, runAttempt], map: "SdkGrowthVerifierEvidence_execution_idx")
+}
+
+model SdkGrowthFinalizedReportEvidence {
+  reportEvidenceId  String                    @id
+  evidenceId        String
+  repositoryId      String                    @db.VarChar(256)
+  runId             String                    @db.VarChar(256)
+  runAttempt        String                    @db.VarChar(256)
+  verifierRevision  String                    @db.VarChar(40)
+  sourceBinding     Json?
+  producer          String
+  candidateWritable Boolean                   @default(false)
+  reportDigest      String                    @db.VarChar(71)
+  finalizedReport   Bytes
+  grantId           String                    @db.VarChar(2048)
+  outcome           String
+  coverage          String
+  coveredScopes     Json
+  phases            Json
+  createdAt         DateTime                  @default(now()) @db.Timestamptz(3)
+  evidence          SdkGrowthVerifierEvidence @relation(fields: [evidenceId], references: [evidenceId], onDelete: Restrict, onUpdate: Restrict)
+
 }

@@ -817,3 +817,47 @@ describe("provisionReviewRouterWorkflow", () => {
     expect(gateway.input).toBeNull();
   });
 });
+
+it("rejects schema 6 before GitHub provisioning mutations", async () => {
+  const gateway = new CapturingSetupGateway();
+  const provisioning = new CapturingProvisioningRepository();
+  const auditLog = new CapturingAuditLog();
+  const namespace = allocateVersionedProviderSecretNamespace({
+    scope: {
+      repositoryId: "123456",
+      providerInstanceId: "codex-rotating:123456",
+    },
+    epoch: 7n,
+    randomBytes: (size) => new Uint8Array(size).fill(7),
+  });
+  await expect(
+    provisionRepositoryReviewRouterWorkflow(
+      {
+        workspaceId: "workspace-1",
+        installationId: "installation-1",
+        repositoryId: "repo-1",
+        actionRef: `777genius/review-router@${"a".repeat(40)}`,
+        apiUrl: "https://app.reviewrouter.dev",
+        runtimeConfigMode: "oidc",
+        staticRuntimeEnv: { REVIEW_AUTH_MODE: "codex-oauth-rotating" },
+        codexRotatingProviderInstanceId: "codex-rotating:123456",
+        codexRotatingWorkflowSecretNamespace: namespace,
+        codexRotatingWorkflowSchemaVersion: 6,
+      },
+      {
+        targets: new StaticWorkflowProvisioningTarget(activeTarget),
+        setupGateway: gateway,
+        provisioning,
+        auditLog,
+      },
+    ),
+  ).rejects.toThrow("codex_rotating_t0_workflow_schema_unsupported");
+  expect(gateway.input).toBeNull();
+  // Existing attempt/failure bookkeeping remains unchanged; no workflow is written.
+  expect(provisioning.attempts).toBe(1);
+  expect(provisioning.opened).toBeNull();
+  expect(provisioning.failed).toMatchObject({ status: "failed" });
+  expect(auditLog.events.map((event) => event.action)).toEqual([
+    "workflow.setup_pr_failed",
+  ]);
+});

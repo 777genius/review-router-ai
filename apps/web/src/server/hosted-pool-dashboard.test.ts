@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HostedPoolQueryPort } from "@reviewrouter/features-hosted-account-pool";
+import type {
+  HostedAccountSafeSummary,
+  HostedPoolQueryPort,
+} from "@reviewrouter/features-hosted-account-pool";
 import {
   changeHostedRepositorySessionSource,
   importHostedPoolAccount,
@@ -10,6 +13,25 @@ import {
   type HostedPoolDashboardMutationDependencies,
   type HostedPoolDeviceLoginDependencies,
 } from "./hosted-pool-dashboard";
+
+function safeAccount(
+  overrides: Partial<HostedAccountSafeSummary> = {},
+): HostedAccountSafeSummary {
+  return {
+    id: "account-1" as never,
+    label: "Primary",
+    priority: 10,
+    availability: { status: "healthy" },
+    healthVersion: 1,
+    authGeneration: 1,
+    validatedAt: new Date("2026-08-15T12:00:00.000Z"),
+    credentialExpiresAt: null,
+    refreshDue: false,
+    createdAt: new Date("2026-08-15T12:00:00.000Z"),
+    updatedAt: new Date("2026-08-15T12:00:00.000Z"),
+    ...overrides,
+  };
+}
 
 function mutationDependencies(
   overrides: Partial<HostedPoolDashboardMutationDependencies> = {},
@@ -25,7 +47,7 @@ function mutationDependencies(
       visibility: "private",
     })),
     mutations: {
-      importAccount: vi.fn(async () => undefined),
+      importAccount: vi.fn(async () => safeAccount()),
       setAccountState: vi.fn(async () => undefined),
       removeAccount: vi.fn(async () => undefined),
       setRepositorySource: vi.fn(async () => ({
@@ -141,6 +163,7 @@ describe("hosted pool dashboard boundary", () => {
       mutations: {
         importAccount: vi.fn(async () => {
           order.push("import");
+          return safeAccount();
         }),
         setAccountState: vi.fn(async () => undefined),
         removeAccount: vi.fn(async () => undefined),
@@ -225,6 +248,52 @@ describe("hosted pool dashboard boundary", () => {
     expect(JSON.stringify(pending)).not.toMatch(/device-auth-secret|refresh/iu);
   });
 
+  it("returns the enrolled account for an immediate dashboard update", async () => {
+    const enrolled = safeAccount({
+      id: "account-new" as never,
+      label: "New account",
+    });
+    const dependencies = deviceLoginDependencies({
+      mutations: {
+        importAccount: vi.fn(async () => enrolled),
+        setAccountState: vi.fn(async () => undefined),
+        removeAccount: vi.fn(async () => undefined),
+        setRepositorySource: vi.fn(async () => ({
+          activation: "pending" as const,
+        })),
+      },
+      deviceAuth: {
+        requestUserCode: vi.fn(async () => ({
+          deviceAuthId: "device-auth-secret",
+          userCode: "ABCD-EFGH",
+          verificationUrl: "https://auth.openai.com/codex/device",
+          intervalSeconds: 3,
+        })),
+        pollAuthorization: vi.fn(async () => ({
+          status: "authorized" as const,
+          authorizationCode: "authorization-code",
+          codeVerifier: "code-verifier",
+        })),
+        exchangeAuthorizationCode: vi.fn(async () => ({
+          idToken: "id-token",
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+        })),
+      },
+    });
+    const started = await startHostedPoolDeviceLogin(
+      { workspaceId: "workspace-1", label: "New account", priority: 10 },
+      dependencies,
+    );
+
+    await expect(
+      pollHostedPoolDeviceLogin(
+        { workspaceId: "workspace-1", loginId: started.loginId },
+        dependencies,
+      ),
+    ).resolves.toMatchObject({ status: "imported", account: enrolled });
+  });
+
   it("rejects unknown visibility before a hosted binding mutation", async () => {
     const dependencies = mutationDependencies({
       getRepository: vi.fn(async () => ({
@@ -281,6 +350,7 @@ describe("hosted pool dashboard boundary", () => {
           getDefaultPoolSummary: vi.fn(async () => null),
           listAccountSummaries: vi.fn(async () => []),
           getRepositoryBindingSummary: vi.fn(async () => null),
+          listRepositoryBindingSummaries: vi.fn(async () => []),
         },
       });
       expect(view.repositories[0]).toMatchObject({
@@ -336,11 +406,13 @@ describe("hosted pool dashboard boundary", () => {
       getDefaultPoolSummary: vi.fn(async () => null),
       listAccountSummaries: vi.fn(async () => []),
       getRepositoryBindingSummary: vi.fn(async () => null),
+      listRepositoryBindingSummaries: vi.fn(async () => []),
     };
     const view = await loadHostedPoolDashboardView({
       workspaceId: "workspace-1",
       repositories: [
         { id: "repo-1", fullName: "acme/private", visibility: "private" },
+        { id: "repo-2", fullName: "acme/second", visibility: "public" },
       ],
       featureEnabled: true,
       entitled: true,
@@ -351,6 +423,14 @@ describe("hosted pool dashboard boundary", () => {
       bindingVersion: 0,
       activation: "legacy",
     });
+    expect(view.repositories[1]).toMatchObject({
+      source: "repository_secret",
+      bindingVersion: 0,
+    });
+    expect(
+      queries.listRepositoryBindingSummaries,
+    ).toHaveBeenCalledExactlyOnceWith(["repo-1", "repo-2"]);
+    expect(queries.getRepositoryBindingSummary).not.toHaveBeenCalled();
   });
 
   it("never silently falls back when a hosted binding exists but its pool is unavailable", async () => {
@@ -368,6 +448,19 @@ describe("hosted pool dashboard boundary", () => {
         activatedAt: new Date(),
         updatedAt: new Date(),
       })),
+      listRepositoryBindingSummaries: vi.fn(async () => [
+        {
+          id: "binding-1" as never,
+          bindingId: "binding-1" as never,
+          repositoryId: "repo-1" as never,
+          poolId: "pool-1" as never,
+          revision: 3,
+          stateVersion: 5,
+          status: "active" as const,
+          activatedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]),
     };
     const view = await loadHostedPoolDashboardView({
       workspaceId: "workspace-1",
@@ -410,6 +503,19 @@ describe("hosted pool dashboard boundary", () => {
         activatedAt: new Date(),
         updatedAt: new Date(),
       })),
+      listRepositoryBindingSummaries: vi.fn(async () => [
+        {
+          id: "binding-1" as never,
+          bindingId: "binding-1" as never,
+          repositoryId: "repo-1" as never,
+          poolId: "pool-1" as never,
+          revision: 4,
+          stateVersion: 6,
+          status: "draining" as const,
+          activatedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]),
     };
     const view = await loadHostedPoolDashboardView({
       workspaceId: "workspace-1",

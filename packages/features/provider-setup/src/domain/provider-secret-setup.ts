@@ -14,6 +14,7 @@ const providerSecretKinds = [
   "codex_oauth",
   "codex_oauth_rotating",
   "openai_api_key",
+  "mimo_token_plan_api_key",
   "claude_code_oauth",
   "openrouter_api_key",
 ] as const satisfies readonly ProviderSetupKind[];
@@ -203,9 +204,13 @@ export function buildProviderSecretSetupGuidance(input: {
 
   const secretName = secretNameForProviderSetup(input.provider);
   const isClaudeCodeOAuth = input.provider === "claude_code_oauth";
+  const isMimoTokenPlan = input.provider === "mimo_token_plan_api_key";
+  const usesGitHubActionsAppSecret = isClaudeCodeOAuth || isMimoTokenPlan;
   const failureRecovery = isClaudeCodeOAuth
     ? "If CI reports Claude auth errors, generate a fresh token with claude setup-token and rerun this command. Do not paste a shell command as the secret value."
-    : "If GitHub rejects the command, verify gh auth and repository admin access.";
+    : isMimoTokenPlan
+      ? "If CI reports a missing or invalid MiMo credential, rerun this command and enter a valid Token Plan API key only at the GitHub CLI prompt."
+      : "If GitHub rejects the command, verify gh auth and repository admin access.";
 
   return {
     provider: input.provider,
@@ -225,7 +230,7 @@ export function buildProviderSecretSetupGuidance(input: {
               secretNames: [secretName],
               selectedRepositories: [`${owner}/${repo}`],
               validatesBeforeWrite: false,
-              failureRecovery: isClaudeCodeOAuth
+              failureRecovery: usesGitHubActionsAppSecret
                 ? failureRecovery
                 : "If GitHub rejects the command, verify gh auth, organization ownership, and selected repository access.",
               sendsSecretToReviewRouter: false as const,
@@ -240,7 +245,7 @@ export function buildProviderSecretSetupGuidance(input: {
               secretNames: [secretName],
               selectedRepositories: [],
               validatesBeforeWrite: false,
-              failureRecovery: isClaudeCodeOAuth
+              failureRecovery: usesGitHubActionsAppSecret
                 ? failureRecovery
                 : "If GitHub rejects the command, verify gh auth, organization ownership, and GitHub plan support for org secrets.",
               sendsSecretToReviewRouter: false as const,
@@ -255,7 +260,7 @@ export function buildProviderSecretSetupGuidance(input: {
               secretNames: [secretName],
               selectedRepositories: [],
               validatesBeforeWrite: false,
-              failureRecovery: isClaudeCodeOAuth
+              failureRecovery: usesGitHubActionsAppSecret
                 ? failureRecovery
                 : "If GitHub rejects the command, verify gh auth, organization ownership, and GitHub plan support for org secrets.",
               sendsSecretToReviewRouter: false as const,
@@ -266,7 +271,7 @@ export function buildProviderSecretSetupGuidance(input: {
         scope: "repository",
         title: "Repository secret",
         description: `Stores ${secretName} directly in this repository's Actions secrets.`,
-        command: `gh secret set ${secretName} --repo ${shellQuote(input.repoFullName)}${isClaudeCodeOAuth ? " --app actions" : ""}`,
+        command: `gh secret set ${secretName} --repo ${shellQuote(input.repoFullName)} --app actions`,
         storesSecretIn: "github_repository_secret",
         targetLabel: `${input.repoFullName} repository secret`,
         secretNames: [secretName],
@@ -276,19 +281,26 @@ export function buildProviderSecretSetupGuidance(input: {
         sendsSecretToReviewRouter: false,
       },
     ],
-    warnings: isClaudeCodeOAuth
+    warnings: isMimoTokenPlan
       ? [
-          "Run claude setup-token on a trusted machine and store only the printed token value.",
-          "Do not store the shell command itself, Claude keychain files, or Claude local config files.",
-          "Do not store ANTHROPIC_API_KEY for Claude Code subscription OAuth; ReviewRouter uses CLAUDE_CODE_OAUTH_TOKEN for this provider.",
-          "Regenerate the token before its roughly one-year expiration or when CI reports Claude auth errors.",
-          "ReviewRouter SaaS never receives CLAUDE_CODE_OAUTH_TOKEN; set it directly in GitHub Actions secrets.",
+          "Run this interactive command on a trusted machine and enter the MiMo Token Plan API key only when GitHub CLI prompts for the secret value.",
+          "The command and ReviewRouter UI/server never contain the key value; ReviewRouter SaaS never receives MIMO_TOKEN_PLAN_API_KEY.",
+          "A missing or invalid MIMO_TOKEN_PLAN_API_KEY fails at the ReviewRouter Action consumer and never silently falls back to Codex or OpenRouter.",
           "For public repositories, fork pull requests are skipped for secret-backed provider execution by default.",
         ]
-      : [
-          "ReviewRouter SaaS does not need to see this key; set it directly in GitHub Actions secrets.",
-          "Prefer organization selected-repository secrets for team-owned repositories.",
-        ],
+      : isClaudeCodeOAuth
+        ? [
+            "Run claude setup-token on a trusted machine and store only the printed token value.",
+            "Do not store the shell command itself, Claude keychain files, or Claude local config files.",
+            "Do not store ANTHROPIC_API_KEY for Claude Code subscription OAuth; ReviewRouter uses CLAUDE_CODE_OAUTH_TOKEN for this provider.",
+            "Regenerate the token before its roughly one-year expiration or when CI reports Claude auth errors.",
+            "ReviewRouter SaaS never receives CLAUDE_CODE_OAUTH_TOKEN; set it directly in GitHub Actions secrets.",
+            "For public repositories, fork pull requests are skipped for secret-backed provider execution by default.",
+          ]
+        : [
+            "ReviewRouter SaaS does not need to see this key; set it directly in GitHub Actions secrets.",
+            "Prefer organization selected-repository secrets for team-owned repositories.",
+          ],
   };
 }
 

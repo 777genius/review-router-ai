@@ -14,6 +14,7 @@ import {
   PrismaRepositoryHealthRepository,
 } from "@reviewrouter/features-repo-health";
 import {
+  evaluateFeatureEntitlement,
   freeBetaEntitlement,
   PrismaEntitlementRepository,
 } from "@reviewrouter/features-entitlements";
@@ -36,6 +37,7 @@ import {
 import { redirect } from "next/navigation";
 import {
   findReviewConfiguration,
+  findRepositoryReviewConfigurations,
   PrismaReviewConfigurationRepository,
   safeDefaultReviewConfiguration,
   type ReviewConfiguration,
@@ -80,7 +82,6 @@ import {
 import { getPrisma } from "../../src/server/prisma";
 import {
   refreshRepositoryAccessClientAction,
-  requestInstallationSyncClientAction,
   retryOutboxEventClientAction,
   enableOrgRulesetWorkflowClientAction,
   importHostedPoolAccountClientAction,
@@ -91,10 +92,7 @@ import {
   setHostedRepositorySessionSourceClientAction,
 } from "./actions";
 import { getGitHubAppInstallUrl } from "../../src/server/github-app-install-url";
-import {
-  buildPendingOrganizationInstallRequest,
-  type PendingOrganizationInstallRequest,
-} from "../../src/server/dashboard-app-install-request";
+import { buildPendingOrganizationInstallRequest } from "../../src/server/dashboard-app-install-request";
 import { safeGitHubDashboardLink } from "../../src/server/safe-dashboard-link";
 import {
   buildRepositorySearchText,
@@ -125,7 +123,6 @@ import { ConnectSourceDialog } from "../connect-source-dialog";
 import { RepositoryVisibilityBadge } from "../repository-visibility-badge";
 import { DashboardInstallRequestToast } from "./dashboard-install-request-toast";
 import {
-  DASHBOARD_SECTIONS,
   dashboardPath,
   dashboardPathFromSearchParams,
   dashboardSectionHref,
@@ -133,9 +130,8 @@ import {
   resolveDashboardSection,
   type DashboardSection,
 } from "./dashboard-section";
-import { DashboardSectionTabs } from "./dashboard-section-tabs";
-import { DashboardWorkspaceTabs } from "./dashboard-workspace-tabs";
 import { ProviderSecretSetupDialog } from "./provider-secret-setup-dialog";
+import { ProviderApiKeyManager } from "./provider-api-key-manager";
 import {
   RepositoryLiveSearch,
   type RepositorySearchFilter,
@@ -144,7 +140,6 @@ import {
 import {
   RepositorySetupDisclosureToggle,
   RepositorySetupReadyGate,
-  RepositorySetupRowDisclosureController,
 } from "./repository-setup-optimistic-status";
 import { RepositorySetupProgressPanel as RepositorySetupProgressPanelClient } from "./repository-setup-progress-panel";
 import {
@@ -158,9 +153,9 @@ import {
   type MemoryManagementMode,
   type MemoryManagementModeLinks,
 } from "./memory-management-panel";
-import { DashboardCollapsibleShell } from "./dashboard-collapsible-shell";
 import { DashboardActionForm } from "./dashboard-action-form";
 import { repositorySourceUrl } from "./repository-source-url";
+import { WorkspaceSourceConnectionPanel } from "./workspace-source-connection";
 import {
   HostedPoolSettingsPanel,
   RepositorySessionSourceSelector,
@@ -176,63 +171,33 @@ import {
   dashboardNoticeText,
   dashboardNoticeTitle,
   dashboardNoticeTone,
-  formatAccountTypeLabel,
   isProviderSecretCheckError,
   isSetupRecoveryIssue,
   orgRulesetErrorText,
   orgRulesetStatusTone,
   readCsvEnv,
-  workspaceInstallSummary,
 } from "./dashboard-copy";
 import {
   SourceProviderLabel,
   SourceProviderLogo,
 } from "../source-provider-logo";
 
-type DashboardWorkspace = {
-  readonly id: string;
-  readonly name: string;
-  readonly slug: string;
-  readonly installations: readonly {
-    readonly accountLogin: string;
-    readonly accountType: string;
-    readonly accountAvatarUrl: string | null;
-    readonly githubInstallationId: string;
-    readonly status: string;
-    readonly repositorySelection: string;
-    readonly organizationSecretPolicy: DashboardOrganizationSecretPolicy | null;
-  }[];
-  readonly gitLabInstallations: readonly {
-    readonly id: string;
-    readonly sourceBaseUrl: string;
-    readonly namespacePath: string;
-    readonly sourceKind: string;
-    readonly status: string;
-    readonly selectedProjects: number;
-    readonly lastInstalledAt: Date | null;
-  }[];
-  readonly auditEvents: readonly {
-    readonly action: string;
-    readonly actor: string;
-    readonly targetType: string;
-    readonly createdAt: Date;
-  }[];
-};
+import { cache, Suspense, type ReactNode } from "react";
+import { DashboardShell, DashboardShellSnapshot } from "./dashboard-shell";
+import { NavigationContentReady } from "../navigation-feedback";
+import { DashboardSectionLoading } from "./dashboard-section-loading";
+import {
+  filterVisibleDashboardWorkspaces,
+  selectDashboardWorkspace,
+  dashboardWorkspaceUrlKey,
+  type DashboardWorkspace,
+  type DashboardOrganizationSecretPolicy,
+  type DashboardWorkspaceSummary,
+} from "./dashboard-workspace-navigation";
 
-type DashboardOrganizationSecretPolicy = {
-  readonly planName: string | null;
-  readonly privateRepositoriesAvailable: boolean | null;
-  readonly status: "available" | "permission_required" | "unknown";
-};
-
-async function loadDashboardData(
+async function loadDashboardWorkspaceSummaries(
   scope: Awaited<ReturnType<typeof getDashboardWorkspaceScope>>,
   repositoryAccess: DashboardRepositoryAccessScope,
-  supportAudit?: {
-    readonly actor: string;
-    readonly reason: "local_admin_override" | "workspace_admin";
-  },
-  currentActor?: DashboardMemoryActorInput | null,
 ) {
   if (scope.kind === "none" && repositoryAccess.workspaceIds.length === 0) {
     return [];
@@ -252,11 +217,28 @@ async function loadDashboardData(
   );
   const workspaceWhere =
     scope.kind === "all" ? undefined : { id: { in: workspaceIds } };
+  const repositoryVisibility =
+    scope.kind === "all"
+      ? {}
+      : {
+          OR: [
+            {
+              workspaceId: {
+                in:
+                  scope.kind === "workspace_ids" ? [...scope.workspaceIds] : [],
+              },
+            },
+            { id: { in: [...repositoryAccess.repositoryIds] } },
+          ],
+        };
   const workspaces = await prisma.workspace.findMany({
     ...(workspaceWhere ? { where: workspaceWhere } : {}),
     orderBy: { createdAt: "desc" },
     take: 10,
-    include: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
       installations: {
         orderBy: { updatedAt: "desc" },
         take: 3,
@@ -282,18 +264,114 @@ async function loadDashboardData(
           lastInstalledAt: true,
         },
       },
-      auditEvents: {
-        orderBy: { createdAt: "desc" },
-        take: 5,
-        select: {
-          action: true,
-          actor: true,
-          targetType: true,
-          createdAt: true,
-        },
+      _count: { select: { repositories: { where: repositoryVisibility } } },
+      repositories: {
+        where: repositoryVisibility,
+        distinct: ["owner"],
+        select: { owner: true },
       },
     },
   });
+
+  return filterVisibleDashboardWorkspaces(
+    workspaces
+      .map((workspace): DashboardWorkspaceSummary => {
+        const hasWorkspaceWideAccess =
+          scope.kind === "all" ||
+          (scope.kind === "workspace_ids" &&
+            scope.workspaceIds.includes(workspace.id));
+        const visibleOwners = new Set(
+          workspace.repositories.map((repository) =>
+            repository.owner.toLowerCase(),
+          ),
+        );
+        return {
+          hasWorkspaceWideAccess,
+          repositoryCount: workspace._count.repositories,
+          workspace: {
+            id: workspace.id,
+            name: workspace.name,
+            slug: workspace.slug,
+            installations: workspace.installations
+              .filter(
+                (installation) =>
+                  hasWorkspaceWideAccess ||
+                  visibleOwners.has(installation.accountLogin.toLowerCase()),
+              )
+              .map((installation) => ({
+                ...installation,
+                githubInstallationId:
+                  installation.githubInstallationId.toString(),
+                organizationSecretPolicy: null,
+              })),
+            gitLabInstallations: hasWorkspaceWideAccess
+              ? workspace.gitLabInstallations
+              : [],
+            auditEvents: [],
+          },
+        };
+      })
+      .sort(compareDashboardWorkspaces),
+  );
+}
+
+type DashboardWorkspaceData = {
+  hasWorkspaceWideAccess: boolean;
+  workspace: DashboardWorkspace;
+  repositoryCount: number;
+  repositories: readonly Awaited<
+    ReturnType<
+      PrismaRepositoryConnectionRepository["listWorkspaceRepositories"]
+    >
+  >[number][];
+  health: readonly Awaited<
+    ReturnType<typeof listWorkspaceRepositoryHealth>
+  >[number][];
+  provisioning: readonly Awaited<
+    ReturnType<typeof listRepositoryWorkflowProvisioning>
+  >[number][];
+  providerSetup: readonly {
+    readonly repositoryId: string | null;
+    readonly providerKind: string;
+    readonly authMode: string;
+    readonly state: string;
+    readonly updatedAt: Date;
+  }[];
+  entitlement: ReturnType<typeof freeBetaEntitlement>;
+  reviewConfig: Awaited<ReturnType<typeof findReviewConfiguration>>;
+  repositoryConfigs: readonly {
+    readonly repositoryId: string;
+    readonly config: Awaited<ReturnType<typeof findReviewConfiguration>>;
+  }[];
+  outboxFailures: Awaited<ReturnType<typeof listWorkspaceOutboxFailures>>;
+  supportDiagnostics: Awaited<
+    ReturnType<typeof getWorkspaceSupportDiagnostics>
+  > | null;
+  orgRuleset: Awaited<
+    ReturnType<PrismaOrgRulesetProvisioningRepository["findByWorkspaceId"]>
+  > | null;
+  memoryItems: readonly MemoryDashboardItemDto[];
+  memorySuggestions: readonly MemoryDashboardSuggestionDto[];
+  memoryWritesEnabled: boolean;
+  memoryPolicySimulation: readonly MemoryPolicySimulationDecision[] | null;
+  hostedPool: Awaited<ReturnType<typeof loadHostedPoolDashboardView>>;
+};
+
+export async function loadDashboardSectionData(
+  selectedWorkspace: DashboardWorkspaceSummary,
+  section: DashboardSection,
+  repositoryAccess: DashboardRepositoryAccessScope,
+  supportAudit?: {
+    readonly actor: string;
+    readonly reason: "local_admin_override" | "workspace_admin";
+  },
+  currentActor?: DashboardMemoryActorInput | null,
+): Promise<DashboardWorkspaceData> {
+  const prisma = getPrisma();
+  const workspace = selectedWorkspace.workspace;
+  const needsReadiness =
+    section === "repositories" || section === "diagnostics";
+  const needsConfig = needsReadiness || section === "policy";
   const repositoryStore = new PrismaRepositoryConnectionRepository(prisma);
   const healthStore = new PrismaRepositoryHealthRepository(prisma);
   const entitlementStore = new PrismaEntitlementRepository(prisma);
@@ -314,128 +392,79 @@ async function loadDashboardData(
     { serviceEnabled: readMemoryServiceEnabled(process.env) },
   );
 
-  const dashboardData = await Promise.all(
-    workspaces.map(
-      async (
-        workspace,
-      ): Promise<{
-        hasWorkspaceWideAccess: boolean;
-        workspace: DashboardWorkspace;
-        repositoryCount: number;
-        repositories: readonly Awaited<
-          ReturnType<typeof repositoryStore.listWorkspaceRepositories>
-        >[number][];
-        health: readonly Awaited<
-          ReturnType<typeof listWorkspaceRepositoryHealth>
-        >[number][];
-        provisioning: readonly Awaited<
-          ReturnType<typeof listRepositoryWorkflowProvisioning>
-        >[number][];
-        providerSetup: readonly {
-          readonly repositoryId: string | null;
-          readonly providerKind: string;
-          readonly authMode: string;
-          readonly state: string;
-          readonly updatedAt: Date;
-        }[];
-        entitlement: ReturnType<typeof freeBetaEntitlement>;
-        reviewConfig: Awaited<ReturnType<typeof findReviewConfiguration>>;
-        repositoryConfigs: readonly {
-          readonly repositoryId: string;
-          readonly config: Awaited<ReturnType<typeof findReviewConfiguration>>;
-        }[];
-        outboxFailures: Awaited<ReturnType<typeof listWorkspaceOutboxFailures>>;
-        supportDiagnostics: Awaited<
-          ReturnType<typeof getWorkspaceSupportDiagnostics>
-        > | null;
-        orgRuleset: Awaited<
-          ReturnType<typeof orgRulesetStore.findByWorkspaceId>
-        > | null;
-        memoryItems: readonly MemoryDashboardItemDto[];
-        memorySuggestions: readonly MemoryDashboardSuggestionDto[];
-        memoryWritesEnabled: boolean;
-        memoryPolicySimulation:
-          | readonly MemoryPolicySimulationDecision[]
-          | null;
-        hostedPool: Awaited<ReturnType<typeof loadHostedPoolDashboardView>>;
-      }> => {
-        const repositories = await repositoryStore.listWorkspaceRepositories(
-          workspace.id,
-        );
-        const hasWorkspaceWideAccess =
-          scope.kind === "all" ||
-          (scope.kind === "workspace_ids" &&
-            scope.workspaceIds.includes(workspace.id));
-        const visibleRepositories = hasWorkspaceWideAccess
-          ? repositories
-          : repositories.filter((repository) =>
-              repositoryAccess.repositoryIds.has(repository.id),
-            );
-        const visibleRepositoryIds = new Set(
-          visibleRepositories.map((repository) => repository.id),
-        );
-        const entitlement =
-          (await entitlementStore.findWorkspaceEntitlement(workspace.id)) ??
-          freeBetaEntitlement(workspace.id);
-        const hostedPool = await loadHostedPoolDashboardView({
-          workspaceId: workspace.id,
-          repositories: visibleRepositories.map((repository) => ({
-            id: repository.id,
-            fullName: repository.fullName,
-            visibility: repository.visibility,
-          })),
-          featureEnabled: isHostedCodexPoolEnabled(),
-          entitled: entitlement.flags.hosted_codex_pool,
-          queries: new PrismaHostedPoolQuery(prisma),
-        });
-        const health = (
-          await listWorkspaceRepositoryHealth(
-            {
-              workspaceId: workspace.id,
-              expectedActionRef: resolveReviewRouterActionRef(),
-              workflowProbeMaxRepositories: 0,
-            },
-            { repositories: healthStore },
-          )
-        ).filter((item) => visibleRepositoryIds.has(item.repositoryId));
-        const reviewConfig = await findReviewConfiguration(
-          { scope: "workspace", workspaceId: workspace.id },
-          { configurations: reviewConfigStore },
-        );
-        const repositoryConfigs = await Promise.all(
-          visibleRepositories.map(async (repository) => ({
-            repositoryId: repository.id,
-            config: await findReviewConfiguration(
-              {
-                scope: "repository",
-                workspaceId: workspace.id,
-                repositoryId: repository.id,
-              },
-              { configurations: reviewConfigStore },
-            ),
-          })),
-        );
-        const outboxFailures = hasWorkspaceWideAccess
-          ? await listWorkspaceOutboxFailures(
-              { workspaceId: workspace.id, limit: 5 },
-              { outbox: outboxStore },
-            )
-          : [];
-        const provisioning = await listRepositoryWorkflowProvisioning(
+  const hasWorkspaceWideAccess = selectedWorkspace.hasWorkspaceWideAccess;
+  const independentReadsPromise = Promise.all([
+    needsReadiness
+      ? listWorkspaceRepositoryHealth(
           {
             workspaceId: workspace.id,
-            repositoryIds: visibleRepositories.map(
-              (repository) => repository.id,
-            ),
+            expectedActionRef: resolveReviewRouterActionRef(),
+            workflowProbeMaxRepositories: 0,
           },
-          { provisioning: new PrismaWorkflowProvisioningQuery(prisma) },
-        );
-        const cachedProviderSetup = await prisma.providerSetupState.findMany({
+          { repositories: healthStore },
+        )
+      : Promise.resolve([]),
+    needsConfig
+      ? findReviewConfiguration(
+          { scope: "workspace", workspaceId: workspace.id },
+          { configurations: reviewConfigStore },
+        )
+      : Promise.resolve(null),
+    section === "repositories" && hasWorkspaceWideAccess
+      ? orgRulesetStore.findByWorkspaceId(workspace.id)
+      : Promise.resolve(null),
+    hasWorkspaceWideAccess
+      ? Promise.all(
+          workspace.installations.map(async (installation) => ({
+            ...installation,
+            githubInstallationId: installation.githubInstallationId.toString(),
+            organizationSecretPolicy:
+              section === "repositories"
+                ? await loadOrganizationSecretPolicy({
+                    ...installation,
+                    githubInstallationId: BigInt(
+                      installation.githubInstallationId,
+                    ),
+                  })
+                : null,
+          })),
+        )
+      : Promise.resolve(null),
+  ]);
+  // The repository barrier can remain pending after an independent read fails.
+  // Observe that rejection now; the awaited aggregate below still propagates it.
+  void independentReadsPromise.catch(() => {});
+
+  const [repositories, storedEntitlement] = await Promise.all([
+    section === "setup"
+      ? Promise.resolve([])
+      : repositoryStore.listWorkspaceRepositories(workspace.id),
+    entitlementStore.findWorkspaceEntitlement(workspace.id),
+  ]);
+  const visibleRepositories = hasWorkspaceWideAccess
+    ? repositories
+    : repositories.filter((repository) =>
+        repositoryAccess.repositoryIds.has(repository.id),
+      );
+  const visibleRepositoryIds = new Set(
+    visibleRepositories.map((repository) => repository.id),
+  );
+  const entitlement = storedEntitlement ?? freeBetaEntitlement(workspace.id);
+  const repositoryIds = visibleRepositories.map((repository) => repository.id);
+  const visibleRepositoryOwners = new Set(
+    visibleRepositories.map((repository) => repository.owner.toLowerCase()),
+  );
+  const visibleInstallations = hasWorkspaceWideAccess
+    ? workspace.installations
+    : workspace.installations.filter((installation) =>
+        visibleRepositoryOwners.has(installation.accountLogin.toLowerCase()),
+      );
+  const providerSetupPromise = needsReadiness
+    ? prisma.providerSetupState
+        .findMany({
           where: {
             workspaceId: workspace.id,
-            repositoryId: {
-              in: visibleRepositories.map((repository) => repository.id),
-            },
+            repositoryId: { in: repositoryIds },
           },
           select: {
             repositoryId: true,
@@ -444,117 +473,200 @@ async function loadDashboardData(
             state: true,
             updatedAt: true,
           },
-        });
-        const providerSetup = await deriveDashboardProviderSetupReadiness({
-          providerSetup: cachedProviderSetup,
+        })
+        .then((providerSetup) =>
+          deriveDashboardProviderSetupReadiness({
+            providerSetup,
+            repositories: visibleRepositories,
+            workspaceId: workspace.id,
+            readiness: new PrismaCodexRotatingSetupReadiness(
+              prisma,
+              requireReviewRouterDatabaseRecoveryWitness(),
+            ),
+          }),
+        )
+    : Promise.resolve([]);
+  const [
+    [workspaceHealth, reviewConfig, orgRuleset, workspaceWideInstallations],
+    [
+      hostedPool,
+      repositoryConfigs,
+      outboxFailures,
+      provisioning,
+      providerSetup,
+      supportDiagnostics,
+    ],
+  ] = await Promise.all([
+    independentReadsPromise,
+    Promise.all([
+      loadHostedPoolDashboardView({
+        workspaceId: workspace.id,
+        repositories: needsReadiness
+          ? visibleRepositories.map((repository) => ({
+              id: repository.id,
+              fullName: repository.fullName,
+              visibility: repository.visibility,
+            }))
+          : [],
+        featureEnabled:
+          (needsReadiness || section === "setup") && isHostedCodexPoolEnabled(),
+        entitled: evaluateFeatureEntitlement({
+          entitlement,
+          feature: "hosted_codex_pool",
+        }).allowed,
+        queries: new PrismaHostedPoolQuery(prisma),
+      }),
+      needsConfig
+        ? findRepositoryReviewConfigurations(
+            { workspaceId: workspace.id, repositoryIds },
+            { configurations: reviewConfigStore },
+          )
+        : Promise.resolve([]),
+      section === "diagnostics" && hasWorkspaceWideAccess
+        ? listWorkspaceOutboxFailures(
+            { workspaceId: workspace.id, limit: 5 },
+            { outbox: outboxStore },
+          )
+        : Promise.resolve([]),
+      needsReadiness
+        ? listRepositoryWorkflowProvisioning(
+            { workspaceId: workspace.id, repositoryIds },
+            { provisioning: new PrismaWorkflowProvisioningQuery(prisma) },
+          )
+        : Promise.resolve([]),
+      providerSetupPromise,
+      section === "diagnostics" && hasWorkspaceWideAccess
+        ? getWorkspaceSupportDiagnostics(
+            {
+              workspaceId: workspace.id,
+              checkedAt: new Date(),
+              ...(supportAudit ? { audit: supportAudit } : {}),
+            },
+            {
+              diagnostics: diagnosticsStore,
+              ...(supportAudit
+                ? { auditLog: new PrismaAuditLogRepository(prisma) }
+                : {}),
+            },
+          )
+        : Promise.resolve(null),
+    ]),
+  ]);
+  const dashboardInstallations =
+    workspaceWideInstallations ??
+    visibleInstallations.map((installation) => ({
+      ...installation,
+      githubInstallationId: installation.githubInstallationId.toString(),
+      organizationSecretPolicy: null,
+    }));
+  const health = workspaceHealth.filter((item) =>
+    visibleRepositoryIds.has(item.repositoryId),
+  );
+  const [memoryItems, memorySuggestions, memoryPolicy] =
+    section === "memory"
+      ? await Promise.all([
+          listMemoryItemsForDashboard(
+            {
+              workspaceId: workspace.id,
+              limit: 25,
+              ...(!hasWorkspaceWideAccess
+                ? {
+                    repositoryIds: visibleRepositories.map(
+                      (repository) => repository.id,
+                    ),
+                  }
+                : {}),
+            },
+            { memoryItems: memoryItemStore },
+          ),
+          listMemorySuggestionsForDashboard(
+            {
+              workspaceId: workspace.id,
+              limit: 25,
+              ...(!hasWorkspaceWideAccess
+                ? {
+                    repositoryIds: visibleRepositories.map(
+                      (repository) => repository.id,
+                    ),
+                  }
+                : {}),
+            },
+            {
+              memorySuggestions: memorySuggestionStore,
+              clock: { now: () => new Date() },
+            },
+          ),
+          memoryPolicyConfig.getPolicy({ workspaceId: workspace.id }),
+        ])
+      : [{ items: [] }, { suggestions: [] }, { memoryEnabled: false }];
+  const memoryPolicySimulation =
+    section === "memory"
+      ? await buildMemoryPolicySimulation({
+          workspaceId: workspace.id,
           repositories: visibleRepositories,
-          workspaceId: workspace.id,
-          readiness: new PrismaCodexRotatingSetupReadiness(
-            prisma,
-            requireReviewRouterDatabaseRecoveryWitness(),
-          ),
-        });
-        const supportDiagnostics = hasWorkspaceWideAccess
-          ? await getWorkspaceSupportDiagnostics(
-              {
-                workspaceId: workspace.id,
-                checkedAt: new Date(),
-                ...(supportAudit ? { audit: supportAudit } : {}),
-              },
-              {
-                diagnostics: diagnosticsStore,
-                ...(supportAudit
-                  ? { auditLog: new PrismaAuditLogRepository(prisma) }
-                  : {}),
-              },
-            )
-          : null;
-        const orgRuleset = hasWorkspaceWideAccess
-          ? await orgRulesetStore.findByWorkspaceId(workspace.id)
-          : null;
-        const visibleRepositoryOwners = new Set(
-          visibleRepositories.map((repository) =>
-            repository.owner.toLowerCase(),
-          ),
-        );
-        const visibleInstallations = hasWorkspaceWideAccess
-          ? workspace.installations
-          : workspace.installations.filter((installation) =>
-              visibleRepositoryOwners.has(
-                installation.accountLogin.toLowerCase(),
-              ),
-            );
-        const dashboardInstallations = await Promise.all(
-          visibleInstallations.map(async (installation) => ({
-            ...installation,
-            githubInstallationId: installation.githubInstallationId.toString(),
-            organizationSecretPolicy: hasWorkspaceWideAccess
-              ? await loadOrganizationSecretPolicy(installation)
-              : null,
-          })),
-        );
-        const [memoryItems, memorySuggestions, memoryPolicy] =
-          await Promise.all([
-            listMemoryItemsForDashboard(
-              { workspaceId: workspace.id, limit: 25 },
-              { memoryItems: memoryItemStore },
-            ),
-            listMemorySuggestionsForDashboard(
-              { workspaceId: workspace.id, limit: 25 },
-              {
-                memorySuggestions: memorySuggestionStore,
-                clock: { now: () => new Date() },
-              },
-            ),
-            memoryPolicyConfig.getPolicy({ workspaceId: workspace.id }),
-          ]);
-        const memoryPolicySimulation = await buildMemoryPolicySimulation({
-          workspaceId: workspace.id,
-          repositories,
           actor: currentActor ?? null,
           memoryPolicyConfig,
           memoryPermission,
           memoryItemStore,
           memorySuggestionStore,
           memoryQuotaPolicy,
-        });
+        })
+      : null;
 
-        return {
-          hasWorkspaceWideAccess,
-          workspace: {
-            id: workspace.id,
-            name: workspace.name,
-            slug: workspace.slug,
-            installations: dashboardInstallations,
-            gitLabInstallations: hasWorkspaceWideAccess
-              ? workspace.gitLabInstallations
-              : [],
-            auditEvents: hasWorkspaceWideAccess ? workspace.auditEvents : [],
-          },
-          repositoryCount: hasWorkspaceWideAccess
-            ? repositories.length
-            : visibleRepositories.length,
-          repositories: visibleRepositories,
-          provisioning,
-          providerSetup,
-          entitlement,
-          health,
-          reviewConfig,
-          repositoryConfigs,
-          outboxFailures,
-          supportDiagnostics,
-          orgRuleset,
-          memoryItems: memoryItems.items,
-          memorySuggestions: memorySuggestions.suggestions,
-          memoryWritesEnabled: memoryPolicy.memoryEnabled,
-          memoryPolicySimulation,
-          hostedPool,
-        };
-      },
-    ),
-  );
-
-  return dashboardData.sort(compareDashboardWorkspaces);
+  const auditEvents =
+    section === "diagnostics" && hasWorkspaceWideAccess
+      ? ((
+          await prisma.workspace.findUnique({
+            where: { id: workspace.id },
+            select: {
+              auditEvents: {
+                orderBy: { createdAt: "desc" },
+                take: 5,
+                select: {
+                  action: true,
+                  actor: true,
+                  targetType: true,
+                  createdAt: true,
+                },
+              },
+            },
+          })
+        )?.auditEvents ?? [])
+      : [];
+  return {
+    hasWorkspaceWideAccess,
+    workspace: {
+      id: workspace.id,
+      name: workspace.name,
+      slug: workspace.slug,
+      installations: dashboardInstallations,
+      gitLabInstallations: hasWorkspaceWideAccess
+        ? workspace.gitLabInstallations
+        : [],
+      auditEvents,
+    },
+    repositoryCount:
+      section === "setup"
+        ? selectedWorkspace.repositoryCount
+        : hasWorkspaceWideAccess
+          ? repositories.length
+          : visibleRepositories.length,
+    repositories: visibleRepositories,
+    provisioning,
+    providerSetup,
+    entitlement,
+    health,
+    reviewConfig,
+    repositoryConfigs,
+    outboxFailures,
+    supportDiagnostics,
+    orgRuleset,
+    memoryItems: memoryItems.items,
+    memorySuggestions: memorySuggestions.suggestions,
+    memoryWritesEnabled: memoryPolicy.memoryEnabled,
+    memoryPolicySimulation,
+    hostedPool,
+  };
 }
 
 async function buildMemoryPolicySimulation(input: {
@@ -660,6 +772,19 @@ async function buildMemoryPolicySimulation(input: {
   ]);
 }
 
+const organizationSecretPolicyCache = new Map<
+  string,
+  | { readonly pending: Promise<DashboardOrganizationSecretPolicy> }
+  | {
+      readonly policy: DashboardOrganizationSecretPolicy;
+      readonly expiresAt: number;
+    }
+>();
+const organizationSecretPolicyCacheMaxEntries = 128;
+const organizationSecretPolicyTtlMs = 5 * 60 * 1000;
+const organizationSecretPolicyPermissionTtlMs = 30 * 1000;
+const organizationSecretPolicyUnknownTtlMs = 5 * 1000;
+
 async function loadOrganizationSecretPolicy(input: {
   readonly accountLogin: string;
   readonly accountType: string;
@@ -669,6 +794,52 @@ async function loadOrganizationSecretPolicy(input: {
     return null;
   }
 
+  const key = `${input.githubInstallationId}:${input.accountLogin.toLowerCase()}`;
+  const cached = organizationSecretPolicyCache.get(key);
+  if (cached) {
+    if ("pending" in cached) {
+      return cached.pending;
+    }
+    if (cached.expiresAt > Date.now()) {
+      organizationSecretPolicyCache.delete(key);
+      organizationSecretPolicyCache.set(key, cached);
+      return cached.policy;
+    }
+    organizationSecretPolicyCache.delete(key);
+  }
+
+  const pending = fetchOrganizationSecretPolicy(input).then((policy) => {
+    if (organizationSecretPolicyCache.get(key) !== entry) {
+      return policy;
+    }
+    const ttl =
+      policy.status === "available"
+        ? organizationSecretPolicyTtlMs
+        : policy.status === "permission_required"
+          ? organizationSecretPolicyPermissionTtlMs
+          : organizationSecretPolicyUnknownTtlMs;
+    organizationSecretPolicyCache.set(key, {
+      policy,
+      expiresAt: Date.now() + ttl,
+    });
+    return policy;
+  });
+  const entry = { pending };
+  organizationSecretPolicyCache.set(key, entry);
+  if (
+    organizationSecretPolicyCache.size > organizationSecretPolicyCacheMaxEntries
+  ) {
+    organizationSecretPolicyCache.delete(
+      organizationSecretPolicyCache.keys().next().value!,
+    );
+  }
+  return pending;
+}
+
+async function fetchOrganizationSecretPolicy(input: {
+  readonly accountLogin: string;
+  readonly githubInstallationId: bigint;
+}): Promise<DashboardOrganizationSecretPolicy> {
   try {
     const octokit = await createGitHubAppInstallationOctokit(
       input.githubInstallationId.toString(),
@@ -755,10 +926,6 @@ function workspaceSortScore(data: SortableDashboardWorkspace): number {
   );
 }
 
-type DashboardWorkspaceData = Awaited<
-  ReturnType<typeof loadDashboardData>
->[number];
-
 type DashboardRepositoryAccessScope = {
   readonly status: GitHubUserRepositoryAccessStatus;
   readonly workspaceIds: readonly string[];
@@ -768,12 +935,13 @@ type DashboardRepositoryAccessScope = {
   readonly errorCode?: string;
 };
 
-async function listDashboardRepositoryAccess(input: {
+export async function listDashboardRepositoryAccess(input: {
   readonly actor: DashboardMutationActor | null;
   readonly workspaceScope: Awaited<
     ReturnType<typeof getDashboardWorkspaceScope>
   >;
   readonly requestedRepositoryFullName: string;
+  readonly baseAccess?: DashboardRepositoryAccessScope;
 }): Promise<DashboardRepositoryAccessScope> {
   const actor = input.actor;
   if (!actor || input.workspaceScope.kind === "all") {
@@ -789,11 +957,13 @@ async function listDashboardRepositoryAccess(input: {
       ? input.workspaceScope.workspaceIds
       : [];
   const prisma = getPrisma();
-  const discovered = await listGitHubUserRepositoryAccess({
-    prisma,
-    actor: githubActor,
-    excludedWorkspaceIds: fullAccessWorkspaceIds,
-  });
+  const discovered =
+    input.baseAccess ??
+    (await listGitHubUserRepositoryAccess({
+      prisma,
+      actor: githubActor,
+      excludedWorkspaceIds: fullAccessWorkspaceIds,
+    }));
   const requestedRepositoryFullName = normalizeRequestedRepositoryFullName(
     input.requestedRepositoryFullName,
   );
@@ -925,129 +1095,6 @@ function normalizeRequestedRepositoryFullName(value: string): string | null {
   return trimmed;
 }
 
-function filterVisibleDashboardWorkspaces(
-  workspaces: readonly DashboardWorkspaceData[],
-): readonly DashboardWorkspaceData[] {
-  const actionableWorkspaces = workspaces.filter(
-    (workspace) =>
-      workspace.repositoryCount > 0 ||
-      workspace.workspace.installations.length > 0 ||
-      workspace.workspace.gitLabInstallations.length > 0,
-  );
-
-  return actionableWorkspaces.length > 0 ? actionableWorkspaces : workspaces;
-}
-
-function selectDashboardWorkspace(
-  workspaces: readonly DashboardWorkspaceData[],
-  workspaceParam: string,
-  installationIdParam = "",
-): DashboardWorkspaceData {
-  if (!workspaceParam && installationIdParam) {
-    const byInstallation = workspaces.find((workspace) =>
-      workspace.workspace.installations.some(
-        (installation) =>
-          installation.githubInstallationId === installationIdParam,
-      ),
-    );
-    if (byInstallation) return byInstallation;
-  }
-
-  if (!workspaceParam) return workspaces[0]!;
-
-  const normalized = normalizeWorkspaceKey(workspaceParam);
-  return (
-    workspaces.find((workspace) =>
-      dashboardWorkspaceKeys(workspace.workspace).includes(normalized),
-    ) ?? workspaces[0]!
-  );
-}
-
-function dashboardWorkspaceKeys(workspace: DashboardWorkspace): string[] {
-  return [
-    workspace.id,
-    workspace.slug,
-    workspace.name,
-    ...workspace.installations.map((installation) => installation.accountLogin),
-  ]
-    .filter(Boolean)
-    .map(normalizeWorkspaceKey);
-}
-
-function dashboardWorkspaceUrlKey(
-  workspace: DashboardWorkspace,
-  allWorkspaces?: readonly DashboardWorkspaceData[],
-): string {
-  const preferredKey = dashboardWorkspacePreferredUrlKey(workspace);
-  if (!allWorkspaces) return preferredKey;
-
-  const preferredKeyCollision = allWorkspaces.some(
-    (item) =>
-      item.workspace.id !== workspace.id &&
-      normalizeWorkspaceKey(
-        dashboardWorkspacePreferredUrlKey(item.workspace),
-      ) === normalizeWorkspaceKey(preferredKey),
-  );
-  const preferredKeyNamesWorkspace =
-    normalizeWorkspaceKey(workspace.name) ===
-    normalizeWorkspaceKey(preferredKey);
-
-  if (!preferredKeyCollision || preferredKeyNamesWorkspace) {
-    return preferredKey;
-  }
-
-  return workspace.slug || workspace.id;
-}
-
-function dashboardWorkspacePreferredUrlKey(
-  workspace: DashboardWorkspace,
-): string {
-  return (
-    workspace.installations[0]?.accountLogin || workspace.slug || workspace.id
-  );
-}
-
-function workspaceAvatarUrl(
-  workspace: DashboardWorkspace,
-  fallbackUser?: {
-    readonly githubLogin: string | null;
-    readonly githubAvatarUrl: string | null;
-  },
-): string | null {
-  const installationAvatar =
-    workspace.installations.find(
-      (installation) => installation.status === "active",
-    )?.accountAvatarUrl ??
-    workspace.installations[0]?.accountAvatarUrl ??
-    null;
-  if (installationAvatar) return installationAvatar;
-
-  const personalInstallation = workspace.installations.find(
-    (installation) =>
-      installation.accountType === "User" &&
-      installation.accountLogin === fallbackUser?.githubLogin,
-  );
-  if (personalInstallation && fallbackUser?.githubAvatarUrl) {
-    return fallbackUser.githubAvatarUrl;
-  }
-
-  return githubAvatarUrlForLogin(workspace.installations[0]?.accountLogin);
-}
-
-function githubAvatarUrlForLogin(
-  login: string | null | undefined,
-): string | null {
-  if (!login || !/^[A-Za-z0-9-]+$/.test(login)) {
-    return null;
-  }
-
-  return `https://github.com/${login}.png?size=64`;
-}
-
-function normalizeWorkspaceKey(value: string): string {
-  return value.trim().toLowerCase();
-}
-
 const MAX_RENDERED_REPOSITORY_ROWS = 24;
 
 export type DashboardWorkspacePageProps = {
@@ -1057,6 +1104,91 @@ export type DashboardWorkspacePageProps = {
   readonly forcedSection?: DashboardSection | undefined;
 };
 
+const loadDashboardIdentity = cache(async () => {
+  const [mutationStatus, workspaceScope, signedInActor] = await Promise.all([
+    getDashboardMutationStatus(),
+    getDashboardWorkspaceScope(),
+    getDashboardSignedInActor(),
+  ]);
+  return { mutationStatus, workspaceScope, signedInActor };
+});
+
+const loadDashboardBaseShellData = cache(async () => {
+  const identity = await loadDashboardIdentity();
+  const repositoryAccess = await listDashboardRepositoryAccess({
+    actor: identity.signedInActor,
+    workspaceScope: identity.workspaceScope,
+    requestedRepositoryFullName: "",
+  });
+  const workspaces = await loadDashboardWorkspaceSummaries(
+    identity.workspaceScope,
+    repositoryAccess,
+  );
+  return { ...identity, repositoryAccess, workspaces };
+});
+
+const loadDashboardShellData = cache(
+  async (requestedRepositoryFullName: string) => {
+    const base = await loadDashboardBaseShellData();
+    if (!normalizeRequestedRepositoryFullName(requestedRepositoryFullName)) {
+      return base;
+    }
+
+    const repositoryAccess = await listDashboardRepositoryAccess({
+      actor: base.signedInActor,
+      workspaceScope: base.workspaceScope,
+      requestedRepositoryFullName,
+      baseAccess: base.repositoryAccess,
+    });
+    const workspaces = dashboardRepositoryVisibilityChanged(
+      base.repositoryAccess,
+      repositoryAccess,
+    )
+      ? await loadDashboardWorkspaceSummaries(
+          base.workspaceScope,
+          repositoryAccess,
+        )
+      : base.workspaces;
+    return { ...base, repositoryAccess, workspaces };
+  },
+);
+
+function dashboardRepositoryVisibilityChanged(
+  previous: DashboardRepositoryAccessScope,
+  next: DashboardRepositoryAccessScope,
+): boolean {
+  return (
+    previous.workspaceIds.length !== next.workspaceIds.length ||
+    previous.repositoryIds.size !== next.repositoryIds.size ||
+    previous.workspaceIds.some(
+      (workspaceId) => !next.workspaceIds.includes(workspaceId),
+    ) ||
+    [...previous.repositoryIds].some(
+      (repositoryId) => !next.repositoryIds.has(repositoryId),
+    )
+  );
+}
+
+export async function DashboardWorkspaceLayout({
+  children,
+}: {
+  readonly children: ReactNode;
+}): Promise<React.ReactElement> {
+  const { workspaces, mutationStatus } = await loadDashboardBaseShellData();
+  return (
+    <DashboardShell
+      workspaces={workspaces}
+      appInstallUrl={getGitHubAppInstallUrl()}
+      fallbackUser={{
+        githubLogin: mutationStatus.sourceLogin,
+        githubAvatarUrl: mutationStatus.sourceAvatarUrl,
+      }}
+    >
+      {children}
+    </DashboardShell>
+  );
+}
+
 export async function DashboardWorkspacePage({
   searchParams,
   forcedSection,
@@ -1064,22 +1196,108 @@ export async function DashboardWorkspacePage({
   const params = searchParams ? await searchParams : {};
   const appInstallCallbackRedirect =
     buildDashboardAppInstallCallbackRedirect(params);
-  if (appInstallCallbackRedirect) {
-    redirect(appInstallCallbackRedirect);
+  if (appInstallCallbackRedirect) redirect(appInstallCallbackRedirect);
+  const selectedSection = forcedSection ?? resolveDashboardSection(params);
+  if (!forcedSection && selectedSection === "setup")
+    redirect(dashboardPathFromSearchParams(params, "setup"));
+
+  const context = await loadDashboardShellData(readParam(params.repository));
+  const { workspaces, mutationStatus, repositoryAccess } = context;
+  const appInstallUrl = getGitHubAppInstallUrl();
+  const pendingOrganizationInstallRequest =
+    buildPendingOrganizationInstallRequest(params);
+  if (workspaces.length === 0) {
+    if (!mutationStatus.signedIn) redirect("/");
+    return (
+      <>
+        <DashboardShellSnapshot workspaces={workspaces} />
+        <DashboardInstallRequestToast
+          request={pendingOrganizationInstallRequest}
+        />
+        <DashboardActionToast
+          params={params}
+          selectedSection={selectedSection}
+        />
+        <DashboardEmptyAccessState
+          repositoryAccess={repositoryAccess}
+          githubLogin={mutationStatus.sourceLogin}
+          githubAvatarUrl={mutationStatus.sourceAvatarUrl}
+          appInstallUrl={appInstallUrl}
+        />
+        <NavigationContentReady
+          completionKey={JSON.stringify(["empty", selectedSection, params])}
+        />
+      </>
+    );
   }
-  const requestedRepositoryFullName = readParam(params.repository);
-
-  const [mutationStatus, workspaceScope] = await Promise.all([
-    getDashboardMutationStatus(),
-    getDashboardWorkspaceScope(),
+  const selectedWorkspace = selectDashboardWorkspace(
+    workspaces,
+    readParam(params.workspace),
+    readParam(params.installation_id),
+  );
+  const workspaceKey = dashboardWorkspaceUrlKey(
+    selectedWorkspace.workspace,
+    workspaces,
+  );
+  const sectionBoundaryKey = JSON.stringify([
+    selectedWorkspace.workspace.id,
+    selectedSection,
+    readParam(params.repository),
   ]);
-  const signedInActor = await getDashboardSignedInActor();
-  const repositoryAccess = await listDashboardRepositoryAccess({
-    actor: signedInActor,
-    workspaceScope,
-    requestedRepositoryFullName,
-  });
+  return (
+    <>
+      <DashboardShellSnapshot workspaces={workspaces} />
+      <Suspense key={sectionBoundaryKey} fallback={<DashboardSectionLoading />}>
+        <DashboardSectionContent
+          context={context}
+          selectedWorkspace={selectedWorkspace}
+          selectedSection={selectedSection}
+          params={params}
+          workspaceKey={workspaceKey}
+        />
+        <NavigationContentReady completionKey={sectionBoundaryKey} />
+      </Suspense>
+    </>
+  );
+}
 
+async function DashboardSectionContent({
+  context,
+  selectedWorkspace,
+  selectedSection,
+  params,
+  workspaceKey,
+}: {
+  readonly context: Awaited<ReturnType<typeof loadDashboardShellData>>;
+  readonly selectedWorkspace: DashboardWorkspaceSummary;
+  readonly selectedSection: DashboardSection;
+  readonly params: Record<string, string | string[] | undefined>;
+  readonly workspaceKey: string;
+}): Promise<React.ReactElement> {
+  if (selectedSection === "memory") {
+    return (
+      <section
+        id="dashboard-section-content"
+        className="min-w-0 px-1 py-8"
+        aria-labelledby="dashboard-memory-title"
+      >
+        <p className="font-mono text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+          In development
+        </p>
+        <h2
+          id="dashboard-memory-title"
+          className="mt-3 text-3xl font-bold tracking-tight text-cyan-50"
+        >
+          Memory
+        </h2>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
+          Workspace memory is being prepared. This section is not available yet.
+        </p>
+      </section>
+    );
+  }
+  const { workspaceScope, mutationStatus, repositoryAccess, signedInActor } =
+    context;
   const supportAudit =
     workspaceScope.kind === "all" &&
     workspaceScope.reason === "local_admin_override" &&
@@ -1089,91 +1307,30 @@ export async function DashboardWorkspacePage({
           reason: "local_admin_override" as const,
         }
       : undefined;
-  const [dashboardData, modelOptions] = await Promise.all([
-    loadDashboardData(
-      workspaceScope,
+  const [data, modelOptions] = await Promise.all([
+    loadDashboardSectionData(
+      selectedWorkspace,
+      selectedSection,
       repositoryAccess,
       supportAudit,
       signedInActor ? dashboardMemoryActorInput(signedInActor) : null,
     ),
-    getReviewModelOptions(),
+    selectedSection === "repositories" || selectedSection === "policy"
+      ? getReviewModelOptions()
+      : Promise.resolve([]),
   ]);
-  const workspaces = filterVisibleDashboardWorkspaces(dashboardData);
-  const appInstallUrl = getGitHubAppInstallUrl();
-  const selectedSection = forcedSection ?? resolveDashboardSection(params);
-  if (!forcedSection && selectedSection === "setup") {
-    redirect(dashboardPathFromSearchParams(params, "setup"));
-  }
-  const pendingOrganizationInstallRequest =
-    buildPendingOrganizationInstallRequest(params);
-
-  if (workspaces.length === 0) {
-    if (mutationStatus.signedIn) {
-      return (
-        <>
-          <DashboardInstallRequestToast
-            request={pendingOrganizationInstallRequest}
-          />
-          <DashboardActionToast
-            params={params}
-            selectedSection={selectedSection}
-          />
-          <DashboardEmptyAccessState
-            repositoryAccess={repositoryAccess}
-            githubLogin={mutationStatus.sourceLogin}
-            githubAvatarUrl={mutationStatus.sourceAvatarUrl}
-            appInstallUrl={appInstallUrl}
-          />
-        </>
-      );
-    }
-
-    redirect("/");
-  }
-
-  const selectedWorkspace = selectDashboardWorkspace(
-    workspaces,
-    readParam(params.workspace),
-    readParam(params.installation_id),
-  );
-  const selectedWorkspaceKey = dashboardWorkspaceUrlKey(
-    selectedWorkspace.workspace,
-    workspaces,
-  );
-  const claudeCodeProviderEnabled = isClaudeCodeProviderEnabled();
-
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-6 sm:px-6 md:py-10">
-      <WorkspaceSwitcher
-        workspaces={workspaces}
-        selectedWorkspaceId={selectedWorkspace.workspace.id}
-        selectedSection={selectedSection}
-        appInstallUrl={appInstallUrl}
-        pendingOrganizationInstallRequest={pendingOrganizationInstallRequest}
-        fallbackUser={{
-          githubLogin: mutationStatus.sourceLogin,
-          githubAvatarUrl: mutationStatus.sourceAvatarUrl,
-        }}
-      />
-
-      <section id="dashboard-workspace" className="grid gap-5 scroll-mt-28">
-        <WorkspaceCard
-          data={selectedWorkspace}
-          mutationsEnabled={mutationStatus.enabled}
-          selectedSection={selectedSection}
-          params={params}
-          repositoryAccess={repositoryAccess}
-          workspaceKey={selectedWorkspaceKey}
-          appInstallUrl={appInstallUrl}
-          modelOptions={modelOptions}
-          claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-          fallbackUser={{
-            githubLogin: mutationStatus.sourceLogin,
-            githubAvatarUrl: mutationStatus.sourceAvatarUrl,
-          }}
-        />
-      </section>
-    </main>
+    <WorkspaceCard
+      data={data}
+      mutationsEnabled={mutationStatus.enabled}
+      selectedSection={selectedSection}
+      params={params}
+      repositoryAccess={repositoryAccess}
+      workspaceKey={workspaceKey}
+      appInstallUrl={getGitHubAppInstallUrl()}
+      modelOptions={modelOptions}
+      claudeCodeProviderEnabled={isClaudeCodeProviderEnabled()}
+    />
   );
 }
 
@@ -1453,184 +1610,10 @@ function dashboardRepositoryAccessEmptyCopy(
   return {
     badge: "No repositories found",
     title: "No connected repositories found.",
-    body: "Connect GitHub or GitLab repositories, then return to the dashboard to finish setup.",
+    body: "Connect GitHub repositories, then return to the dashboard to finish setup. GitLab is in development and not available yet.",
     reconnect: false,
     tone: "accent",
   };
-}
-
-function WorkspaceSwitcher({
-  workspaces,
-  selectedWorkspaceId,
-  selectedSection,
-  appInstallUrl,
-  pendingOrganizationInstallRequest,
-  fallbackUser,
-}: {
-  readonly workspaces: readonly DashboardWorkspaceData[];
-  readonly selectedWorkspaceId: string;
-  readonly selectedSection: DashboardSection;
-  readonly appInstallUrl: string | null;
-  readonly pendingOrganizationInstallRequest: PendingOrganizationInstallRequest | null;
-  readonly fallbackUser: {
-    readonly githubLogin: string | null;
-    readonly githubAvatarUrl: string | null;
-  };
-}): React.ReactElement | null {
-  if (workspaces.length < 2 && !pendingOrganizationInstallRequest) {
-    return (
-      <section className="py-3">
-        <div className="flex justify-end px-1">
-          <ConnectSourceDialog
-            appInstallUrl={appInstallUrl}
-            workspaceId={selectedWorkspaceId}
-            triggerLabel="Add repos"
-            triggerVariant="outline"
-            triggerSize="sm"
-            triggerClassName="inline-flex w-auto items-center gap-2 px-3"
-          />
-        </div>
-      </section>
-    );
-  }
-
-  const items = workspaces.map((workspace) => {
-    const workspaceKey = dashboardWorkspaceUrlKey(
-      workspace.workspace,
-      workspaces,
-    );
-    return {
-      id: workspace.workspace.id,
-      label: workspace.workspace.name,
-      avatarUrl: workspaceAvatarUrl(workspace.workspace, fallbackUser),
-      repositoryCount: workspace.repositoryCount,
-      ...(workspace.hasWorkspaceWideAccess
-        ? {}
-        : { statusLabel: "Repo access" }),
-      href: dashboardSectionHref(selectedSection, workspaceKey),
-    };
-  });
-  const pendingTab = pendingOrganizationInstallRequest
-    ? {
-        id: pendingOrganizationInstallRequest.id,
-        label: pendingOrganizationInstallRequest.accountLogin,
-        href: dashboardSectionHref(selectedSection),
-        statusLabel: "Request pending",
-      }
-    : null;
-
-  return (
-    <section className="py-3">
-      <div className="grid gap-3">
-        <div className="flex flex-wrap items-end justify-between gap-3 px-1">
-          <div className="min-w-0">
-            <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-cyan-100">
-              Workspace
-            </p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              Personal accounts and organizations stay isolated.
-            </p>
-          </div>
-          <ConnectSourceDialog
-            appInstallUrl={appInstallUrl}
-            workspaceId={selectedWorkspaceId}
-            triggerLabel="Add repos"
-            triggerVariant="outline"
-            triggerSize="sm"
-            triggerClassName="inline-flex w-auto items-center gap-2 px-3"
-          />
-        </div>
-        {items.length > 1 || pendingTab ? (
-          <DashboardWorkspaceTabs
-            items={items}
-            selectedWorkspaceId={selectedWorkspaceId}
-            pendingInstallRequest={pendingTab}
-          />
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-function DashboardSectionNav({
-  workspace,
-  repositoryCount,
-  workspaceHealth,
-  selectedSection,
-  workspaceKey,
-  fallbackUser,
-}: {
-  readonly workspace: DashboardWorkspace;
-  readonly repositoryCount: number;
-  readonly workspaceHealth: WorkspaceHealthSummary;
-  readonly selectedSection: DashboardSection;
-  readonly workspaceKey: string;
-  readonly fallbackUser: {
-    readonly githubLogin: string | null;
-    readonly githubAvatarUrl: string | null;
-  };
-}): React.ReactElement {
-  const avatarUrl = workspaceAvatarUrl(workspace, fallbackUser);
-  const items = DASHBOARD_SECTIONS.map((section) => ({
-    section,
-    label: dashboardSectionMeta[section].title,
-    description: dashboardSectionMeta[section].navDescription,
-    href: dashboardSectionHref(section, workspaceKey),
-  }));
-
-  return (
-    <aside className="min-w-0 px-1 py-1 lg:p-5">
-      <nav
-        aria-label="Dashboard sections"
-        className="flex gap-1 overflow-x-auto lg:hidden"
-      >
-        {items.map((item) => {
-          const active = selectedSection === item.section;
-          return (
-            <a
-              key={item.section}
-              href={item.href}
-              title={item.description}
-              aria-current={active ? "page" : undefined}
-              className={[
-                "inline-flex shrink-0 items-center whitespace-nowrap rounded-lg border px-3 py-1.5 font-mono text-[0.68rem] font-semibold uppercase tracking-[0.16em] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300",
-                active
-                  ? "border-cyan-300/45 bg-cyan-300/[0.11] text-cyan-50"
-                  : "border-transparent text-slate-300 hover:border-cyan-200/20 hover:bg-cyan-300/[0.055] hover:text-cyan-100",
-              ].join(" ")}
-            >
-              {item.label}
-            </a>
-          );
-        })}
-      </nav>
-      <div className="hidden gap-4 lg:sticky lg:top-24 lg:grid">
-        <div className="px-1 py-1">
-          <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Current account
-          </p>
-          <div className="mt-2 flex min-w-0 items-center gap-3">
-            <GitHubAccountAvatar
-              avatarUrl={avatarUrl}
-              login={workspace.name}
-              size="md"
-            />
-            <p className="truncate text-xl font-semibold text-cyan-50">
-              {workspace.name}
-            </p>
-          </div>
-          <p className="mt-2 text-xs leading-5 text-slate-500">
-            {workspaceInstallSummary(workspace)}
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Badge tone="neutral">{repositoryCount} repos</Badge>
-            <Badge tone={workspaceHealth.tone}>{workspaceHealth.label}</Badge>
-          </div>
-        </div>
-        <DashboardSectionTabs items={items} selectedSection={selectedSection} />
-      </div>
-    </aside>
-  );
 }
 
 function WorkspaceCard({
@@ -1643,7 +1626,6 @@ function WorkspaceCard({
   appInstallUrl,
   modelOptions,
   claudeCodeProviderEnabled,
-  fallbackUser,
 }: {
   readonly data: DashboardWorkspaceData;
   readonly mutationsEnabled: boolean;
@@ -1654,10 +1636,6 @@ function WorkspaceCard({
   readonly appInstallUrl: string | null;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly claudeCodeProviderEnabled: boolean;
-  readonly fallbackUser: {
-    readonly githubLogin: string | null;
-    readonly githubAvatarUrl: string | null;
-  };
 }): React.ReactElement {
   const {
     hasWorkspaceWideAccess,
@@ -1740,19 +1718,7 @@ function WorkspaceCard({
     ) : null;
 
   return (
-    <DashboardCollapsibleShell
-      defaultCollapsed={selectedSection === "memory"}
-      nav={
-        <DashboardSectionNav
-          workspace={workspace}
-          repositoryCount={repositoryCount}
-          workspaceHealth={workspaceHealth}
-          selectedSection={selectedSection}
-          workspaceKey={workspaceKey}
-          fallbackUser={fallbackUser}
-        />
-      }
-    >
+    <>
       <div
         id="dashboard-section-content"
         className="min-w-0 space-y-5 scroll-mt-28"
@@ -1770,6 +1736,7 @@ function WorkspaceCard({
           repositoryCount={repositoryCount}
           workspaceHealth={workspaceHealth}
           activeConfig={activeConfig}
+          hostedPool={hostedPool}
         />
         {!hasWorkspaceWideAccess || repositoryAccess.status !== "ready" ? (
           <RepositoryAccessRefreshNotice
@@ -1782,6 +1749,15 @@ function WorkspaceCard({
 
         {selectedSection === "repositories" ? (
           <>
+            <WorkspaceSourceConnectionPanel
+              workspaceId={workspace.id}
+              workspaceKey={workspaceKey}
+              installations={activeInstallations}
+              gitLabInstallations={workspace.gitLabInstallations}
+              repositories={repositories}
+              hasWorkspaceWideAccess={hasWorkspaceWideAccess}
+              mutationsEnabled={mutationsEnabled}
+            />
             <RepositoryTable
               workspace={workspace}
               repositories={repositories}
@@ -1794,6 +1770,7 @@ function WorkspaceCard({
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               mutationsEnabled={mutationsEnabled}
               workspaceKey={workspaceKey}
+              initialWorkspaceParam={readParam(params.workspace) || null}
               searchQuery={repositorySearchQuery}
               searchFilter={repositorySearchFilter}
               selectedRepositoryFullName={selectedRepository?.fullName ?? null}
@@ -1810,6 +1787,19 @@ function WorkspaceCard({
                 mutationsEnabled && hasWorkspaceWideAccess
               }
             />
+            {hasWorkspaceWideAccess ? (
+              <OrgRulesetAdvancedCard
+                workspace={workspace}
+                orgRuleset={orgRuleset}
+                mutationsEnabled={mutationsEnabled}
+                appInstallUrl={appInstallUrl}
+                permissionUpgradeNeeded={
+                  readParam(params.error) === "org_admin_permission_required" ||
+                  readParam(params.error) ===
+                    "org_ruleset_permission_update_pending"
+                }
+              />
+            ) : null}
           </>
         ) : null}
 
@@ -1828,301 +1818,32 @@ function WorkspaceCard({
         ) : null}
 
         {selectedSection === "setup" ? (
-          <>
-            <details
-              open
-              className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
-            >
-              <summary className="cursor-pointer list-none">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <Badge tone="accent">
-                      <SourceProviderLabel
-                        provider="github"
-                        label="GitHub App connection"
-                      />
-                    </Badge>
-                    <p className="mt-2 text-sm text-slate-400">
-                      Installation sync and repository selection.
-                    </p>
-                  </div>
-                  <span className="font-mono text-xs uppercase tracking-[0.16em] text-cyan-100">
-                    {activeInstallations.length} connected
-                  </span>
-                </div>
-              </summary>
-              <div className="mt-5 grid gap-3 lg:grid-cols-2">
-                <div className="rounded-2xl border border-cyan-200/10 bg-cyan-300/[0.04] p-4 text-sm leading-6 text-slate-300">
-                  <p className="inline-flex items-center gap-2 font-semibold text-cyan-50">
-                    <SourceProviderLogo provider="github" className="h-4 w-4" />
-                    GitHub personal account vs organization
-                  </p>
-                  <p className="mt-1">
-                    To connect a personal repository, install the GitHub App on
-                    your username in GitHub. To connect organization
-                    repositories, install it on the organization. Each install
-                    appears as a separate workspace in the left switcher.
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-orange-300/20 bg-orange-300/[0.045] p-4 text-sm leading-6 text-slate-300">
-                  <p className="inline-flex items-center gap-2 font-semibold text-cyan-50">
-                    <SourceProviderLogo provider="gitlab" className="h-4 w-4" />
-                    GitLab group or project
-                  </p>
-                  <p className="mt-1">
-                    Connect GitLab from a group or project URL. ReviewRouter
-                    keeps GitLab tokens in GitLab CI/CD variables, not in the
-                    dashboard.
-                  </p>
-                  <LinkButton
-                    href={`/setup/gitlab?workspaceId=${encodeURIComponent(workspace.id)}`}
-                    variant="outline"
-                    size="sm"
-                    className="mt-3 border-orange-300/35"
-                  >
-                    <SourceProviderLabel
-                      provider="gitlab"
-                      label="Connect GitLab"
-                    />
-                  </LinkButton>
-                </div>
-              </div>
-              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {activeInstallations.map((installation) => {
-                  const selectedRepositories = repositories
-                    .filter(
-                      (repository) =>
-                        repository.selected &&
-                        repository.fullName.startsWith(
-                          `${installation.accountLogin}/`,
-                        ),
-                    )
-                    .map((repository) => repository.fullName);
-                  const visibleSelectedRepositories =
-                    selectedRepositories.slice(0, 6);
-                  const hiddenSelectedRepositoryCount =
-                    selectedRepositories.length -
-                    visibleSelectedRepositories.length;
-
-                  return (
-                    <div
-                      key={`${workspace.id}-${installation.githubInstallationId}`}
-                      className="grid gap-4 rounded-2xl border border-cyan-200/10 bg-cyan-300/[0.04] p-4"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <GitHubAccountAvatar
-                          avatarUrl={installation.accountAvatarUrl}
-                          login={installation.accountLogin}
-                          size="sm"
-                        />
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-cyan-50">
-                            {installation.accountLogin}
-                          </p>
-                          <p className="inline-flex flex-wrap items-center gap-1.5 text-xs uppercase tracking-[0.16em] text-slate-400">
-                            <SourceProviderLabel
-                              provider="github"
-                              label="GitHub"
-                              className="inline-flex items-center gap-1.5"
-                              logoClassName="h-3.5 w-3.5"
-                            />
-                            <span>/</span>
-                            {formatAccountTypeLabel(
-                              installation.accountType,
-                            )}{" "}
-                            <span>/</span>
-                            {installation.status} /{" "}
-                            {installation.repositorySelection}
-                          </p>
-                        </div>
-                      </div>
-                      {installation.accountType === "Organization" ? (
-                        <div className="rounded-xl border border-cyan-200/10 bg-slate-950/55 p-3">
-                          <p className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-cyan-100/70">
-                            Selected repositories
-                          </p>
-                          {installation.repositorySelection === "all" ? (
-                            <p className="mt-2 text-xs leading-5 text-slate-300">
-                              All organization repositories are available. Setup
-                              and secrets still apply only to the repository you
-                              choose.
-                            </p>
-                          ) : visibleSelectedRepositories.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {visibleSelectedRepositories.map(
-                                (repositoryFullName) => (
-                                  <span
-                                    key={repositoryFullName}
-                                    className="rounded-full border border-cyan-300/15 bg-cyan-300/[0.08] px-2.5 py-1 text-[0.7rem] font-semibold text-cyan-50"
-                                  >
-                                    {repositoryFullName}
-                                  </span>
-                                ),
-                              )}
-                              {hiddenSelectedRepositoryCount > 0 ? (
-                                <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[0.7rem] font-semibold text-slate-300">
-                                  +{hiddenSelectedRepositoryCount} more
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <p className="mt-2 text-xs leading-5 text-slate-300">
-                              Refresh repositories to show the exact selected
-                              repository list if the GitHub webhook has not
-                              synced it yet.
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="rounded-xl border border-cyan-200/10 bg-slate-950/55 p-3">
-                          <p className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-cyan-100/70">
-                            Personal repositories
-                          </p>
-                          <p className="mt-2 text-xs leading-5 text-slate-300">
-                            This install belongs to your personal GitHub
-                            account. Use repository Actions secrets for provider
-                            credentials.
-                          </p>
-                        </div>
-                      )}
-                      {hasWorkspaceWideAccess ? (
-                        <DashboardActionForm
-                          action={requestInstallationSyncClientAction}
-                          fallbackParams={{
-                            error: "dashboard_action_failed",
-                            workspace: workspace.id,
-                            section: "setup",
-                          }}
-                          refresh={false}
-                        >
-                          <input
-                            type="hidden"
-                            name="workspaceId"
-                            value={workspace.id}
-                          />
-                          <input
-                            type="hidden"
-                            name="githubInstallationId"
-                            value={installation.githubInstallationId}
-                          />
-                          <FormSubmitButton
-                            variant="outline"
-                            size="sm"
-                            className="w-full sm:w-auto"
-                            disabled={
-                              !mutationsEnabled ||
-                              installation.status !== "active"
-                            }
-                            idleLabel="Refresh repos"
-                            pendingLabel="Refreshing..."
-                          />
-                        </DashboardActionForm>
-                      ) : (
-                        <p className="rounded-xl border border-cyan-200/10 bg-slate-950/55 p-3 text-xs leading-5 text-slate-400">
-                          You can manage repositories where your GitHub role has
-                          write, maintain, or admin access. Workspace sync and
-                          organization-wide controls are available to workspace
-                          owners and admins.
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </details>
-
-            {workspace.gitLabInstallations.length > 0 ? (
-              <details
-                open
-                className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
-              >
-                <summary className="cursor-pointer list-none">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <Badge tone="accent">GitLab connection</Badge>
-                      <p className="mt-2 text-sm text-slate-400">
-                        Group and project rollout metadata.
-                      </p>
-                    </div>
-                    <span className="font-mono text-xs uppercase tracking-[0.16em] text-cyan-100">
-                      {workspace.gitLabInstallations.length} connected
-                    </span>
-                  </div>
-                </summary>
-                <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {workspace.gitLabInstallations.map((installation) => (
-                    <div
-                      key={installation.id}
-                      className="grid gap-4 rounded-2xl border border-cyan-200/10 bg-cyan-300/[0.04] p-4"
-                    >
-                      <div>
-                        <p className="truncate text-sm font-semibold text-cyan-50">
-                          {installation.namespacePath}
-                        </p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-400">
-                          GitLab {installation.sourceKind} /{" "}
-                          {installation.status}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-cyan-200/10 bg-slate-950/55 p-3">
-                        <p className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-cyan-100/70">
-                          Selected projects
-                        </p>
-                        <p className="mt-2 text-xs leading-5 text-slate-300">
-                          {installation.selectedProjects} project
-                          {installation.selectedProjects === 1 ? "" : "s"}{" "}
-                          selected. GitLab token and Codex auth are not stored
-                          in ReviewRouter.
-                        </p>
-                      </div>
-                      <LinkButton
-                        href={gitLabSetupHref({
-                          workspaceId: workspace.id,
-                          installationId: installation.id,
-                        })}
-                        variant="outline"
-                        size="sm"
-                        className="w-fit rounded-xl"
-                      >
-                        Add GitLab repos
-                      </LinkButton>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            ) : null}
-
-            {hasWorkspaceWideAccess ? (
-              <HostedPoolSettingsPanel
-                workspaceId={workspace.id}
-                view={hostedPool}
-                mutationsEnabled={mutationsEnabled}
-                actions={{
-                  importAccount: importHostedPoolAccountClientAction,
-                  startDeviceLogin: startHostedPoolDeviceLoginClientAction,
-                  pollDeviceLogin: pollHostedPoolDeviceLoginClientAction,
-                  setAccountState: setHostedPoolAccountStateClientAction,
-                  removeAccount: removeHostedPoolAccountClientAction,
-                  setRepositorySource:
-                    setHostedRepositorySessionSourceClientAction,
-                }}
-              />
-            ) : null}
-
-            {hasWorkspaceWideAccess ? (
-              <OrgRulesetAdvancedCard
-                workspace={workspace}
-                orgRuleset={orgRuleset}
-                mutationsEnabled={mutationsEnabled}
-                appInstallUrl={appInstallUrl}
-                permissionUpgradeNeeded={
-                  readParam(params.error) === "org_admin_permission_required" ||
-                  readParam(params.error) ===
-                    "org_ruleset_permission_update_pending"
-                }
-              />
-            ) : null}
-          </>
+          hasWorkspaceWideAccess ? (
+            <HostedPoolSettingsPanel
+              workspaceId={workspace.id}
+              view={hostedPool}
+              mutationsEnabled={mutationsEnabled}
+              actions={{
+                importAccount: importHostedPoolAccountClientAction,
+                startDeviceLogin: startHostedPoolDeviceLoginClientAction,
+                pollDeviceLogin: pollHostedPoolDeviceLoginClientAction,
+                setAccountState: setHostedPoolAccountStateClientAction,
+                removeAccount: removeHostedPoolAccountClientAction,
+                setRepositorySource:
+                  setHostedRepositorySessionSourceClientAction,
+              }}
+            />
+          ) : (
+            <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+              <h3 className="text-sm font-semibold text-cyan-50">
+                ChatGPT accounts for reviews
+              </h3>
+              <p className="mt-3 text-sm leading-6 text-slate-400">
+                Only workspace owners and admins can connect ChatGPT sessions.
+                GitHub and GitLab repository connections are on Repositories.
+              </p>
+            </section>
+          )
         ) : null}
 
         {selectedSection === "policy" ? (
@@ -2458,7 +2179,7 @@ function WorkspaceCard({
           </>
         ) : null}
       </div>
-    </DashboardCollapsibleShell>
+    </>
   );
 }
 
@@ -2467,11 +2188,13 @@ function DashboardSectionHeader({
   repositoryCount,
   workspaceHealth,
   activeConfig,
+  hostedPool,
 }: {
   readonly selectedSection: DashboardSection;
   readonly repositoryCount: number;
   readonly workspaceHealth: WorkspaceHealthSummary;
   readonly activeConfig: ReviewConfiguration;
+  readonly hostedPool: DashboardWorkspaceData["hostedPool"];
 }): React.ReactElement {
   const meta = dashboardSectionMeta[selectedSection];
   const status =
@@ -2480,7 +2203,7 @@ function DashboardSectionHeader({
       : selectedSection === "policy"
         ? `${activeConfig.provider.model} / ${activeConfig.provider.reasoningEffort}`
         : selectedSection === "memory"
-          ? "Confirm before use"
+          ? "In development"
           : "Metadata only";
 
   return (
@@ -2494,7 +2217,11 @@ function DashboardSectionHeader({
             {meta.title}
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            {meta.description}
+            {selectedSection === "setup" && hostedPool.gate !== "enabled"
+              ? hostedPool.gate === "feature_disabled"
+                ? "Hosted ChatGPT account enrollment is paused on this deployment."
+                : "Activate this workspace to manage hosted ChatGPT accounts."
+              : meta.description}
           </p>
           {selectedSection === "repositories" ? (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -2520,10 +2247,20 @@ function DashboardSectionHeader({
         </div>
         {selectedSection === "repositories" ? null : (
           <div className="flex flex-wrap gap-2 xl:justify-end">
-            {selectedSection === "setup" ? (
+            {selectedSection === "setup" && hostedPool.gate === "enabled" ? (
               <HostedSessionEncryptionBadge label="Encrypted at rest" />
             ) : null}
-            <Badge tone={workspaceHealth.tone}>{workspaceHealth.label}</Badge>
+            {selectedSection === "setup" ? (
+              hostedPool.gate === "enabled" ? null : (
+                <Badge tone="neutral">
+                  {hostedPool.gate === "feature_disabled"
+                    ? "Not enabled"
+                    : "Unavailable"}
+                </Badge>
+              )
+            ) : selectedSection === "diagnostics" ? (
+              <Badge tone={workspaceHealth.tone}>{workspaceHealth.label}</Badge>
+            ) : null}
             {selectedSection === "setup" ? null : (
               <Badge tone="neutral" className="max-w-full break-words">
                 {status}
@@ -2736,6 +2473,7 @@ function RepositoryTable({
   claudeCodeProviderEnabled,
   mutationsEnabled,
   workspaceKey,
+  initialWorkspaceParam,
   searchQuery,
   searchFilter,
   selectedRepositoryFullName,
@@ -2755,6 +2493,7 @@ function RepositoryTable({
   readonly claudeCodeProviderEnabled: boolean;
   readonly mutationsEnabled: boolean;
   readonly workspaceKey: string;
+  readonly initialWorkspaceParam: string | null;
   readonly searchQuery: string;
   readonly searchFilter: RepositorySearchFilter;
   readonly selectedRepositoryFullName: string | null;
@@ -2769,8 +2508,8 @@ function RepositoryTable({
         <Badge tone="warning">No repositories yet</Badge>
         <p className="mt-3 text-sm leading-6 text-slate-300">
           No source repositories are connected to this workspace yet. Use
-          Connect source to add GitHub App repositories or install GitLab CI
-          wiring.
+          Connect source to add GitHub App repositories. GitLab is in
+          development and not available yet.
         </p>
       </div>
     );
@@ -2883,9 +2622,13 @@ function RepositoryTable({
   const searchIndex = rows.map(
     (row): RepositorySearchIndexItem => ({
       id: row.repository.id,
+      fullName: row.repository.fullName,
+      sourceUrl: repositorySourceUrl(row.repository),
       searchText: row.searchableText,
       visibility: row.repository.visibility,
       readiness: row.readiness,
+      stargazersCount: row.repository.stargazersCount,
+      archived: row.repository.archived,
     }),
   );
   const initialSearchTokens = tokenizeRepositorySearch(searchQuery);
@@ -2915,66 +2658,43 @@ function RepositoryTable({
     !cappedRows.some((row) => row.repository.id === selectedRow.repository.id)
       ? [selectedRow, ...cappedRows.slice(0, MAX_RENDERED_REPOSITORY_ROWS - 1)]
       : cappedRows;
-  const initiallyVisibleRepositoryIds = new Set(
-    displayRows.map((row) => row.repository.id),
-  );
   return (
     <div
       data-repository-table
       className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
     >
-      <div className="border-b border-cyan-200/10 bg-transparent p-0">
-        <RepositoryLiveSearch
-          workspaceKey={workspaceKey}
-          selectedRepositoryFullName={selectedRepositoryFullName}
-          initialQuery={searchQuery}
-          initialFilter={searchFilter}
-          searchIndex={searchIndex}
-          totalRepositoryCount={rows.length}
-          renderedRepositoryCount={displayRows.length}
-          rowLimit={MAX_RENDERED_REPOSITORY_ROWS}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-200/10 px-4 py-3 lg:px-6">
+        <div>
+          <p className="text-sm font-semibold text-cyan-100">
+            Provider API keys
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Apply a MiMo or OpenRouter key to selected repositories.
+          </p>
+        </div>
+        <ProviderApiKeyManager
+          workspaceId={workspace.id}
+          disabled={!mutationsEnabled || directConfigRepositoryIds !== null}
+          disabledReason={
+            directConfigRepositoryIds !== null
+              ? "Workspace admin access is required to manage provider keys."
+              : "Dashboard mutations are unavailable."
+          }
         />
       </div>
-
-      <div
-        data-repository-search-loader
-        hidden
-        role="status"
-        aria-live="polite"
-        aria-label="Loading updated repository results"
-        className="border-t border-cyan-200/10 bg-cyan-300/[0.025] px-3 py-5 text-slate-200 lg:px-6 lg:py-6"
+      <RepositoryLiveSearch
+        key={workspaceKey}
+        workspaceKey={workspaceKey}
+        initialWorkspaceParam={initialWorkspaceParam}
+        selectedRepositoryFullName={selectedRepositoryFullName}
+        selectedRepositoryId={selectedRow?.repository.id ?? null}
+        initialQuery={searchQuery}
+        initialFilter={searchFilter}
+        searchIndex={searchIndex}
+        totalRepositoryCount={rows.length}
+        rowLimit={MAX_RENDERED_REPOSITORY_ROWS}
+        richRowIds={displayRows.map((row) => row.repository.id)}
       >
-        <div className="grid gap-4">
-          <p className="inline-flex w-fit items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-300/[0.075] px-3 py-1.5 font-mono text-xs font-semibold uppercase tracking-[0.16em] text-cyan-100 shadow-[0_0_38px_-30px_rgba(103,232,249,0.95)]">
-            <span
-              aria-hidden="true"
-              className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-r-transparent"
-            />
-            Loading updated results
-          </p>
-          <div aria-hidden="true" className="grid gap-4">
-            {Array.from({ length: 4 }, (_, index) => (
-              <div
-                key={index}
-                className="grid gap-3 border-t border-cyan-200/10 py-5 first:border-t-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
-              >
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="h-8 w-80 max-w-full animate-pulse rounded-full bg-cyan-100/12" />
-                  <span className="h-8 w-16 animate-pulse rounded-full bg-slate-700/45" />
-                </div>
-                <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                  <span className="h-8 w-28 animate-pulse rounded-full bg-slate-700/45" />
-                  <span className="h-8 w-20 animate-pulse rounded-full bg-slate-800/55" />
-                  <span className="h-9 w-40 animate-pulse rounded-xl bg-slate-800/55" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div data-repository-results className="grid text-slate-200">
-        <RepositorySetupRowDisclosureController />
         {displayRows.map(
           (
             {
@@ -3021,9 +2741,8 @@ function RepositoryTable({
                 data-repository-row-id={repository.id}
                 data-repository-setup-row
                 data-disclosure-id={setupDisclosureId}
-                hidden={!initiallyVisibleRepositoryIds.has(repository.id)}
                 className={[
-                  "grid cursor-pointer gap-3 border-t border-cyan-200/10 px-4 py-3 transition-colors first:border-t-0 lg:px-6 lg:py-3.5",
+                  "grid cursor-pointer gap-3 border-t border-cyan-200/10 px-4 py-3 transition-colors lg:px-6 lg:py-3.5",
                   rowStripeClass,
                 ].join(" ")}
               >
@@ -3151,7 +2870,7 @@ function RepositoryTable({
             );
           },
         )}
-      </div>
+      </RepositoryLiveSearch>
     </div>
   );
 }
@@ -3311,6 +3030,9 @@ type ProviderSecretGuidanceSet = {
   readonly codexOAuth: ReturnType<typeof buildProviderSecretSetupGuidance>;
   readonly codexApiKey: ReturnType<typeof buildProviderSecretSetupGuidance>;
   readonly claudeCodeOAuth: ReturnType<typeof buildProviderSecretSetupGuidance>;
+  readonly mimoTokenPlanApiKey: ReturnType<
+    typeof buildProviderSecretSetupGuidance
+  >;
   readonly openRouterApiKey: ReturnType<
     typeof buildProviderSecretSetupGuidance
   >;
@@ -3492,6 +3214,11 @@ function buildProviderSecretGuidanceSet({
     codexApiKey: buildDisabledLegacyCodexGuidance("openai_api_key"),
     claudeCodeOAuth: buildProviderSecretSetupGuidance({
       provider: "claude_code_oauth",
+      repoFullName: repositoryFullName,
+      organizationLogin,
+    }),
+    mimoTokenPlanApiKey: buildProviderSecretSetupGuidance({
+      provider: "mimo_token_plan_api_key",
       repoFullName: repositoryFullName,
       organizationLogin,
     }),
@@ -3700,7 +3427,7 @@ function OrgRulesetAdvancedCard({
               fallbackParams={{
                 error: "dashboard_action_failed",
                 workspace: workspace.id,
-                section: "setup",
+                section: "repositories",
               }}
               className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-[minmax(0,18rem)_minmax(0,18rem)_auto] 2xl:items-end"
             >
@@ -3969,17 +3696,6 @@ function DashboardActionToast({
       setUrlSearchParams={{ section: selectedSection }}
     />
   );
-}
-
-function gitLabSetupHref(input: {
-  readonly workspaceId: string;
-  readonly installationId: string;
-}): string {
-  const query = new URLSearchParams({
-    workspaceId: input.workspaceId,
-    installationId: input.installationId,
-  });
-  return `/setup/gitlab?${query.toString()}`;
 }
 
 function resolveMemoryManagementMode(

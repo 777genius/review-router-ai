@@ -246,13 +246,21 @@ async function checkReviewActionV2ProtocolBoundaries(violations) {
         ) &&
         !repositoryPath.startsWith(
           "packages/features/action-control-plane/src/tests/",
+        ) &&
+        // The hosted Action is the client-side v2 transport boundary. Keep
+        // generated DTOs out of its domain/application and legacy paths.
+        !/^packages\/features\/codex-oauth-rotating\/src\/action\/hosted-v4-[\w-]+\.ts$/.test(
+          repositoryPath,
+        ) &&
+        !/^packages\/features\/codex-oauth-rotating\/src\/tests\/hosted-v4-[\w-]+\.test\.ts$/.test(
+          repositoryPath,
         )
       ) {
         violations.push({
           file,
           imported,
           reason:
-            "generated Review Action v2 protocol is only consumed by the action-control-plane v2 interface",
+            "generated Review Action v2 protocol is only consumed by v2 server or hosted Action transport interfaces",
         });
       }
     }

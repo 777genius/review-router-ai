@@ -1115,11 +1115,16 @@ describe("hosted setup recovery composition", () => {
             (response.data as { content: string }).content,
             "base64",
           ).toString("utf8");
-          if (scenario === "wrong_action_ref")
+          if (scenario === "wrong_action_ref") {
             source = source.replaceAll(
               actionRef,
               `777genius/review-router@${"c".repeat(40)}`,
             );
+            source = source.replaceAll(
+              `ref: ${actionRef.split("@")[1]}`,
+              `ref: ${"c".repeat(40)}`,
+            );
+          }
           if (scenario === "ambiguous_style")
             source += `\n  duplicate:\n    uses: 777genius/review-router/.github/workflows/reviewrouter-reusable.yml@${"a".repeat(40)}\n`;
           reads.push({ path: parameters?.path, ref: parameters?.ref, source });

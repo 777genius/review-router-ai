@@ -98,6 +98,26 @@ const hostedPoolStagedMigrations = [
 
 const publicEligibilityMigration =
   "000096_hosted_pool_public_repository_eligibility";
+const requestScopedFailoverMigration = Object.freeze({
+  name: "000104_hosted_pool_request_scoped_failover",
+  phase: "verify-000104",
+});
+const v4RelayTurnMigration = "000107_hosted_v4_relay_turn_contract";
+const sdkGrowthVerifierAssignmentMigrations = Object.freeze([
+  "000108_sdk_growth_verifier_assignment",
+  "000109_sdk_growth_verifier_assignment_lock",
+]);
+const historicalUnknownScopeBarrierMigration =
+  "000110_historical_unknown_scope_barrier";
+const providerApiKeyWorkspaceMigration =
+  "000110_provider_api_key_workspace_management";
+const sdkGrowthSourceBindingMigration = "000111_sdk_growth_source_binding";
+const sdkGrowthOperatorCredentialMigration =
+  "000112_sdk_growth_operator_credential";
+const sdkGrowthApprovalLedgerMigration = "000113_sdk_growth_approval_ledger";
+const sdkGrowthV3ToolArtifactMigration = "000114_sdk_growth_v3_tool_artifact";
+const sdkGrowthV3ApprovedManifestMigration =
+  "000115_sdk_growth_v3_approved_manifest";
 
 const codexOAuthV5Migrations = [
   "000087_codex_oauth_v4_v5_workflow_reattestation",
@@ -161,6 +181,22 @@ try {
       rehearsalDirectory,
       migrationDatabaseUrl,
     );
+    applyRequestScopedFailoverMigration(
+      rehearsalDirectory,
+      migrationDatabaseUrl,
+    );
+    addMigration(rehearsalDirectory, v4RelayTurnMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    for (const migrationName of sdkGrowthVerifierAssignmentMigrations) {
+      addMigration(rehearsalDirectory, migrationName);
+      runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    }
+    addMigration(rehearsalDirectory, historicalUnknownScopeBarrierMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    addMigration(rehearsalDirectory, providerApiKeyWorkspaceMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    addMigration(rehearsalDirectory, sdkGrowthSourceBindingMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
 
     const migrationCount = await countAppliedMigrations(migrationDatabaseUrl);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
@@ -735,7 +771,19 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
     publicEligibilityMigration,
     ...codexOAuthV5Migrations,
     ...(excludeHostedPoolMigrations
-      ? hostedPoolStagedMigrations.map((migration) => migration.name)
+      ? [
+          ...hostedPoolStagedMigrations.map((migration) => migration.name),
+          requestScopedFailoverMigration.name,
+          v4RelayTurnMigration,
+          ...sdkGrowthVerifierAssignmentMigrations,
+          historicalUnknownScopeBarrierMigration,
+          providerApiKeyWorkspaceMigration,
+          sdkGrowthSourceBindingMigration,
+          sdkGrowthOperatorCredentialMigration,
+          sdkGrowthApprovalLedgerMigration,
+          sdkGrowthV3ToolArtifactMigration,
+          sdkGrowthV3ApprovedManifestMigration,
+        ]
       : []),
   ]);
   cpSync("packages/platform/db/prisma", join(directory, "prisma"), {
@@ -921,4 +969,10 @@ async function applyPublicEligibilityMigration(directory, url) {
   } finally {
     await client.end();
   }
+}
+
+function applyRequestScopedFailoverMigration(directory, url) {
+  addMigration(directory, requestScopedFailoverMigration.name);
+  runMigrationDeploy(directory, url);
+  runMigrationTest(url, requestScopedFailoverMigration.phase);
 }

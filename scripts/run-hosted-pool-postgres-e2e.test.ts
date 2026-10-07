@@ -35,7 +35,7 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     );
   });
 
-  it("hands off authority before V5 in the populated migration rehearsal", () => {
+  it("hands off authority before V5 and applies SQL104 after public eligibility", () => {
     const migrationMode = section(
       "if (runMigration) {",
       "if (runPostgresE2e) {",
@@ -45,7 +45,57 @@ describe("hosted pool PostgreSQL migration ordering", () => {
       "for (const migration of hostedPoolStagedMigrations)",
       "await prepareCodexOAuthV5ReleaseAuthority(migrationDatabaseUrl)",
       "applyCodexOAuthV5Migrations(rehearsalDirectory, migrationDatabaseUrl)",
+      "await applyPublicEligibilityMigration(",
+      "applyRequestScopedFailoverMigration(",
     ]);
+  });
+
+  it("keeps SQL104 out of the pre-handoff catalog and verifies it after deploy", () => {
+    expect(
+      source.match(/000104_hosted_pool_request_scoped_failover/gu),
+    ).toHaveLength(1);
+    const preparation = section(
+      "function prepareMigrationRehearsal",
+      "function addMigration",
+    );
+    expect(preparation).toContain("requestScopedFailoverMigration.name");
+    const helper = source.slice(
+      source.indexOf("function applyRequestScopedFailoverMigration"),
+    );
+    expectOrdered(helper, [
+      "addMigration(directory, requestScopedFailoverMigration.name)",
+      "runMigrationDeploy(directory, url)",
+      "runMigrationTest(url, requestScopedFailoverMigration.phase)",
+    ]);
+  });
+
+  it("stages 000110 and 000111 after hosted-v4 and SDK verifier migrations", () => {
+    for (const migration of [
+      "000107_hosted_v4_relay_turn_contract",
+      "000108_sdk_growth_verifier_assignment",
+      "000109_sdk_growth_verifier_assignment_lock",
+      "000110_historical_unknown_scope_barrier",
+      "000110_provider_api_key_workspace_management",
+      "000111_sdk_growth_source_binding",
+    ])
+      expect(source.match(new RegExp(migration, "gu"))).toHaveLength(1);
+    const preparation = section(
+      "function prepareMigrationRehearsal",
+      "function addMigration",
+    );
+    expect(preparation).toContain("v4RelayTurnMigration");
+    expect(preparation).toContain("...sdkGrowthVerifierAssignmentMigrations");
+    expect(preparation).toContain("historicalUnknownScopeBarrierMigration");
+    expect(preparation).toContain("providerApiKeyWorkspaceMigration");
+    expect(preparation).toContain("sdkGrowthSourceBindingMigration");
+    expect(preparation).toContain("sdkGrowthOperatorCredentialMigration");
+    const stagedTail = section(
+      "addMigration(rehearsalDirectory, v4RelayTurnMigration)",
+      "const migrationCount =",
+    );
+    expect(stagedTail).toMatch(
+      /addMigration\(rehearsalDirectory, v4RelayTurnMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*for \(const migrationName of sdkGrowthVerifierAssignmentMigrations\) \{\s*addMigration\(rehearsalDirectory, migrationName\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*\}\s*addMigration\(rehearsalDirectory, historicalUnknownScopeBarrierMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*addMigration\(rehearsalDirectory, providerApiKeyWorkspaceMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*addMigration\(rehearsalDirectory, sdkGrowthSourceBindingMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);/u,
+    );
   });
 
   it("hands off authority before V5 in the full PostgreSQL E2E", () => {
