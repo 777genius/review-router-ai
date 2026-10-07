@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHmac, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { createServer, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import { test, vi } from "vitest";
@@ -20,9 +20,13 @@ import {
   PrismaProviderAccountRepository,
   type WorkspaceAccountActor,
 } from "@reviewrouter/features-provider-accounts";
-import { PrismaProviderAccountSynchronization } from "@reviewrouter/features-provider-accounts/synchronization";
+import {
+  PrismaProviderAccountSynchronization,
+  PrismaPersonalAccountOperations,
+} from "@reviewrouter/features-provider-accounts/synchronization";
 import {
   createAccountsAdapter,
+  createDisabledPersonalAccountsAdapter,
   accountsServerAdapter,
   loadAccountsBootstrap,
   type AccountView,
@@ -91,6 +95,9 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       },
     )}`;
     c.oauthAuthorizationURL.parse(authorizationURL);
+    let personalIngressEntries = 0;
+    let hidePersonalReadback = true;
+    let personalOperationId = "";
     let oauthBeginEntries = 0;
     const genericReadRefs: string[] = [];
     let personalWorkspaceId: string | undefined;
@@ -160,6 +167,17 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
             genericReadRefs.push(
               decodeURIComponent(url.pathname.slice("/v1/operations/".length)),
             );
+            if (
+              hidePersonalReadback &&
+              url.pathname.endsWith(`/${personalOperationId}`) &&
+              personalOperationId
+            )
+              return json(response, 404, {
+                code: "not_found",
+                traceRef: "fixture-missing",
+                effect: "not_dispatched",
+                retry: { kind: "never" },
+              });
             const receipt = operations.get(
               decodeURIComponent(url.pathname.slice("/v1/operations/".length)),
             );
@@ -224,6 +242,52 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
           if (input.credential.kind === "api_key")
             assert.equal(input.credential.value, sentinel);
           assert.notEqual(input.ownerRef, workspaceId);
+          if (input.ownerRef.startsWith("rru_")) {
+            // RED: HTTP ingress precedes RR COMMIT, uses caller ownership or
+            // changed safe intent, or a lost ACK repeats secret submission.
+            const persisted =
+              await db.personalAccountOperation.findUniqueOrThrow({
+                where: { id: input.operationId },
+              });
+            assert.ok(["submitted", "unknown"].includes(persisted.phase));
+            assert.equal(
+              input.ownerRef,
+              `rru_${createHash("sha256").update(`rr-user-owner-v1\0${persisted.actorUserId}`).digest("hex")}`,
+            );
+            assert.equal(input.profileId, persisted.profileId);
+            assert.equal(input.displayName, persisted.displayName);
+            assert.equal(
+              await db.providerAccountConnection.count({
+                where: { id: persisted.proposedSourceId! },
+              }),
+              0,
+            );
+            personalIngressEntries++;
+            assert.equal(personalIngressEntries, 1);
+            personalOperationId = input.operationId;
+            owner = input.ownerRef;
+            account = {
+              accountRef: `h-http-${prefix}`,
+              ownerRef: owner,
+              profileId: input.profileId,
+              displayName: input.displayName,
+              state: "active",
+              metadataRevision: 2,
+              authorizationEpoch: 3,
+            };
+            operations.set(input.operationId, {
+              operationRef: input.operationId,
+              state: "applied",
+              result: {
+                kind: "account",
+                accountRef: account.accountRef,
+                metadataRevision: 2,
+                authorizationEpoch: 3,
+              },
+            });
+            response.destroy(); // applied original operation, deliberately lost ingress ACK
+            return;
+          }
           if (operations.has(input.operationId))
             return json(response, 409, {
               code: "conflict",
@@ -1152,6 +1216,106 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
           false,
         );
       }
+      // Controlled personal source recovery uses the real store and public C1
+      // consumer-control factory. These retained inert rows do not enable H.
+      const stableUser = `h-http-user-${randomUUID()}`;
+      await db.user.create({ data: { id: stableUser } });
+      const store = new PrismaPersonalAccountOperations(db);
+      const personal = () =>
+        createDisabledPersonalAccountsAdapter({
+          authorizeUser: async () => stableUser,
+          store,
+          control: {
+            role: "consumer-control",
+            origin: `http://127.0.0.1:${address.port}`,
+            token: "t",
+            timeoutMs: 2000,
+          },
+          profiles: new Map([[profileId, "api-key-create"]]),
+        });
+      const personalIntent = {
+        nonce: randomUUID(),
+        profileId,
+        label: "  Personal canonical  ",
+      };
+      const attempts = await Promise.all([
+        personal().connect(personalIntent, sentinel),
+        personal().connect(personalIntent, sentinel),
+      ]);
+      assert.equal(personalIngressEntries, 1);
+      assert.ok(attempts.every((r) => r.operation.sourceId === null));
+      const personalOriginal = await store.readOperation(
+        stableUser,
+        personalIntent.nonce,
+      );
+      assert.equal(personalOriginal.intent.action, "connect");
+      if (personalOriginal.intent.action !== "connect")
+        throw new Error("expected_connect");
+      assert.equal(personalOriginal.intent.displayName, "Personal canonical");
+      assert.equal(
+        await db.providerAccountConnection.count({
+          where: { id: personalOriginal.intent.proposedSourceId },
+        }),
+        0,
+      );
+      const persisted = await db.personalAccountOperation.findUniqueOrThrow({
+        where: { id: personalOriginal.id },
+      });
+      assert.equal(
+        JSON.stringify(persisted, (_, v) =>
+          typeof v === "bigint" ? v.toString() : v,
+        ).includes(sentinel),
+        false,
+      );
+      hidePersonalReadback = false;
+      assert.ok(account);
+      const personalOriginalAccount = account;
+      // RED: a later owner/epoch/revision replaces the original operation result.
+      for (const patch of [
+        { ownerRef: "foreign-owner" },
+        { authorizationEpoch: 4 },
+        { metadataRevision: 3 },
+      ]) {
+        account = { ...personalOriginalAccount, ...patch };
+        assert.equal(
+          (await personal().operation(personalIntent.nonce)).sourceId,
+          null,
+        );
+        assert.equal(genericReadRefs.at(-1), personalOriginal.id);
+      }
+      account = personalOriginalAccount;
+      const finalized = await Promise.all([
+        personal().operation(personalIntent.nonce),
+        personal().operation(personalIntent.nonce),
+      ]);
+      assert.equal(
+        finalized[0]!.sourceId,
+        personalOriginal.intent.proposedSourceId,
+      );
+      assert.deepEqual(finalized[0], finalized[1]);
+      assert.equal(finalized[0]!.phase, "applied");
+      assert.equal(
+        await db.workspaceAccountBinding.count({
+          where: { connectionId: personalOriginal.intent.proposedSourceId },
+        }),
+        1,
+      );
+      assert.equal(personalIngressEntries, 1);
+      const foreign = createDisabledPersonalAccountsAdapter({
+        authorizeUser: async () => member.userId!,
+        store,
+        control: {
+          role: "consumer-control",
+          origin: `http://127.0.0.1:${address.port}`,
+          token: "t",
+        },
+        profiles: new Map([[profileId, "api-key-create"]]),
+      });
+      const beforeForeign = httpReads;
+      await assert.rejects(foreign.operation(personalIntent.nonce));
+      assert.equal(httpReads, beforeForeign); // foreign receipt never reaches Gateway
+      // Existing production personal zero-entry assertions above remain mandatory;
+      // public factory/list/GET never materializes these pending/applied sources.
       assert.equal(
         wireFailure,
         false,

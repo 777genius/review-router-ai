@@ -72,8 +72,9 @@ export class PrismaProviderAccountRepository
             workspaceId: input.workspaceId,
             connectionId: input.connectionId,
           };
-          let current = await tx.workspaceAccountBinding.findUnique({
-            where: { workspaceId_connectionId: pair },
+          let current = await tx.workspaceAccountBinding.findFirst({
+            where: pair,
+            orderBy: [{ state: "asc" }, { createdAt: "desc" }, { id: "desc" }],
           });
           if (current?.state === "revoked" && current.pendingFenceOperationId)
             return mapBinding(current); // Keep the exact outstanding requirement.
@@ -92,7 +93,7 @@ export class PrismaProviderAccountRepository
           assertExpectedRevision(current.revision);
           assertExpectedRevision(current.policyRevision);
           const changed = await tx.workspaceAccountBinding.updateMany({
-            where: { ...pair, revision: current.revision },
+            where: { id: current.id, revision: current.revision },
             data: {
               state: "revoked",
               revision: { increment: 1 },
@@ -107,7 +108,7 @@ export class PrismaProviderAccountRepository
             throw new ProviderAccountError("revision_conflict");
           return mapBinding(
             await tx.workspaceAccountBinding.findUniqueOrThrow({
-              where: { workspaceId_connectionId: pair },
+              where: { id: current.id },
             }),
           );
         },
@@ -137,7 +138,9 @@ export class PrismaProviderAccountRepository
       where: {
         workspaceId: request.workspaceId,
         connectionId: request.connectionId,
+        connection: { ownerUserId: null },
       },
+      orderBy: [{ state: "asc" }, { createdAt: "desc" }, { id: "desc" }],
     });
     return row ? mapBinding(row) : null;
   }
@@ -277,8 +280,9 @@ export class PrismaProviderAccountRepository
             workspaceId: input.workspaceId,
             connectionId: input.connectionId,
           };
-          const current = await tx.workspaceAccountBinding.findUnique({
-            where: { workspaceId_connectionId: pair },
+          const current = await tx.workspaceAccountBinding.findFirst({
+            where: pair,
+            orderBy: [{ state: "asc" }, { createdAt: "desc" }, { id: "desc" }],
           });
           // A recipient can revoke an existing operator grant, never manufacture one.
           if (
@@ -311,7 +315,7 @@ export class PrismaProviderAccountRepository
           }
           assertExpectedRevision(current.policyRevision);
           const changed = await tx.workspaceAccountBinding.updateMany({
-            where: { ...pair, revision: input.expectedRevision },
+            where: { id: current.id, revision: input.expectedRevision },
             data: {
               state: input.state,
               revision: { increment: 1 },
@@ -330,7 +334,7 @@ export class PrismaProviderAccountRepository
           if (changed.count !== 1)
             throw new ProviderAccountError("revision_conflict");
           const updated = await tx.workspaceAccountBinding.findUniqueOrThrow({
-            where: { workspaceId_connectionId: pair },
+            where: { id: current.id },
           });
           return mapBinding(updated);
         },

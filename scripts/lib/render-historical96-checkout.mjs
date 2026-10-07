@@ -32,6 +32,7 @@ const checkoutOnlyMigrations = Object.freeze([
   "000121_review_run_gateway_execution_binding",
   "000122_review_configuration_operation_receipt",
   "000123_personal_workspace_identity",
+  "000124_personal_account_operations",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
@@ -40,7 +41,7 @@ export function readRenderHistorical96CheckoutInventory() {
   if (
     ![
       96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
-      111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122,
+      111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123,
     ].includes(checkout.length)
   )
     throw new Error("render_historical96_checkout_rejected:count");

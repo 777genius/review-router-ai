@@ -26,6 +26,15 @@ export function mapConnection(
     displayName: row.displayName,
     state: row.state,
     metadataRevision: row.metadataRevision,
+    ...(row.ownerUserId !== null
+      ? {
+          authorizationEpochMirror:
+            row.authorizationEpochMirror === null
+              ? null
+              : Number(row.authorizationEpochMirror),
+          pendingSourceOperationId: row.pendingSourceOperationId,
+        }
+      : {}),
   };
 }
 export function mapBinding(row: BindingRecord): WorkspaceAccountBinding {
