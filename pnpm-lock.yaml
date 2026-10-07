@@ -160,8 +160,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-e8c9216.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-e8c9216.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -292,8 +292,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-e8c9216.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-e8c9216.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -1103,10 +1103,10 @@ importers:
 
 packages:
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz':
-    resolution: {integrity: sha512-ouvfzIThYs4RsFVWjxnCi9Htamn2BBuJF2VFK+8xDtOfHMzheDUeRL1BW+uv9STjJhHAYFnH85rOCgAcL3iYcg==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-e8c9216.tgz':
+    resolution: {integrity: sha512-O5gTDFvTPqAkaGP6VxRzCle0z4itlEJUD/L6lkf5x1+t3TnOClKr7nusvHaq3X4BC+PyXfLn6egW9fA1jQKCIQ==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-e8c9216.tgz}
     version: 0.1.0
-    engines: {node: '>=24.21.0 <25'}
+    engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
   '@get-modular/assembly@0.2.0':
     resolution: {integrity: sha512-xZTgfMUzHnA8DR7wk/3mAdLppTlwAsm6pfW5bgoW6lvGh8hYGBJwcwzbdynJduRVBVW7aFmchsrLTP5w4rcmlw==}
@@ -4904,7 +4904,7 @@ packages:
 
 snapshots:
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-0d12d3a.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-e8c9216.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0

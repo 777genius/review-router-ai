@@ -1,12 +1,15 @@
 # Private Account Gateway SDK artifact
 
 Internal private SDK0.1.0 from accepted Gateway source
-`0d12d3a81336944a92ff29ad637cd233b44554aa` (preserved `21fb2f0` ancestry).
+`e8c9216ff51647b6712471f45990e1c0477ce4e7` (Gateway PR23 merge).
+Its tree `81618fff86dfaaddee9d010e2262243fe524feac` matches the independently
+reviewed and CI-qualified head `e3c5b20656880b449e8126d25776dbe491a0df19`.
 This artifact is not an npm publication or a release. The prepared 14-entry,
-13925-byte public package includes protected OAuth Begin contracts and the
-server-only client; production SDK/source are unchanged. The existing pinned
-build produces packaged dist and declarations; provenance.json records exact
-public source hashes and tarball integrity. Rebuild with the library's existing
+14738-byte public package includes protected OAuth Begin contracts and the
+server-only consumer-control factory through the existing `/http` export.
+The existing pinned build produces packaged dist and declarations;
+provenance.json records public source/build input/package file hashes,
+source qualification runs and tarball integrity. Rebuild with the library's existing
 `node scripts/build.mjs` and `npm pack --ignore-scripts` in an isolated workspace.
 
 RR backend consumes `/contracts` and server-only `/http`. Neither upstream key
