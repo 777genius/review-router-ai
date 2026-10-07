@@ -1,6 +1,9 @@
 # ReviewRouter hosted beta Blueprint.
 # Customer code review still runs inside customer GitHub Actions. These services
 # are the SaaS control plane only: dashboard, webhooks, config/OIDC, health, jobs.
+# Native builds attempt Prisma network isolation, then use a minimal child
+# environment if unsupported. CI and self-hosted builds require isolation;
+# the owner-approved native Render fallback still permits network access.
 
 services:
   - type: web

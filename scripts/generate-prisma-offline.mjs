@@ -19,8 +19,8 @@ export function prismaGenerateArgs() {
   return ["--filter", "@reviewrouter/platform-db", "db:generate"];
 }
 
-function probe(command, args) {
-  const result = spawnSync(command, args, { stdio: "ignore" });
+function probe(command, args, env) {
+  const result = spawnSync(command, args, { env, stdio: "ignore" });
   return !result.error && result.status === 0;
 }
 
@@ -43,10 +43,10 @@ export function forwardedGenerateEnvironment(env = process.env) {
   const forwarded = {};
   // Prisma generate does not need a live database. Keep only the toolchain
   // variables required to find pnpm/node and local Prisma engines. Secrets
-  // must not appear on the privileged `sudo env` argv or in the isolated
-  // child after `env -i`.
+  // must not appear in probes, any generator child, or privileged `sudo env`
+  // arguments. Package-manager config prefixes can contain auth tokens.
   const keep =
-    /^(?:PATH|HOME|USER|LOGNAME|SHELL|NODE_ENV|CI|NODE_PATH|PNPM_HOME|TMPDIR|TMP|TEMP|LANG|LC_ALL|COREPACK_.*|npm_config_.*|NPM_CONFIG_.*|PRISMA_(?:ENGINES_CHECKSUM|SCHEMA_ENGINE_BINARY|QUERY_ENGINE_LIBRARY|QUERY_ENGINE_BINARY|FMT_BINARY|CLI_QUERY_ENGINE_TYPE))$/u;
+    /^(?:PATH|HOME|USER|LOGNAME|SHELL|NODE_ENV|CI|NODE_PATH|PNPM_HOME|TMPDIR|TMP|TEMP|LANG|LC_ALL|COREPACK_HOME|COREPACK_ENABLE_DOWNLOAD_PROMPT|PRISMA_(?:ENGINES_CHECKSUM|SCHEMA_ENGINE_BINARY|QUERY_ENGINE_LIBRARY|QUERY_ENGINE_BINARY|FMT_BINARY|CLI_QUERY_ENGINE_TYPE))$/u;
   for (const [key, value] of Object.entries(env)) {
     if (
       value == null ||
@@ -77,8 +77,10 @@ export function selectNetworkIsolator(env = process.env) {
   }
 
   const probeArgs = isolationProbeArgs();
-  if (probe("unshare", probeArgs)) return "unshare";
-  if (probe("sudo", ["-n", "unshare", ...probeArgs])) return "sudo-unshare";
+  const probeEnv = forwardedGenerateEnvironment(env);
+  if (probe("unshare", probeArgs, probeEnv)) return "unshare";
+  if (probe("sudo", ["-n", "unshare", ...probeArgs], probeEnv))
+    return "sudo-unshare";
   if (env.REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA === "1")
     throw new Error("offline Prisma generate could not isolate the network");
   console.error("warning: generating Prisma client without network isolation");
@@ -135,12 +137,11 @@ export function assertOfflinePrismaGenerateEnvironment(env = process.env) {
 function run() {
   try {
     assertOfflinePrismaGenerateEnvironment();
-    const childEnv = { ...process.env };
-    for (const name of forbiddenCredentialNames) delete childEnv[name];
+    const childEnv = forwardedGenerateEnvironment();
     const pnpmPath = resolveExecutable("pnpm", childEnv);
-    const isolator = selectNetworkIsolator(childEnv);
+    const isolator = selectNetworkIsolator();
     const invocation = offlinePrismaGenerateInvocation(
-      childEnv,
+      process.env,
       isolator,
       pnpmPath,
     );
