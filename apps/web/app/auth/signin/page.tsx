@@ -88,7 +88,7 @@ export default async function SignInPage({
           Sign in to <span className="whitespace-nowrap">ReviewRouter</span>
         </h1>
         <p className="mt-4 text-base leading-7 text-[var(--rr-color-text-muted)] text-pretty">
-          Continue with GitHub or GitLab to map repository metadata to your
+          Choose an available provider to map repository metadata to your
           dashboard. Provider credentials and PR diffs stay in your CI boundary.
         </p>
 
