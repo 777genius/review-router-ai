@@ -741,7 +741,7 @@ function requireSha256(value: string, code: string): string {
   return value;
 }
 
-function parseAttestation(
+export function parseAttestation(
   binding: {
     readonly id: string;
     readonly revision: bigint;

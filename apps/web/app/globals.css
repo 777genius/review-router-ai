@@ -69,9 +69,59 @@ body::after {
   );
 }
 
+.rr-navigation-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 100;
+  height: 3px;
+  overflow: hidden;
+  pointer-events: none;
+  background: rgba(34, 211, 238, 0.08);
+  transition: opacity 180ms ease;
+}
+
+.rr-navigation-progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 38%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #22d3ee, #818cf8 58%, #e879f9);
+  box-shadow:
+    0 0 12px rgba(34, 211, 238, 0.88),
+    0 0 24px rgba(129, 140, 248, 0.58);
+  animation: rr-navigation-progress 1s ease-in-out infinite;
+}
+
+.rr-navigation-progress[data-state="complete"] {
+  opacity: 0;
+}
+
+.rr-navigation-progress[data-state="complete"] > span {
+  width: 100%;
+  animation: none;
+  transition: width 120ms ease-out;
+}
+
+@keyframes rr-navigation-progress {
+  0% {
+    transform: translateX(-105%) scaleX(0.72);
+  }
+  58% {
+    transform: translateX(120%) scaleX(1);
+  }
+  100% {
+    transform: translateX(290%) scaleX(0.82);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+
+  .rr-navigation-progress > span {
+    width: 72%;
+    animation: none;
   }
 }
 
@@ -156,7 +206,7 @@ canvas {
   transform: translateX(-72%);
 }
 
-.home-install-cta:hover {
+.home-install-cta:hover:not(:disabled) {
   transform: translateY(-2px) scale(1.01);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.62),
@@ -172,6 +222,68 @@ canvas {
     0 24px 58px -30px rgba(252, 109, 38, 0.8),
     0 20px 54px -32px rgba(73, 238, 255, 0.7),
     0 0 0 1px rgba(255, 255, 255, 0.12) !important;
+}
+
+.home-install-cta:disabled,
+.home-install-cta--gitlab:disabled {
+  cursor: not-allowed;
+}
+
+.home-install-cta--gitlab:disabled {
+  color: rgba(226, 232, 240, 0.82) !important;
+  border-color: rgba(148, 163, 184, 0.38) !important;
+  background: rgba(15, 23, 42, 0.72) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+.home-install-cta--gitlab:disabled::after {
+  display: none;
+}
+
+.gitlab-beta-cta {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.gitlab-beta-cta--stretch {
+  display: flex;
+  width: 100%;
+}
+
+.gitlab-beta-cta__ribbon {
+  position: absolute;
+  top: -0.42rem;
+  right: 0.55rem;
+  z-index: 3;
+  padding: 0.12rem 0.42rem;
+  border: 1px solid rgba(251, 146, 60, 0.42);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fdba74;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  pointer-events: none;
+  box-shadow: 0 6px 16px -12px rgba(15, 23, 42, 0.7);
+}
+
+[data-theme="light"] .home-install-cta--gitlab:disabled {
+  color: #475569 !important;
+  border-color: rgba(100, 116, 139, 0.38) !important;
+  background: rgba(248, 250, 252, 0.92) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+}
+
+[data-theme="light"] .gitlab-beta-cta__ribbon {
+  border-color: rgba(234, 88, 12, 0.38);
+  background: rgba(255, 255, 255, 0.96);
+  color: #c2410c;
+  box-shadow: 0 6px 16px -12px rgba(15, 23, 42, 0.28);
 }
 
 .home-shell {
@@ -552,6 +664,10 @@ canvas {
   font-family: var(--font-mono), "JetBrains Mono", monospace;
   font-size: clamp(0.68rem, 0.72vw, 0.92rem);
   line-height: 1.55;
+}
+
+.setup-blueprint__signal--secrets small {
+  max-width: 18.5rem;
 }
 
 .setup-blueprint__signal--data {

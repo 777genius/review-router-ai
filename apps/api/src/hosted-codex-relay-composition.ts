@@ -12,6 +12,7 @@ import {
   hostedCodexAcceptedRelayCustodyModes,
   PrismaHostedCodexSessionPersistence,
   PrismaInvocationGrantRepository,
+  PrismaHostedHistoricalScopeBarrier,
   PrismaHostedCommentTokenMintLedger,
   HostedCommentTokenClosureReconciler,
   startHostedCommentTokenClosureReconciler,
@@ -19,6 +20,7 @@ import {
   hostedCodexProductionKmsBindingArn,
   PrismaHostedCodexUpstreamEffectLedger,
   startHostedCodexEffectSweeper,
+  type HostedCommentTokenRevocationProviderPort,
   type RegisterHostedCodexRelayRoutesDependencies,
   assertHostedCustodyReady,
 } from "@reviewrouter/features-hosted-account-pool";
@@ -30,7 +32,7 @@ import {
   isHostedCodexPoolEnabled,
   isHostedCodexRelayEnabled,
 } from "@reviewrouter/platform-config";
-import { SystemClock } from "@reviewrouter/shared";
+import { SystemClock, type Clock } from "@reviewrouter/shared";
 import { OctokitGitHubAppCommentTokenIssuer } from "./github/octokit-github-app-comment-token-issuer.js";
 import { OctokitHostedWorkflowSourceReader } from "./github/octokit-hosted-workflow-source-reader.js";
 import {
@@ -59,6 +61,49 @@ export function readHostedCodexFeatureFlags(
     relay: master && isHostedCodexRelayEnabled(processEnv),
     failover: master && isHostedCodexFailoverEnabled(processEnv),
   };
+}
+
+export function createProductionHostedCodexSessionRuntime(input: {
+  readonly prisma: PrismaClient;
+  readonly env: Readonly<Record<string, string | undefined>>;
+}): HostedCodexSessionRuntime {
+  const databaseIncarnation =
+    input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_INCARNATION?.trim();
+  if (!databaseIncarnation) {
+    throw new Error("hosted_codex_database_incarnation_missing");
+  }
+  const databaseResourceIdentity =
+    input.env.REVIEW_ROUTER_HOSTED_CODEX_DATABASE_RESOURCE_IDENTITY?.trim();
+  if (!databaseResourceIdentity || databaseResourceIdentity.length < 16) {
+    throw new Error("hosted_codex_database_resource_identity_invalid");
+  }
+  const fingerprintPepper = Buffer.from(
+    input.env.REVIEW_ROUTER_HOSTED_CODEX_FINGERPRINT_PEPPER ?? "",
+    "base64",
+  );
+  if (fingerprintPepper.byteLength < 32) {
+    throw new Error("hosted_codex_fingerprint_pepper_invalid");
+  }
+  const keyring = resolveHostedCodexKeyring({
+    env: input.env,
+    purpose: "relay",
+  });
+  const vault = new CredentialEnvelopeVault(keyring, "relay");
+  return new HostedCodexSessionRuntime({
+    sessionStore: new HostedCodexSessionStore(
+      new PrismaHostedCodexSessionPersistence(
+        input.prisma,
+        vault,
+        databaseIncarnation,
+        databaseResourceIdentity,
+        fingerprintPepper,
+        hostedCodexProductionKmsBindingArn(keyring),
+      ),
+    ),
+    leaseStore: new HostedCodexMutationFenceLeaseStore(
+      new PrismaHostedCodexMutationFence(input.prisma),
+    ),
+  });
 }
 
 export function composeHostedCodexRelayRoutes(input: {
@@ -136,6 +181,16 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
     privateKey: input.githubAppPrivateKey,
   });
   const ledger = new PrismaInvocationGrantRepository(input.prisma);
+  const historicalScopes = new PrismaHostedHistoricalScopeBarrier(
+    input.prisma,
+    {
+      required:
+        input.env.REVIEW_ROUTER_HOSTED_HISTORICAL_SCOPE_DESTINATION_REQUIRED ===
+        "1",
+      resourceIdentity: databaseResourceIdentity,
+      incarnation: databaseIncarnation,
+    },
+  );
   const stopEffectSweeper = startHostedCodexEffectSweeper(
     new PrismaHostedCodexUpstreamEffectLedger(input.prisma),
   );
@@ -157,44 +212,11 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
       ledger: commentTokenMintLedger,
       vault: commentTokenVault,
       now: () => clock.now(),
-      provider: {
-        async revoke({ token, signal }) {
-          const tokenHash = createHash("sha256")
-            .update(token, "utf8")
-            .digest("hex");
-          const mint = await input.prisma.hostedCodexCommentTokenMint.findFirst(
-            {
-              where: { tokenHash },
-              orderBy: { createdAt: "desc" },
-              select: {
-                grant: {
-                  select: {
-                    status: true,
-                    expiresAt: true,
-                    revokedAt: true,
-                  },
-                },
-              },
-            },
-          );
-          if (hostedCommentTokenGrantStillLive(mint?.grant, clock.now())) {
-            throw new Error("grant_still_live");
-          }
-          const result = await githubCommentTokens.revokeCommentToken({
-            token,
-            signal,
-          });
-          return {
-            evidenceHash: createHash("sha256")
-              .update(`github-installation-token:${result.proof}`, "utf8")
-              .digest("hex"),
-            receipt: {
-              authority: "github_token_delete" as const,
-              result: result.proof,
-            },
-          };
-        },
-      },
+      provider: createHostedCommentTokenRevocationProvider({
+        custodyPrisma: input.custodyPrisma,
+        githubCommentTokens,
+        clock,
+      }),
     }),
   );
   const custodyLifecycle = {
@@ -249,11 +271,13 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
         relayUrl,
         workflowSources,
         commentTokens: durableCommentTokens,
+        historicalScopes,
         clock,
       })
     : undefined;
   const relay = new FetchHostedCodexStreamingRelay(runtime, ledger, fetch, {
     failoverEnabled: flags.failover,
+    historicalScopes,
     faultPlans: composeHostedCodexCanaryFaultPlans(input),
   });
   return {
@@ -282,6 +306,7 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
         return new PrismaHostedCodexRelayAuthorization(
           input.prisma,
           flags.failover,
+          historicalScopes,
         ).authorize(request);
       },
     },
@@ -297,6 +322,54 @@ export async function composeProductionHostedCodexRelayRoutes(input: {
           ),
         };
       },
+    },
+  };
+}
+
+export function createHostedCommentTokenRevocationProvider(input: {
+  readonly custodyPrisma: Pick<PrismaClient, "hostedCodexCommentTokenMint">;
+  readonly githubCommentTokens: Pick<
+    OctokitGitHubAppCommentTokenIssuer,
+    "revokeCommentToken"
+  >;
+  readonly clock: Pick<Clock, "now">;
+}): HostedCommentTokenRevocationProviderPort {
+  return {
+    async revoke({ token, signal }) {
+      const tokenHash = createHash("sha256")
+        .update(token, "utf8")
+        .digest("hex");
+      // The runtime API role cannot SELECT mint rows; only custody may read them.
+      const mint =
+        await input.custodyPrisma.hostedCodexCommentTokenMint.findFirst({
+          where: { tokenHash },
+          orderBy: { createdAt: "desc" },
+          select: {
+            grant: {
+              select: {
+                status: true,
+                expiresAt: true,
+                revokedAt: true,
+              },
+            },
+          },
+        });
+      if (hostedCommentTokenGrantStillLive(mint?.grant, input.clock.now())) {
+        throw new Error("grant_still_live");
+      }
+      const result = await input.githubCommentTokens.revokeCommentToken({
+        token,
+        signal,
+      });
+      return {
+        evidenceHash: createHash("sha256")
+          .update(`github-installation-token:${result.proof}`, "utf8")
+          .digest("hex"),
+        receipt: {
+          authority: "github_token_delete",
+          result: result.proof,
+        },
+      };
     },
   };
 }

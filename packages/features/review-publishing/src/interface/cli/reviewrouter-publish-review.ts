@@ -91,6 +91,7 @@ export async function runReviewPublisherCli(
       ...(options.maxInlineComments !== undefined
         ? { maxInlineComments: options.maxInlineComments }
         : readMaxInlineCommentsFromEnv(env)),
+      ...readOutputLanguageFromEnv(env),
     },
     { publisher },
   );
@@ -391,6 +392,15 @@ function readMaxInlineCommentsFromEnv(
         ),
       }
     : {};
+}
+
+function readOutputLanguageFromEnv(
+  env: Readonly<Record<string, string | undefined>>,
+): { readonly outputLanguage?: string | undefined } {
+  const value =
+    readOptionalEnv(env, "REVIEW_OUTPUT_LANGUAGE") ??
+    readOptionalEnv(env, "REVIEWROUTER_OUTPUT_LANGUAGE");
+  return value ? { outputLanguage: value } : {};
 }
 
 function optionalShaField(

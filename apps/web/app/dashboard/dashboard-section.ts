@@ -32,17 +32,16 @@ export const dashboardSectionMeta: Record<
     navDescription: "Setup PRs and health",
   },
   memory: {
-    eyebrow: "Memory management",
+    eyebrow: "In development",
     title: "Memory",
-    description:
-      "Confirm suggested memories, manage approved knowledge, and keep runtime context scoped to this workspace.",
-    navDescription: "Suggestions and knowledge",
+    description: "Memory management is in development and not available yet.",
+    navDescription: "In development",
   },
   setup: {
     eyebrow: "ChatGPT",
     title: "Accounts",
     description:
-      "We encrypt every ChatGPT session before it is stored. Sessions never go to the browser, and we decrypt only to run a review.",
+      "We encrypt ChatGPT sessions at rest. Stored sessions are never returned to the browser.",
     navDescription: "Encrypted subscription accounts",
   },
   policy: {
@@ -112,6 +111,16 @@ export function dashboardSectionHref(
     section,
     ...(workspaceKey ? { workspace: workspaceKey } : {}),
   })}#dashboard-section-content`;
+}
+
+/**
+ * Persistent dashboard navigation keeps the shell mounted, so client-side
+ * transitions do not need a fragment jump. Keeping the fragment out of the
+ * Next Link also prevents revisiting a cached route from duplicating it.
+ */
+export function dashboardClientNavigationHref(href: string): string {
+  const fragmentIndex = href.indexOf("#");
+  return fragmentIndex === -1 ? href : href.slice(0, fragmentIndex);
 }
 
 export function resolveDashboardSection(

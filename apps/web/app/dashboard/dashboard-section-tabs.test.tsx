@@ -27,9 +27,16 @@ describe("DashboardSectionTabs", () => {
     render(<DashboardSectionTabs items={items} selectedSection="setup" />);
 
     expect(DASHBOARD_SECTIONS.at(-1)).toBe("memory");
+    expect(dashboardSectionMeta.memory.navDescription).toMatch(
+      /in development/i,
+    );
+    expect(dashboardSectionMeta.memory.description).toMatch(/in development/i);
+    expect(
+      screen.getByRole("tab", { name: /^Memory\s*In development$/i }),
+    ).toBeTruthy();
     const setupLink = screen.getByRole("tab", { name: /AccountsEncrypted/i });
     expect(setupLink.getAttribute("href")).toBe(
-      "/dashboard/setup?workspace=acme#dashboard-section-content",
+      "/dashboard/setup?workspace=acme",
     );
     expect(setupLink.getAttribute("aria-current")).toBe("page");
     expect(setupLink.className).toContain("border-cyan-200");
@@ -61,6 +68,9 @@ describe("DashboardSectionTabs", () => {
     }
     expect(
       screen.getByRole("link", { name: /Accounts/i }).querySelector("svg"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: /MemoryIn development/i }),
     ).toBeTruthy();
   });
 });

@@ -404,6 +404,7 @@ export class GitHubAppReviewV2CredentialProvider
     options: { readonly appId: string; readonly privateKey: string },
     private readonly repositories: ReviewV2GitHubRepositoryQueryPort,
     private readonly payloads: ReviewV2PublicationPayloadPort,
+    private readonly assertCheckIdentityAllowed?: (name: string) => void,
   ) {
     this.app = new App(options);
   }
@@ -431,6 +432,7 @@ export class GitHubAppReviewV2CredentialProvider
         permit: input.permit,
         capability: input.capability,
         payloads: this.payloads,
+        assertCheckIdentityAllowed: this.assertCheckIdentityAllowed,
         botLogin,
       }),
       close: async () => undefined,
@@ -536,6 +538,9 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       readonly capability: ReviewPublicationOperationCapabilityFacts;
       readonly payloads: ReviewV2PublicationPayloadPort;
       readonly botLogin: string;
+      readonly assertCheckIdentityAllowed?:
+        | ((name: string) => void)
+        | undefined;
     },
   ) {}
 
@@ -564,6 +569,9 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
     readonly capability: ReviewPublicationOperationCapabilityFacts;
   }): Promise<ReviewPublicationGatewayObject> {
     const payload = await this.requirePayload(input.operation);
+    if (payload.kind === ReviewV2PublicationPayloadKind.ManagedCheck) {
+      this.options.assertCheckIdentityAllowed?.(payload.name);
+    }
     try {
       switch (payload.kind) {
         case ReviewV2PublicationPayloadKind.Summary:
@@ -616,13 +624,27 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         return input.compensateCanonical
           ? ReviewPublicationReceiptStatus.Compensated
           : ReviewPublicationReceiptStatus.Succeeded;
-      case ReviewV2PublicationPayloadKind.ManagedCheck:
+      case ReviewV2PublicationPayloadKind.ManagedCheck: {
+        const targets = await Promise.all(
+          staleObjectIds.map(async (id) => {
+            const checkRunId = externalNumericId(id, "check-run");
+            const target = await this.request(
+              "GET /repos/{owner}/{repo}/check-runs/{check_run_id}",
+              { check_run_id: checkRunId },
+            );
+            const row = requireRecord(target.data, "github_check_run_invalid");
+            this.options.assertCheckIdentityAllowed?.(
+              requiredString(row.name, "github_check_run_name_invalid"),
+            );
+            return checkRunId;
+          }),
+        );
         await Promise.all(
-          staleObjectIds.map((id) =>
+          targets.map((checkRunId) =>
             this.request(
               "PATCH /repos/{owner}/{repo}/check-runs/{check_run_id}",
               {
-                check_run_id: externalNumericId(id, "check-run"),
+                check_run_id: checkRunId,
                 status: "completed",
                 conclusion: "neutral",
                 output: {
@@ -636,6 +658,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         return input.compensateCanonical
           ? ReviewPublicationReceiptStatus.Compensated
           : ReviewPublicationReceiptStatus.Succeeded;
+      }
       case ReviewV2PublicationPayloadKind.ThreadLifecycle: {
         if (!input.compensateCanonical) {
           return ReviewPublicationReceiptStatus.Succeeded;

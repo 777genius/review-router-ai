@@ -14,6 +14,7 @@ import {
   type PersistedReviewConfiguration,
   type ReviewConfigurationOperatorAuditEvent,
   type ReviewConfigurationOperatorRepository,
+  type ReviewConfigurationBatchReaderPort,
   type ReviewConfigurationRepositoryPort,
   ReviewConfigurationWriteConflictError,
   resolveReviewConfiguration,
@@ -29,7 +30,11 @@ const repository = {
   fullName: "777genius/example",
 } satisfies ReviewConfigurationOperatorRepository;
 
-class InMemoryConfigurations implements ReviewConfigurationRepositoryPort {
+class InMemoryConfigurations
+  implements
+    ReviewConfigurationRepositoryPort,
+    ReviewConfigurationBatchReaderPort
+{
   readonly versions = new Map<string, PersistedReviewConfiguration[]>();
   saveCount = 0;
   conflictNextSave = false;
@@ -40,6 +45,24 @@ class InMemoryConfigurations implements ReviewConfigurationRepositoryPort {
     return (
       this.versions.get(reviewConfigurationTargetKey(target))?.at(-1) ?? null
     );
+  }
+
+  async findLatestForRepositories(input: {
+    readonly workspaceId: string;
+    readonly repositoryIds: readonly string[];
+  }) {
+    return [...new Set(input.repositoryIds)].flatMap((repositoryId) => {
+      const config = this.versions
+        .get(
+          reviewConfigurationTargetKey({
+            scope: "repository",
+            workspaceId: input.workspaceId,
+            repositoryId,
+          }),
+        )
+        ?.at(-1);
+      return config ? [{ repositoryId, config }] : [];
+    });
   }
 
   async saveNextVersion(

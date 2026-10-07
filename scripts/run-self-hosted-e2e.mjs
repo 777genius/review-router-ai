@@ -6,6 +6,12 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  disposableBefore87HandoffSql,
+  disposableFreshDatabasePreflightSql,
+  disposableFullChainVerificationSql,
+  disposableReleaseMigrationRoleSql,
+} from "./self-hosted-e2e/disposable-release-role-fixture.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fetchHttp = globalThis.fetch;
@@ -17,26 +23,33 @@ const tempDirectory = mkdtempSync(
   join(tmpdir(), "reviewrouter-self-hosted-e2e-"),
 );
 const envFile = join(tempDirectory, "self-hosted.env");
-const investigationReleaseFixture = JSON.parse(
-  readFileSync(
-    join(
-      repoRoot,
-      "scripts/self-hosted-e2e/review-investigation-release.fixture.json",
-    ),
-    "utf8",
-  ),
-);
-assertInvestigationReleaseFixture(investigationReleaseFixture);
+let investigationReleaseFixture;
 let composeTouched = false;
-let testDatabaseCreated = false;
-
-const [webPort, apiPort, postgresPort] = await reserveFreePorts(3);
-const ports = { web: webPort, api: apiPort, postgres: postgresPort };
-const secrets = createTestSecrets();
-const testEnv = createTestEnvironment();
-writeEnvFile(testEnv);
+let testDatabaseCreationAttempted = false;
+let failedBeforeCleanup = false;
+let cleanupFailure;
+let ports;
+let secrets;
+let testEnv;
+let controlPlaneCommit;
 
 try {
+  investigationReleaseFixture = JSON.parse(
+    readFileSync(
+      join(
+        repoRoot,
+        "scripts/self-hosted-e2e/review-investigation-release.fixture.json",
+      ),
+      "utf8",
+    ),
+  );
+  assertInvestigationReleaseFixture(investigationReleaseFixture);
+  const [webPort, apiPort, postgresPort] = await reserveFreePorts(3);
+  ports = { web: webPort, api: apiPort, postgres: postgresPort };
+  secrets = createTestSecrets();
+  testEnv = createTestEnvironment();
+  writeEnvFile(testEnv);
+
   run("docker", ["version", "--format", "server={{.Server.Version}}"]);
   run(process.execPath, ["scripts/check-self-hosted-readiness.mjs"], testEnv);
   run(
@@ -64,6 +77,7 @@ try {
   setGlobalReviewV2EmergencyStop(false);
   runComposeWithSanitizedOutput(["run", "--rm", "migrate"]);
   setGlobalReviewV2EmergencyStop(true);
+  testDatabaseCreationAttempted = true;
   runComposeWithSanitizedOutput([
     "exec",
     "-T",
@@ -73,7 +87,39 @@ try {
     testEnv.POSTGRES_USER,
     testDatabase,
   ]);
-  testDatabaseCreated = true;
+  runDisposableDatabaseSql(
+    disposableFreshDatabasePreflightSql,
+    "disposable_fresh_database_preflight",
+  );
+  provisionDisposableReleaseMigrationRole();
+  runComposeWithSanitizedOutput([
+    "exec",
+    "-T",
+    "-e",
+    `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
+    "worker",
+    "sh",
+    "-lc",
+    containerMigrationCommand(true),
+  ]);
+  runDisposableDatabaseSql(
+    disposableBefore87HandoffSql,
+    "disposable_before87_handoff",
+  );
+  runComposeWithSanitizedOutput([
+    "exec",
+    "-T",
+    "-e",
+    `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
+    "worker",
+    "sh",
+    "-lc",
+    containerMigrationCommand(false),
+  ]);
+  runDisposableDatabaseSql(
+    disposableFullChainVerificationSql,
+    "disposable_full_chain_verification",
+  );
 
   runCompose([
     "exec",
@@ -87,40 +133,82 @@ try {
   ]);
 
   assertLogsAreSanitized();
-  const controlPlaneCommit = capture("git", ["rev-parse", "HEAD"]).trim();
-  console.log("Self-hosted E2E passed.");
-  console.log(`control-plane-commit=${controlPlaneCommit}`);
-  console.log(`action-ref=${testEnv.REVIEW_ROUTER_ACTION_REF}`);
-  console.log(
-    "compose=healthy migrations=idempotent review-v2=passed investigation-same-release=passed action-oidc=passed logs=clean",
-  );
+  controlPlaneCommit = capture("git", ["rev-parse", "HEAD"]).trim();
 } catch (error) {
-  if (composeTouched) printSafeDiagnostics();
+  failedBeforeCleanup = true;
+  if (composeTouched) {
+    try {
+      printSafeDiagnostics();
+    } catch {
+      console.error("disposable_failure_diagnostics_unavailable");
+    }
+  }
   throw error;
 } finally {
-  if (testDatabaseCreated) {
-    runCompose(
-      [
-        "exec",
-        "-T",
-        "postgres",
-        "dropdb",
-        "--if-exists",
-        "--force",
-        "-U",
-        testEnv.POSTGRES_USER,
-        testDatabase,
-      ],
-      { allowFailure: true },
-    );
+  const cleanupFailures = [];
+  if (testDatabaseCreationAttempted) {
+    try {
+      const dropped = runCompose(
+        [
+          "exec",
+          "-T",
+          "postgres",
+          "dropdb",
+          "--if-exists",
+          "--force",
+          "-U",
+          testEnv.POSTGRES_USER,
+          testDatabase,
+        ],
+        { allowFailure: true },
+      );
+      if (dropped.status !== 0) cleanupFailures.push("database_drop");
+      else {
+        try {
+          assertDisposableTestDatabaseAbsent();
+        } catch {
+          cleanupFailures.push("database_absence");
+        }
+      }
+    } catch {
+      cleanupFailures.push("database_drop_exception");
+    }
   }
   if (composeTouched) {
-    runCompose(["down", "--volumes", "--remove-orphans"], {
-      allowFailure: true,
-    });
+    try {
+      const down = runCompose(["down", "--volumes", "--remove-orphans"], {
+        allowFailure: true,
+      });
+      if (down.status !== 0) cleanupFailures.push("compose_down");
+    } catch {
+      cleanupFailures.push("compose_down_exception");
+    }
+    try {
+      assertDisposableComposeResourcesAbsent();
+    } catch {
+      cleanupFailures.push("compose_absence");
+    }
   }
-  rmSync(tempDirectory, { force: true, recursive: true });
+  try {
+    rmSync(tempDirectory, { force: true, recursive: true });
+  } catch {
+    cleanupFailures.push("temporary_directory_removal");
+  }
+  if (cleanupFailures.length) {
+    const diagnostic = `disposable_cleanup_unproved:${cleanupFailures.join(",")}`;
+    if (failedBeforeCleanup) console.error(diagnostic);
+    else cleanupFailure = new Error(diagnostic);
+  }
 }
+
+if (cleanupFailure) throw cleanupFailure;
+
+console.log("Self-hosted E2E passed.");
+console.log(`control-plane-commit=${controlPlaneCommit}`);
+console.log(`action-ref=${testEnv.REVIEW_ROUTER_ACTION_REF}`);
+console.log(
+  "compose=healthy migrations=idempotent review-v2=passed investigation-same-release=passed action-oidc=passed logs=clean",
+);
 
 function createTestSecrets() {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -131,6 +219,7 @@ function createTestSecrets() {
     webhook: randomSecret(),
     postgres: randomSecret(),
     effectAuthority: randomSecret(),
+    releaseMigration: randomSecret(),
     githubClient: randomSecret(),
     reviewRunAuthorization: randomBytes(32).toString("base64"),
     reviewV2Capability: randomBytes(32).toString("base64"),
@@ -466,6 +555,98 @@ function provisionEffectAuthorityRole() {
   );
 }
 
+function provisionDisposableReleaseMigrationRole() {
+  runComposeWithInput(
+    [
+      "exec",
+      "-T",
+      "postgres",
+      "psql",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-U",
+      testEnv.POSTGRES_USER,
+      "-d",
+      "postgres",
+    ],
+    disposableReleaseMigrationRoleSql(secrets.releaseMigration),
+    "disposable_release_role_provisioning",
+  );
+}
+
+function runDisposableDatabaseSql(sql, label) {
+  runComposeWithInput(
+    [
+      "exec",
+      "-T",
+      "postgres",
+      "psql",
+      "-XqAt",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-U",
+      testEnv.POSTGRES_USER,
+      "-d",
+      testDatabase,
+    ],
+    sql,
+    label,
+  );
+}
+
+function assertDisposableTestDatabaseAbsent() {
+  const result = spawnSync(
+    "docker",
+    composeArguments([
+      "exec",
+      "-T",
+      "postgres",
+      "psql",
+      "-XqAt",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-U",
+      testEnv.POSTGRES_USER,
+      "-d",
+      "postgres",
+    ]),
+    {
+      cwd: repoRoot,
+      env: testEnv,
+      encoding: "utf8",
+      input: `SELECT count(*) FROM pg_catalog.pg_database WHERE datname='${testDatabase}';\n`,
+    },
+  );
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  assertCredentialMaterialAbsent(output, "disposable_database_cleanup");
+  if (result.status !== 0 || result.stdout?.trim() !== "0")
+    throw new Error("disposable_test_database_cleanup_unproved");
+}
+
+function assertDisposableComposeResourcesAbsent() {
+  for (const resource of ["ps", "volume", "network"]) {
+    const args = resource === "ps" ? ["ps", "-a"] : [resource, "ls"];
+    const format = resource === "volume" ? "{{.Name}}" : "{{.ID}}";
+    const result = spawnSync(
+      "docker",
+      [
+        ...args,
+        "--filter",
+        `label=com.docker.compose.project=${projectName}`,
+        "--format",
+        format,
+      ],
+      {
+        cwd: repoRoot,
+        env: testEnv,
+        encoding: "utf8",
+      },
+    );
+    if (result.status !== 0 || result.stdout?.trim())
+      throw new Error(`disposable_compose_${resource}_cleanup_unproved`);
+  }
+}
+
 function runComposeWithInput(args, input, label) {
   const result = spawnSync("docker", composeArguments(args), {
     cwd: repoRoot,
@@ -567,12 +748,22 @@ async function assertHealthEndpoint(url, expectedService) {
   }
 }
 
+function containerMigrationCommand(before87) {
+  return [
+    "set -eu",
+    "unset REVIEW_ROUTER_DATABASE_URL_FILE",
+    "test_url=$(node -e 'const u=new URL(process.env.DATABASE_URL);u.pathname=`/${process.env.REVIEW_ROUTER_E2E_DATABASE}`;process.stdout.write(u.href)')",
+    before87
+      ? 'before87_config=$(node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs catalog /tmp); DATABASE_URL="$test_url" pnpm --filter @reviewrouter/platform-db exec prisma migrate deploy --config "$before87_config"'
+      : 'DATABASE_URL="$test_url" pnpm --filter @reviewrouter/platform-db db:migrate:deploy',
+  ].join("\n");
+}
+
 function containerE2ECommand() {
   return [
     "set -eu",
     "test_url=$(node -e 'const u=new URL(process.env.DATABASE_URL);u.pathname=`/${process.env.REVIEW_ROUTER_E2E_DATABASE}`;process.stdout.write(u.href)')",
     "authority_test_url=$(node -e 'const u=new URL(process.env.REVIEW_ROUTER_CODEX_EFFECT_AUTHORITY_DATABASE_URL);u.pathname=`/${process.env.REVIEW_ROUTER_E2E_DATABASE}`;process.stdout.write(u.href)')",
-    'DATABASE_URL="$test_url" pnpm --filter @reviewrouter/platform-db db:migrate:deploy',
     'REVIEW_ROUTER_CODEX_EFFECT_AUTHORITY_DATABASE_URL="$authority_test_url" REVIEW_ROUTER_REVIEW_V2_E2E_ALLOW_DOCKER_DATABASE=1 REVIEW_ROUTER_TEST_DATABASE_URL="$test_url" pnpm review-v2:e2e',
     'REVIEW_ROUTER_CODEX_EFFECT_AUTHORITY_DATABASE_URL="$authority_test_url" REVIEW_ROUTER_REVIEW_V2_E2E_ALLOW_DOCKER_DATABASE=1 REVIEW_ROUTER_SELF_HOSTED_REVIEW_PATHS_E2E=1 REVIEW_ROUTER_TEST_DATABASE_URL="$test_url" pnpm exec vitest run scripts/self-hosted-e2e/self-hosted-review-paths.e2e.test.ts',
     'DATABASE_URL="$test_url" REVIEW_ROUTER_CODEX_EFFECT_AUTHORITY_DATABASE_URL="$authority_test_url" REVIEW_ROUTER_TARGET_REPO="reviewrouter-e2e/self-hosted-fixture" pnpm spike:action:e2e',

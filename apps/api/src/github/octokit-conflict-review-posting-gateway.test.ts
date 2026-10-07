@@ -1,3 +1,4 @@
+import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { describe, expect, it } from "vitest";
 import { OctokitConflictReviewPostingGateway } from "./octokit-conflict-review-posting-gateway";
 
@@ -76,8 +77,14 @@ class FakeRequester {
 
 function gatewayFor(
   requester: FakeRequester,
+  assertCheckIdentityAllowed: (name: string) => void = (name) =>
+    assertUnreservedCheckIdentity(
+      name,
+      "conflict_posting_status_context_reserved",
+    ),
 ): OctokitConflictReviewPostingGateway {
   return new OctokitConflictReviewPostingGateway({
+    assertCheckIdentityAllowed,
     appSlug: "reviewrouter-test",
     app: {
       getInstallationOctokit(installationId: number) {
@@ -338,6 +345,44 @@ describe("OctokitConflictReviewPostingGateway", () => {
       context: "ReviewRouter conflict review",
       state: "success",
     });
+  });
+
+  it("rejects the reserved SDK growth status context before GitHub reads or writes", async () => {
+    const requester = new FakeRequester();
+
+    await expect(
+      gatewayFor(requester).postConflictReviewAdvisoryStatus({
+        ...postingInput,
+        context: " ReviewRouter / SDK growth authority ",
+        state: "success",
+        description: "must not be written by the generic status writer",
+      }),
+    ).rejects.toThrow("conflict_posting_status_context_reserved");
+    expect(requester.calls).toEqual([]);
+  });
+
+  it("uses only the injected status reservation policy", async () => {
+    const requester = new FakeRequester();
+    const gateway = gatewayFor(requester, (name) => {
+      if (name === "custom") throw new Error("custom_reservation");
+    });
+    await expect(
+      gateway.postConflictReviewAdvisoryStatus({
+        ...postingInput,
+        context: "custom",
+        state: "success",
+        description: "test",
+      }),
+    ).rejects.toThrow("custom_reservation");
+    expect(requester.calls).toEqual([]);
+    await expect(
+      gateway.postConflictReviewAdvisoryStatus({
+        ...postingInput,
+        context: "ReviewRouter / SDK growth authority",
+        state: "success",
+        description: "test",
+      }),
+    ).resolves.toBeDefined();
   });
 
   it("requires a strict App bot identity for idempotent writes", () => {

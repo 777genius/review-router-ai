@@ -1,7 +1,8 @@
 import {
   assertCertifiedForkModeSchema,
+  captureCertifiedForkInvocation,
   certifiedForkActionMode,
-  runCertifiedForkAdmissionBoundary,
+  type CertifiedForkReviewBinding,
 } from "./certified-fork-lifecycle.js";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -173,6 +174,7 @@ type ActionInputs = {
 type ProviderSecretInputs = {
   readonly claudeCodeOAuthToken?: string;
   readonly openRouterApiKey?: string;
+  readonly mimoTokenPlanApiKey?: string;
 };
 
 type PullRequestEvent = {
@@ -452,23 +454,41 @@ export async function runCodexRotatingGitHubAction(
   runtime: Partial<ActionRuntime> = {},
 ): Promise<void> {
   const ingressEnv = runtime.env ?? process.env;
+  const env = ingressEnv;
+  const io = runtime.io ?? { stdout: process.stdout, stderr: process.stderr };
+  const fetchImpl = runtime.fetchImpl ?? fetch;
   if (
     readInput(ingressEnv, "mode") === certifiedForkActionMode ||
     Number(ingressEnv["INPUT_WORKFLOW-SCHEMA-VERSION"]) === 6 ||
     Number(ingressEnv.INPUT_WORKFLOW_SCHEMA_VERSION) === 6
   ) {
     try {
-      runCertifiedForkAdmissionBoundary(ingressEnv);
+      const binding = captureCertifiedForkInvocation(ingressEnv);
+      const oidcToken = await requestGitHubActionsOidcToken({
+        env: ingressEnv,
+        fetchImpl,
+        audience: defaultOidcAudience,
+      });
+      mask(io, oidcToken);
+      const apiUrl = (
+        readInput(ingressEnv, "control-plane-url") ||
+        requireInput(ingressEnv, "api-url")
+      ).replace(/\/+$/u, "");
+      await requestCertifiedForkLiveReview({
+        fetchImpl,
+        apiUrl,
+        oidcToken,
+        binding,
+      });
+      notice(io, "ReviewRouter certified fork review published.");
     } finally {
       clearActionAuthEnv(ingressEnv);
       clearOidcRequestEnv(ingressEnv);
     }
+    return;
   }
   const now = runtime.now ?? Date.now;
   const executionStartedAtEpochMs = now();
-  const env = runtime.env ?? process.env;
-  const io = runtime.io ?? { stdout: process.stdout, stderr: process.stderr };
-  const fetchImpl = runtime.fetchImpl ?? fetch;
   const fullReviewRuntimeRunner =
     runtime.fullReviewRuntimeRunner ?? runFullReviewRouterRuntime;
   const inputs = readActionInputs(env);
@@ -1192,10 +1212,40 @@ async function runHostedForkAgenticSandboxGitHubAction(input: {
               model: codexModelForForkRuntime(runtimeEnv),
             });
 
+            const restoredReviewSnapshot = await tryRestoreReviewSnapshot({
+              fetchImpl: input.fetchImpl,
+              inputs: input.inputs,
+              leaseId: invocationLeaseId,
+              event,
+              io: input.io,
+            });
+            const reviewSnapshotForRuntime = restoredReviewSnapshot ?? {
+              protocolVersion: 1 as const,
+              status: "missing" as const,
+              expectedVersion: 0,
+            };
+
             const reviewHome = await makeTempDirectory(
               "reviewrouter-review-home-",
             );
             try {
+              const reviewSnapshotInputPath = join(
+                reviewHome,
+                reviewSnapshotInputFileName,
+              );
+              const reviewSnapshotOutputPath = join(
+                reviewHome,
+                reviewSnapshotOutputFileName,
+              );
+              const reviewCheckpointFinalizationPath = join(
+                reviewHome,
+                reviewCheckpointFinalizationFileName,
+              );
+              await writeFile(
+                reviewSnapshotInputPath,
+                JSON.stringify(reviewSnapshotForRuntime),
+                { encoding: "utf8", mode: 0o600 },
+              );
               let cleanupCommentToken = commentToken;
               let reviewRuntimeFailure: unknown;
               try {
@@ -1218,6 +1268,9 @@ async function runHostedForkAgenticSandboxGitHubAction(input: {
                       commentTokenExpiresAt,
                       runtimeConfigVersion,
                       runtimeEnv,
+                      reviewSnapshotInputPath,
+                      reviewSnapshotOutputPath,
+                      reviewCheckpointFinalizationPath,
                       executionDeadlineEpochMs: input.executionDeadlineEpochMs,
                       commentTokenRefreshUrl,
                       commentTokenRefreshMode: "hosted-relay",
@@ -1231,6 +1284,35 @@ async function runHostedForkAgenticSandboxGitHubAction(input: {
               } catch (error) {
                 reviewRuntimeFailure = error;
               }
+              const finalizedCheckpointMarkerRead =
+                await tryReadFinalizedReviewCheckpointMarker({
+                  markerPath: reviewCheckpointFinalizationPath,
+                  event,
+                  io: input.io,
+                });
+              await settleFinalizedReviewCheckpoint({
+                markerRead: finalizedCheckpointMarkerRead,
+                runtimeCompleted:
+                  didReviewRuntimeComplete(reviewRuntimeFailure),
+                commitSnapshot: () =>
+                  tryCommitReviewSnapshot({
+                    fetchImpl: input.fetchImpl,
+                    inputs: input.inputs,
+                    leaseId: invocationLeaseId,
+                    event,
+                    candidatePath: reviewSnapshotOutputPath,
+                    headToken: cleanupCommentToken,
+                    io: input.io,
+                  }),
+                clearCheckpoint: (marker) =>
+                  tryClearFinalizedReviewCheckpoint({
+                    fetchImpl: input.fetchImpl,
+                    inputs: input.inputs,
+                    leaseId: invocationLeaseId,
+                    marker,
+                    io: input.io,
+                  }),
+              });
               try {
                 await deleteFullRuntimeProgressCommentsWithTokenRefresh({
                   fetchImpl: input.fetchImpl,
@@ -1380,6 +1462,10 @@ export function readActionInputs(env: NodeJS.ProcessEnv): ActionInputs {
     "claude-code-oauth-token",
   );
   const openRouterApiKey = optionalSecretInput(env, "openrouter-api-key");
+  const mimoTokenPlanApiKey = optionalSecretInput(
+    env,
+    "mimo-token-plan-api-key",
+  );
   const workflowSchemaVersion = Number(
     readInput(env, "workflow-schema-version") || "1",
   );
@@ -1411,6 +1497,7 @@ export function readActionInputs(env: NodeJS.ProcessEnv): ActionInputs {
     providerSecrets: {
       ...(claudeCodeOAuthToken ? { claudeCodeOAuthToken } : {}),
       ...(openRouterApiKey ? { openRouterApiKey } : {}),
+      ...(mimoTokenPlanApiKey ? { mimoTokenPlanApiKey } : {}),
     },
     ...hostedBinding,
   };
@@ -1852,6 +1939,130 @@ async function requestGitHubActionsOidcToken(input: {
   return body.value;
 }
 
+async function requestCertifiedForkLiveReview(input: {
+  readonly fetchImpl: FetchLike;
+  readonly apiUrl: string;
+  readonly oidcToken: string;
+  readonly binding: CertifiedForkReviewBinding;
+}): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error("certified_fork_request_timeout")),
+    18 * 60_000,
+  );
+  try {
+    const response = await input.fetchImpl(
+      `${input.apiUrl}/api/action/v1/certified-fork/review`,
+      {
+        method: "POST",
+        redirect: "error",
+        credentials: "omit",
+        signal: controller.signal,
+        headers: {
+          accept: "text/event-stream",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          oidcToken: input.oidcToken,
+          binding: input.binding,
+        }),
+      },
+    );
+    const contentType = response.headers.get("content-type") ?? "";
+    if (
+      !response.ok ||
+      response.redirected ||
+      !/^text\/event-stream(?:\s*;\s*charset=utf-8)?$/iu.test(contentType)
+    ) {
+      void response.body?.cancel().catch(() => undefined);
+      throw new Error("certified_fork_api_rejected");
+    }
+    const declaredLength = response.headers.get("content-length");
+    if (
+      declaredLength !== null &&
+      (!/^[0-9]+$/u.test(declaredLength) ||
+        Number(declaredLength) > 1024 * 1024)
+    ) {
+      void response.body?.cancel().catch(() => undefined);
+      throw new Error("certified_fork_api_response_too_large");
+    }
+    const text = await readCertifiedForkApiResponse(response, 1024 * 1024);
+    parseCertifiedForkLiveReviewEvents(text);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("certified_fork_api_timeout_or_disconnected", {
+        cause: error,
+      });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+}
+
+export async function readCertifiedForkApiResponse(
+  response: Response,
+  maxBytes: number,
+): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("certified_fork_api_response_too_large");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, bytes).toString("utf8");
+}
+
+function parseCertifiedForkLiveReviewEvents(text: string): void {
+  const normalized = text.replace(/\r\n?/gu, "\n");
+  if (!normalized.endsWith("\n\n")) {
+    throw new Error("certified_fork_api_stream_truncated");
+  }
+  let resultCount = 0;
+  for (const frame of normalized.split("\n\n")) {
+    if (frame === "" || frame.startsWith(":")) continue;
+    let event = "";
+    const data: string[] = [];
+    for (const line of frame.split("\n")) {
+      if (line.startsWith("event: ")) event = line.slice(7);
+      else if (line.startsWith("data: ")) data.push(line.slice(6));
+      else throw new Error("certified_fork_api_stream_invalid");
+    }
+    if (event === "error") {
+      throw new Error("certified_fork_live_review_rejected");
+    }
+    if (event !== "result" || data.length !== 1) {
+      throw new Error("certified_fork_api_stream_invalid");
+    }
+    const value = JSON.parse(data[0]!) as unknown;
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value) ||
+      (value as { status?: unknown }).status !== "published"
+    ) {
+      throw new Error("certified_fork_api_result_invalid");
+    }
+    resultCount += 1;
+  }
+  if (resultCount !== 1) {
+    throw new Error("certified_fork_api_result_invalid");
+  }
+}
+
 async function requestCodexRotatingPreleaseWithFreshOidc(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly io: ActionIO;
@@ -2063,6 +2274,7 @@ async function tryCommitReviewSnapshot(input: {
   readonly leaseId: string;
   readonly event: PullRequestEvent;
   readonly candidatePath: string;
+  readonly headToken?: string | undefined;
   readonly io: ActionIO;
 }): Promise<boolean> {
   let candidateStats;
@@ -2094,22 +2306,26 @@ async function tryCommitReviewSnapshot(input: {
       throw new Error("review_snapshot_candidate_context_mismatch");
     }
 
-    const headToken = await postJson<CheckoutTokenResponse>({
-      fetchImpl: input.fetchImpl,
-      label: "api_review_snapshot_head_token",
-      url: `${input.inputs.apiUrl}/api/action/v1/codex-oauth/review-snapshot/head-token`,
-      body: {
-        leaseId: input.leaseId,
-        providerInstanceId: input.inputs.providerInstanceId,
-      },
-    });
-    if (headToken.repository !== input.event.repository) {
-      throw new Error("review_snapshot_head_token_repository_mismatch");
+    let headToken = input.headToken;
+    if (!headToken) {
+      const issuedHeadToken = await postJson<CheckoutTokenResponse>({
+        fetchImpl: input.fetchImpl,
+        label: "api_review_snapshot_head_token",
+        url: `${input.inputs.apiUrl}/api/action/v1/codex-oauth/review-snapshot/head-token`,
+        body: {
+          leaseId: input.leaseId,
+          providerInstanceId: input.inputs.providerInstanceId,
+        },
+      });
+      if (issuedHeadToken.repository !== input.event.repository) {
+        throw new Error("review_snapshot_head_token_repository_mismatch");
+      }
+      headToken = issuedHeadToken.token;
+      mask(input.io, headToken);
     }
-    mask(input.io, headToken.token);
     const currentHeadSha = await fetchCurrentPullRequestHeadSha({
       fetchImpl: input.fetchImpl,
-      token: headToken.token,
+      token: headToken,
       event: input.event,
     });
     if (currentHeadSha !== input.event.headSha) {
@@ -2146,7 +2362,7 @@ async function tryCommitReviewSnapshot(input: {
     ) {
       const recheckedHeadSha = await fetchCurrentPullRequestHeadSha({
         fetchImpl: input.fetchImpl,
-        token: headToken.token,
+        token: headToken,
         event: input.event,
       });
       if (recheckedHeadSha !== candidate.reviewedHeadSha) {
@@ -3702,6 +3918,10 @@ async function runFullReviewRouterRuntime(input: {
   readonly sessionBindingId?: string | undefined;
   readonly sessionBindingVersion?: number | undefined;
 }): Promise<void> {
+  assertProviderSecretInputsForRuntime({
+    runtimeEnv: input.runtimeEnv,
+    providerSecrets: input.inputs.providerSecrets,
+  });
   const actionPath = resolveGitHubActionPath(input.env);
   const runtimePath = join(actionPath, "dist", "index.js");
   await access(runtimePath, fsConstants.R_OK);
@@ -3972,6 +4192,7 @@ function buildProviderSecretEnvForRuntime(input: {
   readonly runtimeEnv: Readonly<Record<string, string>>;
   readonly providerSecrets: ProviderSecretInputs;
 }): Record<string, string> {
+  assertProviderSecretInputsForRuntime(input);
   const env: Record<string, string> = {};
   if (
     runtimeProvidersInclude(input.runtimeEnv, "claude/") &&
@@ -3985,7 +4206,25 @@ function buildProviderSecretEnvForRuntime(input: {
   ) {
     env.OPENROUTER_API_KEY = input.providerSecrets.openRouterApiKey;
   }
+  if (
+    runtimeProvidersInclude(input.runtimeEnv, "codex-mimo/") &&
+    input.providerSecrets.mimoTokenPlanApiKey
+  ) {
+    env.MIMO_TOKEN_PLAN_API_KEY = input.providerSecrets.mimoTokenPlanApiKey;
+  }
   return env;
+}
+
+function assertProviderSecretInputsForRuntime(input: {
+  readonly runtimeEnv: Readonly<Record<string, string>>;
+  readonly providerSecrets: ProviderSecretInputs;
+}): void {
+  if (
+    runtimeProvidersInclude(input.runtimeEnv, "codex-mimo/") &&
+    !input.providerSecrets.mimoTokenPlanApiKey
+  ) {
+    throw new Error("missing_mimo_token_plan_api_key");
+  }
 }
 
 async function ensureFullReviewRuntimeTools(input: {
@@ -4045,6 +4284,7 @@ const forkRuntimeEnvAllowedKeys = new Set([
   "REVIEWROUTER_CONFIG_SCHEMA_VERSION",
   "REVIEW_AUTH_MODE",
   "INLINE_MAX_COMMENTS",
+  "INLINE_MIN_SEVERITY",
   "TARGET_TOKENS_PER_BATCH",
   "FAIL_ON_SEVERITY",
   "REVIEW_OUTPUT_LANGUAGE",
@@ -4862,6 +5102,8 @@ export function formatTopLevelActionErrorMessage(error: unknown): string {
       return "review_runtime_budget_exhausted_before_launch: ReviewRouter prework consumed the runtime budget; the review was not launched so cleanup can finish safely.";
     case "review_runtime_timeout":
       return "review_runtime_timeout: ReviewRouter stopped the review at its cleanup deadline; resumable progress remains available for the next run.";
+    case "missing_mimo_token_plan_api_key":
+      return "missing_mimo_token_plan_api_key: The mimo-token-plan-api-key Action input is required for codex-mimo/ reviews. Add secrets.MIMO_TOKEN_PLAN_API_KEY to the workflow input; ChatGPT and OpenRouter credentials are not substitutes.";
     default:
       return message;
   }
@@ -4948,8 +5190,11 @@ function clearActionProviderSecretEnv(env: NodeJS.ProcessEnv): void {
   delete env.INPUT_CLAUDE_CODE_OAUTH_TOKEN;
   delete env["INPUT_OPENROUTER-API-KEY"];
   delete env.INPUT_OPENROUTER_API_KEY;
+  delete env["INPUT_MIMO-TOKEN-PLAN-API-KEY"];
+  delete env.INPUT_MIMO_TOKEN_PLAN_API_KEY;
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
   delete env.OPENROUTER_API_KEY;
+  delete env.MIMO_TOKEN_PLAN_API_KEY;
 }
 
 function maskProviderSecretInputs(
@@ -4961,6 +5206,9 @@ function maskProviderSecretInputs(
   }
   if (providerSecrets.openRouterApiKey) {
     mask(io, providerSecrets.openRouterApiKey);
+  }
+  if (providerSecrets.mimoTokenPlanApiKey) {
+    mask(io, providerSecrets.mimoTokenPlanApiKey);
   }
 }
 

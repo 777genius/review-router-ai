@@ -29,77 +29,81 @@ const competitorRows = [
     mark: "CR",
     iconSrc: "/service-icons/coderabbit.svg",
     execution: "Cloud, enterprise self-hosted",
-    executionDetail: "SaaS by default, enterprise deployment available",
-    codePath: "Depends on selected deployment model",
-    bestFit: "Fast PR review setup, enterprise options",
+    executionDetail: "SaaS by default; self-host from 500 Enterprise seats",
+    codePath: "Cloud reviews leave your network; self-host keeps them inside",
+    bestFit: "Fast PR setup; self-host only at enterprise scale",
     control: "Medium-High",
-    controlDetail: "Higher with enterprise self-hosting",
+    controlDetail: "Higher only on the Enterprise self-hosted path",
   },
   {
-    product: "Qodo Merge",
-    mark: "QM",
+    product: "Qodo",
+    mark: "QO",
     iconSrc: "/service-icons/qodo.svg",
-    execution: "Cloud or enterprise deploy",
-    executionDetail: "SaaS, single-tenant, or self-hosted",
+    execution: "SaaS, single-tenant, or on-prem",
+    executionDetail:
+      "Managed multi-tenant by default; VPC or air-gap for Enterprise",
     codePath: "Depends on selected deployment model",
-    bestFit: "Enterprises needing governance controls",
+    bestFit: "Teams that want managed review plus governance options",
     control: "Medium-High",
-    controlDetail: "Higher with on-prem options",
+    controlDetail: "Highest on on-prem; OSS PR-Agent is a separate path",
   },
   {
     product: "Greptile",
     mark: "GT",
     iconSrc: "/service-icons/greptile.svg",
     execution: "Cloud or self-hosted",
-    executionDetail: "Cloud, self-hosted, or air-gapped",
-    codePath: "Code graph context depends on deployment",
-    bestFit: "Context-aware codebase review",
+    executionDetail: "Cloud, Docker/K8s, or air-gapped with your LLMs",
+    codePath: "Code graph lives in Greptile cloud or your infra",
+    bestFit: "Context-aware review from a full-repo graph",
     control: "Medium-High",
-    controlDetail: "Stronger on private deployments",
+    controlDetail: "Stronger on private or air-gapped deployments",
   },
   {
     product: "GitHub Copilot Code Review",
     mark: "GH",
     iconSrc: "/service-icons/github-copilot.svg",
-    execution: "GitHub cloud",
-    executionDetail: "Native GitHub review flow",
-    codePath: "Review context stays in GitHub/Copilot boundary",
-    bestFit: "GitHub-native workflow",
+    execution: "GitHub-hosted, optional self-hosted runners",
+    executionDetail: "Native GitHub review; agentic context uses Actions",
+    codePath: "Review context stays in GitHub/Copilot",
+    bestFit: "Teams already standardized on GitHub and Copilot",
     control: "Medium",
-    controlDetail: "Bound to GitHub environment",
+    controlDetail: "GitHub-bound even with self-hosted runners",
   },
   {
-    product: "Cursor BugBot",
+    product: "Cursor Bugbot",
     mark: "CB",
     iconSrc: "/service-icons/cursor.svg",
-    execution: "Managed cloud",
-    executionDetail: "Runs in Cursor review service",
-    codePath: "PR context processed by vendor reviewer",
+    execution: "Cursor cloud",
+    executionDetail: "PR reviewer for GitHub and GitLab; no self-host",
+    codePath: "Diff and repo context processed by Cursor",
     bestFit: "Teams already using Cursor",
     control: "Low-Medium",
-    controlDetail: "Limited deployment options",
+    controlDetail: "Managed reviewer only",
   },
   {
     product: "Claude Code Review",
     mark: "CC",
     iconSrc: "/service-icons/claude.svg",
-    execution: "Managed or repo runtime",
-    executionDetail: "Hosted flow or GitHub Action",
-    codePath: "Review context reaches Anthropic or chosen runtime",
-    bestFit: "Claude-heavy engineering teams",
+    execution: "Anthropic hosted or your CI",
+    executionDetail:
+      "Managed Team/Enterprise preview, GitHub Action, or local Claude Code",
+    codePath:
+      "Hosted path sends code to Anthropic; Action stays in your runner",
+    bestFit: "Claude-heavy teams that can pick hosted vs Action",
     control: "Medium",
-    controlDetail: "Depends on integration path",
+    controlDetail: "Higher if you run the Action in your CI",
   },
   {
     product: "Graphite Agent",
     mark: "GA",
     iconSrc: "/service-icons/graphite.svg",
-    execution: "Graphite workflow",
-    executionDetail: "AI feedback alongside PR review",
-    codePath: "PR data follows Graphite/GitHub flow",
-    bestFit: "Stacked PR and merge queue teams",
+    execution: "Graphite cloud",
+    executionDetail:
+      "GitHub-only SaaS inside Graphite; Cursor-owned since 2025",
+    codePath: "PR data follows Graphite and GitHub",
+    bestFit: "Stacked PR and merge-queue teams on GitHub",
     control: "Medium",
-    controlDetail: "Vendor workflow controls",
+    controlDetail: "Vendor workflow; GHES on Enterprise, no GitLab",
   },
 ] as const;
 
@@ -217,7 +221,7 @@ export function CompareSection({
               </p>
             </div>
             <p className="font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-500">
-              Updated May 15, 2026
+              Updated September 17, 2026
             </p>
           </div>
           <CompetitorTable />
@@ -226,8 +230,8 @@ export function CompareSection({
               aria-hidden="true"
               className="mt-0.5 size-4 shrink-0 text-cyan-300"
             />
-            Information reflects public vendor docs and product positioning as
-            of May 2026. Verify current compliance details before procurement.
+            Information reflects public vendor docs checked on September 17,
+            2026. Verify current compliance details before procurement.
           </p>
         </div>
 
@@ -542,7 +546,7 @@ function ServiceIcon({
           "relative z-10 object-contain",
           accent ? "h-10 w-10" : "h-6 w-6",
           product === "Graphite Agent" && "h-7 w-7 invert",
-          product === "Cursor BugBot" && "h-7 w-7 invert",
+          product === "Cursor Bugbot" && "h-7 w-7 invert",
           product === "GitHub Copilot Code Review" && "h-7 w-7 invert",
           product === "Greptile" && "h-7 w-7 brightness-200",
         )}

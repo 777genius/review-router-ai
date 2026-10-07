@@ -1,0 +1,225 @@
+"use client";
+
+import { usePathname, useSearchParams } from "next/navigation";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+
+export type PendingNavigationTarget = {
+  readonly pathname: string;
+  readonly search: string;
+};
+
+type NavigationPhase = "idle" | "loading" | "complete";
+
+type NavigationFeedbackValue = {
+  readonly isPending: boolean;
+  readonly target: PendingNavigationTarget | null;
+  readonly startNavigation: (href: string) => void;
+  readonly completeNavigation: () => void;
+};
+
+const idleNavigationFeedback: NavigationFeedbackValue = {
+  isPending: false,
+  target: null,
+  startNavigation: () => undefined,
+  completeNavigation: () => undefined,
+};
+
+const NavigationFeedbackContext = createContext<NavigationFeedbackValue>(
+  idleNavigationFeedback,
+);
+
+const fallbackTimeoutMs = 15_000;
+const completionDurationMs = 220;
+
+export function useNavigationFeedback(): NavigationFeedbackValue {
+  return useContext(NavigationFeedbackContext);
+}
+
+export function NavigationContentReady({
+  completionKey,
+}: {
+  readonly completionKey: string;
+}): null {
+  const { completeNavigation } = useNavigationFeedback();
+  useEffect(() => {
+    completeNavigation();
+  }, [completeNavigation, completionKey]);
+  return null;
+}
+
+export function NavigationFeedbackProvider({
+  children,
+}: {
+  readonly children: ReactNode;
+}): React.ReactElement {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const routeKey = navigationKey(pathname, searchParams.toString());
+  const previousRouteKey = useRef(routeKey);
+  const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const completionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [phase, setPhase] = useState<NavigationPhase>("idle");
+  const [target, setTarget] = useState<PendingNavigationTarget | null>(null);
+  const targetRef = useRef<PendingNavigationTarget | null>(target);
+
+  const clearTimers = useCallback(() => {
+    if (fallbackTimer.current) clearTimeout(fallbackTimer.current);
+    if (completionTimer.current) clearTimeout(completionTimer.current);
+    fallbackTimer.current = null;
+    completionTimer.current = null;
+  }, []);
+
+  const beginNavigation = useCallback(
+    (url: URL) => {
+      if (navigationKey(url.pathname, url.search) === routeKey) {
+        clearTimers();
+        setPhase("idle");
+        targetRef.current = null;
+        setTarget(null);
+        return;
+      }
+
+      clearTimers();
+      const nextTarget = { pathname: url.pathname, search: url.search };
+      targetRef.current = nextTarget;
+      setTarget(nextTarget);
+      setPhase("loading");
+      fallbackTimer.current = setTimeout(() => {
+        setPhase("idle");
+        targetRef.current = null;
+        setTarget(null);
+      }, fallbackTimeoutMs);
+    },
+    [clearTimers, routeKey],
+  );
+  const startNavigation = useCallback(
+    (href: string) => beginNavigation(new URL(href, window.location.href)),
+    [beginNavigation],
+  );
+
+  const completeNavigation = useCallback(() => {
+    const pendingTarget = targetRef.current;
+    if (
+      !pendingTarget ||
+      navigationKey(pendingTarget.pathname, pendingTarget.search) !==
+        navigationKey(window.location.pathname, window.location.search)
+    )
+      return;
+
+    clearTimers();
+    setPhase((current) => (current === "idle" ? current : "complete"));
+    completionTimer.current = setTimeout(() => {
+      setPhase("idle");
+      targetRef.current = null;
+      setTarget(null);
+    }, completionDurationMs);
+  }, [clearTimers]);
+
+  useEffect(() => {
+    if (previousRouteKey.current === routeKey) return;
+    previousRouteKey.current = routeKey;
+    if (
+      target &&
+      isDashboardPath(target.pathname) &&
+      navigationKey(target.pathname, target.search) === routeKey
+    )
+      return;
+    clearTimers();
+    setPhase((current) => (current === "idle" ? current : "complete"));
+    completionTimer.current = setTimeout(() => {
+      setPhase("idle");
+      targetRef.current = null;
+      setTarget(null);
+    }, completionDurationMs);
+  }, [clearTimers, routeKey, target]);
+
+  useEffect(() => {
+    const handleClick = (event: MouseEvent): void => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      const element =
+        event.target instanceof Element
+          ? event.target.closest("a[href]")
+          : null;
+      if (!(element instanceof HTMLAnchorElement)) return;
+      const rawHref = element.getAttribute("href");
+      if (
+        !rawHref ||
+        rawHref.startsWith("#") ||
+        element.target === "_blank" ||
+        element.hasAttribute("download") ||
+        element.dataset.navigationFeedback === "ignore" ||
+        element.getAttribute("aria-disabled") === "true"
+      )
+        return;
+
+      const url = new URL(rawHref, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      beginNavigation(url);
+    };
+    const handlePopState = (): void =>
+      beginNavigation(new URL(window.location.href));
+
+    document.addEventListener("click", handleClick);
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      document.removeEventListener("click", handleClick);
+      window.removeEventListener("popstate", handlePopState);
+      clearTimers();
+    };
+  }, [beginNavigation, clearTimers]);
+
+  const value = useMemo<NavigationFeedbackValue>(
+    () => ({
+      isPending: phase === "loading",
+      target,
+      startNavigation,
+      completeNavigation,
+    }),
+    [completeNavigation, phase, startNavigation, target],
+  );
+
+  return (
+    <NavigationFeedbackContext.Provider value={value}>
+      {phase === "idle" ? null : (
+        <div
+          className="rr-navigation-progress"
+          data-state={phase}
+          role="progressbar"
+          aria-label="Loading page"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={phase === "complete" ? 100 : 35}
+        >
+          <span />
+        </div>
+      )}
+      {children}
+    </NavigationFeedbackContext.Provider>
+  );
+}
+
+function navigationKey(pathname: string, search: string): string {
+  const normalizedSearch = search.startsWith("?") ? search.slice(1) : search;
+  return normalizedSearch ? `${pathname}?${normalizedSearch}` : pathname;
+}
+
+function isDashboardPath(pathname: string): boolean {
+  return pathname === "/dashboard" || pathname === "/dashboard/setup";
+}

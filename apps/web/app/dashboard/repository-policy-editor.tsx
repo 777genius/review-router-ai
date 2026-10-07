@@ -75,6 +75,7 @@ type ReviewConfigActionToast = {
 const providerAuthModeOrder = [
   "codex_subscription_oauth_rotating",
   "claude_code_oauth",
+  "mimo_token_plan_api_key",
   "openrouter_api_key",
 ] as const satisfies readonly ProviderAuthMode[];
 
@@ -96,6 +97,11 @@ const providerAuthOptionCopyByAuthMode = {
   codex_openai_api_key: {
     label: "Codex API key",
     description: "Uses OPENAI_API_KEY from GitHub Actions secrets.",
+  },
+  mimo_token_plan_api_key: {
+    label: "MiMo Token Plan",
+    description:
+      "Uses MIMO_TOKEN_PLAN_API_KEY through the public codex-mimo engine.",
   },
   claude_code_oauth: {
     label: "Claude Code subscription",
@@ -195,7 +201,7 @@ const fieldHelp = {
   failOnSeverity:
     "Controls which finding severity makes the GitHub check fail.",
   inlineMaxComments:
-    "Maximum number of inline PR comments ReviewRouter should post in one review run.",
+    "Maximum number of inline PR comments ReviewRouter should post in one review run. The current default posts every finding up to 50.",
   targetTokensPerBatch:
     "Approximate context budget per review batch. Higher values let the runtime inspect more context per pass.",
   agenticContext:
@@ -208,8 +214,18 @@ const fieldHelp = {
   requiredHealthy:
     "Required providers must pass health checks and return valid review output. They do not need to produce findings.",
   reviewLanguage:
-    "Natural language for the review comments and summaries (free text, e.g. Russian). Leave empty to inherit the workspace default, which is English.",
+    "Natural language for inline comments and the main reviewer summary (free text, e.g. Russian). Leave empty to inherit the workspace default, which is English.",
 } as const;
+
+function dashboardInlineMaxComments(value: number): number {
+  if (value === 0) {
+    return 0;
+  }
+  if (value === 5) {
+    return 50;
+  }
+  return value;
+}
 
 const defaultCodexProvider = {
   ...getDefaultProviderConfigForAuthMode("codex_subscription_oauth_rotating"),
@@ -247,6 +263,14 @@ const secretCopyByAuthMode = {
       "Codex API-key mode uses OPENAI_API_KEY from GitHub Actions secrets.",
     commandSuffix: "",
     recovery: "Create an OpenAI API key, then store it as a GitHub secret.",
+  },
+  mimo_token_plan_api_key: {
+    label: "MiMo Token Plan",
+    description:
+      "MiMo Token Plan mode uses MIMO_TOKEN_PLAN_API_KEY from GitHub Actions secrets.",
+    commandSuffix: "--app actions",
+    recovery:
+      "Create your MiMo Token Plan API key, then connect it in the provider key manager or set MIMO_TOKEN_PLAN_API_KEY as a GitHub Actions secret.",
   },
   claude_code_oauth: {
     label: "Claude Code subscription",
@@ -1063,6 +1087,9 @@ export function ReviewConfigForm({
   const modelOptionsByProvider = useMemo(
     (): Record<ProviderKind, readonly ReviewModelOption[]> => ({
       codex: modelOptions.filter((option) => option.provider === "codex"),
+      "codex-mimo": modelOptions.filter(
+        (option) => option.provider === "codex-mimo",
+      ),
       claude: modelOptions.filter((option) => option.provider === "claude"),
       openrouter: modelOptions.filter(
         (option) => option.provider === "openrouter",
@@ -1207,7 +1234,7 @@ export function ReviewConfigForm({
         <input
           type="hidden"
           name="inlineMaxComments"
-          value={config.limits.inlineMaxComments}
+          value={dashboardInlineMaxComments(config.limits.inlineMaxComments)}
         />
         <input
           type="hidden"

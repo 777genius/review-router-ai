@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { Tabs } from "@base-ui/react/tabs";
 import {
   Activity,
@@ -9,6 +11,8 @@ import {
   Settings2,
   type LucideIcon,
 } from "lucide-react";
+import { useNavigationFeedback } from "../navigation-feedback";
+import { dashboardClientNavigationHref } from "./dashboard-section";
 
 const dashboardSectionIcons: Record<string, LucideIcon> = {
   repositories: GitPullRequest,
@@ -49,6 +53,7 @@ export function DashboardSectionCompactNav({
   readonly items: readonly DashboardSectionTabItem[];
   readonly selectedSection: string;
 }): React.ReactElement {
+  const { startNavigation } = useNavigationFeedback();
   return (
     <nav
       aria-label="Dashboard sections"
@@ -56,10 +61,14 @@ export function DashboardSectionCompactNav({
     >
       {items.map((item) => {
         const active = selectedSection === item.section;
+        const href = dashboardClientNavigationHref(item.href);
         return (
-          <a
+          <Link
             key={item.section}
-            href={item.href}
+            href={href}
+            scroll={false}
+            data-navigation-feedback="ignore"
+            onNavigate={() => startNavigation(href)}
             title={item.description}
             aria-current={active ? "page" : undefined}
             className={[
@@ -74,7 +83,12 @@ export function DashboardSectionCompactNav({
               className="h-3.5 w-3.5 shrink-0 text-current opacity-80"
             />
             {item.label}
-          </a>
+            {item.section === "memory" ? (
+              <span className="rounded-full border border-amber-300/30 px-1.5 py-0.5 text-[0.55rem] tracking-[0.08em] text-amber-200">
+                In development
+              </span>
+            ) : null}
+          </Link>
         );
       })}
     </nav>
@@ -88,6 +102,7 @@ export function DashboardSectionTabs({
   readonly items: readonly DashboardSectionTabItem[];
   readonly selectedSection: string;
 }): React.ReactElement {
+  const { startNavigation } = useNavigationFeedback();
   return (
     <Tabs.Root value={selectedSection} orientation="vertical">
       <Tabs.List
@@ -96,14 +111,18 @@ export function DashboardSectionTabs({
         className="grid gap-1 border-l border-cyan-200/15 pl-3"
       >
         {items.map((item) => {
+          const href = dashboardClientNavigationHref(item.href);
           return (
             <Tabs.Tab
               key={item.section}
               value={item.section}
               nativeButton={false}
               render={
-                <a
-                  href={item.href}
+                <Link
+                  href={href}
+                  scroll={false}
+                  data-navigation-feedback="ignore"
+                  onNavigate={() => startNavigation(href)}
                   title={item.description}
                   aria-current={
                     selectedSection === item.section ? "page" : undefined
@@ -128,9 +147,16 @@ export function DashboardSectionTabs({
                   <span className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.16em]">
                     {item.label}
                   </span>
-                  <span className="mt-1 overflow-hidden text-xs leading-4 text-slate-500 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] group-hover:text-slate-300 group-data-[active]:text-cyan-100/80">
-                    {item.description}
-                  </span>
+                  {item.section === "memory" ? (
+                    <span className="mt-1 w-fit rounded-full border border-amber-300/30 px-1.5 py-0.5 font-mono text-[0.58rem] font-semibold uppercase tracking-[0.08em] text-amber-200">
+                      In development
+                    </span>
+                  ) : null}
+                  {item.section === "memory" ? null : (
+                    <span className="mt-1 overflow-hidden text-xs leading-4 text-slate-500 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] group-hover:text-slate-300 group-data-[active]:text-cyan-100/80">
+                      {item.description}
+                    </span>
+                  )}
                 </span>
               </span>
             </Tabs.Tab>

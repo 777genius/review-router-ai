@@ -66,6 +66,7 @@ export function makeReceipt(
     identity: grant.identity,
     binding: grant.binding,
     fence: grant.fence,
+    authorityEpoch: grant.authorityEpoch,
     completedAt: now,
     reportDigest: completion.reportDigest,
     admitted: reason === "admitted",

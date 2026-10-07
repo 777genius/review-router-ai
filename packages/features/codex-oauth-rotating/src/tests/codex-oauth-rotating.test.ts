@@ -1178,13 +1178,14 @@ exit 17
     });
   });
 
-  it("allows only explicit hybrid provider secret inputs in rotating workflow", () => {
+  it("keeps MiMo and existing provider secrets on their literal Action inputs", () => {
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: "777genius/review-router@main",
       apiUrl: "https://reviewrouter.site",
       providerInstanceId: "codex-rotating:123456",
       claudeCodeOAuthTokenSecret: true,
       openRouterApiKeySecret: true,
+      mimoTokenPlanApiKeySecret: true,
     });
 
     expect(workflow).toContain(
@@ -1192,6 +1193,9 @@ exit 17
     );
     expect(workflow).toContain(
       "openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}",
+    );
+    expect(workflow).toContain(
+      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
     );
     expect(scanCodexRotatingAdvisoryWorkflow(workflow)).toEqual({
       valid: true,
@@ -1204,6 +1208,17 @@ exit 17
     );
     expect(scanCodexRotatingAdvisoryWorkflow(unsafe).errors).toContain(
       "unknown_secret_reference:SOME_OTHER_SECRET",
+    );
+
+    const unsafeMimo = workflow.replace(
+      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+      "mimo-token-plan-api-key: ${{ secrets.SOME_OTHER_SECRET }}",
+    );
+    expect(scanCodexRotatingAdvisoryWorkflow(unsafeMimo).errors).toContain(
+      "unknown_secret_reference:SOME_OTHER_SECRET",
+    );
+    expect(scanCodexRotatingAdvisoryWorkflow(unsafeMimo).errors).toContain(
+      "mimo_secret_must_be_literal_input",
     );
   });
 

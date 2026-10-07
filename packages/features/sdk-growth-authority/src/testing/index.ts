@@ -67,19 +67,32 @@ export class InMemoryReceiptRepository implements ReceiptRepositoryPort {
  * advances the epoch. The hook deterministically pauses resolution after capture.
  * Production adapters must fence ALL authority writers across processes. */
 export class InMemoryCurrentAuthoritySnapshot implements CurrentAuthoritySnapshotPort {
-  private epoch = 0;
+  private epoch: number;
   private current: CurrentAuthoritySnapshot | null;
 
   constructor(
-    snapshot: CurrentAuthoritySnapshot | null,
+    snapshot:
+      | (Omit<CurrentAuthoritySnapshot, "epoch"> & {
+          readonly epoch?: number;
+        })
+      | null,
     private readonly afterCapture: () => Promise<void> = async () => {},
   ) {
-    this.current = structuredClone(snapshot);
+    this.epoch = snapshot?.epoch ?? 1;
+    this.current = snapshot
+      ? structuredClone({ ...snapshot, epoch: this.epoch })
+      : null;
   }
 
-  replace(snapshot: CurrentAuthoritySnapshot | null): void {
-    this.current = structuredClone(snapshot);
+  replace(
+    snapshot:
+      | (Omit<CurrentAuthoritySnapshot, "epoch"> & { readonly epoch?: number })
+      | null,
+  ): void {
     this.epoch++;
+    this.current = snapshot
+      ? structuredClone({ ...snapshot, epoch: this.epoch })
+      : null;
   }
 
   async resolve(): Promise<CurrentAuthoritySnapshot | null> {
@@ -87,6 +100,6 @@ export class InMemoryCurrentAuthoritySnapshot implements CurrentAuthoritySnapsho
     const snapshot = structuredClone(this.current);
     await this.afterCapture();
     if (epoch !== this.epoch) throw new AuthorityError("binding-changed");
-    return snapshot;
+    return snapshot ? { ...snapshot, epoch } : null;
   }
 }

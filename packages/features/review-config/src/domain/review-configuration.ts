@@ -55,7 +55,7 @@ const blockingPolicySchema = z.object({
 });
 
 const limitsSchema = z.object({
-  inlineMaxComments: z.number().int().min(0).max(50).default(5),
+  inlineMaxComments: z.number().int().min(0).max(50).default(50),
   targetTokensPerBatch: z.number().int().min(4000).max(200000).default(50000),
 });
 
@@ -177,7 +177,7 @@ export const safeDefaultReviewConfiguration = parseReviewConfiguration({
     },
   ],
   blockingPolicy: { failOnSeverity: "critical" },
-  limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  limits: { inlineMaxComments: 50, targetTokensPerBatch: 50000 },
   investigationRollout: defaultReviewInvestigationRolloutConfiguration,
 });
 
@@ -346,6 +346,19 @@ function ensureRequiredHealthyProvider(
     ...provider,
     requiredHealthy: index === 0,
   }));
+}
+
+export const DEFAULT_INLINE_MAX_COMMENTS = 50;
+const LEGACY_DEFAULT_INLINE_MAX_COMMENTS = 5;
+
+export function effectiveInlineMaxComments(value: number): number {
+  if (value === 0) {
+    return 0;
+  }
+  if (value === LEGACY_DEFAULT_INLINE_MAX_COMMENTS) {
+    return DEFAULT_INLINE_MAX_COMMENTS;
+  }
+  return value;
 }
 
 function clamp(value: number | undefined, min: number, max: number): number {

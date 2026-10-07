@@ -1,3 +1,7 @@
+import {
+  storageRecord,
+  storageLedger,
+} from "../infrastructure/prisma/authority-storage-validation.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SdkGrowthAuthority } from "../index.js";
 import type { AuthorityPorts, CurrentAuthoritySnapshotPort } from "../index.js";
@@ -68,6 +72,7 @@ function fixture() {
   };
   const state = {
     now: 100,
+    epoch: 1,
     binding: structuredClone(binding) as Binding | null,
     owner: structuredClone(owner) as OwnerEvidence | null,
   };
@@ -79,6 +84,7 @@ function fixture() {
         if (!state.binding) return null;
         if (!state.owner) throw new AuthorityError("owner-evidence");
         return structuredClone({
+          epoch: state.epoch,
           binding: state.binding,
           ownerEvidence: state.owner,
         });
@@ -396,16 +402,15 @@ describe("RR-1 authority conformance", () => {
             );
           }
           adapter.replace(original);
-          const result = await invoke();
-          if (operation === "request") {
-            expect((result as Grant).fence).toBe(1);
-            await f.authority.complete(
-              f.identity,
-              f.completion(result as Grant),
-            );
+          if (operation !== "request") {
+            await rejects(invoke(), "fenced");
+            expect(f.intents.size).toBe(0);
+            return;
           }
-          if (operation !== "dispatch")
-            await f.authority.dispatch(f.identity, f.request);
+          const result = await invoke();
+          expect((result as Grant).fence).toBe(1);
+          await f.authority.complete(f.identity, f.completion(result as Grant));
+          await f.authority.dispatch(f.identity, f.request);
           expect(f.intents.size).toBe(1);
         },
       );
@@ -665,6 +670,105 @@ it("rejects revocation before completion without consuming a receipt", async () 
 });
 
 describe("closed contracts", () => {
+  it("decodes pre-epoch v1 grants and receipts as historical-only", async () => {
+    const f = fixture();
+    const grant = await f.authority.request(f.identity, f.request);
+    const receipt = await f.authority.complete(f.identity, f.completion(grant));
+    const { authorityEpoch: grantEpoch, ...legacyGrant } = grant;
+    const { authorityEpoch: receiptEpoch, ...legacyReceipt } = receipt;
+    expect(grantEpoch).toBe(1);
+    expect(receiptEpoch).toBe(1);
+    const stored = {
+      grant: legacyGrant,
+      revoked: false,
+      completion: f.completion(grant),
+      receipt: legacyReceipt,
+      intent: {
+        version: 1,
+        intentId: receipt.receiptId,
+        receipt: legacyReceipt,
+      },
+      dispatched: true,
+    };
+    const scope = {
+      tenantId: f.identity.tenantId,
+      repositoryId: f.request.repositoryId,
+      pullRequest: f.request.pullRequest,
+    };
+    const original = structuredClone(stored);
+    const normalized = storageRecord(stored, scope);
+    expect(normalized.grant.authorityEpoch).toBe(0);
+    expect(normalized.receipt?.authorityEpoch).toBe(0);
+    expect(normalized.intent?.receipt.authorityEpoch).toBe(0);
+    expect(
+      storageLedger({ fence: grant.fence, records: [normalized] }, scope)
+        .records[0],
+    ).toEqual(normalized);
+    expect(stored).toEqual(original);
+    expect(() =>
+      storageRecord(
+        {
+          ...stored,
+          intent: {
+            ...stored.intent,
+            receipt: { ...legacyReceipt, authorityEpoch: 1 },
+          },
+        },
+        scope,
+      ),
+    ).toThrow("invalid-contract");
+    expect(() =>
+      storageRecord(
+        { ...stored, intent: { ...stored.intent, intentId: "other" } },
+        scope,
+      ),
+    ).toThrow("invalid-contract");
+    for (const authorityEpoch of [1, -1, null, "0"]) {
+      expect(() =>
+        storageRecord(
+          { ...stored, receipt: { ...legacyReceipt, authorityEpoch } },
+          scope,
+        ),
+      ).toThrow("invalid-contract");
+    }
+    const historicalGrant = parseGrant(legacyGrant);
+    expect(historicalGrant.authorityEpoch).toBe(0);
+    expect(parseReceipt(legacyReceipt).authorityEpoch).toBe(0);
+    expect(
+      parseGrant({ ...legacyGrant, authorityEpoch: 0 }).authorityEpoch,
+    ).toBe(0);
+    expect(
+      parseReceipt({ ...legacyReceipt, authorityEpoch: 0 }).authorityEpoch,
+    ).toBe(0);
+    const historicalAuthority = new SdkGrowthAuthority(
+      {
+        ...f.ports,
+        receipts: {
+          async transact(_scope, _selection, operation) {
+            return operation({
+              fence: historicalGrant.fence,
+              records: [
+                {
+                  grant: historicalGrant,
+                  revoked: false,
+                  completion: null,
+                  receipt: null,
+                  intent: null,
+                  dispatched: false,
+                },
+              ],
+            });
+          },
+        },
+      },
+      1_000,
+    );
+    await rejects(
+      historicalAuthority.currentGrant(f.identity, f.request),
+      "fenced",
+    );
+  });
+
   it("rejects extra keys, unknown versions, malformed identifiers and noncanonical sets", async () => {
     const f = fixture();
     const grant = await f.authority.request(f.identity, f.request);
@@ -898,7 +1002,11 @@ describe("bounded transaction I/O", () => {
         requestId: "run-3",
       });
       expect(next.fence).toBe(2);
-      finish({ binding: f.binding, ownerEvidence: f.owner });
+      finish({
+        binding: f.binding,
+        ownerEvidence: f.owner,
+        epoch: f.state.epoch,
+      });
       await vi.advanceTimersByTimeAsync(0);
       expect(f.intents.size).toBe(0);
       if (method === "request" || method === "complete")

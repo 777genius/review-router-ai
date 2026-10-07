@@ -30,6 +30,10 @@ import {
   type HostedCodexUpstreamEffectLease,
 } from "../prisma/prisma-hosted-codex-upstream-effect-ledger.js";
 import { normalizeExpiredHostedAccountCooldownWithCas } from "../prisma/prisma-hosted-account-cooldown.js";
+import {
+  HostedHistoricalScopeDeniedError,
+  type PrismaHostedHistoricalScopeBarrier,
+} from "../prisma/prisma-hosted-historical-scope-barrier.js";
 import type { HostedCodexSessionRuntime } from "../runtime/hosted-codex-session-runtime.js";
 import {
   noHostedCodexCanaryFaultPlan,
@@ -45,6 +49,10 @@ export class PrismaHostedCodexRelayAuthorization implements HostedCodexRelayAuth
   constructor(
     private readonly prisma: PrismaClient,
     private readonly failoverEnabled = false,
+    private readonly historicalScopes?: Pick<
+      PrismaHostedHistoricalScopeBarrier,
+      "assertGrantAllowed"
+    >,
   ) {
     this.ledger = new PrismaInvocationGrantRepository(prisma);
   }
@@ -92,11 +100,13 @@ export class PrismaHostedCodexRelayAuthorization implements HostedCodexRelayAuth
         : null;
     if (
       !stored ||
+      stored.authorityKind === "v4_relay_turn" ||
       (stored.status !== "issued" && !resumableNoEffectRequest) ||
       stored.revokedAt !== null ||
       stored.expiresAt <= now
     )
       throw new Error("hosted_grant_invalid");
+    await this.historicalScopes?.assertGrantAllowed(stored.id);
     const { binding, account } = stored;
     const accountUsable =
       account.state === "healthy" ||
@@ -226,6 +236,10 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
         | "assertLiveAuthority"
       >;
       readonly faultPlans?: HostedCodexCanaryFaultPlanPort;
+      readonly historicalScopes?: Pick<
+        PrismaHostedHistoricalScopeBarrier,
+        "assertGrantAllowed"
+      >;
     } = { failoverEnabled: false },
   ) {
     this.failoverEnabled = options.failoverEnabled;
@@ -246,9 +260,13 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
         this.now,
       );
     this.faultPlans = options.faultPlans ?? noHostedCodexCanaryFaultPlan;
+    this.historicalScopes = options.historicalScopes;
   }
 
   private readonly faultPlans: HostedCodexCanaryFaultPlanPort;
+  private readonly historicalScopes:
+    | Pick<PrismaHostedHistoricalScopeBarrier, "assertGrantAllowed">
+    | undefined;
 
   async open(input: Parameters<HostedCodexStreamingRelayPort["open"]>[0]) {
     try {
@@ -263,6 +281,9 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
         error instanceof HostedCodexEffectReservationOutcomeUnknownError
       )
         throw error.cause;
+      // A deny after request admission is not evidence that an earlier send
+      // failed without effect. Leave ambiguous requests for normal fencing.
+      if (error instanceof HostedHistoricalScopeDeniedError) throw error;
       await completeFailedRequest(
         input.authorization,
         this.ledger,
@@ -330,6 +351,9 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
     let streamHeartbeat: EffectHeartbeat | undefined;
     let generationRetryCount = 0;
     while (true) {
+      await this.historicalScopes?.assertGrantAllowed(
+        input.authorization.grantId,
+      );
       await this.effects.assertLiveAuthority({
         grantId: input.authorization.grantId,
         accountId,
@@ -579,8 +603,7 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
         this.now,
         () => source.destroy(),
       );
-      completion.once("error", () => source.destroy());
-      const body = source.pipe(completion);
+      const body = connectHostedProviderResponseStream(source, completion);
       return {
         statusCode: upstream.status,
         headers: safeResponseHeaders(upstream.headers),
@@ -687,6 +710,18 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
     }
     return result.grant.activeAccountId;
   }
+}
+
+/** Keep both sides of the provider pipe error-observed across client aborts. */
+export function connectHostedProviderResponseStream(
+  source: Readable,
+  completion: Transform,
+): Readable {
+  // pipeline() in the HTTP route observes completion, not this upstream source.
+  // Readable.fromWeb can error when its fetch is aborted by a client close.
+  source.on("error", (error) => completion.destroy(error));
+  completion.once("error", () => source.destroy());
+  return source.pipe(completion);
 }
 
 async function completeFailedRequest(

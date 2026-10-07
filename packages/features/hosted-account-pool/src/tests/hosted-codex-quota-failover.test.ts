@@ -62,6 +62,7 @@ describe("hosted Codex quota failover", () => {
               grant: InvocationGrant,
               failedAccount: HostedPoolAccount,
               backupAccount: HostedPoolAccount | null,
+              currentRequestSuccessfulResponseStarted: boolean,
             ) => CurrentRelayRequestFailover;
           }) => {
             checkpoints.push("capacity_failover");
@@ -70,7 +71,7 @@ describe("hosted Codex quota failover", () => {
               terminalState: "failed_classified",
             });
             expect(grant.inFlightRequestIds).toEqual([requestId]);
-            const result = input.transition(grant, primary, backup);
+            const result = input.transition(grant, primary, backup, false);
             if (result.status === "switched") {
               grant = result.grant;
               failedAccount = result.failedAccount;
@@ -645,7 +646,7 @@ describe("hosted Codex quota failover", () => {
             sourceState: "prepared",
             terminalState: "failed_no_effect",
           });
-          const result = input.transition(grant, primary, backup);
+          const result = input.transition(grant, primary, backup, false);
           if (result.status === "switched") grant = result.grant;
           return result;
         }),
@@ -716,7 +717,7 @@ describe("hosted Codex quota failover", () => {
       recordRequestHash: vi.fn(async () => undefined),
       ensureRequestHash: vi.fn(async () => undefined),
       failover: vi.fn(async (input: any) => {
-        const result = input.transition(grant, primary, backup);
+        const result = input.transition(grant, primary, backup, false);
         if (result.status === "switched") grant = result.grant;
         return result;
       }),

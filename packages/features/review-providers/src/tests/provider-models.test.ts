@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { codexModelSupportsReasoningEffort } from "../index";
+import {
+  codexModelSupportsReasoningEffort,
+  listStaticReviewModelOptions,
+} from "../index";
 
 describe("Codex model capabilities", () => {
+  it("exposes the exact MiMo public-engine provider model", () => {
+    expect(listStaticReviewModelOptions()).toContainEqual({
+      value: "mimo-v2.6-pro",
+      label: "mimo-v2.6-pro",
+      provider: "codex-mimo",
+      description: "MiMo Token Plan public engine model.",
+    });
+  });
+
   it.each(["max", "ultra"] as const)(
     "supports %s only on gpt-5.6-sol",
     (effort) => {

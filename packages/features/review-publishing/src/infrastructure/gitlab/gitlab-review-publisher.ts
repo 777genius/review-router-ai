@@ -136,6 +136,7 @@ export class GitLabReviewPublisher implements ReviewPublisherPort {
       mode: plan.mode,
       maxInlineComments: plan.maxInlineComments,
       findings: plan.findings,
+      ...(plan.outputLanguage ? { outputLanguage: plan.outputLanguage } : {}),
     });
     const [existingDiscussions, diffs] = await Promise.all([
       this.listMergeRequestDiscussions(plan.target),

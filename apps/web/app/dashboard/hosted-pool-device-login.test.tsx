@@ -138,7 +138,7 @@ describe("HostedPoolDeviceLogin", () => {
     expectNoCredentialLeak();
   });
 
-  it("collapses the start form after accounts exist until waiting", async () => {
+  it("opens the add form before the account list", async () => {
     const expiresAt = futureExpiry();
     const startAction = pendingStart(expiresAt);
     const pollAction = pendingPoll(expiresAt);
@@ -147,19 +147,27 @@ describe("HostedPoolDeviceLogin", () => {
         workspaceId="workspace-1"
         mutationsEnabled
         enrolled
+        header={<div>Accounts header</div>}
         startAction={startAction}
         pollAction={pollAction}
-      />,
+      >
+        <div>Existing account list</div>
+      </HostedPoolDeviceLogin>,
     );
 
     expect(
       screen.getByRole("button", { name: "Add another ChatGPT account" }),
     ).toBeTruthy();
-    expect(screen.getByText(/never sent to the browser/i)).toBeTruthy();
     expect(screen.queryByPlaceholderText("Work laptop")).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "Add another ChatGPT account" }),
     );
+    const signInHeading = screen.getByText("Sign in with ChatGPT");
+    const accountList = screen.getByText("Existing account list");
+    expect(
+      signInHeading.compareDocumentPosition(accountList) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     fireEvent.change(screen.getByPlaceholderText("Work laptop"), {
       target: { value: "Primary" },
     });

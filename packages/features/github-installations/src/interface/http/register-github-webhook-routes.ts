@@ -37,6 +37,10 @@ export type RegisterGitHubWebhookRoutesDependencies = {
 
 type RawBodyRequest = FastifyRequest & { readonly rawBody?: Buffer };
 
+// GitHub caps webhook payloads at 25 MB. Keep the larger limit on this signed
+// route only; every other API route retains its own smaller parser limit.
+const githubWebhookBodyLimitBytes = 25 * 1024 * 1024;
+
 export async function registerGitHubWebhookRoutes(
   app: FastifyInstance,
   dependencies: RegisterGitHubWebhookRoutesDependencies,
@@ -49,7 +53,8 @@ export async function registerGitHubWebhookRoutes(
     routes: ["/webhooks/github"],
   });
 
-  app.post("/webhooks/github", async (request, reply) => {
+  const routeOptions = { bodyLimit: githubWebhookBodyLimitBytes };
+  app.post("/webhooks/github", routeOptions, async (request, reply) => {
     const rawPayload = (request as RawBodyRequest).rawBody;
     const deliveryId = request.headers["x-github-delivery"];
     const eventName = request.headers["x-github-event"];

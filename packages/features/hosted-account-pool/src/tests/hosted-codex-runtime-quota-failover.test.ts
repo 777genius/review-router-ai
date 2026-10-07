@@ -125,7 +125,7 @@ function fixture(
       expect(input.requestId).toBe(requestId);
       expect(input.now).toEqual(now);
       expect(input.effect).toBeUndefined();
-      const result = input.transition(grant, primary, accounts[1]!);
+      const result = input.transition(grant, primary, accounts[1]!, false);
       grant = result.grant;
       primary = result.failedAccount;
       return result;

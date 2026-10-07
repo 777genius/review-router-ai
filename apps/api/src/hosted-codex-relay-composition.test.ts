@@ -3,10 +3,73 @@ import { describe, expect, it, vi } from "vitest";
 import {
   composeHostedCodexRelayRoutes,
   composeProductionHostedCodexRelayRoutes,
+  createHostedCommentTokenRevocationProvider,
   hostedCodexSseDoneTrailer,
   hostedCommentTokenGrantStillLive,
   readHostedCodexFeatureFlags,
 } from "./hosted-codex-relay-composition";
+
+describe("hosted comment token revocation authority", () => {
+  const now = new Date("2026-09-24T10:40:00.000Z");
+
+  it("reads mint liveness through the custody role before revoking", async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      grant: { status: "revoked", expiresAt: now, revokedAt: now },
+    });
+    const revokeCommentToken = vi.fn().mockResolvedValue({ proof: "revoked" });
+    const provider = createHostedCommentTokenRevocationProvider({
+      custodyPrisma: {
+        hostedCodexCommentTokenMint: { findFirst },
+      } as never,
+      githubCommentTokens: { revokeCommentToken } as never,
+      clock: { now: () => now },
+    });
+    const signal = new AbortController().signal;
+
+    await expect(
+      provider.revoke({ token: "disposable-token", signal }),
+    ).resolves.toMatchObject({
+      receipt: { authority: "github_token_delete", result: "revoked" },
+    });
+    expect(findFirst).toHaveBeenCalledOnce();
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/u) },
+      }),
+    );
+    expect(revokeCommentToken).toHaveBeenCalledWith({
+      token: "disposable-token",
+      signal,
+    });
+  });
+
+  it("does not revoke a token owned by a live grant", async () => {
+    const revokeCommentToken = vi.fn();
+    const provider = createHostedCommentTokenRevocationProvider({
+      custodyPrisma: {
+        hostedCodexCommentTokenMint: {
+          findFirst: vi.fn().mockResolvedValue({
+            grant: {
+              status: "issued",
+              expiresAt: new Date(now.getTime() + 60_000),
+              revokedAt: null,
+            },
+          }),
+        },
+      } as never,
+      githubCommentTokens: { revokeCommentToken } as never,
+      clock: { now: () => now },
+    });
+
+    await expect(
+      provider.revoke({
+        token: "disposable-token",
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("grant_still_live");
+    expect(revokeCommentToken).not.toHaveBeenCalled();
+  });
+});
 
 describe("hosted Codex SSE done trailer", () => {
   it("appends data: [DONE] when the upstream stream omitted it", () => {

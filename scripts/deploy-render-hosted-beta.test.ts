@@ -14,6 +14,7 @@ import { canonicalProviderJson } from "./codex-rotating-provider-provenance.mjs"
 import {
   addToEnvironment,
   assertReviewV2ApiWorkerEnvConvergence,
+  assertRuntimeReleaseCommit,
   assertHostedDeployEnv,
   assertMigrationEvidence,
   assertMigrationEvidencePayload,
@@ -29,6 +30,7 @@ import {
   reviewV2SharedRuntimeEnvNames,
   resolveDistinctDatabaseRoleUrls,
   resolveStableSecuritySecrets,
+  sdkGrowthRuntimeEnvForRole,
   serviceDetails,
   syncService,
   triggerAndVerifyDeploy,
@@ -93,6 +95,57 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+
+describe("SDK growth hosted flags", () => {
+  it("labels deployment-request flag evidence as configured, not observed", () => {
+    const source = readFileSync(
+      "scripts/deploy-render-hosted-beta.mjs",
+      "utf8",
+    );
+    expect(source).toContain("configuredSdkGrowthAuthorityEnabled:");
+    expect(source).toContain('deployedRuntimeConfiguration: "unverified"');
+    expect(source).not.toContain("sdkGrowthAuthorityEnabled:");
+  });
+
+  it("keeps API and worker dormant unless activation is explicit", () => {
+    expect(sdkGrowthRuntimeEnvForRole({}, "api")).toEqual({
+      REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED: "0",
+      REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED: "0",
+    });
+    expect(sdkGrowthRuntimeEnvForRole({}, "web")).toEqual({});
+  });
+
+  it("rejects activation without the audience or fenced worker takeover", () => {
+    expect(() =>
+      sdkGrowthRuntimeEnvForRole(
+        { REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED: "1" },
+        "worker",
+      ),
+    ).toThrow("fenced outbox takeover");
+    expect(() =>
+      sdkGrowthRuntimeEnvForRole(
+        {
+          REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED: "1",
+          REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED: "1",
+        },
+        "api",
+      ),
+    ).toThrow("REVIEW_ROUTER_ACTION_OIDC_AUDIENCE");
+    expect(
+      sdkGrowthRuntimeEnvForRole(
+        {
+          REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED: "1",
+          REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED: "1",
+          REVIEW_ROUTER_ACTION_OIDC_AUDIENCE: "reviewrouter",
+        },
+        "worker",
+      ),
+    ).toEqual({
+      REVIEW_ROUTER_SDK_GROWTH_AUTHORITY_ENABLED: "1",
+      REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED: "1",
+    });
+  });
 });
 
 function activeReviewV2Env() {
@@ -1985,6 +2038,18 @@ describe("Render hosted deploy hardening", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  });
+
+  it("rejects a stale runtime service revision", () => {
+    expect(() =>
+      assertRuntimeReleaseCommit(
+        {
+          ...runtimeGenerationProofEnv,
+          REVIEW_ROUTER_RUNTIME_RELEASE_COMMIT_SHA: "c".repeat(40),
+        },
+        "a".repeat(40),
+      ),
+    ).toThrow("stale service revision");
   });
 
   it("rejects production loopback aliases even with the local-env override", () => {

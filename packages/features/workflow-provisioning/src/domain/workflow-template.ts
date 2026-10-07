@@ -69,7 +69,9 @@ export type ReviewRouterWorkflowUpsertFile = {
 export type WorkflowProviderRequirement =
   | "action_ref_supports_provider"
   | "secret_pass_through"
+  | "secret_fail_fast"
   | "cli_install_step"
+  | "public_engine_provider_path"
   | "trusted_reusable_workflow_ref"
   | "fork_pr_secret_skip";
 
@@ -106,7 +108,10 @@ const interactionJobGuardExpression =
 const actionsCheckoutV6Commit = "d23441a48e516b6c34aea4fa41551a30e30af803";
 const actionsSetupNodeV6Commit = "249970729cb0ef3589644e2896645e5dc5ba9c38";
 const defaultCodexCliVersion = "0.144.0";
+const explicitReviewCodexCliVersion = "0.147.0";
 const defaultCodexReviewModel = "gpt-5.6-sol";
+const mimoRuntimeProviderPrefix = "codex-mimo";
+const mimoTokenPlanApiKeySecretName = "MIMO_TOKEN_PLAN_API_KEY";
 
 function discussionModeExpression(
   options: Pick<ReviewRouterWorkflowOptions, "discussionMode">,
@@ -121,6 +126,29 @@ export function renderReviewRouterWorkflow(
     throw new Error("conflict_review_explicit_workflow_unsupported");
   }
   const template = prepareWorkflowTemplate(options);
+  const runtimeRepository = options.actionRef.slice(
+    0,
+    options.actionRef.lastIndexOf("@"),
+  );
+  const providerSelection = reviewRouterProviderSelectionForRuntimeEnv(
+    options.staticRuntimeEnv,
+  );
+  const mimoTokenPlanSelected =
+    providerSelection.mimoTokenPlanApiKeySecret === true;
+  const providerSelectionKnown = providerSelection.selectionKnown;
+  const mimoTokenPlanMayBeSelected =
+    mimoTokenPlanSelected || !providerSelectionKnown;
+  const codexCliSecretPresentExpression = providerSelectionKnown
+    ? `(${
+        providerSelection.codexCliWithoutSecret ? "true || " : ""
+      }env.CODEX_AUTH_JSON_PRESENT == '1' && ${providerSelection.codexSubscriptionAuth} || env.OPENAI_API_KEY_PRESENT == '1' && ${providerSelection.codexApiKey} || env.OPENROUTER_API_KEY_PRESENT == '1' && ${providerSelection.openRouterApiKeySecret} || env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1' && ${providerSelection.mimoTokenPlanApiKeySecret})`
+    : `(env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.OPENROUTER_API_KEY_PRESENT == '1' || env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1')`;
+  const codexSubscriptionAuthCondition = providerSelectionKnown
+    ? String(providerSelection.codexSubscriptionAuth)
+    : "true";
+  const claudeCliCondition = providerSelectionKnown
+    ? String(providerSelection.claudeCli)
+    : "true";
 
   return `name: ReviewRouter
 
@@ -150,11 +178,21 @@ jobs:
       CODEX_AUTH_JSON_PRESENT: \${{ secrets.CODEX_AUTH_JSON != '' && '1' || '0' }}
       OPENAI_API_KEY_PRESENT: \${{ secrets.OPENAI_API_KEY != '' && '1' || '0' }}
       OPENROUTER_API_KEY_PRESENT: \${{ secrets.OPENROUTER_API_KEY != '' && '1' || '0' }}
-      CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
+      CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}
+      MIMO_TOKEN_PLAN_API_KEY_PRESENT: \${{ secrets.${mimoTokenPlanApiKeySecretName} != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
     steps:
       - name: Checkout pull request code
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
+
+      - name: Checkout ReviewRouter runtime
+        if: \${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/checkout@v6
+        with:
+          repository: ${runtimeRepository}
+          ref: ${template.actionVersion}
+          path: .reviewrouter-runtime
           persist-credentials: false
 
       - name: Skip fork pull requests
@@ -164,18 +202,30 @@ jobs:
           echo "ReviewRouter skipped this fork pull request because secret-backed provider execution is disabled by default."
 
       - name: Setup Node.js for Codex CLI
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && (env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.OPENROUTER_API_KEY_PRESENT == '1') }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && ${codexCliSecretPresentExpression} }}
         uses: actions/setup-node@v6
         with:
           node-version: "24"
 
       - name: Install Codex CLI
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && (env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.OPENROUTER_API_KEY_PRESENT == '1') }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && ${codexCliSecretPresentExpression} }}
         shell: bash
-        run: npm install -g @openai/codex@${defaultCodexCliVersion}
+        run: npm install -g @openai/codex@${explicitReviewCodexCliVersion}
+${
+  mimoTokenPlanSelected
+    ? `
+      - name: Require MiMo Token Plan API key
+        if: \${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && env.MIMO_TOKEN_PLAN_API_KEY_PRESENT != '1' }}
+        shell: bash
+        run: |
+          echo "::error::MIMO_TOKEN_PLAN_API_KEY is missing. Store the key with \`gh secret set MIMO_TOKEN_PLAN_API_KEY --repo <owner>/<repo> --app actions\`; MiMo never falls back to Codex or OpenRouter."
+          exit 1
+`
+    : ""
+}
 
       - name: Install Claude Code CLI
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' && ${claudeCliCondition} }}
         shell: bash
         run: |
           curl -fsSL https://claude.ai/install.sh | bash -s stable
@@ -183,7 +233,7 @@ jobs:
           "$HOME/.local/bin/claude" --version
 
       - name: Restore Codex subscription auth
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && env.CODEX_AUTH_JSON_PRESENT == '1' }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && env.CODEX_AUTH_JSON_PRESENT == '1' && ${codexSubscriptionAuthCondition} }}
         shell: bash
         env:
           CODEX_AUTH_JSON: \${{ secrets.CODEX_AUTH_JSON }}
@@ -239,7 +289,8 @@ jobs:
 
 ${template.oidcStep}      - name: Run ReviewRouter
         if: \${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: ${options.actionRef}
+        shell: bash
+        run: node .reviewrouter-runtime/dist/index.js
         env:
           GITHUB_TOKEN: \${{ github.token }}
           PR_NUMBER: \${{ github.event.pull_request.number }}
@@ -247,7 +298,7 @@ ${template.oidcStep}      - name: Run ReviewRouter
           CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
           OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}${mimoTokenPlanMayBeSelected ? `\n          MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}` : ""}
 `;
 }
 
@@ -531,6 +582,9 @@ ${actionsRerunAuthority ? "      actions: write\n" : ""}      contents: read
 export function renderReviewRouterReusableWorkflow(
   options: ReviewRouterWorkflowOptions,
 ): string {
+  const mimoTokenPlanSelected = codexRotatingProviderSecretInputsForRuntimeEnv(
+    options.staticRuntimeEnv,
+  ).mimoTokenPlanApiKeySecret;
   const template = prepareReusableWorkflowTemplate(options);
   const conflictReviewFallbackEnabled =
     options.conflictReviewFallbackEnabled === true;
@@ -588,6 +642,10 @@ ${template.staticRuntimeEnvJsonBlock}
       CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
       OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}${
+        mimoTokenPlanSelected
+          ? `\n      MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}`
+          : ""
+      }${
         conflictReviewFallbackEnabled
           ? `
 
@@ -614,7 +672,11 @@ ${template.staticRuntimeEnvJsonBlock}
     secrets:
       CODEX_AUTH_JSON: \${{ secrets.CODEX_AUTH_JSON }}
       CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
-      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}`
+      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}${
+        mimoTokenPlanSelected
+          ? `\n      MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}`
+          : ""
+      }`
           : ""
       }
 `;
@@ -623,6 +685,9 @@ ${template.staticRuntimeEnvJsonBlock}
 export function renderReviewRouterReusableInteractionWorkflow(
   options: ReviewRouterWorkflowOptions,
 ): string {
+  const mimoTokenPlanSelected = codexRotatingProviderSecretInputsForRuntimeEnv(
+    options.staticRuntimeEnv,
+  ).mimoTokenPlanApiKeySecret;
   const template = prepareReusableWorkflowTemplate(options);
 
   return `name: ReviewRouter Interaction
@@ -652,7 +717,11 @@ jobs:
       runtime_config_mode: ${options.runtimeConfigMode}
       review_workflow_file: reviewrouter.yml
       discussion_mode: ${discussionModeExpression(options)}
-      discussion_model: \${{ vars.REVIEW_CODEX_MODEL || '${defaultCodexReviewModel}' }}
+      discussion_model: \${{ vars.REVIEW_CODEX_MODEL || '${mimoTokenPlanSelected ? "mimo-v2.6-pro" : defaultCodexReviewModel}' }}${
+        mimoTokenPlanSelected
+          ? "\n      discussion_auth_mode: mimo-token-plan-api"
+          : ""
+      }
       discussion_reasoning_effort: \${{ vars.REVIEW_CODEX_EFFORT || 'xhigh' }}
       discussion_max_per_pr: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_PR || '20' }}
       discussion_max_per_thread: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD || '5' }}
@@ -661,7 +730,11 @@ jobs:
       REVIEW_ROUTER_LEDGER_KEY: \${{ secrets.REVIEW_ROUTER_LEDGER_KEY }}
       CODEX_AUTH_JSON: \${{ secrets.CODEX_AUTH_JSON }}
       CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
-      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
+      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}${
+        mimoTokenPlanSelected
+          ? `\n      MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}`
+          : ""
+      }
 `;
 }
 
@@ -804,7 +877,10 @@ export function analyzeWorkflowProviderCompatibility(input: {
 
   if (
     input.expectedActionRef &&
-    !input.workflowYaml.includes(input.expectedActionRef)
+    !workflowUsesExpectedReviewRouterRuntime(
+      input.workflowYaml,
+      input.expectedActionRef,
+    )
   ) {
     missingRequirements.push("action_ref_supports_provider");
   }
@@ -824,6 +900,56 @@ export function analyzeWorkflowProviderCompatibility(input: {
   if (input.providerKind === "openrouter") {
     if (!input.workflowYaml.includes("OPENROUTER_API_KEY")) {
       missingRequirements.push("secret_pass_through");
+    }
+    if (
+      workflowStyle === "explicit" &&
+      !input.workflowYaml.includes("Install Codex CLI")
+    ) {
+      missingRequirements.push("cli_install_step");
+    }
+  }
+
+  if (input.providerKind === "codex-mimo") {
+    if (!input.workflowYaml.includes(mimoTokenPlanApiKeySecretName)) {
+      missingRequirements.push("secret_pass_through");
+    }
+    if (
+      workflowStyle === "explicit" &&
+      (!input.workflowYaml.includes("Require MiMo Token Plan API key") ||
+        !input.workflowYaml.includes("MIMO_TOKEN_PLAN_API_KEY is missing"))
+    ) {
+      missingRequirements.push("secret_fail_fast");
+    }
+    if (!input.workflowYaml.includes(`${mimoRuntimeProviderPrefix}/`)) {
+      missingRequirements.push("public_engine_provider_path");
+    }
+    if (
+      workflowStyle === "explicit" &&
+      !input.workflowYaml.includes(
+        `${mimoTokenPlanApiKeySecretName}: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}`,
+      )
+    ) {
+      if (!missingRequirements.includes("secret_pass_through")) {
+        missingRequirements.push("secret_pass_through");
+      }
+    }
+    if (
+      workflowStyle === "explicit" &&
+      !input.workflowYaml.includes("MIMO_TOKEN_PLAN_API_KEY_PRESENT")
+    ) {
+      if (!missingRequirements.includes("secret_pass_through")) {
+        missingRequirements.push("secret_pass_through");
+      }
+    }
+    if (
+      workflowStyle === "reusable" &&
+      !input.workflowYaml.includes(
+        `${mimoTokenPlanApiKeySecretName}: \${{ secrets.${mimoTokenPlanApiKeySecretName} }}`,
+      )
+    ) {
+      if (!missingRequirements.includes("secret_pass_through")) {
+        missingRequirements.push("secret_pass_through");
+      }
     }
     if (
       workflowStyle === "explicit" &&
@@ -872,6 +998,21 @@ export function getWorkflowProviderContentMarkerGroups(input: {
         [reusableReviewWorkflowPath, "OPENROUTER_API_KEY"],
         ["Install Codex CLI", "OPENROUTER_API_KEY", "Skip fork pull requests"],
       ];
+    case "codex-mimo":
+      return [
+        [
+          reusableReviewWorkflowPath,
+          mimoTokenPlanApiKeySecretName,
+          `${mimoRuntimeProviderPrefix}/`,
+        ],
+        [
+          "Install Codex CLI",
+          mimoTokenPlanApiKeySecretName,
+          `${mimoRuntimeProviderPrefix}/`,
+          "Require MiMo Token Plan API key",
+          "Skip fork pull requests",
+        ],
+      ];
     case "codex":
       return [];
   }
@@ -918,6 +1059,7 @@ export function getCodexRotatingWorkflowSetupContentMarkerGroups(input: {
   readonly providerInstanceId: string;
   readonly claudeCodeOAuthTokenSecret?: boolean | undefined;
   readonly openRouterApiKeySecret?: boolean | undefined;
+  readonly mimoTokenPlanApiKeySecret?: boolean | undefined;
   readonly forkAgenticSandboxEnabled?: boolean | undefined;
   readonly reviewActionV2Mode?: CodexRotatingReviewActionV2Mode | undefined;
   readonly workflowSchemaVersion?:
@@ -964,6 +1106,11 @@ export function getCodexRotatingWorkflowSetupContentMarkerGroups(input: {
     if (input.openRouterApiKeySecret === true) {
       markers.push("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}");
     }
+    if (input.mimoTokenPlanApiKeySecret === true) {
+      markers.push(
+        "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+      );
+    }
 
     return [markers];
   }
@@ -992,6 +1139,11 @@ export function getCodexRotatingWorkflowSetupContentMarkerGroups(input: {
   }
   if (input.openRouterApiKeySecret === true) {
     markers.push("openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}");
+  }
+  if (input.mimoTokenPlanApiKeySecret === true) {
+    markers.push(
+      "mimo-token-plan-api-key: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
   }
   if (input.forkAgenticSandboxEnabled === true) {
     markers.push(
@@ -1252,6 +1404,90 @@ function getJobSection(workflowYaml: string, jobId: string): string | null {
   return workflowYaml.slice(start, end);
 }
 
+export function workflowChecksOutReviewRouterRuntime(
+  workflowYaml: string,
+  actionRef: string,
+): boolean {
+  const atIndex = actionRef.lastIndexOf("@");
+  if (atIndex < 1) return false;
+  const repository = actionRef.slice(0, atIndex);
+  const ref = actionRef.slice(atIndex + 1);
+  const reviewJob = getJobSection(workflowYaml, "review");
+  if (!reviewJob || !hasAdmittedReviewJobGuard(reviewJob)) return false;
+  const steps = reviewJob.split(/^ {6}- /m).slice(1);
+  const checkoutIndex = steps.findIndex(
+    (step) =>
+      hasAdmittedRuntimeStepGuard(step) &&
+      /^ {8}uses: actions\/checkout@\S+$/m.test(step) &&
+      new RegExp(`^ {10}repository: ${escapeRegExp(repository)}$`, "m").test(
+        step,
+      ) &&
+      new RegExp(`^ {10}ref: ${escapeRegExp(ref)}$`, "m").test(step) &&
+      /^ {10}path: \.reviewrouter-runtime$/m.test(step) &&
+      /^ {10}persist-credentials: false$/m.test(step),
+  );
+  return (
+    checkoutIndex >= 0 &&
+    steps.some(
+      (step, index) =>
+        index > checkoutIndex &&
+        hasAdmittedRuntimeStepGuard(step) &&
+        /^ {8}run: node \.reviewrouter-runtime\/dist\/index\.js$/m.test(step),
+    )
+  );
+}
+
+function hasAdmittedReviewJobGuard(job: string): boolean {
+  const guards = [...job.matchAll(/^ {4}(?:if|"if"|'if')\s*:\s*(.*)$/gm)].map(
+    (match) => match[1],
+  );
+  return (
+    guards.length === 0 ||
+    (guards.length === 1 &&
+      (guards[0] ===
+        "${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false }}" ||
+        guards[0] === "${{ github.event_name != 'repository_dispatch' }}"))
+  );
+}
+
+function hasAdmittedRuntimeStepGuard(step: string): boolean {
+  const guards = [...step.matchAll(/^ {8}(?:if|"if"|'if')\s*:\s*(.*)$/gm)].map(
+    (match) => match[1],
+  );
+  return (
+    guards.length === 0 ||
+    (guards.length === 1 &&
+      (guards[0] ===
+        "${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}" ||
+        guards[0] ===
+          "${{ github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}"))
+  );
+}
+
+function workflowUsesExpectedReviewRouterRuntime(
+  workflow: string,
+  actionRef: string,
+): boolean {
+  if (workflowChecksOutReviewRouterRuntime(workflow, actionRef)) return true;
+  const reviewJob = getJobSection(workflow, "review");
+  if (!reviewJob || !hasAdmittedReviewJobGuard(reviewJob)) return false;
+  const atIndex = actionRef.lastIndexOf("@");
+  if (atIndex < 1) return false;
+  const reusableRef = `${actionRef.slice(0, atIndex)}/${reusableReviewWorkflowPath}@${actionRef.slice(atIndex + 1)}`;
+  if (
+    new RegExp(`^ {4}uses: ${escapeRegExp(reusableRef)}$`, "m").test(reviewJob)
+  )
+    return true;
+  return reviewJob
+    .split(/^ {6}- /m)
+    .slice(1)
+    .some(
+      (step) =>
+        hasAdmittedRuntimeStepGuard(step) &&
+        new RegExp(`^ {8}uses: ${escapeRegExp(actionRef)}$`, "m").test(step),
+    );
+}
+
 function getJobNestedSection(
   jobSection: string,
   nestedMarker: string,
@@ -1321,34 +1557,9 @@ export function renderReviewRouterWorkflowFiles(
                   options.codexRotatingActiveSecretNamespace,
                 ),
               })
-            : renderCodexRotatingAdvisoryWorkflow({
-                actionRef: options.actionRef,
-                apiUrl: options.apiUrl,
-                providerInstanceId: options.codexRotatingProviderInstanceId,
-                ...(options.codexRotatingActiveSecretNamespace
-                  ? {
-                      activeSecretNamespace:
-                        options.codexRotatingActiveSecretNamespace,
-                    }
-                  : {}),
-                ...(options.codexRotatingWorkflowSchemaVersion !== undefined
-                  ? {
-                      workflowSchemaVersion:
-                        options.codexRotatingWorkflowSchemaVersion,
-                    }
-                  : {}),
-                ...(options.codexRotatingReviewActionV2Mode
-                  ? {
-                      reviewActionV2Mode:
-                        options.codexRotatingReviewActionV2Mode,
-                    }
-                  : {}),
-                ...codexRotatingProviderSecretInputsForRuntimeEnv(
-                  options.staticRuntimeEnv,
-                ),
-                forkAgenticSandboxEnabled:
-                  options.forkAgenticSandboxEnabled === true,
-              }),
+            : renderCodexRotatingAdvisoryWorkflowWithProviderSecretInputs(
+                options,
+              ),
       },
       {
         path: defaultWorkflowPath,
@@ -1387,6 +1598,9 @@ export function renderReviewRouterWorkflowFiles(
                   options.codexRotatingWorkflowSchemaVersion,
               }
             : {}),
+          ...codexRotatingProviderSecretInputsForRuntimeEnv(
+            options.staticRuntimeEnv,
+          ),
         }),
       });
     }
@@ -1404,7 +1618,9 @@ export function renderReviewRouterWorkflowFiles(
     throw new Error("conflict_review_explicit_workflow_unsupported");
   }
 
-  if ((options.workflowStyle ?? "reusable") === "reusable") {
+  const workflowStyle = options.workflowStyle ?? "reusable";
+
+  if (workflowStyle === "reusable") {
     return [
       {
         path: defaultWorkflowPath,
@@ -1437,21 +1653,190 @@ function requireIsolatedQualityNamespace(
   return namespace;
 }
 
-function codexRotatingProviderSecretInputsForRuntimeEnv(
+export function codexRotatingProviderSecretInputsForRuntimeEnv(
   runtimeEnv: Readonly<Record<string, string>> | undefined,
 ): {
   readonly claudeCodeOAuthTokenSecret: boolean;
   readonly openRouterApiKeySecret: boolean;
+  readonly mimoTokenPlanApiKeySecret: boolean;
 } {
-  const providers = runtimeEnv?.REVIEW_PROVIDERS ?? "";
+  const selection = reviewRouterProviderSelectionForRuntimeEnv(runtimeEnv);
   return {
-    claudeCodeOAuthTokenSecret: providers
-      .split(",")
-      .some((provider) => provider.trim().startsWith("claude/")),
-    openRouterApiKeySecret: providers
-      .split(",")
-      .some((provider) => provider.trim().startsWith("openrouter/")),
+    claudeCodeOAuthTokenSecret: selection.claudeCodeOAuthTokenSecret,
+    openRouterApiKeySecret: selection.openRouterApiKeySecret,
+    mimoTokenPlanApiKeySecret: selection.mimoTokenPlanApiKeySecret,
   };
+}
+
+type ReviewRouterProviderSelection = {
+  readonly claudeCodeOAuthTokenSecret: boolean;
+  readonly openRouterApiKeySecret: boolean;
+  readonly mimoTokenPlanApiKeySecret: boolean;
+  readonly codexCli: boolean;
+  readonly codexCliWithoutSecret: boolean;
+  readonly codexSubscriptionAuth: boolean;
+  readonly codexApiKey: boolean;
+  readonly claudeCli: boolean;
+  readonly selectionKnown: boolean;
+};
+
+function reviewRouterProviderSelectionForRuntimeEnv(
+  runtimeEnv: Readonly<Record<string, string>> | undefined,
+): ReviewRouterProviderSelection {
+  const providerIds = [
+    ...(runtimeEnv?.REVIEW_PROVIDERS ?? "").split(","),
+    runtimeEnv?.SYNTHESIS_MODEL ?? "",
+  ]
+    .map((provider) => provider.trim())
+    .filter(Boolean);
+  const providerPrefixes = new Set(
+    providerIds.map((provider) => provider.split("/", 1)[0] ?? provider),
+  );
+  const authMode = runtimeEnv?.REVIEW_AUTH_MODE?.trim() ?? "";
+  const authModeProvider = providerKindForRuntimeAuthMode(authMode);
+  const selectionKnown =
+    providerIds.length > 0 || authModeProvider !== undefined;
+
+  if (!selectionKnown) {
+    return {
+      claudeCodeOAuthTokenSecret: false,
+      openRouterApiKeySecret: false,
+      mimoTokenPlanApiKeySecret: false,
+      codexCli: false,
+      codexCliWithoutSecret: false,
+      codexSubscriptionAuth: false,
+      codexApiKey: false,
+      claudeCli: false,
+      selectionKnown: false,
+    };
+  }
+
+  const selectedKinds = new Set(
+    Array.from(providerPrefixes, providerKindForRuntimeProviderPrefix).filter(
+      (kind): kind is ProviderKind => kind !== undefined,
+    ),
+  );
+  if (authModeProvider) selectedKinds.add(authModeProvider);
+
+  const claudeCodeOAuthTokenSecret =
+    selectedKinds.has("claude") || authModeProvider === "claude";
+  const openRouterApiKeySecret =
+    selectedKinds.has("openrouter") || authModeProvider === "openrouter";
+  const mimoTokenPlanApiKeySecret =
+    selectedKinds.has("codex-mimo") || authModeProvider === "codex-mimo";
+  const codexSubscriptionAuth =
+    isCodexSubscriptionAuthMode(authMode) ||
+    (authMode === "" && selectedKinds.has("codex"));
+  const codexApiKey =
+    isOpenAIApiAuthMode(authMode) ||
+    (authMode === "" && selectedKinds.has("codex"));
+  const codexCliWithoutSecret = isCodexRotatingAuthMode(authMode);
+  const codexCli =
+    selectedKinds.has("codex") ||
+    selectedKinds.has("codex-mimo") ||
+    selectedKinds.has("openrouter") ||
+    codexSubscriptionAuth ||
+    codexApiKey;
+
+  return {
+    claudeCodeOAuthTokenSecret,
+    openRouterApiKeySecret,
+    mimoTokenPlanApiKeySecret,
+    codexCli,
+    codexCliWithoutSecret,
+    codexSubscriptionAuth,
+    codexApiKey,
+    claudeCli: claudeCodeOAuthTokenSecret,
+    selectionKnown: true,
+  };
+}
+
+function providerKindForRuntimeProviderPrefix(
+  prefix: string,
+): ProviderKind | undefined {
+  switch (prefix) {
+    case "codex":
+      return "codex";
+    case mimoRuntimeProviderPrefix:
+      return "codex-mimo";
+    case "claude":
+      return "claude";
+    case "openrouter":
+      return "openrouter";
+    default:
+      return undefined;
+  }
+}
+
+function providerKindForRuntimeAuthMode(
+  authMode: string,
+): ProviderKind | undefined {
+  switch (authMode) {
+    case "codex-oauth":
+    case "codex-oauth-rotating":
+    case "codex-oauth-hosted-pool":
+    case "openai-api":
+    case "codex_subscription_oauth":
+    case "codex_subscription_oauth_rotating":
+    case "codex_subscription_oauth_hosted_pool":
+    case "codex_openai_api_key":
+      return "codex";
+    case "mimo-token-plan-api":
+    case "mimo_token_plan_api_key":
+      return "codex-mimo";
+    case "claude-oauth":
+    case "claude_code_oauth":
+      return "claude";
+    case "openrouter-api":
+    case "openrouter_api_key":
+      return "openrouter";
+    default:
+      return undefined;
+  }
+}
+
+function isCodexSubscriptionAuthMode(authMode: string): boolean {
+  return ["codex-oauth", "codex_subscription_oauth"].includes(authMode);
+}
+
+function isCodexRotatingAuthMode(authMode: string): boolean {
+  return [
+    "codex-oauth-rotating",
+    "codex_subscription_oauth_rotating",
+    "codex-oauth-hosted-pool",
+    "codex_subscription_oauth_hosted_pool",
+  ].includes(authMode);
+}
+
+function isOpenAIApiAuthMode(authMode: string): boolean {
+  return ["openai-api", "codex_openai_api_key"].includes(authMode);
+}
+
+function renderCodexRotatingAdvisoryWorkflowWithProviderSecretInputs(
+  options: ReviewRouterWorkflowOptions,
+): string {
+  const input: Parameters<typeof renderCodexRotatingAdvisoryWorkflow>[0] & {
+    readonly mimoTokenPlanApiKeySecret: boolean;
+  } = {
+    actionRef: options.actionRef,
+    apiUrl: options.apiUrl,
+    providerInstanceId: options.codexRotatingProviderInstanceId!,
+    ...(options.codexRotatingActiveSecretNamespace
+      ? { activeSecretNamespace: options.codexRotatingActiveSecretNamespace }
+      : {}),
+    ...(options.codexRotatingWorkflowSchemaVersion !== undefined
+      ? {
+          workflowSchemaVersion: options.codexRotatingWorkflowSchemaVersion,
+        }
+      : {}),
+    ...(options.codexRotatingReviewActionV2Mode
+      ? { reviewActionV2Mode: options.codexRotatingReviewActionV2Mode }
+      : {}),
+    ...codexRotatingProviderSecretInputsForRuntimeEnv(options.staticRuntimeEnv),
+    forkAgenticSandboxEnabled: options.forkAgenticSandboxEnabled === true,
+  };
+
+  return renderCodexRotatingAdvisoryWorkflow(input);
 }
 
 function prepareReusableWorkflowTemplate(
@@ -1468,7 +1853,7 @@ function prepareReusableWorkflowTemplate(
   ) {
     throw new Error("invalid_conflict_review_reusable_workflow_runtime_ref");
   }
-  const staticRuntimeEnv = options.staticRuntimeEnv ?? {};
+  const staticRuntimeEnv = withProviderKeyBudget(options.staticRuntimeEnv);
   for (const [key, value] of Object.entries(staticRuntimeEnv)) {
     assertSafeEnvKey(key);
     if (typeof value !== "string") {
@@ -1501,7 +1886,9 @@ function prepareWorkflowTemplate(options: ReviewRouterWorkflowOptions): {
   assertSafeActionRef(options.actionRef);
   assertSafeApiUrl(options.apiUrl);
   const actionVersion = extractActionVersion(options.actionRef);
-  const staticRuntimeEnv = Object.entries(options.staticRuntimeEnv ?? {})
+  const staticRuntimeEnv = Object.entries(
+    withProviderKeyBudget(options.staticRuntimeEnv),
+  )
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => {
       assertSafeEnvKey(key);
@@ -1532,6 +1919,20 @@ function prepareWorkflowTemplate(options: ReviewRouterWorkflowOptions): {
     oidcStep,
     staticRuntimeEnvBlock,
   };
+}
+
+function withProviderKeyBudget(
+  runtimeEnv: Readonly<Record<string, string>> | undefined,
+): Readonly<Record<string, string>> {
+  const env = runtimeEnv ?? {};
+  const selection = reviewRouterProviderSelectionForRuntimeEnv(env);
+  if (
+    env.BUDGET_MAX_USD !== undefined ||
+    (!selection.openRouterApiKeySecret && !selection.mimoTokenPlanApiKeySecret)
+  ) {
+    return env;
+  }
+  return { ...env, BUDGET_MAX_USD: "1" };
 }
 
 function assertSafeActionRef(actionRef: string): void {

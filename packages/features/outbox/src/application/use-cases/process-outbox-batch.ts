@@ -114,7 +114,15 @@ export async function processOutboxBatch(
       else staleClaims += 1;
     } catch (error) {
       const safeError = safeOutboxErrorSummary(error);
-      if (event.attempts >= event.maxAttempts || !safeError.retryable) {
+      const preserveReconciliation =
+        error !== null &&
+        typeof error === "object" &&
+        (error as { readonly preserveReconciliation?: unknown })
+          .preserveReconciliation === true;
+      if (
+        (event.attempts >= event.maxAttempts && !preserveReconciliation) ||
+        !safeError.retryable
+      ) {
         const result = await dependencies.outbox.markDeadLetter({
           id: event.id,
           claimId: claim.claimId,

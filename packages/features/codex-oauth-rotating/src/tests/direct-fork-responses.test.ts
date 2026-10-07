@@ -8,10 +8,18 @@ import {
   certifiedForkReviewPromptContextHash,
   parseCertifiedForkReviewModelOutput,
   parseCertifiedForkReviewPromptPacket,
+  serializeCertifiedForkReviewPromptPacket,
 } from "../../../action-control-plane/src/application/use-cases/certified-fork-review-packet.js";
+import { assertCertifiedForkReviewBindingMatches } from "../../../action-control-plane/src/application/use-cases/certified-fork-review-binding.js";
 
 const endpoint = "https://chatgpt.com/backend-api/codex/responses";
 const secret = "SECRET_TOKEN_CANARY";
+const codec = {
+  parsePromptPacket: parseCertifiedForkReviewPromptPacket,
+  serializePromptPacket: serializeCertifiedForkReviewPromptPacket,
+  assertBindingMatches: assertCertifiedForkReviewBindingMatches,
+  parseModelOutput: parseCertifiedForkReviewModelOutput,
+};
 function packet() {
   const binding = {
     sourceRepository: "fork-owner/source",
@@ -130,6 +138,7 @@ function setup(
     accessToken: secret,
     chatgptAccountId: "account_1",
     promptPacket: packet(),
+    codec,
     ...changes,
   };
   return { fetchImpl, input, run: () => requestDirectForkReview(input) };
@@ -381,11 +390,19 @@ describe("unused direct fork model transport", () => {
       type: "output_text",
       text,
     }));
-    const reasoning = { type: "reasoning", id: "reason_1", summary: [] };
+    const reasoning = {
+      type: "reasoning",
+      id: "reason_1",
+      summary: [{ type: "summary_text", text: "snapshot-only summary" }],
+    };
     const message = { ...completed().output[0]!, content: parts };
     const events: Record<string, unknown>[] = [
       ...lifecycle().slice(0, 2),
-      { type: "response.output_item.added", output_index: 0, item: reasoning },
+      {
+        type: "response.output_item.added",
+        output_index: 0,
+        item: { ...reasoning, summary: [] },
+      },
       { type: "response.output_item.done", output_index: 0, item: reasoning },
       {
         type: "response.output_item.added",
@@ -426,6 +443,66 @@ describe("unused direct fork model transport", () => {
         "certified_fork_transport_",
       );
     }
+  });
+
+  it("accepts the documented reasoning summary streaming lifecycle", async () => {
+    const summaryText = "Checked the bounded packet.";
+    const reasoning = {
+      type: "reasoning",
+      id: "reason_1",
+      summary: [{ type: "summary_text", text: summaryText }],
+    };
+    const identity = {
+      item_id: "reason_1",
+      output_index: 0,
+      summary_index: 0,
+    };
+    const messageEvents = lifecycle()
+      .slice(2, -1)
+      .map((event) => ({ ...event, output_index: 1 }));
+    const events = [
+      ...lifecycle().slice(0, 2),
+      {
+        type: "response.output_item.added",
+        output_index: 0,
+        item: { type: "reasoning", id: "reason_1", summary: [] },
+      },
+      {
+        type: "response.reasoning_summary_part.added",
+        ...identity,
+        part: { type: "summary_text", text: "" },
+      },
+      {
+        type: "response.reasoning_summary_text.delta",
+        ...identity,
+        delta: summaryText,
+      },
+      {
+        type: "response.reasoning_summary_text.done",
+        ...identity,
+        text: summaryText,
+      },
+      {
+        type: "response.reasoning_summary_part.done",
+        ...identity,
+        part: reasoning.summary[0],
+      },
+      {
+        type: "response.output_item.done",
+        output_index: 0,
+        item: reasoning,
+      },
+      ...messageEvents,
+      {
+        type: "response.completed",
+        response: {
+          ...completed(),
+          output: [reasoning, completed().output[0]],
+        },
+      },
+    ];
+
+    expect(await setup(response(wire(events))).run()).toEqual(output());
   });
 
   it("redacts hostile adapter and reader accessors and releases on throwing cancel", async () => {
@@ -487,7 +564,6 @@ describe("unused direct fork model transport", () => {
     const body = JSON.parse(init!.body as string);
     expect(body).toMatchObject({
       model: "gpt-5.6-sol",
-      max_output_tokens: 12000,
       tools: [],
       tool_choice: "none",
       parallel_tool_calls: false,
@@ -631,13 +707,30 @@ describe("unused direct fork model transport", () => {
     "text/plain",
     "application/jsonish",
     "text/event-stream-evil",
-    "",
     "application/json; charset=latin1",
     "text/event-stream; boundary=x",
   ])("rejects content type %j", async (type) => {
     await expect(setup(response(terminal(), type)).run()).rejects.toThrow(
       "content_type_rejected",
     );
+  });
+
+  it("accepts ChatGPT Codex SSE when Content-Type is omitted", async () => {
+    const reply = new Response(terminal());
+    reply.headers.delete("content-type");
+    expect(reply.headers.get("content-type")).toBeNull();
+    expect(await setup(reply).run()).toEqual(output());
+  });
+
+  it("accepts ChatGPT Codex store:false completed snapshots with empty output", async () => {
+    const events = lifecycle();
+    events[events.length - 1] = {
+      type: "response.completed",
+      response: { id: "resp_1", status: "completed", output: [] },
+    };
+    const reply = new Response(wire(events));
+    reply.headers.delete("content-type");
+    expect(await setup(reply).run()).toEqual(output());
   });
 
   it.each([201, 204, 301, 400, 401, 429, 500])(
@@ -842,7 +935,11 @@ describe("unused direct fork model transport", () => {
 
 describe("authoritative packet and output adaptation", () => {
   const validate = (modelOutput: unknown, promptPacket: unknown = packet()) =>
-    validateCertifiedForkModelOutputForPrompt({ modelOutput, promptPacket });
+    validateCertifiedForkModelOutputForPrompt({
+      modelOutput,
+      promptPacket,
+      codec,
+    });
 
   it("permits reordered exact reviewed paths and findings on a subset", () => {
     const value = envelope();

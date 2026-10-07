@@ -15,6 +15,7 @@ export async function publishReviewFindingsArtifact(
     readonly marker: string;
     readonly mode?: ReviewPublicationMode | undefined;
     readonly maxInlineComments?: number | undefined;
+    readonly outputLanguage?: string | undefined;
   },
   dependencies: {
     readonly publisher: ReviewPublisherPort;
@@ -27,6 +28,7 @@ export async function publishReviewFindingsArtifact(
     marker: input.marker,
     mode: input.mode,
     maxInlineComments: input.maxInlineComments,
+    outputLanguage: input.outputLanguage,
   });
   return dependencies.publisher.publishReview(plan);
 }

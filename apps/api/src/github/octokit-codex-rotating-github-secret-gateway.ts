@@ -146,6 +146,13 @@ const REVIEW_INVENTORY_MAX_REFERENCES = 128;
 const REVIEW_INVENTORY_MAX_CONCURRENCY = 4;
 const REVIEW_INVENTORY_COVERAGE_POLICY_VERSION = 3;
 
+type RepositoryActionsPublicKeyResponse = {
+  readonly data?: {
+    readonly key_id?: unknown;
+    readonly key?: unknown;
+  };
+};
+
 export class OctokitCodexRotatingGitHubSecretGateway
   implements
     CodexRotatingGitHubSecretTokenIssuerPort,
@@ -221,6 +228,38 @@ export class OctokitCodexRotatingGitHubSecretGateway
       permission: "write",
     });
     return { status: "ready" };
+  }
+
+  async getRepositoryActionsPublicKey(input: {
+    readonly githubInstallationId: string;
+    readonly githubRepositoryId: string;
+    readonly owner: string;
+    readonly repo: string;
+  }): Promise<{ readonly keyId: string; readonly key: string }> {
+    const token = await this.mintRepositorySecretsToken({
+      githubInstallationId: input.githubInstallationId,
+      githubRepositoryId: input.githubRepositoryId,
+      permission: "read",
+    });
+    const response = (await githubRequest(
+      "GET /repos/{owner}/{repo}/actions/secrets/public-key",
+      {
+        owner: input.owner,
+        repo: input.repo,
+        headers: {
+          authorization: `Bearer ${token.token}`,
+        },
+      },
+    )) as RepositoryActionsPublicKeyResponse;
+    if (
+      typeof response.data?.key_id !== "string" ||
+      response.data.key_id.length === 0 ||
+      typeof response.data.key !== "string" ||
+      response.data.key.length === 0
+    ) {
+      throw new Error("provider_api_key_public_key_invalid_response");
+    }
+    return { keyId: response.data.key_id, key: response.data.key };
   }
 
   async issueContentsReadToken(input: {
@@ -1076,6 +1115,21 @@ export class OctokitCodexRotatingGitHubSecretGateway
     if (
       input.permissions.pull_requests &&
       data.permissions?.pull_requests !== input.permissions.pull_requests
+    ) {
+      throw new Error("codex_rotating_installation_token_permissions_mismatch");
+    }
+    if (
+      input.permissions.contents === "read" &&
+      input.permissions.pull_requests === "read" &&
+      (typeof data.permissions !== "object" ||
+        Object.entries(data.permissions).some(
+          ([permission, level]) =>
+            !(
+              (permission === "contents" && level === "read") ||
+              (permission === "pull_requests" && level === "read") ||
+              (permission === "metadata" && level === "read")
+            ),
+        ))
     ) {
       throw new Error("codex_rotating_installation_token_permissions_mismatch");
     }

@@ -20,4 +20,7 @@ export interface HostedPoolQueryPort {
   getRepositoryBindingSummary(
     repositoryId: RepositoryId,
   ): Promise<HostedRepositoryBindingSafeSummary | null>;
+  listRepositoryBindingSummaries(
+    repositoryIds: readonly RepositoryId[],
+  ): Promise<readonly HostedRepositoryBindingSafeSummary[]>;
 }

@@ -1,19 +1,36 @@
 import { isDeepStrictEqual } from "node:util";
 import { isProxy } from "node:util/types";
 
-import {
-  parseCertifiedForkReviewModelOutput,
-  parseCertifiedForkReviewPromptPacket,
-  readExactRecord,
-  serializeCertifiedForkReviewPromptPacket,
-  type CertifiedForkReviewModelOutput,
-} from "../../../action-control-plane/src/application/use-cases/certified-fork-review-packet.js";
-import { assertCertifiedForkReviewBindingMatches } from "../../../action-control-plane/src/application/use-cases/certified-fork-review-binding.js";
+export type DirectForkReviewModelOutput = Readonly<{
+  protocolVersion: 1;
+  summaryMarkdown: string;
+  findings: readonly Readonly<{
+    severity: "critical" | "major" | "minor" | "info";
+    title: string;
+    body: string;
+    path?: string;
+    startLine?: number;
+    endLine?: number;
+  }>[];
+}>;
+
+export type DirectForkResponsesCodec = Readonly<{
+  parsePromptPacket(input: unknown): Readonly<{
+    contextHash: string;
+    binding: unknown;
+    files: readonly Readonly<{ path: string }>[];
+  }>;
+  serializePromptPacket(input: unknown): string;
+  assertBindingMatches(expected: unknown, actual: unknown): void;
+  parseModelOutput(
+    input: unknown,
+    filePaths: ReadonlySet<string>,
+  ): DirectForkReviewModelOutput;
+}>;
 
 // Internal and intentionally unwired. These are transport budgets, not authority.
 const endpoint = "https://chatgpt.com/backend-api/codex/responses";
 const model = "gpt-5.6-sol";
-const maxOutputTokens = 12_000;
 const maxRequestBytes = 640_000;
 const maxResponseBytes = 2 * 1024 * 1024;
 const maxOutputBytes = 256 * 1024;
@@ -37,6 +54,7 @@ export type DirectForkResponsesInput = Readonly<{
   accessToken: string;
   chatgptAccountId: string;
   promptPacket: unknown;
+  codec: DirectForkResponsesCodec;
   signal?: AbortSignal;
   /** May only shorten the hard deadline; includes fetching and body consumption. */
   timeoutMs?: number;
@@ -54,6 +72,59 @@ function fail(code: string): never {
   throw new TransportError(code);
 }
 
+function certifiedForkResponseMediaType(
+  contentType: string | null,
+): "application/json" | "text/event-stream" | undefined {
+  const normalized = contentType?.trim() ?? "";
+  if (normalized.length === 0) return "text/event-stream";
+  const match =
+    /^(application\/json|text\/event-stream)(?:\s*;\s*charset=utf-8)?$/iu.exec(
+      normalized,
+    );
+  const mediaType = match?.[1]?.toLowerCase();
+  return mediaType === "application/json" || mediaType === "text/event-stream"
+    ? mediaType
+    : undefined;
+}
+
+function readExactRecord(
+  input: unknown,
+  requiredKeys: readonly string[],
+  code: string,
+): Record<string, unknown> {
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    isProxy(input) ||
+    Array.isArray(input)
+  ) {
+    fail(code);
+  }
+  const prototype = Object.getPrototypeOf(input);
+  if (prototype !== Object.prototype && prototype !== null) fail(code);
+  const keys = Reflect.ownKeys(input);
+  if (
+    keys.length !== requiredKeys.length ||
+    keys.some((key) => typeof key !== "string" || !requiredKeys.includes(key))
+  ) {
+    fail(code);
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(input);
+  const values: Record<string, unknown> = Object.create(null);
+  for (const key of requiredKeys) {
+    const descriptor = descriptors[key];
+    if (
+      descriptor === undefined ||
+      descriptor.enumerable !== true ||
+      !("value" in descriptor)
+    ) {
+      fail(code);
+    }
+    values[key] = descriptor.value;
+  }
+  return values;
+}
+
 /** Adapts a transport echo envelope to the current authoritative pure parsers.
  * The echo detects stale/misbound output; it is not a witness or durable proof.
  * No new output schema or path policy is defined here.
@@ -61,16 +132,17 @@ function fail(code: string): never {
 export function validateCertifiedForkModelOutputForPrompt(input: {
   readonly modelOutput: unknown;
   readonly promptPacket: unknown;
-}): CertifiedForkReviewModelOutput {
+  readonly codec: DirectForkResponsesCodec;
+}): DirectForkReviewModelOutput {
   try {
-    const packet = parseCertifiedForkReviewPromptPacket(input.promptPacket);
+    const packet = input.codec.parsePromptPacket(input.promptPacket);
     const envelope = readExactRecord(
       input.modelOutput,
       ["contextHash", "binding", "reviewedPaths", "modelOutput"],
       "invalid_envelope",
     );
     if (envelope.contextHash !== packet.contextHash) fail("binding_invalid");
-    assertCertifiedForkReviewBindingMatches(packet.binding, envelope.binding);
+    input.codec.assertBindingMatches(packet.binding, envelope.binding);
     // Only inspect data descriptors; caller-owned accessors are never invoked.
     const paths = envelope.reviewedPaths;
     if (
@@ -96,7 +168,7 @@ export function validateCertifiedForkModelOutputForPrompt(input: {
         fail("paths_invalid");
       seen.add(path);
     }
-    return parseCertifiedForkReviewModelOutput(envelope.modelOutput, requested);
+    return input.codec.parseModelOutput(envelope.modelOutput, requested);
   } catch {
     // Parser failures and attacker-controlled values must not escape as causes.
     fail("output_invalid");
@@ -106,7 +178,7 @@ export function validateCertifiedForkModelOutputForPrompt(input: {
 /** One POST, no retries, no publication or provider lifecycle effects. */
 export async function requestDirectForkReview(
   input: DirectForkResponsesInput,
-): Promise<CertifiedForkReviewModelOutput> {
+): Promise<DirectForkReviewModelOutput> {
   try {
     return await requestWithinBoundary(input);
   } catch (error) {
@@ -122,7 +194,7 @@ export async function requestDirectForkReview(
 
 async function requestWithinBoundary(
   input: DirectForkResponsesInput,
-): Promise<CertifiedForkReviewModelOutput> {
+): Promise<DirectForkReviewModelOutput> {
   const controller = new AbortController();
   let timedOut = false;
   const abort = () => controller.abort();
@@ -152,7 +224,8 @@ async function requestWithinBoundary(
       fail("credentials_invalid");
     if (!/^[A-Za-z0-9:_-]{1,200}$/u.test(input.chatgptAccountId))
       fail("credentials_invalid");
-    const packet = parseCertifiedForkReviewPromptPacket(input.promptPacket);
+    const packet = input.codec.parsePromptPacket(input.promptPacket);
+    // ChatGPT Codex accounts reject max_output_tokens; hosted relay strips it too.
     const body = JSON.stringify({
       model,
       instructions,
@@ -162,12 +235,11 @@ async function requestWithinBoundary(
           content: [
             {
               type: "input_text",
-              text: serializeCertifiedForkReviewPromptPacket(packet),
+              text: input.codec.serializePromptPacket(packet),
             },
           ],
         },
       ],
-      max_output_tokens: maxOutputTokens,
       tools: [],
       tool_choice: "none",
       parallel_tool_calls: false,
@@ -208,18 +280,16 @@ async function requestWithinBoundary(
       discard(response);
       fail("http_rejected");
     }
-    const contentType = response.headers.get("content-type") ?? "";
-    const match =
-      /^(application\/json|text\/event-stream)(?:\s*;\s*charset=utf-8)?$/iu.exec(
-        contentType,
-      );
-    if (!match) {
+    const mediaType = certifiedForkResponseMediaType(
+      response.headers.get("content-type"),
+    );
+    if (!mediaType) {
       discard(response);
       fail("content_type_rejected");
     }
     const text = await readBody(response, controller.signal);
     const output =
-      match[1]?.toLowerCase() === "text/event-stream"
+      mediaType === "text/event-stream"
         ? parseSse(text)
         : completedOutput(JSON.parse(text.replace(/^\uFEFF/u, "")) as unknown);
     if (Buffer.byteLength(output, "utf8") > maxOutputBytes)
@@ -227,6 +297,7 @@ async function requestWithinBoundary(
     return validateCertifiedForkModelOutputForPrompt({
       modelOutput: JSON.parse(output) as unknown,
       promptPacket: packet,
+      codec: input.codec,
     });
   } catch (error) {
     if (controller.signal.aborted) fail(timedOut ? "timeout" : "aborted");
@@ -411,6 +482,19 @@ function parseSse(text: string): string {
     if (!content) fail("identity_invalid");
     return content;
   }
+  function activeSummary(event: Record<string, unknown>): Content {
+    const item = activeItem(event);
+    const index = event.summary_index;
+    if (
+      item.type !== "reasoning" ||
+      !Number.isSafeInteger(index) ||
+      (index as number) < 0
+    )
+      fail("identity_invalid");
+    const content = item.contents[index as number];
+    if (!content) fail("identity_invalid");
+    return content;
+  }
   let responseId: string | undefined;
   let previousSequence = -1;
   // SSE accepts LF, CRLF and CR. Chunk boundaries have already been decoded.
@@ -527,7 +611,13 @@ function parseSse(text: string): string {
               !isDeepStrictEqual(
                 value.content,
                 item.contents.map((part) => part.value),
-              )))
+              ))) ||
+          (item.type === "reasoning" &&
+            item.contents.length > 0 &&
+            !isDeepStrictEqual(
+              value.summary,
+              item.contents.map((part) => part.value),
+            ))
         )
           fail("lifecycle_invalid");
         item.phase = "done";
@@ -575,23 +665,93 @@ function parseSse(text: string): string {
         content.value = part;
         break;
       }
+      case "response.reasoning_summary_part.added": {
+        const item = activeItem(event);
+        const part = record(event.part);
+        if (
+          item.type !== "reasoning" ||
+          event.summary_index !== item.contents.length ||
+          item.contents.some((content) => content.phase !== "done") ||
+          part.type !== "summary_text" ||
+          part.text !== ""
+        )
+          fail("lifecycle_invalid");
+        item.contents.push({ phase: "added", delta: "" });
+        break;
+      }
+      case "response.reasoning_summary_text.delta": {
+        const content = activeSummary(event);
+        if (content.phase !== "added") fail("lifecycle_invalid");
+        content.delta = boundedText(content.delta + boundedText(event.delta));
+        break;
+      }
+      case "response.reasoning_summary_text.done": {
+        const content = activeSummary(event);
+        if (content.phase !== "added") fail("lifecycle_invalid");
+        content.text = boundedText(event.text);
+        if (content.delta !== content.text) fail("output_mismatch");
+        content.phase = "text_done";
+        break;
+      }
+      case "response.reasoning_summary_part.done": {
+        const content = activeSummary(event);
+        const part = record(event.part);
+        if (
+          content.phase !== "text_done" ||
+          part.type !== "summary_text" ||
+          part.text !== content.text
+        )
+          fail("lifecycle_invalid");
+        content.phase = "done";
+        content.value = part;
+        break;
+      }
       case "response.completed": {
         const response = record(event.response);
         if (responseId !== undefined && response.id !== responseId)
           fail("response_mismatch");
-        terminal = completedOutput(response);
-        // A terminal-only snapshot is supported. Once streaming starts, every
-        // declared item must finish and match the authoritative final snapshot.
         if (
-          phase !== "initial" &&
-          (!items.length ||
-            items.some((item) => item.phase !== "done") ||
-            !isDeepStrictEqual(
-              response.output,
-              items.map((item) => item.value),
-            ))
+          response.status !== "completed" ||
+          typeof response.id !== "string" ||
+          !response.id ||
+          response.id.length > 500
         )
+          fail("incomplete");
+        // Terminal-only snapshots still require the full output array. ChatGPT
+        // Codex store:false streams the items, then completes with output: [].
+        if (phase === "initial") {
+          terminal = completedOutput(response);
+          break;
+        }
+        if (!items.length || items.some((item) => item.phase !== "done"))
           fail("lifecycle_invalid");
+        if (response.output !== undefined && !Array.isArray(response.output))
+          fail("output_missing");
+        const snapshot = Array.isArray(response.output) ? response.output : [];
+        if (snapshot.length > 0) {
+          terminal = completedOutput(response);
+          if (
+            !isDeepStrictEqual(
+              snapshot,
+              items.map((item) => item.value),
+            )
+          )
+            fail("lifecycle_invalid");
+          break;
+        }
+        let result = "";
+        let messages = 0;
+        for (const item of items) {
+          if (item.type === "message") messages += 1;
+          result = boundedText(result + itemOutput(item.value, true));
+        }
+        if (messages !== 1 || !result) fail("output_missing");
+        if (
+          response.output_text !== undefined &&
+          response.output_text !== result
+        )
+          fail("output_mismatch");
+        terminal = result;
         break;
       }
       default:

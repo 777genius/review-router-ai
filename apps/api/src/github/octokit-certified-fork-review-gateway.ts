@@ -57,7 +57,7 @@ type PullRequestSnapshot = Readonly<{
 const githubCompareMaxFiles = 300;
 const maxPatchBytes = 240_000;
 const maxChangedLines = 20_000;
-const githubRequestTimeoutMs = 15_000;
+export const certifiedForkGithubRequestTimeoutMs = 15_000;
 const contextHashPattern = /^[a-f0-9]{64}$/u;
 
 export const certifiedForkReviewMaxFilePatchBytes =
@@ -218,7 +218,7 @@ export class OctokitCertifiedForkReviewGateway implements CertifiedForkReviewGat
       request: (route: string, parameters: Record<string, unknown> = {}) =>
         octokit.request(route, {
           ...parameters,
-          request: { timeout: githubRequestTimeoutMs },
+          request: { timeout: certifiedForkGithubRequestTimeoutMs },
         }),
     };
   }

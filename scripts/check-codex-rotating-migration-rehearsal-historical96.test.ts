@@ -23,6 +23,19 @@ const extensions = [
   "000100_hosted_codex_device_login",
   "000101_sdk_growth_authority",
   "000102_sdk_growth_current_authority",
+  "000103_sdk_growth_authority_custody",
+  "000104_hosted_pool_request_scoped_failover",
+  "000105_sdk_growth_publication_effect",
+  "000106_sdk_growth_finalized_report_logical_identity",
+  "000107_hosted_v4_relay_turn_contract",
+  "000108_sdk_growth_verifier_assignment",
+  "000109_sdk_growth_verifier_assignment_lock",
+  "000110_provider_api_key_workspace_management",
+  "000111_sdk_growth_source_binding",
+  "000112_sdk_growth_operator_credential",
+  "000113_sdk_growth_approval_ledger",
+  "000114_sdk_growth_v3_tool_artifact",
+  "000115_sdk_growth_v3_approved_manifest",
 ];
 function body(name: string) {
   const match = source.match(
@@ -70,7 +83,7 @@ function noOp(
 }
 
 describe("historical96 Prisma deploy boundary", () => {
-  it("gives the actual Prisma config loader all 96 admitted SQL files and excludes only checkout-only 098/099/100/101/102", () => {
+  it("gives the actual Prisma config loader all 96 historical SQL files and excludes the checkout-only tail", () => {
     for (const extension of extensions)
       expect(
         fs.existsSync(join(migrationsDirectory, extension, "migration.sql")),

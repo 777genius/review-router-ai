@@ -11,7 +11,9 @@ import {
   resolveReviewRuntimeEnv,
   saveReviewConfiguration,
   safeDefaultReviewConfiguration,
+  effectiveInlineMaxComments,
   type PersistedReviewConfiguration,
+  type ReviewConfigurationBatchReaderPort,
   type ReviewConfigurationRepositoryPort,
 } from "../index";
 
@@ -51,7 +53,11 @@ const disabledInvestigationRuntimeEnv = {
   REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "0",
 } as const;
 
-class InMemoryReviewConfigurationRepository implements ReviewConfigurationRepositoryPort {
+class InMemoryReviewConfigurationRepository
+  implements
+    ReviewConfigurationRepositoryPort,
+    ReviewConfigurationBatchReaderPort
+{
   private readonly versions = new Map<string, PersistedReviewConfiguration[]>();
 
   async findLatest(
@@ -59,6 +65,24 @@ class InMemoryReviewConfigurationRepository implements ReviewConfigurationReposi
   ) {
     const records = this.versions.get(reviewConfigurationTargetKey(target));
     return records?.at(-1) ?? null;
+  }
+
+  async findLatestForRepositories(input: {
+    readonly workspaceId: string;
+    readonly repositoryIds: readonly string[];
+  }) {
+    return [...new Set(input.repositoryIds)].flatMap((repositoryId) => {
+      const config = this.versions
+        .get(
+          reviewConfigurationTargetKey({
+            scope: "repository",
+            workspaceId: input.workspaceId,
+            repositoryId,
+          }),
+        )
+        ?.at(-1);
+      return config ? [{ repositoryId, config }] : [];
+    });
   }
 
   async saveNextVersion(
@@ -98,7 +122,8 @@ describe("review configuration", () => {
       PROVIDER_MAX_PARALLEL: "1",
       INLINE_MIN_AGREEMENT: "1",
       FAIL_ON_SEVERITY: "critical",
-      INLINE_MAX_COMMENTS: "5",
+      INLINE_MAX_COMMENTS: "50",
+      INLINE_MIN_SEVERITY: "minor",
       ...defaultInvestigationRuntimeEnv,
     });
     expect(safeDefaultReviewConfiguration.investigationRollout).toEqual({
@@ -111,6 +136,12 @@ describe("review configuration", () => {
     });
     expect(Object.keys(env).join("\n")).not.toContain("SECRET");
     expect(Object.keys(env).join("\n")).not.toContain("KEY");
+  });
+
+  it("treats the stored legacy inline cap of 5 as 50 and keeps 0 disabled", () => {
+    expect(effectiveInlineMaxComments(0)).toBe(0);
+    expect(effectiveInlineMaxComments(5)).toBe(50);
+    expect(effectiveInlineMaxComments(12)).toBe(12);
   });
 
   it.each(["max", "ultra"] as const)(

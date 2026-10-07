@@ -17,6 +17,8 @@ import {
   type ArProviderFailureClassification,
   type InvocationGrant,
   type InvocationGrantAuthority,
+  type LegacyInvocationGrantAuthority,
+  type LegacyInvocationGrant,
   type InvocationGrantBudget,
   type ProviderEffectFence,
   type RelayAdmission,
@@ -47,7 +49,7 @@ export async function issueInvocationGrant(
       readonly expiresAt: Date;
       readonly maxUses: number;
     };
-    readonly authority: InvocationGrantAuthority;
+    readonly authority: LegacyInvocationGrantAuthority;
     readonly runtimeAuthzEpoch: bigint;
     readonly now: Date;
   },
@@ -60,7 +62,7 @@ export async function issueInvocationGrant(
     readonly commentRefreshCapabilities: CommentTokenRefreshCapabilityPort;
   },
 ): Promise<{
-  readonly grant: InvocationGrant;
+  readonly grant: LegacyInvocationGrant;
   readonly plaintextToken: string;
   readonly commentRefreshPlaintextToken: string;
 }> {

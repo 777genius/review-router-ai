@@ -43,9 +43,9 @@ const input = () => ({
 });
 
 describe("bounded managed89-to92 transaction construction", () => {
-  it("keeps the reader-to-builder boundary at92 for the exact101 checkout", () => {
+  it("keeps the reader-to-builder boundary at92 for the exact116 checkout", () => {
     expect(readdirSync("packages/platform/db/prisma/migrations")).toHaveLength(
-      101,
+      116,
     );
     expect(catalog).toHaveLength(92);
     const sql = renderSchemaHandoffTransaction(input());
@@ -126,6 +126,76 @@ describe("bounded managed89-to92 transaction construction", () => {
           )
           .digest("hex"),
       },
+      {
+        migrationName: "000103_sdk_growth_authority_custody",
+        checksum: createHash("sha256")
+          .update(
+            readFileSync(
+              "packages/platform/db/prisma/migrations/000103_sdk_growth_authority_custody/migration.sql",
+            ),
+          )
+          .digest("hex"),
+      },
+      {
+        migrationName: "000104_hosted_pool_request_scoped_failover",
+        checksum: createHash("sha256")
+          .update(
+            readFileSync(
+              "packages/platform/db/prisma/migrations/000104_hosted_pool_request_scoped_failover/migration.sql",
+            ),
+          )
+          .digest("hex"),
+      },
+      {
+        migrationName: "000105_sdk_growth_publication_effect",
+        checksum: createHash("sha256")
+          .update(
+            readFileSync(
+              "packages/platform/db/prisma/migrations/000105_sdk_growth_publication_effect/migration.sql",
+            ),
+          )
+          .digest("hex"),
+      },
+      {
+        migrationName: "000106_sdk_growth_finalized_report_logical_identity",
+        checksum: createHash("sha256")
+          .update(
+            readFileSync(
+              "packages/platform/db/prisma/migrations/000106_sdk_growth_finalized_report_logical_identity/migration.sql",
+            ),
+          )
+          .digest("hex"),
+      },
+      {
+        migrationName: "000107_hosted_v4_relay_turn_contract",
+        checksum: createHash("sha256")
+          .update(
+            readFileSync(
+              "packages/platform/db/prisma/migrations/000107_hosted_v4_relay_turn_contract/migration.sql",
+            ),
+          )
+          .digest("hex"),
+      },
+      ...[
+        "000108_sdk_growth_verifier_assignment",
+        "000109_sdk_growth_verifier_assignment_lock",
+        "000110_historical_unknown_scope_barrier",
+        "000110_provider_api_key_workspace_management",
+        "000111_sdk_growth_source_binding",
+        "000112_sdk_growth_operator_credential",
+        "000113_sdk_growth_approval_ledger",
+        "000114_sdk_growth_v3_tool_artifact",
+        "000115_sdk_growth_v3_approved_manifest",
+      ].map((migrationName) => ({
+        migrationName,
+        checksum: createHash("sha256")
+          .update(
+            readFileSync(
+              `packages/platform/db/prisma/migrations/${migrationName}/migration.sql`,
+            ),
+          )
+          .digest("hex"),
+      })),
     ];
     for (const row of extensions) {
       expect(sql).not.toContain(row.migrationName);

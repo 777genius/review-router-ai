@@ -476,6 +476,10 @@ export const runtimeAuthorityReadOnlyTables = Object.freeze([
   "HostedCodexRuntimeGate",
   "HostedCodexRuntimeClosure",
   "ReviewProviderScopeConcurrencyControl",
+  "HostedHistoricalScopePolicy",
+  "HostedHistoricalUnknownScope",
+  "HostedHistoricalScopeAlias",
+  "HostedHistoricalScopeComplete",
 ]);
 
 export const workerOwnedMaintenanceCheckpointTable =
@@ -5077,6 +5081,16 @@ ${configuration.roles
     }) => `${databaseAclStatement(`GRANT CONNECT ON DATABASE __DATABASE_TARGET__ TO ${username};`)}
 GRANT USAGE ON SCHEMA public TO ${username};
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM ${username};
+DO $historical_function_acl$
+BEGIN
+  IF pg_catalog.to_regprocedure('public.hosted_historical_assert_ready()') IS NOT NULL THEN
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.hosted_historical_set_digest() TO %I', '${username}');
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.hosted_historical_assert_ready() TO %I', '${username}');
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.hosted_historical_assert_grant(public."HostedCodexInvocationGrant") TO %I', '${username}');
+    ${role === "api" ? `EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.hosted_historical_lock_runtime_gate() TO %I', '${username}');` : ""}
+  END IF;
+END
+$historical_function_acl$;
 GRANT EXECUTE ON FUNCTION public."codex_oauth_database_authority_challenge"(text, text, integer) TO ${username};
 GRANT EXECUTE ON FUNCTION public."codex_oauth_consume_database_authority"(text, text, integer) TO ${username};
 ${
@@ -5215,6 +5229,29 @@ GRANT SELECT ON TABLE public."HostedCodexRuntimeGate", public."GitHubInstallatio
   public."HostedCodexRepositoryBinding", public."HostedCodexInvocationGrant",
   public."HostedCodexCommentRefreshCapability", public."HostedCodexCommentRefreshUse",
   public."HostedCodexCommentTokenMint" TO reviewrouter_comment_token_custody;
+DO $historical_custody_acl$
+DECLARE historical_table text; protected_column record;
+BEGIN
+  IF pg_catalog.to_regclass('public."HostedHistoricalScopePolicy"') IS NOT NULL THEN
+    FOREACH historical_table IN ARRAY ARRAY['HostedHistoricalScopePolicy','HostedHistoricalUnknownScope',
+      'HostedHistoricalScopeAlias','HostedHistoricalScopeComplete'] LOOP
+      FOR protected_column IN
+        SELECT attribute.attname AS column_name
+        FROM pg_catalog.pg_attribute attribute
+        WHERE attribute.attrelid = pg_catalog.to_regclass(pg_catalog.format('public.%I', historical_table))
+          AND attribute.attnum > 0 AND NOT attribute.attisdropped
+      LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL (%I) ON TABLE public.%I FROM reviewrouter_comment_token_custody',
+          protected_column.column_name, historical_table);
+      END LOOP;
+      EXECUTE pg_catalog.format('GRANT SELECT ON TABLE public.%I TO reviewrouter_comment_token_custody', historical_table);
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.hosted_historical_set_digest() TO reviewrouter_comment_token_custody;
+    GRANT EXECUTE ON FUNCTION public.hosted_historical_assert_ready() TO reviewrouter_comment_token_custody;
+    GRANT EXECUTE ON FUNCTION public.hosted_historical_assert_grant(public."HostedCodexInvocationGrant") TO reviewrouter_comment_token_custody;
+  END IF;
+END
+$historical_custody_acl$;
 GRANT INSERT ON TABLE public."HostedCodexCommentRefreshUse" TO reviewrouter_comment_token_custody;
 GRANT UPDATE ("useCount", "lastUsedAt", "revision", "updatedAt") ON TABLE public."HostedCodexCommentRefreshCapability" TO reviewrouter_comment_token_custody;
 GRANT EXECUTE ON FUNCTION public.hosted_codex_finalize_comment_token_revocation(text,text,text,text,bigint,text,text)
