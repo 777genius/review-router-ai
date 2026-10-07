@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { createServer, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import * as c from "@agent-teams/account-gateway/contracts";
@@ -23,6 +23,8 @@ import {
 import { PrismaProviderAccountSynchronization } from "@reviewrouter/features-provider-accounts/synchronization";
 import {
   createAccountsAdapter,
+  accountsServerAdapter,
+  loadAccountsBootstrap,
   type AccountView,
   type AccountsResult,
 } from "./account-gateway-accounts";
@@ -91,6 +93,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
     c.oauthAuthorizationURL.parse(authorizationURL);
     let oauthBeginEntries = 0;
     const genericReadRefs: string[] = [];
+    let personalWorkspaceId: string | undefined;
     let selectedWorkspace = workspaceId;
     let afterOAuthBegin: (() => Promise<void>) | undefined;
     let httpReads = 0;
@@ -396,6 +399,130 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
           { workspaceId, userId: member.userId!, role: "member" },
         ],
       });
+      // RED: production authorize accepts a new personal owner as an ordinary
+      // workspace admin and reaches profiles/create/OAuth management. Use its
+      // actual trusted query against real Prisma, with only the session and
+      // composition dependencies replaced; no copied personal predicate.
+      const { PrismaWorkspaceMembershipRepository } =
+        await import("../../../../packages/features/auth/src/infrastructure/prisma/prisma-workspace-membership-repository");
+      personalWorkspaceId = (
+        await new PrismaWorkspaceMembershipRepository(
+          db,
+        ).ensurePersonalWorkspaceOwner({
+          userId: actor.userId!,
+          provider: "github",
+          externalUserId: `${prefix}-external`,
+          login: "personal-label",
+          githubUserId: "",
+          githubLogin: actor.githubLogin,
+          primaryEmail: null,
+          avatarUrl: null,
+        })
+      ).workspaceId;
+      const personalRow = await db.workspace.findUniqueOrThrow({
+        where: { id: personalWorkspaceId },
+      });
+      assert.equal(personalRow.personalOwnerUserId, actor.userId);
+      await assertWorkspaceAdminAllowed(
+        { workspaceId: personalWorkspaceId, ...actor },
+        { workspaceAccess: access },
+      );
+      vi.doMock("./prisma", () => ({ getPrisma: () => db }));
+      vi.doMock("./dashboard-mutations", () => ({
+        getDashboardSignedInActor: async () => actor,
+        assertDashboardWorkspaceAdminAllowed: async (id: string) => {
+          await assertWorkspaceAdminAllowed(
+            { workspaceId: id, ...actor },
+            { workspaceAccess: access },
+          );
+          return actor;
+        },
+      }));
+      const contextKey = "synthetic-context-key-for-personal-guard";
+      vi.stubEnv(
+        "REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET",
+        contextKey,
+      );
+      vi.stubEnv(
+        "REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN",
+        `http://127.0.0.1:${address.port}`,
+      );
+      vi.stubEnv("REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN", "t");
+      vi.stubEnv("REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID", profileId);
+      vi.stubEnv(
+        "REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID",
+        foreignProfileId,
+      );
+      vi.stubEnv(
+        "REVIEW_ROUTER_ACCOUNT_GATEWAY_CODEX_OAUTH_PROFILE_ID",
+        oauthProfileId,
+      );
+      vi.stubEnv("ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID", "");
+      try {
+        // No operator workspace is configured in this fixture.
+        delete process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID;
+        const bootstrap = await loadAccountsBootstrap(personalWorkspaceId);
+        assert.equal(bootstrap.context, "");
+        assert.equal(bootstrap.page.status, "denied");
+        const body = Buffer.from(
+          JSON.stringify({
+            workspaceId: personalWorkspaceId,
+            userId: actor.userId,
+          }),
+        ).toString("base64url");
+        const signature = createHmac("sha256", contextKey)
+          .update(`rr-c3-accounts-context-v1\0${body}`)
+          .digest("base64url");
+        const personalContext = `${body}.${signature}`;
+        const live = await accountsServerAdapter();
+        assert.equal((await live.list(personalContext)).status, "denied");
+        assert.equal(
+          (await live.mutate(personalContext, connect, sentinel)).status,
+          "denied",
+        );
+        assert.equal(
+          (
+            await live.beginOAuth(personalContext, {
+              nonce: randomUUID(),
+              profileId: oauthProfileId,
+              label: "Personal OAuth",
+            })
+          ).status,
+          "denied",
+        );
+        assert.equal(
+          (await live.operation(personalContext, randomUUID())).status,
+          "denied",
+        );
+        assert.equal(
+          httpReads,
+          0,
+          "personal denial precedes profiles and all Gateway reads",
+        );
+        assert.equal(mutationEntries, 0);
+        assert.equal(oauthBeginEntries, 0);
+        assert.equal(
+          await db.providerAccountConnection.count({
+            where: {
+              OR: [
+                { ownerWorkspaceId: personalWorkspaceId },
+                { ownerUserId: actor.userId! },
+              ],
+            },
+          }),
+          0,
+        );
+        assert.equal(
+          await db.workspaceAccountBinding.count({
+            where: { workspaceId: personalWorkspaceId },
+          }),
+          0,
+        );
+      } finally {
+        vi.doUnmock("./prisma");
+        vi.doUnmock("./dashboard-mutations");
+        vi.unstubAllEnvs();
+      }
       assert.equal(
         observe(await adapter.mutate("member", connect, sentinel)).status,
         "denied",
@@ -1047,6 +1174,8 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       await db.workspace.deleteMany({
         where: { id: { in: [workspaceId, otherWorkspaceId] } },
       });
+      if (personalWorkspaceId)
+        await db.workspace.delete({ where: { id: personalWorkspaceId } });
       await db.user.deleteMany({
         where: { id: { in: [actor.userId!, member.userId!] } },
       });

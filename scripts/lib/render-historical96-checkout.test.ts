@@ -34,8 +34,13 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full121 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(121);
+  it("validates the full122 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(122);
+    expect(full[121]).toEqual({
+      migrationName: "000123_personal_workspace_identity",
+      checksum:
+        "b459bbb36015e16656fa20d5712b14fa19a87a415b801e0e8ea641e9020f19f6",
+    });
     expect(full[120]).toEqual({
       migrationName: "000122_review_configuration_operation_receipt",
       checksum:
@@ -45,6 +50,9 @@ describe("trusted historical96 checkout reader", () => {
       "000121_review_run_gateway_execution_binding",
     );
     expect(manifest(full)).toBe(
+      "sha256:5629630be035cbf1677692e840bc07c7292729bfb5bfc0c242f38179f3230df4",
+    );
+    expect(manifest(full.slice(0, 121))).toBe(
       "sha256:858537d185e32ef6258ddf674b5a201e6cc0c4e44fa948a18af23d6dd55905ec",
     );
     expect(manifest(full.slice(0, 120))).toBe(
@@ -134,9 +142,10 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: full.slice(0, 118) },
     { checkout: full.slice(0, 119) },
     { checkout: full.slice(0, 120) },
+    { checkout: full.slice(0, 121) },
     { checkout: full },
   ])(
-    "accepts a complete validated checkout through 000122 (%#)",
+    "accepts a complete validated checkout through 000123 (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);
@@ -166,6 +175,13 @@ describe("trusted historical96 checkout reader", () => {
       [...historical, { ...full[96]!, migrationName: "000099_unknown" }],
     ],
     ["duplicate extension", [...full, full[96]!]],
+    [
+      "relabelled 123",
+      [
+        ...full.slice(0, 121),
+        { ...full[121]!, migrationName: "000123_relabelled" },
+      ],
+    ],
     [
       "relabelled 122",
       [

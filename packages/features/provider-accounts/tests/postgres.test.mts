@@ -296,20 +296,52 @@ test(
             [actor.userId],
             "23503",
           );
+          // Existing NULL ownership cannot be adopted, even by a missing User.
           await rejected(
             `UPDATE "Workspace" SET "personalOwnerUserId" = 'missing-user' WHERE "id" = $1`,
             [foreignWorkspaceId],
+            "23514",
+          );
+          assert.equal(
+            (
+              await db.workspace.findUniqueOrThrow({
+                where: { id: foreignWorkspaceId },
+              })
+            ).personalOwnerUserId,
+            null,
+          );
+          // A fresh invalid owner still exercises the actual foreign-key guard.
+          await rejected(
+            `INSERT INTO "Workspace" ("id", "slug", "name", "personalOwnerUserId", "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, now(), now())`,
+            [
+              "rr-test-missing-personal-owner",
+              "rr-test-missing-personal-owner",
+              "Synthetic missing owner",
+              "missing-user",
+            ],
             "23503",
           );
-          // SQL reserves explicit personal ownership; C1 policy still rejects use.
-          await db.workspace.update({
-            where: { id: workspaceId },
-            data: { personalOwnerUserId: actor.userId },
+          // Personal ownership starts at fresh birth; C1 still rejects consume.
+          const personalWorkspace = await db.workspace.create({
+            data: {
+              slug: "rr-test-fresh-personal-workspace",
+              name: "Synthetic fresh personal workspace",
+              personalOwnerUserId: actor.userId,
+              members: { create: { userId: actor.userId, role: "owner" } },
+            },
           });
+          assert.equal(
+            (
+              await db.workspace.findUniqueOrThrow({
+                where: { id: workspaceId },
+              })
+            ).personalOwnerUserId,
+            null,
+          );
           await assert.rejects(
             bindWorkspaceAccount(
               {
-                workspaceId,
+                workspaceId: personalWorkspace.id,
                 connectionId: "rr-test-personal-connection",
                 actor,
                 expectedRevision: 0,

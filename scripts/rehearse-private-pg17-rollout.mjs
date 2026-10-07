@@ -328,6 +328,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000120_review_run_runtime_snapshot",
     "000121_review_run_gateway_execution_binding",
     "000122_review_configuration_operation_receipt",
+    "000123_personal_workspace_identity",
   ]),
   retained: Object.freeze([
     "000067_review_live_progress",
