@@ -18,6 +18,8 @@ model Workspace {
   personalOwnerUser User? @relation("PersonalWorkspaceOwner", fields: [personalOwnerUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   ownedProviderAccountConnections ProviderAccountConnection[] @relation("WorkspaceProviderAccountOwner")
   accountBindings WorkspaceAccountBinding[]
+  personalAccountOperationScopes PersonalAccountOperation[] @relation("PersonalOperationScope")
+  personalAccountOperationTargets PersonalAccountOperation[] @relation("PersonalOperationTarget")
 
   members                      WorkspaceMember[]
   installations                GitHubInstallation[]
@@ -63,6 +65,7 @@ model User {
   memorySuggestions          MemorySuggestion[]
   personalWorkspaces Workspace? @relation("PersonalWorkspaceOwner")
   ownedProviderAccountConnections ProviderAccountConnection[] @relation("UserProviderAccountOwner")
+  personalAccountOperations PersonalAccountOperation[]
 
   @@index([githubLogin])
 }
@@ -78,12 +81,17 @@ model ProviderAccountConnection {
   displayName String
   state ProviderAccountConnectionState @default(unknown)
   metadataRevision Int @default(1)
+  authorizationEpochMirror BigInt?
+  pendingSourceOperationId String? @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   ownerUser User? @relation("UserProviderAccountOwner", fields: [ownerUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   ownerWorkspace Workspace? @relation("WorkspaceProviderAccountOwner", fields: [ownerWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   bindings WorkspaceAccountBinding[]
+  pendingSourceOperation PersonalAccountOperation? @relation("PendingPersonalOperation", fields: [pendingSourceOperationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  personalOperationIntents PersonalAccountOperation[] @relation("PersonalOperationSource")
+  personalOperationResults PersonalAccountOperation[] @relation("PersonalOperationResultSource")
 
   @@index([ownerUserId])
   @@index([ownerWorkspaceId, state])
@@ -107,12 +115,56 @@ model WorkspaceAccountBinding {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   connection ProviderAccountConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
+  personalOperationPredecessors PersonalAccountOperation[] @relation("PersonalOperationPredecessor")
+  personalOperationSelectors PersonalAccountOperation[] @relation("PersonalOperationBinding")
+  personalOperationResults PersonalAccountOperation[] @relation("PersonalOperationResultBinding")
+
   reviewConfigurationVersions ReviewConfigurationVersion[] @relation("PrimaryGatewayBinding")
   reviewConfigurationProviders ReviewConfigurationVersionProvider[] @relation("OrderedGatewayBinding")
 
-  @@unique([workspaceId, connectionId])
+  // Active pair uniqueness is a partial SQL index in 000124. Retired IDs remain.
+  @@index([workspaceId, connectionId, state])
   // Configuration pointers enforce the workspace through a composite FK.
   @@unique([id, workspaceId])
+}
+
+// Safe, finite disabled personal operations. No credential or arbitrary payload.
+model PersonalAccountOperation {
+  id String @id
+  actorUserId String
+  clientOperationId String
+  action String
+  personalWorkspaceId String
+  proposedSourceId String? @unique // Reservation scalar: the source does not exist yet.
+  sourceId String?
+  targetWorkspaceId String?
+  profileId String?
+  displayName String?
+  ingress String?
+  normalizedIntentHash String
+  expectedSourceMetadataRevision Int?
+  expectedGatewayRevision BigInt?
+  predecessorBindingId String?
+  expectedPredecessorRevision Int?
+  bindingId String?
+  expectedBindingRevision Int?
+  resultSourceId String?
+  resultBindingId String?
+  phase String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  actor User @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  personalWorkspace Workspace @relation("PersonalOperationScope", fields: [personalWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  targetWorkspace Workspace? @relation("PersonalOperationTarget", fields: [targetWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  source ProviderAccountConnection? @relation("PersonalOperationSource", fields: [sourceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  resultSource ProviderAccountConnection? @relation("PersonalOperationResultSource", fields: [resultSourceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  predecessor WorkspaceAccountBinding? @relation("PersonalOperationPredecessor", fields: [predecessorBindingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  binding WorkspaceAccountBinding? @relation("PersonalOperationBinding", fields: [bindingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  resultBinding WorkspaceAccountBinding? @relation("PersonalOperationResultBinding", fields: [resultBindingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  pendingSources ProviderAccountConnection[] @relation("PendingPersonalOperation")
+
+  @@unique([actorUserId, clientOperationId])
 }
 
 enum ProviderAccountConnectionState {

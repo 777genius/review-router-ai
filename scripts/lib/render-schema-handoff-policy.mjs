@@ -251,6 +251,11 @@ const checkoutExtensions = Object.freeze([
     checksum:
       "b459bbb36015e16656fa20d5712b14fa19a87a415b801e0e8ea641e9020f19f6",
   }),
+  Object.freeze({
+    migrationName: "000124_personal_account_operations",
+    checksum:
+      "2ffa20a0d21182bad0dfdce6653bc09b436cd72ab6335ac8065a17462bd3c6a1",
+  }),
 ]);
 
 export function partitionRenderSchemaHandoffCheckout(catalog) {
@@ -280,7 +285,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     ![
       0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-      22, 23, 24, 25, 26, 27, 28, 29, 30,
+      22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
     ].includes(extensions)
   )
     fail("checkout_extension");
@@ -450,6 +455,12 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     extensions === 30 &&
     manifest(catalog) !==
       "sha256:5629630be035cbf1677692e840bc07c7292729bfb5bfc0c242f38179f3230df4"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 31 &&
+    manifest(catalog) !==
+      "sha256:f26da08b44ad6830f4486f93ed33979acda7b5669a8550601c34dbf9c0322443"
   )
     fail("checkout_manifest");
   assertRenderSchemaHandoffCatalog(managed);

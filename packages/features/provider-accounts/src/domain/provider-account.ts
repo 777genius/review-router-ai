@@ -23,6 +23,8 @@ export type ProviderAccountConnection = ConnectionMetadata & {
   readonly gatewayAccountRef: string;
   /** Mirror CAS version only. The gateway remains the account authority. */
   readonly metadataRevision: number;
+  readonly authorizationEpochMirror?: number | null;
+  readonly pendingSourceOperationId?: string | null;
 };
 export type WorkspaceAccountBinding = {
   readonly id: string;
@@ -67,7 +69,9 @@ export type ProviderAccountErrorCode =
   | "connection_unavailable"
   | "binding_unavailable"
   | "revision_conflict"
-  | "invalid_input";
+  | "invalid_input"
+  | "not_found"
+  | "operation_conflict";
 
 export class ProviderAccountError extends Error {
   readonly code: ProviderAccountErrorCode;
@@ -156,7 +160,10 @@ export function assertWorkspaceOwner(
 }
 export function assertExecutable(connection: ProviderAccountConnection): void {
   // Unknown/new gateway states fail closed, as do pending/disabled/quarantined.
-  if (connection.state !== "active")
+  if (
+    connection.state !== "active" ||
+    connection.pendingSourceOperationId != null
+  )
     throw new ProviderAccountError("connection_unavailable");
 }
 /** Use authority is separate from credential management. An ordinary binding is

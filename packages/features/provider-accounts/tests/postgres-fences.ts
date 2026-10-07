@@ -8,6 +8,9 @@ import { fileURLToPath } from "node:url";
 import type { TestContext } from "node:test";
 import type { Client } from "pg";
 import type { PrismaClient } from "@prisma/client";
+import { PrismaPersonalAccountOperations } from "../src/infrastructure/prisma/prisma-personal-account-operations";
+import type { PersonalAccountIntent } from "../src/application/use-cases/personal-account-operations";
+import { selectBinding } from "../src/domain/provider-account";
 import { PrismaProviderAccountRepository } from "../src/infrastructure/prisma/prisma-provider-account-repository";
 import { PrismaProviderAccountSynchronization } from "../src/infrastructure/prisma/prisma-provider-account-synchronization";
 import {
@@ -470,6 +473,328 @@ export async function runBindingFencePostgresTests(
       actor,
     });
 
+    // RED: pair/history races, terminal resurrection, old FK adoption, stale
+    // lineage reuse or role loss leaves personal authority alive in this real DB.
+    await t.test(
+      "personal issued lifetime and coordinated eligibility loss",
+      async () => {
+        const suffix = randomUUID();
+        const persistedBinding = (id: string) =>
+          db.workspaceAccountBinding.findUniqueOrThrow({ where: { id } });
+        const userId = `h-owner-${suffix}`,
+          adminId = `h-admin-${suffix}`;
+        const store = new PrismaPersonalAccountOperations(db),
+          other = new PrismaPersonalAccountOperations(secondDb);
+        await db.user.createMany({ data: [{ id: userId }, { id: adminId }] });
+        const personalWorkspaceId =
+          await store.resolvePersonalWorkspace(userId);
+        const orgs = await Promise.all(
+          ["x", "y"].map((name) =>
+            db.workspace.create({
+              data: { slug: `h-${name}-${suffix}`, name },
+            }),
+          ),
+        );
+        const orgX = orgs[0]!.id,
+          orgY = orgs[1]!.id;
+        await db.workspaceMember.createMany({
+          data: [
+            { workspaceId: orgX, userId, role: "owner" },
+            { workspaceId: orgY, userId, role: "owner" },
+            { workspaceId: orgX, userId: adminId, role: "admin" },
+          ],
+        });
+        const connect: PersonalAccountIntent & { action: "connect" } = {
+          action: "connect",
+          actorUserId: userId,
+          clientOperationId: randomUUID(),
+          personalWorkspaceId,
+          proposedSourceId: `h-source-${suffix}`,
+          profileId: "fixture-profile",
+          displayName: "Canonical",
+          ingress: "api-key-create",
+        };
+        const foreignPersonalWorkspaceId =
+          await store.resolvePersonalWorkspace(adminId);
+        const reserved = await store.reserveConnect(connect);
+        assert.equal(
+          await db.providerAccountConnection.count({
+            where: { id: connect.proposedSourceId },
+          }),
+          0,
+        ); // reservation is not an absent-row FK
+        assert.equal(
+          await store.claimConnect(userId, connect.clientOperationId),
+          true,
+        );
+        const created = await store.finalizeConnect(
+          userId,
+          connect.clientOperationId,
+          {
+            accountRef: `h-account-${suffix}`,
+            profileId: connect.profileId,
+            displayName: connect.displayName,
+            state: "active",
+            metadataRevision: 1,
+            authorizationEpoch: 7,
+          },
+        );
+        assert.equal(created.id, reserved.id);
+        for (const changed of [
+          { personalWorkspaceId: foreignPersonalWorkspaceId },
+          { proposedSourceId: `changed-${suffix}` },
+          { profileId: "other-profile" },
+          { displayName: "Other" },
+          { ingress: "oauth-begin" as const },
+        ])
+          await assert.rejects(
+            store.reserveConnect({ ...connect, ...changed }),
+            denied("operation_conflict"),
+          );
+        const attach = (
+          targetWorkspaceId: string,
+          predecessorBindingId: string | null = null,
+          expectedPredecessorRevision: number | null = null,
+        ): PersonalAccountIntent & { action: "attach" } => ({
+          action: "attach",
+          actorUserId: userId,
+          clientOperationId: randomUUID(),
+          personalWorkspaceId,
+          sourceId: connect.proposedSourceId,
+          targetWorkspaceId,
+          expectedSourceMetadataRevision: 1,
+          expectedGatewayRevision: 1,
+          predecessorBindingId,
+          expectedPredecessorRevision,
+        });
+        const intents = [attach(orgX), attach(orgX)];
+        const raced = await Promise.allSettled([
+          store.attach(intents[0]!),
+          other.attach(intents[1]!),
+        ]);
+        assert.equal(raced.filter((r) => r.status === "fulfilled").length, 1);
+        assert.equal(
+          await db.workspaceAccountBinding.count({
+            where: {
+              workspaceId: orgX,
+              connectionId: connect.proposedSourceId,
+              state: "active",
+            },
+          }),
+          1,
+        );
+        const root = raced.find((r) => r.status === "fulfilled");
+        assert.ok(root && root.status === "fulfilled" && root.value.binding);
+        const bx = root.value.binding;
+        const y = await store.attach(attach(orgY));
+        const config = await db.reviewConfiguration.create({
+          data: { workspaceId: orgX, targetKey: "default" },
+        });
+        const version = await db.reviewConfigurationVersion.create({
+          data: {
+            configurationId: config.id,
+            workspaceId: orgX,
+            version: 1,
+            schemaVersion: 2,
+            gatewayBindingId: bx.id,
+            gatewayProfileRef: connect.profileId,
+            providerKind: "codex",
+            providerAuthMode: "codex_account_gateway",
+            model: "fixture",
+            reasoningEffort: "high",
+            failOnSeverity: "high",
+            inlineMaxComments: 10,
+            targetTokensPerBatch: 1000,
+          },
+        });
+        const revoke = (
+          bindingId: string,
+          expectedBindingRevision: number,
+          targetWorkspaceId = orgX,
+        ): PersonalAccountIntent & { action: "revoke" } => ({
+          action: "revoke",
+          actorUserId: userId,
+          clientOperationId: randomUUID(),
+          personalWorkspaceId,
+          sourceId: connect.proposedSourceId,
+          targetWorkspaceId,
+          expectedSourceMetadataRevision: 1,
+          expectedGatewayRevision: 1,
+          bindingId,
+          expectedBindingRevision,
+        });
+        const member = await db.workspaceMember.findUniqueOrThrow({
+          where: { workspaceId_userId: { workspaceId: orgX, userId } },
+        });
+        await store.changeEligibility({
+          actorUserId: adminId,
+          workspaceId: orgX,
+          memberId: member.id,
+          userId,
+          expectedRole: "owner",
+          nextRole: "admin",
+        });
+        assert.equal((await persistedBinding(bx.id)).revision, 1); // eligible role change preserves live authority
+        const retired = await store.revoke({
+          ...revoke(bx.id, 1),
+          actorUserId: adminId,
+        });
+        assert.equal(retired.binding!.state, "revoked");
+        await assert.rejects(
+          store.attach(attach(orgX, bx.id, 2)),
+          denied("operation_conflict"),
+        ); // ACK is mandatory
+        const fence = {
+          bindingId: bx.id,
+          workspaceId: orgX,
+          ...retired.binding!.pendingFence!,
+        };
+        assert.equal(await accounts.acknowledgeBindingFence(fence), true); // unchanged-ID exact ACK survives terminal guard
+        await assert.rejects(
+          sql.query(
+            `UPDATE "WorkspaceAccountBinding" SET "state"='active', "revision"="revision"+1, "policyRevision"="policyRevision"+1 WHERE "id"=$1`,
+            [bx.id],
+          ),
+          sqlCode("23514"),
+        );
+        const successorIntent = attach(orgX, bx.id, 2);
+        const successor = await store.attach(successorIntent);
+        assert.notEqual(successor.binding!.id, bx.id);
+        assert.equal(await accounts.acknowledgeBindingFence(fence), false); // late old ACK cannot clear successor
+        assert.equal(
+          (
+            await db.reviewConfigurationVersion.findUniqueOrThrow({
+              where: { id: version.id },
+            })
+          ).gatewayBindingId,
+          bx.id,
+        );
+        const old = await accounts.findBinding({
+          workspaceId: orgX,
+          bindingId: bx.id,
+        });
+        assert.throws(
+          () => selectBinding(orgX, bx.id, old),
+          denied("binding_unavailable"),
+        );
+        await assert.rejects(
+          store.attach({
+            ...attach(orgX),
+            actorUserId: adminId,
+            personalWorkspaceId: await store.resolvePersonalWorkspace(adminId),
+          }),
+          denied("connection_unavailable"),
+        );
+        await assert.rejects(
+          store.attach(attach(personalWorkspaceId)),
+          denied("connection_unavailable"),
+        );
+        await assert.rejects(
+          store.attach(attach(orgX, created.binding!.id, 1)),
+          denied("operation_conflict"),
+        ); // P connect is not an org issuance
+        const secondRetired = await store.revoke(
+          revoke(successor.binding!.id, 1),
+        );
+        assert.equal(
+          await accounts.acknowledgeBindingFence({
+            bindingId: successor.binding!.id,
+            workspaceId: orgX,
+            ...secondRetired.binding!.pendingFence!,
+          }),
+          true,
+        );
+        await assert.rejects(
+          store.attach(attach(orgX, bx.id, 2)),
+          denied("operation_conflict"),
+        ); // consumed lineage stays occupied after retirement
+        const repeated = await other.attach(successorIntent);
+        assert.equal(repeated.binding!.id, successor.binding!.id);
+        assert.equal(repeated.available, false);
+        for (const query of [
+          `UPDATE "PersonalAccountOperation" SET "phase"='rejected', "resultSourceId"=NULL, "resultBindingId"=NULL WHERE "id"=$1`,
+          `DELETE FROM "PersonalAccountOperation" WHERE "id"=$1`,
+          `UPDATE "PersonalAccountOperation" SET "expectedGatewayRevision"=2 WHERE "id"=$1`,
+        ])
+          await assert.rejects(
+            sql.query(query, [successor.id]),
+            sqlCode("23514"),
+          );
+        assert.equal((await persistedBinding(y.binding!.id)).revision, 1);
+        // Actual concurrent mutation and attachment: either attach loses eligibility
+        // or it commits first and the same role-loss transaction retires that ID.
+        await Promise.allSettled([
+          other.attach(attach(orgX, successor.binding!.id, 2)),
+          store.changeEligibility({
+            actorUserId: adminId,
+            workspaceId: orgX,
+            memberId: member.id,
+            userId,
+            expectedRole: "admin",
+            nextRole: "member",
+          }),
+        ]);
+        assert.equal(
+          (
+            await db.workspaceMember.findUniqueOrThrow({
+              where: { id: member.id },
+            })
+          ).role,
+          "member",
+        );
+        assert.equal(
+          await db.workspaceAccountBinding.count({
+            where: {
+              workspaceId: orgX,
+              connectionId: connect.proposedSourceId,
+              state: "active",
+            },
+          }),
+          0,
+        );
+        await store.changeEligibility({
+          actorUserId: adminId,
+          workspaceId: orgX,
+          memberId: member.id,
+          userId,
+          expectedRole: "member",
+          nextRole: "owner",
+        });
+        assert.equal(
+          await db.workspaceAccountBinding.count({
+            where: {
+              workspaceId: orgX,
+              connectionId: connect.proposedSourceId,
+              state: "active",
+            },
+          }),
+          0,
+        ); // rejoin cannot revive
+        assert.equal(
+          (await persistedBinding(created.binding!.id)).state,
+          "active",
+        );
+        assert.equal((await persistedBinding(y.binding!.id)).state, "active");
+        // Owner revoke needs no target membership; a different local admin requires its own current role.
+        const local = {
+          ...revoke(y.binding!.id, 1, orgY),
+          actorUserId: adminId,
+        };
+        await assert.rejects(
+          store.revoke(local),
+          denied("workspace_forbidden"),
+        );
+        await db.workspaceMember.deleteMany({
+          where: { workspaceId: orgY, userId },
+        });
+        assert.equal(
+          (await store.revoke(revoke(y.binding!.id, 1, orgY))).binding!.state,
+          "revoked",
+        );
+        // Retain these scoped receipts/history for MAIN inspection in the disposable DB.
+      },
+    );
+
     await db.workspaceMember.upsert({
       where: { workspaceId_userId: { workspaceId, userId: actor.userId! } },
       create: { workspaceId, userId: actor.userId!, role: "admin" },
@@ -610,8 +935,9 @@ export async function runBindingFencePostgresTests(
           policyRevision: 2,
         };
         await assert.rejects(resolveX(), denied("binding_unavailable"));
-        const yBinding = await db.workspaceAccountBinding.findUniqueOrThrow({
-          where: { workspaceId_connectionId: y },
+        const yBinding = await db.workspaceAccountBinding.findFirstOrThrow({
+          where: y,
+          orderBy: [{ state: "asc" }, { createdAt: "desc" }, { id: "desc" }],
         });
         const executableY = await resolveWorkspaceAccountBinding(
           { workspaceId, bindingId: yBinding.id, actor },
@@ -1027,8 +1353,9 @@ export async function runBindingFencePostgresTests(
         );
         assert.equal(selected.bindingRevision, 8);
         assert.equal(selected.policyRevision, 8);
-        const unchangedY = await db.workspaceAccountBinding.findUniqueOrThrow({
-          where: { workspaceId_connectionId: y },
+        const unchangedY = await db.workspaceAccountBinding.findFirstOrThrow({
+          where: y,
+          orderBy: [{ state: "asc" }, { createdAt: "desc" }, { id: "desc" }],
         });
         assert.equal(unchangedY.revision, 1);
         assert.equal(unchangedY.policyRevision, 1);

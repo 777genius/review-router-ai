@@ -34,8 +34,16 @@ const manifest = (rows: typeof full) =>
 afterEach(() => reader.mockReset());
 
 describe("trusted historical96 checkout reader", () => {
-  it("validates the full122 source and returns only the exact immutable historical96", () => {
-    expect(full).toHaveLength(122);
+  it("validates the full123 source and returns only the exact immutable historical96", () => {
+    expect(full).toHaveLength(123);
+    expect(full[122]).toEqual({
+      migrationName: "000124_personal_account_operations",
+      checksum:
+        "2ffa20a0d21182bad0dfdce6653bc09b436cd72ab6335ac8065a17462bd3c6a1",
+    });
+    expect(manifest(full)).toBe(
+      "sha256:f26da08b44ad6830f4486f93ed33979acda7b5669a8550601c34dbf9c0322443",
+    );
     expect(full[121]).toEqual({
       migrationName: "000123_personal_workspace_identity",
       checksum:
@@ -49,7 +57,7 @@ describe("trusted historical96 checkout reader", () => {
     expect(full[119]?.migrationName).toBe(
       "000121_review_run_gateway_execution_binding",
     );
-    expect(manifest(full)).toBe(
+    expect(manifest(full.slice(0, 122))).toBe(
       "sha256:5629630be035cbf1677692e840bc07c7292729bfb5bfc0c242f38179f3230df4",
     );
     expect(manifest(full.slice(0, 121))).toBe(
@@ -143,9 +151,10 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: full.slice(0, 119) },
     { checkout: full.slice(0, 120) },
     { checkout: full.slice(0, 121) },
+    { checkout: full.slice(0, 122) },
     { checkout: full },
   ])(
-    "accepts a complete validated checkout through 000123 (%#)",
+    "accepts a complete validated checkout through 000124 (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);

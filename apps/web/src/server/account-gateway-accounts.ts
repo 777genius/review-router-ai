@@ -2,6 +2,8 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
   createManagementClient,
+  createConsumerControlClient,
+  type ConsumerControlConfig,
   GatewayError,
   type ManagementClient,
 } from "@agent-teams/account-gateway/http";
@@ -14,6 +16,8 @@ import {
   ProviderAccountError,
   PrismaProviderAccountRepository,
   type ProviderAccountAccountsQueryPort,
+  type PersonalAccountOperationStore,
+  type PersonalOperationResult,
   type ProviderAccountConnection,
   type ProviderAccountDependencies,
   type WorkspaceAccountActor,
@@ -22,6 +26,12 @@ import {
 } from "@reviewrouter/features-provider-accounts";
 import {
   PrismaProviderAccountSynchronization,
+  connectPersonalAccount,
+  readPersonalAccountOperation,
+  attachPersonalAccount,
+  snapshotPersonalIntent,
+  personalOperationId,
+  type PersonalAccountIntent,
   type ProviderAccountSynchronizationPort,
 } from "@reviewrouter/features-provider-accounts/synchronization";
 import { PrismaWorkspaceAccessRepository } from "@reviewrouter/features-auth";
@@ -1129,6 +1139,170 @@ export function createAccountsAdapter(input: {
     changeGrant,
     detach,
     reconcileFence,
+  };
+}
+
+/** Disabled internal composition/test seam. No public action/API calls this factory. */
+export function createDisabledPersonalAccountsAdapter(input: {
+  authorizeUser(): Promise<string>;
+  store: PersonalAccountOperationStore;
+  control: ConsumerControlConfig;
+  profiles: ReadonlyMap<string, "api-key-create" | "oauth-begin">;
+}) {
+  const client = createConsumerControlClient(input.control);
+  const profiles = new Map(input.profiles);
+  for (const [profileId, ingress] of profiles) {
+    c.reference.parse(profileId);
+    z.enum(["api-key-create", "oauth-begin"]).parse(ingress);
+  }
+  const userOwner = (userId: string) =>
+    `rru_${hash(`rr-user-owner-v1\0${userId}`)}`;
+  const gateway = {
+    async get(actorUserId: string, accountRef: string, profileId: string) {
+      const account = await client.get(accountRef);
+      if (
+        account.accountRef !== accountRef ||
+        account.ownerRef !== userOwner(actorUserId) ||
+        account.profileId !== profileId ||
+        !profiles.has(profileId)
+      )
+        throw new ProviderAccountError("connection_unavailable");
+      return account;
+    },
+    async operation(operationId: string) {
+      const operation = await client.operation(operationId);
+      return {
+        operationId: operation.operationRef,
+        state: operation.state,
+        ...(operation.state === "applied" &&
+        operation.result?.kind === "account"
+          ? {
+              result: {
+                accountRef: operation.result.accountRef,
+                metadataRevision: operation.result.metadataRevision,
+                authorizationEpoch: operation.result.authorizationEpoch,
+              },
+            }
+          : {}),
+      };
+    },
+  };
+  const dependencies = { store: input.store, gateway };
+  const view = (result: PersonalOperationResult) => ({
+    operationId: result.id,
+    phase: result.phase,
+    sourceId: result.source?.id ?? null,
+    bindingId: result.binding?.id ?? null,
+    available: result.available,
+    state:
+      result.intent.action === "connect"
+        ? (result.source?.state ?? "pending")
+        : (result.binding?.state ?? "revoked"),
+  });
+  const selection = z.strictObject({
+    nonce: uuid,
+    sourceId: c.reference,
+    targetWorkspaceId: c.reference,
+    expectedSourceMetadataRevision: mirrorRevision,
+    expectedGatewayRevision: c.revision.refine((v) => v > 0),
+  });
+  return {
+    async connect(
+      raw: { nonce: string; profileId: string; label: string },
+      credential?: string,
+    ) {
+      const safe = oauthIntentSchema.parse(raw);
+      const key = credential;
+      const actorUserId = await input.authorizeUser();
+      const ingress = profiles.get(safe.profileId);
+      if (!ingress) throw new ProviderAccountError("invalid_input");
+      // Capture the one-off key before awaits; never retain it in SQL or safe intent.
+      if (
+        ingress === "api-key-create" &&
+        (typeof key !== "string" || key.length < 1 || key.length > 16384)
+      )
+        throw new ProviderAccountError("invalid_input");
+      if (ingress === "oauth-begin" && key !== undefined)
+        throw new ProviderAccountError("invalid_input");
+      const personalWorkspaceId =
+        await input.store.resolvePersonalWorkspace(actorUserId);
+      const intent = snapshotPersonalIntent({
+        action: "connect",
+        actorUserId,
+        personalWorkspaceId,
+        clientOperationId: safe.nonce,
+        proposedSourceId: `rrps_${hash(JSON.stringify([actorUserId, safe.nonce]))}`,
+        profileId: safe.profileId,
+        displayName: safe.label,
+        ingress,
+      }) as PersonalAccountIntent & { action: "connect" };
+      let authorizationURL: string | undefined;
+      const result = await connectPersonalAccount(
+        intent,
+        dependencies,
+        async () => {
+          // Only the committed CAS winner reaches this closure once.
+          const original = {
+            operationId: personalOperationId(actorUserId, safe.nonce),
+            ownerRef: userOwner(actorUserId),
+            profileId: intent.profileId,
+            displayName: intent.displayName,
+          };
+          if (intent.ingress === "api-key-create")
+            await client.connect({
+              ...original,
+              credential: { kind: "api_key", value: key! },
+            });
+          else
+            authorizationURL = (await client.beginOAuth(original))
+              .authorizationURL;
+        },
+      );
+      if ((await input.authorizeUser()) !== actorUserId)
+        throw new ProviderAccountError("connection_unavailable");
+      return {
+        operation: view(result),
+        ...(authorizationURL !== undefined ? { authorizationURL } : {}),
+      };
+    },
+    async operation(nonce: string) {
+      const clientOperationId = uuid.parse(nonce);
+      return view(
+        await readPersonalAccountOperation(
+          await input.authorizeUser(),
+          clientOperationId,
+          dependencies,
+        ),
+      );
+    },
+    async attach(
+      raw: z.input<typeof selection> & {
+        predecessorBindingId: string | null;
+        expectedPredecessorRevision: number | null;
+      },
+    ) {
+      const safe = selection
+        .extend({
+          predecessorBindingId: c.reference.nullable(),
+          expectedPredecessorRevision: mirrorRevision.nullable(),
+        })
+        .parse(raw);
+      const actorUserId = await input.authorizeUser();
+      const personalWorkspaceId =
+        await input.store.resolvePersonalWorkspace(actorUserId);
+      return view(
+        await attachPersonalAccount(
+          {
+            ...safe,
+            action: "attach",
+            actorUserId,
+            personalWorkspaceId,
+            clientOperationId: safe.nonce,
+          },
+          dependencies,
+        ),
+      );
+    },
   };
 }
 

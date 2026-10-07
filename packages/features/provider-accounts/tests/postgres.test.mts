@@ -372,8 +372,9 @@ test(
             initialLoser?.status === "rejected" &&
               denied("revision_conflict")(initialLoser.reason),
           );
-          const binding = await db.workspaceAccountBinding.findUniqueOrThrow({
-            where: { workspaceId_connectionId: scope },
+          const binding = await db.workspaceAccountBinding.findFirstOrThrow({
+            where: scope,
+            orderBy: [{ state: "asc" }, { createdAt: "desc" }, { id: "desc" }],
           });
           assert.equal(binding.revision, 1);
           bindingId = binding.id;
@@ -784,13 +785,21 @@ test(
               assert.equal(returned.revision, 3);
               assert.equal(returned.state, "revoked");
             }
-            const original = await db.workspaceAccountBinding.findUniqueOrThrow(
-              {
-                where: { workspaceId_connectionId: a },
-              },
-            );
-            const foreign = await db.workspaceAccountBinding.findUniqueOrThrow({
-              where: { workspaceId_connectionId: b },
+            const original = await db.workspaceAccountBinding.findFirstOrThrow({
+              where: a,
+              orderBy: [
+                { state: "asc" },
+                { createdAt: "desc" },
+                { id: "desc" },
+              ],
+            });
+            const foreign = await db.workspaceAccountBinding.findFirstOrThrow({
+              where: b,
+              orderBy: [
+                { state: "asc" },
+                { createdAt: "desc" },
+                { id: "desc" },
+              ],
             });
             assert.equal(original.revision, stale ? 2 : 3);
             assert.equal(original.state, "revoked");

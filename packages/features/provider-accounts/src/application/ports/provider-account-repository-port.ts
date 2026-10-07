@@ -1,3 +1,5 @@
+import type { PersonalAccountIntent } from "../use-cases/personal-account-operations";
+import type { PersonalGatewayAccount } from "./provider-account-synchronization-port";
 import type {
   BindingScope,
   BindingState,
@@ -71,7 +73,71 @@ export interface ProviderAccountAccountsQueryPort extends ProviderAccountReposit
     readonly workspaceId: string;
     readonly gatewayAccountRef: string;
   }): Promise<ProviderAccountConnection | null>;
+  /** Legacy display: active-first, deterministic retired fallback; no personal lineage. */
   findConnectionBinding(
     scope: BindingScope,
   ): Promise<WorkspaceAccountBinding | null>;
+}
+
+// One cohesive, disabled personal-operation store; no generic operation router.
+export type PersonalOperationResult = {
+  readonly id: string;
+  readonly intent: PersonalAccountIntent;
+  readonly phase: "reserved" | "submitted" | "unknown" | "rejected" | "applied";
+  readonly source: ProviderAccountConnection | null;
+  readonly binding: WorkspaceAccountBinding | null;
+  readonly available: boolean;
+};
+export interface PersonalAccountOperationStore {
+  resolvePersonalWorkspace(actorUserId: string): Promise<string>;
+  findOwnedSource(
+    actorUserId: string,
+    sourceId: string,
+  ): Promise<ProviderAccountConnection>;
+  reserveConnect(
+    intent: PersonalAccountIntent & {
+      action: "connect";
+    },
+  ): Promise<PersonalOperationResult>;
+  claimConnect(
+    actorUserId: string,
+    clientOperationId: string,
+  ): Promise<boolean>;
+  readOperation(
+    actorUserId: string,
+    clientOperationId: string,
+  ): Promise<PersonalOperationResult>;
+  noteConnectPhase(
+    actorUserId: string,
+    clientOperationId: string,
+    phase: "unknown" | "rejected",
+  ): Promise<void>;
+  /** Projection must match the original Gateway operation result; never a later GET tuple. */
+  finalizeConnect(
+    actorUserId: string,
+    clientOperationId: string,
+    account: PersonalGatewayAccount,
+  ): Promise<PersonalOperationResult>;
+  attach(
+    intent: PersonalAccountIntent & {
+      action: "attach";
+    },
+  ): Promise<PersonalOperationResult>;
+  revoke(
+    intent: PersonalAccountIntent & {
+      action: "revoke";
+    },
+  ): Promise<PersonalOperationResult>;
+  /** Finite future writer seam, presently unused by create/no-op auth/install writers.
+   * Authenticated local admin, exact member CAS; mutation and retirement commit together.
+   */
+  changeEligibility(input: {
+    actorUserId: string;
+    workspaceId: string;
+    memberId: string;
+    userId: string;
+    expectedRole: "owner" | "admin" | "member";
+    nextRole: "owner" | "admin" | "member" | null;
+    nextUserId?: string;
+  }): Promise<void>;
 }
