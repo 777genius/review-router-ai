@@ -8,12 +8,10 @@ function createPrismaMock() {
     $queryRaw: vi.fn().mockResolvedValue([{ id: "user_1" }]),
     workspace: {
       findUnique: vi.fn().mockResolvedValue(null),
-      create: vi
-        .fn()
-        .mockImplementation(async ({ data }) => ({
-          id: "workspace_1",
-          ...data,
-        })),
+      create: vi.fn().mockImplementation(async ({ data }) => ({
+        id: "workspace_1",
+        ...data,
+      })),
       update: vi.fn(),
     },
     workspaceMember: {
