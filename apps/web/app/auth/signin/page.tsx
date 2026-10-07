@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Github, Gitlab, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { Badge, Card } from "@reviewrouter/ui";
 import {
   GitHubSignInButton,
@@ -100,7 +100,6 @@ export default async function SignInPage({
             disabled={!githubConfigured}
           >
             <span className="inline-flex items-center justify-center gap-2">
-              <Github className="h-5 w-5" aria-hidden="true" />
               {githubConfigured
                 ? "Continue with GitHub"
                 : "GitHub sign-in unavailable"}
@@ -114,7 +113,6 @@ export default async function SignInPage({
               className="w-full rounded-2xl"
             >
               <span className="inline-flex items-center justify-center gap-2">
-                <Gitlab className="h-5 w-5" aria-hidden="true" />
                 Continue with GitLab
               </span>
             </GitLabSignInButton>
