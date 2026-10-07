@@ -55,10 +55,12 @@ if (!hasH1Text(signIn.html, "Sign in to ReviewRouter")) {
     "sign-in missing branded title: expected h1 text Sign in to ReviewRouter",
   );
 }
-assertIncludes(
+// The remote server's auth configuration is independent of this checker's env.
+// Require one of the two supported GitHub control states.
+assertIncludesAny(
   signIn.html,
-  "Continue with GitHub",
-  "sign-in missing GitHub CTA",
+  ["Continue with GitHub", "GitHub sign-in unavailable"],
+  "sign-in missing GitHub CTA or unavailable state",
 );
 const signInError = await fetchHtml("/auth/signin?error=OAuthCallback");
 assertIncludes(
