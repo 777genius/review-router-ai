@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createProvisionWorkflowPlan } from "../domain/workflow-provisioning";
+import {
+  defaultWorkflowPath,
+  renderReviewRouterWorkflowFiles,
+} from "../domain/workflow-template";
 
 const base = {
   installationId: "installation-1",
@@ -15,6 +19,42 @@ const base = {
 };
 
 describe("createProvisionWorkflowPlan repository-bound Codex path", () => {
+  it("preserves the reusable MiMo plan with conflict-review fallback through rendering", () => {
+    const ordinary: Omit<typeof base, "codexRotatingProviderInstanceId"> & {
+      codexRotatingProviderInstanceId?: string;
+    } = { ...base };
+    delete ordinary.codexRotatingProviderInstanceId;
+    const plan = createProvisionWorkflowPlan({
+      ...ordinary,
+      actionRef: "777genius/review-router@v1",
+      runtimeConfigMode: "static",
+      workflowStyle: "reusable",
+      conflictReviewFallbackEnabled: true,
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "mimo-token-plan-api",
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      },
+    });
+
+    expect(plan.workflowStyle).toBe("reusable");
+    const files = renderReviewRouterWorkflowFiles(plan);
+    const review = files.find((file) => file.path === defaultWorkflowPath);
+    if (!review || !("content" in review)) {
+      throw new Error("expected a generated review workflow, not a deletion");
+    }
+    expect(review.content).toContain("reviewrouter_conflict_review");
+    expect(review.content).toContain(
+      "MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}",
+    );
+    expect(
+      files.some(
+        (file) =>
+          "content" in file &&
+          file.content.includes("reviewrouter-interaction-reusable.yml"),
+      ),
+    ).toBe(true);
+  });
+
   it("selects the isolated workflow from exact repository identity", () => {
     expect(
       createProvisionWorkflowPlan({

@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps full123 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps full124 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,14 +107,15 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(123);
+    expect(full).toHaveLength(124);
     expect(manifest(full)).toBe(
-      "sha256:f26da08b44ad6830f4486f93ed33979acda7b5669a8550601c34dbf9c0322443",
+      "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-16).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-17).map((row) => row.migrationName)).toEqual([
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
+      "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
       "000112_sdk_growth_operator_credential",
       "000113_sdk_growth_approval_ledger",
@@ -130,28 +131,39 @@ describe("canonical release migration transition", () => {
       "000123_personal_workspace_identity",
       "000124_personal_account_operations",
     ]);
-    expect(manifest(full.slice(0, 122))).toBe(
-      "sha256:5629630be035cbf1677692e840bc07c7292729bfb5bfc0c242f38179f3230df4",
+    const withoutProviderKey = full.filter(
+      (row) =>
+        row.migrationName !== "000110_provider_api_key_workspace_management",
     );
-    expect(manifest(full.slice(0, 121))).toBe(
-      "sha256:858537d185e32ef6258ddf674b5a201e6cc0c4e44fa948a18af23d6dd55905ec",
-    );
-    expect(manifest(full.slice(0, 120))).toBe(
-      "sha256:5f01c4416620cf984ffa5fee8dbb26bcf171ae3a89ec4e4b8615e4c7c8461c64",
-    );
-    expect(manifest(full.slice(0, 119))).toBe(
-      "sha256:f998e11bee1748adecf31dc07ec61d59b55ead60b2734a71f90065d3f9f4aa6b",
-    );
-    expect(manifest(full.slice(0, 118))).toBe(
-      "sha256:2ee71e958dc9b4a564fd113a4983917ad6e3f7ea22cd19fa29bdb7dc72320e1c",
-    );
-    expect(manifest(full.slice(0, 117))).toBe(
-      "sha256:6bd2cd3c077f6cf56735c7192dd6e0f84a21bbec5a2657271cb5afaf1d2f20cf",
+    expect(withoutProviderKey).toHaveLength(123);
+    expect(manifest(withoutProviderKey)).toBe(
+      "sha256:f26da08b44ad6830f4486f93ed33979acda7b5669a8550601c34dbf9c0322443",
     );
     expect(manifest(full.slice(0, 116))).toBe(
+      "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 122))).toBe(
+      "sha256:5629630be035cbf1677692e840bc07c7292729bfb5bfc0c242f38179f3230df4",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 121))).toBe(
+      "sha256:858537d185e32ef6258ddf674b5a201e6cc0c4e44fa948a18af23d6dd55905ec",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 120))).toBe(
+      "sha256:5f01c4416620cf984ffa5fee8dbb26bcf171ae3a89ec4e4b8615e4c7c8461c64",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 119))).toBe(
+      "sha256:f998e11bee1748adecf31dc07ec61d59b55ead60b2734a71f90065d3f9f4aa6b",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 118))).toBe(
+      "sha256:2ee71e958dc9b4a564fd113a4983917ad6e3f7ea22cd19fa29bdb7dc72320e1c",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 117))).toBe(
+      "sha256:6bd2cd3c077f6cf56735c7192dd6e0f84a21bbec5a2657271cb5afaf1d2f20cf",
+    );
+    expect(manifest(withoutProviderKey.slice(0, 116))).toBe(
       "sha256:c5c0618f105799d06d21424433cec4a59fc052e63f594c2aace0657ebb52d1dd",
     );
-    expect(manifest(full.slice(0, 115))).toBe(
+    expect(manifest(withoutProviderKey.slice(0, 115))).toBe(
       "sha256:30f68ffc62e0b46815bc007339d83aa7894b61b23f301c012b8990713cc0ad14",
     );
     const historical = readRenderHistorical96CheckoutInventory();

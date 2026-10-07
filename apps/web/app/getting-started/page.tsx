@@ -22,7 +22,7 @@ import { createPublicPageMetadata } from "../seo";
 export const metadata: Metadata = createPublicPageMetadata({
   title: "Getting started with ReviewRouter",
   description:
-    "Install the ReviewRouter GitHub App, merge the current setup PR, connect Codex, Claude Code, or OpenRouter credentials into GitHub Actions secrets, and run AI review in your repository runtime.",
+    "Install the ReviewRouter GitHub App, merge the current setup PR, connect Codex, Claude Code, MiMo Token Plan, or OpenRouter credentials into GitHub Actions secrets, and run AI review in your repository runtime.",
   path: "/getting-started",
 });
 
@@ -35,6 +35,7 @@ const claudeCommand = `claude setup-token
 gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo owner/repo --app actions`;
 
 const apiKeyCommands = `gh secret set OPENROUTER_API_KEY --repo owner/repo --app actions`;
+const mimoTokenPlanCommand = `gh secret set MIMO_TOKEN_PLAN_API_KEY --repo owner/repo --app actions`;
 
 const workflowManifest = `.github/workflows/reviewrouter.yml
 .github/workflows/reviewrouter-interaction.yml
@@ -130,6 +131,15 @@ const providerRows = [
     setup: "Run claude setup-token, then store only the printed token.",
     icon: "claude",
     badge: "OAuth",
+  },
+  {
+    name: "MiMo Token Plan",
+    auth: "MIMO_TOKEN_PLAN_API_KEY",
+    model: "codex-mimo/mimo-v2.6-pro",
+    setup:
+      "Run the repository-specific gh command and enter the key only at GitHub's secret prompt.",
+    icon: "mimo",
+    badge: "API key",
   },
   {
     name: "OpenRouter",
@@ -569,6 +579,12 @@ function CommandGrid(): React.ReactElement {
         body="Use normal provider billing when you do not want subscription OAuth."
         code={apiKeyCommands}
       />
+      <CommandPanel
+        badge="MiMo"
+        title="MiMo Token Plan"
+        body="Use the supported codex-mimo public engine path. The command prompts for the key and never embeds it."
+        code={mimoTokenPlanCommand}
+      />
     </div>
   );
 }
@@ -655,6 +671,8 @@ function ProviderMark({
         />
       ) : provider === "openrouter" ? (
         <OpenRouterMark />
+      ) : provider === "mimo" ? (
+        <span className="font-mono text-sm font-semibold">MiMo</span>
       ) : (
         <OpenAIMark />
       )}

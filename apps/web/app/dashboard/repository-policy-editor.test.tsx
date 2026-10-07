@@ -84,6 +84,12 @@ const modelOptions = [
     description: "Claude Code default model.",
   },
   {
+    value: "mimo-v2.6-pro",
+    label: "mimo-v2.6-pro",
+    provider: "codex-mimo" as const,
+    description: "MiMo Token Plan public engine model.",
+  },
+  {
     value: "opus",
     label: "opus",
     provider: "claude" as const,
@@ -873,6 +879,36 @@ describe("ReviewConfigForm", () => {
         .getByRole("option", { name: /Only one Codex OAuth with refresh/i })
         .getAttribute("aria-disabled"),
     ).toBe("true");
+  });
+
+  it("selects the MiMo model and shows the repository-specific interactive secret command", async () => {
+    vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
+      status: "missing",
+    });
+    renderReviewConfigForm({
+      config: openRouterReviewConfiguration(),
+      repositoryFullName: "777genius/agent-teams-ai",
+      repositorySecretCheckTarget: {
+        workspaceId: "workspace_1",
+        repositoryId: "repo_1",
+      },
+    });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
+    fireEvent.click(screen.getByRole("option", { name: /MiMo Token Plan/i }));
+
+    expect(
+      (screen.getByRole("textbox", { name: "Model" }) as HTMLInputElement)
+        .value,
+    ).toBe("mimo-v2.6-pro");
+    expect(
+      await screen.findByText(
+        "gh secret set MIMO_TOKEN_PLAN_API_KEY --repo 777genius/agent-teams-ai --app actions",
+      ),
+    ).toBeTruthy();
+    expect(pageText()).toContain(
+      "Without this secret, this provider will fail in CI.",
+    );
   });
 
   it("shows Claude Code by default, allows disabling it, and hides Codex controls after selection", () => {

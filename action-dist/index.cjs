@@ -9977,10 +9977,10 @@ function safeMessage(error51) {
     return error51.message.slice(-1e3);
   if (typeof error51 === "string")
     return error51.slice(-1e3);
-  const record3 = readRecord(error51);
-  if (typeof record3?.message === "string")
-    return record3.message.slice(-1e3);
-  const nested = record3 ? readRecord(record3.error) : null;
+  const record4 = readRecord(error51);
+  if (typeof record4?.message === "string")
+    return record4.message.slice(-1e3);
+  const nested = record4 ? readRecord(record4.error) : null;
   if (typeof nested?.message === "string")
     return nested.message.slice(-1e3);
   return "unknown";
@@ -10264,10 +10264,10 @@ function lastOutputTextFromError(error51) {
 function processFailureLike(error51) {
   if (typeof error51 !== "object" || error51 === null)
     return null;
-  const record3 = error51;
-  const exitCode = typeof record3.exitCode === "number" && Number.isInteger(record3.exitCode) ? record3.exitCode : void 0;
-  const stdout = typeof record3.stdout === "string" ? record3.stdout : void 0;
-  const stderr = typeof record3.stderr === "string" ? record3.stderr : void 0;
+  const record4 = error51;
+  const exitCode = typeof record4.exitCode === "number" && Number.isInteger(record4.exitCode) ? record4.exitCode : void 0;
+  const stdout = typeof record4.stdout === "string" ? record4.stdout : void 0;
+  const stderr = typeof record4.stderr === "string" ? record4.stderr : void 0;
   if (exitCode === void 0 && stdout === void 0 && stderr === void 0) {
     return null;
   }
@@ -10534,13 +10534,13 @@ function extractTurnCompletedUsage(stdout) {
     }
     if (!event || typeof event !== "object")
       continue;
-    const record3 = event;
-    if (record3.type !== "turn.completed")
+    const record4 = event;
+    if (record4.type !== "turn.completed")
       continue;
     if (completedUsage !== void 0) {
       throw new Error("codex_json_turn_usage_invalid:multiple_turns");
     }
-    completedUsage = parseTurnUsage(record3.usage);
+    completedUsage = parseTurnUsage(record4.usage);
   }
   return completedUsage;
 }
@@ -10548,12 +10548,12 @@ function parseTurnUsage(value) {
   if (!value || typeof value !== "object") {
     throw new Error("codex_json_turn_usage_invalid:missing");
   }
-  const record3 = value;
-  const inputTokens = parseUsageCount(record3.input_tokens, "input_tokens");
-  const outputTokens = parseUsageCount(record3.output_tokens, "output_tokens");
-  const cachedInputTokens = parseUsageCount(record3.cached_input_tokens, "cached_input_tokens");
-  const cacheWriteInputTokens = parseUsageCount(record3.cache_write_input_tokens ?? 0, "cache_write_input_tokens");
-  const reasoningOutputTokens = parseUsageCount(record3.reasoning_output_tokens, "reasoning_output_tokens");
+  const record4 = value;
+  const inputTokens = parseUsageCount(record4.input_tokens, "input_tokens");
+  const outputTokens = parseUsageCount(record4.output_tokens, "output_tokens");
+  const cachedInputTokens = parseUsageCount(record4.cached_input_tokens, "cached_input_tokens");
+  const cacheWriteInputTokens = parseUsageCount(record4.cache_write_input_tokens ?? 0, "cache_write_input_tokens");
+  const reasoningOutputTokens = parseUsageCount(record4.reasoning_output_tokens, "reasoning_output_tokens");
   if (cachedInputTokens > inputTokens) {
     throw new Error("codex_json_turn_usage_invalid:cached_exceeds_input");
   }
@@ -10585,26 +10585,26 @@ function looksLikeJsonLine(value) {
 function extractTextFromEvent(event) {
   if (!event || typeof event !== "object")
     return null;
-  const record3 = event;
-  const type = typeof record3.type === "string" ? record3.type : null;
-  if (!hasAssistantRole(record3))
+  const record4 = event;
+  const type = typeof record4.type === "string" ? record4.type : null;
+  if (!hasAssistantRole(record4))
     return null;
   if (type === "item.completed") {
-    const item = record3.item;
+    const item = record4.item;
     return item && typeof item === "object" ? extractTextFromRecord(item) : null;
   }
   if (type === "response.completed") {
-    const response = record3.response;
+    const response = record4.response;
     return response && typeof response === "object" ? extractTextFromRecord(response) : null;
   }
   if (type && !isAssistantTextEventType(type))
     return null;
-  return extractTextFromRecord(record3);
+  return extractTextFromRecord(record4);
 }
 function isAssistantTextEventType(type) {
   return type === "agent_message" || type === "assistant_message" || type === "message" || type === "result";
 }
-function extractTextFromRecord(record3) {
+function extractTextFromRecord(record4) {
   for (const key of [
     "message",
     "text",
@@ -10613,13 +10613,13 @@ function extractTextFromRecord(record3) {
     "content",
     "output"
   ]) {
-    const value = record3[key];
+    const value = record4[key];
     const text = stringifyContent(value);
     if (text)
       return text;
   }
   for (const key of ["data", "item", "delta", "response"]) {
-    const nested = extractTextFromEvent(record3[key]);
+    const nested = extractTextFromEvent(record4[key]);
     if (nested)
       return nested;
   }
@@ -10633,10 +10633,10 @@ function stringifyContent(value) {
     return parts.length > 0 ? parts.join("") : null;
   }
   if (value && typeof value === "object") {
-    const record3 = value;
-    if (!isAssistantContentRecord(record3))
+    const record4 = value;
+    if (!isAssistantContentRecord(record4))
       return null;
-    return stringifyContent(record3.text ?? record3.output_text ?? record3.content ?? record3.output);
+    return stringifyContent(record4.text ?? record4.output_text ?? record4.content ?? record4.output);
   }
   return null;
 }
@@ -10645,19 +10645,19 @@ function stringifyContentEntry(entry) {
     return entry;
   if (!entry || typeof entry !== "object")
     return null;
-  const record3 = entry;
-  if (!isAssistantContentRecord(record3))
+  const record4 = entry;
+  if (!isAssistantContentRecord(record4))
     return null;
-  return stringifyContent(record3.text ?? record3.output_text ?? record3.content ?? record3.output);
+  return stringifyContent(record4.text ?? record4.output_text ?? record4.content ?? record4.output);
 }
-function isAssistantContentRecord(record3) {
-  const type = typeof record3.type === "string" ? record3.type : null;
-  if (!hasAssistantRole(record3))
+function isAssistantContentRecord(record4) {
+  const type = typeof record4.type === "string" ? record4.type : null;
+  if (!hasAssistantRole(record4))
     return false;
   return !type || type === "agentMessage" || type === "agent_message" || type === "assistant_message" || type === "message" || type === "output_text" || type === "text";
 }
-function hasAssistantRole(record3) {
-  const role = record3.role;
+function hasAssistantRole(record4) {
+  const role = record4.role;
   return typeof role !== "string" || role === "assistant";
 }
 function parseStructuredOutput(outputText) {
@@ -29981,6 +29981,139 @@ function isStalePullRequestHeadError(error51) {
 // packages/features/codex-oauth-rotating/src/action/hosted-codex-relay.ts
 var import_node_crypto6 = require("node:crypto");
 var import_node_http = __toESM(require("node:http"), 1);
+
+// packages/features/codex-oauth-rotating/src/action/hosted-sse-completion.ts
+var maxFrameCharacters = 2e6;
+var HostedSseCompletion = class {
+  decoder = new TextDecoder("utf-8", { fatal: true });
+  line = "";
+  data = [];
+  event = "";
+  characters = 0;
+  afterCr = false;
+  invalid = false;
+  terminal = false;
+  done = false;
+  responseId;
+  get completed() {
+    return this.terminal && !this.invalid;
+  }
+  push(bytes) {
+    try {
+      this.consume(this.decoder.decode(bytes, { stream: true }));
+    } catch {
+      this.reject();
+    }
+  }
+  finish() {
+    try {
+      this.consume(this.decoder.decode());
+    } catch {
+      this.reject();
+    }
+    if (this.line || this.data.length || this.event) this.reject();
+    return this.completed;
+  }
+  reject() {
+    this.invalid = true;
+    this.line = "";
+    this.data = [];
+    this.event = "";
+  }
+  consume(text) {
+    for (const character of text) {
+      if (this.invalid) return;
+      if (this.afterCr && character === "\n") {
+        this.afterCr = false;
+        continue;
+      }
+      this.afterCr = character === "\r";
+      if (++this.characters > maxFrameCharacters) {
+        this.reject();
+        return;
+      }
+      if (character === "\r" || character === "\n") {
+        this.consumeLine();
+      } else {
+        this.line += character;
+      }
+    }
+  }
+  consumeLine() {
+    const line = this.line;
+    this.line = "";
+    if (line === "") {
+      this.consumeFrame();
+      this.characters = 0;
+      this.data = [];
+      this.event = "";
+      return;
+    }
+    if (line.startsWith(":")) return;
+    const colon = line.indexOf(":");
+    const name = colon < 0 ? line : line.slice(0, colon);
+    let value = colon < 0 ? "" : line.slice(colon + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+    if (name === "data") this.data.push(value);
+    if (name === "event") this.event = value;
+  }
+  consumeFrame() {
+    if (!this.data.length) {
+      if (this.event) this.reject();
+      return;
+    }
+    const data = this.data.join("\n");
+    if (data === "[DONE]") {
+      if (!this.completed || this.done || this.event) this.reject();
+      this.done = true;
+      return;
+    }
+    if (this.terminal || this.done) {
+      this.reject();
+      return;
+    }
+    let value;
+    try {
+      value = JSON.parse(data);
+    } catch {
+      this.reject();
+      return;
+    }
+    if (!record3(value) || typeof value.type !== "string" || !value.type || this.event && this.event !== value.type) {
+      this.reject();
+      return;
+    }
+    if ([
+      "response.failed",
+      "response.incomplete",
+      "response.error",
+      "error"
+    ].includes(value.type)) {
+      this.reject();
+      return;
+    }
+    const response = value.response;
+    if (record3(response) && typeof response.id === "string") {
+      if (!response.id || this.responseId !== void 0 && response.id !== this.responseId) {
+        this.reject();
+        return;
+      }
+      this.responseId = response.id;
+    }
+    if (value.type === "response.completed") {
+      if (!record3(response) || typeof response.id !== "string" || !response.id || response.status !== "completed" || response.error != null || response.incomplete_details != null) {
+        this.reject();
+        return;
+      }
+      this.terminal = true;
+    }
+  }
+};
+function record3(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// packages/features/codex-oauth-rotating/src/action/hosted-codex-relay.ts
 var defaultOidcAudience = "reviewrouter";
 var forkAgenticSandboxHostedPoolActionMode = "fork-agentic-sandbox-hosted-pool";
 var defaultMaxRequestBodyBytes = 2e6;
@@ -29990,6 +30123,8 @@ var maxCommentTokenRefreshes = 8;
 var oidcRequestTimeoutMs = 2e4;
 var grantRequestTimeoutMs = 3e4;
 var grantExchangeTotalTimeoutMs = 75e3;
+var completionDrainTimeoutMs = 1e4;
+var maxCompletionDrainBytes = 2e6;
 var RetryableHostedRelayExchangeError = class extends Error {
 };
 var hostedRelayGrantSchema = external_exports.object({
@@ -30038,8 +30173,10 @@ async function runHostedCodexRelayTransport(input) {
         commentTokenRefreshUrl: proxy.commentTokenRefreshUrl
       });
     } catch (error51) {
+      await proxy.settle();
       throwHostedRelayFailover(proxy.failoverReason(), error51);
     }
+    await proxy.settle();
     throwHostedRelayFailover(proxy.failoverReason());
   } finally {
     await proxy.close();
@@ -30142,6 +30279,7 @@ async function startHostedCodexRelayProxy(input) {
   };
   let replayFenced = false;
   const activeUpstreamRequests = /* @__PURE__ */ new Set();
+  const settlementWaiters = /* @__PURE__ */ new Set();
   const relaySlotWaiters = [];
   const notifyRelaySlot = () => {
     const waiter = relaySlotWaiters.shift();
@@ -30159,10 +30297,13 @@ async function startHostedCodexRelayProxy(input) {
   const server = import_node_http.default.createServer((req, res) => {
     void (async () => {
       let downstreamClosed = false;
+      let terminalForwarded = false;
       let upstreamController;
       const abortUpstream = () => {
         downstreamClosed = true;
-        upstreamController?.abort(new Error("downstream_closed"));
+        if (!terminalForwarded && !res.writableFinished) {
+          upstreamController?.abort(new Error("downstream_closed"));
+        }
       };
       req.once("aborted", abortUpstream);
       res.once("close", abortUpstream);
@@ -30296,7 +30437,13 @@ async function startHostedCodexRelayProxy(input) {
           if (!downstreamClosed) {
             let responseCompletion;
             try {
-              responseCompletion = await writeUpstreamResponse(res, upstream);
+              responseCompletion = await writeUpstreamResponse(
+                res,
+                upstream,
+                () => {
+                  terminalForwarded = true;
+                }
+              );
             } catch (writeError) {
               if ((isDownstreamCloseError(writeError) || downstreamClosed) && upstream.status >= 200 && upstream.status < 300) {
                 fenceFurtherResponses("ambiguous");
@@ -30316,6 +30463,9 @@ async function startHostedCodexRelayProxy(input) {
           throw error51;
         } finally {
           inFlightRelayRequests -= 1;
+          if (inFlightRelayRequests === 0) {
+            for (const waiter of settlementWaiters) waiter();
+          }
           notifyRelaySlot();
         }
       } catch (error51) {
@@ -30356,6 +30506,24 @@ async function startHostedCodexRelayProxy(input) {
     baseUrl: `http://127.0.0.1:${address.port}/${nonce}/v1`,
     commentTokenRefreshUrl: `http://127.0.0.1:${address.port}/${nonce}/control/comment-token`,
     failoverReason: () => fencedReason ?? (inFlightRelayRequests > 0 ? "ambiguous" : void 0),
+    settle: async () => {
+      if (inFlightRelayRequests === 0) return;
+      await new Promise((resolve3) => {
+        const settled = () => {
+          clearTimeout(timer);
+          settlementWaiters.delete(settled);
+          resolve3();
+        };
+        const timer = setTimeout(() => {
+          fenceFurtherResponses("ambiguous");
+          for (const controller of activeUpstreamRequests) {
+            controller.abort(new Error("relay_settlement_timeout"));
+          }
+          settled();
+        }, completionDrainTimeoutMs);
+        settlementWaiters.add(settled);
+      });
+    },
     close: async () => {
       if (closing) return;
       closing = true;
@@ -30537,7 +30705,7 @@ async function fetchWithZeroizedBody(fetchImpl, url2, init, plaintextBody) {
     fetchBody.fill(0);
   }
 }
-async function writeUpstreamResponse(res, upstream) {
+async function writeUpstreamResponse(res, upstream, terminalWritten) {
   const headers = {};
   for (const name of ["content-type", "cache-control", "x-request-id"]) {
     const value = upstream.headers.get(name);
@@ -30551,12 +30719,28 @@ async function writeUpstreamResponse(res, upstream) {
   const reader = upstream.body.getReader();
   const mediaType = upstream.headers.get("content-type")?.toLowerCase().split(";", 1)[0]?.trim() ?? "";
   let completionTail = "";
+  const sse = mediaType === "text/event-stream" ? new HostedSseCompletion() : void 0;
+  let terminalForwarded = false;
+  let drainBytes = 0;
+  let drainTimer;
+  let drainDeadline;
   const jsonCompletionChunks = [];
   let readerDone = false;
   let combinedJson;
   try {
     for (; ; ) {
-      const { done, value } = await reader.read();
+      const reading = reader.read();
+      let abandoned = false;
+      void reading.then(
+        (result) => {
+          if (abandoned && !result.done) result.value.fill(0);
+        },
+        () => void 0
+      );
+      const { done, value } = await (drainDeadline ? Promise.race([reading, drainDeadline]).catch((error51) => {
+        abandoned = true;
+        throw error51;
+      }) : reading);
       if (done) {
         readerDone = true;
         break;
@@ -30570,23 +30754,44 @@ async function writeUpstreamResponse(res, upstream) {
       try {
         if (mediaType === "application/json") {
           jsonCompletionChunks.push(buffer);
-        } else {
-          completionTail = `${completionTail}${buffer.toString("utf8")}`.slice(
-            -8192
-          );
+        } else if (sse) {
+          sse.push(buffer);
         }
-        await writeResponseBuffer(res, buffer);
+        if (terminalForwarded) {
+          drainBytes += buffer.byteLength;
+          if (drainBytes > maxCompletionDrainBytes)
+            throw new Error("relay_completion_drain_limit");
+        }
+        if (!terminalForwarded && !res.destroyed) {
+          await writeResponseBuffer(res, buffer, () => {
+            if (!terminalForwarded && sse?.completed && upstream.ok) {
+              terminalForwarded = true;
+              terminalWritten?.();
+              drainDeadline = new Promise((_resolve, reject) => {
+                drainTimer = setTimeout(
+                  () => reject(new Error("relay_completion_drain_timeout")),
+                  completionDrainTimeoutMs
+                );
+              });
+            }
+          });
+        } else if (!terminalForwarded) {
+          throw new Error("downstream_closed");
+        }
       } finally {
         if (mediaType !== "application/json") buffer.fill(0);
       }
     }
-    res.end();
+    if (!res.destroyed) res.end();
     if (mediaType === "application/json") {
       combinedJson = Buffer.concat(jsonCompletionChunks);
       completionTail = combinedJson.toString("utf8");
     }
+    if (sse)
+      return upstream.ok && terminalForwarded && sse.finish() ? "successful" : "non_successful";
     return isProvablySuccessfulRelayResponse(upstream, completionTail);
   } finally {
+    clearTimeout(drainTimer);
     if (!readerDone) await reader.cancel().catch(() => void 0);
     reader.releaseLock();
     combinedJson?.fill(0);
@@ -30599,9 +30804,6 @@ function isProvablySuccessfulRelayResponse(upstream, completionTail) {
   }
   const contentType = upstream.headers.get("content-type")?.toLowerCase() ?? "";
   const mediaType = contentType.split(";", 1)[0]?.trim();
-  if (mediaType === "text/event-stream") {
-    return isSuccessfulHostedSseTail(completionTail) ? "successful" : "non_successful";
-  }
   if (mediaType === "application/json") {
     try {
       JSON.parse(completionTail);
@@ -30611,11 +30813,6 @@ function isProvablySuccessfulRelayResponse(upstream, completionTail) {
     }
   }
   return "non_successful";
-}
-function isSuccessfulHostedSseTail(completionTail) {
-  const normalized = completionTail.replace(/\r\n/g, "\n").trimEnd();
-  const lastLine = normalized.split("\n").at(-1)?.trim();
-  return lastLine === "data: [DONE]";
 }
 function throwHostedRelayFailover(reason, cause) {
   if (reason === "authentication_failed") {
@@ -30629,7 +30826,7 @@ function throwHostedRelayFailover(reason, cause) {
   }
   if (cause !== void 0) throw cause;
 }
-async function writeResponseBuffer(res, buffer) {
+async function writeResponseBuffer(res, buffer, written) {
   await new Promise((resolve3, reject) => {
     const cleanup = () => {
       res.off("close", onClose);
@@ -30649,7 +30846,10 @@ async function writeResponseBuffer(res, buffer) {
       res.write(buffer, (error51) => {
         cleanup();
         if (error51) reject(error51);
-        else resolve3();
+        else {
+          written?.();
+          resolve3();
+        }
       });
     } catch (error51) {
       cleanup();

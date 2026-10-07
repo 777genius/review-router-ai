@@ -8,6 +8,7 @@ import { AppToaster } from "./app-toaster";
 import { LogoMark } from "./logo-mark";
 import { CompactPrimaryNav, MobilePrimaryNav, PrimaryNav } from "./primary-nav";
 import { HeaderProfileMenu } from "./header-profile-menu";
+import { QueryProvider } from "./query-provider";
 import { ThemeToggle } from "./theme-toggle";
 import { NavigationFeedbackProvider } from "./navigation-feedback";
 import "./globals.css";
@@ -198,7 +199,9 @@ export default async function RootLayout({
           <CompactPrimaryNav signedIn={profile.signedIn} />
         </header>
         <NavigationFeedbackProvider>
-          <div id="content">{children}</div>
+          <div id="content">
+            <QueryProvider>{children}</QueryProvider>
+          </div>
         </NavigationFeedbackProvider>
         <AppToaster />
         <footer className="site-footer relative isolate overflow-hidden border-t border-cyan-200/10 bg-[var(--rr-footer-bg)]">

@@ -1271,7 +1271,10 @@ describe("disposable dual-version rehearsal", () => {
       .map((entry) => entry.name);
 
     const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
-    const previousCheckout = migrationNames.filter(
+    const withoutProviderKey = migrationNames.filter(
+      (name) => name !== "000110_provider_api_key_workspace_management",
+    );
+    const previousCheckout = withoutProviderKey.filter(
       (name) =>
         name !== "000117_provider_accounts" &&
         name !== "000118_workspace_binding_fences" &&
@@ -1291,7 +1294,7 @@ describe("disposable dual-version rehearsal", () => {
     ).toThrow("private_pg17_rehearsal_migration_boundary_unclassified");
     expect(
       migrationManifestIdentity(
-        migrationNames.filter(
+        withoutProviderKey.filter(
           (name) =>
             name !== "000118_workspace_binding_fences" &&
             name !== "000119_review_configuration_gateway_binding" &&
@@ -1305,13 +1308,28 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:c5c0618f105799d06d21424433cec4a59fc052e63f594c2aace0657ebb52d1dd",
     );
-    expect(migrationNames).toHaveLength(123);
-    expect(migrationManifestIdentity(migrationNames)).toBe(
+    expect(withoutProviderKey).toHaveLength(123);
+    expect(migrationManifestIdentity(withoutProviderKey)).toBe(
       "sha256:f26da08b44ad6830f4486f93ed33979acda7b5669a8550601c34dbf9c0322443",
     );
     expect(
       migrationManifestIdentity(
         migrationNames.filter(
+          (name) =>
+            previousCheckout.includes(name) ||
+            name === "000110_provider_api_key_workspace_management",
+        ),
+      ),
+    ).toBe(
+      "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
+    );
+    expect(migrationNames).toHaveLength(124);
+    expect(migrationManifestIdentity(migrationNames)).toBe(
+      "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
+    );
+    expect(
+      migrationManifestIdentity(
+        withoutProviderKey.filter(
           (name) => name !== "000124_personal_account_operations",
         ),
       ),
@@ -1320,7 +1338,7 @@ describe("disposable dual-version rehearsal", () => {
     );
     expect(
       migrationManifestIdentity(
-        migrationNames.filter(
+        withoutProviderKey.filter(
           (name) =>
             name !== "000122_review_configuration_operation_receipt" &&
             name !== "000123_personal_workspace_identity" &&
@@ -1332,7 +1350,7 @@ describe("disposable dual-version rehearsal", () => {
     );
     expect(
       migrationManifestIdentity(
-        migrationNames.filter(
+        withoutProviderKey.filter(
           (name) =>
             name !== "000123_personal_workspace_identity" &&
             name !== "000124_personal_account_operations",
@@ -1383,6 +1401,7 @@ describe("disposable dual-version rehearsal", () => {
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
+      "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
       "000112_sdk_growth_operator_credential",
       "000113_sdk_growth_approval_ledger",
@@ -1447,6 +1466,7 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000108_sdk_growth_verifier_assignment" &&
             name !== "000109_sdk_growth_verifier_assignment_lock" &&
             name !== "000110_historical_unknown_scope_barrier" &&
+            name !== "000110_provider_api_key_workspace_management" &&
             name !== "000111_sdk_growth_source_binding" &&
             name !== "000112_sdk_growth_operator_credential" &&
             name !== "000113_sdk_growth_approval_ledger" &&
@@ -1484,6 +1504,7 @@ describe("disposable dual-version rehearsal", () => {
             name !== "000108_sdk_growth_verifier_assignment" &&
             name !== "000109_sdk_growth_verifier_assignment_lock" &&
             name !== "000110_historical_unknown_scope_barrier" &&
+            name !== "000110_provider_api_key_workspace_management" &&
             name !== "000111_sdk_growth_source_binding" &&
             name !== "000112_sdk_growth_operator_credential" &&
             name !== "000113_sdk_growth_approval_ledger" &&
@@ -1569,6 +1590,7 @@ describe("disposable dual-version rehearsal", () => {
     "000108_sdk_growth_verifier_assignment",
     "000109_sdk_growth_verifier_assignment_lock",
     "000110_historical_unknown_scope_barrier",
+    "000110_provider_api_key_workspace_management",
     "000111_sdk_growth_source_binding",
     "000112_sdk_growth_operator_credential",
     "000113_sdk_growth_approval_ledger",
@@ -1623,6 +1645,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000108_sdk_growth_verifier_assignment" &&
                 name !== "000109_sdk_growth_verifier_assignment_lock" &&
                 name !== "000110_historical_unknown_scope_barrier" &&
+                name !== "000110_provider_api_key_workspace_management" &&
                 name !== "000111_sdk_growth_source_binding" &&
                 name !== "000112_sdk_growth_operator_credential" &&
                 name !== "000113_sdk_growth_approval_ledger" &&

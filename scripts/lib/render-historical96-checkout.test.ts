@@ -17,7 +17,12 @@ vi.mock("./render-schema-handoff-policy.mjs", async (importOriginal) => {
   };
 });
 const reader = vi.mocked(readRenderManagedCheckoutInventory);
-const full = readRenderManagedCheckoutInventory();
+// Keep old immutable-prefix fixtures independent from the optional key branch.
+// The key-enabled filesystem checkout is exercised by the admission suite.
+const currentFull = readRenderManagedCheckoutInventory();
+const full = currentFull.filter(
+  (row) => row.migrationName !== "000110_provider_api_key_workspace_management",
+);
 const historical = full.slice(0, 96);
 const checkout97 = full.slice(0, 97);
 const checkout98 = full.slice(0, 98);
@@ -125,7 +130,7 @@ describe("trusted historical96 checkout reader", () => {
     );
     expect(Object.isFrozen(result)).toBe(true);
     expect(result.every(Object.isFrozen)).toBe(true);
-    expect(readRenderManagedCheckoutInventory()).toEqual(full);
+    expect(readRenderManagedCheckoutInventory()).toEqual(currentFull);
     expect(reader).toHaveBeenCalledWith();
   });
 

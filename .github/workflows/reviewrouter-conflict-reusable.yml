@@ -50,6 +50,8 @@ on:
         required: false
       OPENAI_API_KEY:
         required: false
+      MIMO_TOKEN_PLAN_API_KEY:
+        required: false
 
 permissions: {}
 
@@ -78,6 +80,7 @@ jobs:
       INPUT_CONFLICT_BASE_SHA: ${{ inputs.conflict_base_sha }}
       CODEX_AUTH_JSON_PRESENT: ${{ secrets.CODEX_AUTH_JSON != '' && '1' || '0' }}
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' && '1' || '0' }}
+      MIMO_TOKEN_PLAN_API_KEY_PRESENT: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY != '' && '1' || '0' }}
     steps:
       - name: Validate conflict runtime ref
         shell: bash
@@ -93,7 +96,7 @@ jobs:
       - name: Checkout trusted ReviewRouter runtime
         uses: actions/checkout@v6
         with:
-          repository: 777genius/review-router-ai
+          repository: 777genius/review-router
           ref: ${{ inputs.runtime_ref }}
           path: .reviewrouter-runtime
           persist-credentials: false
@@ -103,16 +106,16 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Build conflict runtime
+      - name: Validate bundled conflict runtime
         shell: bash
         working-directory: .reviewrouter-runtime
         run: |
           set -euo pipefail
-          corepack enable
-          pnpm --filter @reviewrouter/features-conflict-runtime... install --frozen-lockfile
-          pnpm --filter @reviewrouter/platform-db db:generate
-          pnpm --filter @reviewrouter/features-conflict-runtime... build
-          node scripts/rewrite-dist-esm-imports.mjs
+          if [[ ! -f action-dist/conflict-runtime.cjs ]]; then
+            echo "::error::Selected runtime_ref does not provide the bundled conflict runtime. Use a compatible public Action release tag or full commit SHA."
+            exit 1
+          fi
+          node --check action-dist/conflict-runtime.cjs
 
       - name: Preflight conflict runtime before PR checkout
         shell: bash
@@ -121,7 +124,7 @@ jobs:
           REVIEW_ROUTER_CONFLICT_SESSION_FILE: ${{ runner.temp }}/reviewrouter-conflict/session.json
         run: |
           set -euo pipefail
-          node --conditions=production packages/features/conflict-runtime/dist/interface/cli/reviewrouter-conflict-runtime.js preflight
+          node action-dist/conflict-runtime.cjs preflight
 
       - name: Checkout exact conflict head
         uses: actions/checkout@v6
@@ -133,7 +136,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Codex CLI
-        if: ${{ env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' }}
+        if: ${{ env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1' || env.MIMO_TOKEN_PLAN_API_KEY_PRESENT == '1' }}
         shell: bash
         run: npm install -g @openai/codex@0.141.0
 
@@ -145,6 +148,7 @@ jobs:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
           CODEX_CONFIG_TOML: ${{ secrets.CODEX_CONFIG_TOML }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MIMO_TOKEN_PLAN_API_KEY: ${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}
         run: |
           set -euo pipefail
-          node --conditions=production packages/features/conflict-runtime/dist/interface/cli/reviewrouter-conflict-runtime.js run
+          node action-dist/conflict-runtime.cjs run

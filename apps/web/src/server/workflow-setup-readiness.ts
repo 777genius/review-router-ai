@@ -39,6 +39,7 @@ export type WorkflowSetupReadinessInput = {
   readonly codexRotatingProviderInstanceId?: string;
   readonly codexRotatingClaudeCodeOAuthTokenSecret?: boolean;
   readonly codexRotatingOpenRouterApiKeySecret?: boolean;
+  readonly codexRotatingMimoTokenPlanApiKeySecret?: boolean;
   readonly codexRotatingReviewActionV2Mode?: CodexRotatingReviewActionV2Mode;
   readonly codexRotatingWorkflowSchemaVersion?: CodexRotatingT0WorkflowSchemaVersion;
   readonly codexRotatingWorkflowSecretNamespace?: VersionedProviderSecretNamespace;
@@ -134,6 +135,8 @@ export async function isWorkflowSetupAlreadyCurrent(
                       input.codexRotatingClaudeCodeOAuthTokenSecret === true,
                     openRouterApiKeySecret:
                       input.codexRotatingOpenRouterApiKeySecret === true,
+                    mimoTokenPlanApiKeySecret:
+                      input.codexRotatingMimoTokenPlanApiKeySecret === true,
                     forkAgenticSandboxEnabled:
                       input.forkAgenticSandboxEnabled === true,
                     reviewActionV2Mode: input.codexRotatingReviewActionV2Mode,

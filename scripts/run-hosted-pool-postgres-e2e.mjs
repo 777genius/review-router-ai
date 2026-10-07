@@ -109,6 +109,8 @@ const sdkGrowthVerifierAssignmentMigrations = Object.freeze([
 ]);
 const historicalUnknownScopeBarrierMigration =
   "000110_historical_unknown_scope_barrier";
+const providerApiKeyWorkspaceMigration =
+  "000110_provider_api_key_workspace_management";
 const sdkGrowthSourceBindingMigration = "000111_sdk_growth_source_binding";
 const sdkGrowthOperatorCredentialMigration =
   "000112_sdk_growth_operator_credential";
@@ -190,6 +192,8 @@ try {
       runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     }
     addMigration(rehearsalDirectory, historicalUnknownScopeBarrierMigration);
+    runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
+    addMigration(rehearsalDirectory, providerApiKeyWorkspaceMigration);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
     addMigration(rehearsalDirectory, sdkGrowthSourceBindingMigration);
     runMigrationDeploy(rehearsalDirectory, migrationDatabaseUrl);
@@ -773,6 +777,7 @@ function prepareMigrationRehearsal({ excludeHostedPoolMigrations }) {
           v4RelayTurnMigration,
           ...sdkGrowthVerifierAssignmentMigrations,
           historicalUnknownScopeBarrierMigration,
+          providerApiKeyWorkspaceMigration,
           sdkGrowthSourceBindingMigration,
           sdkGrowthOperatorCredentialMigration,
           sdkGrowthApprovalLedgerMigration,

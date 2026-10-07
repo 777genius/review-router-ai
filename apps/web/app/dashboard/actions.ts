@@ -85,6 +85,7 @@ import {
   readCanonicalIsolatedQualityWorkflowSourceMetadata,
   readCanonicalHostedPoolWorkflowMetadata,
   workflowDocumentSemanticSha256,
+  workflowChecksOutReviewRouterRuntime,
   WorkflowSourceTrust,
   type ReviewRouterWorkflowStyle,
   isAccountGatewayConfiguration,
@@ -1914,9 +1915,12 @@ async function confirmSetupPullRequestMergedMutation(
                                     /^-?\s*uses:\s*["']?([^"'\s#]+)["']?/,
                                   )?.[1],
                             );
-                          const explicit = refs.includes(
-                            input.expectedActionRef,
-                          );
+                          const explicit =
+                            refs.includes(input.expectedActionRef) ||
+                            workflowChecksOutReviewRouterRuntime(
+                              workflow,
+                              input.expectedActionRef,
+                            );
                           const reusable = refs.includes(
                             input.expectedActionRef.replace(
                               "@",
@@ -3603,7 +3607,7 @@ async function loadResolvedReviewRuntime(input: {
   readonly repositoryId: string;
 }): Promise<ResolvedReviewRuntimeEnv> {
   const configurations = new PrismaReviewConfigurationRepository(input.prisma);
-  return resolveReviewRuntimeEnv(
+  const runtime = await resolveReviewRuntimeEnv(
     {
       scope: "repository",
       workspaceId: input.workspaceId,
@@ -3611,11 +3615,15 @@ async function loadResolvedReviewRuntime(input: {
     },
     { configurations },
   );
+  return runtime;
 }
 
 function workflowReadinessProviderKind(
   config: ReviewConfiguration,
 ): ProviderKind | undefined {
+  if (config.providers.some((provider) => provider.kind === "codex-mimo")) {
+    return "codex-mimo";
+  }
   return config.providers.some((provider) => provider.kind === "claude")
     ? "claude"
     : undefined;
@@ -3864,6 +3872,7 @@ function readGitHubWorkflowBlob(data: unknown): {
 function codexRotatingWorkflowSecretInputs(config: ReviewConfiguration): {
   readonly codexRotatingClaudeCodeOAuthTokenSecret: boolean;
   readonly codexRotatingOpenRouterApiKeySecret: boolean;
+  readonly codexRotatingMimoTokenPlanApiKeySecret: boolean;
 } {
   return {
     codexRotatingClaudeCodeOAuthTokenSecret: config.providers.some(
@@ -3871,6 +3880,9 @@ function codexRotatingWorkflowSecretInputs(config: ReviewConfiguration): {
     ),
     codexRotatingOpenRouterApiKeySecret: config.providers.some(
       (provider) => provider.kind === "openrouter",
+    ),
+    codexRotatingMimoTokenPlanApiKeySecret: config.providers.some(
+      (provider) => provider.kind === "codex-mimo",
     ),
   };
 }

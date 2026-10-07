@@ -105,7 +105,7 @@ describe("provider secret setup guidance", () => {
 
     expect(guidance.recommendedScope).toBe("repository");
     expect(guidance.commands[0]?.command).toBe(
-      "gh secret set OPENAI_API_KEY --repo 777genius/example",
+      "gh secret set OPENAI_API_KEY --repo 777genius/example --app actions",
     );
     expect(guidance.commands[0]).toMatchObject({
       scope: "repository",
@@ -229,6 +229,28 @@ describe("provider secret setup guidance", () => {
       )?.command,
     ).toBe(
       "gh secret set CLAUDE_CODE_OAUTH_TOKEN --org agent-teams-ai --visibility all --app actions",
+    );
+  });
+
+  it("builds an interactive repository MiMo command without a key value", () => {
+    const guidance = buildProviderSecretSetupGuidance({
+      provider: "mimo_token_plan_api_key",
+      repoFullName: "777genius/catalog-c1-r4",
+    });
+
+    expect(guidance.commands[0]?.command).toBe(
+      "gh secret set MIMO_TOKEN_PLAN_API_KEY --repo 777genius/catalog-c1-r4 --app actions",
+    );
+    expect(guidance.commands[0]?.command).not.toMatch(/=\s*\S+/);
+    expect(guidance.commands[0]?.secretNames).toEqual([
+      "MIMO_TOKEN_PLAN_API_KEY",
+    ]);
+    expect(guidance.commands[0]?.sendsSecretToReviewRouter).toBe(false);
+    expect(guidance.warnings.join(" ")).toContain(
+      "never silently falls back to Codex or OpenRouter",
+    );
+    expect(guidance.warnings.join(" ")).toContain(
+      "fork pull requests are skipped",
     );
   });
 });

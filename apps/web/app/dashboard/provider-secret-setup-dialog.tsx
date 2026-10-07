@@ -22,6 +22,7 @@ type ProviderSecretGuidanceSet = {
   readonly codexOAuth: ProviderSecretSetupGuidance;
   readonly codexApiKey: ProviderSecretSetupGuidance;
   readonly claudeCodeOAuth: ProviderSecretSetupGuidance;
+  readonly mimoTokenPlanApiKey: ProviderSecretSetupGuidance;
   readonly openRouterApiKey: ProviderSecretSetupGuidance;
 };
 
@@ -129,6 +130,7 @@ export function ProviderSecretSetupDialog({
               codexOAuthGuidance={guidanceSet.codexOAuth}
               codexApiKeyGuidance={guidanceSet.codexApiKey}
               claudeCodeOAuthGuidance={guidanceSet.claudeCodeOAuth}
+              mimoTokenPlanApiKeyGuidance={guidanceSet.mimoTokenPlanApiKey}
               openRouterApiKeyGuidance={guidanceSet.openRouterApiKey}
               codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}

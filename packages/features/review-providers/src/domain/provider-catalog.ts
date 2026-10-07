@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-export const reviewProviderKinds = ["codex", "claude", "openrouter"] as const;
+export const reviewProviderKinds = [
+  "codex",
+  "codex-mimo",
+  "claude",
+  "openrouter",
+] as const;
 
 export const reviewProviderAuthModes = [
   "codex_subscription_oauth",
@@ -8,6 +13,7 @@ export const reviewProviderAuthModes = [
   "codex_subscription_oauth_hosted_pool",
   "codex_account_gateway",
   "codex_openai_api_key",
+  "mimo_token_plan_api_key",
   "claude_code_oauth",
   "openrouter_api_key",
 ] as const;
@@ -47,11 +53,16 @@ export type RuntimeAuthMode =
   | "codex-oauth-hosted-pool"
   | "codex-account-gateway"
   | "openai-api"
+  | "mimo-token-plan-api"
   | "claude-oauth"
   | "openrouter-api";
 
 export type ProviderCliTool = "codex" | "claude";
-export type RuntimeProviderPrefix = "codex" | "claude" | "openrouter";
+export type RuntimeProviderPrefix =
+  | "codex"
+  | "codex-mimo"
+  | "claude"
+  | "openrouter";
 export const defaultProviderReasoningEffort = "xhigh" as const;
 
 export type ProviderCapability =
@@ -71,6 +82,7 @@ export type ProviderSetupKind =
   | "codex_oauth_hosted_pool"
   | "account_gateway"
   | "openai_api_key"
+  | "mimo_token_plan_api_key"
   | "claude_code_oauth"
   | "openrouter_api_key";
 
@@ -111,6 +123,21 @@ const providerCatalog = {
       "subscription_oauth",
       "rotating_oauth",
       "hosted_account_pool",
+      "reasoning_effort",
+      "fast_mode",
+      "agentic_context",
+    ],
+  },
+  "codex-mimo": {
+    kind: "codex-mimo",
+    label: "MiMo Token Plan",
+    authModes: ["mimo_token_plan_api_key"],
+    defaultAuthMode: "mimo_token_plan_api_key",
+    defaultModel: "mimo-v2.6-pro",
+    runtimeProviderPrefix: "codex-mimo",
+    capabilities: [
+      "static_model_catalog",
+      "api_key",
       "reasoning_effort",
       "fast_mode",
       "agentic_context",
@@ -179,6 +206,14 @@ const authModeMetadata = {
     setupKind: "openai_api_key",
     label: "OpenAI API key",
     secretNames: ["OPENAI_API_KEY"],
+  },
+  mimo_token_plan_api_key: {
+    authMode: "mimo_token_plan_api_key",
+    providerKind: "codex-mimo",
+    runtimeAuthMode: "mimo-token-plan-api",
+    setupKind: "mimo_token_plan_api_key",
+    label: "MiMo Token Plan API key",
+    secretNames: ["MIMO_TOKEN_PLAN_API_KEY"],
   },
   claude_code_oauth: {
     authMode: "claude_code_oauth",
@@ -288,6 +323,8 @@ export function cliToolsForProvider(
 ): readonly ProviderCliTool[] {
   switch (kind) {
     case "codex":
+      return ["codex"];
+    case "codex-mimo":
       return ["codex"];
     case "claude":
       return ["claude"];

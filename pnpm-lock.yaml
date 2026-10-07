@@ -290,6 +290,10 @@ importers:
         version: 4.4.2
 
   apps/web:
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.4.1
+        version: 0.4.1
     dependencies:
       '@agent-teams/account-gateway':
         specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-e8c9216.tgz

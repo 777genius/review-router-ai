@@ -75,6 +75,7 @@ describe("hosted pool PostgreSQL migration ordering", () => {
       "000108_sdk_growth_verifier_assignment",
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
+      "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
     ])
       expect(source.match(new RegExp(migration, "gu"))).toHaveLength(1);
@@ -85,6 +86,7 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     expect(preparation).toContain("v4RelayTurnMigration");
     expect(preparation).toContain("...sdkGrowthVerifierAssignmentMigrations");
     expect(preparation).toContain("historicalUnknownScopeBarrierMigration");
+    expect(preparation).toContain("providerApiKeyWorkspaceMigration");
     expect(preparation).toContain("sdkGrowthSourceBindingMigration");
     expect(preparation).toContain("sdkGrowthOperatorCredentialMigration");
     const stagedTail = section(
@@ -92,7 +94,7 @@ describe("hosted pool PostgreSQL migration ordering", () => {
       "const migrationCount =",
     );
     expect(stagedTail).toMatch(
-      /addMigration\(rehearsalDirectory, v4RelayTurnMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*for \(const migrationName of sdkGrowthVerifierAssignmentMigrations\) \{\s*addMigration\(rehearsalDirectory, migrationName\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*\}\s*addMigration\(rehearsalDirectory, historicalUnknownScopeBarrierMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*addMigration\(rehearsalDirectory, sdkGrowthSourceBindingMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);/u,
+      /addMigration\(rehearsalDirectory, v4RelayTurnMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*for \(const migrationName of sdkGrowthVerifierAssignmentMigrations\) \{\s*addMigration\(rehearsalDirectory, migrationName\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*\}\s*addMigration\(rehearsalDirectory, historicalUnknownScopeBarrierMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*addMigration\(rehearsalDirectory, providerApiKeyWorkspaceMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);\s*addMigration\(rehearsalDirectory, sdkGrowthSourceBindingMigration\);\s*runMigrationDeploy\(rehearsalDirectory, migrationDatabaseUrl\);/u,
     );
   });
 

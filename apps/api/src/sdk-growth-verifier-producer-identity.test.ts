@@ -433,12 +433,12 @@ describe("protected SDK verifier producer identity", () => {
 
   it("rejects a JWT that expires while the assignment row lock waits", async () => {
     const h = fixture();
-    const initial = Date.now();
     const row = await h.store.create(
       execution,
-      new Date(initial + 15 * 60_000),
+      new Date(Date.now() + 15 * 60_000),
     );
-    h.setNow(row.createdAt);
+    const initial = row.createdAt.getTime();
+    h.setNow(new Date(initial));
     const token = await h.issuer.issue(row.assignmentId);
     const originalQuery = h.db.$queryRaw.bind(h.db);
     h.db.$queryRaw = async (strings, ...values) => {
