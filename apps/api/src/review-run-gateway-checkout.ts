@@ -2,6 +2,10 @@ import { Buffer, isUtf8 } from "node:buffer";
 import { performance } from "node:perf_hooks";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
+  mapConfigToRuntimeEnv,
+  parseReviewConfigurationStrict,
+} from "@reviewrouter/features-review-config";
+import {
   canonicalCodexRotatingProviderId,
   CodexRotatingT0WorkflowSchemaVersion,
 } from "@reviewrouter/features-codex-oauth-rotating";
@@ -22,6 +26,11 @@ export type AccountGatewayCheckoutCapability = Readonly<{
   token: string;
   expiresAt: string;
   permissions: Readonly<{ contents: "read"; pullRequests: "read" }>;
+  runtimeConfig: Readonly<{
+    protocolVersion: 1;
+    configVersion: number;
+    runtimeEnv: Readonly<Record<string, string>>;
+  }>;
 }>;
 export type ReviewRunGatewayCheckoutTarget = Readonly<{
   githubInstallationId: string;
@@ -190,6 +199,29 @@ export function createReviewRunGatewayCheckout(input: {
         throw new CheckoutFailure("authorization_denied", 401);
       if (expiry <= Date.now() + 30_000)
         throw new CheckoutFailure("checkout_unavailable", 503);
+      // Export only the admitted safe settings after the final authority checks.
+      // Never reread current configuration or expose the private gateway selection.
+      const configuration = parseReviewConfigurationStrict(
+        JSON.parse(snapshot.configurationCanonicalJson),
+      );
+      const provider = configuration.providers[snapshot.gateway.providerIndex];
+      if (
+        provider?.authMode !== "codex_account_gateway" ||
+        provider.gatewayBindingId !== snapshot.gateway.bindingId ||
+        provider.gatewayProfileRef !== snapshot.gateway.profileRef ||
+        configuration.providers.find((entry) => entry.kind === "codex") !==
+          provider ||
+        canonicalJson(configuration) !== snapshot.configurationCanonicalJson
+      )
+        throw new CheckoutFailure("checkout_unavailable", 403);
+      const runtimeEnv = mapConfigToRuntimeEnv(configuration);
+      if (
+        runtimeEnv.CODEX_MODEL !== provider.model ||
+        runtimeEnv.CODEX_REASONING_EFFORT !== provider.reasoningEffort ||
+        runtimeEnv.CODEX_AGENTIC_CONTEXT !== String(provider.agenticContext) ||
+        runtimeEnv.CODEX_FAST_MODE !== String(provider.fastMode)
+      )
+        throw new CheckoutFailure("checkout_unavailable", 403);
       checkTime();
       return Object.freeze({
         protocolVersion: 1,
@@ -198,6 +230,11 @@ export function createReviewRunGatewayCheckout(input: {
         token: readToken,
         expiresAt: new Date(expiry).toISOString(),
         permissions: Object.freeze({ contents: "read", pullRequests: "read" }),
+        runtimeConfig: Object.freeze({
+          protocolVersion: 1,
+          configVersion: snapshot.configurationVersion,
+          runtimeEnv: Object.freeze(runtimeEnv),
+        }),
       });
     },
   });

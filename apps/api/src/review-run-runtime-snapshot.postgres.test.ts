@@ -6,6 +6,7 @@ import type * as Gateway from "@agent-teams/account-gateway/contracts";
 import { createPrismaClient } from "@reviewrouter/platform-db";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import {
+  mapConfigToRuntimeEnv,
   parseReviewConfigurationStrict,
   PrismaReviewConfigurationRepository,
   saveReviewConfiguration,
@@ -116,6 +117,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
     const fresh = createPrismaClient({ databaseUrl, poolMax: 4 });
     let closeGateway: (() => Promise<void>) | undefined;
     let closeRelayApp: (() => Promise<void>) | undefined;
+    let recheckRuntimeConfig: (() => Promise<void>) | undefined;
     let restoreGatewayFetch: (() => void) | undefined;
     let relay: ReviewRunGatewayRelay | undefined;
     const closes: Gateway.Close[] = [];
@@ -737,7 +739,32 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           token: "fake-checkout-read-token",
           expiresAt: checkoutExpiry,
           permissions: { contents: "read", pullRequests: "read" },
+          runtimeConfig: {
+            protocolVersion: 1,
+            configVersion: 1,
+            runtimeEnv: mapConfigToRuntimeEnv(config),
+          },
         });
+        const admittedRuntimeConfig = readCapability.json().runtimeConfig;
+        expect(admittedRuntimeConfig.runtimeEnv).toMatchObject({
+          REVIEW_AUTH_MODE: "codex-account-gateway",
+          REVIEW_PROVIDERS: "codex/mimo-v2-pro",
+          CODEX_MODEL: "mimo-v2-pro",
+          CODEX_REASONING_EFFORT: "high",
+        });
+        for (const privateValue of [
+          connection.id,
+          connection.gatewayAccountRef,
+          binding.id,
+          executionBearer,
+          runControlToken,
+        ])
+          expect(readCapability.body).not.toContain(privateValue);
+        recheckRuntimeConfig = async () => {
+          const retained = await checkout();
+          expect(retained.statusCode).toBe(200);
+          expect(retained.json().runtimeConfig).toEqual(admittedRuntimeConfig);
+        };
         expect(requests).toHaveLength(0);
         const call = (payload = '{"input":"fixture"}') =>
           app.inject({
@@ -1040,6 +1067,9 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         { target, config: changed, expectedVersion: 1 },
         { configurations },
       );
+      expect(recheckRuntimeConfig).toBeDefined();
+      // Checkout keeps original pro/high/version 1 after repository config switches.
+      await recheckRuntimeConfig!();
       expect((await harness.authorize()).authorizationId).toBe(
         first.authorizationId,
       );
