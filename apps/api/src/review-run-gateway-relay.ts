@@ -72,8 +72,14 @@ class RelayFailure extends Error {
   }
 }
 type RelayDiagnostic = {
-  stage: "resolve" | "prepare" | "request" | "post_request_authority" |
-    "stream_reader" | "stream_wrap" | "http_headers";
+  stage:
+    | "resolve"
+    | "prepare"
+    | "request"
+    | "post_request_authority"
+    | "stream_reader"
+    | "stream_wrap"
+    | "http_headers";
   bodyLocked: boolean;
 };
 type Preparation = ReturnType<typeof createReviewRunGatewayPreparation>;
@@ -401,7 +407,11 @@ export function createReviewRunGatewayRelay(input: {
               const upstream = response;
               if (diagnostic) {
                 diagnostic.stage = "stream_reader";
-                try { diagnostic.bodyLocked = upstream.body.locked === true; } catch { /* Observation only. */ }
+                try {
+                  diagnostic.bodyLocked = upstream.body.locked === true;
+                } catch {
+                  /* Observation only. */
+                }
               }
               const reader = upstream.body.getReader();
               const abortStream = () => {
@@ -636,7 +646,10 @@ export async function registerReviewRunGatewayRelayRoutes(
         reply.raw.once("close", abort);
         const timer = setTimeout(abort, relay.policy.requestTimeoutMs);
         let upstream: NativeResponse | undefined;
-        const diagnostic: RelayDiagnostic = { stage: "resolve", bodyLocked: false };
+        const diagnostic: RelayDiagnostic = {
+          stage: "resolve",
+          bodyLocked: false,
+        };
         try {
           if (!Buffer.isBuffer(request.body))
             throw new RelayFailure("invalid_request", 400);
@@ -649,7 +662,11 @@ export async function registerReviewRunGatewayRelayRoutes(
           if (upstream.kind === "status")
             return reply.code(202).send(upstream.status);
           diagnostic.stage = "http_headers";
-          try { diagnostic.bodyLocked = upstream.body.locked === true; } catch { /* Observation only. */ }
+          try {
+            diagnostic.bodyLocked = upstream.body.locked === true;
+          } catch {
+            /* Observation only. */
+          }
           reply.hijack();
           reply.raw.writeHead(200, {
             "content-type": "text/event-stream",
@@ -672,7 +689,12 @@ export async function registerReviewRunGatewayRelayRoutes(
           );
           await pipeline(source, reply.raw, { signal: controller.signal });
         } catch (error) {
-          diagnoseUnknown(error, "responses", reply.raw.headersSent, diagnostic);
+          diagnoseUnknown(
+            error,
+            "responses",
+            reply.raw.headersSent,
+            diagnostic,
+          );
           if (reply.raw.headersSent) reply.raw.destroy();
           else {
             const failure = safeFailure(error);
@@ -786,16 +808,36 @@ function safeFailure(error: unknown): RelayFailure {
     );
   return new RelayFailure("relay_unknown", 502, "effect_unknown");
 }
-function diagnoseUnknown(error: unknown, route: "responses" | "status" | "recover" | "close", headersSent: boolean, diagnostic?: RelayDiagnostic) {
+function diagnoseUnknown(
+  error: unknown,
+  route: "responses" | "status" | "recover" | "close",
+  headersSent: boolean,
+  diagnostic?: RelayDiagnostic,
+) {
   try {
     if (safeFailure(error).code !== "relay_unknown") return;
-    console.error({ event: "review_run_gateway_relay_unknown", route,
-      ...(diagnostic ? { stage: diagnostic.stage, bodyLocked: diagnostic.bodyLocked } : {}),
-      errorCategory: error instanceof TypeError ? "TypeError" : error instanceof RangeError ? "RangeError" : error instanceof Error ? "Error" : "other",
+    console.error({
+      event: "review_run_gateway_relay_unknown",
+      route,
+      ...(diagnostic
+        ? { stage: diagnostic.stage, bodyLocked: diagnostic.bodyLocked }
+        : {}),
+      errorCategory:
+        error instanceof TypeError
+          ? "TypeError"
+          : error instanceof RangeError
+            ? "RangeError"
+            : error instanceof Error
+              ? "Error"
+              : "other",
       localGatewayErrorInstance: error instanceof GatewayError,
-      gatewayConstructorNameBoolean: error instanceof Error && error.constructor.name === "GatewayError",
-      headersSent });
-  } catch { /* Diagnostics cannot replace the original failure or cleanup. */ }
+      gatewayConstructorNameBoolean:
+        error instanceof Error && error.constructor.name === "GatewayError",
+      headersSent,
+    });
+  } catch {
+    /* Diagnostics cannot replace the original failure or cleanup. */
+  }
 }
 
 /** Decode complete JSON once, retaining user/tool data. Scan BEFORE JSON.parse
