@@ -2,6 +2,7 @@
 /* global fetch */
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
+import { hasH1Text } from "./lib/server-rendered-heading.ts";
 
 const repoCodexCommandFragment =
   "Copy and run the complete command generated there";
@@ -161,7 +162,11 @@ try {
       }
     }
     for (const expectedText of expectedTexts) {
-      if (!html.includes(expectedText)) {
+      const found =
+        path === "/auth/signin" && expectedText === "Sign in to ReviewRouter"
+          ? hasH1Text(html, expectedText)
+          : html.includes(expectedText);
+      if (!found) {
         await fail(`${path} did not include expected text: ${expectedText}`);
       }
     }

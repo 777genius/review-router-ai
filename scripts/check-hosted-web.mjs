@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /* global fetch */
 import { loadEnvFile } from "./lib/env-file.mjs";
+import { hasH1Text } from "./lib/server-rendered-heading.ts";
 
 const hostedEnvFile =
   process.env.REVIEW_ROUTER_HOSTED_ENV_FILE ||
@@ -49,11 +50,11 @@ assertIncludes(
 );
 
 const signIn = await fetchHtml("/auth/signin");
-assertIncludes(
-  signIn.html,
-  "Sign in to ReviewRouter",
-  "sign-in missing branded title",
-);
+if (!hasH1Text(signIn.html, "Sign in to ReviewRouter")) {
+  throw new Error(
+    "sign-in missing branded title: expected h1 text Sign in to ReviewRouter",
+  );
+}
 assertIncludes(
   signIn.html,
   "Continue with GitHub",
