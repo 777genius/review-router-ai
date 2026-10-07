@@ -362,6 +362,10 @@ jobs:
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
+      # Source/bundle parity needs installed dependencies, not app builds or databases.
+      - name: Codex rotating action artifact smoke
+        run: pnpm action:artifact:check:smoke
+
       - name: Generate Prisma client
         run: pnpm db:generate
 
@@ -851,9 +855,6 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-      - name: Codex rotating action artifact smoke
-        run: pnpm action:artifact:check:smoke
 
       - name: Codex secret-write boundary
         run: pnpm codex-rotating:secret-write-boundary
