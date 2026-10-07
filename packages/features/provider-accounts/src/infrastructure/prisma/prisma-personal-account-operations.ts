@@ -194,6 +194,20 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
         return this.result(tx, row);
       });
     } catch (error) {
+      // The failed reservation transaction has rolled back. A UNIQUE loser may
+      // only read its original immutable intent, never retry credential ingress.
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "P2002"
+      ) {
+        return this.prisma.$transaction(async (tx) => {
+          const previous = await this.existing(tx, intent);
+          if (previous) return this.result(tx, previous);
+          return rethrowProductStorageError(error);
+        });
+      }
       return rethrowProductStorageError(error);
     }
   }
