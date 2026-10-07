@@ -447,6 +447,7 @@ export async function runBindingFencePostgresTests(
     dependencies: ProviderAccountDependencies;
     createPrisma: () => PrismaClient;
     targetUrl: string;
+    personalOperationsOnly?: true;
   },
 ) {
   const { db, sql, workspaceId, foreignWorkspaceId, actor, dependencies } =
@@ -466,12 +467,14 @@ export async function runBindingFencePostgresTests(
   let original!: ScopedBindingFence;
   let replacement!: ScopedBindingFence;
   try {
-    await runPersonalWorkspaceIdentityPostgresTests(t, {
-      db,
-      secondDb,
-      sql,
-      actor,
-    });
+    if (!context.personalOperationsOnly) {
+      await runPersonalWorkspaceIdentityPostgresTests(t, {
+        db,
+        secondDb,
+        sql,
+        actor,
+      });
+    }
 
     // RED: pair/history races, terminal resurrection, old FK adoption, stale
     // lineage reuse or role loss leaves personal authority alive in this real DB.
@@ -794,6 +797,8 @@ export async function runBindingFencePostgresTests(
         // Retain these scoped receipts/history for MAIN inspection in the disposable DB.
       },
     );
+
+    if (context.personalOperationsOnly) return;
 
     await db.workspaceMember.upsert({
       where: { workspaceId_userId: { workspaceId, userId: actor.userId! } },
