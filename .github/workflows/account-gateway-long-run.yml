@@ -9,6 +9,7 @@ on:
       - apps/api/**
       - apps/worker/**
       - scripts/review-action-v2-production-e2e/support/**
+      - scripts/install-private-dependencies.mjs
       - packages/**
       - vendor/**
       - package.json
@@ -23,6 +24,7 @@ on:
       - apps/api/**
       - apps/worker/**
       - scripts/review-action-v2-production-e2e/support/**
+      - scripts/install-private-dependencies.mjs
       - packages/**
       - vendor/**
       - package.json
@@ -71,7 +73,7 @@ jobs:
       - name: Install pinned dependencies
         run: |
           npm install --global pnpm@10.33.0
-          pnpm install --frozen-lockfile --ignore-scripts
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate actual Prisma client
         run: pnpm --filter @reviewrouter/platform-db db:generate
       - name: Apply all historical migrations to disposable PostgreSQL
