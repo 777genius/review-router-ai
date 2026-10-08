@@ -354,7 +354,9 @@ jobs:
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
       - name: Generate Prisma client
-        run: pnpm db:generate
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
 
       - name: Review Action v2 protocol drift check
         run: pnpm protocol:check
