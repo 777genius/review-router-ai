@@ -9,6 +9,7 @@ import {
   type CodexRotatingOidcClaims,
 } from "@reviewrouter/features-codex-oauth-rotating";
 import type { Clock } from "@reviewrouter/shared";
+import { z } from "zod";
 import type { ActionControlPlaneRepositoryPort } from "../ports/action-control-plane-repository-port.js";
 import type { ActionOidcReplayNonceStorePort } from "../ports/action-oidc-replay-nonce-store-port.js";
 import type {
@@ -69,18 +70,29 @@ export type CodexRotatingPreleaseSkipResponse = {
   readonly decisionHash: string;
 };
 
+// Marks only the schema check of verifier output, never verifier/backend errors.
+export class PreleaseVerifiedClaimsValidationError extends Error {
+  constructor(readonly validationError: z.ZodError) {
+    super("prelease_verified_claims_validation_failed");
+  }
+}
+
 export async function preleaseCodexRotatingOAuth(
   input: CodexRotatingPreleaseInput,
   dependencies: PreleaseCodexRotatingOAuthDependencies,
 ): Promise<
   CodexRotatingPreleaseLeaseResponse | CodexRotatingPreleaseSkipResponse
 > {
-  const claims = codexRotatingOidcClaimsSchema.parse(
+  const parsedClaims = codexRotatingOidcClaimsSchema.safeParse(
     await dependencies.oidcVerifier.verify({
       token: input.oidcToken,
       audience: input.audience,
     }),
   );
+  if (!parsedClaims.success) {
+    throw new PreleaseVerifiedClaimsValidationError(parsedClaims.error);
+  }
+  const claims = parsedClaims.data;
   const repository =
     await dependencies.repositories.findSelectedRepositoryByGithubId(
       claims.repository_id,

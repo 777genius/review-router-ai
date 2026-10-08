@@ -23,8 +23,13 @@ import {
 } from "../../application/use-cases/exchange-github-oidc-token.js";
 import {
   preleaseCodexRotatingOAuth,
+  PreleaseVerifiedClaimsValidationError,
   type PreleaseCodexRotatingOAuthDependencies,
 } from "../../application/use-cases/prelease-codex-rotating-oauth.js";
+import {
+  projectPreleaseErrorDiagnostic,
+  type PreleaseFailureStage,
+} from "./prelease-error-diagnostic.js";
 import {
   finalizeCodexRotatingOAuthLease,
   type FinalizeCodexRotatingOAuthLeaseDependencies,
@@ -317,8 +322,10 @@ export async function registerActionControlPlaneRoutes(
           errorFormat,
         );
       }
+      let stage: PreleaseFailureStage = "request_body_validation";
       try {
         const body = codexRotatingPreleaseBodySchema.parse(request.body);
+        stage = "use_case_rejection";
         const audience = resolveServerOwnedOidcAudience(
           body.audience,
           dependencies.oidcAudience,
@@ -334,7 +341,30 @@ export async function registerActionControlPlaneRoutes(
         );
         return reply.send(result);
       } catch (error) {
-        return sendActionError(reply, error, errorFormat);
+        let failure = error;
+        if (error instanceof PreleaseVerifiedClaimsValidationError) {
+          stage = "verified_claim_validation";
+          failure = error.validationError;
+        }
+        try {
+          request.log.warn(
+            projectPreleaseErrorDiagnostic(
+              stage,
+              failure,
+              failure instanceof z.ZodError
+                ? "invalid_action_request"
+                : safeActionErrorCode(
+                    failure instanceof Error
+                      ? failure.message
+                      : "unknown_error",
+                  ),
+            ),
+            "Codex OAuth prelease rejected",
+          );
+        } catch {
+          // Observation must not change the existing rejection response.
+        }
+        return sendActionError(reply, failure, errorFormat);
       }
     };
 
