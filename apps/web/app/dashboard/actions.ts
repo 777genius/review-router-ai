@@ -164,6 +164,7 @@ import {
   type HostedSessionSource,
 } from "../../src/server/hosted-pool-dashboard";
 import { createPrismaHostedPoolDashboardMutationPort } from "../../src/server/prisma-hosted-pool-mutations";
+import { assertGatewayReviewConfigCatalogAllowed } from "../../src/server/gateway-review-config-catalog";
 
 export async function requestInstallationSyncAction(
   formData: FormData,
@@ -2757,7 +2758,7 @@ async function saveWorkspaceReviewConfigMutation(
   let params: Record<string, string>;
 
   try {
-    const actor = await assertDashboardMutationAllowed(workspaceId);
+    let actor = await assertDashboardMutationAllowed(workspaceId);
     await assertDashboardEntitlement({
       prisma,
       workspaceId,
@@ -2773,6 +2774,15 @@ async function saveWorkspaceReviewConfigMutation(
       config,
       repository: null,
     });
+    if (
+      await assertGatewayReviewConfigCatalogAllowed(config, () =>
+        loadGatewayReviewProfiles(workspaceId),
+      )
+    ) {
+      const freshActor = await assertDashboardMutationAllowed(workspaceId);
+      assertGatewayReviewActorUnchanged(actor, freshActor);
+      actor = freshActor;
+    }
 
     const saved = await saveReviewConfiguration(
       {
@@ -2856,7 +2866,7 @@ async function saveRepositoryReviewConfigMutation(
     });
     assertRepositoryConfigMutable(repository);
 
-    const actor = await assertDashboardRepositoryConfigMutationAllowed(
+    let actor = await assertDashboardRepositoryConfigMutationAllowed(
       workspaceId,
       repository,
     );
@@ -2876,6 +2886,24 @@ async function saveRepositoryReviewConfigMutation(
       config,
       repository,
     });
+    if (
+      await assertGatewayReviewConfigCatalogAllowed(config, () =>
+        loadGatewayReviewProfiles(workspaceId),
+      )
+    ) {
+      const current = await loadRepositoryForWorkspace({
+        prisma,
+        workspaceId,
+        repositoryId,
+      });
+      assertRepositoryConfigMutable(current);
+      const freshActor = await assertDashboardRepositoryConfigMutationAllowed(
+        workspaceId,
+        current,
+      );
+      assertGatewayReviewActorUnchanged(actor, freshActor);
+      actor = freshActor;
+    }
 
     const saved = await saveReviewConfiguration(
       {
@@ -3075,6 +3103,29 @@ async function retryOutboxEventMutation(
   }
 
   return params;
+}
+
+async function loadGatewayReviewProfiles(workspaceId: string) {
+  const { loadAccountsBootstrap } = await import(
+    "../../src/server/account-gateway-accounts"
+  );
+  const { page } = await loadAccountsBootstrap(workspaceId);
+  if (page.status === "denied") throw new Error("gateway_review_config_denied");
+  if (page.status !== "ok") throw new Error("gateway_review_catalog_unavailable");
+  return page.value.profiles;
+}
+
+function assertGatewayReviewActorUnchanged(
+  original: DashboardMutationActor,
+  current: DashboardMutationActor,
+): void {
+  if (
+    original.userId !== current.userId ||
+    original.sourceProvider !== current.sourceProvider ||
+    original.externalUserId !== current.externalUserId ||
+    original.githubUserId !== current.githubUserId
+  )
+    throw new Error("gateway_review_config_denied");
 }
 
 async function assertDashboardEntitlement(input: {

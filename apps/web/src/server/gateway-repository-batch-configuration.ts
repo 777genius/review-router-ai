@@ -23,6 +23,7 @@ import { RateLimitExceededError } from "@reviewrouter/features-rate-limits";
 import { reference as accountGatewayReference } from "@agent-teams/account-gateway/contracts";
 import type { AccountProfileView } from "./account-gateway-accounts";
 import { DashboardMutationRefusedError } from "./dashboard-mutation-errors";
+import { isGatewayReviewModelSupported } from "./gateway-review-config-catalog";
 
 export const gatewayBatchTargetLimit = 100;
 export type GatewayBatchSelection = Extract<
@@ -309,12 +310,7 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
           );
           if (
             freshBinding.profileRef !== input.selection.gatewayProfileRef ||
-            !profiles.some(
-              (profile) =>
-                profile.id === freshBinding.profileRef &&
-                profile.protocol === "openai-responses" &&
-                profile.models.includes(input.selection.model),
-            )
+            !isGatewayReviewModelSupported(input.selection, profiles)
           )
             throw new GatewayBatchDenied();
           writeEntered = true;
