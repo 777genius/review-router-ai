@@ -622,7 +622,16 @@ export async function registerReviewRunGatewayRelayRoutes(
   app: FastifyInstance,
   relay: ReviewRunGatewayRelay,
 ) {
+  const activeIngress = new Set<() => void>();
+  let stopping = false;
   await app.register(async (scope) => {
+    type Reservation = {
+      controller: AbortController;
+      working: boolean;
+      begin: () => void;
+      finish: () => void;
+    };
+    const reservations = new WeakMap<FastifyRequest, Reservation>();
     // Encapsulation retains raw bytes for duplicate-name/UTF-8 validation.
     scope.removeContentTypeParser("application/json");
     scope.addContentTypeParser(
@@ -630,7 +639,12 @@ export async function registerReviewRunGatewayRelayRoutes(
       { parseAs: "buffer", bodyLimit: relay.policy.ingressBytes },
       (_request, body, done) => done(null, body),
     );
-    scope.setErrorHandler((_error, _request, reply) => {
+    scope.addHook("onResponse", async (request) => {
+      const reservation = reservations.get(request);
+      if (reservation && !reservation.working) reservation.finish();
+    });
+    scope.setErrorHandler((_error, request, reply) => {
+      reservations.get(request)?.finish();
       reply
         .code(400)
         .send({ error: { code: "invalid_request", effect: "not_dispatched" } });
@@ -638,12 +652,64 @@ export async function registerReviewRunGatewayRelayRoutes(
     const base = "/api/action/v2/account-gateway";
     scope.post(
       `${base}/responses`,
-      { bodyLimit: relay.policy.ingressBytes },
+      {
+        bodyLimit: relay.policy.ingressBytes,
+        onRequest: async (request, reply) => {
+          // Separate from the existing dispatch/status/recovery budget. At most
+          // maxInFlight Responses requests may enter the buffer parser, each
+          // limited to ingressBytes and requestTimeoutMs to finish reading.
+          // Hold the reservation through handler cleanup as well. These are
+          // configured ingestion bounds, not measured process-memory caps.
+          if (stopping || activeIngress.size >= relay.policy.maxInFlight)
+            return reply
+              .code(503)
+              .header("connection", "close")
+              .send({
+                error: { code: "relay_saturated", effect: "not_dispatched" },
+              });
+          const controller = new AbortController();
+          let finished = false;
+          const cancel = () => {
+            controller.abort();
+            if (!reservation.working) reservation.finish();
+          };
+          const stop = () => {
+            controller.abort();
+            // Terminate the parser's input, not just the outgoing response.
+            request.raw.destroy();
+            reply.raw.destroy();
+            reservation.finish();
+          };
+          const bodyTimer = setTimeout(stop, relay.policy.requestTimeoutMs);
+          const reservation: Reservation = {
+            controller,
+            working: false,
+            begin: () => {
+              reservation.working = true;
+              clearTimeout(bodyTimer);
+            },
+            finish: () => {
+              if (finished) return;
+              finished = true;
+              clearTimeout(bodyTimer);
+              request.raw.removeListener("aborted", cancel);
+              reply.raw.removeListener("close", cancel);
+              activeIngress.delete(stop);
+            },
+          };
+          reservations.set(request, reservation);
+          activeIngress.add(stop);
+          request.raw.once("aborted", cancel);
+          reply.raw.once("close", cancel);
+          if (request.raw.aborted || reply.raw.destroyed) cancel();
+        },
+      },
       async (request, reply) => {
-        const controller = new AbortController();
+        const reservation = reservations.get(request)!;
+        reservation.begin();
+        const controller = reservation.controller;
         const abort = () => controller.abort();
-        request.raw.once("aborted", abort);
-        reply.raw.once("close", abort);
+        // Preserve the existing dispatch/stream timeout after body ingestion.
         const timer = setTimeout(abort, relay.policy.requestTimeoutMs);
         let upstream: NativeResponse | undefined;
         const diagnostic: RelayDiagnostic = {
@@ -651,7 +717,7 @@ export async function registerReviewRunGatewayRelayRoutes(
           bodyLocked: false,
         };
         try {
-          if (!Buffer.isBuffer(request.body))
+          if (controller.signal.aborted || !Buffer.isBuffer(request.body))
             throw new RelayFailure("invalid_request", 400);
           upstream = await relay.responses(
             authorization(request),
@@ -711,10 +777,12 @@ export async function registerReviewRunGatewayRelayRoutes(
         } finally {
           controller.abort();
           clearTimeout(timer);
-          if (upstream?.kind === "stream")
-            await upstream.cancel().catch(() => {});
-          request.raw.removeListener("aborted", abort);
-          reply.raw.removeListener("close", abort);
+          try {
+            if (upstream?.kind === "stream")
+              await upstream.cancel().catch(() => {});
+          } finally {
+            reservation.finish();
+          }
         }
       },
     );
@@ -775,6 +843,8 @@ export async function registerReviewRunGatewayRelayRoutes(
   });
   // Cancel before Fastify waits for held response streams to drain.
   app.addHook("preClose", async () => {
+    stopping = true;
+    for (const stop of activeIngress) stop();
     await relay.shutdown();
   });
 }

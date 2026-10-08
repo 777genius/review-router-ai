@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createServer } from "node:http";
+import { once } from "node:events";
+import {
+  createServer,
+  request as httpRequest,
+  type IncomingMessage,
+} from "node:http";
 import Fastify from "fastify";
 import type { AddressInfo } from "node:net";
 import type * as Gateway from "@agent-teams/account-gateway/contracts";
@@ -29,6 +34,7 @@ import {
   composeReviewActionV2ProductionRoutes,
 } from "./review-action-v2-production-composition";
 import {
+  createReviewRunGatewayRelay,
   registerReviewRunGatewayRelayRoutes,
   type ReviewRunGatewayRelay,
 } from "./review-run-gateway-relay";
@@ -39,6 +45,172 @@ import {
   ProductionReviewRunRuntimeSnapshot,
   reviewRunGatewayPreparationIdentity,
 } from "./review-run-runtime-snapshot";
+
+// Pure loopback HTTP; no PostgreSQL, authority admission or provider traffic.
+// RED before the fix: the third incomplete upload reaches preParsing rather
+// than receiving relay_saturated, despite two occupied ingestion slots.
+it("bounds incomplete Responses bodies and recovers ingress slots", async () => {
+  let forbiddenWork = 0;
+  const unused = async (): Promise<never> => {
+    forbiddenWork++;
+    throw new Error("ingress_test_must_not_reach_authority_or_gateway");
+  };
+  const relay = createReviewRunGatewayRelay({
+    policy: {
+      profiles: [
+        {
+          profile: {
+            profileId: "fixture-profile",
+            protocol: "openai-responses",
+            modelIds: ["fixture-model"],
+            authKinds: ["api_key"],
+          },
+          outputTokens: 128,
+        },
+      ],
+      ingressBytes: 2048,
+      requestTimeoutMs: 2000,
+      waitBudgetMs: 0,
+      maxWaits: 0,
+      maxSessions: 1,
+      maxInFlight: 2,
+    },
+    runAccess: {
+      origin: "http://127.0.0.1:1",
+      runControlBearer: "unused",
+      timeoutMs: 2000,
+    },
+    authorizations: {
+      resolveReviewRunAuthorizationToken: unused,
+      expireOrRevokeReviewRunAuthorization: unused,
+    },
+    queries: { findReviewRunAuthorizationById: unused },
+    checkAuthority: unused,
+    confirmAuthority: unused,
+    snapshots: { capture: unused, isLive: unused },
+    bindings: { read: unused, attach: unused },
+  });
+  const app = Fastify();
+  const parsing = new Map<string, (raw: IncomingMessage) => void>();
+  app.addHook("preParsing", async (request, _reply, payload) => {
+    parsing.get(request.raw.url!)?.(request.raw);
+    return payload;
+  });
+  await registerReviewRunGatewayRelayRoutes(app, relay);
+  await app.listen({ host: "127.0.0.1", port: 0 });
+  const { port } = app.server.address() as AddressInfo;
+  const clients: ReturnType<typeof httpRequest>[] = [];
+  const upload = (name: string, completeBody?: string) => {
+    const path = `/api/action/v2/account-gateway/responses?${name}`;
+    const parsed = new Promise<IncomingMessage>((resolve) =>
+      parsing.set(path, resolve),
+    );
+    let client!: ReturnType<typeof httpRequest>;
+    const response = new Promise<{ status: number; body: string } | undefined>(
+      (resolve) => {
+        client = httpRequest(
+          {
+            host: "127.0.0.1",
+            port,
+            path,
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...(completeBody === undefined
+                ? {}
+                : { "content-length": Buffer.byteLength(completeBody) }),
+            },
+          },
+          (reply) => {
+            let body = "";
+            reply.setEncoding("utf8");
+            reply.on("data", (chunk: string) => {
+              body += chunk;
+            });
+            reply.on("end", () => resolve({ status: reply.statusCode!, body }));
+            reply.on("error", () => resolve(undefined));
+          },
+        );
+        client.on("error", () => resolve(undefined));
+      },
+    );
+    clients.push(client);
+    if (completeBody === undefined)
+      client.write('{"input":"' + "x".repeat(1024));
+    else client.end(completeBody);
+    return { client, parsed, response };
+  };
+  const saturated = async (name: string) => {
+    const excess = upload(name);
+    const result = await Promise.race([
+      excess.response,
+      excess.parsed.then(() => "entered_parser"),
+    ]);
+    expect(result).toEqual({
+      status: 503,
+      body: JSON.stringify({
+        error: { code: "relay_saturated", effect: "not_dispatched" },
+      }),
+    });
+    excess.client.destroy();
+  };
+  try {
+    const first = upload("first");
+    const second = upload("second");
+    const [firstRaw, secondRaw] = await Promise.all([
+      first.parsed,
+      second.parsed,
+    ]);
+    const timedOut = once(secondRaw, "aborted");
+    await saturated("excess");
+    // Ingestion leaves status and cancellation routes outside its budget.
+    for (const url of [
+      "/api/action/v2/account-gateway/requests/fixture-request",
+      "/api/action/v2/account-gateway/close",
+    ]) {
+      const response = await app.inject({
+        method: url.endsWith("close") ? "POST" : "GET",
+        url,
+        ...(url.endsWith("close")
+          ? {
+              headers: { "content-type": "application/json" },
+              payload: '{"reason":"cancelled"}',
+            }
+          : {}),
+      });
+      expect(response.statusCode).toBe(401);
+    }
+    const disconnected = once(firstRaw, "aborted");
+    first.client.destroy();
+    await disconnected;
+    const replacement = upload("replacement");
+    const replacementRaw = await replacement.parsed;
+    await saturated("still-full");
+    const replacementDisconnected = once(replacementRaw, "aborted");
+    replacement.client.destroy();
+    await replacementDisconnected;
+    expect((await upload("too-large", "x".repeat(2049)).response)?.status).toBe(
+      400,
+    );
+    // The other slot is still occupied: both parser errors and normal handler
+    // errors must release, without double-freeing the remaining reservation.
+    expect((await upload("normal-error", "{}").response)?.status).toBe(401);
+    await timedOut;
+    expect(await second.response).toBeUndefined();
+    const recovered = upload("after-timeout");
+    const recoveredSecond = upload("after-timeout-second");
+    await Promise.all([recovered.parsed, recoveredSecond.parsed]);
+    await saturated("full-again");
+    expect(forbiddenWork).toBe(0);
+    // preClose must terminate incomplete bodies without waiting for their timers.
+    await app.close();
+    expect(await recovered.response).toBeUndefined();
+    expect(await recoveredSecond.response).toBeUndefined();
+  } finally {
+    for (const client of clients) client.destroy();
+    await app.close();
+  }
+});
 
 const enabled = process.env.RR_C2C_PG_TEST === "1";
 function disposableDatabase(): string {
