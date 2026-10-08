@@ -3106,12 +3106,12 @@ async function retryOutboxEventMutation(
 }
 
 async function loadGatewayReviewProfiles(workspaceId: string) {
-  const { loadAccountsBootstrap } = await import(
-    "../../src/server/account-gateway-accounts"
-  );
+  const { loadAccountsBootstrap } =
+    await import("../../src/server/account-gateway-accounts");
   const { page } = await loadAccountsBootstrap(workspaceId);
   if (page.status === "denied") throw new Error("gateway_review_config_denied");
-  if (page.status !== "ok") throw new Error("gateway_review_catalog_unavailable");
+  if (page.status !== "ok")
+    throw new Error("gateway_review_catalog_unavailable");
   return page.value.profiles;
 }
 
