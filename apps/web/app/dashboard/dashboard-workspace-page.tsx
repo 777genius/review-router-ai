@@ -171,7 +171,6 @@ import {
   HostedPoolSettingsPanel,
   RepositorySessionSourceSelector,
 } from "./hosted-pool-settings";
-import { HostedSessionEncryptionBadge } from "./hosted-session-encryption-mark";
 import {
   isHostedWorkspacePoolSessionReady,
   loadHostedPoolDashboardView,
@@ -1753,7 +1752,6 @@ function WorkspaceCard({
           repositoryCount={repositoryCount}
           workspaceHealth={workspaceHealth}
           activeConfig={activeConfig}
-          hostedPool={hostedPool}
         />
         {!hasWorkspaceWideAccess || repositoryAccess.status !== "ready" ? (
           <RepositoryAccessRefreshNotice
@@ -2212,13 +2210,11 @@ function DashboardSectionHeader({
   repositoryCount,
   workspaceHealth,
   activeConfig,
-  hostedPool,
 }: {
   readonly selectedSection: DashboardSection;
   readonly repositoryCount: number;
   readonly workspaceHealth: WorkspaceHealthSummary;
   readonly activeConfig: ReviewConfiguration;
-  readonly hostedPool: DashboardWorkspaceData["hostedPool"];
 }): React.ReactElement {
   const meta = dashboardSectionMeta[selectedSection];
   const status =
@@ -2241,11 +2237,7 @@ function DashboardSectionHeader({
             {meta.title}
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-            {selectedSection === "setup" && hostedPool.gate !== "enabled"
-              ? hostedPool.gate === "feature_disabled"
-                ? "Hosted ChatGPT account enrollment is paused on this deployment."
-                : "Activate this workspace to manage hosted ChatGPT accounts."
-              : meta.description}
+            {meta.description}
           </p>
           {selectedSection === "repositories" ? (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -2269,27 +2261,15 @@ function DashboardSectionHeader({
             </div>
           ) : null}
         </div>
-        {selectedSection === "repositories" ? null : (
+        {selectedSection === "repositories" ||
+        selectedSection === "setup" ? null : (
           <div className="flex flex-wrap gap-2 xl:justify-end">
-            {selectedSection === "setup" && hostedPool.gate === "enabled" ? (
-              <HostedSessionEncryptionBadge label="Encrypted at rest" />
-            ) : null}
-            {selectedSection === "setup" ? (
-              hostedPool.gate === "enabled" ? null : (
-                <Badge tone="neutral">
-                  {hostedPool.gate === "feature_disabled"
-                    ? "Not enabled"
-                    : "Unavailable"}
-                </Badge>
-              )
-            ) : selectedSection === "diagnostics" ? (
+            {selectedSection === "diagnostics" ? (
               <Badge tone={workspaceHealth.tone}>{workspaceHealth.label}</Badge>
             ) : null}
-            {selectedSection === "setup" ? null : (
-              <Badge tone="neutral" className="max-w-full break-words">
-                {status}
-              </Badge>
-            )}
+            <Badge tone="neutral" className="max-w-full break-words">
+              {status}
+            </Badge>
           </div>
         )}
       </div>
