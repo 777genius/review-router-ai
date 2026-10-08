@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /* global fetch */
 import { loadEnvFile } from "./lib/env-file.mjs";
+import { hasH1Text } from "./lib/server-rendered-heading.ts";
 
 const hostedEnvFile =
   process.env.REVIEW_ROUTER_HOSTED_ENV_FILE ||
@@ -49,15 +50,17 @@ assertIncludes(
 );
 
 const signIn = await fetchHtml("/auth/signin");
-assertIncludes(
+if (!hasH1Text(signIn.html, "Sign in to ReviewRouter")) {
+  throw new Error(
+    "sign-in missing branded title: expected h1 text Sign in to ReviewRouter",
+  );
+}
+// The remote server's auth configuration is independent of this checker's env.
+// Require one of the two supported GitHub control states.
+assertIncludesAny(
   signIn.html,
-  "Sign in to ReviewRouter",
-  "sign-in missing branded title",
-);
-assertIncludes(
-  signIn.html,
-  "Continue with GitHub",
-  "sign-in missing GitHub CTA",
+  ["Continue with GitHub", "GitHub sign-in unavailable"],
+  "sign-in missing GitHub CTA or unavailable state",
 );
 const signInError = await fetchHtml("/auth/signin?error=OAuthCallback");
 assertIncludes(
