@@ -19,12 +19,14 @@ export function HostedPoolAccountCards({
   setAccountState,
   removeAccount,
   mutationsEnabled,
+  onReconnect,
 }: {
   readonly workspaceId: string;
   readonly accounts: HostedPoolDashboardView["accounts"];
   readonly setAccountState: DashboardActionFormAction;
   readonly removeAccount: DashboardActionFormAction;
   readonly mutationsEnabled: boolean;
+  readonly onReconnect?: (account: HostedAccountCardModel) => void;
 }): React.ReactElement {
   const lineup = lineupRanks(accounts);
   return (
@@ -38,6 +40,7 @@ export function HostedPoolAccountCards({
             setAccountState={setAccountState}
             removeAccount={removeAccount}
             mutationsEnabled={mutationsEnabled}
+            {...(onReconnect ? { onReconnect } : {})}
           />
         </li>
       ))}
@@ -52,6 +55,7 @@ function HostedPoolAccountCard({
   setAccountState,
   removeAccount,
   mutationsEnabled,
+  onReconnect,
 }: {
   readonly workspaceId: string;
   readonly account: HostedAccountCardModel;
@@ -59,6 +63,7 @@ function HostedPoolAccountCard({
   readonly setAccountState: DashboardActionFormAction;
   readonly removeAccount: DashboardActionFormAction;
   readonly mutationsEnabled: boolean;
+  readonly onReconnect?: (account: HostedAccountCardModel) => void;
 }): React.ReactElement {
   const state = account.availability.status;
   const paused = state === "paused";
@@ -157,6 +162,17 @@ function HostedPoolAccountCard({
       </dl>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
+        {paused && !removing && onReconnect ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!mutationsEnabled}
+            onClick={() => onReconnect(account)}
+          >
+            Reconnect ChatGPT
+          </Button>
+        ) : null}
         {canTogglePause && !removing ? (
           <DashboardActionForm
             action={setAccountState}

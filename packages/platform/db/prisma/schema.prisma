@@ -2159,6 +2159,9 @@ model HostedCodexDeviceLogin {
   userCode        String
   verificationUrl String
   deviceAuthId    String?
+  targetAccountId String?
+  targetGeneration BigInt?
+  targetHealthVersion BigInt?
   status          HostedCodexDeviceLoginStatus @default(pending)
   expiresAt       DateTime
   createdAt       DateTime                     @default(now())

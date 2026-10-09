@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps full116 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps main plus SQL125 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,9 +107,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(116);
+    expect(full).toHaveLength(117);
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-9).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-10).map((row) => row.migrationName)).toEqual([
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
@@ -119,13 +119,21 @@ describe("canonical release migration transition", () => {
       "000114_sdk_growth_v3_tool_artifact",
       "000115_sdk_growth_v3_approved_manifest",
       "000116_hosted_codex_relay_admission_utc",
+      "000125_hosted_codex_device_reconnect",
     ]);
     expect(manifest(full)).toBe(
+      "sha256:1cdcfc995996a4e90864741ffaf11b43540eb491cf1bcdad158a05c6609364b3",
+    );
+    const historicalFull = full.filter(
+      (row) => row.migrationName !== "000125_hosted_codex_device_reconnect",
+    );
+    expect(historicalFull).toHaveLength(116);
+    expect(manifest(historicalFull)).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
     expect(
       manifest(
-        full.filter(
+        historicalFull.filter(
           (row) =>
             row.migrationName !==
             "000110_provider_api_key_workspace_management",

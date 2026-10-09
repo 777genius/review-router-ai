@@ -50,9 +50,12 @@ export function HostedPoolSettingsPanel({
   readonly previewDeviceLoginFlight?: HostedPoolDeviceLoginFlight | undefined;
 }): React.ReactElement | null {
   const [accounts, setAccounts] = useState(view.accounts);
+  const [reconnectAccount, setReconnectAccount] =
+    useState<HostedAccountSafeSummary | null>(null);
   useEffect(() => setAccounts(view.accounts), [view.accounts]);
   const addImportedAccount = useCallback(
     (account: HostedAccountSafeSummary) => {
+      setReconnectAccount(null);
       setAccounts((current) =>
         [...current.filter((item) => item.id !== account.id), account].sort(
           (left, right) =>
@@ -148,6 +151,8 @@ export function HostedPoolSettingsPanel({
           workspaceId={workspaceId}
           mutationsEnabled={mutationsEnabled}
           enrolled
+          reconnectAccount={reconnectAccount}
+          onClearReconnect={() => setReconnectAccount(null)}
           startAction={actions.startDeviceLogin}
           pollAction={actions.pollDeviceLogin}
           onImported={addImportedAccount}
@@ -171,6 +176,7 @@ export function HostedPoolSettingsPanel({
             setAccountState={actions.setAccountState}
             removeAccount={actions.removeAccount}
             mutationsEnabled={mutationsEnabled}
+            onReconnect={setReconnectAccount}
           />
         </HostedPoolDeviceLogin>
       ) : (

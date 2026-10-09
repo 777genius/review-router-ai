@@ -17,11 +17,13 @@ vi.mock("./render-schema-handoff-policy.mjs", async (importOriginal) => {
   };
 });
 const reader = vi.mocked(readRenderManagedCheckoutInventory);
-// Keep old immutable-prefix fixtures independent from the optional key branch.
-// The key-enabled filesystem checkout is exercised by the admission suite.
+// Preserve the exact old main prefix independently of checkout-only additions.
+// Current source admission is exercised separately against complete SQL bytes.
 const currentFull = readRenderManagedCheckoutInventory();
 const full = currentFull.filter(
-  (row) => row.migrationName !== "000110_provider_api_key_workspace_management",
+  (row) =>
+    row.migrationName !== "000110_provider_api_key_workspace_management" &&
+    row.migrationName !== "000125_hosted_codex_device_reconnect",
 );
 const historical = full.slice(0, 96);
 const checkout97 = full.slice(0, 97);
@@ -142,6 +144,14 @@ describe("trusted historical96 checkout reader", () => {
       [...historical, { ...full[96]!, migrationName: "000099_unknown" }],
     ],
     ["duplicate extension", [...full, full[96]!]],
+    [
+      "sorted duplicate extension",
+      [...full.slice(0, 97), full[96]!, ...full.slice(97)],
+    ],
+    [
+      "reordered checkout-only extensions",
+      [...full.slice(0, -2), full.at(-1)!, full.at(-2)!],
+    ],
     [
       "relabelled 110",
       [
