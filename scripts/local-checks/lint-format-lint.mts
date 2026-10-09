@@ -85,25 +85,20 @@ export async function lintNativeFiles(root: string, paths: readonly string[]) {
   if (native.error) throw native.error;
   if (native.signal || native.status === null)
     throw new Error("Native lint did not complete");
-  if (native.status !== 0)
-    return {
-      status: "failed" as const,
-      checkedFiles: selected,
-      skippedFiles: skipped,
-      exitCode: native.status,
-    };
   const results = await engine.lintFiles(selected);
   const output = await engine.loadFormatter("stylish");
   const rendered = await output.format(results);
   if (rendered) process.stdout.write(rendered);
-  const failed = results.some(
-    (result) => result.errorCount > 0 || result.fatalErrorCount > 0,
-  );
+  const failed =
+    native.status !== 0 ||
+    results.some(
+      (result) => result.errorCount > 0 || result.fatalErrorCount > 0,
+    );
   return {
     status: failed ? ("failed" as const) : ("feedback-only" as const),
     checkedFiles: selected,
     skippedFiles: skipped,
-    exitCode: failed ? 1 : 0,
+    exitCode: native.status || (failed ? 1 : 0),
   };
 }
 

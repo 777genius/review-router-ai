@@ -406,6 +406,20 @@ test("real lint adapter checks native plus retained rules and reports skips", ()
     );
     assert.equal(result.status, exit, result.stdout + result.stderr);
   }
+  const mixed = writeFixture(
+    subject,
+    "adapter-mixed.js",
+    "debugger;\nmissingGlobal();\n",
+  );
+  const mixedResult = spawnSync(
+    process.execPath,
+    [join(root, "scripts/local-checks/lint-format-lint.mts"), mixed],
+    { cwd: subject, encoding: "utf8", timeout: 30_000 },
+  );
+  const mixedOutput = mixedResult.stdout + mixedResult.stderr;
+  assert.equal(mixedResult.status, 1, mixedOutput);
+  assert.match(mixedOutput, /no-debugger/);
+  assert.match(mixedOutput, /no-undef/);
   const ignored = spawnSync(
     process.execPath,
     [
