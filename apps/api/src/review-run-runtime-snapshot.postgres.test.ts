@@ -773,6 +773,28 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         });
         relay = productionRoutes.accountGatewayRelay!;
         const app = Fastify();
+        const responsesRetirements = new WeakMap<
+          IncomingMessage,
+          Promise<void>
+        >();
+        app.addHook("onRoute", (route) => {
+          if (route.url !== "/api/action/v2/account-gateway/responses") return;
+          const handler = route.handler;
+          route.handler = async function (request, reply) {
+            let retired!: () => void;
+            responsesRetirements.set(
+              request.raw,
+              new Promise<void>((resolve) => {
+                retired = resolve;
+              }),
+            );
+            try {
+              return await handler.call(this, request, reply);
+            } finally {
+              retired();
+            }
+          };
+        });
         closeRelayApp = () => app.close();
         await registerReviewRunGatewayRelayRoutes(app, relay);
         await registerReviewRunGatewayCheckoutRoute(
@@ -938,13 +960,20 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           expect(retained.json().runtimeConfig).toEqual(admittedRuntimeConfig);
         };
         expect(requests).toHaveLength(0);
-        const call = (payload = '{"input":"fixture"}') =>
-          app.inject({
+        const call = async (payload = '{"input":"fixture"}') => {
+          const response = await app.inject({
             method: "POST",
             url: "/api/action/v2/account-gateway/responses",
             headers,
             payload,
           });
+          // Hijacked completion precedes cleanup; match this exact request.
+          const retirement = responsesRetirements.get(response.raw.req);
+          if (retirement) await retirement;
+          else if (response.statusCode !== 503)
+            throw new Error("fixture_responses_retirement_not_observed");
+          return response;
+        };
         for (const invalid of [
           '{"model":"caller-model","input":"fixture"}',
           '{"store":false,"st\\u006fre":true}',
