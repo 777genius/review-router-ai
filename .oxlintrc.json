@@ -1,0 +1,57 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint"],
+  "categories": {
+    "correctness": "off",
+    "nursery": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "restriction": "off",
+    "style": "off",
+    "suspicious": "off"
+  },
+  "env": {
+    "builtin": true
+  },
+  "globals": {
+    "console": "readonly",
+    "process": "readonly",
+    "Buffer": "readonly",
+    "URL": "readonly",
+    "setTimeout": "readonly",
+    "clearTimeout": "readonly",
+    "document": "readonly",
+    "window": "readonly",
+    "HTMLElement": "readonly"
+  },
+  "ignorePatterns": [
+    "node_modules/**",
+    "dist/**",
+    "action-dist/**",
+    "build/**",
+    "**/dist/**",
+    ".next/**",
+    "**/.next/**",
+    ".turbo/**",
+    "**/.turbo/**",
+    "coverage/**",
+    "**/coverage/**",
+    "pnpm-lock.yaml",
+    "**/*.jsx",
+    "**/*.vue",
+    "**/*.astro",
+    "**/*.svelte"
+  ],
+  "rules": {
+    "no-debugger": "error",
+    "no-compare-neg-zero": "error",
+    "no-empty-character-class": "error",
+    "no-invalid-regexp": "error",
+    "no-regex-spaces": "error",
+    "no-sparse-arrays": "error",
+    "use-isnan": "error"
+  },
+  "options": {
+    "respectEslintDisableDirectives": true
+  }
+}
