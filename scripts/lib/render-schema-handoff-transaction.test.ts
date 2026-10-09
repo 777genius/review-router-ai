@@ -43,9 +43,18 @@ const input = () => ({
 });
 
 describe("bounded managed89-to92 transaction construction", () => {
-  it("keeps the reader-to-builder boundary at92 for the exact116 checkout", () => {
-    expect(readdirSync("packages/platform/db/prisma/migrations")).toHaveLength(
-      116,
+  it("keeps the reader-to-builder boundary at92 for main plus sparse SQL125", () => {
+    const currentCheckout = readdirSync(
+      "packages/platform/db/prisma/migrations",
+    ).sort();
+    expect(currentCheckout).toHaveLength(117);
+    expect(currentCheckout.at(-1)).toBe("000125_hosted_codex_device_reconnect");
+    const historicalMain = currentCheckout.filter(
+      (name) => name !== "000125_hosted_codex_device_reconnect",
+    );
+    expect(historicalMain).toHaveLength(116);
+    expect(historicalMain.at(-1)).toBe(
+      "000116_hosted_codex_relay_admission_utc",
     );
     expect(catalog).toHaveLength(92);
     const sql = renderSchemaHandoffTransaction(input());
@@ -186,6 +195,8 @@ describe("bounded managed89-to92 transaction construction", () => {
         "000113_sdk_growth_approval_ledger",
         "000114_sdk_growth_v3_tool_artifact",
         "000115_sdk_growth_v3_approved_manifest",
+        "000116_hosted_codex_relay_admission_utc",
+        "000125_hosted_codex_device_reconnect",
       ].map((migrationName) => ({
         migrationName,
         checksum: createHash("sha256")
