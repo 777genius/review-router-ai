@@ -160,40 +160,85 @@ it("posts exactly the captured prepare and returns a safe projection plus the wo
 // Bug made red: data saturation strands close/readback if the prepared client
 // keeps using data ingress, or a changed config/fallback redirects authority.
 it("captures protected control routing while prepare and request remain on data", async () => {
-  const status = { requestRef: "request-1", effect: "completed", status: "completed" };
+  const status = {
+    requestRef: "request-1",
+    effect: "completed",
+    status: "completed",
+  };
   const data = await peer((req, res) => {
-    res.writeHead(req.url === "/internal/v1/run-access" ? 200 : 202,
-      { "content-type": "application/json" });
-    res.end(JSON.stringify(req.url === "/internal/v1/run-access" ? wire() : status));
+    res.writeHead(req.url === "/internal/v1/run-access" ? 200 : 202, {
+      "content-type": "application/json",
+    });
+    res.end(
+      JSON.stringify(req.url === "/internal/v1/run-access" ? wire() : status),
+    );
   });
   const protectedControl = await peer((req, res) => {
-    if (req.method === "POST") { req.socket.destroy(); return; }
+    if (req.method === "POST") {
+      req.socket.destroy();
+      return;
+    }
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify(req.url?.includes("/requests/") ? status : wire().operation));
+    res.end(
+      JSON.stringify(
+        req.url?.includes("/requests/") ? status : wire().operation,
+      ),
+    );
   });
-  const settings = { ...data.config, controlOrigin: protectedControl.config.origin };
+  const settings = {
+    ...data.config,
+    controlOrigin: protectedControl.config.origin,
+  };
   const client = createRunAccessClient(settings);
   settings.controlOrigin = data.config.origin;
   const prepared = await client.prepare(intent());
-  expect(await prepared.client.request(prepared.executionRef, {
-    requestId: "request-1", admission: prepared.admission,
-    body: new TextEncoder().encode("{}"),
-  })).toMatchObject({ kind: "status", status });
-  expect(await prepared.client.status(prepared.executionRef, "request-1")).toEqual(status);
-  expect(await prepared.client.operation("prepare-1")).toEqual(wire().operation);
-  await expect(prepared.client.close(prepared.executionRef, {
-    operationId: "close-1", reason: "cancelled",
-  })).rejects.toMatchObject({ effect: "effect_unknown", operationRef: "close-1" });
-  expect(data.calls.map(call => [call.method, call.path, call.authorization])).toEqual([
+  expect(
+    await prepared.client.request(prepared.executionRef, {
+      requestId: "request-1",
+      admission: prepared.admission,
+      body: new TextEncoder().encode("{}"),
+    }),
+  ).toMatchObject({ kind: "status", status });
+  expect(
+    await prepared.client.status(prepared.executionRef, "request-1"),
+  ).toEqual(status);
+  expect(await prepared.client.operation("prepare-1")).toEqual(
+    wire().operation,
+  );
+  await expect(
+    prepared.client.close(prepared.executionRef, {
+      operationId: "close-1",
+      reason: "cancelled",
+    }),
+  ).rejects.toMatchObject({
+    effect: "effect_unknown",
+    operationRef: "close-1",
+  });
+  expect(
+    data.calls.map((call) => [call.method, call.path, call.authorization]),
+  ).toEqual([
     ["POST", "/internal/v1/run-access", `Bearer ${control}`],
     ["POST", "/v1/executions/execution-1/requests", `Bearer ${execution}`],
   ]);
-  expect(protectedControl.calls.map(call => [call.method, call.path, call.authorization])).toEqual([
-    ["GET", "/v1/executions/execution-1/requests/request-1", `Bearer ${execution}`],
+  expect(
+    protectedControl.calls.map((call) => [
+      call.method,
+      call.path,
+      call.authorization,
+    ]),
+  ).toEqual([
+    [
+      "GET",
+      "/v1/executions/execution-1/requests/request-1",
+      `Bearer ${execution}`,
+    ],
     ["GET", "/v1/operations/prepare-1", `Bearer ${execution}`],
     ["POST", "/v1/executions/execution-1/close", `Bearer ${execution}`],
   ]);
-  expect(protectedControl.calls[2]?.body).toEqual({ operationId: "close-1", reason: "cancelled" });
+  expect(protectedControl.calls[2]?.body).toEqual({
+    operationId: "close-1",
+    reason: "cancelled",
+  });
   expect(JSON.stringify(prepared)).not.toContain(execution);
 });
 
@@ -412,11 +457,14 @@ it("rejects preflight and already aborted intents without any HTTP dispatch", as
     h.config.origin + "#x",
     h.config.origin.replace("://", `://${control}@`),
     "http://example.invalid",
-  ])
-    {
-      expect(() => createRunAccessClient({ ...h.config, origin })).toThrow(GatewayError);
-      expect(() => createRunAccessClient({ ...h.config, controlOrigin: origin })).toThrow(GatewayError);
-    }
+  ]) {
+    expect(() => createRunAccessClient({ ...h.config, origin })).toThrow(
+      GatewayError,
+    );
+    expect(() =>
+      createRunAccessClient({ ...h.config, controlOrigin: origin }),
+    ).toThrow(GatewayError);
+  }
   for (const timeoutMs of [0, Infinity, NaN, 1.5])
     expect(() => createRunAccessClient({ ...h.config, timeoutMs })).toThrow(
       GatewayError,

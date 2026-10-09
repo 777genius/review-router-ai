@@ -63,29 +63,48 @@ async function boundedJSON(response: Response): Promise<unknown> {
 
 /** Accepts only a complete, already server-approved intent; performs no admission policy. */
 export function createRunAccessClient(settings: RunAccessConfig) {
-  let origin: string, controlOrigin: string | undefined, token: string, timeoutMs: number;
+  let origin: string,
+    controlOrigin: string | undefined,
+    token: string,
+    timeoutMs: number;
   try {
     if (typeof process === "undefined" || !process.versions?.node)
       throw new Error();
     // Capture configured primitives, never the mutable configuration object or CI/request headers.
-    const configuredOrigin = settings.origin, configuredControlOrigin = settings.controlOrigin;
+    const configuredOrigin = settings.origin,
+      configuredControlOrigin = settings.controlOrigin;
     token = bearer.parse(settings.runControlBearer);
     timeoutMs = settings.timeoutMs;
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 3_600_000)
       throw new Error();
     const captureOrigin = (value: string): string => {
-      if (typeof value !== "string" || !/^https?:\/\/[^/?#@\\\s]+\/?$/.test(value))
+      if (
+        typeof value !== "string" ||
+        !/^https?:\/\/[^/?#@\\\s]+\/?$/.test(value)
+      )
         throw new Error();
       // Reject lexical paths too: URL normalization can erase /../.
       const url = new URL(value);
-      if (url.username || url.password || url.search || url.hash || url.pathname !== "/" ||
-        (url.protocol !== "https:" && !(url.protocol === "http:" &&
-          ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname))))
+      if (
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash ||
+        url.pathname !== "/" ||
+        (url.protocol !== "https:" &&
+          !(
+            url.protocol === "http:" &&
+            ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname)
+          ))
+      )
         throw new Error();
       return url.origin;
     };
     origin = captureOrigin(configuredOrigin);
-    controlOrigin = configuredControlOrigin === undefined ? undefined : captureOrigin(configuredControlOrigin);
+    controlOrigin =
+      configuredControlOrigin === undefined
+        ? undefined
+        : captureOrigin(configuredControlOrigin);
   } catch {
     throw new GatewayError("invalid_input", "not_dispatched");
   }
@@ -179,14 +198,26 @@ export function createRunAccessClient(settings: RunAccessConfig) {
         responseBytes: maximumBytes,
         bufferBytes: maximumBytes,
       });
-      const controlClient = controlOrigin === undefined ? dataClient : createExecutionClient({
-        role: "execution", origin: controlOrigin, token: wire.bearer, timeoutMs,
-        responseBytes: maximumBytes, bufferBytes: maximumBytes,
-      });
-      const client: ExecutionClient = controlOrigin === undefined ? dataClient : Object.freeze({
-        request: dataClient.request, status: controlClient.status,
-        close: controlClient.close, operation: controlClient.operation,
-      });
+      const controlClient =
+        controlOrigin === undefined
+          ? dataClient
+          : createExecutionClient({
+              role: "execution",
+              origin: controlOrigin,
+              token: wire.bearer,
+              timeoutMs,
+              responseBytes: maximumBytes,
+              bufferBytes: maximumBytes,
+            });
+      const client: ExecutionClient =
+        controlOrigin === undefined
+          ? dataClient
+          : Object.freeze({
+              request: dataClient.request,
+              status: controlClient.status,
+              close: controlClient.close,
+              operation: controlClient.operation,
+            });
       Object.freeze(result);
       Object.freeze(operation);
       Object.freeze(admission.limits);

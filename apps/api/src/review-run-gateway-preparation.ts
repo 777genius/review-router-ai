@@ -357,7 +357,10 @@ function privateRunAccess(config: RunAccessConfig) {
     .max(3_600_000)
     .parse(config.timeoutMs);
   const captureOrigin = (value: string): URL => {
-    if (typeof value !== "string" || !/^https?:\/\/[^/?#@\\\s]+\/?$/.test(value))
+    if (
+      typeof value !== "string" ||
+      !/^https?:\/\/[^/?#@\\\s]+\/?$/.test(value)
+    )
       throw new Error("review_run_gateway_config_invalid");
     const origin = new URL(value);
     if (
@@ -377,9 +380,10 @@ function privateRunAccess(config: RunAccessConfig) {
   };
   const origin = captureOrigin(config.origin);
   const configuredControlOrigin = config.controlOrigin;
-  const controlOrigin = configuredControlOrigin === undefined
-    ? undefined
-    : captureOrigin(configuredControlOrigin).origin;
+  const controlOrigin =
+    configuredControlOrigin === undefined
+      ? undefined
+      : captureOrigin(configuredControlOrigin).origin;
   const envelope = z.strictObject({
     operation: c.preparationOperation,
     bearer: z
@@ -472,14 +476,26 @@ function privateRunAccess(config: RunAccessConfig) {
         responseBytes: 65_536,
         bufferBytes: Math.max(1024, intent.limits.outputBytes),
       });
-      const controlClient = controlOrigin === undefined ? dataClient : createExecutionClient({
-        role: "execution", origin: controlOrigin, token: wire.bearer, timeoutMs,
-        responseBytes: 65_536, bufferBytes: Math.max(1024, intent.limits.outputBytes),
-      });
-      const client: ExecutionClient = controlOrigin === undefined ? dataClient : Object.freeze({
-        request: dataClient.request, status: controlClient.status,
-        close: controlClient.close, operation: controlClient.operation,
-      });
+      const controlClient =
+        controlOrigin === undefined
+          ? dataClient
+          : createExecutionClient({
+              role: "execution",
+              origin: controlOrigin,
+              token: wire.bearer,
+              timeoutMs,
+              responseBytes: 65_536,
+              bufferBytes: Math.max(1024, intent.limits.outputBytes),
+            });
+      const client: ExecutionClient =
+        controlOrigin === undefined
+          ? dataClient
+          : Object.freeze({
+              request: dataClient.request,
+              status: controlClient.status,
+              close: controlClient.close,
+              operation: controlClient.operation,
+            });
       // The full tuple/selected result is checked by run() before attachment/use.
       return Object.freeze({
         operation: wire.operation,

@@ -68,8 +68,12 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
       // The real production env/capture path must route close independently.
       // Dropping controlOrigin makes the existing close-success assertion fail.
       const controlServer = createServer((request, response) => {
-        if (request.method !== "POST" || !/^\/v1\/executions\/[^/]+\/close$/.test(request.url ?? "")) {
-          response.writeHead(403).end(); return;
+        if (
+          request.method !== "POST" ||
+          !/^\/v1\/executions\/[^/]+\/close$/.test(request.url ?? "")
+        ) {
+          response.writeHead(403).end();
+          return;
         }
         server.emit("request", request, response);
       });
@@ -138,8 +142,12 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
             return;
           }
           if (match?.[2] === "close") {
-            if (request.socket.localPort !== (controlServer.address() as AddressInfo).port) {
-              json(403, { error: "fixture_control_ingress_required" }); return;
+            if (
+              request.socket.localPort !==
+              (controlServer.address() as AddressInfo).port
+            ) {
+              json(403, { error: "fixture_control_ingress_required" });
+              return;
             }
             const close = c.close.parse(body);
             closes.push(close);
@@ -458,12 +466,18 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
             if (harness) await harness.close();
           } finally {
             globalThis.fetch = networkFetch;
-            server.closeAllConnections(); controlServer.closeAllConnections();
-            await Promise.all([server, controlServer].map(listener =>
-              new Promise<void>((resolve, reject) =>
-                listener.close((error) => (error ? reject(error) : resolve())),
+            server.closeAllConnections();
+            controlServer.closeAllConnections();
+            await Promise.all(
+              [server, controlServer].map(
+                (listener) =>
+                  new Promise<void>((resolve, reject) =>
+                    listener.close((error) =>
+                      error ? reject(error) : resolve(),
+                    ),
+                  ),
               ),
-            ));
+            );
           }
         }
       }
