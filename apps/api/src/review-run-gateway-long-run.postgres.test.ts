@@ -65,6 +65,18 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
       const observations: { executionRef: string; admission: c.Admission }[] =
         [];
       const closes: c.Close[] = [];
+      // The real production env/capture path must route close independently.
+      // Dropping controlOrigin makes the existing close-success assertion fail.
+      const controlServer = createServer((request, response) => {
+        if (
+          request.method !== "POST" ||
+          !/^\/v1\/executions\/[^/]+\/close$/.test(request.url ?? "")
+        ) {
+          response.writeHead(403).end();
+          return;
+        }
+        server.emit("request", request, response);
+      });
       const server = createServer((request, response) => {
         void (async () => {
           const chunks: Buffer[] = [];
@@ -130,6 +142,13 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
             return;
           }
           if (match?.[2] === "close") {
+            if (
+              request.socket.localPort !==
+              (controlServer.address() as AddressInfo).port
+            ) {
+              json(403, { error: "fixture_control_ingress_required" });
+              return;
+            }
             const close = c.close.parse(body);
             closes.push(close);
             executions.delete(executionRef);
@@ -163,7 +182,11 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
       await new Promise<void>((resolve) =>
         server.listen(0, "127.0.0.1", resolve),
       );
+      await new Promise<void>((resolve) =>
+        controlServer.listen(0, "127.0.0.1", resolve),
+      );
       const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      const controlOrigin = `http://127.0.0.1:${(controlServer.address() as AddressInfo).port}`;
       const networkFetch = globalThis.fetch;
       const app = Fastify();
       let harness:
@@ -253,7 +276,7 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
           const address = new URL(
             request instanceof Request ? request.url : request.toString(),
           );
-          return address.origin === origin
+          return address.origin === origin || address.origin === controlOrigin
             ? networkFetch(request, init)
             : githubFetch(request, init);
         };
@@ -268,6 +291,7 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
             ...harness.env,
             REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "1",
             REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: origin,
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN: controlOrigin,
             REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER: controlBearer,
             REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: JSON.stringify({
               profiles: [
@@ -443,8 +467,16 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
           } finally {
             globalThis.fetch = networkFetch;
             server.closeAllConnections();
-            await new Promise<void>((resolve, reject) =>
-              server.close((error) => (error ? reject(error) : resolve())),
+            controlServer.closeAllConnections();
+            await Promise.all(
+              [server, controlServer].map(
+                (listener) =>
+                  new Promise<void>((resolve, reject) =>
+                    listener.close((error) =>
+                      error ? reject(error) : resolve(),
+                    ),
+                  ),
+              ),
             );
           }
         }

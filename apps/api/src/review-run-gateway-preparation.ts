@@ -356,22 +356,34 @@ function privateRunAccess(config: RunAccessConfig) {
     .min(1)
     .max(3_600_000)
     .parse(config.timeoutMs);
-  if (!/^https?:\/\/[^/?#@\\\s]+\/?$/.test(config.origin))
-    throw new Error("review_run_gateway_config_invalid");
-  const origin = new URL(config.origin);
-  if (
-    origin.username ||
-    origin.password ||
-    origin.pathname !== "/" ||
-    origin.search ||
-    origin.hash ||
-    (origin.protocol !== "https:" &&
-      !(
-        origin.protocol === "http:" &&
-        ["127.0.0.1", "[::1]", "localhost"].includes(origin.hostname)
-      ))
-  )
-    throw new Error("review_run_gateway_config_invalid");
+  const captureOrigin = (value: string): URL => {
+    if (
+      typeof value !== "string" ||
+      !/^https?:\/\/[^/?#@\\\s]+\/?$/.test(value)
+    )
+      throw new Error("review_run_gateway_config_invalid");
+    const origin = new URL(value);
+    if (
+      origin.username ||
+      origin.password ||
+      origin.pathname !== "/" ||
+      origin.search ||
+      origin.hash ||
+      (origin.protocol !== "https:" &&
+        !(
+          origin.protocol === "http:" &&
+          ["127.0.0.1", "[::1]", "localhost"].includes(origin.hostname)
+        ))
+    )
+      throw new Error("review_run_gateway_config_invalid");
+    return origin;
+  };
+  const origin = captureOrigin(config.origin);
+  const configuredControlOrigin = config.controlOrigin;
+  const controlOrigin =
+    configuredControlOrigin === undefined
+      ? undefined
+      : captureOrigin(configuredControlOrigin).origin;
   const envelope = z.strictObject({
     operation: c.preparationOperation,
     bearer: z
@@ -456,6 +468,34 @@ function privateRunAccess(config: RunAccessConfig) {
         request.end(JSON.stringify(intent));
       });
       const wire = envelope.parse(raw);
+      const dataClient = createExecutionClient({
+        role: "execution",
+        origin: origin.origin,
+        token: wire.bearer,
+        timeoutMs,
+        responseBytes: 65_536,
+        bufferBytes: Math.max(1024, intent.limits.outputBytes),
+      });
+      const controlClient =
+        controlOrigin === undefined
+          ? dataClient
+          : createExecutionClient({
+              role: "execution",
+              origin: controlOrigin,
+              token: wire.bearer,
+              timeoutMs,
+              responseBytes: 65_536,
+              bufferBytes: Math.max(1024, intent.limits.outputBytes),
+            });
+      const client: ExecutionClient =
+        controlOrigin === undefined
+          ? dataClient
+          : Object.freeze({
+              request: dataClient.request,
+              status: controlClient.status,
+              close: controlClient.close,
+              operation: controlClient.operation,
+            });
       // The full tuple/selected result is checked by run() before attachment/use.
       return Object.freeze({
         operation: wire.operation,
@@ -465,14 +505,7 @@ function privateRunAccess(config: RunAccessConfig) {
           wire.operation.result?.kind === "execution"
             ? wire.operation.result.executionRef
             : "invalid",
-        client: createExecutionClient({
-          role: "execution",
-          origin: origin.origin,
-          token: wire.bearer,
-          timeoutMs,
-          responseBytes: 65_536,
-          bufferBytes: Math.max(1024, intent.limits.outputBytes),
-        }),
+        client,
       });
     } catch {
       throw new GatewayError(
