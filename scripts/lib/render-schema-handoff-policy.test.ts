@@ -1545,10 +1545,7 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      if (
-        name === reconnectMigrationName ||
-        name === providerKeyMigrationName
-      )
+      if (name === reconnectMigrationName || name === providerKeyMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
