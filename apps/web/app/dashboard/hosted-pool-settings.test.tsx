@@ -85,6 +85,42 @@ afterEach(() => {
 });
 
 describe("HostedPoolSettingsPanel", () => {
+  it("reconnects only the selected paused UUID even when labels are identical", async () => {
+    const startDeviceLogin = vi.fn(actions.startDeviceLogin);
+    renderPanel(
+      {
+        gate: "enabled",
+        pool: null,
+        accounts: [
+          account({ id: "healthy-id" as never, label: "Same label" }),
+          account({
+            id: "paused-id" as never,
+            label: "Same label",
+            authGeneration: 3,
+            healthVersion: 9,
+            availability: { status: "paused", reason: "operator" },
+          }),
+        ],
+        repositories: [],
+      },
+      true,
+      { startDeviceLogin },
+    );
+    expect(
+      screen.getAllByRole("button", { name: "Reconnect ChatGPT" }),
+    ).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect ChatGPT" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Start reconnect sign-in" }),
+    );
+    await waitFor(() => expect(startDeviceLogin).toHaveBeenCalledTimes(1));
+    const submitted = startDeviceLogin.mock.calls[0]![0];
+    expect(submitted.get("accountId")).toBe("paused-id");
+    expect(submitted.get("expectedGeneration")).toBe("3");
+    expect(submitted.get("expectedHealthVersion")).toBe("9");
+    expect(document.body.textContent).toContain("It stays paused");
+  });
+
   it("keeps ChatGPT as the empty-state hero and hides auth.json behind a fallback", () => {
     renderPanel({
       gate: "enabled",
