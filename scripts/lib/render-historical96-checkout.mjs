@@ -34,15 +34,23 @@ const checkoutOnlyMigrations = Object.freeze([
   "000122_review_configuration_operation_receipt",
   "000123_personal_workspace_identity",
   "000124_personal_account_operations",
+  "000125_hosted_codex_device_reconnect",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
 export function readRenderHistorical96CheckoutInventory() {
   const checkout = readRenderManagedCheckoutInventory();
   if (
+    checkout.some(
+      (row, index) =>
+        index > 0 && row.migrationName <= checkout[index - 1].migrationName,
+    )
+  )
+    throw new Error("render_historical96_checkout_rejected:order");
+  if (
     ![
       96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
-      111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123,
+      111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124,
     ].includes(
       checkout.filter(
         (row) =>

@@ -26,12 +26,14 @@ import {
 
 import { canonicalPrismaMigrationNames as currentCanonicalPrismaMigrationNames } from "./canonical-prisma-migration-catalog.mjs";
 
-// Existing immutable-history cases exclude the independently pinned key branch.
-// provider-key-checkout-admission.test.ts covers that branch against real SQL.
+// Existing immutable-history cases retain their exact source through 000124.
+// Current checkout additions are exercised separately against real SQL.
 const providerKeyMigrationName = "000110_provider_api_key_workspace_management";
+const reconnectMigrationName = "000125_hosted_codex_device_reconnect";
 const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
-    (name) => name !== providerKeyMigrationName,
+    (name) =>
+      name !== providerKeyMigrationName && name !== reconnectMigrationName,
   );
 
 // Node 24 can require these ESM files directly. This keeps copied fixtures
@@ -1238,6 +1240,7 @@ describe("complete filesystem checkout inventory", () => {
     );
     if (count !== undefined) {
       rmSync(join(migrations, providerKeyMigrationName), { recursive: true });
+      rmSync(join(migrations, reconnectMigrationName), { recursive: true });
       for (const name of canonicalPrismaMigrationNames.slice(count))
         rmSync(join(migrations, name), { recursive: true });
     }
@@ -1254,11 +1257,16 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads key-enabled checkout124 through key-free123 and previous121/120/118 and original92 as identical frozen92 rows", async () => {
+  it("reads checkout125 through historical124 and key-free123 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(124);
+    expect(inventory).toHaveLength(125);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, reconnectMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(124);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, providerKeyMigrationName), {
       recursive: true,
@@ -1538,7 +1546,7 @@ describe("complete filesystem checkout inventory", () => {
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
       if (
-        name === "000124_personal_account_operations" ||
+        name === reconnectMigrationName ||
         name === providerKeyMigrationName
       )
         expect(fixture.read()).toEqual(catalog);
