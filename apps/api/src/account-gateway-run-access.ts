@@ -13,6 +13,7 @@ import type {
 /** Private API-backend composition only. Never export through a browser/API DTO. */
 export interface RunAccessConfig {
   readonly origin: string;
+  readonly controlOrigin?: string;
   readonly runControlBearer: string;
   readonly timeoutMs: number;
 }
@@ -62,38 +63,29 @@ async function boundedJSON(response: Response): Promise<unknown> {
 
 /** Accepts only a complete, already server-approved intent; performs no admission policy. */
 export function createRunAccessClient(settings: RunAccessConfig) {
-  let origin: string, token: string, timeoutMs: number;
+  let origin: string, controlOrigin: string | undefined, token: string, timeoutMs: number;
   try {
     if (typeof process === "undefined" || !process.versions?.node)
       throw new Error();
     // Capture configured primitives, never the mutable configuration object or CI/request headers.
-    const configuredOrigin = settings.origin;
+    const configuredOrigin = settings.origin, configuredControlOrigin = settings.controlOrigin;
     token = bearer.parse(settings.runControlBearer);
     timeoutMs = settings.timeoutMs;
-    if (
-      !Number.isInteger(timeoutMs) ||
-      timeoutMs < 1 ||
-      timeoutMs > 3_600_000 ||
-      typeof configuredOrigin !== "string" ||
-      !/^https?:\/\/[^/?#@\\\s]+\/?$/.test(configuredOrigin)
-    )
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 3_600_000)
       throw new Error();
-    // Reject path/userinfo/query/fragment lexically too: URL normalization can erase /../.
-    const url = new URL(configuredOrigin);
-    if (
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      url.pathname !== "/" ||
-      (url.protocol !== "https:" &&
-        !(
-          url.protocol === "http:" &&
-          ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname)
-        ))
-    )
-      throw new Error();
-    origin = url.origin;
+    const captureOrigin = (value: string): string => {
+      if (typeof value !== "string" || !/^https?:\/\/[^/?#@\\\s]+\/?$/.test(value))
+        throw new Error();
+      // Reject lexical paths too: URL normalization can erase /../.
+      const url = new URL(value);
+      if (url.username || url.password || url.search || url.hash || url.pathname !== "/" ||
+        (url.protocol !== "https:" && !(url.protocol === "http:" &&
+          ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname))))
+        throw new Error();
+      return url.origin;
+    };
+    origin = captureOrigin(configuredOrigin);
+    controlOrigin = configuredControlOrigin === undefined ? undefined : captureOrigin(configuredControlOrigin);
   } catch {
     throw new GatewayError("invalid_input", "not_dispatched");
   }
@@ -179,13 +171,21 @@ export function createRunAccessClient(settings: RunAccessConfig) {
         )
       )
         throw new Error();
-      const client = createExecutionClient({
+      const dataClient = createExecutionClient({
         role: "execution",
         origin,
         token: wire.bearer,
         timeoutMs,
         responseBytes: maximumBytes,
         bufferBytes: maximumBytes,
+      });
+      const controlClient = controlOrigin === undefined ? dataClient : createExecutionClient({
+        role: "execution", origin: controlOrigin, token: wire.bearer, timeoutMs,
+        responseBytes: maximumBytes, bufferBytes: maximumBytes,
+      });
+      const client: ExecutionClient = controlOrigin === undefined ? dataClient : Object.freeze({
+        request: dataClient.request, status: controlClient.status,
+        close: controlClient.close, operation: controlClient.operation,
       });
       Object.freeze(result);
       Object.freeze(operation);

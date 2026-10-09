@@ -1182,10 +1182,15 @@ export function composeReviewActionV2ProductionRoutes(input: {
     prisma,
     runtimeSnapshots,
   );
+  const accountGatewayControlOrigin =
+    input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN;
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
         runAccess: {
+          ...(accountGatewayControlOrigin === undefined
+            ? {}
+            : { controlOrigin: accountGatewayControlOrigin }),
           origin: requiredEnv(
             input.env,
             "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN",
