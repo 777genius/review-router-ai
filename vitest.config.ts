@@ -13,6 +13,8 @@ export default defineConfig({
     ],
     exclude: [
       ...configDefaults.exclude,
+      // Qualified separately through the disposable node:test entrypoint.
+      "scripts/local-checks/lint-format-safety.test.mts",
       ...(process.env.REVIEW_ROUTER_RUN_HOSTED_POOL_POSTGRES_E2E === "1"
         ? []
         : ["scripts/hosted-pool-e2e/hosted-pool-postgres.e2e.test.ts"]),
