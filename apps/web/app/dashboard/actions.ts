@@ -238,6 +238,21 @@ export async function startHostedPoolDeviceLoginClientAction(
         workspaceId,
         label: readFormString(formData, "label"),
         priority: readNonNegativeInteger(formData, "priority"),
+        ...(formData.get("accountId") !== null
+          ? {
+              reconnectTarget: {
+                accountId: readFormString(formData, "accountId"),
+                expectedGeneration: readNonNegativeInteger(
+                  formData,
+                  "expectedGeneration",
+                ),
+                expectedHealthVersion: readNonNegativeInteger(
+                  formData,
+                  "expectedHealthVersion",
+                ),
+              },
+            }
+          : {}),
       },
       createHostedPoolDeviceLoginDependencies(),
     );
