@@ -340,7 +340,9 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     );
     const identity = (rows: readonly CatalogRow[]) =>
       createHash("sha256")
-        .update(rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","))
+        .update(
+          rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
+        )
         .digest("hex");
     expect(current).toHaveLength(117);
     expect(identity(current)).toBe(
@@ -352,17 +354,30 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     );
     expect(partitionRenderSchemaHandoffCheckout(current)).toEqual(catalog);
     expect(partitionRenderSchemaHandoffCheckout(oldMain)).toEqual(catalog);
-    const wrongBranch = [...oldMain, {
-      migrationName: "000117_provider_accounts",
-      checksum: "786e21fc4a8880c25f41304393a576d8e3337b6654720931aa076fdbf793c4e7",
-    }];
+    const wrongBranch = [
+      ...oldMain,
+      {
+        migrationName: "000117_provider_accounts",
+        checksum:
+          "786e21fc4a8880c25f41304393a576d8e3337b6654720931aa076fdbf793c4e7",
+      },
+    ];
     for (const changed of [
-      current.map((row) => row.migrationName === reconnectMigrationName
-        ? { ...row, checksum: "0".repeat(64) } : row),
-      current.map((row) => row.migrationName === reconnectMigrationName
-        ? { ...row, migrationName: "000125_relabelled" } : row),
+      current.map((row) =>
+        row.migrationName === reconnectMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      current.map((row) =>
+        row.migrationName === reconnectMigrationName
+          ? { ...row, migrationName: "000125_relabelled" }
+          : row,
+      ),
       current.filter((row) => row.migrationName !== migration116.migrationName),
-      [...current, { migrationName: "000126_unknown", checksum: "0".repeat(64) }],
+      [
+        ...current,
+        { migrationName: "000126_unknown", checksum: "0".repeat(64) },
+      ],
       [...current, current.at(-1)!],
       wrongBranch,
     ]) {
@@ -1571,10 +1586,7 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      if (
-        name === reconnectMigrationName ||
-        name === providerKeyMigrationName
-      )
+      if (name === reconnectMigrationName || name === providerKeyMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
