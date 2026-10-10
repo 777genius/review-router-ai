@@ -256,6 +256,11 @@ const checkoutExtensions = Object.freeze([
     checksum:
       "2ffa20a0d21182bad0dfdce6653bc09b436cd72ab6335ac8065a17462bd3c6a1",
   }),
+  Object.freeze({
+    migrationName: "000125_hosted_codex_device_reconnect",
+    checksum:
+      "bf6d4c8df95d50a75f85d70c0e80f3c26963cdc86ea05125723af9568f14c54e",
+  }),
 ]);
 
 export function partitionRenderSchemaHandoffCheckout(catalog) {
@@ -306,7 +311,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     ![
       0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-      22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+      22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
     ].includes(extensions)
   )
     fail("checkout_extension");
@@ -482,6 +487,12 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     extensions === 31 &&
     manifest(catalog) !==
       "sha256:f26da08b44ad6830f4486f93ed33979acda7b5669a8550601c34dbf9c0322443"
+  )
+    fail("checkout_manifest");
+  if (
+    extensions === 32 &&
+    manifest(catalog) !==
+      "sha256:cf270d22a10557c8ebe66cc7cb5e47eb18a5c43274981b46d340123e7d6ba41a"
   )
     fail("checkout_manifest");
   assertRenderSchemaHandoffCatalog(managed);

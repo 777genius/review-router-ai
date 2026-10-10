@@ -1271,7 +1271,10 @@ describe("disposable dual-version rehearsal", () => {
       .map((entry) => entry.name);
 
     const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
-    const withoutProviderKey = migrationNames.filter(
+    const historicalCheckout = migrationNames.filter(
+      (name) => name !== "000125_hosted_codex_device_reconnect",
+    );
+    const withoutProviderKey = historicalCheckout.filter(
       (name) => name !== "000110_provider_api_key_workspace_management",
     );
     const previousCheckout = withoutProviderKey.filter(
@@ -1323,8 +1326,12 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(124);
+    expect(migrationNames).toHaveLength(125);
     expect(migrationManifestIdentity(migrationNames)).toBe(
+      "sha256:fcd4d6ea3f95504edfd4485185ccfd4b139349509083cf67d188786dd57d97ae",
+    );
+    expect(historicalCheckout).toHaveLength(124);
+    expect(migrationManifestIdentity(historicalCheckout)).toBe(
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(
@@ -1416,6 +1423,7 @@ describe("disposable dual-version rehearsal", () => {
       "000122_review_configuration_operation_receipt",
       "000123_personal_workspace_identity",
       "000124_personal_account_operations",
+      "000125_hosted_codex_device_reconnect",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1451,7 +1459,7 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(canonicalReleaseMigrationArtifact.preManifestIdentity);
     expect(
       migrationManifestIdentity(
-        migrationNames.filter(
+        historicalCheckout.filter(
           (name) =>
             name !== "000098_certified_fork_effect_archive" &&
             name !== "000099_certified_fork_proof_facts" &&
@@ -1488,7 +1496,7 @@ describe("disposable dual-version rehearsal", () => {
     // Historical95 checkout retains its exact immutable identity.
     expect(
       migrationManifestIdentity(
-        migrationNames.filter(
+        historicalCheckout.filter(
           (name) =>
             name !== "000096_hosted_pool_public_repository_eligibility" &&
             name !== "000098_certified_fork_effect_archive" &&
@@ -1541,12 +1549,12 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000124_personal_account_operations";
+    const currentTail = "000125_hosted_codex_device_reconnect";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
       [...names, currentTail],
-      names.map((name) => (name === currentTail ? "000124_relabelled" : name)),
-      [...names, "000124_future_migration"],
+      names.map((name) => (name === currentTail ? "000125_relabelled" : name)),
+      [...names, "000125_future_migration"],
       names.filter(
         (name) => name !== "000122_review_configuration_operation_receipt",
       ),
@@ -1605,6 +1613,7 @@ describe("disposable dual-version rehearsal", () => {
     "000122_review_configuration_operation_receipt",
     "000123_personal_workspace_identity",
     "000124_personal_account_operations",
+    "000125_hosted_codex_device_reconnect",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1659,7 +1668,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000121_review_run_gateway_execution_binding" &&
                 name !== "000122_review_configuration_operation_receipt" &&
                 name !== "000123_personal_workspace_identity" &&
-                name !== "000124_personal_account_operations",
+                name !== "000124_personal_account_operations" &&
+                name !== "000125_hosted_codex_device_reconnect",
               "000102_sdk_growth_current_authority",
             ),
           ),
