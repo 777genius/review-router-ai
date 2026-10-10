@@ -136,7 +136,9 @@
     "web:ui-audit": "node scripts/check-ui-layout.mjs",
     "hosted:ui-audit": "node scripts/check-ui-layout.mjs --base-url https://reviewrouter.site",
     "hosted:progress-canary": "node scripts/run-hosted-live-progress-canary.mjs",
-    "release:sync-major": "node scripts/sync-major-release-tag.mjs"
+    "release:sync-major": "node scripts/sync-major-release-tag.mjs",
+    "lint:native:files": "node scripts/local-checks/lint-format-lint.mts",
+    "typecheck:lint-format": "tsc --noEmit -p tsconfig.lint-format.json"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -187,7 +189,9 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.1",
     "vitest": "^4.1.10",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "oxlint": "1.87.0",
+    "oxfmt": "0.72.0"
   },
   "pnpm": {
     "overrides": {
