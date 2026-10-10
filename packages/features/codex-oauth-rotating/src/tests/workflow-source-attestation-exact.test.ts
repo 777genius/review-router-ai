@@ -742,11 +742,11 @@ it.each([
       source.replace("      review_timeout_minutes: 60\n", ""),
   ],
   [
-    "changed timeout",
+    "out-of-range timeout",
     (source: string) =>
       source.replace(
         "review_timeout_minutes: 60",
-        "review_timeout_minutes: 30",
+        "review_timeout_minutes: 361",
       ),
   ],
   [
@@ -818,3 +818,39 @@ it("preserves semantic digest binding while retaining exact caller source bytes"
     workflowDocumentSemanticSha256(acceptedAccountGatewayCaller),
   );
 });
+
+it.each([10, 15, 360])(
+  "recognizes bounded gateway timeout %i",
+  (reviewTimeoutMinutes) => {
+    const source = renderCanonicalAccountGatewayWorkflow({
+      actionRef: `777genius/review-router@${"a".repeat(40)}`,
+      apiUrl: "https://api.reviewrouter.site",
+      githubRepositoryId: "123456",
+      reviewTimeoutMinutes,
+    });
+    expect(
+      readCanonicalCodexRotatingT0WorkflowSourceMetadata(source),
+    ).toMatchObject({
+      codexSessionMode: "account-gateway",
+      providerInstanceId: "codex-rotating:123456",
+    });
+    expect(scanCodexRotatingAdvisoryWorkflow(source)).toEqual({
+      valid: true,
+      errors: [],
+    });
+  },
+);
+
+it.each([9, 361, 15.5, Number.NaN])(
+  "rejects invalid gateway timeout %s",
+  (reviewTimeoutMinutes) => {
+    expect(() =>
+      renderCanonicalAccountGatewayWorkflow({
+        actionRef: `777genius/review-router@${"a".repeat(40)}`,
+        apiUrl: "https://api.reviewrouter.site",
+        githubRepositoryId: "123456",
+        reviewTimeoutMinutes,
+      }),
+    ).toThrow("account_gateway_review_timeout_invalid");
+  },
+);

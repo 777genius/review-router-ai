@@ -2033,9 +2033,11 @@ it("delegates gateway production rendering to the single canonical domain repres
       "777genius/review-router@9d30879b333c6474d104f5911f548419702b758b",
     apiUrl: "https://aberdeen-say-beverages-testimony.trycloudflare.com",
     githubRepositoryId: "1317214237",
+    reviewTimeoutMinutes: 15,
   };
   const file = renderAccountGatewayWorkflow(options);
   expect(file.content).toBe(renderCanonicalAccountGatewayWorkflow(options));
+  expect(file.content).toContain("review_timeout_minutes: 15");
   expect(
     readCanonicalCodexRotatingT0WorkflowSourceMetadata(file.content),
   ).toMatchObject({
