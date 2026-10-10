@@ -747,7 +747,9 @@ describe("Review Action v2 execution/evidence composition", () => {
         execution: delayedSnapshot.execution,
       });
       if (decision.status === LeaseTransitionDecisionStatus.InvalidDeadline) {
-        return { status: ReviewInvocationLeaseTransitionStatus.InvalidDeadline };
+        return {
+          status: ReviewInvocationLeaseTransitionStatus.InvalidDeadline,
+        };
       }
       if (decision.status !== LeaseTransitionDecisionStatus.Restored)
         throw new Error("test_lease_not_restored");
