@@ -1,0 +1,12 @@
+{
+  "name": "reviewrouter-compiler-native-pilot",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "typescript-native": "npm:typescript@7.0.2"
+  }
+}
