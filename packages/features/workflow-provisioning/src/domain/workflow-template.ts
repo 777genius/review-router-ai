@@ -97,6 +97,7 @@ export function renderAccountGatewayWorkflow(options: {
   readonly actionRef: string;
   readonly apiUrl: string;
   readonly githubRepositoryId: string;
+  readonly reviewTimeoutMinutes?: number;
 }): ReviewRouterWorkflowUpsertFile {
   const content = renderCanonicalAccountGatewayWorkflow(options);
   if (options.githubRepositoryId === isolatedQualityWorkflowRepositoryId) {

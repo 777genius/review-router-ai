@@ -3014,7 +3014,20 @@ export function renderCanonicalAccountGatewayWorkflow(options: {
   readonly actionRef: string;
   readonly apiUrl: string;
   readonly githubRepositoryId: string;
+  readonly reviewTimeoutMinutes?: number;
 }): string {
+  const reviewTimeoutMinutes =
+    options.reviewTimeoutMinutes ??
+    codexRotatingT0DefaultTimeoutMinutesForSchema(
+      CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2,
+    );
+  if (
+    !Number.isSafeInteger(reviewTimeoutMinutes) ||
+    reviewTimeoutMinutes < 10 ||
+    reviewTimeoutMinutes > 360
+  ) {
+    throw new Error("account_gateway_review_timeout_invalid");
+  }
   const runtimeRef = validateAccountGatewayActionRef(options.actionRef).split(
     "@",
   )[1]!;
@@ -3047,7 +3060,7 @@ jobs:
       runtime_config_mode: oidc
       codex_session_mode: account-gateway
       workflow_schema_version: 2
-      review_timeout_minutes: ${codexRotatingT0DefaultTimeoutMinutesForSchema(CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2)}
+      review_timeout_minutes: ${reviewTimeoutMinutes}
 `;
 }
 
@@ -3080,10 +3093,15 @@ export function readCanonicalAccountGatewayWorkflowSourceMetadata(
   const repositoryId = codexRotatingProviderIdSchema
     .parse(providerInstanceId)
     .split(":")[1]!;
+  const reviewTimeoutMinutes = inputs.review_timeout_minutes;
+  if (typeof reviewTimeoutMinutes !== "number") {
+    throw new Error("account_gateway_review_timeout_invalid");
+  }
   const expectedWorkflow = renderCanonicalAccountGatewayWorkflow({
     actionRef,
     apiUrl,
     githubRepositoryId: repositoryId,
+    reviewTimeoutMinutes,
   });
   if (!areWorkflowDocumentsSemanticallyEqual(workflow, expectedWorkflow)) {
     throw new Error("codex_rotating_t0_workflow_source_not_canonical");
