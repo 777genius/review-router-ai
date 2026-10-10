@@ -1220,6 +1220,9 @@ export function composeReviewActionV2ProductionRoutes(input: {
     : undefined;
   const accountGatewayCheckout = accountGatewayRelayPolicy
     ? createReviewRunGatewayCheckout({
+        lifecycleObservationAuthors: [
+          ...trustedReviewCommandLedgerAuthorsFromEnv(input.env),
+        ],
         authorizations: runControl.authorizations,
         bindings: gatewayBindings,
         confirmAuthority: confirmAccountGatewayAuthority,

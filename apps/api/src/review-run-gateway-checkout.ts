@@ -75,6 +75,7 @@ export function createReviewRunGatewayCheckout(input: {
     target: ReviewRunGatewayCheckoutTarget,
   ) => Promise<boolean>;
   readonly issuer?: ReadIssuer;
+  readonly lifecycleObservationAuthors?: readonly string[];
   readonly maxInFlight: number;
   readonly timeoutMs: number;
 }) {
@@ -87,6 +88,21 @@ export function createReviewRunGatewayCheckout(input: {
     input.timeoutMs > 30_000
   )
     throw new Error("gateway_checkout_policy_invalid");
+  const observationAuthors = input.lifecycleObservationAuthors;
+  if (
+    observationAuthors &&
+    (observationAuthors.length > 64 ||
+      observationAuthors.some(
+        (author) =>
+          typeof author !== "string" ||
+          !/^[a-zA-Z0-9][a-zA-Z0-9-]{0,99}(?:\[bot\])?$/.test(author),
+      ))
+  )
+    throw new Error("gateway_checkout_observation_authors_invalid");
+  const observationAuthorsJson =
+    observationAuthors === undefined
+      ? undefined
+      : JSON.stringify([...observationAuthors]);
   return Object.freeze({
     maxInFlight: input.maxInFlight,
     timeoutMs: input.timeoutMs,
@@ -215,6 +231,11 @@ export function createReviewRunGatewayCheckout(input: {
       )
         throw new CheckoutFailure("checkout_unavailable", 403);
       const runtimeEnv = mapConfigToRuntimeEnv(configuration);
+      // Protected server observation policy; no lifecycle mutation permission.
+      if (observationAuthorsJson !== undefined) {
+        runtimeEnv.REVIEW_ROUTER_LIFECYCLE_OBSERVATION_AUTHORS =
+          observationAuthorsJson;
+      }
       if (
         runtimeEnv.CODEX_MODEL !== provider.model ||
         runtimeEnv.CODEX_REASONING_EFFORT !== provider.reasoningEffort ||
