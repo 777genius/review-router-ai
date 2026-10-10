@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "scripts/lib/server-rendered-heading.ts",
+    "scripts/lib/server-rendered-heading.test.ts",
+    "scripts/local-checks/compiler-*.ts",
+    "scripts/local-checks/compiler-*.mts",
+    "scripts/local-checks/lint-format-*.ts",
+    "scripts/local-checks/lint-format-*.mts"
+  ],
+  "exclude": ["node_modules", "dist", ".next"]
+}

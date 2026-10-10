@@ -443,8 +443,10 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     fail("checkout_manifest");
   if (
     extensions === 24 &&
-    manifest(catalog) !==
-      "sha256:c5c0618f105799d06d21424433cec4a59fc052e63f594c2aace0657ebb52d1dd"
+    ![
+      "sha256:c5c0618f105799d06d21424433cec4a59fc052e63f594c2aace0657ebb52d1dd",
+      "sha256:afa28624860779e511a551d38910b94b336b0e638c696cadeffad3f62101c1dc",
+    ].includes(manifest(catalog))
   )
     fail("checkout_manifest");
   if (

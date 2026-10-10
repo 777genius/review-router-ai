@@ -19,6 +19,7 @@ import {
   assertRenderSchemaHandoffCatalog,
   assertRenderSchemaHandoffLedger,
   partitionRenderSchemaHandoffCheckout,
+  readRenderManagedCheckoutInventory,
   readRenderSchemaHandoffCatalog,
   renderSchemaHandoffCheckoutExtension,
   renderSchemaHandoffMigrationContract as contract,
@@ -388,6 +389,61 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
+  it("admits only the exact main plus SQL125 branch and preserves old main", () => {
+    const current = readRenderManagedCheckoutInventory().filter(
+      (row) =>
+        row.migrationName <= migration116.migrationName ||
+        row.migrationName === reconnectMigrationName,
+    );
+    const oldMain = current.filter(
+      (row) => row.migrationName !== reconnectMigrationName,
+    );
+    const identity = (rows: readonly CatalogRow[]) =>
+      createHash("sha256")
+        .update(
+          rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
+        )
+        .digest("hex");
+    expect(current).toHaveLength(117);
+    expect(identity(current)).toBe(
+      "1cdcfc995996a4e90864741ffaf11b43540eb491cf1bcdad158a05c6609364b3",
+    );
+    expect(oldMain).toHaveLength(116);
+    expect(identity(oldMain)).toBe(
+      "495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
+    );
+    expect(partitionRenderSchemaHandoffCheckout(current)).toEqual(catalog);
+    expect(partitionRenderSchemaHandoffCheckout(oldMain)).toEqual(catalog);
+    const wrongBranch = [
+      ...oldMain,
+      {
+        migrationName: "000117_provider_accounts",
+        checksum: "0".repeat(64),
+      },
+    ];
+    for (const changed of [
+      current.map((row) =>
+        row.migrationName === reconnectMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      current.map((row) =>
+        row.migrationName === reconnectMigrationName
+          ? { ...row, migrationName: "000125_relabelled" }
+          : row,
+      ),
+      current.filter((row) => row.migrationName !== migration116.migrationName),
+      [
+        ...current,
+        { migrationName: "000126_unknown", checksum: "0".repeat(64) },
+      ],
+      [...current, current.at(-1)!],
+      wrongBranch,
+    ]) {
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow();
+    }
+  });
+
   it("projects every admitted boundary through exactly113 to the same managed92 rows", () => {
     for (const source of [
       catalog,
