@@ -1,7 +1,7 @@
 # Release And Git Flow
 
 This file is the source of truth for ReviewRouter git flow, deploy sequencing,
-and release tags. Keep `README.md`, `AGENT.md`, and `AGENTS.md` as links to this
+and release tags. Keep `README.md` and `AGENTS.md` as links to this
 file instead of duplicating the process there.
 
 ## Repositories
