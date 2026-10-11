@@ -41,7 +41,7 @@ separate tool container.
 
 Recommended versions in this stack:
 
-- Node.js 24 LTS for the app image.
+- Node.js 26.11.1 for the app image.
 - PostgreSQL 18 for the bundled local database.
 
 The bundled PostgreSQL 18 service mounts the named volume at

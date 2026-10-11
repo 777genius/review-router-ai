@@ -3,6 +3,7 @@ dist/
 build/
 .next/
 .turbo/
+.render-tooling/
 .env
 .env.*
 !.env.example
