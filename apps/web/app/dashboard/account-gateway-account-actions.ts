@@ -5,6 +5,7 @@ import {
   snapshotOAuthCompletion,
   type AccountIntent,
   type AccountOAuthIntent,
+  type AccountOAuthReconnectIntent,
   type AccountOAuthCompletion,
   type AccountOAuthBeginView,
   type AccountOperationView,
@@ -63,7 +64,7 @@ export async function readGatewayOperation(
 }
 export async function beginGatewayOAuth(
   context: string,
-  intent: AccountOAuthIntent,
+  intent: AccountOAuthIntent | AccountOAuthReconnectIntent,
 ): Promise<AccountsResult<AccountOAuthBeginView>> {
   try {
     return await (await accountsServerAdapter()).beginOAuth(context, intent);

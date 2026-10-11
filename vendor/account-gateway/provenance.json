@@ -2,9 +2,9 @@
   "package": "@agent-teams/account-gateway",
   "version": "0.1.0",
   "sourceRepository": "https://github.com/agent-teams-ai/account-gateway",
-  "sourceCommit": "d96569febce760fda025f917aa076aeb6b54d117",
-  "sha256": "4b361b665064320ac50080dfb45db7e475c7f707baf0411a4bac27c83932e310",
-  "integrity": "sha512-9LfL15kqtw6BbLCzw85U8FdbKe4jCityaofHvmOqgVS5glodtJBUxTLuYhHOK4RteL9xBqY03GRFGpXBZVkPNw==",
+  "sourceCommit": "7e237bb7d03adad648c133e54e8c43624f701965",
+  "sha256": "9b43edc9b39e5b27f34e149d89ad8c97fff128cdb0817838f4b7cdd77ae0ed98",
+  "integrity": "sha512-NXVTLotD7JxcblgcA8QxIuK/6ZPuLYeruHLzNsUoP/fO/DDiTww3xG5HCOJQ5Y/31yWUdGcWzDhihHEBqHgM+A==",
   "private": true,
   "published": false,
   "sourceFiles": [
@@ -26,30 +26,30 @@
     },
     {
       "path": "packages/account-gateway/src/contracts/index.ts",
-      "sha256": "369f38b536e5eb8a1ddb2644b8e7a4869fcfb6df68e5ae6d2da5fd9a7e5fbc1b"
+      "sha256": "23dad9e2c97b60a16d973dfa61f0c7966960e19f1d49e4fbb29c750405a365d8"
     },
     {
       "path": "packages/account-gateway/src/features/facade-client/http/ingress.ts",
-      "sha256": "11e81ca8cb74068029d18f4b9f04bebf7416dae70c501c7dc5fd3f07b3fb4083"
+      "sha256": "b8af9b59805f010c084a175b717ca2ca5c2dc64569ffb1b54196ed326034b757"
     },
     {
       "path": "packages/account-gateway/src/features/facade-client/http/index.ts",
-      "sha256": "56bb3492cb7ecd2826b847027f72fe99bc4a3d7aa07bb40d2a37b55977df7cdb"
+      "sha256": "5c2ca6b2af32901750d075aebb41a20ef4225b5ee5f08a6e9b34c35c5065b28a"
     },
     {
       "path": "packages/account-gateway/src/features/facade-client/contracts/index.ts",
-      "sha256": "6970e0650d607298be29893132a9d6f8bbf442f4ebd8bd9a780334c2826fe7a8"
+      "sha256": "1158bde738a7c60401cc0a711a93b503bf9a163fd9cb09d243ea23f77209a1df"
     }
   ],
-  "sourceTree": "589d7359be90da5977c59aab3df4c7027167eb00",
-  "reviewedSourceCommit": "d96569febce760fda025f917aa076aeb6b54d117",
+  "sourceTree": "82b62d9c4bb7b3c3c96aae64e2249b6a8699f011",
+  "reviewedSourceCommit": "7e237bb7d03adad648c133e54e8c43624f701965",
   "build": {
     "node": "24.21.0",
     "typescript": "7.0.2",
     "sourceInstall": "pnpm@11.28.2 install --frozen-lockfile",
     "commands": [
       "node scripts/build.mjs",
-      "pnpm --dir packages/account-gateway pack --pack-destination /srv/workers/TEST-rr-f-owner-completion-checks-oct11/sdk-archive"
+      "pnpm --dir packages/account-gateway pack --pack-destination /srv/workers/TEST-rr-f-pending-oauth-recovery-oct11/sdk-archive"
     ]
   },
   "qualificationRuns": [],
@@ -74,39 +74,39 @@
     },
     {
       "path": "dist/contracts/index.d.ts",
-      "sha256": "d6c8d73c3cb9b857d1d784dbd7cca9031d67b19ec00d361b51d497d7fd745ac0"
+      "sha256": "fa9c250732b18fba9ef1140482110d212ad47fdbf52705ab067fa8c8d490fbb2"
     },
     {
       "path": "dist/contracts/index.js",
-      "sha256": "0765dd7e72e8c87167ed3372af338fe856c1a695546f934c73efbbc453734a03"
+      "sha256": "4715936405568e11549119542c95eb4d8498c57b1ab9462910ba6193e1c6d790"
     },
     {
       "path": "dist/features/facade-client/contracts/index.d.ts",
-      "sha256": "de4b3f527d25c3bee16612f272fe373708bf33f423d66c8df0fc81747b45c7ea"
+      "sha256": "0432bfcd1029924f49424d64e126929a28f8c75ebcfb4a1d31964f7d8b814c46"
     },
     {
       "path": "dist/features/facade-client/contracts/index.js",
-      "sha256": "859a844868962c49e4aa97dc158a30bc7606cd8cc6cc4be05fe221b7fc8ce428"
+      "sha256": "d6f58f98f31462a22d143668d75ab24bf2b6550bc4389a9f47164f12705b5e7e"
     },
     {
       "path": "dist/features/facade-client/http/index.d.ts",
-      "sha256": "47e65a6c4a9582296f987a014991528425d36192d593182c1aca6ea5721d19bd"
+      "sha256": "ce7e1ee8326c77982d117d43d9037c037251a44aa3391cc30e8290b7335b59d0"
     },
     {
       "path": "dist/features/facade-client/http/index.js",
-      "sha256": "6bf268b6fee14bbc48c3a2f2f01054fd1bf57b56bdd5dad3c85efb9382d1b970"
+      "sha256": "aa4fd9e12f9efeb463f912e86aa67a6226be8fb617cd8eb3b790c64f0c7e05ff"
     },
     {
       "path": "dist/features/facade-client/http/ingress.d.ts",
-      "sha256": "3af901d32f9290e17b8abbdc2bacbca6beb1c600f4113aa629582cd1cf9bc9ad"
+      "sha256": "3c82c11f26d1986ba6bbbc300850f75804a53b2dd3d26b343ea2806ade4c7450"
     },
     {
       "path": "dist/features/facade-client/http/ingress.js",
-      "sha256": "ebc5ede13697169b07cd145757043d1b7219187782a0992e1194e9cc81bf02f5"
+      "sha256": "70ebf7675a7d16ea9df80b3129509ad63b57876829a5984fb5bac03d14a29d22"
     },
     {
       "path": "dist/get-modular/index.d.ts",
-      "sha256": "65220024f7991d56e0c054059e6a9b7f59274a3fe3cc871a0d207881ed00b0a9"
+      "sha256": "96c4abfb84828bd7aa91b53afffb6561e8715006be99963ca8c3cf4cbd8bcc6c"
     },
     {
       "path": "dist/get-modular/index.js",
@@ -128,12 +128,11 @@
   "sourceQualification": {
     "kind": "focused-host-source-checks",
     "verdict": "PASS",
-    "patchSHA256": "73d0f88e1908cbe4de75199141a59a421612f52c932961e26325dad35a782219",
-    "receiptSHA256": "ca51e69e00d7b8025cc5d89aa39a198c43b28fb6d64f7fdc14384de6f34534cd",
+    "patchSHA256": "0acf80385e8a3b642e47c0d35202db2637b6a518683f5d92acbd0dce3cf3a26f",
+    "receiptSHA256": "80a4e9f64b59d1de9d9c4d378ea9ed4a70c64a93aec96b2a707b31a571b6af3d",
     "gates": [
-      "frozen-install",
+      "eight-real-postgres-oauth-fixtures",
       "sdk-build",
-      "facade-ingress",
       "service-strict-typecheck",
       "sdk-pack"
     ],

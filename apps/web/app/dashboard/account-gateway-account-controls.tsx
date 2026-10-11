@@ -12,6 +12,7 @@ import { Badge, Button, Dialog, SelectField } from "@reviewrouter/ui";
 import type {
   AccountIntent,
   AccountOAuthIntent,
+  AccountOAuthReconnectIntent,
   AccountOperationView,
   AccountProfileView,
   AccountView,
@@ -47,6 +48,9 @@ function savedNonces(key: string): string[] {
     throw new Error();
   return [...new Set(saved as string[])];
 }
+type OAuthFormIntent =
+  | Omit<AccountOAuthIntent, "nonce">
+  | Omit<AccountOAuthReconnectIntent, "nonce">;
 const inputClass =
   "min-h-11 rounded-lg border border-cyan-200/20 bg-slate-950 px-3 text-cyan-50";
 function statusText(status: AccountsResult<unknown>["status"]) {
@@ -160,7 +164,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
     );
     await refresh();
   }
-  async function beginOAuth(intent: Omit<AccountOAuthIntent, "nonce">) {
+  async function beginOAuth(intent: OAuthFormIntent) {
     if (submitting.current) return;
     let tab: Window | null = null;
     let nonce: string | null;
@@ -408,6 +412,22 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                     submit={submit}
                   />
                 ) : null}
+                {account.authKind === "oauth" &&
+                data.value.profiles.find((p) => p.id === account.profileId)
+                  ?.canReconnect ? (
+                  <OAuthForm
+                    account={account}
+                    profiles={data.value.profiles.filter(
+                      (p) => p.id === account.profileId,
+                    )}
+                    disabled={
+                      disabled ||
+                      account.canManage !== true ||
+                      account.state === "tombstoned"
+                    }
+                    begin={beginOAuth}
+                  />
+                ) : null}
                 <Button
                   variant="outline"
                   size="sm"
@@ -638,13 +658,15 @@ function OperatorGrantForm({
 }
 
 function OAuthForm({
+  account,
   profiles,
   disabled,
   begin,
 }: {
+  account?: AccountView;
   profiles: AccountProfileView[];
   disabled: boolean;
-  begin(intent: Omit<AccountOAuthIntent, "nonce">): Promise<void>;
+  begin(intent: OAuthFormIntent): Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -652,19 +674,19 @@ function OAuthForm({
       <Dialog.Trigger
         render={<Button variant="outline" size="sm" disabled={disabled} />}
       >
-        Connect Codex OAuth
+        {account ? "Reconnect Codex OAuth" : "Connect Codex OAuth"}
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop />
         <Dialog.Popup>
           <Dialog.Title className="text-lg font-semibold">
-            Connect Codex OAuth
+            {account ? "Reconnect Codex OAuth" : "Connect Codex OAuth"}
           </Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-slate-400">
             Authorize Codex in a new browser tab. No API key is needed.
             Enrollment stays pending until confirmed; an unresolved result
-            requires status readback. Reconnecting an existing OAuth account is
-            unavailable.
+            requires status readback. Reconnect preserves the logical account
+            until the newly authorized account is verified.
           </Dialog.Description>
           <form
             className="mt-4 grid gap-4"
@@ -672,34 +694,46 @@ function OAuthForm({
               event.preventDefault();
               const form = event.currentTarget;
               const values = new FormData(form);
-              const intent = {
-                profileId: String(values.get("profileId") ?? ""),
-                label: String(values.get("label") ?? ""),
-              };
+              const intent: OAuthFormIntent = account
+                ? {
+                    connectionId: account.connectionId,
+                    gatewayRevision: account.gatewayRevision,
+                    mirrorRevision: account.mirrorRevision,
+                  }
+                : {
+                    profileId: String(values.get("profileId") ?? ""),
+                    label: String(values.get("label") ?? ""),
+                  };
               form.reset();
               setOpen(false);
               void begin(intent);
             }}
           >
-            <SelectField
-              name="profileId"
-              label="Provider profile"
-              defaultValue={profiles[0]?.id ?? ""}
-              options={profiles.map((p) => ({
-                value: p.id,
-                label: `${p.label} · ${p.protocol}`,
-                description: p.models.join(", "),
-              }))}
-            />
-            <label className="grid gap-2 text-sm">
-              Account label
-              <input
-                className={inputClass}
-                name="label"
-                required
-                maxLength={120}
-              />
-            </label>
+            {!account ? (
+              <>
+                <SelectField
+                  name="profileId"
+                  label="Provider profile"
+                  defaultValue={profiles[0]?.id ?? ""}
+                  options={profiles.map((p) => ({
+                    value: p.id,
+                    label: `${p.label} · ${p.protocol}`,
+                    description: p.models.join(", "),
+                  }))}
+                />
+                <label className="grid gap-2 text-sm">
+                  Account label
+                  <input
+                    className={inputClass}
+                    name="label"
+                    required
+                    maxLength={120}
+                  />
+                </label>
+              </>
+            ) : (
+              <p className="text-sm text-slate-300">{account.label}</p>
+            )}
             <Button type="submit" disabled={disabled}>
               Authorize Codex
             </Button>

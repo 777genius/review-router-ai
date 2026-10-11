@@ -637,3 +637,36 @@ test("OAuth rows hide API-key reconnect and become selectable only after an acti
   expect(handoff).not.toHaveBeenCalled();
   assertNoCapability();
 });
+
+// Existing OAuth handoff also reconnects the exact displayed account, without
+// API-key ingress or retaining the fresh capability in metadata/cache/storage.
+test("OAuth reconnect reuses the ordinary handoff and original account revisions", async () => {
+  page.accounts = [row("active")];
+  page.profiles.find((p) => p.id === oauthProfileId)!.canReconnect = true;
+  await mount();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Reconnect Codex OAuth" }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Reconnect Codex OAuth",
+  });
+  expect(within(dialog).queryByLabelText("Account label")).toBeNull();
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Authorize Codex" }),
+  );
+  await waitFor(() => expect(beginGatewayOAuth).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(beginGatewayOAuth).mock.calls[0]).toEqual([
+    context,
+    {
+      nonce: expect.any(String),
+      connectionId: "codex-connection",
+      gatewayRevision: 1,
+      mirrorRevision: 1,
+    },
+  ]);
+  await waitFor(() =>
+    expect(reserved.location.replace).toHaveBeenCalledTimes(1),
+  );
+  expect(submitGatewayApiKey).not.toHaveBeenCalled();
+  assertNoCapability();
+});

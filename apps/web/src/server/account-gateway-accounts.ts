@@ -88,6 +88,12 @@ export type AccountOAuthIntent = Pick<c.OAuthBegin, "profileId"> & {
   nonce: string;
   label: string;
 };
+export type AccountOAuthReconnectIntent = {
+  nonce: string;
+  connectionId: string;
+  gatewayRevision: number;
+  mirrorRevision: number;
+};
 export type AccountOAuthCompletion = Pick<
   secretSubmission.OAuthComplete,
   "callbackURL"
@@ -142,6 +148,10 @@ const oauthIntentSchema = z.strictObject({
   profileId: c.reference,
   label,
 });
+const oauthBeginIntentSchema = z.union([
+  oauthIntentSchema,
+  z.strictObject({ nonce: uuid, ...existing }),
+]);
 // The SDK owns the closed callback URL grammar. Snapshot its sensitive field
 // before any await; no URL/code/state is retained in an intent or safe view.
 const oauthCompletionSchema = z.strictObject({
@@ -228,7 +238,7 @@ export function createAccountsAdapter(input: {
     approved.set(codexOAuthProfileId, {
       label: "Codex",
       authKind: "oauth",
-      canReconnect: false,
+      canReconnect: true,
     });
   }
   async function deliverBindingFence(scope: {
@@ -338,6 +348,8 @@ export function createAccountsAdapter(input: {
         checked(() => gateway.connect(request), true),
       beginOAuth: (request: c.OAuthBegin) =>
         checked(() => gateway.beginOAuth(request), true),
+      beginOAuthReconnect: (ref: string, request: c.OAuthReconnect) =>
+        checked(() => gateway.beginOAuthReconnect(ref, request), true),
       completeOAuth: (request: secretSubmission.OAuthComplete) =>
         checked(() => gateway.completeOAuth(request), true),
       reauthorize: () => checked(async () => undefined),
@@ -751,7 +763,9 @@ export function createAccountsAdapter(input: {
         if (account.state === "tombstoned") throw new Denied();
         if (
           intent.kind === "reconnect" &&
-          !catalogue.find((p) => p.id === account.profileId)?.canReconnect
+          (!catalogue.find((p) => p.id === account.profileId)?.canReconnect ||
+            catalogue.find((p) => p.id === account.profileId)?.authKind !==
+              "api_key")
         )
           throw new Denied();
         if (intent.kind === "disable") {
@@ -808,37 +822,75 @@ export function createAccountsAdapter(input: {
   }
   async function beginOAuth(
     context: string,
-    raw: AccountOAuthIntent,
+    raw: AccountOAuthIntent | AccountOAuthReconnectIntent,
   ): Promise<AccountsResult<AccountOAuthBeginView>> {
     let entered = false;
     let nonce: string | undefined;
     try {
-      const intent = oauthIntentSchema.parse(raw); // snapshot before any await
+      const intent = oauthBeginIntentSchema.parse(raw); // snapshot before any await
       nonce = intent.nonce;
       const authority = await authorize(context);
+      let effectConnection: ProviderAccountConnection | undefined;
       const client = scoped(context, authority, async () => {
+        if (effectConnection) {
+          await assertCurrentMirror(authority, effectConnection);
+          await client.reauthorize();
+        }
         entered = true;
       });
       const catalogue = await profiles(client);
-      if (
-        !catalogue.some(
-          (p) => p.id === intent.profileId && p.authKind === "oauth",
+      let fresh: c.OAuthBeginResponse;
+      let expected: { accountRef?: string; profileId: string };
+      if ("connectionId" in intent) {
+        const { prior, account } = await current(
+          authority,
+          intent.connectionId,
+          catalogue,
+          client,
+        );
+        if (
+          prior.metadataRevision !== intent.mirrorRevision ||
+          account.metadataRevision !== intent.gatewayRevision
         )
-      )
-        throw new Denied();
-      const fresh = await client.beginOAuth({
-        operationId: operationRef(authority.owner, intent.nonce),
-        ownerRef: authority.owner,
-        profileId: intent.profileId,
-        displayName: intent.label,
-      });
+          return { status: "conflict" };
+        const profile = catalogue.find((p) => p.id === account.profileId);
+        if (
+          profile?.authKind !== "oauth" ||
+          !profile.canReconnect ||
+          account.state === "tombstoned"
+        )
+          throw new Denied();
+        effectConnection = prior;
+        expected = {
+          accountRef: account.accountRef,
+          profileId: account.profileId,
+        };
+        fresh = await client.beginOAuthReconnect(account.accountRef, {
+          operationId: operationRef(authority.owner, intent.nonce),
+          expectedMetadataRevision: account.metadataRevision,
+        });
+      } else {
+        if (
+          !catalogue.some(
+            (p) => p.id === intent.profileId && p.authKind === "oauth",
+          )
+        )
+          throw new Denied();
+        expected = { profileId: intent.profileId };
+        fresh = await client.beginOAuth({
+          operationId: operationRef(authority.owner, intent.nonce),
+          ownerRef: authority.owner,
+          profileId: intent.profileId,
+          displayName: intent.label,
+        });
+      }
       const operation = await projectOperation(
         authority,
         intent.nonce,
         fresh.operation,
         catalogue,
         client,
-        { profileId: intent.profileId },
+        expected,
       );
       // Pending projection performs no reads. Explicitly recheck the ORIGINAL live
       // workspace/admin after Begin and all awaited projection before releasing its capability.
