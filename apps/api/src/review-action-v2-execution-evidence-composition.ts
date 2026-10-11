@@ -587,6 +587,7 @@ async function acquireLease(
         Math.min(limits.maxLeaseDurationMs, d.timing.initialLeaseDurationMs),
       ),
       snapshot.execution.executionDeadlineAt,
+      authorization.expiresAt,
     ),
     resultReportUntil: minDate(
       add(now, limits.maxResultReportDurationMs),
@@ -703,6 +704,7 @@ async function renewLease(
     expiresAt: minDate(
       add(lease.acquiredAt, limits.maxLeaseDurationMs),
       snapshot.execution.executionDeadlineAt,
+      lease.resultReportUntil,
     ),
     resultReportUntil: lease.resultReportUntil,
     limits,
