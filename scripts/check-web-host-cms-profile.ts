@@ -14,8 +14,10 @@ import { join } from "node:path";
  * so a drifted profile (or a drifted check) is rejected instead of silently agreeing with itself.
  */
 
-export const PROFILE_PATH = "architecture/consumer-module-standard/web-trust-host-profile.json";
-export const ADR_PATH = "ai-docs/decisions/030-web-trust-host-consumer-module-standard-scope.md";
+export const PROFILE_PATH =
+  "architecture/consumer-module-standard/web-trust-host-profile.json";
+export const ADR_PATH =
+  "ai-docs/decisions/030-web-trust-host-consumer-module-standard-scope.md";
 export const ADR_INDEX_PATH = "ai-docs/decisions/README.md";
 export const CHECK_PATH = "scripts/check-web-host-cms-profile.ts";
 export const CLI_PATH = "scripts/check-web-host-cms-profile-cli.ts";
@@ -224,10 +226,9 @@ export function parseStrictJson(text: string): Json {
       }
     }
     if (character === '"') return readString();
-    const match =
-      /^(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/u.exec(
-        text.slice(index),
-      );
+    const match = /^(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/u.exec(
+      text.slice(index),
+    );
     if (!match) return fail("unexpected token");
     index += match[0].length;
     return JSON.parse(match[0]) as Json;
@@ -394,7 +395,10 @@ function checkDelivery(
   if (Object.keys(files).length !== 30) {
     bad("the installed release closure must declare exactly 30 files");
   }
-  if (canonical(closure.sealedAfterActivation) !== canonical({ "mixed-fleet.json": "0400" })) {
+  if (
+    canonical(closure.sealedAfterActivation) !==
+    canonical({ "mixed-fleet.json": "0400" })
+  ) {
     bad("the sealed manifest member differs");
   }
   if (closure.rootSource !== "web_trust_overlap_successor.py") {
@@ -415,15 +419,23 @@ function checkFactoryAndBoundaries(
     if (factory.id !== "web-trust-finished-context-derivative") {
       bad("factoryBoundary id differs");
     }
-    if (factory.graphNode !== false) bad("the factory boundary must not be a graph node");
-    if (factory.publicInitializer !== "initialize_retained_worker_configuration") {
+    if (factory.graphNode !== false)
+      bad("the factory boundary must not be a graph node");
+    if (
+      factory.publicInitializer !== "initialize_retained_worker_configuration"
+    ) {
       bad("the public initializer name differs");
     }
-    if (factory.dependencyDirection !== "WEB package -> derivative factory -> retained classes") {
+    if (
+      factory.dependencyDirection !==
+      "WEB package -> derivative factory -> retained classes"
+    ) {
       bad("the factory dependency direction differs");
     }
     if (canonical(factory.identity) !== canonical(EXPECTED_FACTORY_IDENTITY)) {
-      bad("the factory identity (class chain, defining modules, sealed module) differs");
+      bad(
+        "the factory identity (class chain, defining modules, sealed module) differs",
+      );
     }
     const refusals = asArray(factory.refusals);
     if (!refusals || refusals.length < 5) {
@@ -447,17 +459,22 @@ function checkFactoryAndBoundaries(
       }
       if (seen.has(boundary.id)) bad(`duplicate boundary ${boundary.id}`);
       seen.set(boundary.id, String(boundary.classification));
-      if (boundary.graphNode !== false) bad(`boundary ${boundary.id} must not be a graph node`);
+      if (boundary.graphNode !== false)
+        bad(`boundary ${boundary.id} must not be a graph node`);
     }
     for (const [id, classification] of Object.entries(EXPECTED_BOUNDARIES)) {
-      if (seen.get(id) !== classification) bad(`boundary ${id} is missing or reclassified`);
+      if (seen.get(id) !== classification)
+        bad(`boundary ${id} is missing or reclassified`);
     }
     for (const id of seen.keys()) {
       if (!(id in EXPECTED_BOUNDARIES)) bad(`undeclared boundary ${id}`);
     }
   }
   const legacy = asArray(profile.legacy);
-  if (!legacy || legacy.some((item) => asObject(item)?.status !== "not-adopted")) {
+  if (
+    !legacy ||
+    legacy.some((item) => asObject(item)?.status !== "not-adopted")
+  ) {
     bad("every legacy entry must stay not-adopted");
   }
   const exceptions = asArray(profile.exceptions);
@@ -479,21 +496,38 @@ function checkReceiptProjection(
   receipt: JsonObject | null,
   bad: (message: string) => void,
 ): void {
-  if (!receipt || canonical(Object.keys(receipt).sort()) !== canonical(["projection", "reference", "sha256"])) {
-    bad("a passed installed gate needs exactly a receipt reference, sha256 and projection");
+  if (
+    !receipt ||
+    canonical(Object.keys(receipt).sort()) !==
+      canonical(["projection", "reference", "sha256"])
+  ) {
+    bad(
+      "a passed installed gate needs exactly a receipt reference, sha256 and projection",
+    );
     return;
   }
-  if (receipt.reference !== EXPECTED_RECEIPT.reference) bad("the receipt reference differs from the accepted installed-gate receipt");
-  if (receipt.sha256 !== EXPECTED_RECEIPT.sha256) bad("the receipt sha256 differs from the accepted installed-gate receipt");
+  if (receipt.reference !== EXPECTED_RECEIPT.reference)
+    bad(
+      "the receipt reference differs from the accepted installed-gate receipt",
+    );
+  if (receipt.sha256 !== EXPECTED_RECEIPT.sha256)
+    bad("the receipt sha256 differs from the accepted installed-gate receipt");
   const projection = asObject(receipt.projection);
   const expected = asObject(EXPECTED_RECEIPT.projection);
-  if (!projection || !expected || canonical(Object.keys(projection).sort()) !== canonical(Object.keys(expected).sort())) {
+  if (
+    !projection ||
+    !expected ||
+    canonical(Object.keys(projection).sort()) !==
+      canonical(Object.keys(expected).sort())
+  ) {
     bad("the receipt projection must have exactly the genuine receipt fields");
     return;
   }
   for (const [key, value] of Object.entries(expected)) {
     if (canonical(projection[key]) !== canonical(value)) {
-      bad(`the receipt projection ${key} differs from the accepted installed-gate receipt`);
+      bad(
+        `the receipt projection ${key} differs from the accepted installed-gate receipt`,
+      );
     }
   }
 }
@@ -516,20 +550,27 @@ function checkQualification(
   ) {
     bad("the deterministic gate command or script differs");
   }
-  if (typeof deterministic.doesNotProve !== "string" || deterministic.doesNotProve.length === 0) {
+  if (
+    typeof deterministic.doesNotProve !== "string" ||
+    deterministic.doesNotProve.length === 0
+  ) {
     bad("the deterministic gate must state what it does not prove");
   }
-  if (installed.kind !== "operator") bad("the installed gate must stay an operator gate");
+  if (installed.kind !== "operator")
+    bad("the installed gate must stay an operator gate");
   const command = String(installed.command);
   if (
     !command.startsWith("cd /tmp && python3 -I -B ") ||
     !command.includes("cms_delivery_gate.py") ||
-    /\|\||;|&&\s*(?:true|echo)|\becho\b/u.test(command.slice("cd /tmp && ".length))
+    /\|\||;|&&\s*(?:true|echo)|\becho\b/u.test(
+      command.slice("cd /tmp && ".length),
+    )
   ) {
     bad("the installed gate command is missing or a no-op");
   }
   if (installed.status === "operator-run-pending") {
-    if (installed.receipt !== null) bad("a pending installed gate cannot carry a receipt");
+    if (installed.receipt !== null)
+      bad("a pending installed gate cannot carry a receipt");
   } else if (installed.status === "operator-run-passed") {
     checkReceiptProjection(asObject(installed.receipt), bad);
   } else {
@@ -543,7 +584,11 @@ function checkDecisionRecord(
   bad: (message: string) => void,
 ): void {
   const decision = asObject(profile.decision);
-  if (decision?.path !== ADR_PATH || decision?.adr !== "ADR-030" || decision?.status !== "accepted-scoped") {
+  if (
+    decision?.path !== ADR_PATH ||
+    decision?.adr !== "ADR-030" ||
+    decision?.status !== "accepted-scoped"
+  ) {
     bad("the profile does not reference the accepted scoped decision ADR-030");
   }
   const text = view.read(ADR_PATH);
@@ -566,7 +611,13 @@ function checkDecisionRecord(
   for (const [name, group] of Object.entries(EXPECTED_AUTHORITY)) {
     const entry = asObject(group);
     if (!entry || name === "priorStandard") continue; // the prior standard is history, not a current pin
-    for (const key of ["commit", "gitBlob", "documentSha256", "sha256", "diffSha256"]) {
+    for (const key of [
+      "commit",
+      "gitBlob",
+      "documentSha256",
+      "sha256",
+      "diffSha256",
+    ]) {
       const value = entry[key];
       if (typeof value === "string") required.push(value);
     }
@@ -574,11 +625,18 @@ function checkDecisionRecord(
   for (const needle of required) {
     if (!text.includes(needle)) bad(`${ADR_PATH} does not state ${needle}`);
   }
-  if (/(?:organization-wide adoption|node26 qualification|full product ci):\s*(?:claimed|accepted|yes|true)/iu.test(text)) {
+  if (
+    /(?:organization-wide adoption|node26 qualification|full product ci):\s*(?:claimed|accepted|yes|true)/iu.test(
+      text,
+    )
+  ) {
     bad(`${ADR_PATH} claims more than the scoped slice`);
   }
   const index = view.read(ADR_INDEX_PATH);
-  if (index === null || !index.includes("(./030-web-trust-host-consumer-module-standard-scope.md)")) {
+  if (
+    index === null ||
+    !index.includes("(./030-web-trust-host-consumer-module-standard-scope.md)")
+  ) {
     bad("the decision index does not list ADR-030");
   }
 }
@@ -588,28 +646,26 @@ function checkDecisionRecord(
  * repository it lives in and fails the process on a violation. A conditional guard, an environment override of
  * the root or a missing exit code would turn the hook into a silent no-op.
  */
-function checkCli(
-  source: string | null,
-  bad: (message: string) => void,
-): void {
+function checkCli(source: string | null, bad: (message: string) => void): void {
   if (source === null) {
     bad(`${CLI_PATH} is missing`);
     return;
   }
-  if (!source.includes("checkWebHostCms(")) bad("the CLI does not run the pure check");
-  if (!/process\.exitCode\s*=\s*1/u.test(source)) bad("the CLI does not fail the process on a violation");
+  if (!source.includes("checkWebHostCms("))
+    bad("the CLI does not run the pure check");
+  if (!/process\.exitCode\s*=\s*1/u.test(source))
+    bad("the CLI does not fail the process on a violation");
   if (/process\.env|process\.argv/u.test(source)) {
-    bad("the CLI must not read the environment or argv (no root override, no conditional skip)");
+    bad(
+      "the CLI must not read the environment or argv (no root override, no conditional skip)",
+    );
   }
   if (/^\s*if\s*\(\s*(?:import\.meta|require)/mu.test(source)) {
     bad("the CLI must not be wrapped in a main-module condition");
   }
 }
 
-function checkHook(
-  view: RepositoryView,
-  bad: (message: string) => void,
-): void {
+function checkHook(view: RepositoryView, bad: (message: string) => void): void {
   const packageText = view.read(PACKAGE_PATH);
   if (packageText === null) {
     bad("package.json is missing");
@@ -619,7 +675,9 @@ function checkHook(
   try {
     scripts = asObject(asObject(parseStrictJson(packageText))?.scripts);
   } catch (error) {
-    bad(`package.json is not strict JSON: ${error instanceof Error ? error.message : String(error)}`);
+    bad(
+      `package.json is not strict JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return;
   }
   if (!scripts) {
@@ -636,13 +694,22 @@ function checkHook(
     !parts.includes(`pnpm ${HOOK_SCRIPT}`) ||
     /\|\||;|\becho\b|\btrue\b/u.test(chain)
   ) {
-    bad("architecture:check must chain the existing check and the WEB Host CMS gate without fallbacks");
+    bad(
+      "architecture:check must chain the existing check and the WEB Host CMS gate without fallbacks",
+    );
   }
   if (view.read(CHECK_PATH) === null) bad(`${CHECK_PATH} is missing`);
   checkCli(view.read(CLI_PATH), bad);
   const workflow = view.read(CI_PATH);
-  if (workflow === null || !/-\s+name:\s+Architecture boundaries\s*\n\s+run:\s+pnpm architecture:check\s*\n/u.test(workflow)) {
-    bad("CI no longer runs pnpm architecture:check in the 'Architecture boundaries' step");
+  if (
+    workflow === null ||
+    !/-\s+name:\s+Architecture boundaries\s*\n\s+run:\s+pnpm architecture:check\s*\n/u.test(
+      workflow,
+    )
+  ) {
+    bad(
+      "CI no longer runs pnpm architecture:check in the 'Architecture boundaries' step",
+    );
   }
 }
 

@@ -79,17 +79,38 @@
     },
     "installedClosure": {
       "releaseFiles": {
-        "web_trust_predecessor.py": "0555", "web_trust_source.py": "0555", "web_trust_fleet.py": "0555", "web_trust_ready.py": "0555",
-        "web_trust_rollback.py": "0555", "web_trust_publish.py": "0555", "web_trust_io.py": "0555", "web_trust_manifest.py": "0555",
-        "web_trust_callbacks.py": "0555", "web_trust_coordinator.py": "0555", "web_trust_driver.py": "0555",
-        "web_trust_finished_context.py": "0555", "web_trust_loader.py": "0555",
-        "api_diag_catalog.py": "0555", "catalog-legacy-order-witness.json": "0400", "web_trust_stop.py": "0555", "web_trust_boot.py": "0555",
-        "web_reconnect_daemon.py": "0555", "web_reconnect_store.py": "0555",
-        "candidate-image-provenance.json": "0400", "review68.json": "0400", "schema110-receipt.json": "0400", "api_mimo_schema110.py": "0555",
-        "schema118-reference.json": "0400", "schema125-reference-PG17.json": "0400", "web-only.compose.json": "0400",
-        "warm.sh": "0555", "boot.sh": "0555", "stop.sh": "0555", "bundle-pins.json": "0400"
+        "web_trust_predecessor.py": "0555",
+        "web_trust_source.py": "0555",
+        "web_trust_fleet.py": "0555",
+        "web_trust_ready.py": "0555",
+        "web_trust_rollback.py": "0555",
+        "web_trust_publish.py": "0555",
+        "web_trust_io.py": "0555",
+        "web_trust_manifest.py": "0555",
+        "web_trust_callbacks.py": "0555",
+        "web_trust_coordinator.py": "0555",
+        "web_trust_driver.py": "0555",
+        "web_trust_finished_context.py": "0555",
+        "web_trust_loader.py": "0555",
+        "api_diag_catalog.py": "0555",
+        "catalog-legacy-order-witness.json": "0400",
+        "web_trust_stop.py": "0555",
+        "web_trust_boot.py": "0555",
+        "web_reconnect_daemon.py": "0555",
+        "web_reconnect_store.py": "0555",
+        "candidate-image-provenance.json": "0400",
+        "review68.json": "0400",
+        "schema110-receipt.json": "0400",
+        "api_mimo_schema110.py": "0555",
+        "schema118-reference.json": "0400",
+        "schema125-reference-PG17.json": "0400",
+        "web-only.compose.json": "0400",
+        "warm.sh": "0555",
+        "boot.sh": "0555",
+        "stop.sh": "0555",
+        "bundle-pins.json": "0400"
       },
-      "sealedAfterActivation": {"mixed-fleet.json": "0400"},
+      "sealedAfterActivation": { "mixed-fleet.json": "0400" },
       "rootSource": "web_trust_overlap_successor.py"
     }
   },
@@ -102,23 +123,66 @@
     "publicInitializer": "initialize_retained_worker_configuration",
     "identity": {
       "classChain": ["Schema125Context", "CurrentFinishedContext"],
-      "definingModules": ["schema125_current_context", "schema125_finished_context_factory"],
+      "definingModules": [
+        "schema125_current_context",
+        "schema125_finished_context_factory"
+      ],
       "sealedModule": "web_trust_finished_context.py"
     },
-    "refusals": ["foreign class chain", "impostor with copied names", "already bound fingerprint", "warm-admitted or owner-adopted context", "wrong or extra pinned bodies"],
+    "refusals": [
+      "foreign class chain",
+      "impostor with copied names",
+      "already bound fingerprint",
+      "warm-admitted or owner-adopted context",
+      "wrong or extra pinned bodies"
+    ],
     "reviewTrigger": "a second consumer of the initializer, or any change of the retained context classes"
   },
   "boundaries": [
-    {"id": "web-trust-successor-owner", "classification": "host-owned-lifecycle-transition", "graphNode": false},
-    {"id": "web-trust-private-helpers", "classification": "fixed-dependency-private-helpers", "graphNode": false},
-    {"id": "web-trust-api-published-language", "classification": "fixed-dependency-read-only-anti-corruption", "graphNode": false},
-    {"id": "web-trust-finished-context-derivative", "classification": "sealed-derived-factory-of-a-retained-owner", "graphNode": false},
-    {"id": "web-trust-catalog-adapter-copy", "classification": "byte-equal-copy-of-owner-artifact", "graphNode": false},
-    {"id": "web-trust-action-ref-policy", "classification": "duplicated-constants-guarded", "graphNode": false}
+    {
+      "id": "web-trust-successor-owner",
+      "classification": "host-owned-lifecycle-transition",
+      "graphNode": false
+    },
+    {
+      "id": "web-trust-private-helpers",
+      "classification": "fixed-dependency-private-helpers",
+      "graphNode": false
+    },
+    {
+      "id": "web-trust-api-published-language",
+      "classification": "fixed-dependency-read-only-anti-corruption",
+      "graphNode": false
+    },
+    {
+      "id": "web-trust-finished-context-derivative",
+      "classification": "sealed-derived-factory-of-a-retained-owner",
+      "graphNode": false
+    },
+    {
+      "id": "web-trust-catalog-adapter-copy",
+      "classification": "byte-equal-copy-of-owner-artifact",
+      "graphNode": false
+    },
+    {
+      "id": "web-trust-action-ref-policy",
+      "classification": "duplicated-constants-guarded",
+      "graphNode": false
+    }
   ],
   "legacy": [
-    {"path": "retained spent V23->V24 WEB owner (guard v5)", "status": "not-adopted", "owner": "WEB Host", "reviewTrigger": "removal of the V24 package"},
-    {"path": "finished API V25 g4 owner sources", "status": "not-adopted", "owner": "API Host", "reviewTrigger": "any change of the g4 records, physical names or catalog adapter"}
+    {
+      "path": "retained spent V23->V24 WEB owner (guard v5)",
+      "status": "not-adopted",
+      "owner": "WEB Host",
+      "reviewTrigger": "removal of the V24 package"
+    },
+    {
+      "path": "finished API V25 g4 owner sources",
+      "status": "not-adopted",
+      "owner": "API Host",
+      "reviewTrigger": "any change of the g4 records, physical names or catalog adapter"
+    }
   ],
   "exceptions": [],
   "conditionalAssemblyGates": {
@@ -149,14 +213,21 @@
         "projection": {
           "status": "cms-delivery-gate-pass",
           "returncode": 0,
-          "native": ["ready", 54, "868258c2-9846-474b-8365-84fce37cc576", false],
+          "native": [
+            "ready",
+            54,
+            "868258c2-9846-474b-8365-84fce37cc576",
+            false
+          ],
           "standardCommit": "4728b276b87378ca9d72a7be2b89a5fd49b97eea",
           "cmsAdoption": "pending",
           "productionAdoption": false,
           "wholeOrganizationQualification": false,
           "noActivationReplay": true,
           "packetManifestSha256": "dfc5e3c9142369fa2da0dac01c3d23c16460e9abed95b4014fc996b293c6347e",
-          "unverified": ["live lifecycle row and container state (outside this gate; separate Root observation)"]
+          "unverified": [
+            "live lifecycle row and container state (outside this gate; separate Root observation)"
+          ]
         }
       }
     },
