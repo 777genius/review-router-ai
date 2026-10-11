@@ -46,6 +46,10 @@ vi.mock("./account-gateway-account-actions", () => ({
 const oauthProfileId = "openai-codex-oauth-responses-v1";
 const context = "workspace-user.signature";
 const storageKey = "rr-c3-account-operations:workspace-user";
+// Vitest aliases window to Node's global; use its actual DOM storage realm.
+const browserLocalStorage = (
+  globalThis as typeof globalThis & { jsdom: { window: Window } }
+).jsdom.window.localStorage;
 const capability =
   "https://auth.openai.com/oauth/authorize?synthetic-owner-capability";
 const savedNonce = "9874b2bc-e987-4456-9212-7f94f58932da";
@@ -100,7 +104,7 @@ function assertNoCapability() {
     ...cacheSnapshots,
     ...[...clients].map(caches),
     JSON.stringify(storageWrites.mock.calls),
-    JSON.stringify({ ...sessionStorage, ...localStorage }),
+    JSON.stringify({ ...sessionStorage, ...browserLocalStorage }),
     document.body.innerHTML,
     JSON.stringify(vi.mocked(readGatewayOperation).mock.calls),
   ].join("\n");
@@ -140,7 +144,7 @@ async function startEnrollment() {
 beforeEach(() => {
   vi.resetAllMocks();
   sessionStorage.clear();
-  localStorage.clear();
+  browserLocalStorage.clear();
   clients.clear();
   cacheSnapshots.length = 0;
   page = {
@@ -175,7 +179,10 @@ beforeEach(() => {
     this.getMutationCache().subscribe(() => cacheSnapshots.push(caches(this)));
     mountClient.call(this);
   });
-  storageWrites = vi.spyOn(Storage.prototype, "setItem");
+  storageWrites = vi.spyOn(
+    Object.getPrototypeOf(sessionStorage) as Storage,
+    "setItem",
+  );
   reserved = {
     opener: window,
     document: document.implementation.createHTMLDocument(),
