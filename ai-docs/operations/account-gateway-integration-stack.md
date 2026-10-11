@@ -10,16 +10,16 @@ implied by integration.
 
 ## Current release pairing - 2026-10-11
 
-On integration base `c83b4e370cff7a1abb583b777ab35cf32c89cb35`, the five CI
-pair fields now consume published Action `v1.0.157` at
-`daabf92413aa0667053f169cac320279f77b9e74` / bundle SHA256
-`50a9f0bf435b29d2b797098c46dc449ee2287d650483621f13eefedb2412f475`.
-Normal Action release run 38097430688 succeeded and stable `v1` resolves to the
-same commit. [Evidence52](../architecture/52-account-gateway-first-slice-contract.md#accepted-mimo-long-oidc-and-action-release---2026-10-11)
-retains the actual MiMo TEST 20m/caller 25m D-long PASS and its bounded production
-source-equivalence join. Final assembled ROOT/main CI, matching SaaS release,
-native exact-head CI, memory and F/G remain separate gates; no production
-deployment or legacy retirement is asserted by this component.
+Integration PR548 merged the five CI pair fields to published Action `v1.0.158`
+at `4cb00b4598974bc8fb5feafc1b1699ca76ca32af` / public bundle SHA256
+`166ab590292c76ea78b2015dfda71aacf91be963b0b94f7c04f9c7883c18a814`.
+Normal Action release run `38128645739` and paired SaaS CI `38129571872`
+succeeded. [Evidence52](../architecture/52-account-gateway-first-slice-contract.md)
+retains the bounded MiMo D-long and current OpenRouter E receipts, historical
+unknown outcomes and their exact source tuples. Final assembled ROOT/main CI,
+matching SaaS release, protected OAuth F and production G remain separate gates;
+no production deployment or legacy retirement is asserted here. The RAM lane
+is stopped under the recorded execution policy; failed/unqualified evidence stays.
 
 ## Current and next components
 
@@ -34,10 +34,25 @@ deployment or legacy retirement is asserted by this component.
 ## Service repositories
 
 GitHub PR bases are repository-local. The reusable service and pinned native
-fork keep their own component PRs, linked from the root PR rather than copied
-into RR. Account Gateway SDK/kernel PRs 1-3 are already merged. Pending native
-fork PR 2 is preserved; bounded bootstrap/lifecycle children use that reviewed
-foundation. The root RR candidate pins only accepted service/SDK/engine SHAs.
+fork keep their own component PRs linked from the root PR rather than copied
+into RR. The root candidate selects only accepted service/SDK/engine source.
+
+- Native `agent-teams-ai/sub2api` PR33 merged normally as
+  `135fd7dee9ab1d93552709a05805d01867ce3c0b`; reviewed source
+  `3d3ea7a40a2bff649a241025a935f8136fa9fe5e`, tree
+  `8d21f751f7c171c8520a263898657f726a0cd5ec`, CI `38132249332` PASS.
+  The source-clean VCS-built ELF SHA256 is
+  `a3e32dc4f3c6f7988ddbd9fdb125d5227e91474c61941dad4466fe83826db119`.
+- Gateway merged source `16e1cc992e0447040faa6fbb4354a85c5000efbf`, reviewed
+  fixture correction `d73861a85e2a581b4006738a085036219a62af53`, tree
+  `f626d443cad48426cf3acd63fb0c12a2f93bc311`, CI `38131753903` and
+  `38131753934` PASS. Production service/SDK source is unchanged from accepted
+  `c598146dfc63113635e4bfd6efd8df7cd10fe127`.
+
+These are exact source/artifact selections. Fixed OAuth runtime recovery
+remains pending after an observed start failure; the cutover outcome is UNKNOWN.
+Source CI does not claim F runtime readiness or production G installation/custody. Historical D/E receipts retain their original native
+pins and must not be rewritten to the newer source.
 
 ## Rules
 
