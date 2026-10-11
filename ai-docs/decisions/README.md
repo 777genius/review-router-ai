@@ -33,3 +33,4 @@ Decision records capture important product and architecture choices.
 - [ADR-027: Branch-Aware Review Action v2 Contract Handoff](./027-review-action-v2-contract-handoff.md)
 - [ADR-028: Revision-Aware Review Evidence](./028-revision-aware-review-evidence.md)
 - [ADR-029: Opt-in Hosted Workspace Account Pool](./029-opt-in-hosted-workspace-account-pool.md)
+- [ADR-030: Consumer Module Standard Scope for the WEB Trust-Overlap Host Slice](./030-web-trust-host-consumer-module-standard-scope.md)
