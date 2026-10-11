@@ -103,6 +103,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
     let personalOperationId = "";
     let oauthBeginEntries = 0;
     let oauthCompleteEntries = 0;
+    let oauthReconnectEntries = 0;
     const genericReadRefs: string[] = [];
     let personalWorkspaceId: string | undefined;
     let selectedWorkspace = workspaceId;
@@ -238,6 +239,29 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
           const effectHook = afterOAuthBegin;
           afterOAuthBegin = undefined;
           await effectHook?.();
+          if (loseAck) {
+            loseAck = false;
+            response.destroy();
+            return;
+          }
+          return json(response, 202, { operation: receipt, authorizationURL });
+        }
+        if (
+          account?.profileId === oauthProfileId &&
+          url.pathname === `/v1/accounts/${account.accountRef}/reconnect`
+        ) {
+          assert.equal(request.method, "POST");
+          const input = c.oauthReconnect.parse(raw);
+          assert.equal(
+            input.expectedMetadataRevision,
+            account.metadataRevision,
+          );
+          oauthReconnectEntries++;
+          const receipt: c.Operation = {
+            operationRef: input.operationId,
+            state: "pending",
+          };
+          operations.set(input.operationId, receipt);
           if (loseAck) {
             loseAck = false;
             response.destroy();
@@ -1007,7 +1031,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         [
           [profileId, "api_key", true],
           [foreignProfileId, "api_key", true],
-          [oauthProfileId, "oauth", false],
+          [oauthProfileId, "oauth", true],
         ],
       );
       const original = account;
@@ -1226,6 +1250,96 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         )?.state,
         "active",
       );
+      // Reconnect reuses the stable server-owned account; stale selectors and
+      // member access cannot enter, and a lost URL remains ordinary readback.
+      const reconnectIntent = { nonce: randomUUID(), ...oauthRevisions() };
+      const reconnectAccount = { ...account };
+      const beforeOAuthReconnect = mutationEntries;
+      assert.equal(
+        observe(await oauthAdapter.beginOAuth("member", reconnectIntent))
+          .status,
+        "denied",
+      );
+      assert.equal(
+        observe(
+          await oauthAdapter.beginOAuth("a", {
+            ...reconnectIntent,
+            gatewayRevision: reconnectIntent.gatewayRevision - 1,
+          }),
+        ).status,
+        "conflict",
+      );
+      assert.equal(
+        observe(
+          await oauthAdapter.beginOAuth("a", {
+            ...reconnectIntent,
+            mirrorRevision: reconnectIntent.mirrorRevision + 1,
+          }),
+        ).status,
+        "conflict",
+      );
+      assert.equal(mutationEntries, beforeOAuthReconnect);
+      // Revoke ACTUAL membership while the second owned-mirror SQL read is
+      // awaited: reconnect must reauthorize before any Begin POST can enter.
+      const originalOwnedRead = accounts.findOwnedConnection;
+      let reconnectMirrorReads = 0;
+      accounts.findOwnedConnection = async (query) => {
+        const found = await originalOwnedRead.call(accounts, query);
+        if (++reconnectMirrorReads === 2) {
+          await db.workspaceMember.updateMany({
+            where: { workspaceId, userId: actor.userId! },
+            data: { role: "member" },
+          });
+        }
+        return found;
+      };
+      try {
+        assert.equal(
+          observe(await oauthAdapter.beginOAuth("a", reconnectIntent)).status,
+          "denied",
+        );
+        assert.equal(reconnectMirrorReads, 2);
+        assert.equal(mutationEntries, beforeOAuthReconnect);
+      } finally {
+        accounts.findOwnedConnection = originalOwnedRead;
+        await db.workspaceMember.updateMany({
+          where: { workspaceId, userId: actor.userId! },
+          data: { role: "admin" },
+        });
+      }
+      const oauthReconnected = ok(
+        await oauthAdapter.beginOAuth("a", reconnectIntent),
+      );
+      observe(oauthReconnected.operation); // fresh capability stays outside safe-data observations
+      assert.equal(oauthReconnected.authorizationURL, authorizationURL);
+      assert.equal(observe(oauthReconnected.operation).state, "pending");
+      assert.deepEqual(account, reconnectAccount);
+      assert.equal(oauthReconnectEntries, 1);
+      const afterReconnect = mutationEntries;
+      assert.equal(
+        ok(observe(await oauthAdapter.operation("a", reconnectIntent.nonce)))
+          .state,
+        "pending",
+      );
+      assert.equal(mutationEntries, afterReconnect);
+      loseAck = true;
+      const lostReconnectNonce = randomUUID();
+      const lostReconnect = ok(
+        await oauthAdapter.beginOAuth("a", {
+          ...reconnectIntent,
+          nonce: lostReconnectNonce,
+        }),
+      );
+      assert.equal(lostReconnect.operation.state, "unknown");
+      assert.equal(lostReconnect.authorizationURL, undefined);
+      const afterLostReconnect = mutationEntries;
+      assert.equal(
+        ok(observe(await oauthAdapter.operation("a", lostReconnectNonce)))
+          .state,
+        "pending",
+      );
+      assert.equal(mutationEntries, afterLostReconnect);
+      assert.equal(oauthReconnectEntries, 2);
       // RED: lost Begin ACK treated as non-entry, or a reload/manual read repeating Begin.
       loseAck = true;
       const lostOAuthNonce = randomUUID();
