@@ -8,6 +8,19 @@ GitHub PRs, retain their commits/issue refs, and run final assembled E2E on an
 exact SHA before the root PR is ready. No deployment or legacy retirement is
 implied by integration.
 
+## Current release pairing - 2026-10-11
+
+On integration base `c83b4e370cff7a1abb583b777ab35cf32c89cb35`, the five CI
+pair fields now consume published Action `v1.0.157` at
+`daabf92413aa0667053f169cac320279f77b9e74` / bundle SHA256
+`50a9f0bf435b29d2b797098c46dc449ee2287d650483621f13eefedb2412f475`.
+Normal Action release run 38097430688 succeeded and stable `v1` resolves to the
+same commit. [Evidence52](../architecture/52-account-gateway-first-slice-contract.md#accepted-mimo-long-oidc-and-action-release---2026-10-11)
+retains the actual MiMo TEST 20m/caller 25m D-long PASS and its bounded production
+source-equivalence join. Final assembled ROOT/main CI, matching SaaS release,
+native exact-head CI, memory and F/G remain separate gates; no production
+deployment or legacy retirement is asserted by this component.
+
 ## Current and next components
 
 - Plan corrections after Opus 5.5/xhigh critique, including all finding dispositions.

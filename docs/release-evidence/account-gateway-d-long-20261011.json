@@ -1,0 +1,80 @@
+{
+  "kind": "live_mimo_long_oidc_test_acceptance",
+  "verdict": "PASS",
+  "observedAt": "2026-10-11T00:07:55.066Z",
+  "scope": "TEST server20m caller25m; exact producer/runtime pair",
+  "runId": "38096112096",
+  "runAttempt": 1,
+  "jobId": 114342231430,
+  "headSha": "214df7feece682ca423433e5c8574bc470c4d23b",
+  "producerCommit": "2515a08bd761cc61e7f2aa354326d26530f10a57",
+  "nativeCommit": "d746e0cd43bc0e2de19f79f45fb6a10d00973a32",
+  "nativeSha256": "9902daad3393dd5c2a7071ddae9bdad4f785cf9e1046878b70496d8de458fa72",
+  "gatewayCommit": "77e4028070108fce0017a33df12e51c9f75abb55",
+  "apiCommit": "2986b337c0faee9eeb3832020e307f8c3db80385",
+  "originalWatchSession": 20674,
+  "originalWatchExit": 0,
+  "tools": {
+    "acceptedMcpDependencies": 12,
+    "successfulOperations": 12,
+    "operationKindCounts": {
+      "canonical_inventory": 1,
+      "git_fact": 3,
+      "text_search": 3,
+      "directory_list": 1,
+      "file_read": 4
+    },
+    "changedPathsWitnessCount": 1,
+    "authenticatedChainAccepted": true,
+    "untainted": true,
+    "sameHead": true,
+    "sameProducer": true,
+    "actualModelMatches": true
+  },
+  "final": {
+    "strictValidatedAcceptedObservation": true,
+    "artifactByteCount": 2463,
+    "observationByteCount": 1622,
+    "coverageState": "completed",
+    "rawModelOutputExported": false
+  },
+  "publication": {
+    "terminalOutcome": "succeeded",
+    "sameHead": true,
+    "appCheckRunId": 114343658768,
+    "appId": 3586778,
+    "appSlug": "reviewrouter-local-777genius",
+    "appConclusion": "success"
+  },
+  "authority": {
+    "originalOidcExpiresAt": "2026-10-10T23:50:32.000Z",
+    "expiredContinuationObservedAt": "2026-10-10T23:50:33.524Z",
+    "reviewCompletedAt": "2026-10-10T23:54:20.037Z",
+    "serverDeadline": "2026-10-11T00:05:35.000Z",
+    "postDeadlineDeniedAt": "2026-10-11T00:05:36.965Z",
+    "postDeadlineHttpStatus": 401
+  },
+  "settlement": {
+    "executionState": "closed",
+    "requests": 3,
+    "completed": 3,
+    "occupied": 0,
+    "leaseState": "released",
+    "slotState": "satisfied",
+    "retainedHistories": 21,
+    "oldTwentyPreserved": true
+  },
+  "zeroDispatchAfterDeadline": {
+    "nonemptyBefore": true,
+    "requestsBefore": 3,
+    "requestsAfter": 3,
+    "executionSetUnchanged": true,
+    "requestSetUnchanged": true,
+    "requestStatusUnchanged": true,
+    "predeadlineObservedAt": "2026-10-11T00:01:14.902Z",
+    "terminalObservedAt": "2026-10-11T00:06:01.976Z"
+  },
+  "productionPolicyQualified": false,
+  "memoryQualified": false,
+  "providerCallsByCollectors": 0
+}

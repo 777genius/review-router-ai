@@ -1,11 +1,52 @@
 # Account Gateway: First-Slice Dispositions and Evidence
 
-Date: 2026-10-03. DOC PLAN corrections accepted; implementation/product gates
-remain unqualified here. Sole normative authority:
+Date: 2026-10-03. DOC PLAN corrections accepted; dated runtime evidence below
+qualifies only its named candidate and scenario. Sole normative authority:
 [contract 53](./53-account-gateway-implementation-contract.md) (include
 its exact bytes/digest in every implementation packet). [50](./50-reusable-account-gateway-and-personal-pool.md)
 preserves vision and [51](./51-account-gateway-modular-implementation-plan.md)
 owns delivery order. Historical readiness/evidence below is NONNORMATIVE.
+
+## Accepted MiMo long OIDC and Action release - 2026-10-11
+
+The [finite D-long receipt](../../docs/release-evidence/account-gateway-d-long-20261011.json)
+has SHA256 `1eb6db1c1310ec566167de2bb83182970f9011ec81273fd88a8c87e661536850`
+and verdict **PASS** for TEST server 20m/caller 25m. Run `38096112096`, attempt 1,
+head `214df7feece682ca423433e5c8574bc470c4d23b`, used TEST Action
+`2515a08bd761cc61e7f2aa354326d26530f10a57`, installed API
+`2986b337c0faee9eeb3832020e307f8c3db80385`, Gateway
+`77e4028070108fce0017a33df12e51c9f75abb55` and native
+`d746e0cd43bc0e2de19f79f45fb6a10d00973a32` / ELF SHA256
+`9902daad3393dd5c2a7071ddae9bdad4f785cf9e1046878b70496d8de458fa72`.
+
+- Twelve authenticated, untainted successful MCP dependencies and an actual
+  MiMo model match precede the strict nonempty accepted final artifact (2463 B),
+  completed coverage and same-head App publication (check `114343658768`, SUCCESS).
+- Original OIDC expired at 23:50:32 UTC; continuation was observed at 23:50:33.524
+  and review completed at 23:54:20.037 on October 10. After the October 11 server
+  deadline 00:05:35, the request at 00:05:36.965 returned 401. Nonempty execution,
+  request and status sets remained unchanged, with three completed requests.
+- Execution closed, occupancy 0, lease released and slot satisfied; all 21
+  histories were retained, including the previous 20. Genuine gpt-6.1-sol/xhigh
+  independent audit accepted this bounded receipt; report SHA256
+  `baf3b5a4fa49c6d958ca3124ebb687368154afc98939f94ef9e43ab1455fd7a5`.
+
+Accepted source-equivalence report SHA256
+`f326143464b583bb45d62d0220d44fba2452cd7defbed301a555b21934685c76`
+joins the shared production orchestration/transport/tools/final/publication
+boundary to Action `daabf92413aa0667053f169cac320279f77b9e74`; TEST timing and
+generated artifacts remain distinct. Normal Action release run
+[38097430688](https://github.com/777genius/review-router/actions/runs/38097430688)
+completed SUCCESS. Published [v1.0.157](https://github.com/777genius/review-router/releases/tag/v1.0.157)
+and stable `v1` both resolve directly to that commit, tree
+`974a03fcef8ff65338e52d87a36aa422fe8a1f61`; published `dist/index.js` is 4341414 B,
+SHA256 `50a9f0bf435b29d2b797098c46dc449ee2287d650483621f13eefedb2412f475`.
+The five CI pair fields consume that verified release tuple.
+
+This receipt does not qualify production timing/policy, memory, all-provider
+D-final, protected OAuth F, legacy retirement G, native exact-head CI or SaaS
+deployment/release. Those gates and contract 53 remain unchanged; earlier failed
+receipts retain their original outcomes.
 
 ## Opus 5.5/xhigh finding dispositions
 
