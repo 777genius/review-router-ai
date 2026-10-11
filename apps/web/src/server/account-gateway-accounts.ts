@@ -6,6 +6,7 @@ import {
   type ConsumerControlConfig,
   GatewayError,
   type ManagementClient,
+  secretSubmission,
 } from "@agent-teams/account-gateway/http";
 import {
   bindWorkspaceAccount,
@@ -87,6 +88,12 @@ export type AccountOAuthIntent = Pick<c.OAuthBegin, "profileId"> & {
   nonce: string;
   label: string;
 };
+export type AccountOAuthCompletion = Pick<
+  secretSubmission.OAuthComplete,
+  "callbackURL"
+> & {
+  nonce: string;
+};
 // A fresh Begin response is a one-off handoff, never list/operation/cache metadata.
 export type AccountOAuthBeginView = {
   operation: AccountOperationView;
@@ -135,6 +142,15 @@ const oauthIntentSchema = z.strictObject({
   profileId: c.reference,
   label,
 });
+// The SDK owns the closed callback URL grammar. Snapshot its sensitive field
+// before any await; no URL/code/state is retained in an intent or safe view.
+const oauthCompletionSchema = z.strictObject({
+  nonce: uuid,
+  callbackURL: secretSubmission.oauthCallbackURL,
+});
+export function snapshotOAuthCompletion(raw: AccountOAuthCompletion) {
+  return oauthCompletionSchema.parse(raw);
+}
 const intentSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("connect"),
@@ -307,7 +323,8 @@ export function createAccountsAdapter(input: {
       const live = await authorize(context);
       if (
         live.workspaceId !== authority.workspaceId ||
-        live.actor.userId !== authority.actor.userId
+        live.actor.userId !== authority.actor.userId ||
+        live.actor.githubUserId !== authority.actor.githubUserId
       )
         throw new Denied();
       if (mutation) await onEnter?.();
@@ -321,6 +338,8 @@ export function createAccountsAdapter(input: {
         checked(() => gateway.connect(request), true),
       beginOAuth: (request: c.OAuthBegin) =>
         checked(() => gateway.beginOAuth(request), true),
+      completeOAuth: (request: secretSubmission.OAuthComplete) =>
+        checked(() => gateway.completeOAuth(request), true),
       reauthorize: () => checked(async () => undefined),
       rename: (ref: string, request: c.Rename) =>
         checked(() => gateway.rename(ref, request), true),
@@ -845,6 +864,54 @@ export function createAccountsAdapter(input: {
       return safeFailure(error);
     }
   }
+  async function completeOAuth(
+    context: string,
+    raw: AccountOAuthCompletion,
+  ): Promise<AccountsResult<AccountOperationView>> {
+    let entered = false;
+    let nonce: string | undefined;
+    try {
+      const intent = snapshotOAuthCompletion(raw);
+      nonce = intent.nonce;
+      const authority = await authorize(context);
+      const client = scoped(context, authority, async () => {
+        entered = true;
+      });
+      const catalogue = await profiles(client);
+      if (!catalogue.some((p) => p.authKind === "oauth")) throw new Denied();
+      const request = secretSubmission.oauthComplete.parse({
+        operationId: operationRef(authority.owner, nonce),
+        ownerRef: authority.owner,
+        callbackURL: intent.callbackURL,
+      });
+      const original = await client.operation(request.operationId);
+      if (original.operationRef !== request.operationId) throw new Denied();
+      // Only the original pending operation can accept explicit completion.
+      // Terminal/unknown readback never enters sensitive ingress again.
+      const returned =
+        original.state === "pending"
+          ? await client.completeOAuth(request)
+          : original;
+      await client.reauthorize();
+      const result = await projectOperation(
+        authority,
+        nonce,
+        returned,
+        catalogue,
+        client,
+        { profileId: codexOAuthProfileId },
+      );
+      await client.reauthorize();
+      return { status: "ok", value: result };
+    } catch (error) {
+      if (entered && nonce)
+        return {
+          status: "ok",
+          value: { nonce, state: "unknown", cleanup: "unresolved" },
+        };
+      return safeFailure(error);
+    }
+  }
   async function operation(
     context: string,
     rawNonce: string,
@@ -1134,6 +1201,7 @@ export function createAccountsAdapter(input: {
     list,
     mutate,
     beginOAuth,
+    completeOAuth,
     operation,
     bind,
     changeGrant,
@@ -1274,6 +1342,63 @@ export function createDisabledPersonalAccountsAdapter(input: {
           dependencies,
         ),
       );
+    },
+    async completeOAuth(raw: AccountOAuthCompletion) {
+      try {
+        const safe = snapshotOAuthCompletion(raw);
+        const actorUserId = await input.authorizeUser();
+        const original = await input.store.readOperation(
+          actorUserId,
+          safe.nonce,
+        );
+        if (
+          original.id !== personalOperationId(actorUserId, safe.nonce) ||
+          original.intent.actorUserId !== actorUserId ||
+          original.intent.clientOperationId !== safe.nonce ||
+          original.intent.action !== "connect" ||
+          original.intent.ingress !== "oauth-begin" ||
+          profiles.get(original.intent.profileId) !== "oauth-begin"
+        )
+          throw new Denied();
+        async function reauthorize() {
+          if ((await input.authorizeUser()) !== actorUserId) throw new Denied();
+          // The store also checks the live original personal ownership scope.
+          const live = await input.store.readOperation(actorUserId, safe.nonce);
+          if (
+            live.id !== original.id ||
+            live.intent.personalWorkspaceId !==
+              original.intent.personalWorkspaceId ||
+            (await input.authorizeUser()) !== actorUserId
+          )
+            throw new Denied();
+        }
+        async function checked<T>(call: () => Promise<T>): Promise<T> {
+          await reauthorize();
+          const result = await call();
+          await reauthorize();
+          return result;
+        }
+        await reauthorize();
+        if (["reserved", "applied", "rejected"].includes(original.phase))
+          return view(original);
+        const request = secretSubmission.oauthComplete.parse({
+          operationId: original.id,
+          ownerRef: userOwner(actorUserId),
+          callbackURL: safe.callbackURL,
+        });
+        const receipt = await checked(() => client.operation(original.id));
+        if (receipt.operationRef !== original.id) throw new Denied();
+        if (receipt.state === "pending")
+          await checked(() => client.completeOAuth(request));
+        return view(
+          await checked(() =>
+            readPersonalAccountOperation(actorUserId, safe.nonce, dependencies),
+          ),
+        );
+      } catch {
+        // No callback, SDK diagnostic or transport error escapes this seam.
+        throw new ProviderAccountError("connection_unavailable");
+      }
     },
     async attach(
       raw: z.input<typeof selection> & {

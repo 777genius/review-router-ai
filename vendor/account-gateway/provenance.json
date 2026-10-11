@@ -2,9 +2,9 @@
   "package": "@agent-teams/account-gateway",
   "version": "0.1.0",
   "sourceRepository": "https://github.com/agent-teams-ai/account-gateway",
-  "sourceCommit": "e8c9216ff51647b6712471f45990e1c0477ce4e7",
-  "sha256": "a95ff89c10188794ea714f6a26f62d62d456c41f62e405daf7b826abc6f0ea7d",
-  "integrity": "sha512-O5gTDFvTPqAkaGP6VxRzCle0z4itlEJUD/L6lkf5x1+t3TnOClKr7nusvHaq3X4BC+PyXfLn6egW9fA1jQKCIQ==",
+  "sourceCommit": "d96569febce760fda025f917aa076aeb6b54d117",
+  "sha256": "4b361b665064320ac50080dfb45db7e475c7f707baf0411a4bac27c83932e310",
+  "integrity": "sha512-9LfL15kqtw6BbLCzw85U8FdbKe4jCityaofHvmOqgVS5glodtJBUxTLuYhHOK4RteL9xBqY03GRFGpXBZVkPNw==",
   "private": true,
   "published": false,
   "sourceFiles": [
@@ -14,7 +14,7 @@
     },
     {
       "path": "packages/account-gateway/README.md",
-      "sha256": "2f07d30385b2894940e07645b83c4a9d7edee74bc6536b87ed656ce2144e2079"
+      "sha256": "ebe03161a3ef0060a024bdf6bb578f161691f3a36e3f9890933fbae2777e2875"
     },
     {
       "path": "packages/account-gateway/src/http/index.ts",
@@ -30,30 +30,29 @@
     },
     {
       "path": "packages/account-gateway/src/features/facade-client/http/ingress.ts",
-      "sha256": "48324f85e7d32886f229618742615b608cd2f1423f6c9ee9b6d086438736708f"
+      "sha256": "11e81ca8cb74068029d18f4b9f04bebf7416dae70c501c7dc5fd3f07b3fb4083"
     },
     {
       "path": "packages/account-gateway/src/features/facade-client/http/index.ts",
-      "sha256": "f970b9efcca3145bad7ac8dd0a22f091fa7903cd53010376deb7647d3116a460"
+      "sha256": "56bb3492cb7ecd2826b847027f72fe99bc4a3d7aa07bb40d2a37b55977df7cdb"
     },
     {
       "path": "packages/account-gateway/src/features/facade-client/contracts/index.ts",
       "sha256": "6970e0650d607298be29893132a9d6f8bbf442f4ebd8bd9a780334c2826fe7a8"
     }
   ],
-  "sourceTree": "81618fff86dfaaddee9d010e2262243fe524feac",
-  "reviewedSourceCommit": "e3c5b20656880b449e8126d25776dbe491a0df19",
-  "sourceArchiveSha256": "e7df942a01b913b486ff4ffd53db01bd476abb63ef1262225ea829ca20a693b2",
+  "sourceTree": "589d7359be90da5977c59aab3df4c7027167eb00",
+  "reviewedSourceCommit": "d96569febce760fda025f917aa076aeb6b54d117",
   "build": {
     "node": "24.21.0",
     "typescript": "7.0.2",
     "sourceInstall": "pnpm@11.28.2 install --frozen-lockfile",
-    "commands": ["node scripts/build.mjs", "npm pack --ignore-scripts"]
+    "commands": [
+      "node scripts/build.mjs",
+      "pnpm --dir packages/account-gateway pack --pack-destination /srv/workers/TEST-rr-f-owner-completion-checks-oct11/sdk-archive"
+    ]
   },
-  "qualificationRuns": [
-    "https://github.com/agent-teams-ai/account-gateway/actions/runs/37525751783",
-    "https://github.com/agent-teams-ai/account-gateway/actions/runs/37525751845"
-  ],
+  "qualificationRuns": [],
   "buildInputs": [
     {
       "path": "scripts/build.mjs",
@@ -71,7 +70,7 @@
   "archiveFiles": [
     {
       "path": "README.md",
-      "sha256": "2f07d30385b2894940e07645b83c4a9d7edee74bc6536b87ed656ce2144e2079"
+      "sha256": "ebe03161a3ef0060a024bdf6bb578f161691f3a36e3f9890933fbae2777e2875"
     },
     {
       "path": "dist/contracts/index.d.ts",
@@ -91,23 +90,23 @@
     },
     {
       "path": "dist/features/facade-client/http/index.d.ts",
-      "sha256": "7d9e7acb42a919cff543fa9e3388b2c43e83081e601a5b597c4422551e51139f"
+      "sha256": "47e65a6c4a9582296f987a014991528425d36192d593182c1aca6ea5721d19bd"
     },
     {
       "path": "dist/features/facade-client/http/index.js",
-      "sha256": "49d148086525e4b538f0b9a271c85f29a4eeac84f1bbe9b10a343e488925f109"
+      "sha256": "6bf268b6fee14bbc48c3a2f2f01054fd1bf57b56bdd5dad3c85efb9382d1b970"
     },
     {
       "path": "dist/features/facade-client/http/ingress.d.ts",
-      "sha256": "f60e582b7912189e14e817ea9aa95be1bec6cdb2fdf9300bc2b59bc22a8cf767"
+      "sha256": "3af901d32f9290e17b8abbdc2bacbca6beb1c600f4113aa629582cd1cf9bc9ad"
     },
     {
       "path": "dist/features/facade-client/http/ingress.js",
-      "sha256": "2f8fd87eb60b98faccdb72b8282310c3e60ec03955942878615472561178e6ee"
+      "sha256": "ebc5ede13697169b07cd145757043d1b7219187782a0992e1194e9cc81bf02f5"
     },
     {
       "path": "dist/get-modular/index.d.ts",
-      "sha256": "5ae5da536e9f12025e4173969bc45533b563c572ef144c4217e5c427f61a7d4c"
+      "sha256": "65220024f7991d56e0c054059e6a9b7f59274a3fe3cc871a0d207881ed00b0a9"
     },
     {
       "path": "dist/get-modular/index.js",
@@ -123,7 +122,22 @@
     },
     {
       "path": "package.json",
-      "sha256": "6ce2154f64ddac9228576af40e747bad8a96340783fd03fbead53f49d6a7a488"
+      "sha256": "c559a38262321a8eb43e37a163bf72315b483e7b19ff907b7c7884155b61602f"
     }
-  ]
+  ],
+  "sourceQualification": {
+    "kind": "focused-host-source-checks",
+    "verdict": "PASS",
+    "patchSHA256": "73d0f88e1908cbe4de75199141a59a421612f52c932961e26325dad35a782219",
+    "receiptSHA256": "ca51e69e00d7b8025cc5d89aa39a198c43b28fb6d64f7fdc14384de6f34534cd",
+    "gates": [
+      "frozen-install",
+      "sdk-build",
+      "facade-ingress",
+      "service-strict-typecheck",
+      "sdk-pack"
+    ],
+    "independentSourceReview": "SOURCE_GO; no P1/P2",
+    "providerCalls": 0
+  }
 }

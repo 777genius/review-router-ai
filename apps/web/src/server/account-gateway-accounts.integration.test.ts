@@ -83,6 +83,9 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
     const foreignProfileId = "fixture-openrouter-chat";
     const oauthProfileId = "openai-codex-oauth-responses-v1";
     const oauthState = `oauth-state-${randomUUID()}`;
+    const callbackCode = `synthetic-callback-${randomUUID()}`;
+    const callbackState = "b".repeat(64);
+    const callbackURL = `http://localhost:1455/auth/callback?code=${callbackCode}&state=${callbackState}`;
     const authorizationURL = `https://auth.openai.com/oauth/authorize?${new URLSearchParams(
       {
         client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
@@ -99,10 +102,13 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
     let hidePersonalReadback = true;
     let personalOperationId = "";
     let oauthBeginEntries = 0;
+    let oauthCompleteEntries = 0;
     const genericReadRefs: string[] = [];
     let personalWorkspaceId: string | undefined;
     let selectedWorkspace = workspaceId;
     let afterOAuthBegin: (() => Promise<void>) | undefined;
+    let afterOAuthRead: (() => Promise<void>) | undefined;
+    let afterOAuthComplete: (() => Promise<void>) | undefined;
     let httpReads = 0;
     let mutationEntries = 0;
     let owner = "";
@@ -181,6 +187,9 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
             const receipt = operations.get(
               decodeURIComponent(url.pathname.slice("/v1/operations/".length)),
             );
+            const readHook = afterOAuthRead;
+            afterOAuthRead = undefined;
+            await readHook?.();
             return receipt
               ? json(response, receipt.state === "pending" ? 202 : 200, receipt)
               : json(response, 404, {
@@ -235,6 +244,19 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
             return;
           }
           return json(response, 202, { operation: receipt, authorizationURL });
+        }
+        if (url.pathname === "/v1/accounts/oauth/complete") {
+          assert.equal(request.method, "POST");
+          const input = secretSubmission.oauthComplete.parse(raw);
+          assert.equal(input.ownerRef, owner);
+          assert.equal(input.callbackURL, callbackURL);
+          const receipt = operations.get(input.operationId);
+          assert.equal(receipt?.state, "pending");
+          oauthCompleteEntries++;
+          const effectHook = afterOAuthComplete;
+          afterOAuthComplete = undefined;
+          await effectHook?.();
+          return json(response, 202, receipt);
         }
         if (url.pathname === "/v1/accounts") {
           const input = secretSubmission.connect.parse(raw);
@@ -1012,6 +1034,120 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       );
       assert.equal(oauthBeginEntries, 1);
       assert.equal(genericReadRefs.at(-1), oauthOp);
+      // RED: caller selectors, malformed URLs, another owner/nonce or lost
+      // current admin authority can enter sensitive completion ingress.
+      const completion = { nonce: oauthIntent.nonce, callbackURL };
+      const beforeCompleteReads = httpReads;
+      assert.equal(
+        observe(
+          await oauthAdapter.completeOAuth("a", {
+            ...completion,
+            callbackURL: `${callbackURL}&state=${callbackState}`,
+          }),
+        ).status,
+        "invalid",
+      );
+      assert.equal(httpReads, beforeCompleteReads);
+      assert.equal(
+        observe(
+          await oauthAdapter.completeOAuth("a", {
+            ...completion,
+            accountRef: "caller-selected-account",
+          } as typeof completion),
+        ).status,
+        "invalid",
+      );
+      assert.equal(
+        observe(await oauthAdapter.completeOAuth("member", completion)).status,
+        "denied",
+      );
+      assert.notEqual(
+        observe(await oauthAdapter.completeOAuth("b", completion)).status,
+        "ok",
+      );
+      assert.notEqual(
+        observe(
+          await oauthAdapter.completeOAuth("a", {
+            ...completion,
+            nonce: randomUUID(),
+          }),
+        ).status,
+        "ok",
+      );
+      operations.set(oauthOp, {
+        operationRef: "wrong-original-operation",
+        state: "pending",
+      });
+      // The real SDK rejects a response for another operation before projection.
+      assert.equal(
+        observe(await oauthAdapter.completeOAuth("a", completion)).status,
+        "unavailable",
+      );
+      assert.equal(oauthCompleteEntries, 0);
+      operations.set(oauthOp, { operationRef: oauthOp, state: "pending" });
+      afterOAuthRead = async () => {
+        await db.workspaceMember.updateMany({
+          where: { workspaceId, userId: actor.userId! },
+          data: { role: "member" },
+        });
+      };
+      assert.equal(
+        observe(await oauthAdapter.completeOAuth("a", completion)).status,
+        "denied",
+      );
+      assert.equal(oauthCompleteEntries, 0);
+      await db.workspaceMember.updateMany({
+        where: { workspaceId, userId: actor.userId! },
+        data: { role: "admin" },
+      });
+      assert.equal(
+        ok(observe(await oauthAdapter.completeOAuth("a", completion))).state,
+        "pending",
+      );
+      assert.equal(oauthCompleteEntries, 1);
+      afterOAuthComplete = async () => {
+        await db.workspaceMember.updateMany({
+          where: { workspaceId, userId: actor.userId! },
+          data: { role: "member" },
+        });
+      };
+      const completionRevoked = ok(
+        observe(await oauthAdapter.completeOAuth("a", completion)),
+      );
+      assert.deepEqual(completionRevoked, {
+        nonce: oauthIntent.nonce,
+        state: "unknown",
+        cleanup: "unresolved",
+      });
+      assert.equal(oauthCompleteEntries, 2);
+      await db.workspaceMember.updateMany({
+        where: { workspaceId, userId: actor.userId! },
+        data: { role: "admin" },
+      });
+      // A read of unknown/terminal state cannot repeat completion.
+      for (const state of ["unknown", "rejected"] as const) {
+        operations.set(
+          oauthOp,
+          state === "unknown"
+            ? { operationRef: oauthOp, state }
+            : {
+                operationRef: oauthOp,
+                state,
+                error: {
+                  code: "conflict",
+                  traceRef: "fixture-rejected",
+                  effect: "not_dispatched",
+                  retry: { kind: "never" },
+                },
+              },
+        );
+        assert.equal(
+          ok(observe(await oauthAdapter.completeOAuth("a", completion))).state,
+          state,
+        );
+      }
+      assert.equal(oauthCompleteEntries, 2);
+      operations.set(oauthOp, { operationRef: oauthOp, state: "pending" });
       account = {
         accountRef: `${prefix}-oauth`,
         ownerRef: owner,
@@ -1068,6 +1204,11 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         observe(await oauthAdapter.operation("a", oauthIntent.nonce)),
       ).account!;
       assert.equal(oauthRow.state, "active");
+      assert.equal(
+        ok(observe(await oauthAdapter.completeOAuth("a", completion))).state,
+        "applied",
+      );
+      assert.equal(oauthCompleteEntries, 2);
       ok(
         observe(
           await oauthAdapter.bind("a", {
@@ -1202,6 +1343,9 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       for (const secret of [
         authorizationURL,
         oauthState,
+        callbackURL,
+        callbackCode,
+        callbackState,
         "code_challenge",
         "authorizationURL",
         "refresh_token",
@@ -1243,6 +1387,16 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         personal().connect(personalIntent, sentinel),
       ]);
       assert.equal(personalIngressEntries, 1);
+      // Original personal ingress kind and owner are loaded from the store;
+      // an API-key nonce or foreign user's nonce cannot enter OAuth completion.
+      const beforePersonalComplete = oauthCompleteEntries;
+      await assert.rejects(
+        personal().completeOAuth({
+          nonce: personalIntent.nonce,
+          callbackURL,
+        }),
+      );
+      assert.equal(oauthCompleteEntries, beforePersonalComplete);
       assert.ok(attempts.every((r) => r.operation.sourceId === null));
       const personalOriginal = await store.readOperation(
         stableUser,
@@ -1313,6 +1467,13 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       });
       const beforeForeign = httpReads;
       await assert.rejects(foreign.operation(personalIntent.nonce));
+      await assert.rejects(
+        foreign.completeOAuth({
+          nonce: personalIntent.nonce,
+          callbackURL,
+        }),
+      );
+      assert.equal(oauthCompleteEntries, beforePersonalComplete);
       assert.equal(httpReads, beforeForeign); // foreign receipt never reaches Gateway
       // Existing production personal zero-entry assertions above remain mandatory;
       // public factory/list/GET never materializes these pending/applied sources.

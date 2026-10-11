@@ -26,6 +26,7 @@ import type {
 } from "../../src/server/account-gateway-accounts";
 import {
   beginGatewayOAuth,
+  completeGatewayOAuth,
   bindGatewayAccount,
   listGatewayAccounts,
   readGatewayOperation,
@@ -37,6 +38,7 @@ import { AccountGatewayControls } from "./account-gateway-account-controls";
 // primitives are real; this suite starts no service and sends no OAuth request.
 vi.mock("./account-gateway-account-actions", () => ({
   beginGatewayOAuth: vi.fn(),
+  completeGatewayOAuth: vi.fn(),
   bindGatewayAccount: vi.fn(),
   listGatewayAccounts: vi.fn(),
   readGatewayOperation: vi.fn(),
@@ -53,6 +55,9 @@ const browserLocalStorage = (
 const capability =
   "https://auth.openai.com/oauth/authorize?synthetic-owner-capability";
 const savedNonce = "9874b2bc-e987-4456-9212-7f94f58932da";
+const callbackCode = "synthetic-callback-secret";
+const callbackState = "b".repeat(64);
+const callbackURL = `http://localhost:1455/auth/callback?code=${callbackCode}&state=${callbackState}`;
 const clients = new Set<QueryClient>();
 const cacheSnapshots: string[] = [];
 let page: AccountsPage;
@@ -111,6 +116,22 @@ function assertNoCapability() {
   expect(actual).not.toContain(capability);
   expect(actual).not.toContain("synthetic-owner-capability");
   expect(actual).not.toContain("authorizationURL");
+}
+function assertNoCallback() {
+  const actual = [
+    ...cacheSnapshots,
+    ...[...clients].map(caches),
+    JSON.stringify(storageWrites.mock.calls),
+    JSON.stringify({ ...sessionStorage, ...browserLocalStorage }),
+    document.body.innerHTML,
+    JSON.stringify(vi.mocked(readGatewayOperation).mock.calls),
+  ].join("\n");
+  for (const secret of [callbackURL, callbackCode, callbackState])
+    expect(actual).not.toContain(secret);
+  const field = screen.queryByLabelText(
+    "Browser callback URL",
+  ) as HTMLInputElement | null;
+  if (field) expect(field.value).toBe("");
 }
 async function mount() {
   const view = render(
@@ -316,6 +337,78 @@ test("fresh OAuth handoff bypasses caches/storage and pending readback never reo
   expect(handoff).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).toHaveBeenCalledTimes(1);
   assertNoCapability();
+});
+
+// RED if callback ingress retains the DOM secret while awaiting, caches it,
+// navigates to localhost, reflects a thrown diagnostic or automatically retries.
+test("pending OAuth callback is cleared before ingress and lost ACK retains only safe readback", async () => {
+  let rejectComplete!: (error: Error) => void;
+  vi.mocked(completeGatewayOAuth).mockImplementationOnce(() => {
+    assertNoCallback();
+    return new Promise((_resolve, reject) => {
+      rejectComplete = reject;
+    });
+  });
+  await mount();
+  await startEnrollment();
+  await screen.findByText("Operation 1: pending");
+  const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
+  fireEvent.click(screen.getByRole("button", { name: "Paste OAuth callback" }));
+  const dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByText(/localhost cannot connect/)).toBeTruthy();
+  fireEvent.change(within(dialog).getByLabelText("Browser callback URL"), {
+    target: { value: callbackURL },
+  });
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Complete authorization" }),
+  );
+  await waitFor(() => expect(completeGatewayOAuth).toHaveBeenCalledTimes(1));
+  expect(completeGatewayOAuth).toHaveBeenCalledWith(context, {
+    nonce,
+    callbackURL,
+  });
+  assertNoCallback();
+  await act(async () => rejectComplete(new Error(callbackURL)));
+  await screen.findByText("Operation 1: unknown");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual([nonce]);
+  expect(handoff).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).toHaveBeenCalledExactlyOnceWith(capability);
+  expect(completeGatewayOAuth).toHaveBeenCalledTimes(1);
+  assertNoCapability();
+  assertNoCallback();
+});
+
+test("callback completion uses the saved nonce and stores only the safe acknowledgment", async () => {
+  sessionStorage.setItem(storageKey, JSON.stringify([savedNonce]));
+  vi.mocked(completeGatewayOAuth).mockImplementationOnce(
+    async (_context, intent) => {
+      assertNoCallback();
+      return safeOperation(intent.nonce, "applied");
+    },
+  );
+  await mount();
+  await screen.findByText("Operation 1: pending");
+  fireEvent.click(screen.getByRole("button", { name: "Paste OAuth callback" }));
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.change(within(dialog).getByLabelText("Browser callback URL"), {
+    target: { value: callbackURL },
+  });
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Complete authorization" }),
+  );
+  await screen.findByText("Operation 1: applied");
+  expect(completeGatewayOAuth).toHaveBeenCalledExactlyOnceWith(context, {
+    nonce: savedNonce,
+    callbackURL,
+  });
+  expect(
+    screen.queryByRole("button", { name: "Paste OAuth callback" }),
+  ).toBeNull();
+  expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(handoff).not.toHaveBeenCalled();
+  expect(reserved.location.replace).not.toHaveBeenCalled();
+  assertNoCallback();
 });
 
 // RED regression: treating lost Begin ACK as no effect, dropping its nonce, or

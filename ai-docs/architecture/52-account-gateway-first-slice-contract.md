@@ -180,6 +180,94 @@ quarantine, key rotation/readback/erase, old admission/refresh/grants closure,
 sole refresh writer and retained unknown effects remain required before new
 real-user work. No source receipt or disabled staging waives those checks.
 
+## Accepted composed evidence and main source checkpoint - 2026-10-11
+
+The following accepted receipts qualify their original scenarios and source
+tuples. They preserve earlier failures and unknown effects; they are not new
+provider calls or production custody evidence.
+
+- **C3 Accounts and batch UI:** actual Chromium attempt 15 at
+  `8485056518a1f7995936440d513283e1326d48d0` qualified the two disposable
+  repositories `1317214237` and `1317220367`: conflict/applied per-target CAS,
+  preserved selections and
+  truthful partial result after RSC refetch, unchanged secret names and exact
+  configuration restoration. Receipt `c1e52d1b479a216f8f13190a857b5c52227aac64bea7ba6b4c585ce169329986`,
+  scenario `0defd48032257089e39cda0a989c689adc6fdb4210fec9d845e8dd70a58aea35`
+  and cleanup `e5f755797f29861c310bdd7dda050760250bb221ff6a42844862655f7f6a9f41`
+  are SHA256 bindings. Cleanup removed the browser profile and test rows;
+  the canary binding was intentionally retained. Accepted source-impact receipt
+  `b4deb97d2e2bd42cb1fd0bcf561fc4b76ad71fcec68be15ffee268568688dad6`
+  binds the original proof to ROOT899. Bounded follow-up source inspection
+  permits reuse across PR550 and main below: from ROOT899, the
+  Accounts/batch production paths remain unchanged; the only web delta is the
+  Node26 OAuth test storage-realm repair. This is reuse of attempt 15, not a new
+  main-head browser run or acceptance of the pending public OAuth callback UI.
+- **Numeric closure and cleanup, non-RAM:**
+  `fixture.actual.public.json` SHA256
+  `a2c5b53dbd6b91d290f0bb3fc27a4f2def0e75b2e773487fd8a4e8446825cfaf`
+  records one selected test PASS, no replay/build/provider call, and the existing
+  45000 ms automatic-closure and 5000 ms cleanup-settlement assertions passing.
+  Per-bound durations were not emitted. Final occupancy is zero; the execution
+  scope and cgroup are absent. One unknown effect remains retained alongside
+  three completed requests. The previous failed nonce remains historical.
+  This qualifies neither RAM/MaximumCopy32 nor production erasure.
+- **E OpenRouter:** the finite nano receipt linked above remains accepted at
+  its original native/Gateway/API tuple and published Action158. It proves
+  authenticated tools, strict nonempty final review, same-head App publication
+  and exact closure; it is not rerun or relabelled to the newer native source.
+- **S composed operator workspace:**
+  `S-composed-acceptance.actual.public.json` SHA256
+  `498a73a57a940b2bf99ead6fe3492bbb6c0d8ca1a393db6694747e086ef4ab71`
+  records original invocation `40010` EXIT0 and exactly one selected PASS with
+  no failed or pending tests. Genuine Go/Node/PostgreSQL with controlled TLS
+  proved the canonical operator owner, persisted X/Y grants, shared cap one,
+  ungranted denial, X revoke with Y live, held original ACK and continuous SQL
+  showing no early release, then Y completion. Final SQL retains X unknown and
+  spent, Y completed, two pre-dispatch denials and global occupancy zero; the
+  execution scope and cgroup are absent. The shared ACK peer is a fixture-only
+  correction, SHA256 `4159d5eed8ea55f44c6121d07ae8ff75c9f5eb0483f0f58f653d8be72c48ac3b`.
+  This bounded profile made no real-provider calls and claims no erasure.
+
+The numeric and S receipts both pin Gateway
+`d73861a85e2a581b4006738a085036219a62af53`, native
+`82a6c219414996c8780b20d057629a5cd97da7f4` and native ELF SHA256
+`866c342af8234676ad34b4e38ac24c016b011ab8b64833a5c93c380a6f874640`.
+Their historical pins remain distinct from native PR33's qualified source
+`3d3ea7a40a2bff649a241025a935f8136fa9fe5e`, normal merge
+`135fd7dee9ab1d93552709a05805d01867ce3c0b` and CI `38132249332` PASS.
+Gateway PR44 merged as `16e1cc992e0447040faa6fbb4354a85c5000efbf` with both
+CI runs `38131753903` and `38131753934` PASS; its production service/SDK
+source remains equivalent to accepted `c598146dfc63113635e4bfd6efd8df7cd10fe127`.
+Platform installation-source PRs `777genius/platform-infra#455` and `#456`
+merged as `8e30074b68275193ed1e2836fe57054dbc1838be` and
+`4c73b0868ef223d02236f2d4c1d1a310944737d5`. They prepare inactive installation;
+neither source merge establishes production native custody or activation.
+
+SaaS PR550 merged as `924c7c5d88483ecc7fd24e00baacaadfc85a66a2`, preserving
+current-main contributor history and the reviewed operational source pins.
+ROOT PR490 then merged normally as
+`d9d8dc89ee04143dcd9ad1d067a96af160a10086`, parents
+`62ba30e90a6e644be7cd2a2a6dc451e85a77d780` and
+`f70ff158e071944b053f8c785f0f827b1b6d0b94`, tree
+`72aeee652736fe964a5faa212c4a68dcb28eb118`, after all ten enabled exact-head
+PR CI jobs passed. Private PG16-to-17 was intentionally skipped on that PR;
+the automatic protected-main run `38139493237`, attempt 1, then passed all
+eleven jobs, including the private rehearsal and Dedicated Release Authority
+PG17 contract. Both release-gate manifests bind this exact commit/run/job;
+their archive digests match GitHub metadata. The paired Action artifact binds
+SaaS `d9d8dc89ee04143dcd9ad1d067a96af160a10086` to published Action
+`4cb00b4598974bc8fb5feafc1b1699ca76ca32af`. This qualifies the recorded source
+checkpoint; a later final F/docs release candidate requires its own exact-SHA
+trusted CI evidence under the unchanged release contract.
+
+Public-user native OAuth F remains incomplete: the localhost callback SSH spike
+does not prove ordinary user enrollment through the RR UI, and the bounded
+callback-completion component has its own qualification. Production G
+installation/custody, new-issuer restore/quarantine, rotation/readback/erase and
+retirement remain required before activation. Accepted D-long, C3, E, numeric
+closure and bounded S do not waive these gates. RAM STOP and the MaximumCopy32
+exclusion remain unchanged; unknown effect ledgers and old failures stay retained.
+
 ## Opus 5.5/xhigh finding dispositions
 
 Every finding is resolved at plan level individually; the table records accepted

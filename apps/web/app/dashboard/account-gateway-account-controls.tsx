@@ -21,6 +21,7 @@ import type {
 import {
   bindGatewayAccount,
   beginGatewayOAuth,
+  completeGatewayOAuth,
   detachGatewayAccount,
   changeGatewayOperatorGrant,
   listGatewayAccounts,
@@ -509,6 +510,10 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
               index={index + 1}
               dismiss={() => dismiss(nonce)}
               refresh={refresh}
+              oauthEnabled={
+                data?.status === "ok" &&
+                data.value.profiles.some((p) => p.authKind === "oauth")
+              }
             />
           ))}
         </div>
@@ -712,6 +717,7 @@ function OperationReadback({
   index,
   dismiss,
   refresh,
+  oauthEnabled,
 }: {
   context: string;
   scope: string;
@@ -719,7 +725,9 @@ function OperationReadback({
   index: number;
   dismiss(): void;
   refresh(): Promise<void>;
+  oauthEnabled: boolean;
 }) {
+  const client = useQueryClient();
   const [pollUntil] = useState(() => Date.now() + 60000);
   const operation = useQuery({
     queryKey: operationKey(scope, nonce),
@@ -756,12 +764,121 @@ function OperationReadback({
       >
         Check status
       </Button>
+      {state === "pending" && oauthEnabled ? (
+        <OAuthCompletionForm
+          context={context}
+          nonce={nonce}
+          accept={async (result) => {
+            client.setQueryData(operationKey(scope, nonce), result);
+            await refresh();
+          }}
+        />
+      ) : null}
       {terminal ? (
         <Button variant="outline" size="sm" onClick={dismiss}>
           Dismiss
         </Button>
       ) : null}
     </div>
+  );
+}
+
+function OAuthCompletionForm({
+  context,
+  nonce,
+  accept,
+}: {
+  context: string;
+  nonce: string;
+  accept(result: AccountsResult<AccountOperationView>): Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const submitting = useRef(false);
+  async function complete(callbackURL: string) {
+    if (submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
+    setMessage("");
+    try {
+      // A one-off server action is the only destination for the transient URL.
+      const result = await completeGatewayOAuth(context, {
+        nonce,
+        callbackURL,
+      });
+      if (result.status !== "ok") {
+        setMessage(statusText(result.status));
+        return;
+      }
+      setOpen(false);
+      await accept(result);
+    } catch {
+      setOpen(false);
+      await accept({
+        status: "ok",
+        value: { nonce, state: "unknown", cleanup: "unresolved" },
+      });
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  }
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger
+        render={<Button variant="outline" size="sm" disabled={busy} />}
+      >
+        Paste OAuth callback
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Backdrop />
+        <Dialog.Popup>
+          <Dialog.Title className="text-lg font-semibold">
+            Complete Codex authorization
+          </Dialog.Title>
+          <Dialog.Description className="mt-2 text-sm text-slate-400">
+            Finish authorizing Codex in the browser tab opened for this
+            operation. Copy the full address from that tab and paste it below,
+            even if the browser says localhost cannot connect. The address
+            starts with http://localhost:1455/auth/callback. It is cleared when
+            submitted.
+          </Dialog.Description>
+          <form
+            className="mt-4 grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const field = form.elements.namedItem(
+                "callbackURL",
+              ) as HTMLInputElement;
+              const callbackURL = field.value;
+              field.value = "";
+              form.reset(); // Clear the uncontrolled secret BEFORE any await.
+              void complete(callbackURL);
+            }}
+          >
+            <label className="grid gap-2 text-sm">
+              Browser callback URL
+              <input
+                className={inputClass}
+                type="text"
+                name="callbackURL"
+                autoComplete="off"
+                spellCheck={false}
+                required
+                maxLength={8192}
+                disabled={busy}
+              />
+            </label>
+            {message ? <p role="status">{message}</p> : null}
+            <Button type="submit" disabled={busy}>
+              Complete authorization
+            </Button>
+          </form>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
