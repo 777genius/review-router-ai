@@ -48,6 +48,32 @@ D-final, protected OAuth F, legacy retirement G, native exact-head CI or SaaS
 deployment/release. Those gates and contract 53 remain unchanged; earlier failed
 receipts retain their original outcomes.
 
+## Delivery acceleration decision - 2026-10-11
+
+Execution policy only; contract 53 remains the sole normative acceptance authority.
+
+- Prioritize MiMo/OAuth tools, validated final review, same-head App publication
+  and coherent Action/SaaS release. Reuse accepted bounded D-long evidence within
+  its recorded scope.
+- Stop the separate RAM lane, including the existing optional
+  `TestGatewayNativeMiMoMaximumCopy32` observer/client fixture. No RAM probes,
+  new measurements or new maximum-body copy-risk tests in this finish. Preserve
+  its original FAIL and all failed/unqualified receipts; this stop does not
+  qualify numeric memory gates for D-final.
+- Reuse accepted exact-source review, CI, built artifacts and lockfile-bound
+  dependency caches when the relevant source and dependencies are unchanged.
+- After a necessary fix, verify the smallest unproven boundary; retain normal
+  mandatory CI and independent review for the final candidate.
+- Reuse owned runtime fixtures and disposable repositories. Preserve unknown
+  effects and replay protection; necessary bounded TEST runs require fresh
+  source/authority checks and no automatic replay after an unknown outcome.
+- Required lifetime/cleanup, ordinary transport closure, actual OIDC and
+  custody/restore checks, actual tools, a nonempty validated final, same-head
+  publication and the normal release process remain required. Keep external
+  CI restrictions explicit; missing or failed checks are not PASS.
+- No new SDK/platform abstractions, architecture/provider expansion or optional
+  coverage work is planned for this finish.
+
 ## Opus 5.5/xhigh finding dispositions
 
 Every finding is resolved at plan level individually; the table records accepted
