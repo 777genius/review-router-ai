@@ -1,22 +1,22 @@
 # Private Account Gateway SDK artifact
 
-Internal private SDK0.1.0 from accepted Gateway source
-`e8c9216ff51647b6712471f45990e1c0477ce4e7` (Gateway PR23 merge).
-Its tree `81618fff86dfaaddee9d010e2262243fe524feac` matches the independently
-reviewed and CI-qualified head `e3c5b20656880b449e8126d25776dbe491a0df19`.
-This artifact is not an npm publication or a release. The prepared 14-entry,
-14738-byte public package includes protected OAuth Begin contracts and the
-server-only consumer-control factory through the existing `/http` export.
-The existing pinned build produces packaged dist and declarations;
-provenance.json records public source/build input/package file hashes,
-source qualification runs and tarball integrity. Rebuild with the library's existing
-`node scripts/build.mjs` and `npm pack --ignore-scripts` in an isolated workspace.
+Internal private SDK0.1.0 from Gateway source
+`d96569febce760fda025f917aa076aeb6b54d117`, tree
+`589d7359be90da5977c59aab3df4c7027167eb00`.
+The independently reviewed source passed the existing frozen install, SDK build,
+facade ingress fixture, strict service typecheck and normal package command.
+This 15907-byte private archive is not an npm publication or a release.
+`provenance.json` records source/build/package hashes and tarball integrity.
+Rebuild using the library's existing `node scripts/build.mjs` and normal
+`pnpm --dir packages/account-gateway pack` in an isolated workspace.
 
-RR backend consumes `/contracts` and server-only `/http`. Neither upstream key
-nor private execution/run-control bearer is part of this artifact or frontend API.
-A future published package can replace this file dependency without changing ports.
+RR backend consumes `/contracts` and server-only `/http`. The archive includes
+protected OAuth Begin and callback-completion contracts and the existing
+consumer-control factory. Upstream keys and private execution/run-control
+bearers are absent from the artifact and frontend API.
 
-OAuth enrollment is opt-in for the exact `openai-codex-oauth-responses-v1`
-profile. Trusted native callback forwarding to the fixed
-`http://localhost:1455/auth/callback` is a prerequisite owned elsewhere.
-This repin does not qualify a live OAuth provider or introduce a public callback.
+OAuth enrollment remains opt-in for `openai-codex-oauth-responses-v1`.
+The ordinary Accounts form submits the fixed `http://localhost:1455/auth/callback`
+URL once through the authenticated server adapter and scoped Gateway management
+path. The URL is secret input and is never fetched or retained in client caches.
+This source repin does not qualify a live OAuth provider or production custody.

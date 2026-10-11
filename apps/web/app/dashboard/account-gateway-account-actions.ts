@@ -2,8 +2,10 @@
 
 import {
   accountsServerAdapter,
+  snapshotOAuthCompletion,
   type AccountIntent,
   type AccountOAuthIntent,
+  type AccountOAuthCompletion,
   type AccountOAuthBeginView,
   type AccountOperationView,
   type AccountsPage,
@@ -65,6 +67,17 @@ export async function beginGatewayOAuth(
 ): Promise<AccountsResult<AccountOAuthBeginView>> {
   try {
     return await (await accountsServerAdapter()).beginOAuth(context, intent);
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+export async function completeGatewayOAuth(
+  context: string,
+  intent: AccountOAuthCompletion,
+): Promise<AccountsResult<AccountOperationView>> {
+  try {
+    const safe = snapshotOAuthCompletion(intent);
+    return await (await accountsServerAdapter()).completeOAuth(context, safe);
   } catch {
     return { status: "unavailable" };
   }
