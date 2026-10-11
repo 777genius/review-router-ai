@@ -32,3 +32,10 @@ playwright-report
 test-results
 
 .DS_Store
+
+.codex-tmp
+.worktrees
+.pnpm-store
+.tmp-*
+goal-*.js
+.serena

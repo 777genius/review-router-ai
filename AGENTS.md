@@ -1,5 +1,7 @@
 # Agent Instructions
 
+- Repository hygiene: put disposable logs, debug scripts, screenshots, and scratch outputs in `tmp/`, not loose files in the repository root. Keep local worktrees outside this checkout when possible. Preserve existing worktrees and recovery evidence during cleanup. Keep local scratch directories excluded from Git, Docker build contexts, lint, and formatting.
+
 - Release process, `v1` tag handling, and git flow are documented in [`ai-docs/operations/07-environments-and-release-management.md`](./ai-docs/operations/07-environments-and-release-management.md). Use that file as the source of truth instead of duplicating release steps here.
 - Do not deploy on every small change. Build, test, and inspect locally first.
 - Deploy only at the end of a coherent batch or when the user explicitly asks for a deploy.
