@@ -1051,6 +1051,24 @@ describe("Render hosted deploy hardening", () => {
 
   it("preserves the explicit active review v2 tuple without copying unknown env", () => {
     const v2 = activeReviewV2Env();
+    const gatewayApi = {
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "1",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: '{"approved":"policy"}',
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: '{"approved":"relay"}',
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: "https://gateway.internal",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN: "https://control.internal",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER: "run-control-only",
+    };
+    const gatewayWeb = {
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN:
+        "https://management.internal",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN: "management-only",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET: "context-only",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID: "mimo-profile",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID: "openrouter-profile",
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_CODEX_OAUTH_PROFILE_ID:
+        "openai-codex-oauth-responses-v1",
+    };
     const common = {
       GITHUB_APP_CLIENT_ID: "client",
       GITHUB_APP_CLIENT_SECRET: "secret",
@@ -1065,6 +1083,11 @@ describe("Render hosted deploy hardening", () => {
       ...installerTuple,
       ...hostedPoolEnv,
       ...v2,
+      ...gatewayApi,
+      ...gatewayWeb,
+      ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID: "operator-workspace",
+      ACCOUNT_GATEWAY_NATIVE_ADMIN_TOKEN: "must-not-cross-put",
+      ACCOUNT_GATEWAY_CREDENTIAL_ENCRYPTION_KEY: "must-not-cross-put",
       REVIEW_ROUTER_UNKNOWN_RUNTIME_VALUE: "must-not-cross-put",
     };
     const api = Object.fromEntries(
@@ -1097,6 +1120,28 @@ describe("Render hosted deploy hardening", () => {
         env: common,
       }).map(({ key, value }) => [key, value]),
     );
+
+    for (const [key, value] of Object.entries(gatewayApi)) {
+      expect(api[key], key).toBe(value);
+      expect(web[key], key).toBeUndefined();
+      expect(worker[key], key).toBeUndefined();
+    }
+    for (const [key, value] of Object.entries(gatewayWeb)) {
+      expect(web[key], key).toBe(value);
+      expect(api[key], key).toBeUndefined();
+      expect(worker[key], key).toBeUndefined();
+    }
+    expect(api.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID).toBe(
+      "operator-workspace",
+    );
+    expect(web.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID).toBe(
+      "operator-workspace",
+    );
+    expect(worker.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID).toBeUndefined();
+    for (const output of [api, web, worker]) {
+      expect(output.ACCOUNT_GATEWAY_NATIVE_ADMIN_TOKEN).toBeUndefined();
+      expect(output.ACCOUNT_GATEWAY_CREDENTIAL_ENCRYPTION_KEY).toBeUndefined();
+    }
 
     for (const [key, value] of Object.entries(v2)) {
       expect(api[key], key).toBe(value);
