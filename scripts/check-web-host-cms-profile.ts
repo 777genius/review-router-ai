@@ -615,7 +615,7 @@ function checkHook(
     bad("package.json is missing");
     return;
   }
-  let scripts: JsonObject | null = null;
+  let scripts: JsonObject | null;
   try {
     scripts = asObject(asObject(parseStrictJson(packageText))?.scripts);
   } catch (error) {
