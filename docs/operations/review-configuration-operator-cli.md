@@ -37,7 +37,7 @@ a separate trust boundary.
 From a trusted ReviewRouter checkout:
 
 ```bash
-corepack enable
+npm install --global pnpm@10.33.0
 pnpm install --frozen-lockfile
 pnpm reviewrouter:install
 ~/.local/bin/reviewrouter --help

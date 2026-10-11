@@ -121,7 +121,7 @@ describe("Codex rotating release migration workflow", () => {
     );
     expect(
       registerRelease.indexOf('git switch --detach "$RELEASE_COMMIT_SHA"'),
-    ).toBeLessThan(registerRelease.indexOf("corepack enable"));
+    ).toBeLessThan(registerRelease.indexOf("npm install --global"));
     expect(registerRelease).toContain(
       '[[ "$RELEASE_COMMIT_SHA" =~ ^[a-f0-9]{40}$ ]]',
     );

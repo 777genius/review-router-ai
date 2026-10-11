@@ -1067,7 +1067,7 @@ export function buildServiceEnv({
       env.GITHUB_CLIENT_SECRET ?? requiredEnv("GITHUB_APP_CLIENT_SECRET", env),
     GITHUB_WEBHOOK_SECRET: requiredEnv("GITHUB_WEBHOOK_SECRET", env),
     NODE_ENV: "production",
-    NODE_VERSION: "24",
+    NODE_VERSION: "26.11.1",
     REVIEW_ROUTER_ACTION_REF: resolveHostedActionRef(env),
     REVIEW_ROUTER_ALLOWED_ACTION_REFS:
       env.REVIEW_ROUTER_ALLOWED_ACTION_REFS ?? "",

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_IMAGE=node:24-bookworm-slim
+ARG NODE_IMAGE=node:26.11.1-bookworm-slim
 
 FROM ${NODE_IMAGE} AS base
 WORKDIR /app
@@ -13,7 +13,6 @@ ENV CI=1 \
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates openssl postgresql-client \
   && rm -rf /var/lib/apt/lists/* \
-  && corepack disable pnpm \
   && npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
 
 FROM base AS build-prisma

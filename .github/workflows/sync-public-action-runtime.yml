@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: "24"
+  NODE_VERSION: "26.11.1"
   ACTION_REPOSITORY: 777genius/review-router
   ACTION_BRANCH: main
   ACTION_SYNC_TOKEN_PRESENT: ${{ secrets.REVIEW_ROUTER_ACTION_SYNC_TOKEN != '' }}
@@ -110,8 +110,8 @@ jobs:
             exit 1
           fi
 
-      - name: Enable pnpm
-        run: corepack enable
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
 
       - name: Install SaaS dependencies
         working-directory: review-router-ai
