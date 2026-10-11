@@ -41,7 +41,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "24"
+  NODE_VERSION: "26.11.1"
   DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci?schema=public
   TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci_test?schema=public
   REVIEW_ROUTER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci_test?schema=public
@@ -108,8 +108,8 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Enable pnpm
-        run: corepack enable
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate Prisma client
@@ -153,8 +153,8 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Enable pnpm
-        run: corepack enable
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate Prisma client
@@ -237,8 +237,8 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Enable pnpm
-        run: corepack enable
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
 
       - name: Assert native lock implementation
         shell: bash
@@ -277,8 +277,8 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Enable pnpm
-        run: corepack enable
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
 
       - name: Run disposable self-hosted E2E
         run: pnpm self-hosted:e2e
@@ -349,8 +349,8 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Enable pnpm
-        run: corepack enable
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
 
       - name: Install PostgreSQL client
         run: |
@@ -805,10 +805,10 @@ jobs:
           test "$(git -C "$candidate" rev-parse HEAD)" = 243b99abbd89216fca55a1ffe4a1b83a1b7efc2e
           source_tree="$(git -C "$candidate" rev-parse 'HEAD^{tree}')"
           printf '%s' "$source_tree" | grep -Eq '^[a-f0-9]{40}$'
-          (cd "$candidate" && corepack pnpm install --frozen-lockfile)
-          (cd "$candidate" && corepack pnpm --filter @agent-teams/engineering-foundation build)
+          (cd "$candidate" && pnpm install --frozen-lockfile)
+          (cd "$candidate" && pnpm --filter @agent-teams/engineering-foundation build)
           archive="$RUNNER_TEMP/agent-teams-engineering-foundation-1.6.1.tgz"
-          (cd "$candidate/packages/engineering-foundation" && corepack pnpm pack --pack-destination "$RUNNER_TEMP") >"$RUNNER_TEMP/ef-candidate-pack.log"
+          (cd "$candidate/packages/engineering-foundation" && pnpm pack --pack-destination "$RUNNER_TEMP") >"$RUNNER_TEMP/ef-candidate-pack.log"
           test -s "$archive"
           npm install --prefix "$RUNNER_TEMP/ef-candidate-installed" --ignore-scripts --no-audit --no-fund "$archive"
           EF_V3_CANDIDATE_PACKAGE_ROOT="$RUNNER_TEMP/ef-candidate-installed/node_modules/@agent-teams/engineering-foundation" \
