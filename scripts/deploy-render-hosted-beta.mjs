@@ -582,6 +582,44 @@ function readOptionalEnvVars(env, keys) {
   return values;
 }
 
+function accountGatewayRuntimeEnvForRole(env, role) {
+  const apiKeys = [
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
+  ];
+  const webKeys = [
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID",
+    "REVIEW_ROUTER_ACCOUNT_GATEWAY_CODEX_OAUTH_PROFILE_ID",
+  ];
+  if (role !== "api" && role !== "web") return {};
+  const values = readOptionalEnvVars(env, [
+    "ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID",
+    ...(role === "api" ? apiKeys : webKeys),
+  ]);
+  if (role === "api") {
+    const enabled = env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED ?? "0";
+    if (enabled !== "0" && enabled !== "1")
+      throw new Error(
+        "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED must be 0 or 1",
+      );
+    values.REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED = enabled;
+    if (enabled === "1") {
+      for (const key of apiKeys) {
+        if (key !== "REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN")
+          values[key] = requiredEnv(key, env);
+      }
+    }
+  }
+  return values;
+}
+
 const hostedPoolFlags = Object.freeze([
   "REVIEW_ROUTER_ENABLE_HOSTED_CODEX_POOL",
   "REVIEW_ROUTER_ENABLE_HOSTED_CODEX_CUSTODY",
@@ -1127,6 +1165,7 @@ export function buildServiceEnv({
   Object.assign(values, sdkGrowthRuntimeEnvForRole(env, role));
   Object.assign(values, reviewV2ContextEnvForRole(env, role));
   Object.assign(values, hostedPoolRuntimeEnvForRole(env, role));
+  Object.assign(values, accountGatewayRuntimeEnvForRole(env, role));
   if (
     values.REVIEW_ROUTER_REVIEW_V2_RUN_CONTROL_ENABLED === "1" ||
     values.REVIEW_ROUTER_REVIEW_V2_WORKER_ENABLED === "1" ||
