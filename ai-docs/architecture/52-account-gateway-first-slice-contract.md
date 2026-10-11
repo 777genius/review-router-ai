@@ -41,7 +41,7 @@ completed SUCCESS. Published [v1.0.157](https://github.com/777genius/review-rout
 and stable `v1` both resolve directly to that commit, tree
 `974a03fcef8ff65338e52d87a36aa422fe8a1f61`; published `dist/index.js` is 4341414 B,
 SHA256 `50a9f0bf435b29d2b797098c46dc449ee2287d650483621f13eefedb2412f475`.
-The five CI pair fields consume that verified release tuple.
+At that checkpoint, the five CI pair fields consumed that verified release tuple.
 
 This receipt does not qualify production timing/policy, memory, all-provider
 D-final, protected OAuth F, legacy retirement G, native exact-head CI or SaaS
@@ -73,6 +73,112 @@ Execution policy only; contract 53 remains the sole normative acceptance authori
   CI restrictions explicit; missing or failed checks are not PASS.
 - No new SDK/platform abstractions, architecture/provider expansion or optional
   coverage work is planned for this finish.
+
+## Finish priorities - 2026-10-11
+
+- MiMo live tools/final/same-head App publication is already evidenced by run
+  `38096112096`; reuse that result unless relevant source or configuration changes.
+- Execute OpenRouter and native Sub2API Codex OAuth qualification in parallel.
+  Keep release preparation as a third lane, with one owner for each lane.
+- Stop further RAM experiments. Preserve historical failed receipts and the
+  accepted optional MaximumCopy32 exclusion; do not silently convert failures to
+  passes. Continue only the required lifetime and cleanup checks.
+- Action transport diagnostics and its two review fixes use the existing five-case
+  TLS fixture. After independent review, perform one changed-source build and one
+  new-head CI watch before merge. Reuse the resulting artifact across consumers.
+- Publish Action 158 before updating the five paired SaaS CI pins. Use the actual
+  immutable tag commit and generated public Action bundle digest, not placeholders.
+- An expired OAuth intent is not a successful enrollment. Preserve its operation
+  history and reconcile through the supported lifecycle before a fresh login.
+- Production qualification requires an authorized existing credential/execution
+  path. Do not work around a rejected credential transfer using another executor.
+
+## Retention evidence reconciliation - 2026-10-11
+
+Gateway Checkpoint B run `38119199177` passed at exact source
+`c598146dfc63113635e4bfd6efd8df7cd10fe127`. Both Node 24.21.0 and 26.10.0
+jobs passed the unfiltered `postgres.test.ts`, `management-postgres.test.ts`
+and `facade-postgres.test.ts` command, dump/restore client preparation and
+container cleanup. The current PostgreSQL tests cover deadline-based payload
+compaction, preservation of unknown effects/occupancy/pending fences, restore,
+replay proofs and saturation. Critical replay/history/readback/fence/native
+facts are retained indefinitely under saturation; redundant payload compaction
+requires the approved deadline, terminal effects, exact closure and completed
+cleanup. Reuse this exact-source qualification instead of another retention run.
+This evidence does not establish production custody or complete E/F/G.
+
+## Action 158 publication - 2026-10-11
+
+Action PR `777genius/review-router#254` merged as
+`4cb00b4598974bc8fb5feafc1b1699ca76ca32af` after required CI run `38128268126`
+and independent review of the observer rejection and duplicate-diagnostic fixes.
+Release run `38128645739` passed; immutable tag `v1.0.158` resolves to that
+commit. The public `dist/index.js` SHA-256 is
+`166ab590292c76ea78b2015dfda71aacf91be963b0b94f7c04f9c7883c18a814`.
+SaaS five-field CI pairing PR [548](https://github.com/777genius/review-router-ai/pull/548)
+merged normally as `1f10d0c327f0a16c9d9114fd8a331bb386a82761`, preserving
+`d349cb19243426c7873cab2c529233f7c3a29e21` and reviewed component
+`fc28708689efe1185b9ef8a9d9b639ce4606cbee`. Exact-head CI `38129571872`
+passed all ten enabled jobs; the private PG16→17 rehearsal was intentionally
+skipped on the component PR and is not final release evidence. The existing
+verifier accepted the clean published Action checkout, tag, commit and bundle;
+independent review accepted exactly the five metadata pins.
+This publication and pairing qualify the Action artifact and source stack,
+not production deployment or native Codex OAuth F; the OpenRouter receipt below
+qualifies only its recorded E scenario.
+
+## Accepted OpenRouter nano E receipt - 2026-10-11
+
+The [finite E receipt](../../docs/release-evidence/account-gateway-openrouter-nano-20261011.json)
+has SHA256 `4102911dadc93bc3ddb784e882271d246fdc47231ae22d539689280273be7133`
+and verdict **PASS** for disposable PR2. Run `38131140682`, attempt 1, head
+`fc227ccbc9fd5092e27a1c582af8f22174f495a8` used published Action158
+`4cb00b4598974bc8fb5feafc1b1699ca76ca32af`, producer release
+`rr-openrouter-published158-oct11` and model `openai/gpt-5.4-nano`.
+The receipt pins native `82a6c219414996c8780b20d057629a5cd97da7f4`, Gateway
+`c598146dfc63113635e4bfd6efd8df7cd10fe127`, API
+`2986b337c0faee9eeb3832020e307f8c3db80385`, their installed digests and the
+runtime/identity/policy readiness tuple observed at `2026-10-11T10:11:47.506Z`.
+
+- Authenticated context v3 recorded fourteen successful operations: twelve file
+  reads, canonical inventory and a git fact, with no confinement taint or terminal
+  failure. The server accepted a 2149 B observation and a strict nonempty 8857 B
+  finalized projection with one finding and completed coverage.
+- Workflow succeeded; App bot review `5482899040` was published at the same head.
+  Durable history contains 25 executions with all 24 older states preserved.
+- Slot satisfied, lease released, kernel execution closed, six requests completed
+  and occupied transports zero. Collectors made no additional provider calls.
+
+This is profile-specific tools/final/App/closure acceptance, not production
+installation, native OAuth F, G custody or RAM qualification. Context had zero
+changed-path witnesses; contract 53 requires profile tools/final/publication,
+not a mandatory changed-path tool for this E scenario. Historical run `381242`
+retains its UNKNOWN network cause; preissue `78280` issued no effect and its
+failed subguard remains UNKNOWN. Old unknown scopes were not replayed.
+Contract 53 and the remaining release gates are unchanged.
+
+## Source promotion and production qualification order - 2026-10-11
+
+Contract 53 requires G after D+E+F and exact release gates; it does not require
+production G before merging qualified source to protected main. Follow the
+[release runbook](../operations/07-environments-and-release-management.md):
+component review/CI → qualified final source main merge → exact-main CI →
+trusted release artifacts → disabled-dispatch installation/staging → actual G
+custody and retirement → real-user activation. Reuse the exact-main CI run for
+both required PostgreSQL jobs; no component-PR skip qualifies that release.
+The existing main-CI Action sync and GitLab `v1` image publishers remain active;
+relay disablement does not suppress their artifact publication effects.
+Provider auto-deploy stays off. The supported runtime deploy requires its
+normal immutable image/attestation and trusted migration evidence first.
+
+A fixed read-only migration-history preflight in the existing approved GitHub
+credential holder is source preparation, not native production custody. Its
+protected-main source and runner reachability remain prerequisites; do not
+reroute credentials or bypass the rejected production DSN transfer. Native
+installation authority/assets and actual dump/restore with new issuer and
+quarantine, key rotation/readback/erase, old admission/refresh/grants closure,
+sole refresh writer and retained unknown effects remain required before new
+real-user work. No source receipt or disabled staging waives those checks.
 
 ## Opus 5.5/xhigh finding dispositions
 
