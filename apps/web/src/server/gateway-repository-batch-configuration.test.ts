@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import {
   cleanup,
   fireEvent,
@@ -37,8 +37,10 @@ import {
   saveReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
-  GatewayRepositoryBatchControls,
-  GatewayRepositoryBatchTargetToggle,
+  GatewayRepositoryBatchContent,
+  RepositoryActionSelectionProvider,
+  RepositoryActionSelectionCheckbox as GatewayRepositoryBatchTargetToggle,
+  type GatewayBatchActions,
   type GatewayBatchInventoryItem,
 } from "../../app/dashboard/gateway-repository-batch-controls";
 import type { AccountsResult, AccountsPage } from "./account-gateway-accounts";
@@ -747,11 +749,7 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
           });
         const authView = render(authElement());
         try {
-          fireEvent.click(
-            screen.getByLabelText(
-              `Select fixture/${ids[1]} for gateway configuration`,
-            ),
-          );
+          fireEvent.click(screen.getByLabelText(`Select fixture/${ids[1]}`));
           for (const [label, option] of [
             ["Gateway account", "Fixture account · Fixture responses"],
             ["Gateway model", "fixture-model"],
@@ -1155,11 +1153,7 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
         });
       const view = render(element());
       for (const id of ids)
-        fireEvent.click(
-          screen.getByLabelText(
-            `Select fixture/${id} for gateway configuration`,
-          ),
-        );
+        fireEvent.click(screen.getByLabelText(`Select fixture/${id}`));
       async function choose(label: string, option: string) {
         fireEvent.keyDown(screen.getByRole("combobox", { name: label }), {
           key: "Enter",
@@ -1190,11 +1184,8 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
         view.rerender(element());
         for (const id of ids)
           expect(
-            (
-              screen.getByLabelText(
-                `Select fixture/${id} for gateway configuration`,
-              ) as HTMLInputElement
-            ).checked,
+            (screen.getByLabelText(`Select fixture/${id}`) as HTMLInputElement)
+              .checked,
           ).toBe(true);
         // Real typed refusal paths, with no configuration/receipt writes.
         await entitlements.upsertWorkspaceEntitlement({
@@ -1476,11 +1467,8 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
         expect(screen.getByText("3 repositories selected")).toBeTruthy();
         for (const id of ids.slice(0, 2))
           expect(
-            (
-              screen.getByLabelText(
-                `Select fixture/${id} for gateway configuration`,
-              ) as HTMLInputElement
-            ).checked,
+            (screen.getByLabelText(`Select fixture/${id}`) as HTMLInputElement)
+              .checked,
           ).toBe(true);
         expect(
           screen.getByText(
@@ -1497,16 +1485,8 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
         );
         expect(screen.getByText("2 repositories selected")).toBeTruthy();
         for (const id of ids.slice(0, 2))
-          fireEvent.click(
-            screen.getByLabelText(
-              `Select fixture/${id} for gateway configuration`,
-            ),
-          );
-        fireEvent.click(
-          screen.getByLabelText(
-            `Select fixture/${ids[0]} for gateway configuration`,
-          ),
-        );
+          fireEvent.click(screen.getByLabelText(`Select fixture/${id}`));
+        fireEvent.click(screen.getByLabelText(`Select fixture/${ids[0]}`));
         // A second deliberate operation loses its save response and first read.
         // Real durable receipt is recovered on the next user-triggered read only.
         loseResponse = true;
@@ -1698,9 +1678,7 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
         );
         try {
           fireEvent.click(
-            screen.getByLabelText(
-              `Select fixture/${operatorRepositoryId} for gateway configuration`,
-            ),
+            screen.getByLabelText(`Select fixture/${operatorRepositoryId}`),
           );
           await choose(
             "Gateway account",
@@ -2062,3 +2040,39 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
   },
   60000,
 );
+
+function GatewayRepositoryBatchControls({
+  workspaceId,
+  inventory,
+  accounts,
+  enabled,
+  refresh,
+  actions,
+  children,
+}: {
+  workspaceId: string;
+  inventory: readonly GatewayBatchInventoryItem[];
+  accounts: AccountsResult<AccountsPage> | undefined;
+  enabled: boolean;
+  refresh: () => void;
+  actions: GatewayBatchActions;
+  children: ReactNode;
+}) {
+  return createElement(RepositoryActionSelectionProvider, {
+    workspaceId,
+    inventory,
+    disabled: !enabled,
+    refresh,
+    children: createElement(
+      "div",
+      null,
+      createElement(GatewayRepositoryBatchContent, {
+        workspaceId,
+        accounts,
+        enabled,
+        actions,
+      }),
+      children,
+    ),
+  });
+}

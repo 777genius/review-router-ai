@@ -13,7 +13,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { RepositorySetupRowDisclosureController } from "./repository-setup-optimistic-status";
-import { GatewayRepositoryBatchTargetToggle } from "./gateway-repository-batch-controls";
+import { RepositoryActionSelectionCheckbox } from "./gateway-repository-batch-controls";
 
 export type RepositorySearchFilter =
   | "all"
@@ -298,28 +298,39 @@ export function RepositoryLiveSearch({
                 key={id}
                 hidden={!visibleIdSet.has(id)}
                 data-repository-result-slot
+                className="grid grid-cols-[2.75rem_minmax(0,1fr)] items-start"
               >
-                <GatewayRepositoryBatchTargetToggle repositoryId={id} />
-                {richRow}
+                <div className="flex justify-center pt-5">
+                  <RepositoryActionSelectionCheckbox repositoryId={id} />
+                </div>
+                <div className="min-w-0">{richRow}</div>
               </div>
             );
           }
           const item = summaryById.get(id);
           return item ? (
-            <div key={id} data-repository-result-slot>
-              <GatewayRepositoryBatchTargetToggle repositoryId={id} />
-              <RepositorySummaryRow
-                item={item}
-                pending={pendingRepositoryId === id}
-                selected={id === selectedRepositoryId}
-                onOpen={() => {
-                  setPendingRepositoryId(id);
-                  router.replace(
-                    buildRepositorySelectionUrl(workspaceKey, item.fullName),
-                    { scroll: false },
-                  );
-                }}
-              />
+            <div
+              key={id}
+              data-repository-result-slot
+              className="grid grid-cols-[2.75rem_minmax(0,1fr)] items-start"
+            >
+              <div className="flex justify-center pt-5">
+                <RepositoryActionSelectionCheckbox repositoryId={id} />
+              </div>
+              <div className="min-w-0">
+                <RepositorySummaryRow
+                  item={item}
+                  pending={pendingRepositoryId === id}
+                  selected={id === selectedRepositoryId}
+                  onOpen={() => {
+                    setPendingRepositoryId(id);
+                    router.replace(
+                      buildRepositorySelectionUrl(workspaceKey, item.fullName),
+                      { scroll: false },
+                    );
+                  }}
+                />
+              </div>
             </div>
           ) : null;
         })}
