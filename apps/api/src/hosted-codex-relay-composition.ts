@@ -50,6 +50,9 @@ export type HostedCodexFeatureFlags = {
   readonly failover: boolean;
 };
 
+// Legacy direct hosted-pool composition. The selected production transport is
+// Account Gateway/Sub2API; these existing flags are not a fallback selection.
+// This documentation does not change deployed flags or retained custody.
 export function readHostedCodexFeatureFlags(
   env: Readonly<Record<string, string | undefined>>,
 ): HostedCodexFeatureFlags {

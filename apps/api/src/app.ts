@@ -376,6 +376,8 @@ export async function createApiApp(
         })()
       : undefined);
   if (hostedCodexRelayDependencies) {
+    // Legacy direct hosted-pool relay; retained behind its existing gates.
+    // Account Gateway/Sub2API is composed separately below, not via this branch.
     await registerHostedCodexRelayRoutes(app, hostedCodexRelayDependencies);
   }
   const certifiedForkLiveReviewDependencies =
@@ -922,6 +924,8 @@ export async function createApiApp(
     await registerReviewRunControlV2Routes(app, reviewRunControlV2Dependencies);
   }
   if (productionReviewActionV2Dependencies?.accountGatewayRelay) {
+    // Selected production path: ReviewRouter -> Account Gateway -> Sub2API.
+    // Do not silently fall back to the legacy direct hosted Codex relay.
     await registerReviewRunGatewayRelayRoutes(
       app,
       productionReviewActionV2Dependencies.accountGatewayRelay,

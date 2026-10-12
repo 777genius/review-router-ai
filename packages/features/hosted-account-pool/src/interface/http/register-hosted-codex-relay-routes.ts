@@ -44,7 +44,12 @@ export type HostedCodexGrantResponse = HostedCommentTokenDeliveryCarrier & {
   };
 };
 
-/** Private PR2 contract; PR1 registers no v4 routes or dispatch adapter. */
+/**
+ * Legacy direct native-v4 transport contract, retained for compatibility and
+ * historical receipts. The selected production path is Account Gateway/Sub2API;
+ * this contract is not a fallback or a migration-completion requirement.
+ * Declaring it does not register a v4 dispatch route.
+ */
 export type HostedV4RelayGrantResponse = {
   readonly protocolVersion: 4;
   readonly grant: string;
@@ -178,6 +183,11 @@ export type RegisterHostedCodexRelayRoutesDependencies = {
   readonly custodyHealth?: () => HostedCustodyReadiness;
 };
 
+/**
+ * Legacy hosted-pool direct transport routes, separate from the Account
+ * Gateway/Sub2API routes. Retention does not authorize enabling this path;
+ * registration still depends on the existing explicit feature gates.
+ */
 export async function registerHostedCodexRelayRoutes(
   app: FastifyInstance,
   dependencies: RegisterHostedCodexRelayRoutesDependencies,
