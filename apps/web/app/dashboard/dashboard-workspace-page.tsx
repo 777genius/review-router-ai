@@ -1329,7 +1329,9 @@ async function DashboardSectionContent({
     selectedSection === "repositories" || selectedSection === "policy"
       ? getReviewModelOptions()
       : Promise.resolve([]),
-    selectedSection === "repositories" || selectedSection === "policy"
+    selectedSection === "repositories" ||
+    selectedSection === "policy" ||
+    selectedSection === "diagnostics"
       ? loadAccountsBootstrap(selectedWorkspace.workspace.id)
       : Promise.resolve(null),
   ]);
