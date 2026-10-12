@@ -7,9 +7,22 @@ import { readRenderHistorical96CheckoutInventory } from "./render-historical96-c
 
 const keyName = "000110_provider_api_key_workspace_management";
 const predecessor = "000109_sdk_growth_verifier_assignment_lock";
-const originalHistory = readRenderManagedCheckoutInventory().filter(
-  (row) => row.migrationName !== keyName,
-);
+// Isolate the original key addition against the frozen pre-MiMO source catalog.
+const originalHistory = readRenderManagedCheckoutInventory()
+  .filter(
+    (row) =>
+      row.migrationName !== keyName &&
+      row.migrationName !== "000126_review_configuration_mimo_auth_kind",
+  )
+  .map((row) =>
+    row.migrationName === "000119_review_configuration_gateway_binding"
+      ? {
+          ...row,
+          checksum:
+            "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70",
+        }
+      : row,
+  );
 const key = {
   migrationName: keyName,
   checksum: "d69beaa182fd49ad231bb86b2af4b9d53af3c54cab3a12fa3ca910e7a4379208",
