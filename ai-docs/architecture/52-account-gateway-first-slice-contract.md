@@ -38,6 +38,11 @@ SHA256 is `ffddb122e29901a247a055e898c7be0e0de957ddc7603fb32439e3de10808bed`;
 and independent source review accepted it. These facts do not qualify paired
 release, deployment or fresh production E2E.
 
+Action release run 38291736945 subsequently passed; both `v1.0.160` and `v1`
+resolve to `cc4aaec036d518f714691de3c8f84b7cb9f7f254`. The published entrypoint
+matches the independently reviewed SHA256 above. SaaS and production acceptance
+remain pending.
+
 Independent source review of this correction retained an existing limitation:
 required-mode authorization renewal after execution links the intent as
 `Dispatched` is denied by the base admission path. The default 60-minute token
