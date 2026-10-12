@@ -42,6 +42,7 @@ const extensions = [
   "000119_review_configuration_gateway_binding",
   "000120_review_run_runtime_snapshot",
   "000121_review_run_gateway_execution_binding",
+  "000126_review_configuration_mimo_auth_kind",
 ];
 function body(name: string) {
   const match = source.match(

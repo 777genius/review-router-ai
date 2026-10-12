@@ -275,6 +275,40 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // The MiMO correction is admitted only with its exact complete checkout126.
+  // Project back to the already-pinned source history for managed admission;
+  // this never changes an applied119 ledger checksum or the managed92 catalog.
+  const mimoAuthMigration = catalog.find(
+    (row) => row.migrationName === "000126_review_configuration_mimo_auth_kind",
+  );
+  if (mimoAuthMigration) {
+    if (
+      mimoAuthMigration.checksum !==
+        "d3e963ce9137d0d437dbbdf47cf9aff3dc9666d1e26b200a616ee7eb9c17603a" ||
+      !catalog.some(
+        (row) =>
+          row.migrationName === "000119_review_configuration_gateway_binding" &&
+          row.checksum ===
+            "381f4bfa3f8d05e5f82fb27bf8aafb6a75fe1779ca5ac2384154618f95d0e152",
+      ) ||
+      manifest(catalog) !==
+        "sha256:5b565a1ad6f9ee710f45af02614b911e68346773226406e1209f173f1e07b30a"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog
+        .filter((row) => row !== mimoAuthMigration)
+        .map((row) =>
+          row.migrationName === "000119_review_configuration_gateway_binding"
+            ? {
+                ...row,
+                checksum:
+                  "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70",
+              }
+            : row,
+        ),
+    );
+  }
   // This independently published checkout addition is not part of the old
   // managed or historical manifests. Validate its exact bytes and predecessor,
   // then validate the complete original history without changing those pins.

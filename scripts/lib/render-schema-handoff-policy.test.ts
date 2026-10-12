@@ -31,10 +31,26 @@ import { canonicalPrismaMigrationNames as currentCanonicalPrismaMigrationNames }
 // Current checkout additions are exercised separately against real SQL.
 const providerKeyMigrationName = "000110_provider_api_key_workspace_management";
 const reconnectMigrationName = "000125_hosted_codex_device_reconnect";
+const mimoAuthMigrationName = "000126_review_configuration_mimo_auth_kind";
+const historicalMigration119Checksum =
+  "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70";
+const correctedMigration119Sql = readFileSync(
+  new URL(
+    "../../packages/platform/db/prisma/migrations/000119_review_configuration_gateway_binding/migration.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const historicalMigration119Sql = correctedMigration119Sql.replaceAll(
+  `    OR ("providerKind" = 'codex-mimo' AND "providerAuthMode" = 'mimo_token_plan_api_key')\n`,
+  "",
+);
 const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
     (name) =>
-      name !== providerKeyMigrationName && name !== reconnectMigrationName,
+      name !== providerKeyMigrationName &&
+      name !== reconnectMigrationName &&
+      name !== mimoAuthMigrationName,
   );
 
 // Node 24 can require these ESM files directly. This keeps copied fixtures
@@ -359,14 +375,7 @@ const checkout117 = [...checkout116, migration118];
 const migration119 = {
   migrationName: "000119_review_configuration_gateway_binding",
   checksum: createHash("sha256")
-    .update(
-      readFileSync(
-        new URL(
-          "../../packages/platform/db/prisma/migrations/000119_review_configuration_gateway_binding/migration.sql",
-          import.meta.url,
-        ),
-      ),
-    )
+    .update(historicalMigration119Sql)
     .digest("hex"),
 };
 const checkout118 = [...checkout117, migration119];
@@ -389,6 +398,67 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
+  it("admits only complete corrected119 plus126 and preserves the old125 source catalog", () => {
+    const current = readRenderManagedCheckoutInventory();
+    const old125 = current
+      .filter((row) => row.migrationName !== mimoAuthMigrationName)
+      .map((row) =>
+        row.migrationName === migration119.migrationName
+          ? { ...row, checksum: historicalMigration119Checksum }
+          : row,
+      );
+    expect(current).toHaveLength(126);
+    expect(
+      createHash("sha256").update(correctedMigration119Sql).digest("hex"),
+    ).toBe("381f4bfa3f8d05e5f82fb27bf8aafb6a75fe1779ca5ac2384154618f95d0e152");
+    expect(migration119.checksum).toBe(historicalMigration119Checksum);
+    expect(current.at(-1)).toEqual({
+      migrationName: mimoAuthMigrationName,
+      checksum:
+        "d3e963ce9137d0d437dbbdf47cf9aff3dc9666d1e26b200a616ee7eb9c17603a",
+    });
+    expect(
+      createHash("sha256")
+        .update(
+          current
+            .map((row) => `${row.migrationName}:${row.checksum}`)
+            .join(","),
+        )
+        .digest("hex"),
+    ).toBe("5b565a1ad6f9ee710f45af02614b911e68346773226406e1209f173f1e07b30a");
+    expect(partitionRenderSchemaHandoffCheckout(current)).toEqual(catalog);
+    expect(partitionRenderSchemaHandoffCheckout(old125)).toEqual(catalog);
+    for (const changed of [
+      current.filter((row) => row.migrationName !== mimoAuthMigrationName),
+      current.filter((row) => row.migrationName !== reconnectMigrationName),
+      current.filter((row) => row.migrationName !== providerKeyMigrationName),
+      current.filter((row) => row.migrationName !== migration119.migrationName),
+      current.map((row) =>
+        row.migrationName === migration119.migrationName
+          ? { ...row, checksum: historicalMigration119Checksum }
+          : row,
+      ),
+      ...[migration119.migrationName, mimoAuthMigrationName].map((name) =>
+        current.map((row) =>
+          row.migrationName === name
+            ? { ...row, checksum: "0".repeat(64) }
+            : row,
+        ),
+      ),
+      current.map((row) =>
+        row.migrationName === mimoAuthMigrationName
+          ? { ...row, migrationName: "000126_relabelled" }
+          : row,
+      ),
+      [
+        ...current,
+        { migrationName: "000127_unknown", checksum: "0".repeat(64) },
+      ],
+      [...current, current.at(-1)!],
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow();
+  });
+
   it("admits only the exact main plus SQL125 branch and preserves old main", () => {
     const current = readRenderManagedCheckoutInventory().filter(
       (row) =>
@@ -1297,8 +1367,14 @@ describe("complete filesystem checkout inventory", () => {
     if (count !== undefined) {
       rmSync(join(migrations, providerKeyMigrationName), { recursive: true });
       rmSync(join(migrations, reconnectMigrationName), { recursive: true });
+      rmSync(join(migrations, mimoAuthMigrationName), { recursive: true });
       for (const name of canonicalPrismaMigrationNames.slice(count))
         rmSync(join(migrations, name), { recursive: true });
+      if (canonicalPrefix(count).includes(migration119.migrationName))
+        writeFileSync(
+          join(migrations, migration119.migrationName, "migration.sql"),
+          historicalMigration119Sql,
+        );
     }
     const policy = requireFixtureModule(
       join(lib, "render-schema-handoff-policy.mjs"),
@@ -1313,11 +1389,21 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads checkout125 through historical124 and key-free123 as identical frozen92 rows", async () => {
+  it("reads corrected checkout126 through old125, historical124 and key-free123 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(125);
+    expect(inventory).toHaveLength(126);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, mimoAuthMigrationName), {
+      recursive: true,
+    });
+    expect(() => fixture.read()).toThrow("checkout_extension");
+    writeFileSync(
+      join(fixture.migrations, migration119.migrationName, "migration.sql"),
+      historicalMigration119Sql,
+    );
+    expect(readdirSync(fixture.migrations)).toHaveLength(125);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, reconnectMigrationName), {
       recursive: true,
@@ -1601,9 +1687,7 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      if (name === reconnectMigrationName || name === providerKeyMigrationName)
-        expect(fixture.read()).toEqual(catalog);
-      else expect(() => fixture.read()).toThrow();
+      expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
       writeFileSync(sql, bytes);
     }
