@@ -22,6 +22,10 @@ import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-co
 import type { RunAccessConfig } from "./account-gateway-run-access";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
 
+// Selected production provider path: ReviewRouter -> Account Gateway -> Sub2API.
+// Gateway "native" response terminology is not the legacy direct native-v4
+// adapter; authorization/fencing still apply and must not be bypassed.
+
 export type ReviewRunGatewayRelayPolicy = {
   readonly profiles: readonly {
     readonly profile: z.infer<typeof c.profile>;
