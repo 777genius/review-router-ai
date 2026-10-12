@@ -8,10 +8,151 @@ import {
   buildConfiguredProviderSetupByRepositoryId,
   buildEffectiveProviderSetupStateByRepositoryId,
   buildProviderSetupMismatchRepositoryIds,
+  getReadyGatewayAccounts,
+  isGatewayProviderSetupReady,
   repositoryHealthStatusWithProviderSetupReadiness,
 } from "./dashboard-provider-setup-readiness";
+import type { AccountsPage, AccountsResult } from "./account-gateway-accounts";
+import {
+  repositorySearchReadiness,
+  repositorySetupProgressStep,
+  workflowSetupAlreadyCurrent,
+} from "./repository-search";
 
 describe("dashboard provider setup readiness", () => {
+  it("uses the selected live Gateway binding and catalog without legacy secret setup, preserving health failures", () => {
+    const config = parseReviewConfiguration({
+      ...safeDefaultReviewConfiguration,
+      providers: [
+        {
+          kind: "codex",
+          authMode: "codex_account_gateway",
+          gatewayBindingId: "binding_1",
+          gatewayProfileRef: "openai-responses-apikey-v1",
+          model: "mimo-v2.6-pro",
+          reasoningEffort: "medium",
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+    });
+    const accounts: AccountsResult<AccountsPage> = {
+      status: "ok",
+      value: {
+        accounts: [
+          {
+            connectionId: "connection_1",
+            label: "Workspace account",
+            profileId: "openai-responses-apikey-v1",
+            profileLabel: "MiMo",
+            state: "active",
+            gatewayRevision: 2,
+            mirrorRevision: 2,
+            binding: {
+              id: "binding_1",
+              revision: 1,
+              state: "active",
+              fencePending: false,
+            },
+          },
+        ],
+        profiles: [
+          {
+            id: "openai-responses-apikey-v1",
+            label: "MiMo",
+            protocol: "openai-responses",
+            models: ["mimo-v2.6-pro"],
+          },
+        ],
+        nextCursor: null,
+      },
+    };
+    const legacy = buildEffectiveProviderSetupStateByRepositoryId({
+      providerSetup: [],
+      repositories: [{ id: "repo_1" }],
+      repositoryConfigs: [],
+      activeConfig: config,
+    });
+    expect(legacy.get("repo_1")?.state).toBe("missing");
+    expect(getReadyGatewayAccounts(accounts)).toHaveLength(1);
+    expect(isGatewayProviderSetupReady(config, accounts)).toBe(true);
+    const projectHealth = (
+      healthStatus: Parameters<
+        typeof repositoryHealthStatusWithProviderSetupReadiness
+      >[0]["healthStatus"],
+      page: AccountsResult<AccountsPage> = accounts,
+    ) =>
+      repositoryHealthStatusWithProviderSetupReadiness({
+        repositoryId: "repo_1",
+        healthStatus,
+        effectiveProviderSetupStateByRepositoryId: legacy,
+        providerSetupMismatchRepositoryIds: new Set(),
+        gatewayProviderSetupReady: isGatewayProviderSetupReady(config, page),
+      });
+    const healthStatus = projectHealth("healthy");
+    const setupProgressStep = repositorySetupProgressStep({
+      setupStatus: "configured",
+      healthStatus,
+      workflowCurrent: workflowSetupAlreadyCurrent(healthStatus),
+      providerSetupConfirmed: isGatewayProviderSetupReady(config, accounts),
+    });
+    expect(repositorySearchReadiness({ setupProgressStep, healthStatus })).toBe(
+      "ready",
+    );
+    for (const failure of [
+      "provider_unhealthy",
+      "provider_report_stale",
+      "missing_workflow",
+      "provider_needs_setup",
+    ] as const) {
+      expect(projectHealth(failure)).toBe(failure);
+      const failureProgress = repositorySetupProgressStep({
+        setupStatus: "configured",
+        healthStatus: failure,
+        workflowCurrent: workflowSetupAlreadyCurrent(failure),
+        providerSetupConfirmed: isGatewayProviderSetupReady(config, accounts),
+      });
+      const readiness = repositorySearchReadiness({
+        setupProgressStep: failureProgress,
+        healthStatus: failure,
+      });
+      if (failure === "provider_report_stale") {
+        expect(readiness).toBe("ready");
+      } else {
+        expect(readiness).not.toBe("ready");
+      }
+    }
+    const account = accounts.value.accounts[0]!;
+    const binding = account.binding!;
+    const blockedPages: AccountsResult<AccountsPage>[] = [
+      { status: "unavailable" },
+      { status: "denied" },
+      { status: "ok", value: { ...accounts.value, accounts: [] } },
+      ...[
+        { ...account, state: "quarantined" as const },
+        { ...account, binding: { ...binding, state: "revoked" as const } },
+        { ...account, binding: { ...binding, fencePending: true } },
+        { ...account, binding: { ...binding, id: "another_binding" } },
+        { ...account, profileId: "another_profile" },
+      ].map((blocked) => ({
+        status: "ok" as const,
+        value: { ...accounts.value, accounts: [blocked] },
+      })),
+      {
+        status: "ok",
+        value: {
+          ...accounts.value,
+          profiles: [
+            { ...accounts.value.profiles[0]!, models: ["another-model"] },
+          ],
+        },
+      },
+    ];
+    for (const page of blockedPages) {
+      expect(isGatewayProviderSetupReady(config, page)).toBe(false);
+      expect(projectHealth("healthy", page)).toBe("provider_needs_setup");
+    }
+  });
   it("does not treat legacy Codex setup as configured for rotating Codex", () => {
     const configured = buildConfiguredProviderSetupByRepositoryId({
       providerSetup: [

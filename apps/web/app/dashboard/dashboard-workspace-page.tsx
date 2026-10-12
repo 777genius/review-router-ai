@@ -117,6 +117,7 @@ import {
   buildConfiguredProviderSetupByRepositoryId,
   buildEffectiveProviderSetupStateByRepositoryId,
   buildProviderSetupMismatchRepositoryIds,
+  isGatewayProviderSetupReady,
   repositoryHealthStatusWithProviderSetupReadiness,
 } from "../../src/server/dashboard-provider-setup-readiness";
 import { deriveDashboardProviderSetupReadiness } from "../../src/server/dashboard-codex-rotating-setup-readiness";
@@ -1688,6 +1689,10 @@ function WorkspaceCard({
       )
     : undefined;
   const selectedRepository = requestedRepository ?? null;
+  const selectedRepositoryConfig =
+    repositoryConfigs.find(
+      (item) => item.repositoryId === selectedRepository?.id,
+    )?.config?.config ?? activeConfig;
   const selectedInstallation = selectedRepository
     ? findInstallationForRepository(workspace, selectedRepository)
     : null;
@@ -1706,6 +1711,7 @@ function WorkspaceCard({
     providerSetup,
     repositoryConfigs,
     activeConfig,
+    gatewayAccounts,
     providerSecretCheckFailedRepositoryFullName,
     hostedRepositories: hostedPool.repositories,
   });
@@ -1717,20 +1723,31 @@ function WorkspaceCard({
     selectedRepository &&
     selectedInstallation &&
     providerGuidanceSet ? (
-      <RepositoryProviderSecretsDialog
-        workspaceId={workspace.id}
-        repositoryId={selectedRepository.id}
-        repositoryFullName={selectedRepository.fullName}
-        repositoryVisibility={selectedRepository.visibility}
-        installation={selectedInstallation}
-        guidanceSet={providerGuidanceSet}
-        allowOrganizationSecrets={hasWorkspaceWideAccess}
-        claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-        triggerLabel="Enable review"
-        triggerVariant="solid"
-        triggerSize="sm"
-        triggerClassName="rounded-xl"
-      />
+      selectedRepositoryConfig.providers.some(
+        (provider) => provider.authMode === "codex_account_gateway",
+      ) ? (
+        <LinkButton
+          href={dashboardSectionHref("setup", workspaceKey)}
+          size="sm"
+        >
+          Manage accounts
+        </LinkButton>
+      ) : (
+        <RepositoryProviderSecretsDialog
+          workspaceId={workspace.id}
+          repositoryId={selectedRepository.id}
+          repositoryFullName={selectedRepository.fullName}
+          repositoryVisibility={selectedRepository.visibility}
+          installation={selectedInstallation}
+          guidanceSet={providerGuidanceSet}
+          allowOrganizationSecrets={hasWorkspaceWideAccess}
+          claudeCodeProviderEnabled={claudeCodeProviderEnabled}
+          triggerLabel="Enable review"
+          triggerVariant="solid"
+          triggerSize="sm"
+          triggerClassName="rounded-xl"
+        />
+      )
     ) : null;
 
   return (
@@ -2315,6 +2332,7 @@ function summarizeWorkspaceSetupReadiness({
   providerSetup,
   repositoryConfigs,
   activeConfig,
+  gatewayAccounts,
   providerSecretCheckFailedRepositoryFullName,
   hostedRepositories,
 }: {
@@ -2324,6 +2342,7 @@ function summarizeWorkspaceSetupReadiness({
   readonly providerSetup: DashboardWorkspaceData["providerSetup"];
   readonly repositoryConfigs: DashboardWorkspaceData["repositoryConfigs"];
   readonly activeConfig: ReviewConfiguration;
+  readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
   readonly providerSecretCheckFailedRepositoryFullName: string | null;
   readonly hostedRepositories: DashboardWorkspaceData["hostedPool"]["repositories"];
 }): WorkspaceHealthSummary {
@@ -2357,9 +2376,14 @@ function summarizeWorkspaceSetupReadiness({
   const hostedById = new Map(
     hostedRepositories.map((item) => [item.id, item] as const),
   );
+  const repositoryConfigById = new Map(
+    repositoryConfigs.map((item) => [item.repositoryId, item.config] as const),
+  );
   const counts = repositories.reduce(
     (accumulator, repository) => {
       const repositoryHealth = repositoryHealthById.get(repository.id);
+      const effectiveConfig =
+        repositoryConfigById.get(repository.id)?.config ?? activeConfig;
       const setupStatus = projectRepositorySetupStatus({
         workflowProvisioningStatus:
           repositoryProvisioningById.get(repository.id)?.status ?? null,
@@ -2375,6 +2399,16 @@ function summarizeWorkspaceSetupReadiness({
           effectiveProviderSetupStateByRepositoryId,
           providerSetupMismatchRepositoryIds,
           hostedSessionReady,
+          ...(effectiveConfig.providers.some(
+            (provider) => provider.authMode === "codex_account_gateway",
+          )
+            ? {
+                gatewayProviderSetupReady: isGatewayProviderSetupReady(
+                  effectiveConfig,
+                  gatewayAccounts,
+                ),
+              }
+            : {}),
         });
       const workflowCurrent = workflowSetupAlreadyCurrent(
         effectiveHealthStatus,
@@ -2389,6 +2423,8 @@ function summarizeWorkspaceSetupReadiness({
           configuredProviderSetupByRepositoryId,
           providerSecretCheckFailedRepositoryFullName,
           hostedSessionReady,
+          effectiveConfig,
+          gatewayAccounts,
         }),
       });
       const readiness = repositorySearchReadiness({
@@ -2438,6 +2474,8 @@ function isRepositoryProviderSetupConfirmed({
   configuredProviderSetupByRepositoryId,
   providerSecretCheckFailedRepositoryFullName,
   hostedSessionReady = false,
+  effectiveConfig,
+  gatewayAccounts,
 }: {
   readonly repository: DashboardWorkspaceData["repositories"][number];
   readonly repositoryHealth:
@@ -2449,7 +2487,16 @@ function isRepositoryProviderSetupConfirmed({
   >;
   readonly providerSecretCheckFailedRepositoryFullName: string | null;
   readonly hostedSessionReady?: boolean;
+  readonly effectiveConfig: ReviewConfiguration;
+  readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
 }): boolean {
+  if (
+    effectiveConfig.providers.some(
+      (provider) => provider.authMode === "codex_account_gateway",
+    )
+  ) {
+    return isGatewayProviderSetupReady(effectiveConfig, gatewayAccounts);
+  }
   if (hostedSessionReady) return true;
   const providerSetupConfirmedAt = configuredProviderSetupByRepositoryId.get(
     repository.id,
@@ -2541,6 +2588,8 @@ function RepositoryTable({
 
   const rows = repositories.map((repository) => {
     const repositoryHealth = repositoryHealthById.get(repository.id);
+    const effectiveConfig =
+      repositoryConfigById.get(repository.id)?.config ?? activeConfig;
     const repositoryProvisioning = repositoryProvisioningById.get(
       repository.id,
     );
@@ -2567,6 +2616,16 @@ function RepositoryTable({
         effectiveProviderSetupStateByRepositoryId,
         providerSetupMismatchRepositoryIds,
         hostedSessionReady,
+        ...(effectiveConfig.providers.some(
+          (provider) => provider.authMode === "codex_account_gateway",
+        )
+          ? {
+              gatewayProviderSetupReady: isGatewayProviderSetupReady(
+                effectiveConfig,
+                gatewayAccounts,
+              ),
+            }
+          : {}),
       });
     const workflowCurrent = workflowSetupAlreadyCurrent(effectiveHealthStatus);
     const setupProgressStep = repositorySetupProgressStep({
@@ -2580,6 +2639,8 @@ function RepositoryTable({
         configuredProviderSetupByRepositoryId,
         providerSecretCheckFailedRepositoryFullName,
         hostedSessionReady,
+        effectiveConfig,
+        gatewayAccounts,
       }),
     });
     const readiness = repositorySearchReadiness({
@@ -2846,6 +2907,7 @@ function RepositoryTable({
                       <div className="rounded-2xl border border-cyan-200/10 bg-slate-950/45 px-4 pb-1 pt-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:px-5">
                         <RepositorySetupProgressPanel
                           workspace={workspace}
+                          workspaceKey={workspaceKey}
                           repository={repository}
                           setupPullRequestUrl={setupPullRequestUrl}
                           setupIssue={setupIssue}
@@ -2990,6 +3052,7 @@ function formatRepositoryStars(count: number): string {
 
 function RepositorySetupProgressPanel({
   workspace,
+  workspaceKey,
   repository,
   setupPullRequestUrl,
   setupIssue,
@@ -3001,6 +3064,7 @@ function RepositorySetupProgressPanel({
   currentStep,
 }: {
   readonly workspace: DashboardWorkspace;
+  readonly workspaceKey: string;
   readonly repository: DashboardWorkspaceData["repositories"][number];
   readonly setupPullRequestUrl: string | null;
   readonly setupIssue: string | null;
@@ -3016,8 +3080,20 @@ function RepositorySetupProgressPanel({
   const providerSetupBeforeWorkflow = effectiveConfig.providers.some(
     (provider) => provider.authMode === "codex_subscription_oauth_rotating",
   );
+  const gatewayProviderSetup = effectiveConfig.providers.some(
+    (provider) => provider.authMode === "codex_account_gateway",
+  );
   const installation = findInstallationForRepository(workspace, repository);
-  const enableReviewAction = installation ? (
+  const enableReviewAction = gatewayProviderSetup ? (
+    <LinkButton
+      href={dashboardSectionHref("setup", workspaceKey)}
+      variant="outline"
+      size="sm"
+      className="min-h-11 w-full min-w-0 rounded-lg px-3 sm:w-auto sm:min-w-[9.5rem] sm:px-5"
+    >
+      Manage accounts
+    </LinkButton>
+  ) : installation ? (
     <RepositoryProviderSecretsAction
       workspace={workspace}
       repository={repository}

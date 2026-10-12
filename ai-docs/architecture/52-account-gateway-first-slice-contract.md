@@ -53,6 +53,19 @@ are being routed through the already configured `CI_LINUX_RUNNER`, preserving
 the external-fork boundary, macOS lane and every required check. Neither this
 repair nor previously passed jobs proves a green new head or production E2E.
 
+The production repository UI also exposed a missing Gateway display-readiness
+branch: its existing binding was ignored in favor of legacy secret setup.
+The bounded correction uses the current active, unfenced binding and exact
+profile/model catalog for row and summary readiness, preserving actual health
+failures and linking setup to Accounts. Twelve readiness tests, existing policy
+and setup-panel tests, and web typecheck passed on the corrected source. Live
+UI acceptance remains pending deployment. macOS CI on head `eb7f78c0` was again
+denied before runner startup by the same GitHub billing lock.
+That head's CI run `38295846597` also failed mandatory certification upload
+because GitHub artifact storage quota was exhausted. Later quality steps were
+skipped; a complete CI PASS is not established. Further qualification requires
+restored artifact capacity and billing availability, with evidence gates intact.
+
 Independent source review of this correction retained an existing limitation:
 required-mode authorization renewal after execution links the intent as
 `Dispatched` is denied by the base admission path. The default 60-minute token
