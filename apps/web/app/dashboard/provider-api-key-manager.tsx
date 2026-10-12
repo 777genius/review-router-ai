@@ -50,6 +50,77 @@ export function ProviderApiKeyManager({
   readonly disabledReason?: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  return (
+    <DialogRoot
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && pending) return;
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          setPending(false);
+        }
+      }}
+    >
+      <DialogTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            title={disabled ? disabledReason : undefined}
+          />
+        }
+      >
+        <KeyRound aria-hidden="true" className="h-4 w-4" />
+        Connect MiMo / OpenRouter
+      </DialogTrigger>
+      <DialogPortal>
+        <DialogBackdrop className="z-50" />
+        <DialogPopup className="z-[60] max-h-[88vh] w-[min(96vw,64rem)] overflow-y-auto border-cyan-200/20 bg-[var(--rr-surface-menu)] p-0">
+          <DialogClose
+            render={
+              <button
+                type="button"
+                disabled={pending}
+                className="absolute right-4 top-4 z-10 grid h-9 w-9 place-items-center rounded-full border border-cyan-200/15 text-cyan-100"
+                aria-label="Close provider key manager"
+              />
+            }
+          >
+            ×
+          </DialogClose>
+          <ProviderApiKeyManagerContent
+            open={open}
+            workspaceId={workspaceId}
+            disabled={disabled}
+            {...(disabledReason === undefined ? {} : { disabledReason })}
+            onPendingChange={setPending}
+          />
+        </DialogPopup>
+      </DialogPortal>
+    </DialogRoot>
+  );
+}
+
+export function ProviderApiKeyManagerContent({
+  open,
+  workspaceId,
+  disabled = false,
+  disabledReason,
+  embedded = false,
+  initialRepositoryIds,
+  onPendingChange,
+}: {
+  readonly open: boolean;
+  readonly workspaceId: string;
+  readonly disabled?: boolean;
+  readonly disabledReason?: string;
+  readonly embedded?: boolean;
+  readonly initialRepositoryIds?: readonly string[] | null;
+  readonly onPendingChange?: (pending: boolean) => void;
+}): React.ReactElement {
   const [providerType, setProviderType] =
     useState<ProviderApiKeyProvider>("mimo");
   const [apiKey, setApiKey] = useState("");
@@ -64,6 +135,7 @@ export function ProviderApiKeyManager({
   const [pendingOperation, setPendingOperation] =
     useState<ApplyProviderKeyOperation | null>(null);
   const initializedSelectionScopeRef = useRef<string | null>(null);
+  const externalSelectionInitializedRef = useRef(false);
   const nextOperationIdRef = useRef(0);
   const pendingOperationRef = useRef<ApplyProviderKeyOperation | null>(null);
   const queryClient = useQueryClient();
@@ -120,17 +192,47 @@ export function ProviderApiKeyManager({
     },
   });
 
+  const hasExternalSelection = initialRepositoryIds !== undefined;
+
   useEffect(() => {
-    initializedSelectionScopeRef.current = null;
+    if (!open) {
+      initializedSelectionScopeRef.current = null;
+      externalSelectionInitializedRef.current = false;
+    }
+  }, [open]);
+
+  useEffect(() => {
     setApiKey("");
     setResults(null);
     setResultsScope(null);
     setRepositoryFilter("");
-    setSelectedRepositoryIds(new Set());
-  }, [scopedProviderType, scopedWorkspaceId]);
+    if (!hasExternalSelection) {
+      initializedSelectionScopeRef.current = null;
+      setSelectedRepositoryIds(new Set());
+    }
+  }, [hasExternalSelection, scopedProviderType, scopedWorkspaceId]);
 
   useEffect(() => {
     if (
+      !open ||
+      !hasExternalSelection ||
+      externalSelectionInitializedRef.current
+    ) {
+      return;
+    }
+    externalSelectionInitializedRef.current = true;
+    initializedSelectionScopeRef.current = scopedOperationKey;
+    setSelectedRepositoryIds(new Set(initialRepositoryIds ?? []));
+  }, [
+    hasExternalSelection,
+    initialRepositoryIds,
+    open,
+    scopedOperationKey,
+  ]);
+
+  useEffect(() => {
+    if (
+      hasExternalSelection ||
       !stateQuery.data ||
       initializedSelectionScopeRef.current === scopedOperationKey
     ) {
@@ -147,7 +249,7 @@ export function ProviderApiKeyManager({
           .map((repository) => repository.repositoryId),
       ),
     );
-  }, [scopedOperationKey, stateQuery.data]);
+  }, [hasExternalSelection, scopedOperationKey, stateQuery.data]);
 
   const repositories = useMemo(
     () =>
@@ -164,11 +266,13 @@ export function ProviderApiKeyManager({
     stateQuery.data?.repositories.map((repository) => repository.repositoryId),
   );
   const applyPending = applyMutation.isPending || pendingOperation !== null;
+  const controlsDisabled = disabled || applyPending;
   const applyErrorScope = applyMutation.variables
     ? `${applyMutation.variables.workspaceId}:${applyMutation.variables.providerType}`
     : null;
 
   const beginApply = () => {
+    if (controlsDisabled || pendingOperationRef.current) return;
     const operationId = nextOperationIdRef.current + 1;
     nextOperationIdRef.current = operationId;
     const operation: ApplyProviderKeyOperation = {
@@ -185,60 +289,32 @@ export function ProviderApiKeyManager({
     applyMutation.mutate(operation);
   };
 
-  return (
-    <DialogRoot
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen && applyPending) return;
-        setOpen(nextOpen);
-        if (!nextOpen) {
-          setApiKey("");
-          setResults(null);
-        }
-      }}
-    >
-      <DialogTrigger
-        render={
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            title={disabled ? disabledReason : undefined}
-          />
-        }
-      >
-        <KeyRound aria-hidden="true" className="h-4 w-4" />
-        Connect MiMo / OpenRouter
-      </DialogTrigger>
-      <DialogPortal>
-        <DialogBackdrop className="z-50" />
-        <DialogPopup className="z-[60] max-h-[88vh] w-[min(96vw,64rem)] overflow-y-auto border-cyan-200/20 bg-[var(--rr-surface-menu)] p-0">
-          <DialogClose
-            render={
-              <button
-                type="button"
-                disabled={applyPending}
-                className="absolute right-4 top-4 z-10 grid h-9 w-9 place-items-center rounded-full border border-cyan-200/15 text-cyan-100"
-                aria-label="Close provider key manager"
-              />
-            }
-          >
-            ×
-          </DialogClose>
-          <div className="border-b border-cyan-200/10 p-5 pr-14 sm:p-6">
-            <Badge tone="accent">Repository secrets</Badge>
-            <DialogTitle className="mt-3 text-xl font-semibold text-cyan-50">
-              Connect MiMo / OpenRouter
-            </DialogTitle>
-            <DialogDescription className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-              Apply your own provider key to explicitly selected GitHub
-              repositories. ReviewRouter encrypts the saved key and never
-              returns it to the browser.
-            </DialogDescription>
-          </div>
+  useEffect(() => {
+    onPendingChange?.(applyPending);
+  }, [applyPending, onPendingChange]);
 
-          <div className="space-y-6 p-5 sm:p-6">
+  const ContentTitle = embedded ? "h3" : DialogTitle;
+  const ContentDescription = embedded ? "p" : DialogDescription;
+
+  return (
+    <div className={embedded ? "grid gap-6" : "space-y-6 p-5 sm:p-6"}>
+      <div className={embedded ? "border-b border-cyan-200/10 pb-5" : ""}>
+        <Badge tone="accent">Repository secrets</Badge>
+        <ContentTitle className="mt-3 text-sm font-semibold text-cyan-50">
+          {embedded
+            ? "Repository API key (direct MiMo/OpenRouter GitHub Secrets)"
+            : "Connect MiMo / OpenRouter"}
+        </ContentTitle>
+        <ContentDescription className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+          Installs your provider credential into explicit GitHub Actions
+          repository secrets only. ReviewRouter encrypts the saved key and never
+          returns it to the browser. Provider, model and reasoning settings
+          remain separate repository configuration.
+        </ContentDescription>
+        {disabled && disabledReason ? (
+          <p className="mt-2 text-sm text-amber-200">{disabledReason}</p>
+        ) : null}
+      </div>
             {pendingOperation ? (
               <div
                 role="status"
@@ -256,7 +332,7 @@ export function ProviderApiKeyManager({
               </div>
             ) : null}
 
-            <fieldset disabled={applyPending}>
+            <fieldset disabled={controlsDisabled}>
               <legend className="text-sm font-semibold text-cyan-100">
                 Provider
               </legend>
@@ -275,7 +351,7 @@ export function ProviderApiKeyManager({
                       name="providerType"
                       value={option.value}
                       checked={providerType === option.value}
-                      disabled={applyPending}
+                      disabled={controlsDisabled}
                       onChange={() => setProviderType(option.value)}
                     />
                     {option.label}
@@ -293,7 +369,7 @@ export function ProviderApiKeyManager({
               <input
                 type="password"
                 autoComplete="off"
-                disabled={applyPending}
+                disabled={controlsDisabled}
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 placeholder={
@@ -325,7 +401,7 @@ export function ProviderApiKeyManager({
                   />
                   <input
                     value={repositoryFilter}
-                    disabled={applyPending}
+                    disabled={controlsDisabled}
                     onChange={(event) =>
                       setRepositoryFilter(event.target.value)
                     }
@@ -352,7 +428,7 @@ export function ProviderApiKeyManager({
                       <input
                         type="checkbox"
                         checked={selectedRepositoryIds.has(repository.id)}
-                        disabled={applyPending}
+                        disabled={controlsDisabled}
                         onChange={(event) => {
                           const next = new Set(selectedRepositoryIds);
                           if (event.target.checked) next.add(repository.id);
@@ -390,7 +466,7 @@ export function ProviderApiKeyManager({
               <Button
                 type="button"
                 variant="ghost"
-                disabled={applyPending}
+                disabled={controlsDisabled}
                 onClick={() => {
                   setSelectedRepositoryIds(
                     new Set(
@@ -410,7 +486,7 @@ export function ProviderApiKeyManager({
                 variant="solid"
                 disabled={
                   selectedRepositoryIds.size === 0 ||
-                  applyPending ||
+                  controlsDisabled ||
                   (!apiKey.trim() && !stateQuery.data?.connected)
                 }
                 onClick={beginApply}
@@ -458,10 +534,7 @@ export function ProviderApiKeyManager({
                 </div>
               </section>
             ) : null}
-          </div>
-        </DialogPopup>
-      </DialogPortal>
-    </DialogRoot>
+      </div>
   );
 }
 
