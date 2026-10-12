@@ -43,6 +43,16 @@ resolve to `cc4aaec036d518f714691de3c8f84b7cb9f7f254`. The published entrypoint
 matches the independently reviewed SHA256 above. SaaS and production acceptance
 remain pending.
 
+SaaS PR 559 CI run `38292719590`, head
+`bc8539683f0cdd4b8ff8f23d1f5b5ac07ab54529`, failed one stale workflow fixture
+that still expected pull-request ingress; 10,239 other unit tests passed and
+496 were skipped. The corrected dispatch fixture passed all 67 focused tests
+without skips and independent source review. Separately, Quality Gates never
+started because GitHub reported an account billing lock. Remaining Linux jobs
+are being routed through the already configured `CI_LINUX_RUNNER`, preserving
+the external-fork boundary, macOS lane and every required check. Neither this
+repair nor previously passed jobs proves a green new head or production E2E.
+
 Independent source review of this correction retained an existing limitation:
 required-mode authorization renewal after execution links the intent as
 `Dispatched` is denied by the base admission path. The default 60-minute token

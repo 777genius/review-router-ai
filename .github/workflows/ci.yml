@@ -221,7 +221,7 @@ jobs:
 
   codex-rotating-installer-portability:
     name: Rotating installer lock (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_RUNNER || matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -308,7 +308,7 @@ jobs:
 
   managed-migration-pg17:
     name: Managed migration PG17 (${{ matrix.lane }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -378,7 +378,7 @@ jobs:
     name: Quality Gates
     needs: [quality, managed-migration-pg17]
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - name: Enforce every quality and PG17 lane
