@@ -2,6 +2,8 @@
 
 This folder is the canonical planning and architecture knowledge base for ReviewRouter.
 
+Current provider delivery scope: [Sub2API production and legacy direct transport](./operations/provider-transport-scope.md).
+
 ## Reading Order
 
 1. [Agent Start Here](./AGENT_START_HERE.md)

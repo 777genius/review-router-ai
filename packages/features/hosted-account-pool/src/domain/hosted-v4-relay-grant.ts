@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
+// Retained native-v4 grant contract. A v4 name describes protocol/authority,
+// not proof that the legacy direct transport is enabled. Production provider
+// transport is selected through Account Gateway/Sub2API; keep these fences and
+// historical grant identities intact rather than rewriting consumed outcomes.
+
 const id = z.string().trim().min(1).max(256);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const sha = z.string().regex(/^[a-f0-9]{40}$/);

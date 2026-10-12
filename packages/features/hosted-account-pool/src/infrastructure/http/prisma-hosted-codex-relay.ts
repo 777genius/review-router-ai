@@ -40,6 +40,8 @@ import {
   type HostedCodexCanaryFaultPlanPort,
 } from "../../application/ports/hosted-codex-canary-fault-plan-port.js";
 
+// Legacy direct Codex transport, not the selected Account Gateway/Sub2API path.
+// Preserve historical ledgers/UNKNOWN outcomes; do not use as an automatic fallback.
 const upstreamResponsesUrl = "https://chatgpt.com/backend-api/codex/responses";
 
 /** Re-resolves every mutable authority fact and atomically admits the request. */
