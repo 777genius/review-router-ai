@@ -48,9 +48,7 @@ type RepositoryActionSelectionValue = {
 const RepositoryActionSelectionContext =
   createContext<RepositoryActionSelectionValue | null>(null);
 
-export function useRepositoryActionSelection():
-  | RepositoryActionSelectionValue
-  | null {
+export function useRepositoryActionSelection(): RepositoryActionSelectionValue | null {
   return useContext(RepositoryActionSelectionContext);
 }
 
@@ -498,9 +496,7 @@ export function GatewayRepositoryBatchContent({
           ).map((value) => ({ value, label: value }))}
           onChange={(value) => {
             if (
-              ["low", "medium", "high", "xhigh", "max", "ultra"].includes(
-                value,
-              )
+              ["low", "medium", "high", "xhigh", "max", "ultra"].includes(value)
             )
               setReasoningEffort(
                 value as GatewayBatchSelection["reasoningEffort"],

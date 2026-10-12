@@ -54,8 +54,7 @@ export function ProviderApplicationDialog({
   useEffect(() => {
     if (!open) return;
     setDirectInitialRepositoryIds(
-      selectionRef.current?.selected.map((target) => target.repositoryId) ??
-        [],
+      selectionRef.current?.selected.map((target) => target.repositoryId) ?? [],
     );
   }, [open]);
 

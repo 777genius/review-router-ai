@@ -223,12 +223,7 @@ export function ProviderApiKeyManagerContent({
     externalSelectionInitializedRef.current = true;
     initializedSelectionScopeRef.current = scopedOperationKey;
     setSelectedRepositoryIds(new Set(initialRepositoryIds ?? []));
-  }, [
-    hasExternalSelection,
-    initialRepositoryIds,
-    open,
-    scopedOperationKey,
-  ]);
+  }, [hasExternalSelection, initialRepositoryIds, open, scopedOperationKey]);
 
   useEffect(() => {
     if (
@@ -315,226 +310,216 @@ export function ProviderApiKeyManagerContent({
           <p className="mt-2 text-sm text-amber-200">{disabledReason}</p>
         ) : null}
       </div>
-            {pendingOperation ? (
-              <div
-                role="status"
-                aria-live="polite"
-                className="border-l-2 border-cyan-300/60 pl-3 text-sm text-cyan-100"
-              >
-                Applying {providerLabel(pendingOperation.providerType)} in{" "}
-                {pendingOperation.workspaceId} to{" "}
-                {pendingOperation.repositoryIds.length}{" "}
-                {pendingOperation.repositoryIds.length === 1
-                  ? "repository"
-                  : "repositories"}
-                . Workspace and provider scope are locked until this operation
-                settles.
-              </div>
-            ) : null}
+      {pendingOperation ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="border-l-2 border-cyan-300/60 pl-3 text-sm text-cyan-100"
+        >
+          Applying {providerLabel(pendingOperation.providerType)} in{" "}
+          {pendingOperation.workspaceId} to{" "}
+          {pendingOperation.repositoryIds.length}{" "}
+          {pendingOperation.repositoryIds.length === 1
+            ? "repository"
+            : "repositories"}
+          . Workspace and provider scope are locked until this operation
+          settles.
+        </div>
+      ) : null}
 
-            <fieldset disabled={controlsDisabled}>
-              <legend className="text-sm font-semibold text-cyan-100">
-                Provider
-              </legend>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {providerOptions.map((option) => (
-                  <label
-                    key={option.value}
-                    className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm ${
-                      providerType === option.value
-                        ? "border-cyan-300/50 bg-cyan-300/10 text-cyan-50"
-                        : "border-cyan-200/10 text-slate-300"
-                    } ${applyPending ? "cursor-default opacity-60" : "cursor-pointer"}`}
-                  >
-                    <input
-                      type="radio"
-                      name="providerType"
-                      value={option.value}
-                      checked={providerType === option.value}
-                      disabled={controlsDisabled}
-                      onChange={() => setProviderType(option.value)}
-                    />
-                    {option.label}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-
-            <label className="block">
-              <span className="text-sm font-semibold text-cyan-100">
-                {providerType === "mimo"
-                  ? "MiMo Token Plan API key"
-                  : "OpenRouter API key"}
-              </span>
+      <fieldset disabled={controlsDisabled}>
+        <legend className="text-sm font-semibold text-cyan-100">
+          Provider
+        </legend>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {providerOptions.map((option) => (
+            <label
+              key={option.value}
+              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm ${
+                providerType === option.value
+                  ? "border-cyan-300/50 bg-cyan-300/10 text-cyan-50"
+                  : "border-cyan-200/10 text-slate-300"
+              } ${applyPending ? "cursor-default opacity-60" : "cursor-pointer"}`}
+            >
               <input
-                type="password"
-                autoComplete="off"
+                type="radio"
+                name="providerType"
+                value={option.value}
+                checked={providerType === option.value}
                 disabled={controlsDisabled}
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder={
-                  stateQuery.data?.connected
-                    ? "Saved key available — leave blank to keep it"
-                    : "Paste API key"
-                }
-                className="mt-2 w-full rounded-xl border border-cyan-200/15 bg-slate-950/70 px-3 py-2.5 text-sm text-cyan-50 outline-none focus:border-cyan-300/50"
+                onChange={() => setProviderType(option.value)}
               />
+              {option.label}
             </label>
+          ))}
+        </div>
+      </fieldset>
 
-            <section>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-cyan-100">
-                    GitHub repositories
-                  </h3>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {selectedRepositoryIds.size} selected
-                    {stateQuery.data?.connected
-                      ? ` · ${connectedRepositoryIds.size} previously connected`
-                      : ""}
-                  </p>
-                </div>
-                <label className="relative min-w-[14rem] flex-1 sm:max-w-xs">
-                  <Search
-                    aria-hidden="true"
-                    className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
-                  />
-                  <input
-                    value={repositoryFilter}
-                    disabled={controlsDisabled}
-                    onChange={(event) =>
-                      setRepositoryFilter(event.target.value)
-                    }
-                    placeholder="Filter repositories"
-                    className="w-full rounded-full border border-cyan-200/10 bg-slate-950/60 py-2 pl-9 pr-3 text-sm text-cyan-50 outline-none focus:border-cyan-300/40"
-                  />
-                </label>
-              </div>
-              <div className="mt-3 max-h-72 divide-y divide-cyan-200/10 overflow-y-auto border-y border-cyan-200/10">
-                {repositoriesQuery.isLoading ? (
-                  <p className="p-4 text-sm text-slate-400">
-                    Loading repositories…
-                  </p>
-                ) : repositories.length === 0 ? (
-                  <p className="p-4 text-sm text-slate-400">
-                    No matching GitHub repositories.
-                  </p>
-                ) : (
-                  repositories.map((repository) => (
-                    <label
-                      key={repository.id}
-                      className="flex cursor-pointer items-center gap-3 px-3 py-3 hover:bg-cyan-300/[0.035]"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedRepositoryIds.has(repository.id)}
-                        disabled={controlsDisabled}
-                        onChange={(event) => {
-                          const next = new Set(selectedRepositoryIds);
-                          if (event.target.checked) next.add(repository.id);
-                          else next.delete(repository.id);
-                          setSelectedRepositoryIds(next);
-                        }}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm text-cyan-50">
-                        {repository.fullName}
-                      </span>
-                      {connectedRepositoryIds.has(repository.id) ? (
-                        <Badge tone="success">Saved</Badge>
-                      ) : null}
-                    </label>
-                  ))
-                )}
-              </div>
-            </section>
+      <label className="block">
+        <span className="text-sm font-semibold text-cyan-100">
+          {providerType === "mimo"
+            ? "MiMo Token Plan API key"
+            : "OpenRouter API key"}
+        </span>
+        <input
+          type="password"
+          autoComplete="off"
+          disabled={controlsDisabled}
+          value={apiKey}
+          onChange={(event) => setApiKey(event.target.value)}
+          placeholder={
+            stateQuery.data?.connected
+              ? "Saved key available — leave blank to keep it"
+              : "Paste API key"
+          }
+          className="mt-2 w-full rounded-xl border border-cyan-200/15 bg-slate-950/70 px-3 py-2.5 text-sm text-cyan-50 outline-none focus:border-cyan-300/50"
+        />
+      </label>
 
-            {stateQuery.error ? (
-              <p role="alert" className="text-sm text-rose-200">
-                {providerKeyErrorMessage((stateQuery.error as Error).message)}
-              </p>
-            ) : null}
-
-            {applyMutation.error && applyErrorScope === scopedOperationKey ? (
-              <p role="alert" className="text-sm text-rose-200">
-                {providerKeyErrorMessage(
-                  (applyMutation.error as Error).message,
-                )}
-              </p>
-            ) : null}
-
-            <div className="flex flex-wrap items-center justify-end gap-3">
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={controlsDisabled}
-                onClick={() => {
-                  setSelectedRepositoryIds(
-                    new Set(
-                      (repositoriesQuery.data?.repositories ?? [])
-                        .filter(
-                          (repository) => repository.provider === "github",
-                        )
-                        .map((repository) => repository.id),
-                    ),
-                  );
-                }}
+      <section>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-cyan-100">
+              GitHub repositories
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              {selectedRepositoryIds.size} selected
+              {stateQuery.data?.connected
+                ? ` · ${connectedRepositoryIds.size} previously connected`
+                : ""}
+            </p>
+          </div>
+          <label className="relative min-w-[14rem] flex-1 sm:max-w-xs">
+            <Search
+              aria-hidden="true"
+              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+            />
+            <input
+              value={repositoryFilter}
+              disabled={controlsDisabled}
+              onChange={(event) => setRepositoryFilter(event.target.value)}
+              placeholder="Filter repositories"
+              className="w-full rounded-full border border-cyan-200/10 bg-slate-950/60 py-2 pl-9 pr-3 text-sm text-cyan-50 outline-none focus:border-cyan-300/40"
+            />
+          </label>
+        </div>
+        <div className="mt-3 max-h-72 divide-y divide-cyan-200/10 overflow-y-auto border-y border-cyan-200/10">
+          {repositoriesQuery.isLoading ? (
+            <p className="p-4 text-sm text-slate-400">Loading repositories…</p>
+          ) : repositories.length === 0 ? (
+            <p className="p-4 text-sm text-slate-400">
+              No matching GitHub repositories.
+            </p>
+          ) : (
+            repositories.map((repository) => (
+              <label
+                key={repository.id}
+                className="flex cursor-pointer items-center gap-3 px-3 py-3 hover:bg-cyan-300/[0.035]"
               >
-                Select all
-              </Button>
-              <Button
-                type="button"
-                variant="solid"
-                disabled={
-                  selectedRepositoryIds.size === 0 ||
-                  controlsDisabled ||
-                  (!apiKey.trim() && !stateQuery.data?.connected)
-                }
-                onClick={beginApply}
-              >
-                <PlugZap aria-hidden="true" className="h-4 w-4" />
-                {applyPending ? "Applying…" : "Apply"}
-              </Button>
-            </div>
+                <input
+                  type="checkbox"
+                  checked={selectedRepositoryIds.has(repository.id)}
+                  disabled={controlsDisabled}
+                  onChange={(event) => {
+                    const next = new Set(selectedRepositoryIds);
+                    if (event.target.checked) next.add(repository.id);
+                    else next.delete(repository.id);
+                    setSelectedRepositoryIds(next);
+                  }}
+                />
+                <span className="min-w-0 flex-1 truncate text-sm text-cyan-50">
+                  {repository.fullName}
+                </span>
+                {connectedRepositoryIds.has(repository.id) ? (
+                  <Badge tone="success">Saved</Badge>
+                ) : null}
+              </label>
+            ))
+          )}
+        </div>
+      </section>
 
-            {results && resultsScope === scopedOperationKey ? (
-              <section>
-                <h3 className="text-sm font-semibold text-cyan-100">
-                  Batch results
-                </h3>
-                <div className="mt-3 overflow-x-auto border-y border-cyan-200/10">
-                  <table className="w-full text-left text-sm">
-                    <thead className="text-xs uppercase tracking-[0.12em] text-slate-500">
-                      <tr>
-                        <th className="px-3 py-3">Repository</th>
-                        <th className="px-3 py-3">Status</th>
-                        <th className="px-3 py-3">Details</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-cyan-200/10">
-                      {results.map((result) => (
-                        <tr key={result.repositoryId}>
-                          <td className="px-3 py-3 text-cyan-50">
-                            {result.repositoryFullName}
-                          </td>
-                          <td className="px-3 py-3">
-                            <ProviderKeyResultBadge status={result.status} />
-                          </td>
-                          <td className="px-3 py-3 text-slate-300">
-                            {result.errorSummary ??
-                              (result.errorReason
-                                ? providerKeyErrorMessage(result.errorReason)
-                                : result.status === "applied"
-                                  ? "Secret written to repository Actions."
-                                  : providerKeyErrorMessage(result.status))}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            ) : null}
+      {stateQuery.error ? (
+        <p role="alert" className="text-sm text-rose-200">
+          {providerKeyErrorMessage((stateQuery.error as Error).message)}
+        </p>
+      ) : null}
+
+      {applyMutation.error && applyErrorScope === scopedOperationKey ? (
+        <p role="alert" className="text-sm text-rose-200">
+          {providerKeyErrorMessage((applyMutation.error as Error).message)}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={controlsDisabled}
+          onClick={() => {
+            setSelectedRepositoryIds(
+              new Set(
+                (repositoriesQuery.data?.repositories ?? [])
+                  .filter((repository) => repository.provider === "github")
+                  .map((repository) => repository.id),
+              ),
+            );
+          }}
+        >
+          Select all
+        </Button>
+        <Button
+          type="button"
+          variant="solid"
+          disabled={
+            selectedRepositoryIds.size === 0 ||
+            controlsDisabled ||
+            (!apiKey.trim() && !stateQuery.data?.connected)
+          }
+          onClick={beginApply}
+        >
+          <PlugZap aria-hidden="true" className="h-4 w-4" />
+          {applyPending ? "Applying…" : "Apply"}
+        </Button>
       </div>
+
+      {results && resultsScope === scopedOperationKey ? (
+        <section>
+          <h3 className="text-sm font-semibold text-cyan-100">Batch results</h3>
+          <div className="mt-3 overflow-x-auto border-y border-cyan-200/10">
+            <table className="w-full text-left text-sm">
+              <thead className="text-xs uppercase tracking-[0.12em] text-slate-500">
+                <tr>
+                  <th className="px-3 py-3">Repository</th>
+                  <th className="px-3 py-3">Status</th>
+                  <th className="px-3 py-3">Details</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-cyan-200/10">
+                {results.map((result) => (
+                  <tr key={result.repositoryId}>
+                    <td className="px-3 py-3 text-cyan-50">
+                      {result.repositoryFullName}
+                    </td>
+                    <td className="px-3 py-3">
+                      <ProviderKeyResultBadge status={result.status} />
+                    </td>
+                    <td className="px-3 py-3 text-slate-300">
+                      {result.errorSummary ??
+                        (result.errorReason
+                          ? providerKeyErrorMessage(result.errorReason)
+                          : result.status === "applied"
+                            ? "Secret written to repository Actions."
+                            : providerKeyErrorMessage(result.status))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+    </div>
   );
 }
 
