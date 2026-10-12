@@ -1,8 +1,8 @@
 # Provider transport scope
 
-Owner decision, 2026-10-12: ReviewRouter production uses Account Gateway/Sub2API
-only. The existing Sub2API delivery owner owns rollout, recovery and the real
-GitHub App review E2E. Do not start a parallel rollout or provider canary.
+Owner decision, 2026-10-12: the selected production provider path is Account
+Gateway/Sub2API only. The existing Sub2API delivery owner owns rollout, recovery
+and the real GitHub App review E2E. Do not start a parallel rollout or provider canary.
 
 The old direct native-v4 adapter and direct hosted Codex relay are legacy.
 Retain their code, custody, packages, receipts and consumed UNKNOWN outcomes;
