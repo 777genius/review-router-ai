@@ -43,7 +43,7 @@ import {
   scanCodexRotatingAdvisoryWorkflow as scanExportedCodexRotatingAdvisoryWorkflow,
 } from "../index";
 
-it("emits the immutable schema2 keyless PR caller contract", () => {
+it("emits the immutable schema2 keyless dispatched PR caller contract", () => {
   const sha = "0123456789abcdef0123456789abcdef01234567";
   const file = renderAccountGatewayWorkflow({
     actionRef: `777genius/review-router@${sha}`,
@@ -52,10 +52,25 @@ it("emits the immutable schema2 keyless PR caller contract", () => {
   });
   const document = parse(file.content);
   expect(file.path).toBe(".github/workflows/reviewrouter-codex.yml");
-  expect(Object.keys(document.on)).toEqual(["pull_request"]);
+  expect(Object.keys(document.on)).toEqual(["workflow_dispatch"]);
+  const inputs = document.on.workflow_dispatch.inputs;
+  expect(Object.keys(inputs)).toEqual([
+    "review_request_id",
+    "pr_number",
+    "review_head_sha",
+  ]);
+  for (const input of Object.values(inputs)) {
+    expect(input).toMatchObject({ required: true, type: "string" });
+  }
+  expect(document["run-name"]).toBe(
+    "${{ format('ReviewRouter review {0}', inputs.review_request_id) }}",
+  );
   expect(document.permissions).toEqual({});
   expect(Object.keys(document.jobs)).toEqual(["codex-review"]);
   const job = document.jobs["codex-review"];
+  expect(job.if).toBe(
+    "${{ github.event_name == 'workflow_dispatch' && inputs.review_request_id != '' && inputs.pr_number != '' && inputs.review_head_sha != '' }}",
+  );
   expect(job.uses).toBe(
     `777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${sha}`,
   );
@@ -72,10 +87,8 @@ it("emits the immutable schema2 keyless PR caller contract", () => {
     workflow_schema_version: 2,
     codex_session_mode: "account-gateway",
   });
-  expect(job.with.pr_number).toContain("github.event.pull_request.number");
-  expect(job.with.review_head_sha).toContain(
-    "github.event.pull_request.head.sha",
-  );
+  expect(job.with.pr_number).toBe("${{ inputs.pr_number }}");
+  expect(job.with.review_head_sha).toBe("${{ inputs.review_head_sha }}");
   expect(job.secrets).toBeUndefined();
   expect(job.steps).toBeUndefined();
   expect(file.content).not.toMatch(

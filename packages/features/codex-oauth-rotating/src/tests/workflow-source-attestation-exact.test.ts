@@ -433,16 +433,29 @@ it("rejects schema 6 source even when every other byte is canonical V5", () => {
   ).toThrow("codex_rotating_t0_workflow_metadata_missing");
 });
 
-// Independently accepted public 26-line caller, frozen SHA256 c11fae9d89b8c858e7c1df539704080ee6a1673d8941a8765085fdfb439bddcf.
+// Frozen dispatch caller exercises source attestation independently of the renderer.
 // Embedded so product regression tests do not depend on orchestration inputs.
 const acceptedAccountGatewayCaller = `name: ReviewRouter Codex
+run-name: \${{ format('ReviewRouter review {0}', inputs.review_request_id) }}
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+  workflow_dispatch:
+    inputs:
+      review_request_id:
+        description: Durable ReviewRouter request identity
+        required: true
+        type: string
+      pr_number:
+        description: Pull request number selected by ReviewRouter
+        required: true
+        type: string
+      review_head_sha:
+        description: Expected pull request head selected by ReviewRouter
+        required: true
+        type: string
 permissions: {}
 jobs:
   codex-review:
-    if: \${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot' && github.event.pull_request.draft == false }}
+    if: \${{ github.event_name == 'workflow_dispatch' && inputs.review_request_id != '' && inputs.pr_number != '' && inputs.review_head_sha != '' }}
     concurrency:
       group: reviewrouter-codex-\${{ github.repository_id }}
       cancel-in-progress: false
@@ -454,8 +467,8 @@ jobs:
     with:
       runtime_ref: "9d30879b333c6474d104f5911f548419702b758b"
       api_url: "https://aberdeen-say-beverages-testimony.trycloudflare.com"
-      pr_number: \${{ format('{0}', github.event.pull_request.number) }}
-      review_head_sha: \${{ github.event.pull_request.head.sha }}
+      pr_number: \${{ inputs.pr_number }}
+      review_head_sha: \${{ inputs.review_head_sha }}
       provider_instance_id: "codex-rotating:1317214237"
       runtime_config_mode: oidc
       codex_session_mode: account-gateway
@@ -467,7 +480,7 @@ describe("canonical account-gateway public caller", () => {
   it("roundtrips the accepted public caller through the strict metadata reader", () => {
     expect(
       createHash("sha256").update(acceptedAccountGatewayCaller).digest("hex"),
-    ).toBe("c11fae9d89b8c858e7c1df539704080ee6a1673d8941a8765085fdfb439bddcf");
+    ).toBe("974e9b455f2f3a1a8ac58be400cdebea65be53a98d1336e039b852aa9636894c");
     expect(
       readCanonicalCodexRotatingT0WorkflowSourceMetadata(
         acceptedAccountGatewayCaller,
@@ -634,18 +647,19 @@ it.each([
       ),
   ],
   [
-    "dispatch ingress",
+    "pull request ingress",
     (source: string) =>
-      source.replace("  pull_request:", "  workflow_dispatch:"),
+      source.replace("  workflow_dispatch:", "  pull_request:"),
   ],
   [
     "target ingress",
     (source: string) =>
-      source.replace("  pull_request:", "  pull_request_target:"),
+      source.replace("  workflow_dispatch:", "  pull_request_target:"),
   ],
   [
-    "missing event",
-    (source: string) => source.replace("opened, synchronize,", "opened,"),
+    "missing request input",
+    (source: string) =>
+      source.replace("      review_request_id:", "      request_id:"),
   ],
   [
     "extra ingress",
@@ -692,39 +706,33 @@ it.each([
       ),
   ],
   [
-    "missing same-repo guard",
+    "missing dispatch guard",
     (source: string) =>
-      source.replace(
-        "github.event.pull_request.head.repo.full_name == github.repository && ",
-        "",
-      ),
+      source.replace("github.event_name == 'workflow_dispatch' && ", ""),
   ],
   [
-    "missing nonbot guard",
+    "missing request guard",
     (source: string) =>
-      source.replace("github.event.pull_request.user.type != 'Bot' && ", ""),
+      source.replace("inputs.review_request_id != '' && ", ""),
   ],
   [
-    "draft admission",
+    "empty head admission",
     (source: string) =>
       source.replace(
-        "github.event.pull_request.draft == false",
-        "github.event.pull_request.draft == true",
+        "inputs.review_head_sha != ''",
+        "inputs.review_head_sha == ''",
       ),
   ],
   [
     "unbound PR",
     (source: string) =>
-      source.replace(
-        "pr_number: ${{ format('{0}', github.event.pull_request.number) }}",
-        'pr_number: "42"',
-      ),
+      source.replace("pr_number: ${{ inputs.pr_number }}", 'pr_number: "42"'),
   ],
   [
     "unbound head",
     (source: string) =>
       source.replace(
-        "review_head_sha: ${{ github.event.pull_request.head.sha }}",
+        "review_head_sha: ${{ inputs.review_head_sha }}",
         `review_head_sha: "${otherCallerSha}"`,
       ),
   ],

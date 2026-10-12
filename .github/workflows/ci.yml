@@ -54,17 +54,17 @@ env:
   REVIEW_ROUTER_PUBLIC_API_URL: https://api.reviewrouter.test
   REVIEW_ROUTER_ACTION_REF: 777genius/review-router@main
   REVIEW_ROUTER_ACTION_VERSION: main
-  REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: 777genius/review-router@4960e908eea749f625ba93d18455b0dc093280df
+  REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: 777genius/review-router@cc4aaec036d518f714691de3c8f84b7cb9f7f254
   REVIEW_ROUTER_CODEX_ROTATING_ALLOWED_ACTION_REFS: ""
   # Public test fixture only; production uses one secret-manager value shared
   # by every database writer.
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: 4960e908eea749f625ba93d18455b0dc093280df
-  REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.159
-  REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 4960e908eea749f625ba93d18455b0dc093280df
-  REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 3401e5ca5d6f69048ee96d565519737fd124febddb55b3fa230f112560547f00
+  REVIEW_ROUTER_PAIRED_ACTION_REF: cc4aaec036d518f714691de3c8f84b7cb9f7f254
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.160
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: cc4aaec036d518f714691de3c8f84b7cb9f7f254
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: e94383d10435c9e908e280458f994cf880d7f353ad0a8be46f5eacdbcfbdaa73
   REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: "0"
   REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING: "0"
   REVIEW_ROUTER_PG_DUMP: /usr/lib/postgresql/17/bin/pg_dump
@@ -221,7 +221,7 @@ jobs:
 
   codex-rotating-installer-portability:
     name: Rotating installer lock (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_RUNNER || matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -308,7 +308,7 @@ jobs:
 
   managed-migration-pg17:
     name: Managed migration PG17 (${{ matrix.lane }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -378,7 +378,7 @@ jobs:
     name: Quality Gates
     needs: [quality, managed-migration-pg17]
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - name: Enforce every quality and PG17 lane

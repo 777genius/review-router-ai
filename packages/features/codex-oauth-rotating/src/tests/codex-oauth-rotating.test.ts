@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import sodium from "libsodium-wrappers";
+import { parse as parseYaml } from "yaml";
 import {
   buildCodexRefreshBootstrapPlan,
   buildCodexRotatingSetupManifest,
@@ -1698,6 +1699,32 @@ describe("account-gateway source metadata", () => {
       actionRef: `777genius/review-router@${sha}`,
       apiUrl: "https://api.reviewrouter.site",
       githubRepositoryId: "123456",
+    });
+    const workflow = parseYaml(source);
+    expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
+    expect(workflow.on.workflow_dispatch.inputs).toEqual({
+      review_request_id: {
+        description: "Durable ReviewRouter request identity",
+        required: true,
+        type: "string",
+      },
+      pr_number: {
+        description: "Pull request number selected by ReviewRouter",
+        required: true,
+        type: "string",
+      },
+      review_head_sha: {
+        description: "Expected pull request head selected by ReviewRouter",
+        required: true,
+        type: "string",
+      },
+    });
+    expect(workflow["run-name"]).toBe(
+      "${{ format('ReviewRouter review {0}', inputs.review_request_id) }}",
+    );
+    expect(workflow.jobs["codex-review"].with).toMatchObject({
+      pr_number: "${{ inputs.pr_number }}",
+      review_head_sha: "${{ inputs.review_head_sha }}",
     });
     const metadata = readCodexRotatingWorkflowSourceMetadata(source);
     expect(metadata).toEqual({

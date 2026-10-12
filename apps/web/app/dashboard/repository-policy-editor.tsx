@@ -43,6 +43,7 @@ import type {
   AccountsPage,
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
+import { getReadyGatewayAccounts } from "../../src/server/dashboard-provider-setup-readiness";
 
 export { clearProviderSecretStatusCacheForTest };
 
@@ -1121,18 +1122,7 @@ export function ReviewConfigForm({
   // Safe display choices from authorized RSC first paint, never binding authority.
   const gatewayPage =
     gatewayAccounts?.status === "ok" ? gatewayAccounts.value : null;
-  const eligibleGatewayAccounts = gatewayPage
-    ? gatewayPage.accounts.filter(
-        (account) =>
-          account.state === "active" &&
-          account.binding?.state === "active" &&
-          !account.binding.fencePending &&
-          gatewayPage.profiles.some(
-            (profile) =>
-              profile.id === account.profileId && profile.models.length > 0,
-          ),
-      )
-    : [];
+  const eligibleGatewayAccounts = getReadyGatewayAccounts(gatewayAccounts);
   const gatewayAvailabilityMessage = !gatewayPage
     ? gatewayAccounts?.status === "denied"
       ? "Workspace admin access is required to choose accounts."

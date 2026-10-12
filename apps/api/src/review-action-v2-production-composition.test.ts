@@ -47,6 +47,18 @@ import { investigationRolloutSelectorsEnv } from "@reviewrouter/features-review-
 import { ReviewInvestigationOperationsDiagnosticCode } from "./review-investigation-operations-composition.js";
 import { reviewActionV2ProjectionPolicyVersion } from "./review-action-v2-projection-policy.js";
 import * as runControlComposition from "./review-action-v2-run-control-composition.js";
+import {
+  createReviewRequestedIntent,
+  decideReviewRequestedAdmission,
+  ReviewRequestedIntentState,
+  ReviewRequestedTriggerKind,
+  ReviewRequestedTransitionStatus,
+  ReviewRequestedTransitionDecisionStatus,
+  type ReviewRequestedIntent,
+} from "@reviewrouter/features-review-executions";
+import { PrismaReviewRequestedIntentStore } from "@reviewrouter/features-review-executions/composition";
+import { OctokitCodexRotatingGitHubSecretGateway } from "./github/octokit-codex-rotating-github-secret-gateway.js";
+import type { GitHubActionsOidcClaims } from "@reviewrouter/features-action-control-plane";
 
 const runtime = {
   readServerTime: async () => new Date("2026-07-23T00:00:00.000Z"),
@@ -54,6 +66,123 @@ const runtime = {
 };
 
 describe("Review Action v2 production composition", () => {
+  it("wires the trusted App PR facts and configured cap into real intent admission", async () => {
+    const now = new Date();
+    let intent: ReviewRequestedIntent = {
+      ...createReviewRequestedIntent({
+        workspaceId: "workspace_1",
+        repositoryConnectionId: "repository_1",
+        scmRepositoryIdentityId: "scm_1",
+        pullRequestNumber: 42,
+        requestId: "request-1",
+        revision: {
+          baseSha: "b".repeat(40),
+          mergeBaseSha: "c".repeat(40),
+          headSha: "d".repeat(40),
+          reviewRevisionHash: "e".repeat(64),
+        },
+        triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+        deliveryIdentityHash: "f".repeat(64),
+        canonicalRequestHash: "1".repeat(64),
+        notBefore: now,
+        createdAt: now,
+        retainUntil: new Date(now.getTime() + 86_400_000),
+      }),
+      state: ReviewRequestedIntentState.AwaitingAuthorization,
+      sourceRunId: "1001",
+      sourceRunAttempt: "1",
+      resolutionDeadlineAt: new Date(now.getTime() + 300_000),
+    };
+    const lookup = vi
+      .spyOn(
+        PrismaReviewRequestedIntentStore.prototype,
+        "findByRepositorySourceRunIdentity",
+      )
+      .mockImplementation(async () => intent);
+    const record = vi
+      .spyOn(
+        PrismaReviewRequestedIntentStore.prototype,
+        "recordAdmissionDecision",
+      )
+      .mockImplementation(async (command) => {
+        const decision = decideReviewRequestedAdmission({ intent, ...command });
+        if (
+          decision.status !== ReviewRequestedTransitionDecisionStatus.Applied &&
+          decision.status !== ReviewRequestedTransitionDecisionStatus.Restored
+        ) {
+          return { status: ReviewRequestedTransitionStatus.Conflict };
+        }
+        intent = decision.intent;
+        return { status: ReviewRequestedTransitionStatus.Applied, intent };
+      });
+    const pullRequests = vi
+      .spyOn(OctokitCodexRotatingGitHubSecretGateway.prototype, "resolve")
+      .mockResolvedValue({
+        pullRequestNumber: 42,
+        headSha: intent.revision.headSha,
+        additions: 2,
+        deletions: 0,
+      });
+    const compose = vi.spyOn(
+      runControlComposition,
+      "composeReviewActionV2RunControlRoutes",
+    );
+    try {
+      composeReviewActionV2ProductionRoutes({
+        enabled: true,
+        runtime,
+        prisma: inertPrisma(),
+        env: {
+          ...productionEnv(),
+          REVIEW_ROUTER_REVIEW_V2_INTENT_ADMISSION_REQUIRED: "1",
+          REVIEW_ROUTER_REVIEW_V2_INTENT_INGRESS_ENABLED: "1",
+          REVIEW_ROUTER_REVIEW_V2_WORKFLOW_DISPATCH_READY: "1",
+          REVIEW_ROUTER_REVIEW_V2_WORKER_ENABLED: "1",
+          REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED: "1",
+          REVIEW_ROUTER_HOSTED_MAX_CHANGED_LINES: "1",
+        },
+      });
+      const admissionFacts =
+        compose.mock.calls[0]?.[0].handlers?.admissionFacts;
+      if (!admissionFacts) throw new Error("test_admission_facts_missing");
+      await expect(
+        admissionFacts.resolve({
+          claims: {
+            run_id: "1001",
+            run_attempt: "1",
+          } as GitHubActionsOidcClaims,
+          repository: {
+            workspaceId: "workspace_1",
+            repositoryId: "repository_1",
+            githubRepositoryId: "123",
+            githubInstallationId: "456",
+            fullName: "777genius/example",
+            owner: "777genius",
+            selected: true,
+            installationStatus: "active",
+          },
+          scmRepositoryIdentityId: "scm_1",
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        issues: ["review_request_intent_required"],
+      });
+      expect(pullRequests).toHaveBeenCalledOnce();
+      expect(record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          changedLines: 2,
+          maxChangedLines: 1,
+          verdict: "rejected",
+        }),
+      );
+      expect(intent.state).toBe(ReviewRequestedIntentState.Terminal);
+    } finally {
+      lookup.mockRestore();
+      record.mockRestore();
+      pullRequests.mockRestore();
+      compose.mockRestore();
+    }
+  });
   it("keeps disabled boot inert without Prisma or v2 secrets", async () => {
     expect(
       composeReviewActionV2ProductionRoutes({

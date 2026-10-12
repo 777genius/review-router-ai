@@ -3036,13 +3036,26 @@ export function renderCanonicalAccountGatewayWorkflow(options: {
     options.githubRepositoryId,
   );
   return `name: ReviewRouter Codex
+run-name: \${{ format('ReviewRouter review {0}', inputs.review_request_id) }}
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+  workflow_dispatch:
+    inputs:
+      review_request_id:
+        description: Durable ReviewRouter request identity
+        required: true
+        type: string
+      pr_number:
+        description: Pull request number selected by ReviewRouter
+        required: true
+        type: string
+      review_head_sha:
+        description: Expected pull request head selected by ReviewRouter
+        required: true
+        type: string
 permissions: {}
 jobs:
   codex-review:
-    if: \${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot' && github.event.pull_request.draft == false }}
+    if: \${{ github.event_name == 'workflow_dispatch' && inputs.review_request_id != '' && inputs.pr_number != '' && inputs.review_head_sha != '' }}
     concurrency:
       group: reviewrouter-codex-\${{ github.repository_id }}
       cancel-in-progress: false
@@ -3054,8 +3067,8 @@ jobs:
     with:
       runtime_ref: ${JSON.stringify(runtimeRef)}
       api_url: ${JSON.stringify(options.apiUrl)}
-      pr_number: \${{ format('{0}', github.event.pull_request.number) }}
-      review_head_sha: \${{ github.event.pull_request.head.sha }}
+      pr_number: \${{ inputs.pr_number }}
+      review_head_sha: \${{ inputs.review_head_sha }}
       provider_instance_id: ${JSON.stringify(providerInstanceId)}
       runtime_config_mode: oidc
       codex_session_mode: account-gateway

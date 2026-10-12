@@ -260,6 +260,9 @@ export function RepositorySetupProgressPanel({
     currentStep,
     enableReviewAction: canManage ? enableReviewAction : null,
     providerSetupBeforeWorkflow,
+    gatewayProviderSetup: expectedProviderAuthModes.includes(
+      "codex_account_gateway",
+    ),
     onSetupComplete: handleSetupMutation,
     onMergeComplete: handleMergeMutation,
   });
@@ -354,6 +357,7 @@ function buildSetupSteps({
   currentStep,
   enableReviewAction,
   providerSetupBeforeWorkflow,
+  gatewayProviderSetup,
   onSetupComplete,
   onMergeComplete,
 }: {
@@ -369,6 +373,7 @@ function buildSetupSteps({
   readonly currentStep: SetupStep;
   readonly enableReviewAction?: ReactNode;
   readonly providerSetupBeforeWorkflow: boolean;
+  readonly gatewayProviderSetup: boolean;
   readonly onSetupComplete: (params: Record<string, string>) => void;
   readonly onMergeComplete: (params: Record<string, string>) => void;
 }): readonly RepositorySetupProgressStep[] {
@@ -475,14 +480,18 @@ function buildSetupSteps({
       number: 3,
       title: providerSetupBeforeWorkflow
         ? "Activate provider"
-        : "Enable review",
+        : gatewayProviderSetup
+          ? "Configure account"
+          : "Enable review",
       helper:
         currentStep > 3
           ? "Provider access is configured."
           : currentStep === 3
             ? providerSetupBeforeWorkflow
               ? "Verify the exact activated namespace."
-              : "Seed provider access."
+              : gatewayProviderSetup
+                ? "Choose an active workspace account and model. Credentials stay on the server."
+                : "Seed provider access."
             : providerSetupBeforeWorkflow
               ? "Return after merge to verify activation."
               : "Available after merge.",

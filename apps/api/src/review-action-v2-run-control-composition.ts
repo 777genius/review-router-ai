@@ -6,7 +6,9 @@ import {
   type ActionRepositoryContext,
   type GitHubActionsOidcClaims,
   type GitHubActionsOidcTokenVerifierPort,
+  type HostedReviewPreleaseGatePort,
 } from "@reviewrouter/features-action-control-plane";
+import type { Clock } from "@reviewrouter/shared";
 import {
   type RegisterReviewRunControlV2RoutesDependencies,
   ReviewActionV2RouteFailure,
@@ -156,6 +158,8 @@ export type ServerOwnedReviewActionV2AdmissionDependencies = {
     }): Promise<ReviewRequestedIntent | null>;
   };
   readonly requestedIntentRequired?: boolean;
+  readonly requestedIntentAdmission?: HostedReviewPreleaseGatePort;
+  readonly clock?: Clock;
 };
 
 export function createServerOwnedReviewActionV2AdmissionFacts(
@@ -168,13 +172,62 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
     dependencies.providerVoteLanes.length === 0 ||
     dependencies.providerVoteLanes.some(
       (lane) => !isSha256(lane.providerVoteIdentityHash),
-    )
+    ) ||
+    (dependencies.requestedIntentRequired === true &&
+      (typeof dependencies.requestedIntentAdmission?.evaluate !== "function" ||
+        typeof dependencies.clock?.now !== "function" ||
+        typeof dependencies.requestedIntents
+          ?.findByRepositorySourceRunIdentity !== "function"))
   ) {
     throw new Error("review_action_v2_admission_dependencies_unavailable");
   }
   return {
     async resolve(input) {
       const repositoryName = splitRepositoryFullName(input.repository.fullName);
+      let admissionDecisionHash: string | null = null;
+      if (dependencies.requestedIntentRequired === true) {
+        if (
+          !/^[1-9][0-9]*$/.test(input.claims.run_id) ||
+          !/^[1-9][0-9]*$/.test(input.claims.run_attempt) ||
+          !Number.isSafeInteger(Number(input.claims.run_attempt))
+        ) {
+          throw routeFailure(
+            403,
+            ReviewActionV2ProtocolErrorCode.Forbidden,
+            "review_request_intent_required",
+          );
+        }
+        try {
+          const decision =
+            await dependencies.requestedIntentAdmission!.evaluate({
+              repository: input.repository,
+              sourceRunId: input.claims.run_id,
+              sourceRunAttempt: input.claims.run_attempt,
+              intentRequired: true,
+              now: dependencies.clock!.now(),
+            });
+          if (decision.status !== "admitted") {
+            throw new Error("review_request_intent_required");
+          }
+          admissionDecisionHash = decision.decisionHash;
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message === "review_request_revision_moved"
+          ) {
+            throw routeFailure(
+              412,
+              ReviewActionV2ProtocolErrorCode.StalePrecondition,
+              "review_request_revision_moved",
+            );
+          }
+          throw routeFailure(
+            403,
+            ReviewActionV2ProtocolErrorCode.Forbidden,
+            "review_request_intent_required",
+          );
+        }
+      }
       const requestedIntent = dependencies.requestedIntents
         ? await dependencies.requestedIntents.findByRepositorySourceRunIdentity(
             {
@@ -190,7 +243,15 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
           requestedIntent.state !==
             ReviewRequestedIntentState.AwaitingAuthorization ||
           requestedIntent.admission.state !==
-            ReviewRequestAdmissionState.Admitted)
+            ReviewRequestAdmissionState.Admitted ||
+          requestedIntent.admission.decisionHash !== admissionDecisionHash ||
+          requestedIntent.workspaceId !== input.repository.workspaceId ||
+          requestedIntent.repositoryConnectionId !==
+            input.repository.repositoryId ||
+          requestedIntent.scmRepositoryIdentityId !==
+            input.scmRepositoryIdentityId ||
+          requestedIntent.sourceRunId !== input.claims.run_id ||
+          requestedIntent.sourceRunAttempt !== input.claims.run_attempt)
       ) {
         throw routeFailure(
           403,
@@ -238,6 +299,44 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
       });
       if (attestation.status !== ProducerReleaseAttestationStatus.Attested) {
         throw producerReleaseAttestationFailure(attestation.status);
+      }
+      if (dependencies.requestedIntentRequired === true) {
+        const current =
+          await dependencies.requestedIntents!.findByRepositorySourceRunIdentity(
+            {
+              repositoryConnectionId: input.repository.repositoryId,
+              sourceRunId: input.claims.run_id,
+              sourceRunAttempt: input.claims.run_attempt,
+            },
+          );
+        if (
+          !current ||
+          current.requestId !== requestedIntent?.requestId ||
+          current.state !== ReviewRequestedIntentState.AwaitingAuthorization ||
+          current.admission.state !== ReviewRequestAdmissionState.Admitted ||
+          current.admission.decisionHash !== admissionDecisionHash ||
+          current.authorizationId !== null ||
+          current.executionId !== null
+        ) {
+          throw routeFailure(
+            403,
+            ReviewActionV2ProtocolErrorCode.Forbidden,
+            "review_request_intent_required",
+          );
+        }
+        if (
+          current.pullRequestNumber !== revision.pullRequestNumber ||
+          current.revision.baseSha !== revision.baseSha ||
+          current.revision.mergeBaseSha !== revision.mergeBaseSha ||
+          current.revision.headSha !== revision.headSha ||
+          current.revision.reviewRevisionHash !== revision.reviewRevisionHash
+        ) {
+          throw routeFailure(
+            412,
+            ReviewActionV2ProtocolErrorCode.StalePrecondition,
+            "review_request_revision_moved",
+          );
+        }
       }
       return {
         revision: {

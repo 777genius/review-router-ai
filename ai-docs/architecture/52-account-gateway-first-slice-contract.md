@@ -7,6 +7,72 @@ its exact bytes/digest in every implementation packet). [50](./50-reusable-accou
 preserves vision and [51](./51-account-gateway-modular-implementation-plan.md)
 owns delivery order. Historical readiness/evidence below is NONNORMATIVE.
 
+## Production delivery correction - 2026-10-12
+
+Production acceptance remains incomplete. Disposable run
+[38280189965](https://github.com/777genius/rr-selfhost-direct-v2-e2e-20260730t120036z/actions/runs/38280189965),
+attempt 1, head `ef92ea8c96fdc6bfbc4b697c45d094eaefbafb4e`, failed before agent
+execution with HTTP 403 / `review_request_intent_required`. It supplies no
+provider tools, final review or publication proof.
+
+The correction aligns the keyless caller with the existing durable dispatcher:
+dispatch-only ingress, the three request/PR/head inputs and request-correlated
+run title. API admission reuses the existing PR-size policy and durable intent
+CAS before rereading the bound admitted intent. Canonical revision, release and
+live authority checks remain required; no direct admission write or legacy
+grant fallback is introduced. Historical failed intents remain unchanged;
+recovery uses a fresh normal intent after the coherent release.
+
+Action [PR 257](https://github.com/777genius/review-router/pull/257), head
+`76d17acb06239b37037f3ed545d0a4ed09ad8f25`, prepares version 1.0.160 from
+`325a4b16a33ae2dac7664cd026428b74272902f4`. Normal HOST build, metadata,
+installer syntax and diff checks passed. Independent source/artifact review
+accepted the six version-only postimages, including Action entrypoint SHA256
+`e94383d10435c9e908e280458f994cf880d7f353ad0a8be46f5eacdbcfbdaa73`.
+PR CI passed and PR 257 merged as `cc4aaec036d518f714691de3c8f84b7cb9f7f254`.
+Normal Action release run
+[38291736945](https://github.com/777genius/review-router/actions/runs/38291736945)
+was dispatched once on that merge. The final nine-file SaaS correction patch
+SHA256 is `ffddb122e29901a247a055e898c7be0e0de957ddc7603fb32439e3de10808bed`;
+176 nearest tests passed without skips, both API and feature typechecks passed,
+and independent source review accepted it. These facts do not qualify paired
+release, deployment or fresh production E2E.
+
+Action release run 38291736945 subsequently passed; both `v1.0.160` and `v1`
+resolve to `cc4aaec036d518f714691de3c8f84b7cb9f7f254`. The published entrypoint
+matches the independently reviewed SHA256 above. SaaS and production acceptance
+remain pending.
+
+SaaS PR 559 CI run `38292719590`, head
+`bc8539683f0cdd4b8ff8f23d1f5b5ac07ab54529`, failed one stale workflow fixture
+that still expected pull-request ingress; 10,239 other unit tests passed and
+496 were skipped. The corrected dispatch fixture passed all 67 focused tests
+without skips and independent source review. Separately, Quality Gates never
+started because GitHub reported an account billing lock. Remaining Linux jobs
+are being routed through the already configured `CI_LINUX_RUNNER`, preserving
+the external-fork boundary, macOS lane and every required check. Neither this
+repair nor previously passed jobs proves a green new head or production E2E.
+
+The production repository UI also exposed a missing Gateway display-readiness
+branch: its existing binding was ignored in favor of legacy secret setup.
+The bounded correction uses the current active, unfenced binding and exact
+profile/model catalog for row and summary readiness, preserving actual health
+failures and linking setup to Accounts. Twelve readiness tests, existing policy
+and setup-panel tests, and web typecheck passed on the corrected source. Live
+UI acceptance remains pending deployment. macOS CI on head `eb7f78c0` was again
+denied before runner startup by the same GitHub billing lock.
+That head's CI run `38295846597` also failed mandatory certification upload
+because GitHub artifact storage quota was exhausted. Later quality steps were
+skipped; a complete CI PASS is not established. Further qualification requires
+restored artifact capacity and billing availability, with evidence gates intact.
+
+Independent source review of this correction retained an existing limitation:
+required-mode authorization renewal after execution links the intent as
+`Dispatched` is denied by the base admission path. The default 60-minute token
+TTL and shorter default execution budget do not require that renewal. The
+accepted 20-minute D-long receipt proves operation after initial OIDC expiry,
+not operation beyond authorization TTL; longer-than-TTL runs are not qualified.
+
 ## Accepted MiMo long OIDC and Action release - 2026-10-11
 
 The [finite D-long receipt](../../docs/release-evidence/account-gateway-d-long-20261011.json)
