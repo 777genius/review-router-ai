@@ -377,7 +377,9 @@ function buildSetupSteps({
   readonly onSetupComplete: (params: Record<string, string>) => void;
   readonly onMergeComplete: (params: Record<string, string>) => void;
 }): readonly RepositorySetupProgressStep[] {
-  const workflowRefresh = providerSetupBeforeWorkflow && currentStep === 3;
+  const workflowRefresh =
+    (providerSetupBeforeWorkflow && currentStep === 3) ||
+    (gatewayProviderSetup && currentStep >= 3);
   const setupPrAction =
     setupStatus === "setup_pr_open" && setupPullRequestUrl ? (
       <LinkButton
