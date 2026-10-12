@@ -257,8 +257,8 @@ describe("Codex rotating release migration workflow", () => {
     );
     expect(workflow).toContain("canonicalPrismaMigrationCatalog");
     expect(canonicalPrismaMigrationCatalog).toEqual({
-      appliedMigrationCount: 125,
-      latestMigration: "000125_hosted_codex_device_reconnect",
+      appliedMigrationCount: 126,
+      latestMigration: "000126_review_configuration_mimo_auth_kind",
     });
     expect(workflow).toContain(".runtimeRoleCount == 5");
     expect(workflow).toContain(".custodyFunction == true");

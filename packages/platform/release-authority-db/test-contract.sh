@@ -646,6 +646,7 @@ short_lock_fifo="$contract_tmp/short-lock.fifo"
 mkfifo "$short_lock_fifo"
 exec 12<>"$short_lock_fifo"
 short_lock_fifo_open=true
+: >"$contract_tmp/short-lock-holder.out"
 timeout -k 5s 180s docker exec -i -e PGOPTIONS='-c idle_in_transaction_session_timeout=170000' \
   "$name" psql -XqAt -v ON_ERROR_STOP=1 -U postgres -d rr_authority_gate \
   <"$short_lock_fifo" 8>&- 9>&- 10>&- 11>&- 12>&- >"$contract_tmp/short-lock-holder.out" 2>&1 &

@@ -20,11 +20,22 @@ const reader = vi.mocked(readRenderManagedCheckoutInventory);
 // Preserve old immutable-prefix fixtures through 000124 explicitly.
 // The complete current checkout is exercised separately.
 const currentFull = readRenderManagedCheckoutInventory();
-const full = currentFull.filter(
-  (row) =>
-    row.migrationName !== "000110_provider_api_key_workspace_management" &&
-    row.migrationName !== "000125_hosted_codex_device_reconnect",
-);
+const full = currentFull
+  .filter(
+    (row) =>
+      row.migrationName !== "000110_provider_api_key_workspace_management" &&
+      row.migrationName !== "000125_hosted_codex_device_reconnect" &&
+      row.migrationName !== "000126_review_configuration_mimo_auth_kind",
+  )
+  .map((row) =>
+    row.migrationName === "000119_review_configuration_gateway_binding"
+      ? {
+          ...row,
+          checksum:
+            "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70",
+        }
+      : row,
+  );
 const historical = full.slice(0, 96);
 const checkout97 = full.slice(0, 97);
 const checkout98 = full.slice(0, 98);
@@ -137,6 +148,7 @@ describe("trusted historical96 checkout reader", () => {
   });
 
   it.each([
+    { checkout: currentFull },
     { checkout: historical },
     { checkout: checkout97 },
     { checkout: checkout98 },
@@ -161,7 +173,7 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: full.slice(0, 122) },
     { checkout: full },
   ])(
-    "accepts a complete validated checkout through 000124 (%#)",
+    "accepts a complete validated checkout through corrected126 (%#)",
     ({ checkout }) => {
       reader.mockImplementationOnce(() => {
         partitionRenderSchemaHandoffCheckout(checkout);

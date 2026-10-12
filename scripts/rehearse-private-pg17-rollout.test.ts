@@ -80,21 +80,33 @@ function gitCustodyFixture() {
   return { root, base, head, cleanup: () => rmSync(root, { recursive: true }) };
 }
 
-const migrationManifestIdentity = (migrationNames: readonly string[]) => {
+const migrationManifestIdentity = (
+  migrationNames: readonly string[],
+  checksumOverrides: Readonly<Record<string, string>> = {},
+) => {
   const migrationsRoot = "packages/platform/db/prisma/migrations";
   const manifest = [...migrationNames]
     .sort()
     .map((migrationName) => {
-      const checksum = createHash("sha256")
-        .update(
-          readFileSync(join(migrationsRoot, migrationName, "migration.sql")),
-        )
-        .digest("hex");
+      const checksum =
+        checksumOverrides[migrationName] ??
+        createHash("sha256")
+          .update(
+            readFileSync(join(migrationsRoot, migrationName, "migration.sql")),
+          )
+          .digest("hex");
       return `${migrationName}:${checksum}`;
     })
     .join(",");
   return `sha256:${createHash("sha256").update(manifest).digest("hex")}`;
 };
+
+// Historical checkout assertions keep the original119 source pin explicitly.
+const historicalMigrationManifestIdentity = (names: readonly string[]) =>
+  migrationManifestIdentity(names, {
+    "000119_review_configuration_gateway_binding":
+      "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70",
+  });
 
 describe("disposable dual-version rehearsal", () => {
   it("reports only allowlisted static rehearsal stage errors", () => {
@@ -1272,7 +1284,9 @@ describe("disposable dual-version rehearsal", () => {
 
     const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
     const historicalCheckout = migrationNames.filter(
-      (name) => name !== "000125_hosted_codex_device_reconnect",
+      (name) =>
+        name !== "000125_hosted_codex_device_reconnect" &&
+        name !== "000126_review_configuration_mimo_auth_kind",
     );
     const withoutProviderKey = historicalCheckout.filter(
       (name) => name !== "000110_provider_api_key_workspace_management",
@@ -1312,7 +1326,7 @@ describe("disposable dual-version rehearsal", () => {
       "sha256:c5c0618f105799d06d21424433cec4a59fc052e63f594c2aace0657ebb52d1dd",
     );
     expect(withoutProviderKey).toHaveLength(123);
-    expect(migrationManifestIdentity(withoutProviderKey)).toBe(
+    expect(historicalMigrationManifestIdentity(withoutProviderKey)).toBe(
       "sha256:f26da08b44ad6830f4486f93ed33979acda7b5669a8550601c34dbf9c0322443",
     );
     expect(
@@ -1326,16 +1340,16 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(125);
+    expect(migrationNames).toHaveLength(126);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:fcd4d6ea3f95504edfd4485185ccfd4b139349509083cf67d188786dd57d97ae",
+      "sha256:5b565a1ad6f9ee710f45af02614b911e68346773226406e1209f173f1e07b30a",
     );
     expect(historicalCheckout).toHaveLength(124);
-    expect(migrationManifestIdentity(historicalCheckout)).toBe(
+    expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(
-      migrationManifestIdentity(
+      historicalMigrationManifestIdentity(
         withoutProviderKey.filter(
           (name) => name !== "000124_personal_account_operations",
         ),
@@ -1344,7 +1358,7 @@ describe("disposable dual-version rehearsal", () => {
       "sha256:5629630be035cbf1677692e840bc07c7292729bfb5bfc0c242f38179f3230df4",
     );
     expect(
-      migrationManifestIdentity(
+      historicalMigrationManifestIdentity(
         withoutProviderKey.filter(
           (name) =>
             name !== "000122_review_configuration_operation_receipt" &&
@@ -1356,7 +1370,7 @@ describe("disposable dual-version rehearsal", () => {
       "sha256:5f01c4416620cf984ffa5fee8dbb26bcf171ae3a89ec4e4b8615e4c7c8461c64",
     );
     expect(
-      migrationManifestIdentity(
+      historicalMigrationManifestIdentity(
         withoutProviderKey.filter(
           (name) =>
             name !== "000123_personal_workspace_identity" &&
@@ -1424,6 +1438,7 @@ describe("disposable dual-version rehearsal", () => {
       "000123_personal_workspace_identity",
       "000124_personal_account_operations",
       "000125_hosted_codex_device_reconnect",
+      "000126_review_configuration_mimo_auth_kind",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1549,12 +1564,13 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000125_hosted_codex_device_reconnect";
+    const currentTail = "000126_review_configuration_mimo_auth_kind";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
       [...names, currentTail],
-      names.map((name) => (name === currentTail ? "000125_relabelled" : name)),
-      [...names, "000125_future_migration"],
+      names.map((name) => (name === currentTail ? "000126_relabelled" : name)),
+      [...names, "000127_future_migration"],
+      names.filter((name) => name !== "000125_hosted_codex_device_reconnect"),
       names.filter(
         (name) => name !== "000122_review_configuration_operation_receipt",
       ),
@@ -1614,6 +1630,7 @@ describe("disposable dual-version rehearsal", () => {
     "000123_personal_workspace_identity",
     "000124_personal_account_operations",
     "000125_hosted_codex_device_reconnect",
+    "000126_review_configuration_mimo_auth_kind",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1669,7 +1686,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000122_review_configuration_operation_receipt" &&
                 name !== "000123_personal_workspace_identity" &&
                 name !== "000124_personal_account_operations" &&
-                name !== "000125_hosted_codex_device_reconnect",
+                name !== "000125_hosted_codex_device_reconnect" &&
+                name !== "000126_review_configuration_mimo_auth_kind",
               "000102_sdk_growth_current_authority",
             ),
           ),
