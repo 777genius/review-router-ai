@@ -171,6 +171,10 @@ import {
 import { appRouter } from "./trpc.js";
 import { ProductionHostedReviewPreleaseGate } from "./hosted-review-prelease-gate.js";
 import {
+  readHostedReviewMaxChangedLines,
+  readPositiveInteger,
+} from "./hosted-review-config.js";
+import {
   CompositeReviewStateAccess,
   PrismaHostedReviewStateAccess,
 } from "./hosted-review-state-access.js";
@@ -785,10 +789,8 @@ export async function createApiApp(
                       requestedIntentCommands: requestedIntentStore,
                       pullRequests: codexRotatingGitHubSecretGateway,
                       clock,
-                      maxChangedLines: readPositiveInteger(
+                      maxChangedLines: readHostedReviewMaxChangedLines(
                         process.env.REVIEW_ROUTER_HOSTED_MAX_CHANGED_LINES,
-                        250_000,
-                        "hosted_review_max_changed_lines_invalid",
                       ),
                     }),
                 }
@@ -1267,19 +1269,6 @@ function parseCommaSeparatedEnv(value: string | undefined): string[] {
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
-}
-
-function readPositiveInteger(
-  value: string | undefined,
-  fallback: number,
-  errorCode: string,
-): number {
-  if (value === undefined || value.trim() === "") return fallback;
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(errorCode);
-  }
-  return parsed;
 }
 
 function createDefaultGitLabIntegrationDependencies(input: {

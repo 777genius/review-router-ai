@@ -20,6 +20,8 @@ import {
 import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import { App } from "@octokit/app";
+import { ProductionHostedReviewPreleaseGate } from "./hosted-review-prelease-gate.js";
+import { readHostedReviewMaxChangedLines } from "./hosted-review-config.js";
 import {
   HmacActionLedgerKey,
   JoseGitHubActionsOidcTokenVerifier,
@@ -533,6 +535,20 @@ export function composeReviewActionV2ProductionRoutes(input: {
     requestedIntents: requestedIntentStore,
     requestedIntentRequired:
       input.env[reviewActionV2IntentAdmissionRequiredEnv] === "1",
+    ...(input.env[reviewActionV2IntentAdmissionRequiredEnv] === "1"
+      ? {
+          clock,
+          requestedIntentAdmission: new ProductionHostedReviewPreleaseGate({
+            requestedIntentQueries: requestedIntentStore,
+            requestedIntentCommands: requestedIntentStore,
+            pullRequests: workflowInventory,
+            clock,
+            maxChangedLines: readHostedReviewMaxChangedLines(
+              input.env.REVIEW_ROUTER_HOSTED_MAX_CHANGED_LINES,
+            ),
+          }),
+        }
+      : {}),
   });
   const revisionHashes: ReviewActionV2RevisionHashPort = {
     digest: (revision) => digest.digestUtf8(canonicalJson(revision)),
