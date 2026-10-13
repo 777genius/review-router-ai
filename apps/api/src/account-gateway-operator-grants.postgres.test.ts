@@ -238,6 +238,17 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
         await db.user.createMany({
           data: [{ id: admin.userId }, { id: recipient.userId }],
         });
+        // User-owned source fixtures require the same fresh personal identity
+        // as normal enrollment before testing unsupported foreign sharing.
+        await db.workspace.create({
+          data: {
+            id: `${prefix}-personal`,
+            slug: `${prefix}-personal`,
+            name: "Disposable personal identity",
+            personalOwnerUserId: recipient.userId,
+            members: { create: { userId: recipient.userId, role: "owner" } },
+          },
+        });
         await db.workspaceMember.createMany({
           data: [
             { workspaceId: operator, userId: admin.userId, role: "admin" },

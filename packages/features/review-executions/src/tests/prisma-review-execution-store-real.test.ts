@@ -1398,10 +1398,12 @@ async function createHarness(
   currentWorkspaceIds.add(workspaceId);
   const now = new Date();
 
-  await prisma.workspace.create({
-    data: { id: workspaceId, slug: workspaceId, name: workspaceId },
-    select: { id: true },
-  });
+  // Current Prisma inserts deletion defaults added by 000127 even with an
+  // id-only selection. This fixture intentionally stops at 000079.
+  await prisma.$executeRaw`
+    INSERT INTO "Workspace" ("id", "slug", "name", "updatedAt")
+    VALUES (${workspaceId}, ${workspaceId}, ${workspaceId}, ${now})
+  `;
   await prisma.scmRepositoryIdentity.create({
     data: {
       scmRepositoryIdentityId,

@@ -1287,6 +1287,7 @@ describe("disposable dual-version rehearsal", () => {
       (name) =>
         name !== "000125_hosted_codex_device_reconnect" &&
         name !== "000126_review_configuration_mimo_auth_kind" &&
+        name !== "000127_owner_workspace_deletion" &&
         name !== "000128_account_admission_row_lock",
     );
     const withoutProviderKey = historicalCheckout.filter(
@@ -1341,9 +1342,9 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(127);
+    expect(migrationNames).toHaveLength(128);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:25978108fdc33470b190776a8c0705473c0bcfb60b18d4d631da64eb315d6f42",
+      "sha256:573ad770b1198ff48207d023af722679f7eb4e67c9603c883a179692251d5c37",
     );
     expect(historicalCheckout).toHaveLength(124);
     expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(
@@ -1440,6 +1441,7 @@ describe("disposable dual-version rehearsal", () => {
       "000124_personal_account_operations",
       "000125_hosted_codex_device_reconnect",
       "000126_review_configuration_mimo_auth_kind",
+      "000127_owner_workspace_deletion",
       "000128_account_admission_row_lock",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
@@ -1569,6 +1571,7 @@ describe("disposable dual-version rehearsal", () => {
     const currentTail = "000128_account_admission_row_lock";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
+      names.filter((name) => name !== "000127_owner_workspace_deletion"),
       [...names, currentTail],
       names.map((name) => (name === currentTail ? "000128_relabelled" : name)),
       [...names, "000127_future_migration"],
@@ -1633,6 +1636,7 @@ describe("disposable dual-version rehearsal", () => {
     "000124_personal_account_operations",
     "000125_hosted_codex_device_reconnect",
     "000126_review_configuration_mimo_auth_kind",
+    "000127_owner_workspace_deletion",
     "000128_account_admission_row_lock",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
@@ -1691,6 +1695,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000124_personal_account_operations" &&
                 name !== "000125_hosted_codex_device_reconnect" &&
                 name !== "000126_review_configuration_mimo_auth_kind" &&
+                name !== "000127_owner_workspace_deletion" &&
                 name !== "000128_account_admission_row_lock",
               "000102_sdk_growth_current_authority",
             ),

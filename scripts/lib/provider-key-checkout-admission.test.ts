@@ -13,6 +13,7 @@ const originalHistory = readRenderManagedCheckoutInventory()
     (row) =>
       row.migrationName !== keyName &&
       row.migrationName !== "000126_review_configuration_mimo_auth_kind" &&
+      row.migrationName !== "000127_owner_workspace_deletion" &&
       row.migrationName !== "000128_account_admission_row_lock",
   )
   .map((row) =>
