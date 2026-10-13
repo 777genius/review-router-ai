@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
-import { accountAdmissionApiGrantStatements } from "../../../scripts/run-codex-rotating-release-migration.mjs";
+import {
+  accountAdmissionApiGrantStatements,
+  activationAuthorityProvisioningSql,
+} from "../../../scripts/run-codex-rotating-release-migration.mjs";
 import {
   createServer,
   request as httpRequest,
@@ -216,6 +219,41 @@ it("bounds incomplete Responses bodies and recovers ingress slots", async () => 
 });
 
 const enabled = process.env.RR_C2C_PG_TEST === "1";
+// Exercise the maintained generator's actual table/column predicates without
+// creating an activation permit or changing unrelated runtime principals.
+function accountAdmissionCanonicalAclQuery(): string {
+  const generated = activationAuthorityProvisioningSql();
+  const facts = generated.match(
+    /WITH runtime_roles\(role_name, role_kind\) AS \(VALUES[\s\S]+?\n    \), sequence_facts AS/u,
+  )?.[0];
+  const tableGate = generated.match(
+    /OR EXISTS \(SELECT 1 FROM table_facts WHERE([\s\S]+?)\)\n       OR EXISTS \(\n         SELECT 1 FROM column_facts/u,
+  )?.[1];
+  const columnGate = generated.match(
+    /OR EXISTS \(\n         SELECT 1 FROM column_facts([\s\S]+?)\n       \)\n       OR EXISTS \(SELECT 1 FROM sequence_facts/u,
+  )?.[1];
+  if (!facts || !tableGate || !columnGate)
+    throw new Error("canonical_acl_generator_shape_changed");
+  const scopedFacts = facts
+    .replace(
+      /WITH runtime_roles\(role_name, role_kind\) AS \(VALUES[\s\S]+?\n    \), tables AS/u,
+      "WITH runtime_roles(role_name, role_kind) AS (VALUES ('reviewrouter_api','api')), tables AS",
+    )
+    .replace(
+      "relation.relkind IN ('r','p','v','m','f')",
+      "relation.relkind IN ('r','p','v','m','f') AND relation.relname IN ('ProviderAccountConnection','WorkspaceAccountBinding')",
+    )
+    .replace(
+      "AND attribute.attnum>0 AND NOT attribute.attisdropped",
+      "AND attribute.attnum>0 AND NOT attribute.attisdropped AND relation.relname IN ('ProviderAccountConnection','WorkspaceAccountBinding')",
+    )
+    .replace(/, sequence_facts AS$/u, "");
+  return `${scopedFacts} SELECT NOT (
+    EXISTS (SELECT 1 FROM table_facts WHERE ${tableGate})
+    OR EXISTS (SELECT 1 FROM column_facts ${columnGate})
+  ) AS canonical`;
+}
+
 function disposableDatabase(): string {
   const raw = process.env.RR_C2C_PG_TEST_URL ?? "";
   const url = new URL(raw);
@@ -409,6 +447,26 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       expect(
         privileges.every((row) => !row.can_insert && !row.can_reference),
       ).toBe(true);
+      const canonicalAcl = accountAdmissionCanonicalAclQuery();
+      const canonical = (tx: Prisma.TransactionClient) =>
+        tx.$queryRawUnsafe<{ canonical: boolean }[]>(canonicalAcl);
+      expect(await canonical(prisma)).toEqual([{ canonical: true }]);
+      for (const table of [
+        "ProviderAccountConnection",
+        "WorkspaceAccountBinding",
+      ]) {
+        await expect(
+          prisma.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(
+              `GRANT UPDATE(state) ON public."${table}" TO reviewrouter_api`,
+            );
+            expect(await canonical(tx)).toEqual([{ canonical: false }]);
+            // PostgreSQL rolls the grant back even if the assertion above fails.
+            throw new Error("rollback_fixture_api_column_grant");
+          }),
+        ).rejects.toThrow("rollback_fixture_api_column_grant");
+        expect(await canonical(prisma)).toEqual([{ canonical: true }]);
+      }
       const denied = [
         (tx: Prisma.TransactionClient) =>
           tx.$executeRaw`UPDATE public."ProviderAccountConnection" SET id=${`${connection.id}-changed`} WHERE id=${connection.id}`,

@@ -2766,7 +2766,8 @@ BEGIN
         '${workerOwnedMaintenanceCheckpointTable}','HostedCodexRuntimeGate',
         'HostedCodexRuntimeClosure','HostedCodexCommentTokenMint',
         'HostedCodexCommentTokenRevocationProof','HostedCodexCommentRefreshCapability',
-        'HostedCodexCommentRefreshUse','ReviewProviderScopeConcurrencyControl'
+        'HostedCodexCommentRefreshUse','ReviewProviderScopeConcurrencyControl',
+        'ProviderAccountConnection','WorkspaceAccountBinding'
       ) AND attribute.attnum>0 AND NOT attribute.attisdropped
     ), sequence_facts AS (
       SELECT role_name, role_kind, relname,
@@ -2815,6 +2816,7 @@ BEGIN
            AND (relname <> 'CodexOAuthWorkflowCompatibility' OR role_kind IN ('api','web'))
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_insert IS DISTINCT FROM (CASE WHEN role_kind='custody' THEN relname='HostedCodexCommentRefreshUse'
+         WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
          ELSE role_kind <> 'effect-authority' AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine',
            'CodexOAuthProviderIdentityQuarantine','CodexOAuthDatabaseAuthorityKey',
@@ -2825,6 +2827,7 @@ BEGIN
            AND relname <> 'HostedCodexCommentTokenMint'
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_update IS DISTINCT FROM (CASE WHEN role_kind='custody' THEN false
+         WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
          ELSE role_kind <> 'effect-authority' AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine',
            'CodexOAuthProviderIdentityQuarantine','CodexOAuthProviderInstance',
@@ -2834,7 +2837,9 @@ BEGIN
              'ReviewProviderScopeConcurrencyControl')
            AND relname <> 'HostedCodexCommentTokenMint'
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
-         OR can_delete IS DISTINCT FROM (role_kind NOT IN ('effect-authority','custody') AND relname NOT IN (
+         OR can_delete IS DISTINCT FROM (role_kind NOT IN ('effect-authority','custody')
+           AND NOT (role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding'))
+           AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine','CodexOAuthLease',
            'CodexOAuthProviderIdentityQuarantine','CodexOAuthProviderInstance','CodexOAuthSecretNamespace',
            'CodexOAuthSetupDispatchAttempt','CodexOAuthSetupManifest','CodexOAuthSetupPayloadClaim',
@@ -2859,6 +2864,10 @@ BEGIN
             WHEN column_facts.role_kind NOT IN ('effect-authority','custody')
               AND column_facts.relname='CodexOAuthProviderInstance'
                AND column_facts.attname=ANY(ARRAY[${providerRuntimeUpdateColumns.map((column) => `'${column}'`).join(",")}])
+             THEN true
+             WHEN column_facts.role_kind='api'
+               AND column_facts.relname IN ('ProviderAccountConnection','WorkspaceAccountBinding')
+               AND column_facts.attname='id'
              THEN true
              ELSE table_facts.can_update
            END
