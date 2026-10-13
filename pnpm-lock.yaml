@@ -364,6 +364,9 @@ importers:
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../../packages/features/review-providers
+      '@reviewrouter/features-review-run-control':
+        specifier: workspace:*
+        version: link:../../packages/features/review-run-control
       '@reviewrouter/features-support-diagnostics':
         specifier: workspace:*
         version: link:../../packages/features/support-diagnostics
@@ -1023,6 +1026,12 @@ importers:
 
   packages/features/workflow-provisioning:
     dependencies:
+      '@octokit/app':
+        specifier: ^16.1.2
+        version: 16.1.2
+      '@octokit/request':
+        specifier: ^10.0.9
+        version: 10.0.9
       '@prisma/client':
         specifier: ^7.8.0
         version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
@@ -1038,6 +1047,18 @@ importers:
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../review-providers
+      '@reviewrouter/features-review-run-control':
+        specifier: workspace:*
+        version: link:../review-run-control
+      '@reviewrouter/platform-config':
+        specifier: workspace:*
+        version: link:../../platform/config
+      '@reviewrouter/platform-db':
+        specifier: workspace:*
+        version: link:../../platform/db
+      '@reviewrouter/protocol-review-action-v2':
+        specifier: workspace:*
+        version: link:../../protocol-review-action-v2
       '@reviewrouter/protocol-review-workflow':
         specifier: workspace:*
         version: link:../../protocol-review-workflow

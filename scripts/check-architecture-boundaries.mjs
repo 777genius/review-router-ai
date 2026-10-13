@@ -241,6 +241,11 @@ async function checkReviewActionV2ProtocolBoundaries(violations) {
     for (const imported of extractImportSpecifiers(source)) {
       if (
         imported === "@reviewrouter/protocol-review-action-v2" &&
+        // These exact adapters/fixtures attest the canonical transport contract.
+        ![
+          "packages/features/workflow-provisioning/src/infrastructure/review-v2-mutation-proof-facts.ts",
+          "packages/features/workflow-provisioning/src/tests/gateway-review-v2-provisioning.test.ts",
+        ].includes(repositoryPath) &&
         !repositoryPath.startsWith(
           "packages/features/action-control-plane/src/v2/interface/",
         ) &&

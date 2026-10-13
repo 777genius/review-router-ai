@@ -40,3 +40,7 @@ export * from "./infrastructure/prisma/prisma-workflow-provisioning-target";
 export * from "./infrastructure/prisma/workflow-provisioning-transaction";
 export * from "./infrastructure/prisma/prisma-hosted-pool-workflow-activation";
 export * from "./infrastructure/prisma/prisma-hosted-pool-configuration";
+export * from "./application/provision-gateway-review-v2-repository";
+export * from "./infrastructure/review-v2-mutation-proof-facts";
+export * from "./infrastructure/github/managed-review-v2-workflow-inventory";
+export * from "./infrastructure/github/octokit-review-v2-dispatch-capability-inspector";

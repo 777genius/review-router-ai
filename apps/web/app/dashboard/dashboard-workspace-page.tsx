@@ -92,6 +92,11 @@ import {
 } from "../../src/server/github-user-repository-access";
 import { getPrisma } from "../../src/server/prisma";
 import {
+  isGatewayReviewV2RepositoryReady,
+  readGatewayReviewV2RepositoryReadiness,
+  type GatewayReviewV2RepositoryReadiness,
+} from "../../src/server/prisma-gateway-review-v2-provisioning";
+import {
   refreshRepositoryAccessClientAction,
   retryOutboxEventClientAction,
   enableOrgRulesetWorkflowClientAction,
@@ -348,6 +353,7 @@ type DashboardWorkspaceData = {
     readonly state: string;
     readonly updatedAt: Date;
   }[];
+  gatewayReadiness: ReadonlyMap<string, GatewayReviewV2RepositoryReadiness>;
   entitlement: ReturnType<typeof freeBetaEntitlement>;
   reviewConfig: Awaited<ReturnType<typeof findReviewConfiguration>>;
   repositoryConfigs: readonly {
@@ -623,6 +629,25 @@ export async function loadDashboardSectionData(
           memoryQuotaPolicy,
         })
       : null;
+  const gatewayReadiness = needsReadiness
+    ? await readGatewayReviewV2RepositoryReadiness({
+        prisma,
+        workspaceId: workspace.id,
+        repositoryIds: visibleRepositories
+          .filter((repository) =>
+            (
+              repositoryConfigs.find(
+                (item) => item.repositoryId === repository.id,
+              )?.config?.config ??
+              reviewConfig?.config ??
+              safeDefaultReviewConfiguration
+            ).providers.some(
+              (provider) => provider.authMode === "codex_account_gateway",
+            ),
+          )
+          .map((repository) => repository.id),
+      })
+    : new Map<string, GatewayReviewV2RepositoryReadiness>();
 
   const auditEvents =
     section === "diagnostics" && hasWorkspaceWideAccess
@@ -665,6 +690,7 @@ export async function loadDashboardSectionData(
     repositories: visibleRepositories,
     provisioning,
     providerSetup,
+    gatewayReadiness,
     entitlement,
     health,
     reviewConfig,
@@ -1664,6 +1690,7 @@ function WorkspaceCard({
     health,
     provisioning,
     providerSetup,
+    gatewayReadiness,
     repositoryConfigs,
     outboxFailures,
     supportDiagnostics,
@@ -1716,6 +1743,7 @@ function WorkspaceCard({
     gatewayAccounts,
     providerSecretCheckFailedRepositoryFullName,
     hostedRepositories: hostedPool.repositories,
+    gatewayReadiness,
   });
   const activeInstallations = workspace.installations.filter(
     (installation) => installation.status === "active",
@@ -1821,6 +1849,7 @@ function WorkspaceCard({
               hostedPoolMutationsEnabled={
                 mutationsEnabled && hasWorkspaceWideAccess
               }
+              gatewayReadiness={gatewayReadiness}
             />
             {hasWorkspaceWideAccess ? (
               <OrgRulesetAdvancedCard
@@ -2327,6 +2356,20 @@ function ReadinessInlineStat({
   );
 }
 
+function gatewayEffectiveSetupStep(
+  step: 1 | 2 | 3 | 4,
+  config: ReviewConfiguration,
+  readiness: GatewayReviewV2RepositoryReadiness | undefined,
+): 1 | 2 | 3 | 4 {
+  return step === 4 &&
+    config.providers.some(
+      (provider) => provider.authMode === "codex_account_gateway",
+    ) &&
+    !isGatewayReviewV2RepositoryReady(readiness)
+    ? 3
+    : step;
+}
+
 function summarizeWorkspaceSetupReadiness({
   repositories,
   health,
@@ -2337,6 +2380,7 @@ function summarizeWorkspaceSetupReadiness({
   gatewayAccounts,
   providerSecretCheckFailedRepositoryFullName,
   hostedRepositories,
+  gatewayReadiness,
 }: {
   readonly repositories: DashboardWorkspaceData["repositories"];
   readonly health: DashboardWorkspaceData["health"];
@@ -2347,6 +2391,7 @@ function summarizeWorkspaceSetupReadiness({
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
   readonly providerSecretCheckFailedRepositoryFullName: string | null;
   readonly hostedRepositories: DashboardWorkspaceData["hostedPool"]["repositories"];
+  readonly gatewayReadiness: DashboardWorkspaceData["gatewayReadiness"];
 }): WorkspaceHealthSummary {
   const repositoryHealthById = new Map(
     health.map((item) => [item.repositoryId, item] as const),
@@ -2415,20 +2460,24 @@ function summarizeWorkspaceSetupReadiness({
       const workflowCurrent = workflowSetupAlreadyCurrent(
         effectiveHealthStatus,
       );
-      const setupProgressStep = repositorySetupProgressStep({
-        setupStatus,
-        healthStatus: effectiveHealthStatus,
-        workflowCurrent,
-        providerSetupConfirmed: isRepositoryProviderSetupConfirmed({
-          repository,
-          repositoryHealth,
-          configuredProviderSetupByRepositoryId,
-          providerSecretCheckFailedRepositoryFullName,
-          hostedSessionReady,
-          effectiveConfig,
-          gatewayAccounts,
+      const setupProgressStep = gatewayEffectiveSetupStep(
+        repositorySetupProgressStep({
+          setupStatus,
+          healthStatus: effectiveHealthStatus,
+          workflowCurrent,
+          providerSetupConfirmed: isRepositoryProviderSetupConfirmed({
+            repository,
+            repositoryHealth,
+            configuredProviderSetupByRepositoryId,
+            providerSecretCheckFailedRepositoryFullName,
+            hostedSessionReady,
+            effectiveConfig,
+            gatewayAccounts,
+          }),
         }),
-      });
+        effectiveConfig,
+        gatewayReadiness.get(repository.id),
+      );
       const readiness = repositorySearchReadiness({
         setupProgressStep,
         healthStatus: effectiveHealthStatus,
@@ -2535,6 +2584,7 @@ function RepositoryTable({
   directConfigRepositoryIds,
   hostedPool,
   hostedPoolMutationsEnabled,
+  gatewayReadiness,
 }: {
   readonly workspace: DashboardWorkspace;
   readonly repositories: DashboardWorkspaceData["repositories"];
@@ -2556,6 +2606,7 @@ function RepositoryTable({
   readonly directConfigRepositoryIds: ReadonlySet<string> | null;
   readonly hostedPool: DashboardWorkspaceData["hostedPool"];
   readonly hostedPoolMutationsEnabled: boolean;
+  readonly gatewayReadiness: DashboardWorkspaceData["gatewayReadiness"];
 }): React.ReactElement {
   const repositoryConfigById = new Map(
     repositoryConfigs.map((item) => [item.repositoryId, item.config] as const),
@@ -2630,21 +2681,25 @@ function RepositoryTable({
           : {}),
       });
     const workflowCurrent = workflowSetupAlreadyCurrent(effectiveHealthStatus);
-    const setupProgressStep = repositorySetupProgressStep({
-      setupStatus: projectedRepository.setupStatus,
-      healthStatus: effectiveHealthStatus,
-      workflowCurrent,
-      setupNeedsAttention: isSetupRecoveryIssue(setupIssue),
-      providerSetupConfirmed: isRepositoryProviderSetupConfirmed({
-        repository,
-        repositoryHealth,
-        configuredProviderSetupByRepositoryId,
-        providerSecretCheckFailedRepositoryFullName,
-        hostedSessionReady,
-        effectiveConfig,
-        gatewayAccounts,
+    const setupProgressStep = gatewayEffectiveSetupStep(
+      repositorySetupProgressStep({
+        setupStatus: projectedRepository.setupStatus,
+        healthStatus: effectiveHealthStatus,
+        workflowCurrent,
+        setupNeedsAttention: isSetupRecoveryIssue(setupIssue),
+        providerSetupConfirmed: isRepositoryProviderSetupConfirmed({
+          repository,
+          repositoryHealth,
+          configuredProviderSetupByRepositoryId,
+          providerSecretCheckFailedRepositoryFullName,
+          hostedSessionReady,
+          effectiveConfig,
+          gatewayAccounts,
+        }),
       }),
-    });
+      effectiveConfig,
+      gatewayReadiness.get(repository.id),
+    );
     const readiness = repositorySearchReadiness({
       setupProgressStep,
       healthStatus: effectiveHealthStatus,
@@ -2892,6 +2947,9 @@ function RepositoryTable({
                           repositoryId={repository.id}
                           disclosureId={setupDisclosureId}
                           currentStep={setupProgressStep}
+                          gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
+                            gatewayReadiness.get(repository.id),
+                          )}
                           expectedProviderAuthModes={effectiveConfig.providers.map(
                             (provider) => provider.authMode,
                           )}
@@ -2918,12 +2976,18 @@ function RepositoryTable({
                           }
                           effectiveConfig={effectiveConfig}
                           currentStep={setupProgressStep}
+                          gatewayReviewV2Readiness={gatewayReadiness.get(
+                            repository.id,
+                          )}
                         />
                       </div>
                     </div>
                     <RepositorySetupReadyGate
                       repositoryId={repository.id}
                       currentStep={setupProgressStep}
+                      gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
+                        gatewayReadiness.get(repository.id),
+                      )}
                       expectedProviderAuthModes={effectiveConfig.providers.map(
                         (provider) => provider.authMode,
                       )}
@@ -3061,6 +3125,7 @@ function RepositorySetupProgressPanel({
   allowOrganizationSecrets,
   effectiveConfig,
   currentStep,
+  gatewayReviewV2Readiness,
 }: {
   readonly workspace: DashboardWorkspace;
   readonly workspaceKey: string;
@@ -3073,6 +3138,9 @@ function RepositorySetupProgressPanel({
   readonly allowOrganizationSecrets: boolean;
   readonly effectiveConfig: ReviewConfiguration;
   readonly currentStep: 1 | 2 | 3 | 4;
+  readonly gatewayReviewV2Readiness?:
+    | GatewayReviewV2RepositoryReadiness
+    | undefined;
 }): React.ReactElement {
   const canManage =
     mutationsEnabled && repository.selected && !repository.archived;
@@ -3122,6 +3190,7 @@ function RepositorySetupProgressPanel({
       workflowCurrent={workflowCurrent}
       mutationsEnabled={mutationsEnabled}
       initialStep={currentStep}
+      gatewayReviewV2Readiness={gatewayReviewV2Readiness}
       expectedProviderAuthModes={effectiveConfig.providers.map(
         (provider) => provider.authMode,
       )}

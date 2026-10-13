@@ -14,6 +14,10 @@ const mocks = vi.hoisted(() => ({
   assertReviewConfigSaveAllowed: vi.fn(),
   isWorkflowSetupAlreadyCurrent: vi.fn(),
   resolveReviewRuntimeEnv: vi.fn(),
+  provisionGatewayReviewV2Repository: vi.fn(),
+}));
+vi.mock("../../src/server/prisma-gateway-review-v2-provisioning", () => ({
+  provisionGatewayReviewV2Repository: mocks.provisionGatewayReviewV2Repository,
 }));
 
 vi.mock("../../src/server/workflow-setup-readiness", () => ({
@@ -124,6 +128,39 @@ function reusableWorkflowResponse(mimo = false) {
 }
 
 describe("dashboard setup PR recovery", () => {
+  it("rejects an unauthorized normal confirmation before GitHub or Gateway provisioning", async () => {
+    mocks.getPrisma.mockReturnValue({
+      repositoryConnection: {
+        findUnique: vi.fn(async () => ({
+          id: "repository_1",
+          workspaceId: "workspace_1",
+          installationId: "installation_1",
+          provider: "github",
+          githubRepositoryId: 456n,
+          owner: "acme",
+          name: "widget",
+          fullName: "acme/widget",
+          defaultBranch: "main",
+          visibility: "private",
+          selected: true,
+          archived: false,
+          provisioning: [],
+          installation: { status: "active", githubInstallationId: 123n },
+        })),
+      },
+    });
+    mocks.assertDashboardRepositoryMutationAllowed.mockRejectedValueOnce(
+      new Error("repository_permission_denied"),
+    );
+    const form = new FormData();
+    form.set("workspaceId", "workspace_1");
+    form.set("repositoryId", "repository_1");
+    const result = await confirmSetupPullRequestMergedClientAction(form);
+    expect(result.params).not.toHaveProperty("notice");
+    expect(mocks.createGitHubAppInstallationOctokit).not.toHaveBeenCalled();
+    expect(mocks.provisionGatewayReviewV2Repository).not.toHaveBeenCalled();
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv(

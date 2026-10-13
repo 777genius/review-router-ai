@@ -44,6 +44,43 @@ afterEach(() => {
 });
 
 describe("RepositorySetupProgressPanel", () => {
+  it("shows actual Gateway draining state despite cached complete progress", () => {
+    render(
+      <RepositorySetupProgressPanel
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="777genius/example"
+        selected
+        archived={false}
+        initialSetupStatus="configured"
+        initialSetupPullRequestUrl={null}
+        workflowCurrent
+        mutationsEnabled
+        initialStep={4}
+        expectedProviderAuthModes={["codex_account_gateway"]}
+        gatewayReviewV2Readiness={{
+          status: "draining",
+          authorityVersion: 2,
+          drainNotBefore: "2026-10-13T01:28:31.829Z",
+          recoveryReference: "docs/operations/review-action-v2-cutover.md",
+        }}
+      />,
+    );
+    expect(screen.getByText("3 of 4 - enable review")).toBeTruthy();
+    expect(screen.queryByText("4 of 4 - complete")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain(
+      "2026-10-13T01:28:31.829Z",
+    );
+    fireEvent(
+      window,
+      providerSetupConfirmedEvent({
+        repositoryId: "repo_1",
+        repositoryFullName: "777genius/example",
+        authMode: "codex_account_gateway",
+      }),
+    );
+    expect(screen.queryByText("4 of 4 - complete")).toBeNull();
+  });
   it("exposes rotating preparation before the first setup PR", () => {
     render(
       <RepositorySetupProgressPanel

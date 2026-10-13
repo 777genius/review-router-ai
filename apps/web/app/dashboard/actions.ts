@@ -165,6 +165,7 @@ import {
 } from "../../src/server/hosted-pool-dashboard";
 import { createPrismaHostedPoolDashboardMutationPort } from "../../src/server/prisma-hosted-pool-mutations";
 import { assertGatewayReviewConfigCatalogAllowed } from "../../src/server/gateway-review-config-catalog";
+import { provisionGatewayReviewV2Repository } from "../../src/server/prisma-gateway-review-v2-provisioning";
 
 export async function requestInstallationSyncAction(
   formData: FormData,
@@ -1476,6 +1477,12 @@ async function confirmSetupPullRequestMergedMutation(
   const repositoryId = readFormString(formData, "repositoryId");
   const workspaceId = readFormString(formData, "workspaceId");
   let params: Record<string, string>;
+  let gatewayReviewV2Audit: {
+    readonly actor: string;
+    readonly repository: string;
+    readonly status: string;
+    readonly issue?: string;
+  } | null = null;
 
   try {
     const writerSchemaPolicy = createCodexRotatingWriterSchemaPolicy();
@@ -1678,6 +1685,7 @@ async function confirmSetupPullRequestMergedMutation(
       readonly commitSha: string;
     } | null = null;
     let assertCurrentGatewaySource: (() => Promise<void>) | undefined;
+    let currentGatewaySourceCommitSha: string | null = null;
     if (accountGateway || codexWorkflowExpected) {
       const repositoryRoute = "GET /repos/{owner}/{repo}";
       const refRoute = "GET /repos/{owner}/{repo}/git/ref/{ref}";
@@ -1710,6 +1718,7 @@ async function confirmSetupPullRequestMergedMutation(
       const commitSha = readCommit(
         (await octokit.request(refRoute, refParameters)).data,
       );
+      if (accountGateway) currentGatewaySourceCommitSha = commitSha;
       const content = await octokit.request(contentRoute, {
         ...location,
         path: selectedCodexWorkflowPath,
@@ -2132,6 +2141,62 @@ async function confirmSetupPullRequestMergedMutation(
       await assertCurrentSetup(verifiedWorkflowArtifact);
       await assertCurrentBinding();
       await assertCurrentGatewaySource!();
+      const actionCommitSha =
+        verifiedWorkflowArtifact.actionVersion.match(
+          /@([a-f0-9]{40})$/iu,
+        )?.[1] ?? gatewayActionRef?.match(/@([a-f0-9]{40})$/iu)?.[1];
+      if (!actionCommitSha || !currentGatewaySourceCommitSha)
+        throw new Error("workflow_provisioning_match_not_found");
+      const gatewayProvisioning = await provisionGatewayReviewV2Repository({
+        prisma,
+        env: process.env,
+        command: {
+          workspaceId,
+          repositoryId,
+          installationId: repository.installationId,
+          actor: actor.actor,
+          expectedAttempt: setupProvisioning
+            ? {
+                attemptId: setupProvisioning.attemptId,
+                revision: setupProvisioning.revision,
+              }
+            : null,
+          repository: {
+            githubRepositoryId: githubRepository.githubRepositoryId.toString(),
+            githubInstallationId:
+              repository.installation.githubInstallationId.toString(),
+            fullName: repository.fullName,
+            owner: repository.owner,
+          },
+          expectedGatewaySource: {
+            actionRef: gatewayActionRef!,
+            actionCommitSha: actionCommitSha.toLowerCase(),
+            apiUrl: resolveWorkflowPublicApiUrl(),
+            sourceRevision: currentGatewaySourceCommitSha,
+          },
+        },
+        assertCurrentSetupAndSource: async () => {
+          await assertCurrentSetup(verifiedWorkflowArtifact);
+          await assertCurrentBinding();
+          await assertCurrentGatewaySource!();
+        },
+      });
+      const gatewayIssue =
+        "issue" in gatewayProvisioning
+          ? gatewayProvisioning.issue
+          : `gateway_review_v2_${gatewayProvisioning.status}`;
+      gatewayReviewV2Audit = {
+        actor: actor.actor,
+        repository: repository.fullName,
+        status: gatewayProvisioning.status,
+        ...(gatewayProvisioning.status === "ready"
+          ? {}
+          : { issue: gatewayIssue }),
+      };
+      if (gatewayProvisioning.status !== "ready") throw new Error(gatewayIssue);
+      await assertCurrentSetup(verifiedWorkflowArtifact);
+      await assertCurrentBinding();
+      await assertCurrentGatewaySource!();
     }
     await assertCurrentSetup(verifiedWorkflowArtifact);
 
@@ -2175,6 +2240,7 @@ async function confirmSetupPullRequestMergedMutation(
           repository: repository.fullName,
           source: setupPullRequestMerged ? "github_pull_request" : "workflow",
           pullRequestNumber,
+          gatewayReviewV2Provisioning: gatewayReviewV2Audit?.status ?? null,
           ...dashboardMutationAccessAuditMetadata(actor),
         },
       },
@@ -2188,8 +2254,25 @@ async function confirmSetupPullRequestMergedMutation(
       section: "repositories",
     };
   } catch (error) {
+    if (gatewayReviewV2Audit && gatewayReviewV2Audit.status !== "ready") {
+      await recordAuditEvent(
+        {
+          workspaceId,
+          actor: gatewayReviewV2Audit.actor,
+          action: "workflow.gateway_review_v2_blocked",
+          targetType: "repository",
+          targetId: repositoryId,
+          metadata: {
+            repository: gatewayReviewV2Audit.repository,
+            state: gatewayReviewV2Audit.status,
+            issue: gatewayReviewV2Audit.issue ?? null,
+          },
+        },
+        { auditLog: new PrismaAuditLogRepository(prisma) },
+      );
+    }
     params = {
-      error: safeDashboardErrorCode(error),
+      error: gatewayReviewV2Audit?.issue ?? safeDashboardErrorCode(error),
       workspace: workspaceId,
       section: "repositories",
     };

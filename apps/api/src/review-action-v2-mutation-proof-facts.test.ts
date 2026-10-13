@@ -257,8 +257,6 @@ function createFacts(
         selected: true,
         installationStatus: "active",
       }),
-      findRuntimeReviewConfiguration: async () => null,
-      recordHealthReport: async () => undefined,
     },
     releaseAttestations: {
       attest: async () =>
