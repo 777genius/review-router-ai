@@ -275,6 +275,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Owner deletion is admitted only in the exact complete checkout128.
+  // Remove only its pinned row, then reuse the unchanged128/126 projections.
+  const ownerDeletionMigration = catalog.find(
+    (row) => row.migrationName === "000127_owner_workspace_deletion",
+  );
+  if (ownerDeletionMigration) {
+    if (
+      ownerDeletionMigration.checksum !==
+        "c2a78c83fd5b376b800a189099fcc2fa6f359b61b2188e6819dfdf13d362e0f3" ||
+      manifest(catalog) !==
+        "sha256:573ad770b1198ff48207d023af722679f7eb4e67c9603c883a179692251d5c37"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== ownerDeletionMigration),
+    );
+  }
   // C1 lock privileges are a checkout-only addition. Pin its exact complete
   // source, then validate unchanged126; managed92/historical ledgers stay frozen.
   const accountAdmissionMigration = catalog.find(

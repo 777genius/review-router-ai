@@ -33,6 +33,7 @@ const providerKeyMigrationName = "000110_provider_api_key_workspace_management";
 const reconnectMigrationName = "000125_hosted_codex_device_reconnect";
 const mimoAuthMigrationName = "000126_review_configuration_mimo_auth_kind";
 const accountAdmissionMigrationName = "000128_account_admission_row_lock";
+const ownerDeletionMigrationName = "000127_owner_workspace_deletion";
 const historicalMigration119Checksum =
   "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70";
 const correctedMigration119Sql = readFileSync(
@@ -52,7 +53,8 @@ const canonicalPrismaMigrationNames =
       name !== providerKeyMigrationName &&
       name !== reconnectMigrationName &&
       name !== mimoAuthMigrationName &&
-      name !== accountAdmissionMigrationName,
+      name !== accountAdmissionMigrationName &&
+      name !== ownerDeletionMigrationName,
   );
 
 // Node 24 can require these ESM files directly. This keeps copied fixtures
@@ -400,11 +402,17 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("admits only the exact C1 admission checkout addition", () => {
+  it("admits exact owner deletion plus C1 additions and preserves the old C1 checkout", () => {
     const full = readRenderManagedCheckoutInventory();
-    expect(full).toHaveLength(127);
+    expect(full).toHaveLength(128);
     expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    expect(partitionRenderSchemaHandoffCheckout(
+      full.filter((row) => row.migrationName !== ownerDeletionMigrationName),
+    )).toEqual(catalog);
     for (const changed of [
+      full.map((row) => row.migrationName === ownerDeletionMigrationName
+        ? { ...row, checksum: "0".repeat(64) } : row),
+      full.filter((row) => row.migrationName !== accountAdmissionMigrationName),
       full.map((row) =>
         row.migrationName === accountAdmissionMigrationName
           ? { ...row, checksum: "0".repeat(64) }
@@ -419,7 +427,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
   });
   it("admits only complete corrected119 plus126 and preserves the old125 source catalog", () => {
     const current = readRenderManagedCheckoutInventory().filter(
-      (row) => row.migrationName !== accountAdmissionMigrationName,
+      (row) => row.migrationName !== accountAdmissionMigrationName &&
+        row.migrationName !== ownerDeletionMigrationName,
     );
     const old125 = current
       .filter((row) => row.migrationName !== mimoAuthMigrationName)
@@ -1392,6 +1401,7 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(join(migrations, accountAdmissionMigrationName), {
         recursive: true,
       });
+      rmSync(join(migrations, ownerDeletionMigrationName), { recursive: true });
       for (const name of canonicalPrismaMigrationNames.slice(count))
         rmSync(join(migrations, name), { recursive: true });
       if (canonicalPrefix(count).includes(migration119.migrationName))
@@ -1417,7 +1427,12 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(127);
+    expect(inventory).toHaveLength(128);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, ownerDeletionMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(127);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, accountAdmissionMigrationName), {
       recursive: true,
@@ -1715,8 +1730,8 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      // Removing the exact checkout-only tail restores the admitted126 source.
-      if (name === accountAdmissionMigrationName)
+      // Removing only owner deletion restores the exact admitted C1 checkout.
+      if (name === ownerDeletionMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
