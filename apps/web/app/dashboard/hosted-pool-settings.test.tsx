@@ -441,7 +441,7 @@ describe("HostedPoolSettingsPanel", () => {
     expectNoCredentialLeak();
   });
 
-  it("scopes unavailable enrollment to the hosted ChatGPT pool", () => {
+  it("hides the disabled legacy pool", () => {
     renderPanel({
       gate: "feature_disabled",
       pool: null,
@@ -449,12 +449,14 @@ describe("HostedPoolSettingsPanel", () => {
       repositories: [],
     });
     expect(
-      screen.getByRole("heading", {
+      screen.queryByRole("heading", {
         name: "Hosted ChatGPT pool is not enabled",
       }),
-    ).toBeTruthy();
+    ).toBeNull();
     expect(
-      screen.getByText(/Manage gateway accounts in Workspace accounts above/i),
-    ).toBeTruthy();
+      screen.queryByText(
+        /Manage gateway accounts in Workspace accounts above/i,
+      ),
+    ).toBeNull();
   });
 });

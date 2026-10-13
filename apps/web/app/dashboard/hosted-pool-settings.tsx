@@ -69,17 +69,7 @@ export function HostedPoolSettingsPanel({
   );
 
   if (view.gate === "feature_disabled") {
-    return (
-      <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-        <h3 className="text-sm font-semibold text-cyan-50">
-          Hosted ChatGPT pool is not enabled
-        </h3>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-          Enrollment into the hosted ChatGPT pool is paused on this deployment.
-          Manage gateway accounts in Workspace accounts above.
-        </p>
-      </section>
-    );
+    return null;
   }
   if (view.gate === "entitlement_denied") {
     return (
