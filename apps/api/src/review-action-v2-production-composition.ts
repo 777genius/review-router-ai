@@ -1162,7 +1162,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
           return false;
         const times = await tx.$queryRaw<
           readonly { now: Date }[]
-        >`SELECT clock_timestamp() AS "now"`;
+        >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
         const dbNow = times[0]?.now.getTime();
         if (dbNow === undefined) return false;
         const now = Math.max(dbNow, clock.now().getTime());

@@ -143,7 +143,7 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
     // Use fresh DB wall time after every awaited read, rather than transaction-start time.
     const times = await tx.$queryRaw<
       readonly { now: Date }[]
-    >`SELECT clock_timestamp() AS "now"`;
+    >`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS "now"`;
     const now = times[0]?.now;
     if (!now || now >= row.expiresAt || now >= row.maxExpiresAt) return null;
     return { binding };
