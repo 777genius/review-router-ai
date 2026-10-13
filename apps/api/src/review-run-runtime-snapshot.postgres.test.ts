@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { once } from "node:events";
+import { randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
+import {
+  accountAdmissionApiGrantStatements,
+  activationAuthorityProvisioningSql,
+} from "../../../scripts/run-codex-rotating-release-migration.mjs";
 import {
   createServer,
   request as httpRequest,
@@ -213,6 +219,41 @@ it("bounds incomplete Responses bodies and recovers ingress slots", async () => 
 });
 
 const enabled = process.env.RR_C2C_PG_TEST === "1";
+// Exercise the maintained generator's actual table/column predicates without
+// creating an activation permit or changing unrelated runtime principals.
+function accountAdmissionCanonicalAclQuery(): string {
+  const generated = activationAuthorityProvisioningSql();
+  const facts = generated.match(
+    /WITH runtime_roles\(role_name, role_kind\) AS \(VALUES[\s\S]+?\n {4}\), sequence_facts AS/u,
+  )?.[0];
+  const tableGate = generated.match(
+    /OR EXISTS \(SELECT 1 FROM table_facts WHERE([\s\S]+?)\)\n {7}OR EXISTS \(\n {9}SELECT 1 FROM column_facts/u,
+  )?.[1];
+  const columnGate = generated.match(
+    /OR EXISTS \(\n {9}SELECT 1 FROM column_facts([\s\S]+?)\n {7}\)\n {7}OR EXISTS \(SELECT 1 FROM sequence_facts/u,
+  )?.[1];
+  if (!facts || !tableGate || !columnGate)
+    throw new Error("canonical_acl_generator_shape_changed");
+  const scopedFacts = facts
+    .replace(
+      /WITH runtime_roles\(role_name, role_kind\) AS \(VALUES[\s\S]+?\n {4}\), tables AS/u,
+      "WITH runtime_roles(role_name, role_kind) AS (VALUES ('reviewrouter_api','api')), tables AS",
+    )
+    .replace(
+      "relation.relkind IN ('r','p','v','m','f')",
+      "relation.relkind IN ('r','p','v','m','f') AND relation.relname IN ('ProviderAccountConnection','WorkspaceAccountBinding')",
+    )
+    .replace(
+      "AND attribute.attnum>0 AND NOT attribute.attisdropped",
+      "AND attribute.attnum>0 AND NOT attribute.attisdropped AND relation.relname IN ('ProviderAccountConnection','WorkspaceAccountBinding')",
+    )
+    .replace(/, sequence_facts AS$/u, "");
+  return `${scopedFacts} SELECT NOT (
+    EXISTS (SELECT 1 FROM table_facts WHERE ${tableGate})
+    OR EXISTS (SELECT 1 FROM column_facts ${columnGate})
+  ) AS canonical`;
+}
+
 function disposableDatabase(): string {
   const raw = process.env.RR_C2C_PG_TEST_URL ?? "";
   const url = new URL(raw);
@@ -254,6 +295,301 @@ function disposableDatabase(): string {
 // must never reach CI, and unknown caller authority fields must not mint.
 // This is real RR PostgreSQL + synthetic OIDC/SCM + controlled Gateway HTTP, no inference.
 describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
+  // SELECT-only reproduces the production failure. The existing table owner
+  // projects UPDATE(id) only; immutable guards still deny changed C1 authority.
+  it("locks account admission with non-mutating API column privileges", async () => {
+    const prisma = createPrismaClient({
+      databaseUrl: disposableDatabase(),
+      poolMax: 4,
+    });
+    const observer = createPrismaClient({
+      databaseUrl: disposableDatabase(),
+      poolMax: 4,
+    });
+    const prefix = `c2c-account-lock-${randomUUID()}`;
+    const workspaceId = `${prefix}-workspace`;
+    const aclOwner = `rr_c1_owner_${randomUUID().replaceAll("-", "")}`;
+    let workspaceCreated = false;
+    let ownerCreated = false;
+    let parameterGranted = false;
+    let unlock: (() => void) | undefined;
+    let held: Promise<void> | undefined;
+    const api = <T>(run: (tx: Prisma.TransactionClient) => Promise<T>) =>
+      prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL ROLE reviewrouter_api");
+        return run(tx);
+      });
+    try {
+      await prisma.workspace.create({
+        data: {
+          id: workspaceId,
+          slug: workspaceId,
+          name: "Disposable account lock fixture",
+        },
+      });
+      workspaceCreated = true;
+      const connection = await prisma.providerAccountConnection.create({
+        data: {
+          ownerWorkspaceId: workspaceId,
+          gatewayAccountRef: `${prefix}-lock-account`,
+          profileRef: "mimo-responses-v1",
+          displayName: "Synthetic locking account",
+          state: "active",
+        },
+      });
+      const binding = await new PrismaProviderAccountRepository(
+        prisma,
+      ).compareAndSetBinding({
+        workspaceId,
+        connectionId: connection.id,
+        expectedRevision: 0,
+        state: "active",
+      });
+      await prisma.$executeRawUnsafe(`DO $fixture$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_api') THEN
+          CREATE ROLE reviewrouter_api NOLOGIN NOINHERIT;
+        END IF;
+      END $fixture$`);
+      await prisma.$executeRawUnsafe(
+        "GRANT USAGE ON SCHEMA public TO reviewrouter_api",
+      );
+      await prisma.$executeRawUnsafe(
+        'REVOKE ALL ON public."ProviderAccountConnection", public."WorkspaceAccountBinding" FROM reviewrouter_api',
+      );
+      await prisma.$executeRawUnsafe(
+        'REVOKE UPDATE(id) ON public."ProviderAccountConnection", public."WorkspaceAccountBinding" FROM reviewrouter_api',
+      );
+      await prisma.$executeRawUnsafe(
+        'GRANT SELECT ON public."ProviderAccountConnection", public."WorkspaceAccountBinding" TO reviewrouter_api',
+      );
+      await expect(
+        api(
+          (tx) =>
+            tx.$queryRaw`SELECT id FROM public."ProviderAccountConnection" WHERE id=${connection.id} FOR UPDATE`,
+        ),
+      ).rejects.toThrow(/permission denied/);
+
+      // Prove maintained convergence clears broad and stale column grants using
+      // a nonsuperuser C1 table owner, not a privileged fixture grant shortcut.
+      await prisma.$executeRawUnsafe(
+        `CREATE ROLE ${aclOwner} NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`,
+      );
+      ownerCreated = true;
+      await prisma.$executeRawUnsafe(
+        `GRANT USAGE ON SCHEMA public TO ${aclOwner}`,
+      );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE public."ProviderAccountConnection" OWNER TO ${aclOwner}`,
+      );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE public."WorkspaceAccountBinding" OWNER TO ${aclOwner}`,
+      );
+      await prisma.$executeRawUnsafe(
+        'GRANT INSERT, UPDATE, DELETE ON public."ProviderAccountConnection", public."WorkspaceAccountBinding" TO reviewrouter_api',
+      );
+      await prisma.$executeRawUnsafe(
+        'GRANT UPDATE(state), INSERT("profileRef") ON public."ProviderAccountConnection" TO reviewrouter_api',
+      );
+      await prisma.$executeRawUnsafe(
+        'GRANT UPDATE("revision", "fenceAckPolicyRevision") ON public."WorkspaceAccountBinding" TO reviewrouter_api',
+      );
+      await prisma.$executeRawUnsafe(
+        "GRANT SET ON PARAMETER session_replication_role TO reviewrouter_api",
+      );
+      parameterGranted = true;
+      await expect(
+        prisma.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(`SET LOCAL ROLE ${aclOwner}`);
+          await tx.$executeRawUnsafe(accountAdmissionApiGrantStatements());
+        }),
+      ).rejects.toThrow(/account admission API role is privileged/);
+      await prisma.$executeRawUnsafe(
+        "REVOKE SET ON PARAMETER session_replication_role FROM reviewrouter_api",
+      );
+      parameterGranted = false;
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL ROLE ${aclOwner}`);
+        const authority = await tx.$queryRaw<
+          { superuser: boolean }[]
+        >`SELECT rolsuper AS superuser FROM pg_catalog.pg_roles WHERE rolname=current_user`;
+        expect(authority).toEqual([{ superuser: false }]);
+        await tx.$executeRawUnsafe(accountAdmissionApiGrantStatements());
+      });
+      const privileges = await prisma.$queryRaw<
+        {
+          table_name: string;
+          column_name: string;
+          can_update: boolean;
+          can_insert: boolean;
+          can_reference: boolean;
+        }[]
+      >`
+        SELECT relation.relname AS table_name, attribute.attname AS column_name,
+          has_column_privilege('reviewrouter_api', relation.oid, attribute.attnum, 'UPDATE') AS can_update,
+          has_column_privilege('reviewrouter_api', relation.oid, attribute.attnum, 'INSERT') AS can_insert,
+          has_column_privilege('reviewrouter_api', relation.oid, attribute.attnum, 'REFERENCES') AS can_reference
+        FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+        WHERE relation.oid IN ('public."ProviderAccountConnection"'::regclass, 'public."WorkspaceAccountBinding"'::regclass)
+          AND attribute.attnum>0 AND NOT attribute.attisdropped`;
+      expect(privileges.filter((row) => row.can_update)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            table_name: "ProviderAccountConnection",
+            column_name: "id",
+          }),
+          expect.objectContaining({
+            table_name: "WorkspaceAccountBinding",
+            column_name: "id",
+          }),
+        ]),
+      );
+      expect(privileges.filter((row) => row.can_update)).toHaveLength(2);
+      expect(
+        privileges.every((row) => !row.can_insert && !row.can_reference),
+      ).toBe(true);
+      const canonicalAcl = accountAdmissionCanonicalAclQuery();
+      const canonical = (tx: Prisma.TransactionClient) =>
+        tx.$queryRawUnsafe<{ canonical: boolean }[]>(canonicalAcl);
+      expect(await canonical(prisma)).toEqual([{ canonical: true }]);
+      for (const table of [
+        "ProviderAccountConnection",
+        "WorkspaceAccountBinding",
+      ]) {
+        await expect(
+          prisma.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(
+              `GRANT UPDATE(state) ON public."${table}" TO reviewrouter_api`,
+            );
+            expect(await canonical(tx)).toEqual([{ canonical: false }]);
+            // PostgreSQL rolls the grant back even if the assertion above fails.
+            throw new Error("rollback_fixture_api_column_grant");
+          }),
+        ).rejects.toThrow("rollback_fixture_api_column_grant");
+        expect(await canonical(prisma)).toEqual([{ canonical: true }]);
+      }
+      const denied = [
+        (tx: Prisma.TransactionClient) =>
+          tx.$executeRaw`UPDATE public."ProviderAccountConnection" SET id=${`${connection.id}-changed`} WHERE id=${connection.id}`,
+        (tx: Prisma.TransactionClient) =>
+          tx.$executeRaw`UPDATE public."WorkspaceAccountBinding" SET id=${`${binding.id}-changed`} WHERE id=${binding.id}`,
+      ];
+      await expect(api(denied[0]!)).rejects.toThrow(
+        /provider_account_owner_immutable/,
+      );
+      await expect(api(denied[1]!)).rejects.toThrow(
+        /workspace_account_binding_identity_immutable/,
+      );
+      await expect(
+        api(
+          (tx) =>
+            tx.$executeRaw`UPDATE public."ProviderAccountConnection" SET id=id WHERE id=${connection.id}`,
+        ),
+      ).rejects.toThrow(/provider_account_revision_conflict/);
+      for (const mutation of [
+        (tx: Prisma.TransactionClient) =>
+          tx.$executeRaw`UPDATE public."ProviderAccountConnection" SET state='disabled', "metadataRevision"="metadataRevision"+1 WHERE id=${connection.id}`,
+        (tx: Prisma.TransactionClient) =>
+          tx.$executeRaw`UPDATE public."ProviderAccountConnection" SET "profileRef"='changed', "metadataRevision"="metadataRevision"+1 WHERE id=${connection.id}`,
+        (tx: Prisma.TransactionClient) =>
+          tx.$executeRaw`UPDATE public."WorkspaceAccountBinding" SET state='revoked', revision=revision+1, "policyRevision"="policyRevision"+1 WHERE id=${binding.id}`,
+        (tx: Prisma.TransactionClient) =>
+          tx.$executeRaw`UPDATE public."WorkspaceAccountBinding" SET "fenceAckOperationId"='invented', "fenceAckPolicyRevision"=1 WHERE id=${binding.id}`,
+        (tx: Prisma.TransactionClient) =>
+          tx.$executeRaw`DELETE FROM public."WorkspaceAccountBinding" WHERE id=${binding.id}`,
+      ])
+        await expect(api(mutation)).rejects.toThrow(/permission denied/);
+      const before = await prisma.workspaceAccountBinding.findUniqueOrThrow({
+        where: { id: binding.id },
+      });
+      expect(
+        await api(
+          (tx) =>
+            tx.$executeRaw`UPDATE public."WorkspaceAccountBinding" SET id=id WHERE id=${binding.id}`,
+        ),
+      ).toBe(1);
+      expect(
+        await prisma.workspaceAccountBinding.findUniqueOrThrow({
+          where: { id: binding.id },
+        }),
+      ).toEqual(before);
+
+      let ready!: () => void;
+      const acquired = new Promise<void>((resolve) => {
+        ready = resolve;
+      });
+      const release = new Promise<void>((resolve) => {
+        unlock = resolve;
+      });
+      held = api(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM public."ProviderAccountConnection" WHERE id=${connection.id} FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM public."WorkspaceAccountBinding" WHERE id=${binding.id} AND "workspaceId"=${workspaceId} FOR UPDATE`;
+        ready();
+        await release;
+      });
+      await Promise.race([acquired, held]);
+      for (const lock of [
+        () =>
+          observer.$transaction(
+            (tx) =>
+              tx.$queryRaw`SELECT id FROM public."ProviderAccountConnection" WHERE id=${connection.id} FOR UPDATE NOWAIT`,
+          ),
+        () =>
+          observer.$transaction(
+            (tx) =>
+              tx.$queryRaw`SELECT id FROM public."WorkspaceAccountBinding" WHERE id=${binding.id} FOR UPDATE NOWAIT`,
+          ),
+      ])
+        await expect(lock()).rejects.toThrow(/could not obtain lock/);
+      if (!unlock) throw new Error("account_lock_release_missing");
+      unlock();
+      await held;
+      held = undefined;
+      await observer.providerAccountConnection.update({
+        where: { id: connection.id },
+        data: {
+          displayName: "After lock release",
+          metadataRevision: { increment: 1 },
+        },
+      });
+      await new PrismaProviderAccountRepository(observer).compareAndSetBinding({
+        workspaceId,
+        connectionId: connection.id,
+        expectedRevision: binding.revision,
+        state: "revoked",
+      });
+    } finally {
+      unlock?.();
+      await held?.catch(() => undefined);
+      if (parameterGranted)
+        await prisma.$executeRawUnsafe(
+          "REVOKE SET ON PARAMETER session_replication_role FROM reviewrouter_api",
+        );
+      await observer.$disconnect();
+      if (ownerCreated) {
+        await prisma.$executeRawUnsafe(
+          'ALTER TABLE public."ProviderAccountConnection" OWNER TO CURRENT_USER',
+        );
+        await prisma.$executeRawUnsafe(
+          'ALTER TABLE public."WorkspaceAccountBinding" OWNER TO CURRENT_USER',
+        );
+        await prisma.$executeRawUnsafe(
+          `REVOKE USAGE ON SCHEMA public FROM ${aclOwner}`,
+        );
+        await prisma.$executeRawUnsafe(`DROP ROLE ${aclOwner}`);
+      }
+      if (workspaceCreated) {
+        await prisma.workspaceAccountBinding.deleteMany({
+          where: { workspaceId },
+        });
+        await prisma.providerAccountConnection.deleteMany({
+          where: { ownerWorkspaceId: workspaceId },
+        });
+        await prisma.workspace.delete({ where: { id: workspaceId } });
+      }
+      await prisma.$disconnect();
+    }
+  }, 30_000);
+
   it("retains one original across competing admissions, settings and revocation", async () => {
     const databaseUrl = disposableDatabase();
     const limits = {
