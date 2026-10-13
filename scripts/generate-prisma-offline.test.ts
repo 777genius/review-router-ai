@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import {
   assertOfflinePrismaGenerateEnvironment,
   forwardedGenerateEnvironment,
@@ -379,9 +380,32 @@ describe("offline Prisma generate", () => {
     const blueprint = readFileSync("render.yaml", "utf8");
     const dockerfile = readFileSync("deploy/self-hosted/Dockerfile", "utf8");
     const helper = "node scripts/generate-prisma-offline.mjs";
-    expect(ci.match(new RegExp(helper, "gu"))).toHaveLength(4);
+    const workflow = parse(ci) as {
+      jobs: Record<
+        string,
+        { steps?: { run?: string; env?: Record<string, string> }[] }
+      >;
+    };
+    for (const jobId of [
+      "private-pg16-to-pg17-rehearsal",
+      "release-authority-pg17-contract",
+      "managed-migration-pg17",
+      "quality",
+      "static-checks",
+    ]) {
+      const generationSteps = (workflow.jobs[jobId]?.steps ?? []).filter(
+        (step) => step.run?.trim() === helper,
+      );
+      expect(
+        generationSteps,
+        `${jobId}: offline Prisma generation`,
+      ).toHaveLength(1);
+      expect(
+        generationSteps[0]?.env?.REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA,
+        `${jobId}: required network isolation`,
+      ).toBe("1");
+    }
     expect(ci).not.toMatch(/run: pnpm db:generate/u);
-    expect(ci).toContain('REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"');
     expect(readFileSync("package.json", "utf8")).toContain(
       '"db:generate:offline": "REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs"',
     );
