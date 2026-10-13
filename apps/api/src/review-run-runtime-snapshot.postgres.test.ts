@@ -224,19 +224,19 @@ const enabled = process.env.RR_C2C_PG_TEST === "1";
 function accountAdmissionCanonicalAclQuery(): string {
   const generated = activationAuthorityProvisioningSql();
   const facts = generated.match(
-    /WITH runtime_roles\(role_name, role_kind\) AS \(VALUES[\s\S]+?\n    \), sequence_facts AS/u,
+    /WITH runtime_roles\(role_name, role_kind\) AS \(VALUES[\s\S]+?\n {4}\), sequence_facts AS/u,
   )?.[0];
   const tableGate = generated.match(
-    /OR EXISTS \(SELECT 1 FROM table_facts WHERE([\s\S]+?)\)\n       OR EXISTS \(\n         SELECT 1 FROM column_facts/u,
+    /OR EXISTS \(SELECT 1 FROM table_facts WHERE([\s\S]+?)\)\n {7}OR EXISTS \(\n {9}SELECT 1 FROM column_facts/u,
   )?.[1];
   const columnGate = generated.match(
-    /OR EXISTS \(\n         SELECT 1 FROM column_facts([\s\S]+?)\n       \)\n       OR EXISTS \(SELECT 1 FROM sequence_facts/u,
+    /OR EXISTS \(\n {9}SELECT 1 FROM column_facts([\s\S]+?)\n {7}\)\n {7}OR EXISTS \(SELECT 1 FROM sequence_facts/u,
   )?.[1];
   if (!facts || !tableGate || !columnGate)
     throw new Error("canonical_acl_generator_shape_changed");
   const scopedFacts = facts
     .replace(
-      /WITH runtime_roles\(role_name, role_kind\) AS \(VALUES[\s\S]+?\n    \), tables AS/u,
+      /WITH runtime_roles\(role_name, role_kind\) AS \(VALUES[\s\S]+?\n {4}\), tables AS/u,
       "WITH runtime_roles(role_name, role_kind) AS (VALUES ('reviewrouter_api','api')), tables AS",
     )
     .replace(
