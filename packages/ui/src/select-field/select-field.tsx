@@ -8,6 +8,7 @@ export type SelectFieldOption = {
   readonly value: string;
   readonly label: string;
   readonly description?: string;
+  readonly disabled?: boolean;
 };
 
 export type SelectFieldProps = {
@@ -16,6 +17,7 @@ export type SelectFieldProps = {
   readonly defaultValue: string;
   readonly options: readonly SelectFieldOption[];
   readonly disabled?: boolean;
+  readonly onValueChange?: (value: string) => void;
   readonly className?: string;
 };
 
@@ -25,6 +27,7 @@ export function SelectField({
   defaultValue,
   options,
   disabled,
+  onValueChange,
   className,
 }: SelectFieldProps): React.ReactElement {
   return (
@@ -38,6 +41,9 @@ export function SelectField({
         name={name}
         defaultValue={defaultValue}
         disabled={disabled}
+        onValueChange={(value) => {
+          if (value !== null) onValueChange?.(value);
+        }}
         items={options.map((option) => ({
           value: option.value,
           label: option.label,
@@ -72,6 +78,7 @@ export function SelectField({
                     key={option.value}
                     value={option.value}
                     label={option.label}
+                    disabled={option.disabled}
                     className="flex w-full cursor-pointer items-start gap-3 rounded-lg px-3.5 py-3 text-sm leading-5 text-slate-200 outline-none transition data-[highlighted]:bg-cyan-300/10 data-[highlighted]:text-cyan-50"
                   >
                     <BaseSelect.ItemIndicator className="flex h-5 w-5 shrink-0 items-center justify-center pt-0.5 text-lime-200">
