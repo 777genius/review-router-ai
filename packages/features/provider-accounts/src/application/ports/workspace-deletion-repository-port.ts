@@ -66,7 +66,10 @@ export interface WorkspaceDeletionRepositoryPort {
     readonly workspaceId: string;
     readonly expectedWorkspaceRevision: number;
     readonly account: WorkspaceDeletionGatewayAccount;
-  }): Promise<{ readonly operation: WorkspaceDeletionOperationView; readonly dispatchTarget: WorkspaceDeletionLifecycleTarget | null }>;
+  }): Promise<{
+    readonly operation: WorkspaceDeletionOperationView;
+    readonly dispatchTarget: WorkspaceDeletionLifecycleTarget | null;
+  }>;
   recordPolicyClosure(input: {
     readonly operatorActor: WorkspaceAccountActor;
     readonly operationId: string;

@@ -58,7 +58,8 @@ export async function reconcileWorkspaceBindingFences(
   if (input.afterBindingId !== undefined)
     assertOpaqueReference(input.afterBindingId);
   const selected = input.bindingIds ? new Set(input.bindingIds) : null;
-  if (selected) for (const bindingId of selected) assertOpaqueReference(bindingId);
+  if (selected)
+    for (const bindingId of selected) assertOpaqueReference(bindingId);
   const rows = (
     await dependencies.accounts.listPendingBindingFences(input)
   ).filter((row) => !selected || selected.has(row.id));

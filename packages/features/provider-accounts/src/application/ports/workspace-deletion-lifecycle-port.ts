@@ -59,7 +59,10 @@ export type WorkspaceDeletionGatewayAccount = {
   readonly authorizationEpoch: number;
 };
 export interface WorkspaceDeletionLifecyclePort {
-  readAccount(input: { readonly workspaceId: string; readonly target: WorkspaceDeletionLifecycleTarget }): Promise<WorkspaceDeletionGatewayAccount>;
+  readAccount(input: {
+    readonly workspaceId: string;
+    readonly target: WorkspaceDeletionLifecycleTarget;
+  }): Promise<WorkspaceDeletionGatewayAccount>;
   /** Normal disable acknowledges only the fence. Completion requires the
    * separately authenticated retirement readback for that exact operation.
    * Unknown submit outcomes must be reconciled, never replayed under a new ID.

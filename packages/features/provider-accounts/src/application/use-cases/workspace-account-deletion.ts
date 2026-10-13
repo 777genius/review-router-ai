@@ -74,8 +74,11 @@ async function assertOperator(
 ): Promise<void> {
   assertOpaqueReference(dependencies.operatorWorkspaceId);
   if (actor.userId !== undefined) assertOpaqueReference(actor.userId);
-  if (typeof actor.githubUserId !== "string" || typeof actor.githubLogin !== "string" ||
-      (actor.userId === undefined && !/^[0-9]+$/.test(actor.githubUserId)))
+  if (
+    typeof actor.githubUserId !== "string" ||
+    typeof actor.githubLogin !== "string" ||
+    (actor.userId === undefined && !/^[0-9]+$/.test(actor.githubUserId))
+  )
     throw new ProviderAccountError("invalid_input");
   try {
     await assertWorkspaceAdminAllowed(
@@ -101,34 +104,66 @@ export function assertWorkspaceDeletionLifecycleCompleted(
   readback: WorkspaceDeletionLifecycleReadback,
   operation: WorkspaceDeletionOperationView,
 ): void {
-  if (readback.operationId !== operation.operationId ||
-      readback.workspaceId !== operation.workspaceId ||
-      readback.expectedWorkspaceRevision !== operation.currentWorkspaceRevision ||
-      readback.state !== "completed")
+  if (
+    readback.operationId !== operation.operationId ||
+    readback.workspaceId !== operation.workspaceId ||
+    readback.expectedWorkspaceRevision !== operation.currentWorkspaceRevision ||
+    readback.state !== "completed"
+  )
     throw new ProviderAccountError("connection_unavailable");
-  const expected = new Map(operation.targets.map((target) => [target.connectionId, target]));
+  const expected = new Map(
+    operation.targets.map((target) => [target.connectionId, target]),
+  );
   const seen = new Set<string>();
-  if (expected.size !== operation.targets.length || readback.targets.length !== expected.size)
+  if (
+    expected.size !== operation.targets.length ||
+    readback.targets.length !== expected.size
+  )
     throw new ProviderAccountError("connection_unavailable");
   for (const target of readback.targets) {
-    const mapped = expected.get(target.connectionId), counts = target.counts;
-    if (!mapped || seen.has(target.connectionId) ||
-        target.gatewayAccountRef !== mapped.gatewayAccountRef || target.profileRef !== mapped.profileRef ||
-        target.state !== "completed" || !target.inert || target.disableOperationId !== mapped.disableOperationId ||
-        !mapped.disableIssued || mapped.disableExpectedGatewayRevision === null || mapped.disableExpectedGatewayEpoch === null ||
-        target.fenceMetadataRevision !== mapped.disableExpectedGatewayRevision + 1 ||
-        target.fenceAuthorizationEpoch !== mapped.disableExpectedGatewayEpoch + 1 ||
-        target.fenceMetadataRevision === null || !Number.isSafeInteger(target.fenceMetadataRevision) || target.fenceMetadataRevision < 1 ||
-        target.fenceAuthorizationEpoch === null ||
-        (!Number.isSafeInteger(target.fenceAuthorizationEpoch) || target.fenceAuthorizationEpoch < 1) ||
-        !counts || [counts.generations, counts.erasedGenerations, counts.executions, counts.openExecutions,
-          counts.requests, counts.occupiedTransports, counts.acknowledgedTransports,
-          counts.nonEntryRequests, counts.unknownEffects]
-          .some((value) => !Number.isSafeInteger(value) || value < 0) ||
-        counts.generations < 1 || counts.erasedGenerations !== counts.generations ||
-        counts.openExecutions !== 0 || counts.occupiedTransports !== 0 ||
-        counts.acknowledgedTransports + counts.nonEntryRequests !== counts.requests ||
-        counts.unknownEffects > counts.requests)
+    const mapped = expected.get(target.connectionId),
+      counts = target.counts;
+    if (
+      !mapped ||
+      seen.has(target.connectionId) ||
+      target.gatewayAccountRef !== mapped.gatewayAccountRef ||
+      target.profileRef !== mapped.profileRef ||
+      target.state !== "completed" ||
+      !target.inert ||
+      target.disableOperationId !== mapped.disableOperationId ||
+      !mapped.disableIssued ||
+      mapped.disableExpectedGatewayRevision === null ||
+      mapped.disableExpectedGatewayEpoch === null ||
+      target.fenceMetadataRevision !==
+        mapped.disableExpectedGatewayRevision + 1 ||
+      target.fenceAuthorizationEpoch !==
+        mapped.disableExpectedGatewayEpoch + 1 ||
+      target.fenceMetadataRevision === null ||
+      !Number.isSafeInteger(target.fenceMetadataRevision) ||
+      target.fenceMetadataRevision < 1 ||
+      target.fenceAuthorizationEpoch === null ||
+      !Number.isSafeInteger(target.fenceAuthorizationEpoch) ||
+      target.fenceAuthorizationEpoch < 1 ||
+      !counts ||
+      [
+        counts.generations,
+        counts.erasedGenerations,
+        counts.executions,
+        counts.openExecutions,
+        counts.requests,
+        counts.occupiedTransports,
+        counts.acknowledgedTransports,
+        counts.nonEntryRequests,
+        counts.unknownEffects,
+      ].some((value) => !Number.isSafeInteger(value) || value < 0) ||
+      counts.generations < 1 ||
+      counts.erasedGenerations !== counts.generations ||
+      counts.openExecutions !== 0 ||
+      counts.occupiedTransports !== 0 ||
+      counts.acknowledgedTransports + counts.nonEntryRequests !==
+        counts.requests ||
+      counts.unknownEffects > counts.requests
+    )
       throw new ProviderAccountError("connection_unavailable");
     seen.add(target.connectionId);
   }
@@ -201,29 +236,46 @@ export async function advanceWorkspaceAccountDeletion(
     workspaceId: input.workspaceId,
     expectedWorkspaceRevision: operation.currentWorkspaceRevision,
   });
-  if (operation.pendingFenceCount !== 0 || operation.pendingPersonalOperationCount !== 0) return operation;
+  if (
+    operation.pendingFenceCount !== 0 ||
+    operation.pendingPersonalOperationCount !== 0
+  )
+    return operation;
   // Every affected use must close before any owner erasure, including borrowed
   // accounts. Each GET is scoped to the original persisted policy fence.
   for (const intent of operation.policyFenceTargets.slice(0, 100)) {
     let closure;
-    try { closure = await dependencies.closures.readPolicyClosure(intent); }
-    catch { continue; /* Unknown closure stays pending; no ACK fabrication. */ }
+    try {
+      closure = await dependencies.closures.readPolicyClosure(intent);
+    } catch {
+      continue; /* Unknown closure stays pending; no ACK fabrication. */
+    }
     operation = await dependencies.deletion.recordPolicyClosure({
-      operatorActor: input.actor, operationId: operation.operationId,
-      workspaceId: operation.workspaceId, expectedWorkspaceRevision: operation.currentWorkspaceRevision,
-      intent, readback: closure,
+      operatorActor: input.actor,
+      operationId: operation.operationId,
+      workspaceId: operation.workspaceId,
+      expectedWorkspaceRevision: operation.currentWorkspaceRevision,
+      intent,
+      readback: closure,
     });
   }
   if (operation.pendingPolicyClosureCount !== 0) return operation;
   let dispatchTarget: WorkspaceDeletionLifecycleTarget | null = null;
   const next = operation.targets.find((target) => !target.disableIssued);
   if (next) {
-    const account = await dependencies.lifecycle.readAccount({ workspaceId: operation.workspaceId, target: next });
-    const reserved = await dependencies.deletion.reserveDisable({
-      operatorActor: input.actor, operationId: operation.operationId, workspaceId: operation.workspaceId,
-      expectedWorkspaceRevision: operation.currentWorkspaceRevision, account,
+    const account = await dependencies.lifecycle.readAccount({
+      workspaceId: operation.workspaceId,
+      target: next,
     });
-    operation = reserved.operation; dispatchTarget = reserved.dispatchTarget;
+    const reserved = await dependencies.deletion.reserveDisable({
+      operatorActor: input.actor,
+      operationId: operation.operationId,
+      workspaceId: operation.workspaceId,
+      expectedWorkspaceRevision: operation.currentWorkspaceRevision,
+      account,
+    });
+    operation = reserved.operation;
+    dispatchTarget = reserved.dispatchTarget;
   }
   const readback = await dependencies.lifecycle.submitAndRead({
     operationId: operation.operationId,

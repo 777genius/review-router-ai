@@ -406,12 +406,17 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     const full = readRenderManagedCheckoutInventory();
     expect(full).toHaveLength(128);
     expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
-    expect(partitionRenderSchemaHandoffCheckout(
-      full.filter((row) => row.migrationName !== ownerDeletionMigrationName),
-    )).toEqual(catalog);
+    expect(
+      partitionRenderSchemaHandoffCheckout(
+        full.filter((row) => row.migrationName !== ownerDeletionMigrationName),
+      ),
+    ).toEqual(catalog);
     for (const changed of [
-      full.map((row) => row.migrationName === ownerDeletionMigrationName
-        ? { ...row, checksum: "0".repeat(64) } : row),
+      full.map((row) =>
+        row.migrationName === ownerDeletionMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
       full.filter((row) => row.migrationName !== accountAdmissionMigrationName),
       full.map((row) =>
         row.migrationName === accountAdmissionMigrationName
@@ -427,7 +432,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
   });
   it("admits only complete corrected119 plus126 and preserves the old125 source catalog", () => {
     const current = readRenderManagedCheckoutInventory().filter(
-      (row) => row.migrationName !== accountAdmissionMigrationName &&
+      (row) =>
+        row.migrationName !== accountAdmissionMigrationName &&
         row.migrationName !== ownerDeletionMigrationName,
     );
     const old125 = current

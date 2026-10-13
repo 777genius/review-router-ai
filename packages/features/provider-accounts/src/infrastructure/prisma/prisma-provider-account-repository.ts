@@ -401,7 +401,8 @@ export class PrismaProviderAccountRepository
     if (input.afterBindingId !== undefined)
       assertOpaqueReference(input.afterBindingId);
     if (input.bindingIds) {
-      for (const bindingId of input.bindingIds) assertOpaqueReference(bindingId);
+      for (const bindingId of input.bindingIds)
+        assertOpaqueReference(bindingId);
       if (new Set(input.bindingIds).size !== input.bindingIds.length)
         throw new ProviderAccountError("invalid_input");
     }

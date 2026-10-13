@@ -55,5 +55,7 @@ export type BindingClosureResponse = {
   };
 };
 export interface WorkspaceBindingClosureDeliveryPort {
-  readPolicyClosure(intent: ScopedBindingFence): Promise<BindingClosureResponse>;
+  readPolicyClosure(
+    intent: ScopedBindingFence,
+  ): Promise<BindingClosureResponse>;
 }
