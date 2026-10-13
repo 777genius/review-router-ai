@@ -385,20 +385,30 @@ export class PrismaProviderAccountRepository
   async listPendingBindingFences(request: {
     readonly limit: number;
     readonly afterBindingId?: string;
+    readonly bindingIds?: readonly string[];
   }) {
     const input = {
       limit: request.limit,
       ...(request.afterBindingId !== undefined
         ? { afterBindingId: request.afterBindingId }
         : {}),
+      ...(request.bindingIds !== undefined
+        ? { bindingIds: request.bindingIds }
+        : {}),
     };
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100)
       throw new ProviderAccountError("invalid_input");
     if (input.afterBindingId !== undefined)
       assertOpaqueReference(input.afterBindingId);
+    if (input.bindingIds) {
+      for (const bindingId of input.bindingIds) assertOpaqueReference(bindingId);
+      if (new Set(input.bindingIds).size !== input.bindingIds.length)
+        throw new ProviderAccountError("invalid_input");
+    }
     const rows = await this.prisma.workspaceAccountBinding.findMany({
       where: {
         pendingFenceOperationId: { not: null },
+        ...(input.bindingIds ? { id: { in: [...input.bindingIds] } } : {}),
         ...(input.afterBindingId !== undefined
           ? { id: { gt: input.afterBindingId } }
           : {}),

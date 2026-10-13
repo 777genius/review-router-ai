@@ -13,6 +13,11 @@
       "types": "./src/synchronization.ts",
       "production": "./dist/synchronization.js",
       "default": "./src/synchronization.ts"
+    },
+    "./composition": {
+      "types": "./src/composition.ts",
+      "production": "./dist/composition.js",
+      "default": "./src/composition.ts"
     }
   },
   "dependencies": {

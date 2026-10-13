@@ -27,8 +27,33 @@ export interface WorkspaceBindingFenceRepositoryPort {
   listPendingBindingFences(input: {
     readonly limit: number;
     readonly afterBindingId?: string;
+    readonly bindingIds?: readonly string[];
   }): Promise<readonly WorkspaceAccountBinding[]>;
   /** Exact pending-intent CAS only. A stale ACK returns false and cannot clear a
    * replacement. This is trusted bookkeeping, not an authorization grant. */
   acknowledgeBindingFence(intent: ScopedBindingFence): Promise<boolean>;
+}
+
+/** Separate delete-consumer capability: a fence ACK does not attest native
+ * transport closure. The server reconstructs the complete cohort from this
+ * original fence operation; callers cannot choose executions or requests.
+ */
+export type BindingClosureResponse = {
+  readonly operationRef: string;
+  readonly policySubject: string;
+  readonly policyRevision: number;
+  readonly state: "pending" | "completed";
+  readonly closed: boolean;
+  readonly counts: {
+    readonly retainedExecutions: number;
+    readonly openExecutions: number;
+    readonly requests: number;
+    readonly occupiedTransports: number;
+    readonly acknowledgedNativeTransports: number;
+    readonly positiveKernelNonEntryRequests: number;
+    readonly unknownEffects: number;
+  };
+};
+export interface WorkspaceBindingClosureDeliveryPort {
+  readPolicyClosure(intent: ScopedBindingFence): Promise<BindingClosureResponse>;
 }

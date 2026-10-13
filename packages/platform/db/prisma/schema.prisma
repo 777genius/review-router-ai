@@ -10,6 +10,9 @@ model Workspace {
   id        String   @id @default(cuid())
   slug      String   @unique
   name      String
+  deletionState WorkspaceDeletionState @default(active)
+  deletionRevision Int @default(1)
+  deletionTombstonedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -46,6 +49,7 @@ model Workspace {
   hostedCodexDeviceLogins      HostedCodexDeviceLogin[]
   providerApiKeyConnections    ProviderApiKeyConnection[]
   providerApiKeyGrants         ProviderApiKeyWorkspaceGrant[]
+  deletionOperations          WorkspaceDeletionOperation[]
 }
 
 model User {
@@ -129,6 +133,44 @@ model WorkspaceAccountBinding {
   @@unique([id, workspaceId])
 }
 
+// Stable RR owner/workspace deletion custody. Physical identity and all
+// historical FKs remain; only access is removed at terminal tombstoning.
+model WorkspaceDeletionOperation {
+  id                       String   @id
+  workspaceId              String   @unique
+  expectedWorkspaceRevision Int
+  normalizedIntentHash     String
+  actorRef                 String
+  stage                    WorkspaceDeletionStage
+  stageReason              String
+  targets                  Json
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  completedAt              DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  facts     WorkspaceDeletionFact[]
+
+  @@index([stage, updatedAt])
+}
+
+// Immutable safe lifecycle references. No credential/native wire or SQL proof.
+model WorkspaceDeletionFact {
+  id          String   @id @default(cuid())
+  operationId String
+  kind        WorkspaceDeletionFactKind
+  subjectRef  String
+  proofRef    String
+  detail      Json
+  digest      String
+  createdAt   DateTime @default(now())
+
+  operation WorkspaceDeletionOperation @relation(fields: [operationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([operationId, kind, subjectRef])
+  @@index([operationId, createdAt])
+}
+
 // Safe, finite disabled personal operations. No credential or arbitrary payload.
 model PersonalAccountOperation {
   id String @id
@@ -179,6 +221,30 @@ enum ProviderAccountConnectionState {
 enum WorkspaceAccountBindingState {
   active
   revoked
+}
+
+enum WorkspaceDeletionState {
+  active
+  delete_pending
+  deleted
+}
+
+enum WorkspaceDeletionStage {
+  delete_pending
+  fences_pending
+  execution_closure_pending
+  erase_pending
+  finalize_pending
+  deleted
+  refused
+}
+
+enum WorkspaceDeletionFactKind {
+  binding_fence
+  execution_closure
+  generation_erasure
+  inert_readback
+  final_scope
 }
 
 model UserExternalIdentity {
