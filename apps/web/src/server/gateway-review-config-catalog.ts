@@ -3,6 +3,7 @@ import type {
   ReviewProviderConfiguration,
 } from "@reviewrouter/features-review-config";
 import type { AccountProfileView } from "./account-gateway-accounts";
+import { gatewayModelSupportsReasoningEffort } from "../features/account-gateway/review-reasoning-capabilities";
 
 type GatewaySelection = Extract<
   ReviewProviderConfiguration,
@@ -36,5 +37,12 @@ export async function assertGatewayReviewConfigCatalogAllowed(
   const profiles = await loadProfiles();
   if (selections.some((row) => !isGatewayReviewModelSupported(row, profiles)))
     throw new Error("gateway_review_model_unsupported");
+  if (
+    selections.some(
+      (row) =>
+        !gatewayModelSupportsReasoningEffort(row.model, row.reasoningEffort),
+    )
+  )
+    throw new Error("gateway_review_reasoning_effort_unsupported");
   return true;
 }
