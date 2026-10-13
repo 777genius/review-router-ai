@@ -32,6 +32,7 @@ import { canonicalPrismaMigrationNames as currentCanonicalPrismaMigrationNames }
 const providerKeyMigrationName = "000110_provider_api_key_workspace_management";
 const reconnectMigrationName = "000125_hosted_codex_device_reconnect";
 const mimoAuthMigrationName = "000126_review_configuration_mimo_auth_kind";
+const accountAdmissionMigrationName = "000128_account_admission_row_lock";
 const historicalMigration119Checksum =
   "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70";
 const correctedMigration119Sql = readFileSync(
@@ -50,7 +51,8 @@ const canonicalPrismaMigrationNames =
     (name) =>
       name !== providerKeyMigrationName &&
       name !== reconnectMigrationName &&
-      name !== mimoAuthMigrationName,
+      name !== mimoAuthMigrationName &&
+      name !== accountAdmissionMigrationName,
   );
 
 // Node 24 can require these ESM files directly. This keeps copied fixtures
@@ -398,8 +400,27 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
+  it("admits only the exact C1 admission checkout addition", () => {
+    const full = readRenderManagedCheckoutInventory();
+    expect(full).toHaveLength(127);
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === accountAdmissionMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      [...full, { migrationName: "000129_unknown", checksum: "0".repeat(64) }],
+      full.filter((row) => row.migrationName !== "000117_provider_accounts"),
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow(
+        "checkout_extension",
+      );
+  });
   it("admits only complete corrected119 plus126 and preserves the old125 source catalog", () => {
-    const current = readRenderManagedCheckoutInventory();
+    const current = readRenderManagedCheckoutInventory().filter(
+      (row) => row.migrationName !== accountAdmissionMigrationName,
+    );
     const old125 = current
       .filter((row) => row.migrationName !== mimoAuthMigrationName)
       .map((row) =>
@@ -1368,6 +1389,9 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(join(migrations, providerKeyMigrationName), { recursive: true });
       rmSync(join(migrations, reconnectMigrationName), { recursive: true });
       rmSync(join(migrations, mimoAuthMigrationName), { recursive: true });
+      rmSync(join(migrations, accountAdmissionMigrationName), {
+        recursive: true,
+      });
       for (const name of canonicalPrismaMigrationNames.slice(count))
         rmSync(join(migrations, name), { recursive: true });
       if (canonicalPrefix(count).includes(migration119.migrationName))
@@ -1393,7 +1417,11 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(126);
+    expect(inventory).toHaveLength(127);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, accountAdmissionMigrationName), {
+      recursive: true,
+    });
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, mimoAuthMigrationName), {
       recursive: true,
@@ -1687,7 +1715,10 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      expect(() => fixture.read()).toThrow();
+      // Removing the exact checkout-only tail restores the admitted126 source.
+      if (name === accountAdmissionMigrationName)
+        expect(fixture.read()).toEqual(catalog);
+      else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
       writeFileSync(sql, bytes);
     }

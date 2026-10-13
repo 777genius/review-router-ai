@@ -2766,7 +2766,8 @@ BEGIN
         '${workerOwnedMaintenanceCheckpointTable}','HostedCodexRuntimeGate',
         'HostedCodexRuntimeClosure','HostedCodexCommentTokenMint',
         'HostedCodexCommentTokenRevocationProof','HostedCodexCommentRefreshCapability',
-        'HostedCodexCommentRefreshUse','ReviewProviderScopeConcurrencyControl'
+        'HostedCodexCommentRefreshUse','ReviewProviderScopeConcurrencyControl',
+        'ProviderAccountConnection','WorkspaceAccountBinding'
       ) AND attribute.attnum>0 AND NOT attribute.attisdropped
     ), sequence_facts AS (
       SELECT role_name, role_kind, relname,
@@ -2815,6 +2816,7 @@ BEGIN
            AND (relname <> 'CodexOAuthWorkflowCompatibility' OR role_kind IN ('api','web'))
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_insert IS DISTINCT FROM (CASE WHEN role_kind='custody' THEN relname='HostedCodexCommentRefreshUse'
+         WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
          ELSE role_kind <> 'effect-authority' AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine',
            'CodexOAuthProviderIdentityQuarantine','CodexOAuthDatabaseAuthorityKey',
@@ -2825,6 +2827,7 @@ BEGIN
            AND relname <> 'HostedCodexCommentTokenMint'
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_update IS DISTINCT FROM (CASE WHEN role_kind='custody' THEN false
+         WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
          ELSE role_kind <> 'effect-authority' AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine',
            'CodexOAuthProviderIdentityQuarantine','CodexOAuthProviderInstance',
@@ -2834,7 +2837,9 @@ BEGIN
              'ReviewProviderScopeConcurrencyControl')
            AND relname <> 'HostedCodexCommentTokenMint'
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
-         OR can_delete IS DISTINCT FROM (role_kind NOT IN ('effect-authority','custody') AND relname NOT IN (
+         OR can_delete IS DISTINCT FROM (role_kind NOT IN ('effect-authority','custody')
+           AND NOT (role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding'))
+           AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine','CodexOAuthLease',
            'CodexOAuthProviderIdentityQuarantine','CodexOAuthProviderInstance','CodexOAuthSecretNamespace',
            'CodexOAuthSetupDispatchAttempt','CodexOAuthSetupManifest','CodexOAuthSetupPayloadClaim',
@@ -2859,6 +2864,10 @@ BEGIN
             WHEN column_facts.role_kind NOT IN ('effect-authority','custody')
               AND column_facts.relname='CodexOAuthProviderInstance'
                AND column_facts.attname=ANY(ARRAY[${providerRuntimeUpdateColumns.map((column) => `'${column}'`).join(",")}])
+             THEN true
+             WHEN column_facts.role_kind='api'
+               AND column_facts.relname IN ('ProviderAccountConnection','WorkspaceAccountBinding')
+               AND column_facts.attname='id'
              THEN true
              ELSE table_facts.can_update
            END
@@ -5035,6 +5044,55 @@ function assertConnectionRole(
     );
 }
 
+// Scoped C1 ACL projection; executed by the existing table owner, never API.
+export function accountAdmissionApiGrantStatements() {
+  return `DO $account_admission_api_acl$
+DECLARE account_table text;
+DECLARE account_column record;
+BEGIN
+  -- Fresh targets receive this same ACL from canonical role provisioning.
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'reviewrouter_api') THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'reviewrouter_api'
+      AND (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls))
+      OR pg_catalog.has_parameter_privilege('reviewrouter_api', 'session_replication_role', 'SET') THEN
+      RAISE EXCEPTION 'account admission API role is privileged';
+    END IF;
+    FOREACH account_table IN ARRAY ARRAY['ProviderAccountConnection', 'WorkspaceAccountBinding'] LOOP
+      -- Historical fixtures do not contain checkout-only C1 tables.
+      IF pg_catalog.to_regclass(pg_catalog.format('public.%I', account_table)) IS NULL THEN CONTINUE; END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_trigger guard
+        WHERE guard.tgrelid = pg_catalog.to_regclass(pg_catalog.format('public.%I', account_table))
+          AND guard.tgname = account_table || '_guard'
+          AND NOT guard.tgisinternal AND guard.tgenabled IN ('O', 'A')
+      ) OR pg_catalog.pg_has_role('reviewrouter_api', (
+        SELECT relowner FROM pg_catalog.pg_class
+        WHERE oid = pg_catalog.to_regclass(pg_catalog.format('public.%I', account_table))
+      ), 'SET') THEN
+        RAISE EXCEPTION 'account admission guard/owner authority is incompatible: %', account_table;
+      END IF;
+      EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.%I FROM reviewrouter_api', account_table);
+      FOR account_column IN SELECT attname FROM pg_catalog.pg_attribute
+        WHERE attrelid = pg_catalog.to_regclass(pg_catalog.format('public.%I', account_table))
+          AND attnum > 0 AND NOT attisdropped
+      LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL (%I) ON TABLE public.%I FROM reviewrouter_api', account_column.attname, account_table);
+      END LOOP;
+      EXECUTE pg_catalog.format('GRANT SELECT, UPDATE(id) ON TABLE public.%I TO reviewrouter_api', account_table);
+      IF pg_catalog.has_table_privilege('reviewrouter_api', pg_catalog.format('public.%I', account_table), 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+          WHERE attrelid = pg_catalog.to_regclass(pg_catalog.format('public.%I', account_table))
+            AND attnum > 0 AND NOT attisdropped
+            AND (pg_catalog.has_column_privilege('reviewrouter_api', attrelid, attnum, 'INSERT,REFERENCES')
+              OR (attname <> 'id' AND pg_catalog.has_column_privilege('reviewrouter_api', attrelid, attnum, 'UPDATE')))) THEN
+        RAISE EXCEPTION 'account admission API has unexpected effective writes: %', account_table;
+      END IF;
+    END LOOP;
+  END IF;
+END
+$account_admission_api_acl$;`;
+}
+
 export function runtimeGrantStatements(
   configuration,
   databaseTarget = ':"DBNAME"',
@@ -5197,6 +5255,7 @@ ${
     ? `GRANT SELECT, INSERT, UPDATE ON TABLE public."${workerOwnedMaintenanceCheckpointTable}" TO ${username};`
     : ""
 }
+${role === "api" ? accountAdmissionApiGrantStatements() : ""}
 REVOKE TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM ${username};
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ${username};
 ALTER DEFAULT PRIVILEGES FOR ROLE ${releaseSchemaOwnerRoleName} IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${username};
