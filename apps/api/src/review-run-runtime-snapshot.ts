@@ -2,7 +2,6 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { createHash } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
 import { z } from "zod";
-import { lockAccountAdmission } from "@reviewrouter/platform-db";
 import { PrismaActionControlPlaneRepository } from "@reviewrouter/features-action-control-plane";
 import {
   PrismaProviderAccountRepository,
@@ -276,12 +275,12 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       WHERE "workspaceId" = ${workspaceId} AND "targetKey" IN (${targetKey}, 'workspace:default')
       ORDER BY "id" FOR UPDATE`;
     if (original.gateway) {
-      const locked = await lockAccountAdmission(transaction, {
-        workspaceId,
-        connectionId: original.gateway.connectionId,
-        bindingId: original.gateway.bindingId,
-      });
-      if (!locked) return false;
+      await transaction.$queryRaw`
+        SELECT "id" FROM "ProviderAccountConnection"
+        WHERE "id" = ${original.gateway.connectionId} FOR UPDATE`;
+      await transaction.$queryRaw`
+        SELECT "id" FROM "WorkspaceAccountBinding"
+        WHERE "id" = ${original.gateway.bindingId} AND "workspaceId" = ${workspaceId} FOR UPDATE`;
     }
     try {
       const current = await this.capture(
