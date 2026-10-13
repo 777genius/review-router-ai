@@ -12,10 +12,12 @@ import {
   ReviewRunAuthorizationUseCaseStatus,
   ReviewProviderKind,
   ReviewTrustDomain,
-  createTrustedProducerReleaseMaterializer,
   ScmProvider,
 } from "@reviewrouter/features-review-run-control";
-import { ConfiguredProducerReleaseAttestationRegistry } from "@reviewrouter/features-review-run-control/composition";
+import {
+  ConfiguredProducerReleaseAttestationRegistry,
+  createTrustedProducerReleaseMaterializer,
+} from "@reviewrouter/features-review-run-control/composition";
 import { createReviewRunControlTestKit } from "@reviewrouter/features-review-run-control/testing";
 import { releaseCandidate } from "../../../review-run-control/src/tests/fixtures";
 import {
@@ -24,7 +26,10 @@ import {
 } from "@reviewrouter/protocol-review-action-v2";
 import { renderAccountGatewayWorkflow } from "../domain/workflow-template";
 import { ManagedReviewV2WorkflowInventory } from "../infrastructure/github/managed-review-v2-workflow-inventory";
-import { ProductionReviewMutationAuthorityProofFacts } from "../infrastructure/review-v2-mutation-proof-facts";
+import {
+  ProductionReviewMutationAuthorityProofFacts,
+  createGatewayReviewV2ProducerReleaseAttestations,
+} from "../infrastructure/review-v2-mutation-proof-facts";
 import {
   ProvisionGatewayReviewV2Repository,
   gatewayReviewV2SafetyCapabilities,
@@ -194,7 +199,8 @@ async function fixture(raceLegacy = false, dispatchAvailable = true) {
     safetyControls: kit.control.safetyControls,
     safetyQueries: kit.store,
     safety: kit.control.safetyResolver,
-    attestations,
+    attestations:
+      createGatewayReviewV2ProducerReleaseAttestations(attestations),
     workflowInventory: inventory,
     dispatchCapability,
     assertCurrentSetupAndSource: async () => undefined,

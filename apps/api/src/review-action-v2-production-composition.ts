@@ -1,5 +1,5 @@
-import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control";
-export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control";
+import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
+export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 import {
   createReviewRunGatewayCheckout,
   type ReviewRunGatewayCheckout,

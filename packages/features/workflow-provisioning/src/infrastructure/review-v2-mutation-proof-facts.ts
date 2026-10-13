@@ -36,6 +36,7 @@ export interface SelectedReviewV2RepositoryQueryPort {
 }
 
 import type {
+  GatewayReviewV2ProducerReleaseAttestationPort,
   ManagedReviewWorkflowInventoryInspectionPort,
   ReviewV2DispatchCapabilityInspectionPort,
 } from "../application/provision-gateway-review-v2-repository";
@@ -43,6 +44,21 @@ export type {
   ManagedReviewWorkflowInventoryInspectionPort,
   ReviewV2DispatchCapabilityInspectionPort,
 } from "../application/provision-gateway-review-v2-repository";
+
+/** Canonical transport digests are captured by the outer adapter, never the use case. */
+export function createGatewayReviewV2ProducerReleaseAttestations(
+  attestations: ProducerReleaseAttestationPort,
+): GatewayReviewV2ProducerReleaseAttestationPort {
+  return {
+    attestSelectedAction(actionCommitSha) {
+      return attestations.attest({
+        actionCommitSha,
+        expectedSchemaDigest: reviewActionV2PublishedSchemaDigest,
+        expectedCanonicalizerDigest: reviewActionV2CanonicalizerDigest,
+      });
+    },
+  };
+}
 
 function executionAuthorityMode(
   inventory: {
@@ -250,11 +266,9 @@ export class ProductionReviewMutationAuthorityProofFacts implements ReviewMutati
     actionCommitSha: string | null,
   ): Promise<boolean> {
     if (actionCommitSha === null) return false;
-    const attestation = await this.dependencies.releaseAttestations.attest({
-      actionCommitSha,
-      expectedSchemaDigest: reviewActionV2PublishedSchemaDigest,
-      expectedCanonicalizerDigest: reviewActionV2CanonicalizerDigest,
-    });
+    const attestation = await createGatewayReviewV2ProducerReleaseAttestations(
+      this.dependencies.releaseAttestations,
+    ).attestSelectedAction(actionCommitSha);
     if (attestation.status !== ProducerReleaseAttestationStatus.Attested) {
       return false;
     }

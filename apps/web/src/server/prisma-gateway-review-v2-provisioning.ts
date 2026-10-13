@@ -10,17 +10,18 @@ import {
   ReviewMutationAuthorityInitializationMode,
   ReviewMutationAuthorityProofCollector,
   ReviewMutationLaneKind,
-  createTrustedProducerReleaseMaterializer,
-  trustedProducerReleaseMaterializationLimits,
 } from "@reviewrouter/features-review-run-control";
 import {
   createPrismaReviewRunControlRepositories,
+  createTrustedProducerReleaseMaterializer,
+  trustedProducerReleaseMaterializationLimits,
   ConfiguredProducerReleaseAttestationRegistry,
   readConfiguredProducerReleaseAttestations,
 } from "@reviewrouter/features-review-run-control/composition";
 import {
   ProvisionGatewayReviewV2Repository,
   ProductionReviewMutationAuthorityProofFacts,
+  createGatewayReviewV2ProducerReleaseAttestations,
   ManagedReviewV2WorkflowInventory,
   createOctokitReviewV2RepositoryScopedReadAccess,
   OctokitReviewV2DispatchCapabilityInspector,
@@ -173,7 +174,8 @@ export async function provisionGatewayReviewV2Repository(input: {
       }),
       safetyQueries: repositories.safetyControls,
       safety,
-      attestations,
+      attestations:
+        createGatewayReviewV2ProducerReleaseAttestations(attestations),
       workflowInventory: inventory,
       dispatchCapability,
       materializer: createTrustedProducerReleaseMaterializer({

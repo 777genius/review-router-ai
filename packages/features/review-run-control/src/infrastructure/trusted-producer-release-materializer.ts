@@ -1,6 +1,7 @@
 import type { Sha256DigestPort } from "../application/ports/platform-ports";
 import type {
   ProducerReleaseQueryPort,
+  TrustedProducerReleaseMaterializerPort,
   ReviewOperationalSloProfileQueryPort,
   ReviewProtocolLimitsProfileQueryPort,
 } from "../application/ports/producer-release-ports";
@@ -16,9 +17,7 @@ import {
 } from "../domain/producer-release";
 import { ProducerReleaseState } from "../domain/review-run-control-types";
 
-export interface TrustedProducerReleaseMaterializerPort {
-  ensureRegistered(release: ProducerRelease): Promise<void>;
-}
+export type { TrustedProducerReleaseMaterializerPort } from "../application/ports/producer-release-ports";
 
 export type TrustedProducerReleaseManagement = Pick<
   ManageProducerReleases,

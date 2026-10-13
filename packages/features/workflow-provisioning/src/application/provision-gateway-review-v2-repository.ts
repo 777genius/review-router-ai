@@ -20,7 +20,7 @@ import {
   type ManageReviewMutationAuthority,
   type ManageReviewSafetyControls,
   type ManageScmRepositoryIdentities,
-  type ProducerReleaseAttestationPort,
+  type ProducerReleaseAttestationResult,
   type ReviewMutationAuthority,
   type ReviewMutationAuthorityQueryPort,
   type ReviewSafetyDecisionResolverPort,
@@ -30,10 +30,11 @@ import {
   type ScmRepositoryIdentityQueryPort,
   type TrustedProducerReleaseMaterializerPort,
 } from "@reviewrouter/features-review-run-control";
-import {
-  reviewActionV2CanonicalizerDigest,
-  reviewActionV2PublishedSchemaDigest,
-} from "@reviewrouter/protocol-review-action-v2";
+export interface GatewayReviewV2ProducerReleaseAttestationPort {
+  attestSelectedAction(
+    actionCommitSha: string,
+  ): Promise<ProducerReleaseAttestationResult>;
+}
 export interface ManagedReviewWorkflowInventoryInspectionPort {
   inspectReviewV2ManagedWorkflowInventory(input: {
     readonly githubInstallationId: string;
@@ -226,7 +227,7 @@ export class ProvisionGatewayReviewV2Repository {
       readonly safetyQueries: ReviewSafetyPolicyQueryPort &
         ReviewSafetyEmergencyControlQueryPort;
       readonly safety: ReviewSafetyDecisionResolverPort;
-      readonly attestations: ProducerReleaseAttestationPort;
+      readonly attestations: GatewayReviewV2ProducerReleaseAttestationPort;
       readonly materializer: TrustedProducerReleaseMaterializerPort;
       readonly workflowInventory: ManagedReviewWorkflowInventoryInspectionPort;
       readonly dispatchCapability: ReviewV2DispatchCapabilityInspectionPort;
@@ -319,11 +320,9 @@ export class ProvisionGatewayReviewV2Repository {
         status: "blocked",
         issue: "gateway_review_v2_dispatch_unavailable",
       };
-    const attested = await this.dependencies.attestations.attest({
-      actionCommitSha: inventory.actionCommitSha,
-      expectedSchemaDigest: reviewActionV2PublishedSchemaDigest,
-      expectedCanonicalizerDigest: reviewActionV2CanonicalizerDigest,
-    });
+    const attested = await this.dependencies.attestations.attestSelectedAction(
+      inventory.actionCommitSha,
+    );
     if (attested.status !== ProducerReleaseAttestationStatus.Attested)
       return {
         status: "blocked",
