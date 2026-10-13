@@ -37,6 +37,10 @@ import {
 } from "@reviewrouter/features-provider-accounts/synchronization";
 import { PrismaWorkspaceAccessRepository } from "@reviewrouter/features-auth";
 import { z } from "zod";
+import {
+  canonicalMimoBaseURL,
+  suggestedAccountLabel,
+} from "../features/account-gateway/connection-options";
 
 // This module is imported at runtime only by RSC/server actions. Client imports are type-only.
 export type AccountsResult<T> =
@@ -53,6 +57,8 @@ export type AccountProfileView = {
   // The authorized adapter always supplies both from its configured catalog.
   authKind?: c.Profile["authKinds"][number];
   canReconnect?: boolean;
+  // Trusted deployment binding to the Gateway's fixed profile, never a caller override.
+  dedicatedBaseURL?: string;
 };
 export type AccountView = {
   canManage?: boolean;
@@ -86,7 +92,7 @@ export type AccountOperationView = {
 };
 export type AccountOAuthIntent = Pick<c.OAuthBegin, "profileId"> & {
   nonce: string;
-  label: string;
+  label?: string;
 };
 export type AccountOAuthReconnectIntent = {
   nonce: string;
@@ -111,6 +117,7 @@ export type AccountIntent = {
   connectionId?: string;
   profileId?: string;
   label?: string;
+  baseURL?: string;
   gatewayRevision?: number;
   mirrorRevision?: number;
 };
@@ -149,7 +156,9 @@ const oauthIntentSchema = z.strictObject({
   label,
 });
 const oauthBeginIntentSchema = z.union([
-  oauthIntentSchema,
+  oauthIntentSchema.extend({
+    label: label.or(z.string().trim().length(0)).optional(),
+  }),
   z.strictObject({ nonce: uuid, ...existing }),
 ]);
 // The SDK owns the closed callback URL grammar. Snapshot its sensitive field
@@ -166,7 +175,8 @@ const intentSchema = z.discriminatedUnion("kind", [
     kind: z.literal("connect"),
     nonce: uuid,
     profileId: c.reference,
-    label,
+    label: label.or(z.string().trim().length(0)).optional(),
+    baseURL: z.string().max(2048).optional(),
   }),
   z.strictObject({
     kind: z.literal("rename"),
@@ -215,12 +225,14 @@ export function createAccountsAdapter(input: {
   bindingDependencies: ProviderAccountDependencies;
   fences?: WorkspaceBindingFenceRepositoryPort;
   apiKeyProfiles: ReadonlyMap<string, "MiMo" | "OpenRouter">;
+  apiKeyProfileBaseURLs?: ReadonlyMap<string, string>;
   codexOAuthProfileId?: typeof codexOAuthProfileId;
 }) {
   const { gateway, accounts, synchronization, bindingDependencies } = input;
   const approved = new Map<
     string,
-    Required<Pick<AccountProfileView, "label" | "authKind" | "canReconnect">>
+    Required<Pick<AccountProfileView, "label" | "authKind" | "canReconnect">> &
+      Pick<AccountProfileView, "dedicatedBaseURL">
   >(
     [...input.apiKeyProfiles].map(([id, name]) => [
       id,
@@ -231,6 +243,13 @@ export function createAccountsAdapter(input: {
       },
     ]),
   );
+  for (const [id, raw] of input.apiKeyProfileBaseURLs ?? []) {
+    const configured = approved.get(id);
+    const baseURL = canonicalMimoBaseURL(raw);
+    if (configured?.label !== "MiMo" || !baseURL)
+      throw new Error("accounts_unavailable");
+    configured.dedicatedBaseURL = baseURL;
+  }
   if (input.codexOAuthProfileId !== undefined) {
     z.literal(codexOAuthProfileId).parse(input.codexOAuthProfileId);
     if (approved.has(codexOAuthProfileId))
@@ -378,6 +397,7 @@ export function createAccountsAdapter(input: {
         return (
           configured &&
           p.authKinds.includes(configured.authKind) &&
+          (!configured.dedicatedBaseURL || p.protocol === "openai-responses") &&
           (configured.authKind !== "oauth" || p.protocol === "openai-responses")
         );
       })
@@ -728,10 +748,14 @@ export function createAccountsAdapter(input: {
       let operation: c.Operation;
       let expected: { accountRef?: string; profileId: string } | undefined;
       if (intent.kind === "connect") {
+        const profile = catalogue.find(
+          (p) => p.id === intent.profileId && p.authKind === "api_key",
+        );
+        if (!profile) throw new Denied();
         if (
-          !catalogue.some(
-            (p) => p.id === intent.profileId && p.authKind === "api_key",
-          )
+          intent.baseURL !== undefined &&
+          (!profile.dedicatedBaseURL ||
+            canonicalMimoBaseURL(intent.baseURL) !== profile.dedicatedBaseURL)
         )
           throw new Denied();
         expected = { profileId: intent.profileId };
@@ -739,7 +763,7 @@ export function createAccountsAdapter(input: {
           operationId: id,
           ownerRef: authority.owner,
           profileId: intent.profileId,
-          displayName: intent.label,
+          displayName: intent.label || suggestedAccountLabel(profile.label),
           credential: { kind: "api_key", value: key! },
         });
       } else {
@@ -870,18 +894,16 @@ export function createAccountsAdapter(input: {
           expectedMetadataRevision: account.metadataRevision,
         });
       } else {
-        if (
-          !catalogue.some(
-            (p) => p.id === intent.profileId && p.authKind === "oauth",
-          )
-        )
-          throw new Denied();
+        const profile = catalogue.find(
+          (p) => p.id === intent.profileId && p.authKind === "oauth",
+        );
+        if (!profile) throw new Denied();
         expected = { profileId: intent.profileId };
         fresh = await client.beginOAuth({
           operationId: operationRef(authority.owner, intent.nonce),
           ownerRef: authority.owner,
           profileId: intent.profileId,
-          displayName: intent.label,
+          displayName: intent.label || suggestedAccountLabel(profile.label),
         });
       }
       const operation = await projectOperation(
@@ -1513,6 +1535,17 @@ function configuration() {
       : z.literal(codexOAuthProfileId).parse(configuredOAuth);
   if (!apiKeyProfiles.size && !oauthProfile)
     throw new Error("accounts_unavailable");
+  // Operator pairs this public URL with the exact fixed Gateway service profile.
+  // Missing binding preserves legacy ingress; it cannot advertise a URL option.
+  const apiKeyProfileBaseURLs = new Map<string, string>();
+  const configuredMimoURL =
+    process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_BASE_URL;
+  if (configuredMimoURL) {
+    const profileId = process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID;
+    const baseURL = canonicalMimoBaseURL(configuredMimoURL);
+    if (!profileId || !baseURL) throw new Error("accounts_unavailable");
+    apiKeyProfileBaseURLs.set(profileId, baseURL);
+  }
   return {
     contextKey,
     ...(process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID !== undefined
@@ -1523,6 +1556,7 @@ function configuration() {
         }
       : {}),
     apiKeyProfiles,
+    apiKeyProfileBaseURLs,
     ...(oauthProfile ? { codexOAuthProfileId: oauthProfile } : {}),
     gateway: createManagementClient({
       role: "management",

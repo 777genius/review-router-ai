@@ -177,6 +177,7 @@ beforeEach(() => {
         canReconnect: true,
         protocol: "openai-responses",
         models: ["mimo"],
+        dedicatedBaseURL: "https://token-plan-sgp.xiaomimimo.com/v1",
       },
       {
         id: oauthProfileId,
@@ -257,6 +258,109 @@ afterEach(() => {
   cleanup();
   for (const client of clients) client.clear();
   vi.restoreAllMocks();
+});
+
+test("MiMo uses its enabled URL and optional default label once, keeping the key out of caches", async () => {
+  page.accounts.push({
+    ...row("active"),
+    connectionId: "mimo-existing",
+    label: "MiMo Account 1",
+    profileId: "mimo",
+    profileLabel: "MiMo",
+    authKind: "api_key",
+  });
+  vi.mocked(submitGatewayApiKey).mockImplementation(async (_context, intent) =>
+    safeOperation(intent.nonce),
+  );
+  await mount();
+  fireEvent.click(screen.getByRole("button", { name: "Connect API key" }));
+  const dialog = await screen.findByRole("dialog");
+  const label = within(dialog).getByLabelText(
+    "Account label (optional)",
+  ) as HTMLInputElement;
+  expect(label.value).toBe("MiMo Account 2");
+  expect(label.required).toBe(false);
+  fireEvent.change(label, { target: { value: "" } });
+  const key = "synthetic-write-only-MiMo-key";
+  fireEvent.change(within(dialog).getByLabelText("API key"), {
+    target: { value: key },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Submit" }));
+  await waitFor(() => expect(submitGatewayApiKey).toHaveBeenCalledTimes(1));
+  const intent = vi.mocked(submitGatewayApiKey).mock.calls[0]![1];
+  expect(intent).toEqual({
+    kind: "connect",
+    nonce: expect.any(String),
+    profileId: "mimo",
+    label: "MiMo Account 2",
+    baseURL: "https://token-plan-sgp.xiaomimimo.com/v1",
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "Check status" }));
+  await waitFor(() =>
+    expect(readGatewayOperation).toHaveBeenCalledWith(context, intent.nonce),
+  );
+  expect(submitGatewayApiKey).toHaveBeenCalledTimes(1);
+  expect([...clients].map(caches).join("\n")).not.toContain(key);
+  expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(key);
+});
+
+test("manual MiMo URL rejects unenabled regions and provider changes preserve an explicit label", async () => {
+  page.profiles.push({
+    id: "openrouter",
+    label: "OpenRouter",
+    protocol: "openai-responses",
+    authKind: "api_key",
+    models: ["fixture"],
+  });
+  await mount();
+  fireEvent.click(screen.getByRole("button", { name: "Connect API key" }));
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.change(within(dialog).getByLabelText("Account label (optional)"), {
+    target: { value: "My account" },
+  });
+  fireEvent.click(
+    within(dialog).getByRole("combobox", { name: /Dedicated Base URL/ }),
+  );
+  expect(
+    (await screen.findByRole("option", { name: /China/ })).getAttribute(
+      "aria-disabled",
+    ),
+  ).toBe("true");
+  const manualOption = screen.getByRole("option", {
+    name: "Enter URL manually",
+  });
+  fireEvent.mouseMove(manualOption);
+  fireEvent.click(manualOption);
+  fireEvent.change(
+    await within(dialog).findByLabelText("Base URL from your Token Plan"),
+    { target: { value: "https://token-plan-cn.xiaomimimo.com/v1" } },
+  );
+  expect(
+    (
+      within(dialog).getByRole("button", {
+        name: "Submit",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  expect(submitGatewayApiKey).not.toHaveBeenCalled();
+  fireEvent.click(
+    within(dialog).getByRole("combobox", { name: /Provider profile/ }),
+  );
+  const routerOption = await screen.findByRole("option", {
+    name: /OpenRouter/,
+  });
+  fireEvent.mouseMove(routerOption);
+  fireEvent.click(routerOption);
+  expect(
+    (
+      within(dialog).getByLabelText(
+        "Account label (optional)",
+      ) as HTMLInputElement
+    ).value,
+  ).toBe("My account");
+  expect(
+    within(dialog).queryByLabelText("Base URL from your Token Plan"),
+  ).toBeNull();
 });
 
 // Reserve and protect a usable tab during submit, before the awaited server
@@ -589,7 +693,9 @@ test("OAuth rows hide API-key reconnect and become selectable only after an acti
   expect(bindGatewayAccount).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Connect API key" }));
   const dialog = await screen.findByRole("dialog");
-  fireEvent.click(within(dialog).getByRole("combobox"));
+  fireEvent.click(
+    within(dialog).getByRole("combobox", { name: /Provider profile/ }),
+  );
   expect(await screen.findByRole("option", { name: /MiMo/ })).toBeTruthy();
   expect(screen.queryByRole("option", { name: /Codex/ })).toBeNull();
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });

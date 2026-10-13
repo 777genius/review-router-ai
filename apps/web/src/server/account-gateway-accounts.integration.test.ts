@@ -39,6 +39,129 @@ function ok<T>(result: AccountsResult<T>): T {
   return result.value;
 }
 
+// Wrong/foreign endpoints must be denied before the existing SDK secret ingress.
+// This uses the real SDK wire contract and starts no provider or database.
+test("Accounts connect binds dedicated URL to the configured profile and freezes a blank label", async () => {
+  const profileId = "fixture-mimo-responses";
+  const baseURL = "https://token-plan-sgp.xiaomimimo.com/v1";
+  const submitted: ReturnType<typeof secretSubmission.connect.parse>[] = [];
+  let receipt: c.Operation | undefined;
+  const server = createServer(async (request, response) => {
+    response.setHeader("content-type", "application/json");
+    if (request.method === "GET") {
+      response.end(
+        JSON.stringify(
+          request.url === "/v1/profiles"
+            ? {
+                profiles: [
+                  {
+                    profileId,
+                    protocol: "openai-responses",
+                    authKinds: ["api_key"],
+                    modelIds: ["fixture-mimo"],
+                  },
+                ],
+              }
+            : receipt,
+        ),
+      );
+      return;
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const input = secretSubmission.connect.parse(
+      JSON.parse(Buffer.concat(chunks).toString()),
+    );
+    submitted.push(input);
+    assert.equal(Object.hasOwn(input, "baseURL"), false);
+    receipt = { operationRef: input.operationId, state: "pending" };
+    response.statusCode = 202;
+    response.end(JSON.stringify(receipt));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const gateway = createManagementClient({
+    role: "management",
+    origin: `http://127.0.0.1:${address.port}`,
+    token: "synthetic",
+    timeoutMs: 2000,
+  });
+  // Pending projection must never touch mirror persistence.
+  const unused = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error("unexpected_mirror_access");
+      },
+    },
+  );
+  type Input = Parameters<typeof createAccountsAdapter>[0];
+  const adapter = createAccountsAdapter({
+    gateway,
+    authorize: async () => ({
+      workspaceId: "fixture-workspace",
+      actor: {
+        userId: "fixture-admin",
+        githubUserId: "",
+        githubLogin: "synthetic",
+      },
+    }),
+    accounts: unused as Input["accounts"],
+    synchronization: unused as Input["synchronization"],
+    bindingDependencies: unused as Input["bindingDependencies"],
+    apiKeyProfiles: new Map([[profileId, "MiMo"]]),
+    apiKeyProfileBaseURLs: new Map([[profileId, baseURL]]),
+  });
+  const intent = {
+    kind: "connect" as const,
+    nonce: randomUUID(),
+    profileId,
+    label: "   ",
+  };
+  try {
+    for (const invalid of [
+      "http://127.0.0.1/v1",
+      `${baseURL}?redirect=1`,
+      "https://token-plan-cn.xiaomimimo.com/v1",
+      "https://token-plan-sgp.xiaomimimo.com.evil.test/v1",
+    ]) {
+      assert.equal(
+        (
+          await adapter.mutate(
+            "context",
+            { ...intent, baseURL: invalid },
+            "synthetic-key",
+          )
+        ).status,
+        "denied",
+      );
+    }
+    assert.equal(submitted.length, 0);
+    const result = ok(
+      await adapter.mutate(
+        "context",
+        { ...intent, baseURL: ` ${baseURL}/ ` },
+        "synthetic-key",
+      ),
+    );
+    assert.equal(result.state, "pending");
+    assert.equal(submitted.length, 1);
+    assert.equal(submitted[0]!.displayName, "MiMo Account 1");
+    assert.equal(submitted[0]!.profileId, profileId);
+    assert.equal(
+      ok(await adapter.operation("context", intent.nonce)).nonce,
+      intent.nonce,
+    );
+    assert.equal(submitted.length, 1);
+    assert.equal(JSON.stringify(result).includes("synthetic-key"), false);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 // RED if a non-admin/foreign connection reaches management mutation, stale CAS
 // overwrites metadata, a lost/pending ACK invents an account, disable leaves its
 // local binding executable, or a credential reaches the safe response/SQL mirror.
