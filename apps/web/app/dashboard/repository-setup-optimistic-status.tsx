@@ -16,16 +16,19 @@ export function RepositorySetupDisclosureToggle({
   disclosureId,
   currentStep,
   expectedProviderAuthModes = [],
+  gatewayReviewV2Ready = false,
 }: {
   readonly repositoryId: string;
   readonly disclosureId: string;
   readonly currentStep: SetupStep;
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
+  readonly gatewayReviewV2Ready?: boolean;
 }): React.ReactElement {
   const optimisticStep = useOptimisticSetupStep({
     repositoryId,
     currentStep,
     expectedProviderAuthModes,
+    gatewayReviewV2Ready,
   });
 
   const isComplete = optimisticStep === 4;
@@ -58,17 +61,20 @@ export function RepositorySetupReadyGate({
   repositoryId,
   currentStep,
   expectedProviderAuthModes = [],
+  gatewayReviewV2Ready = false,
   children,
 }: {
   readonly repositoryId: string;
   readonly currentStep: SetupStep;
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
+  readonly gatewayReviewV2Ready?: boolean;
   readonly children: ReactNode;
 }): React.ReactElement | null {
   const optimisticStep = useOptimisticSetupStep({
     repositoryId,
     currentStep,
     expectedProviderAuthModes,
+    gatewayReviewV2Ready,
   });
 
   return optimisticStep === 4 ? <>{children}</> : null;
@@ -78,10 +84,12 @@ function useOptimisticSetupStep({
   repositoryId,
   currentStep,
   expectedProviderAuthModes,
+  gatewayReviewV2Ready,
 }: {
   readonly repositoryId: string;
   readonly currentStep: SetupStep;
   readonly expectedProviderAuthModes: readonly ProviderAuthMode[];
+  readonly gatewayReviewV2Ready: boolean;
 }): SetupStep {
   const [optimisticStep, setOptimisticStep] = useState(currentStep);
   const optimisticProviderAuthModesRef = useRef(new Set<ProviderAuthMode>());
@@ -119,7 +127,11 @@ function useOptimisticSetupStep({
             expectedProviderAuthModes,
           )
         ) {
-          setOptimisticStep(4);
+          if (
+            !expectedProviderAuthModes.includes("codex_account_gateway") ||
+            gatewayReviewV2Ready
+          )
+            setOptimisticStep(4);
         }
       }
     }
@@ -142,9 +154,13 @@ function useOptimisticSetupStep({
         handleProviderSetupConfirmed,
       );
     };
-  }, [expectedProviderAuthModes, repositoryId]);
+  }, [expectedProviderAuthModes, repositoryId, gatewayReviewV2Ready]);
 
-  return optimisticStep;
+  return optimisticStep === 4 &&
+    expectedProviderAuthModes.includes("codex_account_gateway") &&
+    !gatewayReviewV2Ready
+    ? 3
+    : optimisticStep;
 }
 
 function providerSetupConfirmationMatchesAnyExpectedAuthMode(

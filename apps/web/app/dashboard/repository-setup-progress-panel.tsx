@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button, LinkButton } from "@reviewrouter/ui";
 import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
+import type { GatewayReviewV2ProvisioningResult } from "@reviewrouter/features-workflow-provisioning";
 import { ActionToast } from "../action-toast";
 import {
   RepositorySetupActionButton,
@@ -49,6 +50,7 @@ export function RepositorySetupProgressPanel({
   expectedProviderAuthModes = [],
   enableReviewAction,
   providerSetupBeforeWorkflow = false,
+  gatewayReviewV2Readiness,
 }: {
   readonly workspaceId: string;
   readonly repositoryId: string;
@@ -64,6 +66,9 @@ export function RepositorySetupProgressPanel({
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
   readonly enableReviewAction?: ReactNode;
   readonly providerSetupBeforeWorkflow?: boolean;
+  readonly gatewayReviewV2Readiness?:
+    | GatewayReviewV2ProvisioningResult
+    | undefined;
 }): React.ReactElement {
   const router = useRouter();
   const [setupStatus, setSetupStatus] = useState(initialSetupStatus);
@@ -77,6 +82,10 @@ export function RepositorySetupProgressPanel({
   const optimisticProviderAuthModesRef = useRef(new Set<ProviderAuthMode>());
   const [toast, setToast] = useState<SetupToast | null>(null);
   const canManage = mutationsEnabled && selected && !archived;
+  const gatewayBlocked =
+    expectedProviderAuthModes.includes("codex_account_gateway") &&
+    gatewayReviewV2Readiness?.status !== "ready";
+  const displayStep = gatewayBlocked && currentStep === 4 ? 3 : currentStep;
 
   useEffect(() => {
     optimisticProviderAuthModesRef.current = new Set();
@@ -135,7 +144,7 @@ export function RepositorySetupProgressPanel({
 
       setSetupStatus("configured");
       setSetupIssue(null);
-      setCurrentStep(4);
+      if (!gatewayBlocked) setCurrentStep(4);
     }
 
     window.addEventListener(
@@ -156,7 +165,7 @@ export function RepositorySetupProgressPanel({
         handleProviderSetupConfirmed,
       );
     };
-  }, [expectedProviderAuthModes, repositoryId, router]);
+  }, [expectedProviderAuthModes, repositoryId, router, gatewayBlocked]);
 
   const handleSetupMutation = (params: Record<string, string>) => {
     clearTransientDashboardUrlParams("repositories");
@@ -257,7 +266,7 @@ export function RepositorySetupProgressPanel({
     setupIssue,
     workflowCurrent,
     mutationsEnabled,
-    currentStep,
+    currentStep: displayStep,
     enableReviewAction: canManage ? enableReviewAction : null,
     providerSetupBeforeWorkflow,
     gatewayProviderSetup: expectedProviderAuthModes.includes(
@@ -265,10 +274,22 @@ export function RepositorySetupProgressPanel({
     ),
     onSetupComplete: handleSetupMutation,
     onMergeComplete: handleMergeMutation,
+    gatewayReviewV2Readiness,
   });
 
   return (
     <section className="mb-4 pt-1">
+      {gatewayBlocked ? (
+        <p className="mb-3 text-sm text-slate-300" role="status">
+          {gatewayReviewV2Readiness?.status === "draining"
+            ? `Review migration is draining until ${gatewayReviewV2Readiness.drainNotBefore}. Reviews remain unavailable.`
+            : gatewayReviewV2Readiness?.status === "legacy_migration_required"
+              ? "This repository has a legacy review enrollment. Complete its migration before reviews can run."
+              : gatewayReviewV2Readiness?.status === "paused"
+                ? "Review authorization is paused. Complete its recovery before reviews can run."
+                : "Review authorization is not ready. Confirm the merged workflow or check workspace configuration."}
+        </p>
+      ) : null}
       {toast ? (
         <ActionToast
           tone={toast.tone}
@@ -290,7 +311,7 @@ export function RepositorySetupProgressPanel({
         </p>
         <span className="font-mono text-xs text-slate-400">
           {repositorySetupProgressSummary(
-            currentStep,
+            displayStep,
             providerSetupBeforeWorkflow,
           )}
         </span>
@@ -304,14 +325,14 @@ export function RepositorySetupProgressPanel({
         <span
           aria-hidden="true"
           className="absolute left-4 top-6 hidden h-px bg-cyan-300/45 md:block"
-          style={{ width: repositorySetupProgressTrackWidth(currentStep) }}
+          style={{ width: repositorySetupProgressTrackWidth(displayStep) }}
         />
         <ol className="relative z-10 grid gap-3 md:grid-cols-4">
           {steps.map((step) => (
             <RepositorySetupProgressStepItem
               key={step.number}
               step={step}
-              currentStep={currentStep}
+              currentStep={displayStep}
             />
           ))}
         </ol>
@@ -358,6 +379,7 @@ function buildSetupSteps({
   enableReviewAction,
   providerSetupBeforeWorkflow,
   gatewayProviderSetup,
+  gatewayReviewV2Readiness,
   onSetupComplete,
   onMergeComplete,
 }: {
@@ -374,6 +396,9 @@ function buildSetupSteps({
   readonly enableReviewAction?: ReactNode;
   readonly providerSetupBeforeWorkflow: boolean;
   readonly gatewayProviderSetup: boolean;
+  readonly gatewayReviewV2Readiness?:
+    | GatewayReviewV2ProvisioningResult
+    | undefined;
   readonly onSetupComplete: (params: Record<string, string>) => void;
   readonly onMergeComplete: (params: Record<string, string>) => void;
 }): readonly RepositorySetupProgressStep[] {
@@ -409,7 +434,13 @@ function buildSetupSteps({
       />
     ) : null;
   const mergeConfirmAction =
-    currentStep === 2 ? (
+    currentStep === 2 ||
+    (gatewayProviderSetup &&
+      workflowCurrent &&
+      currentStep >= 3 &&
+      (!gatewayReviewV2Readiness ||
+        gatewayReviewV2Readiness.status === "blocked" ||
+        gatewayReviewV2Readiness.status === "conflict")) ? (
       <RepositorySetupMergedButton
         workspaceId={workspaceId}
         repositoryId={repositoryId}

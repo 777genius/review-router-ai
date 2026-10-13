@@ -23,6 +23,41 @@ afterEach(() => {
 });
 
 describe("RepositorySetupDisclosureToggle", () => {
+  it("requires current Gateway authority readiness despite a provider confirmation event", async () => {
+    const view = (ready: boolean) => (
+      <>
+        <RepositorySetupDisclosureToggle
+          repositoryId="repo_1"
+          disclosureId="setup_repo_1"
+          currentStep={ready ? 4 : 3}
+          expectedProviderAuthModes={["codex_account_gateway"]}
+          gatewayReviewV2Ready={ready}
+        />
+        <RepositorySetupReadyGate
+          repositoryId="repo_1"
+          currentStep={ready ? 4 : 3}
+          expectedProviderAuthModes={["codex_account_gateway"]}
+          gatewayReviewV2Ready={ready}
+        >
+          <div>Configured policy editor</div>
+        </RepositorySetupReadyGate>
+      </>
+    );
+    const rendered = render(view(false));
+    window.dispatchEvent(
+      providerSetupConfirmedEvent({
+        repositoryId: "repo_1",
+        repositoryFullName: "777genius/example",
+        providerKind: "codex",
+        authMode: "codex_account_gateway",
+      }),
+    );
+    await waitFor(() => expect(screen.getByText("3/4")).toBeTruthy());
+    expect(screen.queryByText("Configured policy editor")).toBeNull();
+    rendered.rerender(view(true));
+    await waitFor(() => expect(screen.getByText("4/4")).toBeTruthy());
+    expect(screen.getByText("Configured policy editor")).toBeTruthy();
+  });
   it("updates to complete when provider setup is confirmed for the repository", async () => {
     render(
       <RepositorySetupDisclosureToggle
