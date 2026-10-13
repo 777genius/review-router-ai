@@ -45,6 +45,7 @@ import {
   type ReviewRequestedIntentCommandPort,
   type ReviewRequestedIntentQueryPort,
 } from "@reviewrouter/features-review-executions";
+import { InMemoryReviewRequestedIntentStore } from "@reviewrouter/features-review-executions/testing";
 import { ProductionHostedReviewPreleaseGate } from "./hosted-review-prelease-gate.js";
 import { InvestigationRolloutCapability } from "@reviewrouter/features-review-investigation-operations";
 import {
@@ -552,6 +553,216 @@ describe("Review Action v2 run-control composition", () => {
         statusCode: 201,
         result: { status: ReviewRunAuthorizationResultStatus.Authorized },
       });
+    },
+  );
+
+  async function requestedIntentHandlers() {
+    const scmIdentity =
+      await kit.store.findScmRepositoryIdentityByExternalIdentity({
+        provider: ScmProvider.GitHub,
+        normalizedSourceBaseUrl: "https://github.com",
+        externalRepositoryId: "123456",
+      });
+    const release = await kit.store.findProducerReleaseById("release_v2");
+    if (!scmIdentity || !release)
+      throw new Error("test_admission_prerequisite_missing");
+    const intents = new InMemoryReviewRequestedIntentStore();
+    const candidate = createReviewRequestedIntent({
+      workspaceId: "workspace_1",
+      repositoryConnectionId: "repository_1",
+      scmRepositoryIdentityId: scmIdentity.scmRepositoryIdentityId,
+      pullRequestNumber: facts.pullRequestNumber,
+      requestId: "renewal-intent",
+      revision: {
+        baseSha,
+        mergeBaseSha,
+        headSha,
+        reviewRevisionHash: facts.reviewRevisionHash,
+      },
+      triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+      deliveryIdentityHash: hash("7"),
+      canonicalRequestHash: hash("8"),
+      notBefore: kit.clock.now(),
+      createdAt: kit.clock.now(),
+      retainUntil: new Date(kit.clock.now().getTime() + 86_400_000),
+    });
+    await intents.registerIntent({ candidate });
+    const claimed = await intents.claimIntent({
+      requestId: candidate.requestId,
+      claimId: "renewal-claim",
+      ownerIdHash: hash("9"),
+      now: kit.clock.now(),
+      claimUntil: new Date(kit.clock.now().getTime() + 60_000),
+    });
+    const claim = claimed.intent!.claim!;
+    const term = {
+      requestId: candidate.requestId,
+      claimId: claim.claimId,
+      ownerIdHash: claim.ownerIdHash,
+      fencingToken: claim.fencingToken,
+    };
+    const resolution = {
+      now: kit.clock.now(),
+      nextResolutionAt: new Date(kit.clock.now().getTime() + 1_000),
+      resolutionDeadlineAt: new Date(kit.clock.now().getTime() + 300_000),
+    };
+    await intents.beginSubmission({ ...term, ...resolution });
+    await intents.recordDispatch({
+      ...term,
+      ...resolution,
+      sourceRunId: "1001",
+      sourceRunAttempt: "1",
+    });
+    const gate = new ProductionHostedReviewPreleaseGate({
+      requestedIntentQueries: intents,
+      requestedIntentCommands: intents,
+      pullRequests: {
+        resolve: async () => ({
+          pullRequestNumber: facts.pullRequestNumber,
+          headSha,
+          additions: 100,
+          deletions: 50,
+        }),
+      },
+      clock: kit.clock,
+      maxChangedLines: 250_000,
+    });
+    const evaluate = vi.spyOn(gate, "evaluate");
+    const admissionFacts = createServerOwnedReviewActionV2AdmissionFacts({
+      revisionResolver: {
+        resolve: async () => ({
+          status: CanonicalReviewRevisionResolutionStatus.Resolved,
+          pullRequestNumber: facts.pullRequestNumber,
+          baseSha,
+          mergeBaseSha,
+          headSha,
+          reviewRevisionHash: facts.reviewRevisionHash,
+        }),
+      },
+      releaseAttestations: {
+        attest: async () => ({
+          status: ProducerReleaseAttestationStatus.Attested,
+          release,
+        }),
+      },
+      providerVoteLanes: facts.providerVoteLanes,
+      requestedIntents: intents,
+      requestedIntentAdmission: gate,
+      requestedIntentRequired: true,
+      clock: kit.clock,
+    });
+    const handlers = createReviewActionV2RunControlHandlers({
+      ...dependencies,
+      admissionFacts,
+    });
+    const authorized = await handlers.authorize!.execute(authorizeRequest());
+    expect(
+      (await intents.findByRequestId(candidate.requestId))?.admission,
+    ).toMatchObject({
+      state: ReviewRequestAdmissionState.Admitted,
+      changedLines: 150,
+    });
+    return { handlers, authorized, intents, candidate, evaluate };
+  }
+
+  it("renews a valid authorization after real intent admission and binding without reopening fresh admission", async () => {
+    const { handlers, authorized, intents, candidate, evaluate } =
+      await requestedIntentHandlers();
+    // The normal pre-execution renewal still uses the awaiting/unbound policy path.
+    const initial = await handlers.renew!.execute(
+      await renewRequest(
+        authorized.result.authorizationId!,
+        authorized.result.authorizationToken!,
+        dependencies,
+      ),
+    );
+    expect(initial.statusCode).toBe(200);
+    const linked = await intents.linkAdmission({
+      requestId: candidate.requestId,
+      sourceRunId: "1001",
+      sourceRunAttempt: "1",
+      authorizationId: authorized.result.authorizationId!,
+      executionId: "execution-original",
+      revision: candidate.revision,
+      now: kit.clock.now(),
+    });
+    expect(linked.status).toBe(ReviewRequestedTransitionStatus.Applied);
+    expect(linked.intent?.state).toBe(ReviewRequestedIntentState.Dispatched);
+    evaluate.mockClear();
+    kit.clock.advance(60_000);
+    const renewed = await handlers.renew!.execute(
+      await renewRequest(
+        initial.result.authorizationId!,
+        initial.result.authorizationToken!,
+        dependencies,
+        "bound-renewal",
+      ),
+    );
+    expect(renewed).toMatchObject({
+      statusCode: 200,
+      result: { authorizationId: authorized.result.authorizationId },
+    });
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(await intents.findByRequestId(candidate.requestId)).toEqual(
+      linked.intent,
+    );
+    // Fresh authorize remains denied for that same bound intent.
+    await expect(
+      handlers.authorize!.execute(authorizeRequest()),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      issues: ["review_request_intent_required"],
+    });
+  });
+
+  it.each(["foreign authorization", "other attempt"])(
+    "denies renewal for %s without changing admission or authorization",
+    async (mismatch) => {
+      const { handlers, authorized, intents, candidate, evaluate } =
+        await requestedIntentHandlers();
+      const linked = await intents.linkAdmission({
+        requestId: candidate.requestId,
+        sourceRunId: "1001",
+        sourceRunAttempt: "1",
+        authorizationId:
+          mismatch === "foreign authorization"
+            ? "foreign-authorization"
+            : authorized.result.authorizationId!,
+        executionId: "execution-original",
+        revision: candidate.revision,
+        now: kit.clock.now(),
+      });
+      expect(linked.status).toBe(ReviewRequestedTransitionStatus.Applied);
+      if (mismatch === "other attempt")
+        claimsByToken.set("oidc-renew", {
+          ...oidcClaims("other-attempt-jti"),
+          run_attempt: "2",
+        });
+      const original = await kit.store.findReviewRunAuthorizationById(
+        authorized.result.authorizationId!,
+      );
+      evaluate.mockClear();
+      await expect(
+        handlers.renew!.execute(
+          await renewRequest(
+            authorized.result.authorizationId!,
+            authorized.result.authorizationToken!,
+            dependencies,
+          ),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        issues: ["review_request_intent_required"],
+      });
+      expect(evaluate).not.toHaveBeenCalled();
+      expect(await intents.findByRequestId(candidate.requestId)).toEqual(
+        linked.intent,
+      );
+      expect(
+        await kit.store.findReviewRunAuthorizationById(
+          authorized.result.authorizationId!,
+        ),
+      ).toEqual(original);
     },
   );
 
@@ -1557,6 +1768,7 @@ async function renewRequest(
   authorizationId: string,
   authorizationToken: string,
   dependencies: ReviewActionV2RunControlHandlerDependencies,
+  renewalRequestId?: string,
 ): Promise<ReviewRunRenewRequest> {
   const request: ReviewRunRenewRequest = {
     ...reviewActionV2GoldenFixtures.review_run_renew.request,
@@ -1564,6 +1776,9 @@ async function renewRequest(
     authorizationToken,
     oidcToken: "oidc-renew",
     requestedTtlMs: 20 * 60_000,
+    ...(renewalRequestId
+      ? { renewalRequestId, idempotencyKey: renewalRequestId }
+      : {}),
   };
   return {
     ...request,
