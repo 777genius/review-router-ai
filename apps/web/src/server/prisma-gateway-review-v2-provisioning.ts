@@ -10,6 +10,8 @@ import {
   ReviewMutationAuthorityInitializationMode,
   ReviewMutationAuthorityProofCollector,
   ReviewMutationLaneKind,
+  ReviewRunControlDomainError,
+  ReviewRunControlErrorCode,
 } from "@reviewrouter/features-review-run-control";
 import {
   createPrismaReviewRunControlRepositories,
@@ -31,6 +33,44 @@ import {
   type GatewayReviewV2ProvisioningCommand,
   type GatewayReviewV2ProvisioningResult,
 } from "@reviewrouter/features-workflow-provisioning";
+
+function provisioningFailureCode(error: unknown): string {
+  if (error instanceof ReviewRunControlDomainError) {
+    const code = Object.values(ReviewRunControlErrorCode).find(
+      (value) => value === error.code,
+    );
+    if (code) return code;
+  }
+  if (error instanceof Error) {
+    const code = [
+      "workflow_provisioning_match_not_found",
+      "hosted_pool_binding_revision_conflict",
+      "codex_rotating_workflow_inventory_coverage_moved",
+      "codex_rotating_workflow_inventory_mergeability_unavailable",
+      "review_v2_dispatch_token_invalid_response",
+    ].find((value) => value === error.message);
+    if (code) return code;
+  }
+  if (typeof error === "object" && error !== null) {
+    if (
+      "code" in error &&
+      ["P2002", "P2010", "P2028"].some((value) => value === error.code)
+    )
+      return "database_error";
+    if ("status" in error) {
+      if ([403, 404, 422].some((value) => value === error.status))
+        return "github_permission_unavailable";
+      if (
+        typeof error.status === "number" &&
+        Number.isInteger(error.status) &&
+        error.status >= 500 &&
+        error.status <= 599
+      )
+        return "github_service_unavailable";
+    }
+  }
+  return "unclassified_error";
+}
 
 export type GatewayReviewV2RepositoryReadiness =
   GatewayReviewV2ProvisioningResult;
@@ -188,7 +228,10 @@ export async function provisionGatewayReviewV2Repository(input: {
       assertCurrentSetupAndSource: input.assertCurrentSetupAndSource,
     });
     return await operation.execute(input.command);
-  } catch {
+  } catch (error) {
+    console.warn("gateway_review_v2_provisioning_failed", {
+      code: provisioningFailureCode(error),
+    });
     return {
       status: "blocked",
       issue: "gateway_review_v2_provisioning_failed",

@@ -2181,25 +2181,19 @@ async function confirmSetupPullRequestMergedMutation(
           await assertCurrentGatewaySource!();
         },
       });
+      const gatewayIssue =
+        "issue" in gatewayProvisioning
+          ? gatewayProvisioning.issue
+          : `gateway_review_v2_${gatewayProvisioning.status}`;
       gatewayReviewV2Audit = {
         actor: actor.actor,
         repository: repository.fullName,
         status: gatewayProvisioning.status,
         ...(gatewayProvisioning.status === "ready"
           ? {}
-          : {
-              issue:
-                gatewayProvisioning.status === "blocked"
-                  ? gatewayProvisioning.issue
-                  : gatewayProvisioning.status,
-            }),
+          : { issue: gatewayIssue }),
       };
-      if (gatewayProvisioning.status !== "ready")
-        throw new Error(
-          gatewayProvisioning.status === "blocked"
-            ? gatewayProvisioning.issue
-            : `gateway_review_v2_${gatewayProvisioning.status}`,
-        );
+      if (gatewayProvisioning.status !== "ready") throw new Error(gatewayIssue);
       await assertCurrentSetup(verifiedWorkflowArtifact);
       await assertCurrentBinding();
       await assertCurrentGatewaySource!();
@@ -2278,7 +2272,7 @@ async function confirmSetupPullRequestMergedMutation(
       );
     }
     params = {
-      error: safeDashboardErrorCode(error),
+      error: gatewayReviewV2Audit?.issue ?? safeDashboardErrorCode(error),
       workspace: workspaceId,
       section: "repositories",
     };
