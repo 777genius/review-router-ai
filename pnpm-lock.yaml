@@ -166,8 +166,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -302,8 +302,8 @@ importers:
         version: 0.4.1
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -1113,8 +1113,8 @@ importers:
 
 packages:
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz':
-    resolution: {integrity: sha512-NXVTLotD7JxcblgcA8QxIuK/6ZPuLYeruHLzNsUoP/fO/DDiTww3xG5HCOJQ5Y/31yWUdGcWzDhihHEBqHgM+A==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz':
+    resolution: {integrity: sha512-ND8uEBMirCXEQr/YYFE1r34D85Rv/QF8mTUTJC3fkcBMdWeJRAhqej/KVnusubwC9/DX4bg6YPJl19fsg6rPEA==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -5188,7 +5188,7 @@ packages:
 
 snapshots:
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0
