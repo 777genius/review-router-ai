@@ -13,7 +13,6 @@ import {
   isolatedQualityWorkflowRepository,
   isolatedQualityWorkflowRepositoryId,
   isCodexWorkflowRepositoryIdentityAdmitted,
-  scanCodexRotatingAdvisoryWorkflow,
   createVersionedSecretWorkflowSourceAttestation,
   serializeVersionedProviderSecretNamespaceMetadata,
   workflowDocumentSemanticSha256,
@@ -28,10 +27,7 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV2,
   renderCanonicalCodexRotatingInteractionWorkflowV3,
 } from "@reviewrouter/features-workflow-provisioning";
-import {
-  isLoopbackHostname,
-  REVIEW_ROUTER_ACTION_REPOSITORY,
-} from "@reviewrouter/platform-config";
+import { isLoopbackHostname } from "@reviewrouter/platform-config";
 import {
   managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
@@ -85,10 +81,6 @@ type WorkflowRunResponse = {
 };
 
 type RepositoryResponse = {
-  readonly data?: unknown;
-};
-
-type PullRequestListResponse = {
   readonly data?: unknown;
 };
 
