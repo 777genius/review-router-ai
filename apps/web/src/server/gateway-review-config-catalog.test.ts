@@ -56,6 +56,37 @@ test("accepts a current advertised Responses model", async () => {
   ).resolves.toBe(true);
 });
 
+test("enforces qualified MiMo Gateway reasoning without changing Codex or OpenRouter", async () => {
+  const mimo = { ...gateway, model: "mimo-v2.6-pro" };
+  const profiles = [
+    { ...profile, models: [mimo.model, "gpt-6.1-sol", "openai/gpt-5-nano"] },
+  ];
+  for (const reasoningEffort of ["low", "medium", "high"] as const) {
+    await expect(
+      assertGatewayReviewConfigCatalogAllowed(
+        { providers: [{ ...mimo, reasoningEffort }] },
+        async () => profiles,
+      ),
+    ).resolves.toBe(true);
+  }
+  for (const reasoningEffort of ["xhigh", "max", "ultra"] as const) {
+    await expect(
+      assertGatewayReviewConfigCatalogAllowed(
+        { providers: [{ ...mimo, reasoningEffort }] },
+        async () => profiles,
+      ),
+    ).rejects.toThrow("gateway_review_reasoning_effort_unsupported");
+    for (const model of ["gpt-6.1-sol", "openai/gpt-5-nano"]) {
+      await expect(
+        assertGatewayReviewConfigCatalogAllowed(
+          { providers: [{ ...gateway, model, reasoningEffort }] },
+          async () => profiles,
+        ),
+      ).resolves.toBe(true);
+    }
+  }
+});
+
 // RED if availability errors become an admission bypass, or a legacy save
 // depends on Accounts/Gateway availability.
 test("refuses Gateway admission when the catalog is unavailable", async () => {

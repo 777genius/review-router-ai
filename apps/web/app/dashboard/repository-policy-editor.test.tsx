@@ -150,6 +150,92 @@ function choose(label: string, option: RegExp): void {
 }
 
 describe("ReviewConfigForm", () => {
+  it("offers qualified MiMo Gateway reasoning with High default and explicit invalid-value repair", () => {
+    const page = {
+      ...gatewayPage,
+      profiles: gatewayPage.profiles.map((profile) =>
+        profile.id === "profile-mimo"
+          ? { ...profile, models: ["mimo-v2.6-pro"] }
+          : profile,
+      ),
+    };
+    const action = vi.fn();
+    const props = {
+      action,
+      modelOptions,
+      gatewayAccounts: { status: "ok", value: page } as const,
+      hiddenFields: [],
+      mutationsEnabled: true,
+      submitLabel: "Save",
+    };
+    const first = render(
+      <ReviewConfigForm {...props} config={safeDefaultReviewConfiguration} />,
+    );
+    choose("Provider auth", /Account Gateway/);
+    choose("Account", /Workspace mimo/);
+    choose("Model", /^mimo-v2.6-pro$/);
+    const form = document.querySelector("form")!;
+    expect(
+      readReviewConfigurationForm(new FormData(form)).provider.reasoningEffort,
+    ).toBe("high");
+    fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
+    expect(screen.getAllByRole("option")).toHaveLength(3);
+    expect(screen.getByRole("option", { name: /^Low/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /^Medium/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /^High/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: /High/ }));
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+    ).toBe(false);
+    const saved = {
+      ...readReviewConfigurationForm(new FormData(form)).provider,
+      reasoningEffort: "xhigh",
+    } satisfies ReviewProviderConfiguration;
+    first.unmount();
+    render(
+      <ReviewConfigForm
+        {...props}
+        config={{
+          ...safeDefaultReviewConfiguration,
+          provider: saved,
+          providers: [saved],
+        }}
+      />,
+    );
+    const repairedForm = document.querySelector("form")!;
+    expect(
+      readReviewConfigurationForm(new FormData(repairedForm)).provider
+        .reasoningEffort,
+    ).toBe("xhigh");
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+    ).toBe(true);
+    fireEvent.submit(repairedForm);
+    expect(action).not.toHaveBeenCalled();
+    expect(pageText()).toContain("The saved value has not been changed");
+    choose("Reasoning effort", /High/);
+    expect(
+      readReviewConfigurationForm(new FormData(repairedForm)).provider
+        .reasoningEffort,
+    ).toBe("high");
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+    ).toBe(false);
+    choose("Account", /Workspace codex/);
+    choose("Model", /^gpt-6.1-sol$/);
+    fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
+    expect(screen.getByRole("option", { name: /XHigh/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Max/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Ultra/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: /^Low/ }));
+    choose("Account", /Workspace mimo/);
+    choose("Model", /^mimo-v2.6-pro$/);
+    expect(
+      readReviewConfigurationForm(new FormData(repairedForm)).provider
+        .reasoningEffort,
+    ).toBe("low");
+  });
+
   it.each(["remove-direct", "remove-gateway", "switch-to-direct"])(
     "blocks unsupported saved gateway combinations until explicit %s repair",
     async (repair) => {

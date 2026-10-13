@@ -44,6 +44,11 @@ import type {
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
 import { getReadyGatewayAccounts } from "../../src/server/dashboard-provider-setup-readiness";
+import {
+  defaultGatewayMiMoReasoningEffort,
+  gatewayModelSupportsReasoningEffort,
+  isGatewayMiMoModel,
+} from "../../src/features/account-gateway/review-reasoning-capabilities";
 
 export { clearProviderSecretStatusCacheForTest };
 
@@ -167,7 +172,16 @@ function reasoningEffortOptionsForModel(
   model: string,
   authMode: ProviderAuthMode,
 ) {
-  if (authMode === "codex_account_gateway") return reasoningEffortOptions;
+  if (authMode === "codex_account_gateway")
+    return reasoningEffortOptions
+      .filter((option) =>
+        gatewayModelSupportsReasoningEffort(model, option.value),
+      )
+      .map((option) =>
+        isGatewayMiMoModel(model) && option.value === "high"
+          ? { ...option, description: "Deeper review pass. Default." }
+          : option,
+      );
   return reasoningEffortOptions.filter((option) =>
     codexModelSupportsReasoningEffort(model, option.value),
   );
@@ -1154,6 +1168,14 @@ export function ReviewConfigForm({
       provider.authMode === "codex_account_gateway" &&
       !gatewayModelsForProvider(provider).includes(provider.model.trim()),
   );
+  const gatewayReasoningInvalid = providers.some(
+    (provider) =>
+      provider.authMode === "codex_account_gateway" &&
+      !gatewayModelSupportsReasoningEffort(
+        provider.model,
+        provider.reasoningEffort,
+      ),
+  );
   const hasGateway = providers.some(
     (provider) => provider.authMode === "codex_account_gateway",
   );
@@ -1348,7 +1370,11 @@ export function ReviewConfigForm({
         action={action}
         className="grid gap-5"
         onSubmit={(event) => {
-          if (gatewaySelectionInvalid || gatewaySingleProviderViolation)
+          if (
+            gatewaySelectionInvalid ||
+            gatewayReasoningInvalid ||
+            gatewaySingleProviderViolation
+          )
             event.preventDefault();
         }}
       >
@@ -1538,6 +1564,15 @@ export function ReviewConfigForm({
                               updateProvider(index, (current) => ({
                                 ...current,
                                 model,
+                                reasoningEffort:
+                                  isGatewayMiMoModel(model) &&
+                                  !isGatewayMiMoModel(current.model) &&
+                                  !gatewayModelSupportsReasoningEffort(
+                                    model,
+                                    current.reasoningEffort,
+                                  )
+                                    ? defaultGatewayMiMoReasoningEffort
+                                    : current.reasoningEffort,
                               }));
                           }}
                         />
@@ -1594,8 +1629,12 @@ export function ReviewConfigForm({
                     />
                     {provider.kind === "codex" ? (
                       <>
-                        <DashboardSelectField
+                        <input
+                          type="hidden"
                           name={`providerReasoningEffort.${index}`}
+                          value={provider.reasoningEffort}
+                        />
+                        <DashboardSelectField
                           label="Reasoning effort"
                           helpText={fieldHelp.reasoningEffort}
                           value={provider.reasoningEffort}
@@ -1674,6 +1713,15 @@ export function ReviewConfigForm({
                       {!gatewayModels.includes(provider.model.trim()) ? (
                         <p role="status">
                           Choose an available account and model before saving.
+                        </p>
+                      ) : null}
+                      {!gatewayModelSupportsReasoningEffort(
+                        provider.model,
+                        provider.reasoningEffort,
+                      ) ? (
+                        <p role="status">
+                          Choose Low, Medium or High reasoning for MiMo before
+                          saving. The saved value has not been changed.
                         </p>
                       ) : null}
                     </div>
@@ -1767,6 +1815,7 @@ export function ReviewConfigForm({
             disabled={
               !mutationsEnabled ||
               gatewaySelectionInvalid ||
+              gatewayReasoningInvalid ||
               gatewaySingleProviderViolation
             }
             idleLabel={submitLabel}
@@ -2035,7 +2084,7 @@ function DashboardSelectField({
   onValueChange,
   placeholder,
 }: {
-  readonly name: string;
+  readonly name?: string;
   readonly label: string;
   readonly helpText: string;
   readonly value: string;
@@ -2057,7 +2106,7 @@ function DashboardSelectField({
         <DashboardFieldLabel label={label} helpText={helpText} />
       </span>
       <RadixSelect.Root
-        name={name}
+        {...(name === undefined ? {} : { name })}
         value={currentValue}
         disabled={disabled}
         onValueChange={(next) => {
