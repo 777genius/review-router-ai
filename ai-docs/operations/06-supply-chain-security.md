@@ -22,9 +22,9 @@ For ReviewRouter Action:
 - move mutable stable major tags such as `v1` only through the release runbook
   after smoke evidence, and move the action/runtime tags together
 - keep `main` available for users who opt into live updates
-- default SaaS install should use stable/release channel unless user chooses main
+- default control plane install should use stable/release channel unless user chooses main
 
-For SaaS:
+For control plane:
 
 - deploy from protected branch
 - require CI green before deploy

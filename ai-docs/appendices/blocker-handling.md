@@ -74,7 +74,7 @@ Blocked by missing Codex OAuth file:
 - implement secret setup command renderer
 - implement validation logic with fixture `auth.json`
 - implement stale/missing auth user-facing errors
-- do not ask the SaaS to receive `auth.json`
+- do not ask the control plane to receive `auth.json`
 
 Blocked by missing provider API key:
 
@@ -145,7 +145,7 @@ Do not:
 - switch architecture stack
 - skip tests because E2E is blocked
 - implement cloud review execution
-- store code/diffs/prompts in SaaS
+- store code/diffs/prompts in control plane
 - use `pull_request_target` as a shortcut
 
 ## Blocked Work Log

@@ -33,7 +33,7 @@ Fastify, tRPC, Next.js, Prisma, and Octokit are adapters. They are not the produ
 
 ## Idempotency Before Features
 
-For GitHub/SaaS integrations, correctness under retry matters more than feature count.
+For GitHub/control plane integrations, correctness under retry matters more than feature count.
 
 ## User-Facing Errors Must Be Actionable
 

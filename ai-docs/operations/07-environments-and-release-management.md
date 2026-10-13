@@ -65,12 +65,12 @@ Rules:
 - Do not move `v1` for breaking workflow inputs, protocol breaks, or untested runtime changes.
 - Release both repositories with the same exact version when generated workflows can use that ref in both places.
 - Do not use the legacy local `pnpm release:sync-major` helper for normal releases.
-- Hosted-pool SaaS workflows are an exception to the mutable hosted-beta
+- Hosted-pool control plane workflows are an exception to the mutable hosted-beta
   channel: they consume the exact public Action commit recorded with its
-  immutable release tag and `dist/index.js` SHA-256. Before configuring SaaS,
+  immutable release tag and `dist/index.js` SHA-256. Before configuring control plane,
   run `pnpm hosted-pool:action-release:verify` against a clean checkout of that
   Action commit. The verifier requires `HEAD`, the tag's peeled commit, the
-  SaaS-consumed action ref, and the bundle digest to be one exact tuple.
+  control plane-consumed action ref, and the bundle digest to be one exact tuple.
 
 ## Daily Git Flow
 
@@ -90,7 +90,7 @@ Working rules:
 - If the tree is dirty with unrelated work, do not stage or revert it. Commit only the intended files.
 - Prefer PRs into `main`. Direct pushes are only for an explicitly approved urgent operator action.
 
-Recommended local checks before pushing SaaS changes:
+Recommended local checks before pushing control plane changes:
 
 ```bash
 pnpm format:check
@@ -117,7 +117,7 @@ git diff --check
 The Action repo commits bundled `dist/` output. If a change affects runtime
 code, rebuild and commit the bundle.
 
-For hosted beta `@main` customers, SaaS action runtime changes must also be
+For hosted beta `@main` customers, control plane action runtime changes must also be
 synced into the public Action repo before they can be picked up by customer
 workflows:
 
@@ -133,7 +133,7 @@ Then commit and push the resulting public Action repo changes to
 `uses: 777genius/review-router@main` pick up that commit on their next run.
 
 The `Sync Public Action Runtime` GitHub workflow performs this automatically
-after a successful SaaS `CI` run on `main`. It requires one cross-repository
+after a successful control plane `CI` run on `main`. It requires one cross-repository
 credential because the default `GITHUB_TOKEN` is scoped to
 `777genius/review-router-ai` and cannot push to `777genius/review-router`.
 
@@ -154,8 +154,8 @@ For a new public/stable runtime release:
 
 ```text
 1. Release 777genius/review-router at v1.0.x
-2. Pin REVIEW_ROUTER_PAIRED_ACTION_REF in SaaS CI to that exact Action commit
-3. Merge the pin and wait for SaaS CI on the resulting exact commit
+2. Pin REVIEW_ROUTER_PAIRED_ACTION_REF in control plane CI to that exact Action commit
+3. Merge the pin and wait for control plane CI on the resulting exact commit
 4. Release 777genius/review-router-ai at the same v1.0.x
 5. Verify both v1 tags resolve to the new exact release commits
 6. Verify generated/setup PRs still use @v1 unless an exact pin was requested
@@ -163,9 +163,9 @@ For a new public/stable runtime release:
 
 Why the Action repo goes first:
 
-- SaaS release workflow checks that the matching Action tag already exists.
+- control plane release workflow checks that the matching Action tag already exists.
 - Customer workflows call the Action/reusable workflow first.
-- Conflict runtime then checks out the SaaS runtime using the same `runtime_ref`.
+- Conflict runtime then checks out the control plane runtime using the same `runtime_ref`.
 
 ## Action Runtime Release
 
@@ -198,7 +198,7 @@ The Action `Release` workflow validates:
 - the requested version is `vN.N.N`
 - it is running on `main`
 - local `HEAD` matches `origin/main`
-- the exact tag is absent, or already points to the same SaaS `HEAD` for a safe
+- the exact tag is absent, or already points to the same control plane `HEAD` for a safe
   rerun
 - the version is newer than the latest existing `v1.*.*` tag
 - package metadata and installer fallback match the requested version
@@ -241,7 +241,7 @@ procedure is in
 
 Before running the workflow:
 
-1. Merge the SaaS/runtime commit to `main`.
+1. Merge the control plane/runtime commit to `main`.
 2. Confirm the matching Action tag already exists, for example:
 
 ```bash
@@ -279,7 +279,7 @@ gh workflow run release.yml \
   -f create_github_release=true
 ```
 
-The SaaS `Release` workflow validates:
+The control plane `Release` workflow validates:
 
 - an inline, read-only bootstrap runs before checkout or repository code and
   proves that the dispatch workflow ref is `refs/heads/main`, the dispatch SHA
@@ -291,7 +291,7 @@ The SaaS `Release` workflow validates:
 - the exact tag does not already exist locally or remotely
 - the version is newer than the latest existing `v1.*.*` tag
 - the matching Action tag exists
-- one successful trusted `CI` run exists for the exact SaaS `HEAD`, and that
+- one successful trusted `CI` run exists for the exact control plane `HEAD`, and that
   exact run contains successful, non-skipped `Dedicated Release Authority PG17
 contract` and `Full private PG16 to PG17 rehearsal` jobs
 - the same exact CI run owns both unexpired, digest-addressed evidence
@@ -323,7 +323,7 @@ gh workflow run release.yml \
 ```
 
 If the workflow fails after publishing the exact tag, rerun with the same
-version only when that exact tag already points to the same SaaS `GITHUB_SHA`.
+version only when that exact tag already points to the same control plane `GITHUB_SHA`.
 The workflow allows that recovery path and still fails closed if the tag points
 anywhere else.
 
@@ -366,7 +366,7 @@ Expected:
 - new setup PRs that use stable mode still generate `@v1` and `runtime_ref: v1`.
 - exact pinned mode generates the new `v1.0.x`.
 
-If production Render deploy is part of the batch, deploy after the SaaS commit
+If production Render deploy is part of the batch, deploy after the control plane commit
 has passed CI and after the relevant runtime release is validated. Check Render
 logs after deploy for startup errors, webhook errors, and action session/config
 errors.
@@ -457,7 +457,7 @@ then, drain and allocate a fresh namespace.
 Rollback options, safest first:
 
 1. Disable the risky feature flag or block the bad exact runtime version.
-2. Roll back the SaaS app deployment in Render if the deployed app is bad.
+2. Roll back the control plane app deployment in Render if the deployed app is bad.
 3. Publish a fixed `v1.0.x` release and move `v1` forward through the release workflows.
 4. Emergency only: move `v1` back to the last known-good exact tag in both repos.
 
@@ -573,7 +573,7 @@ Recommended:
 ## Review Action v2 Release Order
 
 Deploy the typed 426 bridge first. Then deploy additive migrations and disabled
-SaaS readers, export the generated contract to a public Action feature branch,
+control plane readers, export the generated contract to a public Action feature branch,
 rebuild/commit `dist/index.js`, and register the exact final Action/runtime/schema
 digests. For an allowlisted repository: preflight all decisions and credentials,
 enter `v1_draining`, wait the release-bound drain window, prove no legacy/static

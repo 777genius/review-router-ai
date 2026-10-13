@@ -10,8 +10,8 @@ keeping checkout, tools, and the agent loop in GitHub Actions.
 - legacy repository-owned mode is the default and is behaviorally unchanged;
 - a repository cannot use the hosted pool without explicit workspace opt-in and
   repository binding;
-- `auth.json`, refresh tokens, and access tokens never leave SaaS;
-- SaaS transiently sees relay prompts, tool outputs, and responses but never
+- `auth.json`, refresh tokens, and access tokens never leave control plane;
+- control plane transiently sees relay prompts, tool outputs, and responses but never
   persists their bodies;
 - one invocation stays on one account, except for one pre-response classified
   auth/quota fallback;
@@ -23,17 +23,17 @@ keeping checkout, tools, and the agent loop in GitHub Actions.
 
 ## Top Three Architecture Options
 
-1. **SaaS credential custodian + invocation-scoped relay** - selected.
+1. **control plane credential custodian + invocation-scoped relay** - selected.
    🎯 9/10 🛡️ 8/10 🧠 8/10. Approx. 3,500-6,500 changed LOC.
    Keeps sensitive credentials out of Actions and preserves customer-side tools,
    while requiring strong streaming, KMS, and transient-data controls.
 
 2. **Repository-owned rotating secret per repository** - keep as legacy default.
    🎯 7/10 🛡️ 9/10 🧠 6/10. Approx. 800-1,800 changed LOC for incremental
-   hardening. Lowest SaaS custody risk, but it does not provide a workspace pool
+   hardening. Lowest control plane custody risk, but it does not provide a workspace pool
    and distributes account lifecycle across repositories.
 
-3. **Run the complete agent and checkout in SaaS workers** - rejected.
+3. **Run the complete agent and checkout in control plane workers** - rejected.
    🎯 4/10 🛡️ 4/10 🧠 10/10. Approx. 8,000-18,000 changed LOC. Centralizes
    scheduling, but expands code custody, sandboxing, SCM credentials, compute,
    and incident blast radius far beyond this feature.
@@ -45,7 +45,7 @@ GitHub Action
   checkout + local tools + Codex agent loop
   -> bounded run grant + streamed Responses/tool-result frames
 
-SaaS relay
+control plane relay
   validates grant + binds repository/run/account
   -> account router -> session validation/lazy refresh -> upstream Responses
 
@@ -129,7 +129,7 @@ plaintext envelopes or relay bodies.
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Stolen Action grant                           | Short expiry, exact repo/run/attempt/account audience, bounded calls/bytes/tokens, revocation, replay-safe counters                                               |
 | Cross-tenant account selection                | Tenant and repository binding checked at issuance and every relay request; database constraints include tenant identity                                           |
-| Credential disclosure from SaaS               | Envelope encryption, KMS audit, least-privilege decrypt role, no plaintext logs/traces/errors, bounded process lifetime and overwriteable buffers where practical |
+| Credential disclosure from control plane      | Envelope encryption, KMS audit, least-privilege decrypt role, no plaintext logs/traces/errors, bounded process lifetime and overwriteable buffers where practical |
 | Prompt/tool output retained by infrastructure | Disable body capture/APM, stream without queues or retries that persist bodies, bounded redacted metadata only                                                    |
 | Refresh race                                  | Account mutation fence, generation CAS, idempotent writeback; no full-run lock                                                                                    |
 | Pool hopping hides failures                   | Sticky binding; maximum one backup only for classified auth/quota before first success                                                                            |
@@ -182,7 +182,7 @@ procedure are defined in
      compliance approval. Public/fork/untrusted repositories remain denied until
      separately approved.
 
-No migration copies legacy GitHub secrets into SaaS. A repository enters hosted
+No migration copies legacy GitHub secrets into control plane. A repository enters hosted
 mode only after a new account connection, explicit binding, and successful
 health check. Switching modes is an audited configuration generation change.
 
@@ -212,7 +212,7 @@ health check. Switching modes is an audited configuration generation change.
 | Concurrency         | Parallel inference on one account succeeds; only refresh/writeback serializes; generation CAS rejects stale writers                             |
 | Fallback            | Auth and quota failures before first response use at most one backup; all other and post-response failures stay sticky                          |
 | Restore             | Disposable backup restore starts quarantined; wrong incarnation cannot decrypt/serve; audited rewrap or reconnect is required                   |
-| Multi-replica       | Two or more SaaS replicas share Postgres stores/leases correctly; no local/FileBackend correctness state exists                                 |
+| Multi-replica       | Two or more control plane replicas share Postgres stores/leases correctly; no local/FileBackend correctness state exists                        |
 | Compatibility       | Old and new Action matrices pass, including hosted-disabled server, kill switch, rolling deploy, and downgrade                                  |
 | Repository trust    | Only explicitly bound trusted private disposable repositories pass E2E; fork/public/untrusted cases fail closed                                 |
 | Compliance          | Named owner records approval for supported account types and upstream contract; kill-switch drill succeeds                                      |

@@ -2,7 +2,7 @@
 
 Use a dedicated public Action worktree on a feature branch. Never target `main`.
 
-## 1. Verify Canonical SaaS Output
+## 1. Verify Canonical control plane Output
 
 ```bash
 pnpm protocol:check

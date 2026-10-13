@@ -128,7 +128,7 @@ assert(
 );
 assert(
   demo.providers?.every((provider) => provider.sentToSaas === false),
-  "demo provider secrets must not be sent to SaaS",
+  "demo provider secrets must not be sent to control plane",
 );
 assert(
   demo.quickStart?.some(

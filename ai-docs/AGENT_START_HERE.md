@@ -4,7 +4,7 @@ This file is the handoff guide for an implementation agent that has no prior con
 
 ## Current State
 
-This repository is now an implemented local-beta ReviewRouter SaaS control plane, not just a planning spike.
+This repository is now an implemented local-beta ReviewRouter control plane, not just a planning spike.
 
 Implemented so far:
 
@@ -94,9 +94,9 @@ If touching provider/auth setup, also read:
 Do not implement:
 
 - cloud code review execution in v1
-- SaaS storage of repository code or PR diffs
-- SaaS storage of Codex OAuth `auth.json`
-- SaaS storage of model API keys by default
+- control plane storage of repository code or PR diffs
+- control plane storage of Codex OAuth `auth.json`
+- control plane storage of model API keys by default
 - default review execution through `pull_request_target`
 - in-memory locks for correctness
 - unversioned action-control-plane payloads
@@ -137,7 +137,7 @@ The foundation through core beta paths exists. Continue from the latest iteratio
 
 1. Close unverified quality gates in iterations 08-11.
 2. Prefer tests/E2E for already implemented flows over broad new features.
-3. Keep SaaS metadata-only: no code, diffs, prompts, model responses, or provider secrets in the control plane.
+3. Keep control plane metadata-only: no code, diffs, prompts, model responses, or provider secrets in the control plane.
 4. Add behavior through feature application services and ports before adapters/UI.
 5. Update the matching iteration file when a baseline becomes implemented.
 
@@ -269,7 +269,7 @@ Workflow provisioning must:
 
 Codex OAuth:
 
-- SaaS never receives `auth.json`
+- control plane never receives `auth.json`
 - never write a stable or versioned GitHub Actions secret directly and never
   assemble an installer from a mutable URL
 - use only the dashboard-issued command for the exact repository/provider; it
@@ -285,11 +285,11 @@ Codex OAuth:
 OpenAI/OpenRouter API keys:
 
 - v1 stores them in customer GitHub secrets by default
-- SaaS tracks setup status only
+- control plane tracks setup status only
 
 ## Data Classification Rule
 
-Before adding a SaaS payload field, classify it:
+Before adding a control plane payload field, classify it:
 
 ```text
 public
@@ -299,7 +299,7 @@ secret
 code_or_diff
 ```
 
-`secret` and `code_or_diff` are not allowed in SaaS v1 payloads.
+`secret` and `code_or_diff` are not allowed in control plane v1 payloads.
 
 ## Definition Of Done For Implementation Work
 

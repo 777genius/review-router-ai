@@ -299,7 +299,7 @@ dispatch the protected
 `.github/workflows/codex-rotating-role-bootstrap.yml` workflow when role
 provisioning is required, then dispatch the checked-in
 `.github/workflows/codex-rotating-release-migration.yml` workflow from current
-protected `main`, passing the older exact SaaS tooling/deployment commit through
+protected `main`, passing the older exact control plane tooling/deployment commit through
 `release_commit_sha`. Both workflows use the same repository-wide,
 non-cancelling concurrency group, so their database mutations cannot overlap.
 Bootstrap alone receives its protected external direct URL; the release workflow
@@ -318,10 +318,10 @@ successful build, leaving a pre-mutation image race. The obsolete Render
 migration launchers have therefore been removed.
 
 The recovery and Action-registration modes use distinct immutable identities:
-`release_commit_sha` is the trusted ReviewRouter SaaS tooling and deployment
+`release_commit_sha` is the trusted ReviewRouter tooling and deployment
 commit for both modes, while `action_commit_sha` is the Review Action commit used
 only by verified producer-release registration. Registration first requires the
-current live API, worker, and web deploy identities to equal the SaaS release
+current live API, worker, and web deploy identities to equal the control plane release
 commit. It updates the attestation environment, then deploys all three services
 with explicit `commitId: release_commit_sha`. Pending Render responses may omit
 commit metadata, but a `live` response must report the exact commit. A successful

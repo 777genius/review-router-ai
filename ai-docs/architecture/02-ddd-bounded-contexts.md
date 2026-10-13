@@ -129,7 +129,7 @@ Core aggregate:
 
 Main invariants:
 
-- SaaS does not store Codex OAuth in v1
+- control plane does not store Codex OAuth in v1
 - provider setup state is metadata only
 - secrets location must be explicit enough for user support
 

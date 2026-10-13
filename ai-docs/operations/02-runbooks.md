@@ -22,7 +22,7 @@ and git flow remain governed by
 
 ## App-First Repository E2E
 
-Run this gate before every SaaS organization rollout and after changes to the
+Run this gate before every control plane organization rollout and after changes to the
 GitHub App, workflow provisioning, rotating provider setup, Action runtime, or
 control-plane Action ref. Use only a clearly disposable repository.
 
@@ -63,7 +63,7 @@ The production gate is complete only when all of these are proven:
    `${GITHUB_APP_SLUG}[bot]`; `github-actions[bot]` fails the gate
 6. the actual check-run context is recorded before required checks are changed
 
-Do not use `spike:github:fresh-repo:e2e` as SaaS rollout evidence. It exercises
+Do not use `spike:github:fresh-repo:e2e` as control plane rollout evidence. It exercises
 the historical direct workflow and cannot prove App-first publication identity.
 
 If setup fails, verify App installation selection and accepted permissions,
@@ -311,7 +311,7 @@ Why it happens:
 1. Codex OAuth rotating workflows must match the exact
    `REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF`; they never inherit the general
    `REVIEW_ROUTER_ACTION_REF=@main` channel.
-2. The SaaS API validates the workflow source at GitHub's `workflow_sha` before
+2. The control plane API validates the workflow source at GitHub's `workflow_sha` before
    issuing checkout, comment, or secret writeback tokens.
 3. The workflow file and Render config can diverge if a rollback or smoke ref is
    applied only on one side.

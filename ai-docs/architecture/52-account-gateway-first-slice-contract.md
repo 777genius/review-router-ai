@@ -32,7 +32,7 @@ accepted the six version-only postimages, including Action entrypoint SHA256
 PR CI passed and PR 257 merged as `cc4aaec036d518f714691de3c8f84b7cb9f7f254`.
 Normal Action release run
 [38291736945](https://github.com/777genius/review-router/actions/runs/38291736945)
-was dispatched once on that merge. The final nine-file SaaS correction patch
+was dispatched once on that merge. The final nine-file control plane correction patch
 SHA256 is `ffddb122e29901a247a055e898c7be0e0de957ddc7603fb32439e3de10808bed`;
 176 nearest tests passed without skips, both API and feature typechecks passed,
 and independent source review accepted it. These facts do not qualify paired
@@ -40,10 +40,10 @@ release, deployment or fresh production E2E.
 
 Action release run 38291736945 subsequently passed; both `v1.0.160` and `v1`
 resolve to `cc4aaec036d518f714691de3c8f84b7cb9f7f254`. The published entrypoint
-matches the independently reviewed SHA256 above. SaaS and production acceptance
+matches the independently reviewed SHA256 above. control plane and production acceptance
 remain pending.
 
-SaaS PR 559 CI run `38292719590`, head
+control plane PR 559 CI run `38292719590`, head
 `bc8539683f0cdd4b8ff8f23d1f5b5ac07ab54529`, failed one stale workflow fixture
 that still expected pull-request ingress; 10,239 other unit tests passed and
 496 were skipped. The corrected dispatch fixture passed all 67 focused tests
@@ -110,7 +110,7 @@ SHA256 `50a9f0bf435b29d2b797098c46dc449ee2287d650483621f13eefedb2412f475`.
 At that checkpoint, the five CI pair fields consumed that verified release tuple.
 
 This receipt does not qualify production timing/policy, memory, all-provider
-D-final, protected OAuth F, legacy retirement G, native exact-head CI or SaaS
+D-final, protected OAuth F, legacy retirement G, native exact-head CI or control plane
 deployment/release. Those gates and contract 53 remain unchanged; earlier failed
 receipts retain their original outcomes.
 
@@ -119,7 +119,7 @@ receipts retain their original outcomes.
 Execution policy only; contract 53 remains the sole normative acceptance authority.
 
 - Prioritize MiMo/OAuth tools, validated final review, same-head App publication
-  and coherent Action/SaaS release. Reuse accepted bounded D-long evidence within
+  and coherent Action/control plane release. Reuse accepted bounded D-long evidence within
   its recorded scope.
 - Stop the separate RAM lane, including the existing optional
   `TestGatewayNativeMiMoMaximumCopy32` observer/client fixture. No RAM probes,
@@ -152,7 +152,7 @@ Execution policy only; contract 53 remains the sole normative acceptance authori
 - Action transport diagnostics and its two review fixes use the existing five-case
   TLS fixture. After independent review, perform one changed-source build and one
   new-head CI watch before merge. Reuse the resulting artifact across consumers.
-- Publish Action 158 before updating the five paired SaaS CI pins. Use the actual
+- Publish Action 158 before updating the five paired control plane CI pins. Use the actual
   immutable tag commit and generated public Action bundle digest, not placeholders.
 - An expired OAuth intent is not a successful enrollment. Preserve its operation
   history and reconcile through the supported lifecycle before a fresh login.
@@ -181,7 +181,7 @@ and independent review of the observer rejection and duplicate-diagnostic fixes.
 Release run `38128645739` passed; immutable tag `v1.0.158` resolves to that
 commit. The public `dist/index.js` SHA-256 is
 `166ab590292c76ea78b2015dfda71aacf91be963b0b94f7c04f9c7883c18a814`.
-SaaS five-field CI pairing PR [548](https://github.com/777genius/review-router-ai/pull/548)
+control plane five-field CI pairing PR [548](https://github.com/777genius/review-router-ai/pull/548)
 merged normally as `1f10d0c327f0a16c9d9114fd8a331bb386a82761`, preserving
 `d349cb19243426c7873cab2c529233f7c3a29e21` and reviewed component
 `fc28708689efe1185b9ef8a9d9b639ce4606cbee`. Exact-head CI `38129571872`
@@ -309,7 +309,7 @@ merged as `8e30074b68275193ed1e2836fe57054dbc1838be` and
 `4c73b0868ef223d02236f2d4c1d1a310944737d5`. They prepare inactive installation;
 neither source merge establishes production native custody or activation.
 
-SaaS PR550 merged as `924c7c5d88483ecc7fd24e00baacaadfc85a66a2`, preserving
+control plane PR550 merged as `924c7c5d88483ecc7fd24e00baacaadfc85a66a2`, preserving
 current-main contributor history and the reviewed operational source pins.
 ROOT PR490 then merged normally as
 `d9d8dc89ee04143dcd9ad1d067a96af160a10086`, parents
@@ -321,7 +321,7 @@ the automatic protected-main run `38139493237`, attempt 1, then passed all
 eleven jobs, including the private rehearsal and Dedicated Release Authority
 PG17 contract. Both release-gate manifests bind this exact commit/run/job;
 their archive digests match GitHub metadata. The paired Action artifact binds
-SaaS `d9d8dc89ee04143dcd9ad1d067a96af160a10086` to published Action
+control plane `d9d8dc89ee04143dcd9ad1d067a96af160a10086` to published Action
 `4cb00b4598974bc8fb5feafc1b1699ca76ca32af`. This qualifies the recorded source
 checkpoint; a later final F/docs release candidate requires its own exact-SHA
 trusted CI evidence under the unchanged release contract.

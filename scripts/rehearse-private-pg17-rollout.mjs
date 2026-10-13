@@ -1057,7 +1057,7 @@ export const disposableSqlConfiguration = () => ({
 });
 
 /**
- * The pre-release source models an already provisioned SaaS database. Some
+ * The pre-release source models an already provisioned control plane database. Some
  * retained migrations deliberately choose a baseline/self-hosted path only
  * when both release-authority roles are absent, so those roles must exist
  * before Prisma applies the retained baseline. Target role bootstrap remains
@@ -1740,7 +1740,7 @@ export async function executeDisposableRehearsal(
       `import { readFileSync } from "node:fs"; export default { schema: ${JSON.stringify(join(preReleasePrisma, "schema.prisma"))}, migrations: { path: ${JSON.stringify(join(preReleasePrisma, "migrations"))} }, datasource: { url: readFileSync(process.env.REVIEW_ROUTER_DATABASE_URL_FILE, "utf8").trim() } };\n`,
       { mode: 0o600 },
     );
-    // Retained migrations observe the live SaaS authority pair. Provision it
+    // Retained migrations observe the live control plane authority pair. Provision it
     // before migration deployment so the disposable source cannot silently
     // take a baseline/self-hosted branch that production would never take.
     sql(source, disposablePg16SourceAuthorityRoleFoundationSql());
@@ -1776,7 +1776,7 @@ export async function executeDisposableRehearsal(
         signal: sourceMigration.signal,
         timedOut: sourceMigration.error?.code === "ETIMEDOUT",
       });
-    // Prove the retained baseline selected the SaaS authority branch. Merely
+    // Prove the retained baseline selected the control plane authority branch. Merely
     // creating both role names is insufficient if a future migration changes
     // the branch predicate or ownership handoff.
     sql(source, assertDisposablePreReleaseAuthorityTopologySql());

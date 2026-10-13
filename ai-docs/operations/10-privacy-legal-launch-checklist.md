@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This is not legal advice. It is a product/engineering checklist to avoid launching a SaaS that makes privacy claims without matching product behavior and documents.
+This is not legal advice. It is a product/engineering checklist to avoid launching a control plane that makes privacy claims without matching product behavior and documents.
 
 ## Before Public Beta
 
@@ -49,7 +49,7 @@ Then implementation must enforce:
 That copy applies to legacy repository-owned mode. Hosted workspace account pool
 copy must instead disclose, before opt-in, that ReviewRouter:
 
-- stores the workspace's Codex session credentials encrypted in SaaS;
+- stores the workspace's Codex session credentials encrypted in control plane;
 - keeps `auth.json`, refresh tokens, and access tokens out of GitHub Actions;
 - transiently relays prompts, tool outputs, and model responses without retaining
   their bodies;

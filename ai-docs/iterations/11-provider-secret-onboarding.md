@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make provider setup copy-pasteable while preserving the v1 rule that ReviewRouter SaaS never receives Codex OAuth or API-key secrets.
+Make provider setup copy-pasteable while preserving the v1 rule that ReviewRouter never receives Codex OAuth or API-key secrets.
 
 ## Scope
 
@@ -21,7 +21,7 @@ The dashboard renders generated commands, but does not collect or submit secret 
 ## Security Rules
 
 - never render secret values
-- never ask users to paste `auth.json` into the SaaS UI
+- never ask users to paste `auth.json` into the control plane UI
 - prefer organization selected-repository secrets for organization repositories
 - explain fork PR secret behavior near setup commands
 
@@ -40,7 +40,7 @@ The dashboard renders generated commands, but does not collect or submit secret 
 
 - `features-provider-setup` generates provider setup guidance without embedding secret values.
 - Dashboard renders provider-specific commands for the primary selected repository.
-- Codex OAuth setup uses `scripts/seed-codex-auth.sh` instead of asking users to paste `auth.json` into the SaaS UI.
+- Codex OAuth setup uses `scripts/seed-codex-auth.sh` instead of asking users to paste `auth.json` into the control plane UI.
 - The seed script supports:
   - repository Actions secret
   - organization selected-repository Actions secret

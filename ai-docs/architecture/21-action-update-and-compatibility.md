@@ -7,14 +7,14 @@ Customers install ReviewRouter workflows into their repositories. If workflows p
 ## Channels
 
 ```text
-stable - SaaS UI choice that resolves to an explicit vetted release tag in generated workflow
+stable - control plane UI choice that resolves to an explicit vetted release tag in generated workflow
 release - explicit pinned tag selected by user, safest for conservative teams
 main - live development channel, opt-in only
 ```
 
-## SaaS Default
+## Control Plane Default
 
-Production default: use `stable` in SaaS UI, but write an explicit vetted
+Production default: use `stable` in control plane UI, but write an explicit vetted
 release tag into the generated workflow. Do not rely on a mutable `stable` tag
 by default.
 
@@ -27,7 +27,7 @@ public launch.
 
 ## Compatibility Contract
 
-Action and SaaS protocol both carry versions:
+Action and control plane protocol both carry versions:
 
 ```text
 actionVersion
@@ -46,7 +46,7 @@ blockedActionVersions
 
 ## Blocklist and Kill Switch
 
-SaaS needs a safety mechanism:
+control plane needs a safety mechanism:
 
 - block known-bad action versions from runtime config fetch
 - recommend update PR

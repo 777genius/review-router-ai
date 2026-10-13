@@ -2,7 +2,7 @@
 
 ## Integration Modes
 
-### SaaS Mode
+### Control Plane Mode
 
 Uses one shared ReviewRouter-owned GitHub App.
 
@@ -23,7 +23,7 @@ Flow:
 
 Uses curl installer and optionally user-owned GitHub App.
 
-This remains valuable for users who do not want SaaS. SaaS should be simpler and use the shared app.
+This remains valuable for users who do not want control plane. control plane should be simpler and use the shared app.
 
 ## OAuth vs GitHub App
 
@@ -38,7 +38,7 @@ GitHub App:
 - owns repository installation
 - receives webhooks
 - creates workflow setup/update PRs
-- posts comments/status if SaaS ever needs direct GitHub operations
+- posts comments/status if control plane ever needs direct GitHub operations
 
 ## Webhooks
 
@@ -74,16 +74,16 @@ Default behavior:
 Provisioning auth:
 
 ```text
-Default v1 SaaS mode:
+Default v1 control plane mode:
   GitHub App creates setup/update PR
   requires contents:write, workflows:write, pull_requests:write
 
 Fallback self-managed mode:
   curl installer uses the user's local gh/git auth
-  useful when an organization does not approve the SaaS App permissions
+  useful when an organization does not approve the control plane App permissions
 ```
 
-A real spike confirmed that a lower-permission App cannot write workflow files. GitHub requires workflow write capability for `.github/workflows/*` changes. We accept that permission cost to make SaaS onboarding one-click, but still create PRs only and never push directly to the default branch.
+A real spike confirmed that a lower-permission App cannot write workflow files. GitHub requires workflow write capability for `.github/workflows/*` changes. We accept that permission cost to make control plane onboarding one-click, but still create PRs only and never push directly to the default branch.
 
 Workflow should reference selected action version:
 
@@ -93,7 +93,7 @@ release - pinned release tag selected by user
 main - live main branch for fast updates
 ```
 
-SaaS dashboard should support update PRs when desired version changes.
+control plane dashboard should support update PRs when desired version changes.
 
 ## GitHub App Permissions
 
@@ -127,23 +127,23 @@ contents: write      create setup/update branch commits
 workflows: write     modify .github/workflows/reviewrouter.yml
 actions: write       dispatch exact-revision T0 runs and inspect their status
 pull_requests: write open setup/update PRs and read setup PR state
-issues: write        support PR summary/setup/help conversations when App-bot identity or SaaS guidance is used
+issues: write        support PR summary/setup/help conversations when App-bot identity or control plane guidance is used
 ```
 
-The UI must explain that `workflows: write` is for ReviewRouter setup/update PRs, not for reading or running customer code in SaaS.
+The UI must explain that `workflows: write` is for ReviewRouter setup/update PRs, not for reading or running customer code in control plane.
 
 Keep `actions: write` scoped to the durable T0 dispatcher and run inspection.
 Runtime authorization still uses GitHub Actions OIDC. Keep `issues: write`
 scoped to PR summary/setup/help comments; it must not be used to read or store
-customer code in SaaS.
+customer code in control plane.
 
 Do not imply that org-wide setup eliminates the secret boundary. Required
 workflow mode still runs provider commands in customer GitHub Actions. Codex
-OAuth and API keys are seeded into GitHub repo/org secrets, not SaaS.
+OAuth and API keys are seeded into GitHub repo/org secrets, not control plane.
 
 ## Status and Comments
 
-Review analysis runs in customer CI. In SaaS production, the client-triggered T0
+Review analysis runs in customer CI. In control plane production, the client-triggered T0
 schema-v2 workflow uses OIDC to authorize the exact pull request revision, while
 publication is performed through the repository-scoped ReviewRouter GitHub App
 installation. All ReviewRouter summaries, reviews, and inline findings must
@@ -151,13 +151,13 @@ therefore be authored by `${GITHUB_APP_SLUG}[bot]`.
 
 `github-actions[bot]` is accepted only as historical read compatibility or in an
 explicit self-managed/local compatibility deployment. It is never an acceptable
-new SaaS publication identity and must fail the rollout E2E.
+new control plane publication identity and must fail the rollout E2E.
 
 ## Action Runtime Config Through OIDC
 
 Generated workflows should include `id-token: write` so ReviewRouter Action can request a GitHub Actions OIDC token.
 
-The action uses that token to fetch SaaS-managed runtime config and optionally report health metadata. This avoids long-lived ReviewRouter API tokens in customer repositories.
+The action uses that token to fetch control plane-managed runtime config and optionally report health metadata. This avoids long-lived ReviewRouter API tokens in customer repositories.
 
 For org-wide required workflow mode, OIDC validation must allow only exact
 trusted central workflow refs stored in DB. The validator still checks the
@@ -167,12 +167,12 @@ target repository id/name/owner first, then accepts either `workflow_ref` or
 same target repository.
 
 If OIDC fails, hosted review publication fails closed. Static config may support
-explicit self-managed/local modes, but it must never downgrade SaaS publication
+explicit self-managed/local modes, but it must never downgrade control plane publication
 from the App installation identity to the default Actions token.
 
 ## Provider Secrets
 
-For v1, SaaS guides setup but does not store secrets.
+For v1, control plane guides setup but does not store secrets.
 
 Recommended:
 

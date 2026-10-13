@@ -810,7 +810,7 @@ jobs:
             packages/features/review-publishing/src/v2/tests/review-finding-marker.test.ts \
             --testNamePattern "accepts the paired Action golden projection target|matches the paired Action golden corpus"
 
-      - name: Paired Review Action to SaaS investigation E2E
+      - name: Paired Review Action to control plane investigation E2E
         env:
           REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
         run: pnpm review-investigation:paired-e2e

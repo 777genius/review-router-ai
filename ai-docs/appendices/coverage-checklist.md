@@ -4,10 +4,10 @@ This checklist is used to verify that the planning docs captured the current dir
 
 ## Covered
 
-- SaaS as control plane, not cloud execution.
+- control plane as control plane, not cloud execution.
 - Customer CI/CD as execution plane.
-- No Codex OAuth custody in SaaS v1.
-- No repo code/diff custody in SaaS v1.
+- No Codex OAuth custody in control plane v1.
+- No repo code/diff custody in control plane v1.
 - TypeScript stack.
 - Fastify + tRPC + Next.js.
 - Prisma + Postgres.
@@ -15,7 +15,7 @@ This checklist is used to verify that the planning docs captured the current dir
 - Ports/adapters placement.
 - Multi-tenant workspace model.
 - GitHub OAuth vs GitHub App distinction.
-- Shared GitHub App SaaS model.
+- Shared GitHub App control plane model.
 - Curl/self-managed mode distinction.
 - Provider setup state without secrets.
 - Org selected-repo secrets guidance.

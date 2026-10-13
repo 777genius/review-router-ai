@@ -799,7 +799,7 @@ async function seedControlPlane(
     data: {
       id: input.workspaceId,
       slug: `${input.prefix}-workspace`,
-      name: "Paired Action SaaS E2E",
+      name: "Paired Action control plane E2E",
     },
   });
   await prisma.gitHubInstallation.create({
