@@ -74,6 +74,11 @@ function parseOptionalPositiveInteger(name: string): number | undefined {
 export { PrismaClient };
 
 export {
+  lockAccountAdmission,
+  type AccountAdmissionRowLockIdentifiers,
+} from "./account-admission-row-lock.js";
+
+export {
   acquireCurrentScopeGuards,
   CURRENT_SCOPE_GUARD_NAMESPACE,
   type CurrentScopeGuard,

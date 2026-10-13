@@ -3916,6 +3916,12 @@ BEGIN
     JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
     JOIN pg_roles owner ON owner.oid = routine.proowner
     WHERE namespace.nspname = 'public'
+      AND NOT (
+        owner.rolname = 'reviewrouter_account_admission_lock_owner'
+        AND routine.oid IS NOT DISTINCT FROM pg_catalog.to_regprocedure(
+          'public.reviewrouter_lock_account_admission(text,text,text)'
+        )
+      )
     UNION ALL
     SELECT owner.rolname AS owner_name
     FROM pg_type type
@@ -5101,7 +5107,16 @@ GRANT EXECUTE ON FUNCTION public."codex_oauth_repair_quarantined_provider"(text,
 GRANT EXECUTE ON FUNCTION public."codex_oauth_reattest_active_namespace_v4_to_v5"(text,text,text,text,bigint,text,text,text,text,text,integer,integer,text,text,text,text,text,text,text,text,integer) TO ${username};`
     : role === "api"
       ? `GRANT EXECUTE ON FUNCTION public."codex_oauth_authorize_runtime_confirmation"(text, text, integer, text) TO ${username};
-GRANT EXECUTE ON FUNCTION public."codex_oauth_authorize_runtime_completion"(text, text) TO ${username};`
+GRANT EXECUTE ON FUNCTION public."codex_oauth_authorize_runtime_completion"(text, text) TO ${username};
+DO $account_admission_api_execute$
+BEGIN
+  IF pg_catalog.to_regprocedure('public.reviewrouter_lock_account_admission(text,text,text)') IS NOT NULL
+     AND NOT has_function_privilege('${username}',
+       'public.reviewrouter_lock_account_admission(text,text,text)', 'EXECUTE') THEN
+    GRANT EXECUTE ON FUNCTION public.reviewrouter_lock_account_admission(text,text,text) TO ${username};
+  END IF;
+END
+$account_admission_api_execute$;`
       : ""
 }
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${username};
