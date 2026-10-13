@@ -9,6 +9,11 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Badge, Button, Dialog, SelectField } from "@reviewrouter/ui";
+import {
+  canonicalMimoBaseURL,
+  mimoTokenPlanEndpoints,
+  suggestedAccountLabel,
+} from "../../src/features/account-gateway/connection-options";
 import type {
   AccountIntent,
   AccountOAuthIntent,
@@ -315,6 +320,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
         {data?.status === "ok" &&
         data.value.profiles.some((p) => p.authKind === "api_key") ? (
           <AccountForm
+            accounts={data.value.accounts}
             profiles={data.value.profiles.filter(
               (p) => p.authKind === "api_key",
             )}
@@ -325,6 +331,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
         {data?.status === "ok" &&
         data.value.profiles.some((p) => p.authKind === "oauth") ? (
           <OAuthForm
+            accounts={data.value.accounts}
             profiles={data.value.profiles.filter((p) => p.authKind === "oauth")}
             disabled={disabled}
             begin={beginOAuth}
@@ -659,11 +666,13 @@ function OperatorGrantForm({
 
 function OAuthForm({
   account,
+  accounts = [],
   profiles,
   disabled,
   begin,
 }: {
   account?: AccountView;
+  accounts?: AccountView[];
   profiles: AccountProfileView[];
   disabled: boolean;
   begin(intent: OAuthFormIntent): Promise<void>;
@@ -702,7 +711,12 @@ function OAuthForm({
                   }
                 : {
                     profileId: String(values.get("profileId") ?? ""),
-                    label: String(values.get("label") ?? ""),
+                    label:
+                      String(values.get("label") ?? "").trim() ||
+                      suggestedAccountLabel(
+                        profiles[0]?.label ?? "Codex",
+                        accounts.map((a) => a.label),
+                      ),
                   };
               form.reset();
               setOpen(false);
@@ -726,7 +740,10 @@ function OAuthForm({
                   <input
                     className={inputClass}
                     name="label"
-                    required
+                    defaultValue={suggestedAccountLabel(
+                      profiles[0]?.label ?? "Codex",
+                      accounts.map((a) => a.label),
+                    )}
                     maxLength={120}
                   />
                 </label>
@@ -918,12 +935,14 @@ function OAuthCompletionForm({
 
 function AccountForm({
   account,
+  accounts = [],
   mode = "connect",
   profiles,
   disabled,
   submit,
 }: {
   account?: AccountView;
+  accounts?: AccountView[];
   mode?: "connect" | "rename" | "reconnect";
   profiles: AccountProfileView[];
   disabled: boolean;
@@ -933,6 +952,22 @@ function AccountForm({
   ): Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState(profiles[0]?.id ?? "");
+  const selected = profiles.find((p) => p.id === selectedId);
+  const [labelValue, setLabelValue] = useState(account?.label ?? "");
+  const [automaticLabel, setAutomaticLabel] = useState(!account);
+  const [manualURL, setManualURL] = useState(false);
+  const [baseURL, setBaseURL] = useState(selected?.dedicatedBaseURL ?? "");
+  const suggestion = (profile?: AccountProfileView) =>
+    suggestedAccountLabel(
+      profile?.label ?? "Provider",
+      accounts.map((a) => a.label),
+    );
+  const needsMimoURL = mode === "connect" && selected?.label === "MiMo";
+  const endpointValid =
+    !needsMimoURL ||
+    (Boolean(selected.dedicatedBaseURL) &&
+      canonicalMimoBaseURL(baseURL) === selected.dedicatedBaseURL);
   const title =
     mode === "rename"
       ? "Rename account"
@@ -940,7 +975,20 @@ function AccountForm({
         ? "Reconnect API key"
         : "Connect API key";
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (next && mode !== "connect") setLabelValue(account?.label ?? "");
+        if (next && mode === "connect") {
+          setSelectedId(profiles[0]?.id ?? "");
+          setBaseURL(profiles[0]?.dedicatedBaseURL ?? "");
+          setManualURL(false);
+          setAutomaticLabel(true);
+          setLabelValue(suggestion(profiles[0]));
+        }
+        setOpen(next);
+      }}
+    >
       <Dialog.Trigger
         render={<Button variant="outline" size="sm" disabled={disabled} />}
       >
@@ -953,7 +1001,7 @@ function AccountForm({
           <Dialog.Description className="mt-2 text-sm text-slate-400">
             {mode === "rename"
               ? "Update the friendly account label."
-              : "Submit a write-only API key. An unresolved result requires status readback; it does not resubmit the key."}
+              : "Connect your provider account with an API key. The key is saved securely and cannot be viewed here."}
           </Dialog.Description>
           <form
             className="mt-4 grid gap-4"
@@ -978,7 +1026,10 @@ function AccountForm({
                 : {
                     kind: "connect",
                     profileId: String(values.get("profileId") ?? ""),
-                    label: String(values.get("label") ?? ""),
+                    label:
+                      String(values.get("label") ?? "").trim() ||
+                      suggestion(selected),
+                    ...(needsMimoURL ? { baseURL } : {}),
                   };
               form.reset();
               values.delete("credential");
@@ -991,6 +1042,13 @@ function AccountForm({
                 name="profileId"
                 label="Provider profile"
                 defaultValue={profiles[0]?.id ?? ""}
+                onValueChange={(value) => {
+                  const profile = profiles.find((p) => p.id === value);
+                  setSelectedId(value);
+                  setBaseURL(profile?.dedicatedBaseURL ?? "");
+                  setManualURL(false);
+                  if (automaticLabel) setLabelValue(suggestion(profile));
+                }}
                 options={profiles.map((p) => ({
                   value: p.id,
                   label: `${p.label} · ${p.protocol}`,
@@ -998,15 +1056,78 @@ function AccountForm({
                 }))}
               />
             ) : null}
+            {needsMimoURL ? (
+              <>
+                <SelectField
+                  key={selectedId}
+                  name="endpointPreset"
+                  label="Dedicated Base URL"
+                  defaultValue={selected.dedicatedBaseURL ?? "manual"}
+                  options={[
+                    ...mimoTokenPlanEndpoints.map((endpoint) => ({
+                      value: endpoint.baseURL,
+                      label: endpoint.label,
+                      description:
+                        endpoint.baseURL === selected.dedicatedBaseURL
+                          ? endpoint.baseURL
+                          : "Not available here yet",
+                      disabled: endpoint.baseURL !== selected.dedicatedBaseURL,
+                    })),
+                    { value: "manual", label: "Enter URL manually" },
+                  ]}
+                  onValueChange={(value) => {
+                    setManualURL(value === "manual");
+                    if (value !== "manual") setBaseURL(value);
+                  }}
+                />
+                {manualURL ? (
+                  <label className="grid gap-2 text-sm">
+                    Base URL from your Token Plan
+                    <input
+                      className={inputClass}
+                      type="url"
+                      value={baseURL}
+                      onChange={(event) => setBaseURL(event.target.value)}
+                      maxLength={2048}
+                      required
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </label>
+                ) : null}
+                <p className="text-xs text-slate-400">
+                  Copy your dedicated API key and OpenAI Base URL from your{" "}
+                  <a
+                    className="underline"
+                    href="https://platform.xiaomimimo.com/console/plan-manage"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    MiMo Token Plan
+                  </a>
+                  . Token Plan and pay-as-you-go keys use different endpoints.
+                  {!selected.dedicatedBaseURL
+                    ? " URL setup is not available here yet."
+                    : !endpointValid
+                      ? " Use the enabled regional URL; other regions are not available here yet."
+                      : ""}
+                </p>
+              </>
+            ) : null}
             {mode !== "reconnect" ? (
               <label className="grid gap-2 text-sm">
-                Account label
+                Account label{mode === "connect" ? " (optional)" : ""}
                 <input
                   className={inputClass}
                   name="label"
-                  required
+                  required={mode === "rename"}
                   maxLength={120}
-                  defaultValue={account?.label ?? ""}
+                  value={labelValue}
+                  placeholder={suggestion(selected)}
+                  onChange={(event) => {
+                    setLabelValue(event.target.value);
+                    setAutomaticLabel(!event.target.value.trim());
+                  }}
                 />
               </label>
             ) : null}
@@ -1024,7 +1145,7 @@ function AccountForm({
                 />
               </label>
             ) : null}
-            <Button type="submit" disabled={disabled}>
+            <Button type="submit" disabled={disabled || !endpointValid}>
               Submit
             </Button>
           </form>

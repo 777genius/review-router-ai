@@ -1,22 +1,29 @@
 # Private Account Gateway SDK artifact
 
-Internal private SDK0.1.0 from Gateway source
-`d96569febce760fda025f917aa076aeb6b54d117`, tree
-`589d7359be90da5977c59aab3df4c7027167eb00`.
-The independently reviewed source passed the existing frozen install, SDK build,
-facade ingress fixture, strict service typecheck and normal package command.
-This 15907-byte private archive is not an npm publication or a release.
-`provenance.json` records source/build/package hashes and tarball integrity.
-Rebuild using the library's existing `node scripts/build.mjs` and normal
-`pnpm --dir packages/account-gateway pack` in an isolated workspace.
+The current private SDK0.1.0 archive is
+`agent-teams-account-gateway-0.1.0-28d6da0.tgz` (17155 bytes), packed from normal
+Gateway main `28d6da0539fc7b879e3c2b9a955b7ef91ba4ecd1`, tree
+`fe29e0e880f46fbbbbf2abfeba5309ac2d0d0b46`. Reviewed source is
+`7c278c0087b03b34fca88882deb66bb76c34ac6f`. The normal pack reused the qualified
+build with Node26.11.1/pnpm11.28.2. It is not an npm publication or a release.
+`provenance.json` records exact source/archive hashes, integrity and qualification.
+Historical archives retain their original bytes and source identity.
 
-RR backend consumes `/contracts` and server-only `/http`. The archive includes
-protected OAuth Begin and callback-completion contracts and the existing
-consumer-control factory. Upstream keys and private execution/run-control
-bearers are absent from the artifact and frontend API.
+RR backend consumes `/contracts` and server-only `/http`. The archive retains
+protected OAuth Begin/callback completion and normal consumer-control clients,
+and adds authoritative account `retirement` and policy-cohort `policyClosure`
+readbacks. Upstream keys and private execution/run-control bearers are absent
+from the artifact and frontend API. Older SDK archives are not lifecycle fallbacks.
+
+The actual controlled Go/Node/PostgreSQL joined acceptance passed held transport
+closure, borrower deletion without owner disable, 102 scoped fences, one owner
+disable despite a lost caller ACK, normal credential erasure and two tombstones.
+No provider or production effects occurred. This does not apply RR migration127
+or prove production deletion.
 
 OAuth enrollment remains opt-in for `openai-codex-oauth-responses-v1`.
 The ordinary Accounts form submits the fixed `http://localhost:1455/auth/callback`
 URL once through the authenticated server adapter and scoped Gateway management
 path. The URL is secret input and is never fetched or retained in client caches.
-This source repin does not qualify a live OAuth provider or production custody.
+Rebuild only through the library's existing `node scripts/build.mjs` and normal
+`pnpm --dir packages/account-gateway pack` in an isolated workspace.

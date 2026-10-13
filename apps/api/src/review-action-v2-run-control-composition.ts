@@ -131,6 +131,8 @@ export interface ReviewActionV2RunAdmissionFactsPort {
     readonly claims: GitHubActionsOidcClaims;
     readonly repository: ActionRepositoryContext;
     readonly scmRepositoryIdentityId: string;
+    /** Server-resolved VALID token authorization; never a request field. */
+    readonly renewalAuthorization?: ReviewRunAuthorization;
   }): Promise<ReviewActionV2ResolvedAdmission>;
 }
 
@@ -185,7 +187,58 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
     async resolve(input) {
       const repositoryName = splitRepositoryFullName(input.repository.fullName);
       let admissionDecisionHash: string | null = null;
-      if (dependencies.requestedIntentRequired === true) {
+      let boundRenewalIntent: ReviewRequestedIntent | null = null;
+      if (
+        dependencies.requestedIntentRequired === true &&
+        input.renewalAuthorization
+      ) {
+        if (
+          input.renewalAuthorization.workspaceId !==
+            input.repository.workspaceId ||
+          input.renewalAuthorization.repositoryConnectionId !==
+            input.repository.repositoryId ||
+          input.renewalAuthorization.scmRepositoryIdentityId !==
+            input.scmRepositoryIdentityId ||
+          input.renewalAuthorization.sourceRunId !== input.claims.run_id ||
+          input.renewalAuthorization.sourceRunAttempt !==
+            input.claims.run_attempt
+        ) {
+          throw routeFailure(
+            403,
+            ReviewActionV2ProtocolErrorCode.Forbidden,
+            "review_request_intent_required",
+          );
+        }
+        const intent =
+          await dependencies.requestedIntents!.findByRepositorySourceRunIdentity(
+            {
+              repositoryConnectionId: input.repository.repositoryId,
+              sourceRunId: input.claims.run_id,
+              sourceRunAttempt: input.claims.run_attempt,
+            },
+          );
+        if (intent?.state === ReviewRequestedIntentState.Dispatched) {
+          if (
+            !matchesBoundRenewalIntent(
+              intent,
+              input.renewalAuthorization,
+              input,
+            )
+          ) {
+            throw routeFailure(
+              403,
+              ReviewActionV2ProtocolErrorCode.Forbidden,
+              "review_request_intent_required",
+            );
+          }
+          boundRenewalIntent = intent;
+          admissionDecisionHash = intent.admission.decisionHash;
+        }
+      }
+      if (
+        dependencies.requestedIntentRequired === true &&
+        !boundRenewalIntent
+      ) {
         if (
           !/^[1-9][0-9]*$/.test(input.claims.run_id) ||
           !/^[1-9][0-9]*$/.test(input.claims.run_attempt) ||
@@ -240,8 +293,16 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
       if (
         dependencies.requestedIntentRequired === true &&
         (!requestedIntent ||
-          requestedIntent.state !==
-            ReviewRequestedIntentState.AwaitingAuthorization ||
+          (boundRenewalIntent
+            ? !matchesBoundRenewalIntent(
+                requestedIntent,
+                input.renewalAuthorization!,
+                input,
+              ) ||
+              requestedIntent.requestId !== boundRenewalIntent.requestId ||
+              requestedIntent.executionId !== boundRenewalIntent.executionId
+            : requestedIntent.state !==
+              ReviewRequestedIntentState.AwaitingAuthorization) ||
           requestedIntent.admission.state !==
             ReviewRequestAdmissionState.Admitted ||
           requestedIntent.admission.decisionHash !== admissionDecisionHash ||
@@ -312,11 +373,18 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
         if (
           !current ||
           current.requestId !== requestedIntent?.requestId ||
-          current.state !== ReviewRequestedIntentState.AwaitingAuthorization ||
           current.admission.state !== ReviewRequestAdmissionState.Admitted ||
           current.admission.decisionHash !== admissionDecisionHash ||
-          current.authorizationId !== null ||
-          current.executionId !== null
+          (boundRenewalIntent
+            ? !matchesBoundRenewalIntent(
+                current,
+                input.renewalAuthorization!,
+                input,
+              ) || current.executionId !== boundRenewalIntent.executionId
+            : current.state !==
+                ReviewRequestedIntentState.AwaitingAuthorization ||
+              current.authorizationId !== null ||
+              current.executionId !== null)
         ) {
           throw routeFailure(
             403,
@@ -356,6 +424,35 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
       };
     },
   };
+}
+
+/** Continuation is scoped to the persisted intent linked to this validated authorization. */
+function matchesBoundRenewalIntent(
+  intent: ReviewRequestedIntent,
+  authorization: ReviewRunAuthorization,
+  input: Parameters<ReviewActionV2RunAdmissionFactsPort["resolve"]>[0],
+): boolean {
+  return (
+    intent.state === ReviewRequestedIntentState.Dispatched &&
+    intent.admission.state === ReviewRequestAdmissionState.Admitted &&
+    intent.authorizationId === authorization.authorizationId &&
+    intent.executionId !== null &&
+    intent.workspaceId === authorization.workspaceId &&
+    intent.workspaceId === input.repository.workspaceId &&
+    intent.repositoryConnectionId === authorization.repositoryConnectionId &&
+    intent.repositoryConnectionId === input.repository.repositoryId &&
+    intent.scmRepositoryIdentityId === authorization.scmRepositoryIdentityId &&
+    intent.scmRepositoryIdentityId === input.scmRepositoryIdentityId &&
+    intent.sourceRunId === authorization.sourceRunId &&
+    intent.sourceRunId === input.claims.run_id &&
+    intent.sourceRunAttempt === authorization.sourceRunAttempt &&
+    intent.sourceRunAttempt === input.claims.run_attempt &&
+    intent.pullRequestNumber === authorization.pullRequestNumber &&
+    intent.revision.baseSha === authorization.baseSha &&
+    intent.revision.mergeBaseSha === authorization.mergeBaseSha &&
+    intent.revision.headSha === authorization.headSha &&
+    intent.revision.reviewRevisionHash === authorization.reviewRevisionHash
+  );
 }
 
 function splitRepositoryFullName(fullName: string): {
@@ -930,6 +1027,7 @@ async function renewReviewRun(
   const resolved = await resolveVerifiedIdentity(
     request.oidcToken,
     dependencies,
+    token.authorization,
   );
   const renewalReplayKeyHash = await dependencies.digest.digestUtf8(
     canonicalJson({
@@ -967,6 +1065,7 @@ async function renewReviewRun(
 async function resolveVerifiedIdentity(
   oidcToken: string,
   dependencies: ReviewActionV2RunControlHandlerDependencies,
+  renewalAuthorization?: ReviewRunAuthorization,
 ): Promise<{
   readonly claims: GitHubActionsOidcClaims;
   readonly identity: VerifiedScmRunIdentity;
@@ -1017,6 +1116,7 @@ async function resolveVerifiedIdentity(
     claims,
     repository,
     scmRepositoryIdentityId: scmIdentity.scmRepositoryIdentityId,
+    ...(renewalAuthorization ? { renewalAuthorization } : {}),
   });
   const facts = admission.revision;
   if (

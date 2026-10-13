@@ -257,8 +257,6 @@ function createFacts(
         selected: true,
         installationStatus: "active",
       }),
-      findRuntimeReviewConfiguration: async () => null,
-      recordHealthReport: async () => undefined,
     },
     releaseAttestations: {
       attest: async () =>
@@ -294,6 +292,7 @@ function createFacts(
         compatible: input.inventoryCompatible ?? true,
         inventoryHash: "a".repeat(64),
         actionCommitSha: "c".repeat(40),
+        defaultBranchHeadSha: "d".repeat(40),
         workflowSchemaVersion:
           input.workflowSchemaVersion ??
           CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2,

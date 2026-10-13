@@ -99,6 +99,210 @@ vi.mock("@octokit/app", () => ({
   },
 }));
 
+// This focused port fixture proves the pre-write capability decision and actual
+// React/Radix request serialization; PG durability stays in the existing case.
+test("gateway batch offers qualified MiMo reasoning and denies unsupported effort before write", async () => {
+  const workspaceId = "fixture-workspace";
+  const profileId = "fixture-responses";
+  const models = ["mimo-v2.6-pro", "gpt-6.1-sol", "openai/gpt-5-nano"];
+  const page: AccountsResult<AccountsPage> = {
+    status: "ok",
+    value: {
+      profiles: [
+        {
+          id: profileId,
+          label: "Fixture",
+          protocol: "openai-responses",
+          models,
+        },
+      ],
+      accounts: [
+        {
+          connectionId: "fixture-connection",
+          label: "Fixture account",
+          profileId,
+          profileLabel: "Fixture",
+          state: "active",
+          gatewayRevision: 1,
+          mirrorRevision: 1,
+          binding: {
+            id: "fixture-binding",
+            revision: 1,
+            state: "active",
+            fencePending: false,
+          },
+        },
+      ],
+      nextCursor: null,
+    },
+  };
+  const write = vi.fn<
+    Parameters<
+      typeof createGatewayRepositoryBatchAdapter
+    >[0]["configurations"]["saveNextVersionWithOperation"]
+  >(async (input) => ({ config: input.config, version: 2 }));
+  const unused = async (): Promise<never> => {
+    throw new Error("fixture_unexpected_write");
+  };
+  const adapter = createGatewayRepositoryBatchAdapter({
+    configurations: {
+      findLatest: async () => ({
+        config: safeDefaultReviewConfiguration,
+        version: 1,
+      }),
+      findOperation: async () => null,
+      saveNextVersionWithOperation: write,
+      saveNextVersion: unused,
+      deleteTarget: unused,
+    },
+    authorize: async () => ({
+      userId: "fixture-user",
+      githubUserId: "123",
+      githubLogin: "fixture",
+    }),
+    profiles: async () => page.value.profiles,
+    bindings: {
+      workspaceAccess: {
+        findWorkspaceRoleByUserId: async () => "owner",
+        findWorkspaceRoleByGitHubUserId: async () => "owner",
+        listWorkspaceRolesByUserId: async () => [],
+        listWorkspaceRolesByGitHubUserId: async () => [],
+      },
+      accounts: {
+        findOwnedConnection: async () => null,
+        compareAndSetBinding: unused,
+        findBinding: async () => ({
+          binding: {
+            id: "fixture-binding",
+            workspaceId,
+            connectionId: "fixture-connection",
+            state: "active",
+            revision: 1,
+            policyRevision: 1,
+            pendingFence: null,
+            fenceAck: null,
+          },
+          connection: {
+            id: "fixture-connection",
+            owner: { kind: "workspace", workspaceId },
+            gatewayAccountRef: "fixture-account",
+            gatewayOperationRef: null,
+            profileRef: profileId,
+            displayName: "Fixture",
+            state: "active",
+            metadataRevision: 1,
+          },
+        }),
+      },
+    },
+  });
+  const saves: GatewayBatchRequest[] = [];
+  const originalScroll = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = () => {};
+  const view = render(
+    createElement(GatewayRepositoryBatchControls, {
+      workspaceId,
+      inventory: [
+        {
+          repositoryId: "fixture-repository",
+          fullName: "fixture/repository",
+          expectedVersion: 1,
+          eligible: true,
+        },
+      ],
+      accounts: page,
+      enabled: true,
+      refresh: () => {},
+      actions: {
+        async save(request) {
+          saves.push(request);
+          return adapter.save(request);
+        },
+        read: adapter.read,
+      },
+      children: null,
+    }),
+  );
+  async function choose(label: string, option: string) {
+    fireEvent.keyDown(screen.getByRole("combobox", { name: label }), {
+      key: "Enter",
+    });
+    fireEvent.click(await screen.findByRole("option", { name: option }));
+  }
+  try {
+    fireEvent.click(screen.getByLabelText("Select fixture/repository"));
+    await choose("Gateway account", "Fixture account · Fixture");
+    await choose("Gateway model", "gpt-6.1-sol");
+    await choose("Reasoning effort", "xhigh");
+    await choose("Gateway model", "mimo-v2.6-pro");
+    expect(
+      screen.getByRole("combobox", { name: "Reasoning effort" }).textContent,
+    ).toContain("high");
+    fireEvent.keyDown(
+      screen.getByRole("combobox", { name: "Reasoning effort" }),
+      { key: "Enter" },
+    );
+    expect(
+      screen
+        .getAllByRole("option")
+        .map((row) => row.textContent?.replace(" ✓", "").trim()),
+    ).toEqual(["low", "medium", "high"]);
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Apply gateway configuration" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText("fixture/repository: applied (version 2)"),
+      ).toBeTruthy(),
+    );
+    expect(saves).toHaveLength(1);
+    expect(saves[0]!.selection.reasoningEffort).toBe("high");
+    expect(write).toHaveBeenCalledTimes(1);
+    const first = saves[0]!;
+    for (const reasoningEffort of ["xhigh", "max", "ultra"] as const) {
+      expect(
+        (
+          await adapter.save({
+            ...first,
+            operationId: randomUUID(),
+            selection: { ...first.selection, reasoningEffort },
+          })
+        ).results,
+      ).toEqual([{ repositoryId: "fixture-repository", status: "denied" }]);
+    }
+    expect(write).toHaveBeenCalledTimes(1);
+    for (const model of ["gpt-6.1-sol", "openai/gpt-5-nano"]) {
+      expect(
+        (
+          await adapter.save({
+            ...first,
+            operationId: randomUUID(),
+            selection: { ...first.selection, model, reasoningEffort: "xhigh" },
+          })
+        ).results,
+      ).toEqual([
+        { repositoryId: "fixture-repository", status: "applied", version: 2 },
+      ]);
+    }
+    expect(write).toHaveBeenCalledTimes(3);
+    expect(
+      (
+        await adapter.save({
+          ...first,
+          operationId: randomUUID(),
+          selection: { ...first.selection, model: "unadvertised-model" },
+        })
+      ).results,
+    ).toEqual([{ repositoryId: "fixture-repository", status: "denied" }]);
+    expect(write).toHaveBeenCalledTimes(3);
+  } finally {
+    view.unmount();
+    cleanup();
+    HTMLElement.prototype.scrollIntoView = originalScroll;
+  }
+});
+
 // Plausible failures: batch code overwrites a concurrent single-editor save,
 // saves a transferred repo under stale ownership, resets selection on refresh,
 // reports partial success as green, or resubmits after a lost response.

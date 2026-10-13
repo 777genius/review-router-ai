@@ -27,7 +27,11 @@ function matchesReceipt(
  * caller visit later rows without evicting unresolved requirements.
  */
 export async function reconcileWorkspaceBindingFences(
-  request: { readonly limit: number; readonly afterBindingId?: string },
+  request: {
+    readonly limit: number;
+    readonly afterBindingId?: string;
+    readonly bindingIds?: readonly string[];
+  },
   dependencies: {
     readonly accounts: WorkspaceBindingFenceRepositoryPort;
     readonly delivery: WorkspaceBindingFenceDeliveryPort;
@@ -45,12 +49,20 @@ export async function reconcileWorkspaceBindingFences(
     ...(request.afterBindingId !== undefined
       ? { afterBindingId: request.afterBindingId }
       : {}),
+    ...(request.bindingIds !== undefined
+      ? { bindingIds: request.bindingIds }
+      : {}),
   };
   if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100)
     throw new ProviderAccountError("invalid_input");
   if (input.afterBindingId !== undefined)
     assertOpaqueReference(input.afterBindingId);
-  const rows = await dependencies.accounts.listPendingBindingFences(input);
+  const selected = input.bindingIds ? new Set(input.bindingIds) : null;
+  if (selected)
+    for (const bindingId of selected) assertOpaqueReference(bindingId);
+  const rows = (
+    await dependencies.accounts.listPendingBindingFences(input)
+  ).filter((row) => !selected || selected.has(row.id));
   // Snapshot every intent before the first delivery await.
   const intents = rows.slice(0, input.limit).map((row) => {
     if (!row.pendingFence) throw new ProviderAccountError("invalid_input");

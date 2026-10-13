@@ -166,8 +166,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -302,8 +302,8 @@ importers:
         version: 0.4.1
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -364,6 +364,9 @@ importers:
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../../packages/features/review-providers
+      '@reviewrouter/features-review-run-control':
+        specifier: workspace:*
+        version: link:../../packages/features/review-run-control
       '@reviewrouter/features-support-diagnostics':
         specifier: workspace:*
         version: link:../../packages/features/support-diagnostics
@@ -1023,6 +1026,12 @@ importers:
 
   packages/features/workflow-provisioning:
     dependencies:
+      '@octokit/app':
+        specifier: ^16.1.2
+        version: 16.1.2
+      '@octokit/request':
+        specifier: ^10.0.9
+        version: 10.0.9
       '@prisma/client':
         specifier: ^7.8.0
         version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
@@ -1038,6 +1047,18 @@ importers:
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../review-providers
+      '@reviewrouter/features-review-run-control':
+        specifier: workspace:*
+        version: link:../review-run-control
+      '@reviewrouter/platform-config':
+        specifier: workspace:*
+        version: link:../../platform/config
+      '@reviewrouter/platform-db':
+        specifier: workspace:*
+        version: link:../../platform/db
+      '@reviewrouter/protocol-review-action-v2':
+        specifier: workspace:*
+        version: link:../../protocol-review-action-v2
       '@reviewrouter/protocol-review-workflow':
         specifier: workspace:*
         version: link:../../protocol-review-workflow
@@ -1113,8 +1134,8 @@ importers:
 
 packages:
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz':
-    resolution: {integrity: sha512-NXVTLotD7JxcblgcA8QxIuK/6ZPuLYeruHLzNsUoP/fO/DDiTww3xG5HCOJQ5Y/31yWUdGcWzDhihHEBqHgM+A==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz':
+    resolution: {integrity: sha512-ND8uEBMirCXEQr/YYFE1r34D85Rv/QF8mTUTJC3fkcBMdWeJRAhqej/KVnusubwC9/DX4bg6YPJl19fsg6rPEA==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -5188,7 +5209,7 @@ packages:
 
 snapshots:
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0

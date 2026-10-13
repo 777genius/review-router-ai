@@ -46,7 +46,7 @@
     "@reviewrouter/platform-locks": "workspace:*",
     "@reviewrouter/features-sdk-growth-authority": "workspace:*",
     "@reviewrouter/features-provider-accounts": "workspace:*",
-    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-7e237bb.tgz"
+    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-28d6da0.tgz"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",

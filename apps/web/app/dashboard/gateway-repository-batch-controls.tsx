@@ -1,6 +1,10 @@
 "use client";
 
 import { Button } from "@reviewrouter/ui";
+import {
+  defaultGatewayMiMoReasoningEffort,
+  gatewayModelSupportsReasoningEffort,
+} from "../../src/features/account-gateway/review-reasoning-capabilities";
 import * as Select from "@radix-ui/react-select";
 import { useRouter } from "next/navigation";
 import {
@@ -320,7 +324,11 @@ export function GatewayRepositoryBatchContent({
   const models =
     page?.profiles.find((profile) => profile.id === account?.profileId)
       ?.models ?? [];
-  const selectionValid = Boolean(account && models.includes(model));
+  const selectionValid = Boolean(
+    account &&
+    models.includes(model) &&
+    gatewayModelSupportsReasoningEffort(model, reasoningEffort),
+  );
   const unknown = results.some((result) => result.status === "unknown");
   const unavailableCount = selected.filter(
     (target) =>
@@ -485,18 +493,27 @@ export function GatewayRepositoryBatchContent({
           value={models.includes(model) ? model : ""}
           disabled={locked || !enabled || !account}
           options={models.map((value) => ({ value, label: value }))}
-          onChange={setModel}
+          onChange={(value) => {
+            if (!gatewayModelSupportsReasoningEffort(value, reasoningEffort))
+              setReasoningEffort(defaultGatewayMiMoReasoningEffort);
+            setModel(value);
+          }}
         />
         <Choice
           label="Reasoning effort"
           value={reasoningEffort}
           disabled={locked || !enabled}
-          options={(
-            ["low", "medium", "high", "xhigh", "max", "ultra"] as const
-          ).map((value) => ({ value, label: value }))}
+          options={(["low", "medium", "high", "xhigh", "max", "ultra"] as const)
+            .filter((value) =>
+              gatewayModelSupportsReasoningEffort(model, value),
+            )
+            .map((value) => ({ value, label: value }))}
           onChange={(value) => {
             if (
-              ["low", "medium", "high", "xhigh", "max", "ultra"].includes(value)
+              ["low", "medium", "high", "xhigh", "max", "ultra"].includes(
+                value,
+              ) &&
+              gatewayModelSupportsReasoningEffort(model, value)
             )
               setReasoningEffort(
                 value as GatewayBatchSelection["reasoningEffort"],
