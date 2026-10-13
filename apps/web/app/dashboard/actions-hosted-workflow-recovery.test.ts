@@ -43,6 +43,7 @@ const mocks = vi.hoisted(() => ({
   activeAttestation: vi.fn(),
   validateActive: vi.fn(),
   persistReplacement: vi.fn(),
+  gatewayProvisioning: vi.fn(),
 }));
 vi.mock("../../src/server/workflow-setup-readiness", async (original) => {
   const actual =
@@ -56,6 +57,11 @@ vi.mock("../../src/server/workflow-setup-readiness", async (original) => {
     ),
   };
 });
+// The source-fence composition fixture stops at the Gateway authority adapter.
+// Its actual policies/registry/dispatch capabilities have their own fixtures.
+vi.mock("../../src/server/prisma-gateway-review-v2-provisioning", () => ({
+  provisionGatewayReviewV2Repository: mocks.gatewayProvisioning,
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("../../src/server/hosted-pool-dashboard", () => ({}));
@@ -1170,6 +1176,23 @@ describe("hosted setup recovery composition", () => {
       }),
     });
     mocks.ledgerActivate.mockResolvedValue({ status: "activated" });
+    mocks.gatewayProvisioning.mockImplementation(
+      async (
+        input: Parameters<
+          typeof import("../../src/server/prisma-gateway-review-v2-provisioning").provisionGatewayReviewV2Repository
+        >[0],
+      ) => {
+        await input.assertCurrentSetupAndSource();
+        return {
+          status: "ready",
+          outcome: "restored",
+          scmRepositoryIdentityId: "fixture-scm-identity",
+          authorityVersion: 1,
+          authorityEpoch: "1",
+          actionCommitSha: input.command.expectedGatewaySource.actionCommitSha,
+        };
+      },
+    );
   });
   afterEach(() => vi.unstubAllEnvs());
 
@@ -1265,6 +1288,9 @@ describe("hosted setup recovery composition", () => {
         });
         expect(f.events).toContain(`workflow:${workflowPath}:${commitSha}`);
       }
+      expect(mocks.gatewayProvisioning).toHaveBeenCalledTimes(
+        sourceChanged ? 0 : 1,
+      );
       expect(mocks.activateCodex).not.toHaveBeenCalled();
       expect(mocks.namespace).not.toHaveBeenCalled();
       expect(mocks.ledgerActivate).not.toHaveBeenCalled();
