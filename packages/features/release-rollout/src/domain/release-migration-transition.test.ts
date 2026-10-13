@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps full126 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout128 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,14 +107,15 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(126);
+    expect(full).toHaveLength(127);
     expect(manifest(full)).toBe(
-      "sha256:5b565a1ad6f9ee710f45af02614b911e68346773226406e1209f173f1e07b30a",
+      "sha256:25978108fdc33470b190776a8c0705473c0bcfb60b18d4d631da64eb315d6f42",
     );
     const old125 = full
       .filter(
         (row) =>
-          row.migrationName !== "000126_review_configuration_mimo_auth_kind",
+          row.migrationName !== "000126_review_configuration_mimo_auth_kind" &&
+          row.migrationName !== "000128_account_admission_row_lock",
       )
       .map((row) =>
         row.migrationName === "000119_review_configuration_gateway_binding"
@@ -136,7 +137,7 @@ describe("canonical release migration transition", () => {
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-19).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-20).map((row) => row.migrationName)).toEqual([
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
@@ -156,6 +157,7 @@ describe("canonical release migration transition", () => {
       "000124_personal_account_operations",
       "000125_hosted_codex_device_reconnect",
       "000126_review_configuration_mimo_auth_kind",
+      "000128_account_admission_row_lock",
     ]);
     const withoutProviderKey = historicalFull.filter(
       (row) =>

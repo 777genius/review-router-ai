@@ -333,6 +333,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000124_personal_account_operations",
     "000125_hosted_codex_device_reconnect",
     "000126_review_configuration_mimo_auth_kind",
+    "000128_account_admission_row_lock",
   ]),
   retained: Object.freeze([
     "000067_review_live_progress",

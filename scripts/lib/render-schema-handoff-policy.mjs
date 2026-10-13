@@ -275,6 +275,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // C1 lock privileges are a checkout-only addition. Pin its exact complete
+  // source, then validate unchanged126; managed92/historical ledgers stay frozen.
+  const accountAdmissionMigration = catalog.find(
+    (row) => row.migrationName === "000128_account_admission_row_lock",
+  );
+  if (accountAdmissionMigration) {
+    if (
+      accountAdmissionMigration.checksum !==
+        "9d53bafb4a8f9b5b9ca9ab640c6765ff425baf87d4c5d8b80b81cc690486fe9f" ||
+      manifest(catalog) !==
+        "sha256:25978108fdc33470b190776a8c0705473c0bcfb60b18d4d631da64eb315d6f42"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== accountAdmissionMigration),
+    );
+  }
   // The MiMO correction is admitted only with its exact complete checkout126.
   // Project back to the already-pinned source history for managed admission;
   // this never changes an applied119 ledger checksum or the managed92 catalog.

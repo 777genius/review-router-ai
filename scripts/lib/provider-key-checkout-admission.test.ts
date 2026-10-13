@@ -12,7 +12,8 @@ const originalHistory = readRenderManagedCheckoutInventory()
   .filter(
     (row) =>
       row.migrationName !== keyName &&
-      row.migrationName !== "000126_review_configuration_mimo_auth_kind",
+      row.migrationName !== "000126_review_configuration_mimo_auth_kind" &&
+      row.migrationName !== "000128_account_admission_row_lock",
   )
   .map((row) =>
     row.migrationName === "000119_review_configuration_gateway_binding"

@@ -25,7 +25,8 @@ const full = currentFull
     (row) =>
       row.migrationName !== "000110_provider_api_key_workspace_management" &&
       row.migrationName !== "000125_hosted_codex_device_reconnect" &&
-      row.migrationName !== "000126_review_configuration_mimo_auth_kind",
+      row.migrationName !== "000126_review_configuration_mimo_auth_kind" &&
+      row.migrationName !== "000128_account_admission_row_lock",
   )
   .map((row) =>
     row.migrationName === "000119_review_configuration_gateway_binding"
