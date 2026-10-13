@@ -376,7 +376,7 @@ jobs:
 
   quality-gates:
     name: Quality Gates
-    needs: [quality, managed-migration-pg17]
+    needs: [quality, static-checks, managed-migration-pg17]
     if: ${{ always() }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
@@ -385,11 +385,52 @@ jobs:
         shell: bash
         env:
           QUALITY_RESULT: ${{ needs.quality.result }}
+          STATIC_CHECKS_RESULT: ${{ needs.static-checks.result }}
           MANAGED_PG17_RESULT: ${{ needs.managed-migration-pg17.result }}
         run: |
           set -euo pipefail
           test "$QUALITY_RESULT" = success
+          test "$STATIC_CHECKS_RESULT" = success
           test "$MANAGED_PG17_RESULT" = success
+
+  static-checks:
+    name: Static Checks
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+
+      - name: Generate Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+
+      - name: Generate Next.js route types
+        working-directory: apps/web
+        run: pnpm exec next typegen
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
 
   quality:
     name: Quality Checks
@@ -931,15 +972,6 @@ jobs:
 
       - name: Support diagnostics DB E2E
         run: node scripts/run-with-env.mjs pnpm spike:support-diagnostics:e2e
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Format check
-        run: pnpm format:check
-
-      - name: Typecheck
-        run: pnpm typecheck
 
       - name: Build
         run: pnpm build
