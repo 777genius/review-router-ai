@@ -58,7 +58,11 @@ const command: GatewayReviewV2ProvisioningCommand = {
   },
 };
 
-async function fixture(raceLegacy = false, dispatchAvailable = true) {
+async function fixture(
+  raceLegacy = false,
+  dispatchAvailable = true,
+  inspectedHead = head,
+) {
   const kit = createReviewRunControlTestKit();
   for (const capability of gatewayReviewV2SafetyCapabilities)
     await kit.control.safetyControls.updateReviewSafetyPolicy({
@@ -98,7 +102,7 @@ async function fixture(raceLegacy = false, dispatchAvailable = true) {
           };
         if (route === "GET /repos/{owner}/{repo}/pulls") return { data: [] };
         if (route === "GET /repos/{owner}/{repo}/branches/{branch}")
-          return { data: { name: "main", commit: { sha: head } } };
+          return { data: { name: "main", commit: { sha: inspectedHead } } };
         if (
           route === "GET /repos/{owner}/{repo}/contents/{path}" &&
           parameters.path === workflow.path
@@ -216,6 +220,42 @@ async function fixture(raceLegacy = false, dispatchAvailable = true) {
 }
 
 describe("normal fresh Gateway provisioning", () => {
+  it("rejects inventory from another default-branch revision before materializing admission authority", async () => {
+    const { kit, operation } = await fixture(false, true, "c".repeat(40));
+
+    expect(await operation.execute(command)).toMatchObject({
+      status: "blocked",
+      issue: "gateway_review_v2_workflow_incompatible",
+    });
+    const identity =
+      await kit.store.findScmRepositoryIdentityByExternalIdentity({
+        provider: ScmProvider.GitHub,
+        normalizedSourceBaseUrl: "https://github.com",
+        externalRepositoryId: command.repository.githubRepositoryId,
+      });
+    expect(
+      await kit.store.findReviewMutationAuthority({
+        scmRepositoryIdentityId: identity!.scmRepositoryIdentityId,
+        laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
+      }),
+    ).toBeNull();
+    expect(
+      await kit.store.findProducerReleaseById(
+        releaseCandidate.producerReleaseId,
+      ),
+    ).toBeNull();
+    expect(
+      await kit.store.findReviewSafetyPolicy({
+        scope: {
+          scope: ReviewSafetyPolicyScope.Repository,
+          workspaceId: command.workspaceId,
+          repositoryConnectionId: command.repositoryId,
+          scmRepositoryIdentityId: identity!.scmRepositoryIdentityId,
+        },
+        capability: ReviewSafetyCapability.RunAuthorizationV2,
+      }),
+    ).toBeNull();
+  });
   it("blocks dispatch-only Gateway provisioning without actual App dispatch permission", async () => {
     const { kit, operation } = await fixture(false, false);
     expect(await operation.execute(command)).toMatchObject({

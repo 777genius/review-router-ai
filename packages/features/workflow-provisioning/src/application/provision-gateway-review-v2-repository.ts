@@ -46,6 +46,7 @@ export interface ManagedReviewWorkflowInventoryInspectionPort {
     readonly inventoryHash: string;
     readonly actionCommitSha: string | null;
     readonly workflowSchemaVersion: number | null;
+    readonly defaultBranchHeadSha: string;
   }>;
 }
 export interface ReviewV2DispatchCapabilityInspectionPort {
@@ -303,6 +304,8 @@ export class ProvisionGatewayReviewV2Repository {
       !inventory.compatible ||
       inventory.actionCommitSha !==
         command.expectedGatewaySource.actionCommitSha ||
+      inventory.defaultBranchHeadSha !==
+        command.expectedGatewaySource.sourceRevision ||
       inventory.workflowSchemaVersion !== 2
     )
       return {

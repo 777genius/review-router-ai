@@ -279,7 +279,7 @@ export function RepositorySetupProgressPanel({
 
   return (
     <section className="mb-4 pt-1">
-      {gatewayBlocked ? (
+      {gatewayBlocked && displayStep >= 3 ? (
         <p className="mb-3 text-sm text-slate-300" role="status">
           {gatewayReviewV2Readiness?.status === "draining"
             ? `Review migration is draining until ${gatewayReviewV2Readiness.drainNotBefore}. Reviews remain unavailable.`
