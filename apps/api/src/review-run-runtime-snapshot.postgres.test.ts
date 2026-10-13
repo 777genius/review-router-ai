@@ -34,7 +34,10 @@ import {
   type ReviewRunAuthorization,
   type ReviewRunRuntimeSnapshotPort,
 } from "@reviewrouter/features-review-run-control";
-import { createReviewActionV2E2EHarness } from "../../../scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness";
+import {
+  createReviewActionV2E2EHarness,
+  resetReviewActionV2E2EDatabase,
+} from "../../../scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness";
 import {
   composeReviewActionV2ProductionRunControl,
   composeReviewActionV2ProductionRoutes,
@@ -591,7 +594,11 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
   }, 30_000);
 
   it("retains one original across competing admissions, settings and revocation", async () => {
-    const databaseUrl = disposableDatabase();
+    const timezone = "Europe/Berlin";
+    const database = new URL(disposableDatabase());
+    database.searchParams.set("options", `-c TimeZone=${timezone}`);
+    const databaseUrl = database.toString();
+    await resetReviewActionV2E2EDatabase(databaseUrl);
     const limits = {
       requests: 2,
       concurrency: 1,
@@ -617,6 +624,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         await hold?.();
       },
       environmentOverrides: {
+        REVIEW_ROUTER_REVIEW_V2_MAX_AUTHORIZATION_LIFETIME_MS: "900000",
         REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
           profiles: [{ profileRef: "mimo-responses-v1", limits }],
         }),
@@ -631,6 +639,11 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
     const closes: Gateway.Close[] = [];
     try {
       const { prisma, workspaceId, repositoryConnectionId } = harness;
+      expect(
+        await prisma.$queryRaw<readonly { timezone: string }[]>`
+          SELECT current_setting('TimeZone') AS "timezone"
+        `,
+      ).toEqual([{ timezone }]);
       const accounts = new PrismaProviderAccountRepository(prisma);
       const connection = await prisma.providerAccountConnection.create({
         data: {
@@ -1272,7 +1285,13 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           runtimeConfig: {
             protocolVersion: 1,
             configVersion: 1,
-            runtimeEnv: mapConfigToRuntimeEnv(config),
+            runtimeEnv: {
+              ...mapConfigToRuntimeEnv(config),
+              REVIEW_ROUTER_LIFECYCLE_OBSERVATION_AUTHORS: JSON.stringify([
+                "review-router-ai[bot]",
+                "github-actions[bot]",
+              ]),
+            },
           },
         });
         const admittedRuntimeConfig = readCapability.json().runtimeConfig;
@@ -1648,7 +1667,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         ReviewRunAuthorizationUseCaseStatus.Restored,
       );
       expect(retained.authorization).toEqual(original);
-      // A full gateway run already owns its entire original six-hour maximum.
+      // A full gateway run already owns its original fifteen-minute maximum.
       const renewed =
         await production.runControl.authorizations.renewReviewRunAuthorization({
           authorizationId: original.authorizationId,
@@ -1664,8 +1683,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       expect(renewed.authorization.maxExpiresAt).toEqual(original.maxExpiresAt);
       expect(original.expiresAt).toEqual(original.maxExpiresAt);
       expect(original.maxExpiresAt.getTime()).toBe(
-        Math.floor((original.createdAt.getTime() + 6 * 60 * 60_000) / 1000) *
-          1000,
+        Math.floor((original.createdAt.getTime() + 15 * 60_000) / 1000) * 1000,
       );
       expect(renewed.authorization).toEqual(original);
       for (const oidcReplayKeyHash of [
