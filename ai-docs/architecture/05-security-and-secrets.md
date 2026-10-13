@@ -9,11 +9,11 @@ ReviewRouter v1 should minimize custody:
 - no Codex OAuth storage
 - no model API key storage by default
 
-The SaaS stores metadata and configuration only.
+The control plane stores metadata and configuration only.
 
 This is the default legacy posture. [ADR-029](../decisions/029-opt-in-hosted-workspace-account-pool.md)
 defines a separate opt-in hosted workspace account pool for explicitly bound
-repositories. In that mode SaaS is credential custodian and a transient
+repositories. In that mode control plane is credential custodian and a transient
 Responses relay, while checkout, tools, and the agent remain in GitHub Actions.
 
 ## Secret Handling Modes
@@ -40,13 +40,13 @@ Recommended v1 mode:
 - used by ReviewRouter Action in customer GitHub Actions
 - optional self-hosted runner with persistent `CODEX_HOME`
 
-SaaS sees only setup state.
+control plane sees only setup state.
 
 Opt-in hosted workspace account pool mode instead requires:
 
-- envelope-encrypted SaaS custody through a KMS/keyring port;
+- envelope-encrypted control plane custody through a KMS/keyring port;
 - tenant/account/generation/database-incarnation AEAD binding;
-- credentials that never leave SaaS and bounded grants that are the Action's
+- credentials that never leave control plane and bounded grants that are the Action's
   only relay capability;
 - body-free logging/tracing/queues for transient prompts, tool outputs, and
   responses;
@@ -63,7 +63,7 @@ delegation contract. Compliance approval is a hard enablement gate.
 Recommended v1 mode:
 
 - stored in customer GitHub repo/org secrets
-- SaaS tracks setup state only
+- control plane tracks setup state only
 
 Future optional BYOK mode:
 
@@ -116,7 +116,7 @@ issues: write
 These permissions are for the shared GitHub App control plane. Review execution still runs in the customer's workflow. The App creates setup/update PRs and should never push directly to the default branch.
 
 `issues: write` is included only for PR summary/setup/help conversations when
-App-bot identity or SaaS guidance is used. `actions: write` is limited to
+App-bot identity or control plane guidance is used. `actions: write` is limited to
 dispatching exact-revision T0 reviews from durable request intents; the worker
 persists and audits the returned run identity. Do not use it to cancel or mutate
 unrelated customer workflow runs.
@@ -153,16 +153,16 @@ jobId
 - accidental logging of secrets
 - user confusion around where Codex OAuth is stored
 
-## Codex OAuth in SaaS Setup
+## Codex OAuth in control plane Setup
 
-ReviewRouter SaaS must not receive local Codex OAuth auth plaintext. This includes legacy `~/.codex/auth.json` and active account files under `~/.codex/accounts/*.auth.json`.
+ReviewRouter must not receive local Codex OAuth auth plaintext. This includes legacy `~/.codex/auth.json` and active account files under `~/.codex/accounts/*.auth.json`.
 
 This paragraph governs legacy repository-owned setup. Hosted pool onboarding is
-a separate explicit flow: the credential is established inside the SaaS custody
+a separate explicit flow: the credential is established inside the control plane custody
 boundary, stored only as an encrypted envelope, and never exported to an Action
 or GitHub secret.
 
-One-click SaaS setup creates workflow PRs, but provider authentication is still customer-side:
+One-click control plane setup creates workflow PRs, but provider authentication is still customer-side:
 
 ```text
 Codex OAuth -> GitHub repo/org secret CODEX_AUTH_JSON or persistent self-hosted CODEX_HOME
@@ -170,6 +170,6 @@ OpenAI API -> GitHub repo/org secret OPENAI_API_KEY
 OpenRouter -> GitHub repo/org secret OPENROUTER_API_KEY
 ```
 
-The first beta should seed Codex OAuth with a local command that writes directly to GitHub Secrets through `gh`, not through ReviewRouter SaaS.
+The first beta should seed Codex OAuth with a local command that writes directly to GitHub Secrets through `gh`, not through ReviewRouter.
 
-Future browser-based secret seeding is allowed only if plaintext never reaches SaaS: the browser encrypts with the GitHub Actions public key and sends only encrypted values directly to GitHub.
+Future browser-based secret seeding is allowed only if plaintext never reaches control plane: the browser encrypts with the GitHub Actions public key and sends only encrypted values directly to GitHub.

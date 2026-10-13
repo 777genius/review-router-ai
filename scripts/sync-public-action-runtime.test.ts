@@ -259,7 +259,7 @@ describe("public Action runtime sync", () => {
     );
     expect(
       workflow.indexOf("Recheck checkout is exact current origin/main"),
-    ).toBeLessThan(workflow.indexOf("Install SaaS dependencies"));
+    ).toBeLessThan(workflow.indexOf("Install control plane dependencies"));
     expect(
       workflow.indexOf("Require exact PostgreSQL publication-gate evidence"),
     ).toBeLessThan(

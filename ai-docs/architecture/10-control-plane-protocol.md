@@ -2,17 +2,17 @@
 
 ## Problem
 
-ReviewRouter SaaS manages config, but ReviewRouter Action runs in customer CI/CD. The action needs current config and may need to report safe health metadata back to SaaS.
+ReviewRouter manages config, but ReviewRouter Action runs in customer CI/CD. The action needs current config and may need to report safe health metadata back to control plane.
 
 We need this without:
 
-- storing SaaS API tokens in customer repos
-- sending repository code or diffs to SaaS
+- storing control plane API tokens in customer repos
+- sending repository code or diffs to control plane
 - requiring workflow PRs for every config edit
 
 ## Solution
 
-Use GitHub Actions OIDC to authenticate the workflow run to ReviewRouter SaaS.
+Use GitHub Actions OIDC to authenticate the workflow run to ReviewRouter.
 
 The generated workflow grants:
 
@@ -31,8 +31,8 @@ The action exchanges a GitHub OIDC token for a short-lived ReviewRouter action s
 ```text
 GitHub Actions job
   -> ReviewRouter Action requests GitHub OIDC JWT
-  -> ReviewRouter SaaS verifies JWT
-  -> SaaS returns action session token
+  -> ReviewRouter verifies JWT
+  -> control plane returns action session token
   -> Action fetches config metadata
   -> Action runs review locally in CI
   -> Action optionally reports health metadata
@@ -106,7 +106,7 @@ environment variables
 
 ## Token Verification
 
-SaaS must validate:
+control plane must validate:
 
 - issuer
 - signature via GitHub OIDC JWKS
@@ -140,7 +140,7 @@ If OIDC exchange fails:
 
 ## Why This Matters
 
-This is the main bridge that makes ReviewRouter a real SaaS control plane while preserving the privacy claim that review execution and code stay in the customer's CI/CD.
+This is the main bridge that makes ReviewRouter a real control plane while preserving the privacy claim that review execution and code stay in the customer's CI/CD.
 
 ## Compatibility
 
@@ -166,4 +166,4 @@ request GitHub OIDC token
   -> map safe runtimeEnv keys into the existing review runtime
 ```
 
-Generated workflows also pass `REVIEWROUTER_ACTION_VERSION` extracted from the installed action ref. The SaaS uses that version for compatibility policy and can block unsafe old runtime versions. If the SaaS endpoint is unreachable and `REVIEWROUTER_STATIC_CONFIG_FALLBACK=true`, the Action keeps running from the static workflow snapshot.
+Generated workflows also pass `REVIEWROUTER_ACTION_VERSION` extracted from the installed action ref. The control plane uses that version for compatibility policy and can block unsafe old runtime versions. If the control plane endpoint is unreachable and `REVIEWROUTER_STATIC_CONFIG_FALLBACK=true`, the Action keeps running from the static workflow snapshot.

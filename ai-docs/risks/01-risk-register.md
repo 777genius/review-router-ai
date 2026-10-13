@@ -6,7 +6,7 @@
 
 Severity: critical.
 
-Risk: SaaS starts storing Codex OAuth or API keys casually, increasing breach and support risk.
+Risk: control plane starts storing Codex OAuth or API keys casually, increasing breach and support risk.
 
 Mitigation:
 
@@ -59,7 +59,7 @@ Mitigation:
 
 Severity: high.
 
-Risk: SaaS onboarding works, but underlying review comments are noisy or miss issues.
+Risk: control plane onboarding works, but underlying review comments are noisy or miss issues.
 
 Mitigation:
 
@@ -160,7 +160,7 @@ Mitigation:
 
 Severity: high.
 
-Risk: SaaS returns config that an older installed action misinterprets, causing wrong review behavior or failures.
+Risk: control plane returns config that an older installed action misinterprets, causing wrong review behavior or failures.
 
 Mitigation:
 
@@ -174,7 +174,7 @@ Mitigation:
 
 Severity: high.
 
-Risk: SaaS accepts an OIDC token from the wrong repository, event, audience, or fork context and returns config/report session incorrectly.
+Risk: control plane accepts an OIDC token from the wrong repository, event, audience, or fork context and returns config/report session incorrectly.
 
 Mitigation:
 
@@ -268,7 +268,7 @@ Mitigation:
 
 Severity: high.
 
-Risk: action reports raw errors, prompts, model output, code snippets, or diffs to SaaS.
+Risk: action reports raw errors, prompts, model output, code snippets, or diffs to control plane.
 
 Mitigation:
 
@@ -330,11 +330,11 @@ Mitigation:
 - DB-backed `jti` replay nonce consumed before session issuance and before rate-limit capacity is spent
 - OIDC contract tests for reject cases
 
-### R25 - SaaS outage blocks customer reviews unnecessarily
+### R25 - control plane outage blocks customer reviews unnecessarily
 
 Severity: medium.
 
-Risk: ReviewRouter SaaS downtime causes all customer PR review workflows to fail even though static config exists.
+Risk: ReviewRouter downtime causes all customer PR review workflows to fail even though static config exists.
 
 Mitigation:
 

@@ -5,16 +5,16 @@
 ReviewRouter has two configuration sources:
 
 1. static config embedded in the installed workflow or repo config file
-2. SaaS-managed runtime config fetched by the action through OIDC
+2. control plane-managed runtime config fetched by the action through OIDC
 
 The precedence must be explicit to avoid surprising users.
 
 ## Source of Truth
 
-Default SaaS mode:
+Default control plane mode:
 
 ```text
-SaaS ReviewConfigurationVersion is source of truth.
+control plane ReviewConfigurationVersion is source of truth.
 ```
 
 Self-managed/offline mode:
@@ -29,7 +29,7 @@ At action start:
 
 ```text
 1. read static workflow config
-2. if SaaS config sync enabled, request OIDC token
+2. if control plane config sync enabled, request OIDC token
 3. exchange OIDC for action session
 4. fetch runtime config
 5. validate runtime config schema and compatibility
@@ -50,7 +50,7 @@ policy summary
 limits summary
 ```
 
-Do not report secrets or full prompts to SaaS.
+Do not report secrets or full prompts to control plane.
 
 ## Version Compatibility
 
@@ -66,16 +66,16 @@ If action version is incompatible:
 
 - do not run risky review with unknown config
 - fall back to static config if allowed
-- report safe error to SaaS
+- report safe error to control plane
 - tell user to update workflow/action version
 
 ## Precedence Rules
 
 ```text
-SaaS runtime config wins over static config when fetched and validated.
-Static config wins when SaaS sync disabled.
+control plane runtime config wins over static config when fetched and validated.
+Static config wins when control plane sync disabled.
 Static fallback is allowed only for safe defaults.
-Secrets never come from SaaS config.
+Secrets never come from control plane config.
 ```
 
 ## Config Change UX
@@ -91,5 +91,5 @@ Dashboard config changes should explain:
 - runtime config wins when valid
 - invalid runtime config falls back or fails safely
 - incompatible config/action version fails with clear message
-- static-only mode works without network to SaaS
+- static-only mode works without network to control plane
 - effective config metadata contains no secrets

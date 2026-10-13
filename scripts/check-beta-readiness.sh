@@ -58,7 +58,7 @@ case "${REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB:-none}" in
   none | 0 | false)
     ;;
   setup | review)
-    printf 'REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB=%s is a legacy direct-workflow gate and cannot prove SaaS App identity. Use app-first.\n' "${REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB}" >&2
+    printf 'REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB=%s is a legacy direct-workflow gate and cannot prove control plane App identity. Use app-first.\n' "${REVIEW_ROUTER_BETA_CHECK_REAL_GITHUB}" >&2
     exit 2
     ;;
   app-first | codex-rotating)

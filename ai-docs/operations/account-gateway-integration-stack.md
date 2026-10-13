@@ -13,11 +13,11 @@ implied by integration.
 Integration PR548 merged the five CI pair fields to published Action `v1.0.158`
 at `4cb00b4598974bc8fb5feafc1b1699ca76ca32af` / public bundle SHA256
 `166ab590292c76ea78b2015dfda71aacf91be963b0b94f7c04f9c7883c18a814`.
-Normal Action release run `38128645739` and paired SaaS CI `38129571872`
+Normal Action release run `38128645739` and paired control plane CI `38129571872`
 succeeded. [Evidence52](../architecture/52-account-gateway-first-slice-contract.md)
 retains the bounded MiMo D-long and current OpenRouter E receipts, historical
 unknown outcomes and their exact source tuples. Final assembled ROOT/main CI,
-matching SaaS release, protected OAuth F and production G remain separate gates;
+matching control plane release, protected OAuth F and production G remain separate gates;
 no production deployment or legacy retirement is asserted here. The RAM lane
 is stopped under the recorded execution policy; failed/unqualified evidence stays.
 

@@ -12,7 +12,7 @@ Implementation in progress as of 2026-07-23:
   immutable reusable workflows, authenticated operator commands, v1 admission
   drain, durable webhook/manual request ingress, exact-head workflow dispatch,
   provider-lane serialization, and production-shaped E2E are implemented locally.
-  The release candidate passes the full Action/SaaS suites, all 35 migrations on a
+  The release candidate passes the full Action/control plane suites, all 35 migrations on a
   fresh PostgreSQL database, the real Prisma concurrency contract, and the
   production-shaped fault-recovery E2E. Cross-repository release registration,
   deployment, and allowlisted verification remain release gates, so production
@@ -39,7 +39,7 @@ ReviewRouter has two release-coupled repositories with independent Git histories
   runtime bundle, and the deployed public Action tree. It receives the generated
   OAuth wrapper artifacts through the existing sync workflow.
 
-The SaaS OAuth wrapper imports `@777genius/subscription-runtime` for provider
+The control plane OAuth wrapper imports `@777genius/subscription-runtime` for provider
 session custody and process running, then launches the public Action's
 `dist/index.js`. That dependency does not own review planning, evidence reuse,
 finding lifecycle, or publication policy. This feature must not move ReviewRouter
@@ -47,14 +47,14 @@ orchestration into subscription-runtime merely because the wrapper uses it.
 
 ```text
 public action.yml
-  -> action-dist/index.cjs  generated from SaaS OAuth wrapper
+  -> action-dist/index.cjs  generated from control plane OAuth wrapper
   -> dist/index.js         built from public Action src/
 ```
 
-The existing SaaS sync copies `action.yml` and `action-dist/`; it does not rebuild
+The existing control plane sync copies `action.yml` and `action-dist/`; it does not rebuild
 the public review runtime `dist/`. Review-domain changes therefore belong in the
 public Action source and require its own rebuilt `dist/index.js` commit. Wrapper
-changes belong in SaaS and are synchronized as generated artifacts.
+changes belong in control plane and are synchronized as generated artifacts.
 
 This plan was created from `review-router-ai` `origin/main` at
 `bbecfbc45269c29535e18dcf49ef0bde93be375f`. Implementation must start by fetching
@@ -64,11 +64,11 @@ latest revision.
 The normal delivery sequence remains:
 
 ```text
-SaaS branch and migration
-  -> SaaS API/worker/runtime tests
+control plane branch and migration
+  -> control plane API/worker/runtime tests
   -> public Action branch and bundle
   -> protocol compatibility tests
-  -> merge SaaS and Action PRs in the documented release order
+  -> merge control plane and Action PRs in the documented release order
   -> disposable-repository hosted verification
 ```
 
@@ -148,7 +148,7 @@ The missing concepts are:
 - Preserve provider neutrality for Codex, Claude Code, prompt-only APIs, and future
   providers.
 - Keep code, diffs, prompts, credentials, and raw provider responses out of the
-  SaaS persistence boundary.
+  control plane persistence boundary.
 
 ## Non-goals
 
@@ -162,7 +162,7 @@ The missing concepts are:
 - Do not make GitHub comment placement proof of finding validity.
 - Do not add unbounded provider retries or retain every stochastic attempt forever.
 - Do not use production customer repositories for smoke or agentic E2E tests.
-- Do not claim that SaaS can revoke arbitrary user-authored workflows or a
+- Do not claim that control plane can revoke arbitrary user-authored workflows or a
   repository's native `GITHUB_TOKEN`. Mutation fencing covers the managed hosted
   ReviewRouter App lane; unmanaged static workflows must be migrated or remain
   outside v2 guarantees.
@@ -739,11 +739,11 @@ Historical workflow re-runs are a separate drain concern, not current-ref
 inventory: GitHub re-runs preserve the original `GITHUB_SHA` and `GITHUB_REF` for
 up to 30 days. Server-mediated v1 runs are fenced by closed v1 admission and
 expired capabilities. A native write-enabled historical workflow that bypasses
-SaaS requires an explicit longer quarantine or deletion of its rerunnable runs;
+control plane requires an explicit longer quarantine or deletion of its rerunnable runs;
 current-ref compatibility alone cannot prove it safe. See
 [GitHub re-run semantics](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs).
 
-SaaS cannot detect or revoke every arbitrary user workflow, so v2 reconciliation
+control plane cannot detect or revoke every arbitrary user workflow, so v2 reconciliation
 trusts only objects owned by the configured ReviewRouter App identity and carrying
 valid managed markers; external `github-actions` objects are never adopted as v2
 receipts. A future pull request targeting a previously uncovered branch still
@@ -1499,7 +1499,7 @@ issuer's actual SCM permissions drift. A future write-enabled checkout token mus
 move into the mutation-gated inventory before release.
 
 This gate covers server-managed v1 lanes. A user-authored static workflow that
-uses its native SCM token cannot be fenced by SaaS, so fresh workflow inventory
+uses its native SCM token cannot be fenced by control plane, so fresh workflow inventory
 must block v2 activation while any supported static write-enabled form remains on
 the default branch, an active pull-request base branch, or a current mergeable
 pull request test-merge commit. Historical native-write runs use the separate
@@ -3536,7 +3536,7 @@ The release pipeline computes entrypoint and schema digests from built artifacts
 and registers the immutable tuple server-side. The running Action may report its
 version for diagnostics, but cannot register or attest itself.
 
-For SaaS-generated hosted workflows, authorization verifies the exact workflow
+For control plane-generated hosted workflows, authorization verifies the exact workflow
 commit/template and its immutable `uses:` target before selecting a registered
 `HostedComposite` release. For a reusable workflow, the verified
 `job_workflow_sha` and baked immutable runtime target must match a registered
@@ -3589,13 +3589,13 @@ revocation when active runs should be allowed to finish.
 
 ### Canonical wire contract
 
-SaaS and the public Action have independent Git histories, so they cannot safely
+control plane and the public Action have independent Git histories, so they cannot safely
 share a workspace TypeScript import. Each bounded context owns a declarative
 interface contract fragment for only its public application commands/results.
 Review Evidence additionally owns manifest canonicalization; Review Run Control
 owns review-revision canonicalization. `action-control-plane` composes those
 fragments with its transport envelope and negotiation schema, then generation
-produces one complete Published Language in SaaS
+produces one complete Published Language in control plane
 `packages/protocol-review-action-v2`:
 
 ```text
@@ -3710,9 +3710,9 @@ expectedPublicActionBaseCommit
 
 The public Action PR commits that manifest with generated source and rebuilt
 `dist/index.js`, then emits a final release manifest containing its final commit and
-bundle digest. SaaS registers only that final tuple. CI in both repositories
+bundle digest. control plane registers only that final tuple. CI in both repositories
 validates the same golden fixtures and schema digest. Runtime domain code maps wire
-DTOs into its own value objects; SaaS HTTP adapters map DTOs into application
+DTOs into its own value objects; control plane HTTP adapters map DTOs into application
 commands. Neither side imports the other bounded context's domain model.
 
 Contract sync targets a public Action feature branch and is committed together
@@ -3879,7 +3879,7 @@ Mixed-version behavior:
 
 Goal: remove current correctness ambiguity before adding reuse.
 
-1. Audit the latest SaaS runtime and latest public Action, not an older worktree.
+1. Audit the latest control plane runtime and latest public Action, not an older worktree.
 2. Verify OAuth post-writeback publication carries the original review revision
    and reviewed head SHA through summary and inline paths.
 3. Verify exact-revision completed snapshot replay reloads live thread inventory,
@@ -3985,7 +3985,7 @@ Exit criteria:
 4. In the public Action's sole `review-projection` bounded context, reload normalized
    live lifecycle inventory and build the current projection. Submit its versioned
    envelope, then atomically finalize the artifact and permit server-side. Exercise
-   completed and partial branches independently; SaaS must not reimplement
+   completed and partial branches independently; control plane must not reimplement
    lineage, consensus, placement, or gate construction.
 5. Publish only through the server-side worker using immutable operations,
    late-effect recording, full marker reconciliation, and pre/post
@@ -4039,7 +4039,7 @@ Exit criteria:
 4. Exercise force-push, config change, model fallback, rename, and commit-storm
    fixtures in disposable repositories.
 5. Require zero false eligibility in adversarial deterministic fixtures and zero
-   canonicalization disagreement between built Action and SaaS serializers.
+   canonicalization disagreement between built Action and control plane serializers.
 6. Run N/N and N/N-1 built-client/server matrices plus the v1 drain/rollback suite.
 7. Collect at least 500 shadow decisions with at least 100 would-hits across at
    least 20 PRs, 5 disposable/explicitly allowlisted repositories, and seven
@@ -4078,27 +4078,27 @@ changes the meaning of previously stored `AgenticUnboundedV1` observations.
 
 Do not combine schema, runtime behavior, and rollout enablement in one PR.
 
-| PR  | Repository       | Scope                                                                                                                 | Depends on     | Approximate changed lines | Rollback                                                                                    |
-| --- | ---------------- | --------------------------------------------------------------------------------------------------------------------- | -------------- | ------------------------: | ------------------------------------------------------------------------------------------- |
-| A0  | SaaS             | Minimal canonical v2 negotiation fragment/generator/fixture plus bridge returning typed 426 without nonce consumption | none           |                   300-550 | keep generated fragment and bridge deployed for N-1                                         |
-| A1  | SaaS             | P0 control-plane/publication characterization and fixes                                                               | none           |                   250-600 | revert isolated fix                                                                         |
-| A2  | Public Action    | P0 runtime/lifecycle characterization and fixes                                                                       | none           |                   250-600 | revert isolated fix                                                                         |
-| A3  | SaaS             | Branch-aware contract export and immutable handoff/release manifests                                                  | none           |                   350-650 | wrapper sync unchanged                                                                      |
-| A4  | SaaS             | Shared outbox claim fencing, DB transition guard, fleet drain, takeover tests                                         | none           |                   400-700 | pre-activation old workers compatible; post-guard use prior fenced worker or pause delivery |
-| B1  | SaaS             | `review-run-control`, signed-capability platform, schema, contracts                                                   | A1/A4          |                 800-1,300 | keep additive schema, no callers                                                            |
-| B2  | SaaS             | `review-evidence` domain, ports, schema, canonicalizer, contracts                                                     | B1/A2          |                 800-1,300 | keep additive schema, no callers                                                            |
-| B3  | SaaS             | `review-executions` domain, ports, schema, admission saga, contracts                                                  | B2             |                 900-1,500 | keep additive schema, no callers                                                            |
-| B4  | SaaS             | Publishing operations, Snapshot v2, immutable snapshot receipts                                                       | B3             |               1,000-1,700 | v2 capabilities disabled, retain schema                                                     |
-| B5  | SaaS             | `review-processes`, completion recovery, maintenance scans, migration rehearsal                                       | B3/B4          |                 600-1,000 | disable schedulers, retain state                                                            |
-| C   | SaaS             | Published Language, v2 composition/API, generated artifacts                                                           | A0/A3/A4/B1-B5 |               1,000-1,700 | explicit v1 only before repository migration                                                |
-| D   | Public Action    | Generated contract, `review-projection` bounded context, T0 runtime, rebuilt `dist/`                                  | C artifacts    |               1,800-2,900 | do not register/allow release                                                               |
-| E   | Both             | Pinned workflow templates, wrapper bridge, release registration, N/N-1 tests, disposable v1 drain                     | D commit       |               1,100-1,900 | prior registered v2 release or stop mutation                                                |
-| F   | Both             | T1 shadow policy, metrics, adjudication tooling                                                                       | E              |                 600-1,000 | disable shadow                                                                              |
-| G   | SaaS config/docs | Allowlisted T1 promotion and runbook                                                                                  | F gates        |                   250-500 | global T1 kill switch                                                                       |
+| PR  | Repository                | Scope                                                                                                                 | Depends on     | Approximate changed lines | Rollback                                                                                    |
+| --- | ------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------- | ------------------------: | ------------------------------------------------------------------------------------------- |
+| A0  | control plane             | Minimal canonical v2 negotiation fragment/generator/fixture plus bridge returning typed 426 without nonce consumption | none           |                   300-550 | keep generated fragment and bridge deployed for N-1                                         |
+| A1  | control plane             | P0 control-plane/publication characterization and fixes                                                               | none           |                   250-600 | revert isolated fix                                                                         |
+| A2  | Public Action             | P0 runtime/lifecycle characterization and fixes                                                                       | none           |                   250-600 | revert isolated fix                                                                         |
+| A3  | control plane             | Branch-aware contract export and immutable handoff/release manifests                                                  | none           |                   350-650 | wrapper sync unchanged                                                                      |
+| A4  | control plane             | Shared outbox claim fencing, DB transition guard, fleet drain, takeover tests                                         | none           |                   400-700 | pre-activation old workers compatible; post-guard use prior fenced worker or pause delivery |
+| B1  | control plane             | `review-run-control`, signed-capability platform, schema, contracts                                                   | A1/A4          |                 800-1,300 | keep additive schema, no callers                                                            |
+| B2  | control plane             | `review-evidence` domain, ports, schema, canonicalizer, contracts                                                     | B1/A2          |                 800-1,300 | keep additive schema, no callers                                                            |
+| B3  | control plane             | `review-executions` domain, ports, schema, admission saga, contracts                                                  | B2             |                 900-1,500 | keep additive schema, no callers                                                            |
+| B4  | control plane             | Publishing operations, Snapshot v2, immutable snapshot receipts                                                       | B3             |               1,000-1,700 | v2 capabilities disabled, retain schema                                                     |
+| B5  | control plane             | `review-processes`, completion recovery, maintenance scans, migration rehearsal                                       | B3/B4          |                 600-1,000 | disable schedulers, retain state                                                            |
+| C   | control plane             | Published Language, v2 composition/API, generated artifacts                                                           | A0/A3/A4/B1-B5 |               1,000-1,700 | explicit v1 only before repository migration                                                |
+| D   | Public Action             | Generated contract, `review-projection` bounded context, T0 runtime, rebuilt `dist/`                                  | C artifacts    |               1,800-2,900 | do not register/allow release                                                               |
+| E   | Both                      | Pinned workflow templates, wrapper bridge, release registration, N/N-1 tests, disposable v1 drain                     | D commit       |               1,100-1,900 | prior registered v2 release or stop mutation                                                |
+| F   | Both                      | T1 shadow policy, metrics, adjudication tooling                                                                       | E              |                 600-1,000 | disable shadow                                                                              |
+| G   | control plane config/docs | Allowlisted T1 promotion and runbook                                                                                  | F gates        |                   250-500 | global T1 kill switch                                                                       |
 
 PRs B1-B5 and C are architecture-complete but behavior-disabled. Public Action PR D
 cannot be T1-eligible until its exact final commit and entrypoint digests are
-registered. If SaaS wrapper sync creates another public Action commit, register
+registered. If control plane wrapper sync creates another public Action commit, register
 that final tuple, not D's parent. PR E is the first customer-visible v2 change and
 only on drained allowlisted scopes. Every PR includes its migration/contract tests
 and updates the directly affected architecture document.
@@ -4119,7 +4119,7 @@ C adds descriptors/types while preserving A0's fixture as the N-1 contract.
 
 ## Concrete code placement
 
-### SaaS repository
+### Control Plane repository
 
 ```text
 packages/features/review-evidence/
@@ -4271,10 +4271,10 @@ execute that same object. Existing adapters that currently accept only a prompt 
 construct HTTP/CLI fields internally are migrated before T0; retry-policy prompt or
 option changes create a new attempt manifest under the same work slot.
 
-Context-owned contract sources remain in SaaS; only their deterministic,
+Context-owned contract sources remain in control plane; only their deterministic,
 dependency-free generated Published Language is consumed by public Action runtime
 code.
-`dist/index.js` is rebuilt and committed in the public Action PR. SaaS
+`dist/index.js` is rebuilt and committed in the public Action PR. control plane
 `action-dist/index.cjs` remains the hosted OAuth/session wrapper and must not grow a
 second review planner.
 
@@ -4483,8 +4483,8 @@ second review planner.
 - release/authorization limits-profile mismatch or any client attempt to raise a
   selected ceiling is rejected before execution planning;
 - `HostedComposite` and `PublicReusable` producer tuples are distinct;
-- actual built `action-dist`/`dist` clients against current and N-1 SaaS servers;
-- SaaS and public Action golden fixture/schema-digest parity;
+- actual built `action-dist`/`dist` clients against current and N-1 control plane servers;
+- control plane and public Action golden fixture/schema-digest parity;
 - regenerating the complete Published Language produces a clean diff and no
   handwritten serializer/schema/enum duplicate exists;
 - `protocol:check` bootstraps from committed output, generates twice, rebuilds all
@@ -4552,7 +4552,7 @@ second review planner.
 - new domain/application discriminators are closed TypeScript enums; open string
   fallbacks, schema-inferred domain unions, and unchecked DTO-to-domain casts fail
   the architecture test;
-- public Action bundle contains the committed contract digest expected by SaaS;
+- public Action bundle contains the committed contract digest expected by control plane;
 - integration-event handler registration is exhaustive over the strict event-type
   and version registry; no free-form default advances business state.
 
@@ -4828,7 +4828,7 @@ Rollback order:
    publication retention windows drain.
 9. Do not drop tables or reinterpret v2 observations as v1 checkpoint batches.
 
-Selecting a release in SaaS affects future authorization; it cannot redirect bytes
+Selecting a release in control plane affects future authorization; it cannot redirect bytes
 already referenced by a customer workflow. Operational rollback is channel-aware:
 
 | Installed reference                    | Executable rollback                                                                                               |
@@ -4911,7 +4911,7 @@ The feature is complete only when all conditions hold:
     mutation authority or false reuse.
 13. Database migration and rollback are additive and rehearsed.
 14. Hosted E2E uses disposable repositories and records privacy-safe evidence.
-15. Public Action and SaaS compatibility gates pass at the exact release commits.
+15. Public Action and control plane compatibility gates pass at the exact release commits.
 16. V2 executions contain observation references, not duplicated provider payloads.
 17. Finding lifecycle/current projection is the sole domain owner of lineage;
     Snapshot stores bounded hint/provenance DTOs and GitHub remains authoritative
@@ -4928,7 +4928,7 @@ The feature is complete only when all conditions hold:
 23. `ReviewMutationAuthority` is the single epoch owner; pre-activation abort and
     post-activation pause/resume cannot create mixed mutation authority.
 24. Runtime manifest assembly has exactly one generated canonicalization path, and
-    built SaaS/Action artifacts agree on its schema digest and golden fixtures.
+    built control plane/Action artifacts agree on its schema digest and golden fixtures.
 25. Managed mutation authority is explicitly limited to the hosted ReviewRouter App
     lane; activation rejects every officially supported static write-enabled
     workflow variant found by the inventory adapter.

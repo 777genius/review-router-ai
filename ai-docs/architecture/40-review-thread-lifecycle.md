@@ -13,7 +13,7 @@ Estimated implementation size: 600-900 changed lines with focused tests
 ```
 
 This document describes the ReviewRouter Action runtime behavior, primarily in
-`777genius/review-router`. The SaaS control plane may expose config, but it
+`777genius/review-router`. The control plane may expose config, but it
 should not inspect customer diffs, model prompts, provider output, or review
 thread contents.
 
@@ -2287,7 +2287,7 @@ Reason code rules:
 These must remain true:
 
 ```text
-1. SaaS does not receive code, diffs, prompts, provider output, or thread bodies.
+1. control plane does not receive code, diffs, prompts, provider output, or thread bodies.
 2. Provider/model subprocesses do not receive GitHub tokens.
 3. GitHub write token is used only by trusted runtime posting/mutation code.
 4. Hidden comment markers are never treated as trust by themselves.
@@ -2449,7 +2449,7 @@ interface LifecycleAggregationInput {
 ```
 
 Keep these types internal to the runtime. Do not expose thread bodies or
-provider rationales to SaaS health payloads.
+provider rationales to control plane health payloads.
 
 Module boundary rules:
 

@@ -31,7 +31,7 @@ repository.deleted
 
 ## Repository Selection
 
-SaaS should prefer GitHub selected-repository installs for trust and least privilege.
+control plane should prefer GitHub selected-repository installs for trust and least privilege.
 
 When GitHub sends repository removed event:
 

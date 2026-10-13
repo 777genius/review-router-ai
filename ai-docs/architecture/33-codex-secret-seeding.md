@@ -5,7 +5,7 @@
 Superseded.
 
 This document originally selected a stable `CODEX_AUTH_JSON` secret and
-`curl | bash` installer. Neither is a supported SaaS setup path. It is retained
+`curl | bash` installer. Neither is a supported control plane setup path. It is retained
 only as the record of that retired decision; do not use its old commands or
 secret model for onboarding, recovery, testing, or compatibility.
 
@@ -29,12 +29,12 @@ equivalent setup path.
 The setup performs a fresh Codex login inside the repository's dedicated
 ReviewRouter `CODEX_HOME`. It uses the operator's current GitHub CLI identity
 for the scoped permission and secret-write steps while keeping plaintext Codex
-credentials off ReviewRouter SaaS. The control plane confirms the versioned
+credentials off ReviewRouter. The control plane confirms the versioned
 generation before enabling work.
 
 ## Security Boundary
 
-- Never upload `auth.json` to ReviewRouter SaaS.
+- Never upload `auth.json` to ReviewRouter.
 - Never restore the retired stable `CODEX_AUTH_JSON` secret as a compatibility
   shortcut.
 - Never widen a personal Codex credential to organization-wide visibility.

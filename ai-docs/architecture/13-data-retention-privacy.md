@@ -2,9 +2,9 @@
 
 ## Privacy Promise
 
-ReviewRouter SaaS v1 stores metadata, not customer code. The default legacy
+ReviewRouter v1 stores metadata, not customer code. The default legacy
 repository-owned provider mode also does not transport raw review bodies through
-SaaS.
+control plane.
 
 Do not store:
 
@@ -17,12 +17,12 @@ Do not store:
 
 Opt-in hosted workspace account pool exception:
 
-- SaaS stores envelope-encrypted Codex session credentials, never plaintext
+- control plane stores envelope-encrypted Codex session credentials, never plaintext
   credential columns;
 - prompts, tool outputs, and Responses events pass through the invocation-scoped
   relay transiently but must not be durably stored in databases, queues, logs,
   traces, support tooling, or backups;
-- credentials never leave SaaS, while the Action receives only a bounded run
+- credentials never leave control plane, while the Action receives only a bounded run
   grant;
 - safe relay metadata may be retained under the normal operational retention
   policy: invocation/account opaque IDs, counts, latency, outcome, failure class,
@@ -114,7 +114,7 @@ leases, then observations and authorizations. Restrictive foreign keys and
 reference-aware predicates protect live evidence. Tombstones retain compact IDs,
 hashes, outcomes and timestamps only. No source, diff, prompt, credential, cookie,
 raw provider response or raw finding prose is added to operational telemetry.
-Any change that sends data from customer CI to SaaS must answer:
+Any change that sends data from customer CI to control plane must answer:
 
 1. Does it include code or diff?
 2. Does it include secrets or environment data?

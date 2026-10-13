@@ -18,7 +18,7 @@ Session options:
 - signed, httpOnly, secure cookies with server-side session table
 - or short-lived signed session with refresh stored server-side
 
-Default recommendation for SaaS beta:
+Default recommendation for control plane beta:
 
 ```text
 server-side session table + secure httpOnly cookie

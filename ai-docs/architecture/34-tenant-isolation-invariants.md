@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Tenant isolation is the highest-risk SaaS area. A bug here can leak repository metadata, config, audit events, or allow one workspace to provision workflows in another workspace's repository.
+Tenant isolation is the highest-risk control plane area. A bug here can leak repository metadata, config, audit events, or allow one workspace to provision workflows in another workspace's repository.
 
 ## Hard Invariants
 

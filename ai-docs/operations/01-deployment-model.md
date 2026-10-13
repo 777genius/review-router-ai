@@ -24,7 +24,7 @@ No correctness state in memory:
 - no in-memory locks
 - no in-memory webhook dedupe
 - no in-memory job state
-- no local/FileBackend hosted credential or lease state in multi-replica SaaS
+- no local/FileBackend hosted credential or lease state in multi-replica control plane
 
 ## Environment Configuration
 
@@ -160,13 +160,13 @@ limits must not be raised outside these ranges by bypassing validation.
 
 1. Pass compliance/security review and all acceptance tests using only a
    disposable private repository. Apply additive migrations, then deploy the
-   same verified SaaS commit to API and web with all five flags at `0`.
+   same verified control plane commit to API and web with all five flags at `0`.
 2. Publish the companion public Action from its reviewed commit, including the
    rebuilt committed bundle. Record its immutable 40-character commit SHA; do
    not use `main`, a tag, or a shortened SHA for hosted workflows.
    Record the immutable release tag and `dist/index.js` SHA-256 beside the
    commit. The tag must resolve to the commit and CI must hash the bytes from
-   that same checkout before the tuple is accepted by SaaS.
+   that same checkout before the tuple is accepted by control plane.
 3. Configure API and web with the same exact
    `REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF=777genius/review-router@<40-character-SHA>`.
    Use `REVIEW_ROUTER_CODEX_ROTATING_ALLOWED_ACTION_REFS` only for a bounded
@@ -192,7 +192,7 @@ limits must not be raised outside these ranges by bypassing validation.
    repository bindings; legacy repository-owned mode remains unchanged.
 
 API owns grant/relay composition; web owns dashboard onboarding, binding, and
-workflow provisioning. Both must be deployed from the compatible SaaS commit and
+workflow provisioning. Both must be deployed from the compatible control plane commit and
 must trust the same public Action SHA before any hosted binding is activated.
 
 ### Kill-switch Rollback

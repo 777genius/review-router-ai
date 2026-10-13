@@ -25,7 +25,7 @@ if (enabled && !databaseUrl) {
 const describeWithDatabase = databaseUrl && enabled ? describe : describe.skip;
 
 describeWithDatabase.sequential(
-  "paired disposable Review Action investigation to SaaS PostgreSQL E2E",
+  "paired disposable Review Action investigation to control plane PostgreSQL E2E",
   () => {
     let harness: PairedActionSaasE2EHarness | null = null;
 

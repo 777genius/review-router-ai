@@ -10,7 +10,7 @@ import {
 } from "./verify-hosted-pool-action-release.mjs";
 
 describe("hosted pool public Action release", () => {
-  it("requires the SaaS-consumed SHA to match the recorded tuple", () => {
+  it("requires the control plane-consumed SHA to match the recorded tuple", () => {
     const sha = "a".repeat(40);
     expect(
       parseHostedPoolActionRelease({

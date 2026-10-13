@@ -87,7 +87,7 @@ Use `deploy/env.production.example` as the source of truth. Critical rules:
 
 - put `GITHUB_APP_PRIVATE_KEY` in the host secret manager for hosted deploys
 - use `GITHUB_APP_PRIVATE_KEY_FILE` only for local or file-mounted secret setups
-- never store Codex OAuth or provider API keys in SaaS env
+- never store Codex OAuth or provider API keys in control plane env
 - provider credentials stay in customer GitHub Actions secrets
 - `REVIEW_ROUTER_ACTION_SESSION_SECRET` must be at least 32 chars
 
@@ -164,7 +164,7 @@ GitHub App hosted readiness. Do not run the GitHub App hosted check against
 
 The hosted readiness gate rejects localhost/non-HTTPS public URLs, placeholder
 GitHub App secrets, missing private key, disabled provisioning, and provider
-credentials accidentally placed in SaaS env.
+credentials accidentally placed in control plane env.
 
 Local production-runtime smoke:
 

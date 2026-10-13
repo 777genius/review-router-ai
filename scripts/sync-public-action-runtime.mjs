@@ -53,7 +53,7 @@ assertFreshExternalSubscriptionRuntime(
 );
 await assertConflictRuntimeBundleMatchesSource({ root: saasRepo });
 
-console.log(`SaaS repo: ${saasRepo}`);
+console.log(`control plane repo: ${saasRepo}`);
 console.log(`Action repo: ${actionRepo}`);
 console.log(`Mode: ${write ? "write" : "dry-run"}`);
 
@@ -154,7 +154,7 @@ function assertFreshExternalSubscriptionRuntime(bundlePath) {
     !bundle.includes("777genius/ar@83a7329f4383b05ac5c39356b79f82f029182d42")
   ) {
     throw new Error(
-      "action bundle does not include external @vioxen/subscription-runtime; run pnpm action:build from the updated SaaS repo first",
+      "action bundle does not include external @vioxen/subscription-runtime; run pnpm action:build from the updated control plane repo first",
     );
   }
   if (/node_modules\/.pnpm|\/var\/data|\/tmp/u.test(bundle)) {
