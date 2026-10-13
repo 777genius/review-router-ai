@@ -212,6 +212,15 @@ test(
       await t.test(
         "database constraints reject raw SQL ownership/identity/revision violations",
         async () => {
+          // Establish canonical personal birth before User-owned source rows.
+          const personalWorkspace = await db.workspace.create({
+            data: {
+              slug: "rr-test-fresh-personal-workspace",
+              name: "Synthetic fresh personal workspace",
+              personalOwnerUserId: actor.userId,
+              members: { create: { userId: actor.userId, role: "owner" } },
+            },
+          });
           const connectionInsert = `INSERT INTO "ProviderAccountConnection"
         ("id", "ownerUserId", "ownerWorkspaceId", "gatewayAccountRef", "displayName", "updatedAt")
         VALUES ($1, $2, $3, $4, 'Synthetic account', now())`;
@@ -226,7 +235,10 @@ test(
                 typeof error === "object" &&
                 error !== null &&
                 "code" in error &&
-                error.code === code,
+                error.code === code &&
+                (code !== "P0001" ||
+                  ("message" in error &&
+                    error.message === "workspace_deletion_admission_denied")),
             );
           }
           await rejected(
@@ -242,7 +254,7 @@ test(
           await rejected(
             connectionInsert,
             ["orphan", null, "missing-workspace", "rr-test-orphan"],
-            "23503",
+            "P0001",
           );
           await rejected(
             connectionInsert,
@@ -283,7 +295,7 @@ test(
           await rejected(
             bindingInsert,
             ["orphan-workspace-binding", "missing-workspace", connectionId],
-            "23503",
+            "P0001",
           );
           await sql.query(connectionInsert, [
             "rr-test-personal-connection",
@@ -322,14 +334,7 @@ test(
             "23503",
           );
           // Personal ownership starts at fresh birth; C1 still rejects consume.
-          const personalWorkspace = await db.workspace.create({
-            data: {
-              slug: "rr-test-fresh-personal-workspace",
-              name: "Synthetic fresh personal workspace",
-              personalOwnerUserId: actor.userId,
-              members: { create: { userId: actor.userId, role: "owner" } },
-            },
-          });
+
           assert.equal(
             (
               await db.workspace.findUniqueOrThrow({
