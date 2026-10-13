@@ -246,21 +246,12 @@ export async function readGatewayReviewV2RepositoryReadiness(input: {
   readonly repositoryIds: readonly string[];
 }): Promise<ReadonlyMap<string, GatewayReviewV2RepositoryReadiness>> {
   if (input.repositoryIds.length === 0) return new Map();
-  const [identities, authorities, eligible] = await Promise.all([
+  const [identities, eligible] = await Promise.all([
     input.prisma.scmRepositoryIdentity.findMany({
       where: {
         provider: "github",
         currentWorkspaceId: input.workspaceId,
         currentRepositoryConnectionId: { in: [...input.repositoryIds] },
-      },
-    }),
-    input.prisma.reviewMutationAuthority.findMany({
-      where: {
-        laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
-        scmRepositoryIdentity: {
-          currentWorkspaceId: input.workspaceId,
-          currentRepositoryConnectionId: { in: [...input.repositoryIds] },
-        },
       },
     }),
     input.prisma.repositoryConnection.findMany({
@@ -275,6 +266,14 @@ export async function readGatewayReviewV2RepositoryReadiness(input: {
       select: { id: true },
     }),
   ]);
+  const authorities = await input.prisma.reviewMutationAuthority.findMany({
+    where: {
+      laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
+      scmRepositoryIdentityId: {
+        in: identities.map((identity) => identity.scmRepositoryIdentityId),
+      },
+    },
+  });
   const eligibleIds = new Set(eligible.map((repository) => repository.id));
   const identitiesByRepository = new Map(
     identities.map((identity) => [
