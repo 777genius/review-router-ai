@@ -106,6 +106,75 @@ describe("InvocationFlight singleflight", () => {
     ).toBe(2);
   });
 
+  it("does not restore an owner superseded while its acquire replay completes", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    await prepareAndAdmit(store, scope, "execution-1", revision);
+    const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+    const request = leaseCommand({
+      index: 1,
+      scope,
+      executionId: "execution-1",
+      now: plus(2),
+    });
+    await useCase.execute(request);
+    const acquireLease = store.acquireLease.bind(store);
+    vi.spyOn(store, "acquireLease").mockImplementationOnce(async (command) => {
+      const restored = await acquireLease(command);
+      const stream = await store.findStream(scope);
+      await store.supersedeExecution({
+        scope,
+        executionId: "execution-1",
+        expectedStreamVersion: stream!.version,
+        observedCurrentRevision: nextRevision,
+        now: plus(4),
+      });
+      return restored;
+    });
+
+    const replay = await useCase.execute({ ...request, now: plus(3) });
+
+    expect(replay.status).toBe(AcquireOrJoinInvocationFlightStatus.NotRunnable);
+    expect(replay.flight).toBeUndefined();
+    expect(
+      (await store.findExecution("execution-1"))?.execution.workSlots[0]
+        ?.nextAttemptOrdinal,
+    ).toBe(2);
+  });
+
+  it("does not restore an owner whose lease expires while its acquire replay completes", async () => {
+    const store = new InMemoryReviewExecutionStore();
+    await prepareAndAdmit(store, scope, "execution-1", revision);
+    const useCase = new AcquireOrJoinInvocationFlight(store, store, store);
+    const request = leaseCommand({
+      index: 1,
+      scope,
+      executionId: "execution-1",
+      now: plus(2),
+      expiresAt: plus(1_000),
+    });
+    await useCase.execute(request);
+    let databaseTime = plus(3);
+    const observe = store.observeActiveInvocationFlight.bind(store);
+    vi.spyOn(store, "observeActiveInvocationFlight").mockImplementation(
+      (input) => observe({ ...input, requestedAt: databaseTime }),
+    );
+    const acquireLease = store.acquireLease.bind(store);
+    vi.spyOn(store, "acquireLease").mockImplementationOnce(async (command) => {
+      const restored = await acquireLease(command);
+      databaseTime = plus(1_001);
+      return restored;
+    });
+
+    const replay = await useCase.execute({ ...request, now: plus(3) });
+
+    expect(replay.status).toBe(AcquireOrJoinInvocationFlightStatus.NotRunnable);
+    expect(replay.flight).toBeUndefined();
+    expect(
+      (await store.findExecution("execution-1"))?.execution.workSlots[0]
+        ?.nextAttemptOrdinal,
+    ).toBe(2);
+  });
+
   it.each([
     { acquireRequestHash: hash("changed-request") },
     { ownerIdHash: "changed-owner" },

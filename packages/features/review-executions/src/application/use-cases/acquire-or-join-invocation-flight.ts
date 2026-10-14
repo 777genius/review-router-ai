@@ -135,9 +135,8 @@ export class AcquireOrJoinInvocationFlight {
           }
           const flight = await this.restoreAcquiredFlight(
             replay.lease,
-            replay.snapshot ?? target,
             requestedIdentity,
-            observation.observedAt,
+            command.now,
           );
           return flight === null
             ? { status: AcquireOrJoinInvocationFlightStatus.NotRunnable }
@@ -186,9 +185,8 @@ export class AcquireOrJoinInvocationFlight {
         }
         const flight = await this.restoreAcquiredFlight(
           acquired.lease,
-          acquired.snapshot ?? target,
           requestedIdentity,
-          observation.observedAt,
+          command.now,
         );
         if (flight === null) {
           return { status: AcquireOrJoinInvocationFlightStatus.NotRunnable };
@@ -212,26 +210,33 @@ export class AcquireOrJoinInvocationFlight {
 
   private async restoreAcquiredFlight(
     lease: ReviewInvocationLease,
-    observed: ReviewExecutionSnapshot,
     requestedIdentity: InvocationFlightIdentity,
-    now: Date,
+    requestedAt: Date,
   ): Promise<InvocationFlight | null> {
-    if (
-      lease.state !== ReviewInvocationLeaseState.Active ||
-      lease.expiresAt <= now
-    ) {
-      return null;
-    }
-    const snapshot =
-      observed.execution.executionId === lease.executionId &&
-      findLeaseSlot(observed, lease)?.activeLeaseId === lease.leaseId
-        ? observed
-        : await this.executions.findExecution(lease.executionId);
+    const snapshot = await this.executions.findExecution(lease.executionId);
     const slot = findLeaseSlot(snapshot, lease);
     if (snapshot === null || slot === null) {
       throw new Error("invocation_flight_acquired_aggregate_missing");
     }
+    const observation = await this.flights.observeActiveInvocationFlight({
+      scope: lease,
+      providerInvocationKey: lease.providerInvocationKey,
+      providerVoteIdentityHash: lease.providerVoteIdentityHash,
+      requestedAt,
+    });
+    const currentLease = snapshot.activeLeases.find(
+      (candidate) => candidate.leaseId === lease.leaseId,
+    );
     if (
+      currentLease === undefined ||
+      currentLease.state !== ReviewInvocationLeaseState.Active ||
+      currentLease.expiresAt <= observation.observedAt ||
+      observation.flight === null ||
+      observation.flight.ownerLeaseId !== lease.leaseId ||
+      !invocationFlightIdentitiesEqual(
+        observation.flight.identity,
+        requestedIdentity,
+      ) ||
       snapshot.execution.state !== ReviewExecutionState.Running ||
       snapshot.stream.activeExecutionId !== lease.executionId ||
       slot.activeLeaseId !== lease.leaseId
@@ -241,7 +246,7 @@ export class AcquireOrJoinInvocationFlight {
     const flight = restoreInvocationFlight({
       execution: snapshot.execution,
       slot,
-      lease,
+      lease: currentLease,
     });
     if (!invocationFlightIdentitiesEqual(flight.identity, requestedIdentity)) {
       throw new Error("invocation_flight_acquired_identity_mismatch");
