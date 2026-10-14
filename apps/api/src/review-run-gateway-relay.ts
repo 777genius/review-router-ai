@@ -463,7 +463,7 @@ export function createReviewRunGatewayRelay(input: {
                           stream.close();
                         } else stream.enqueue(chunk.value);
                       } catch (error) {
-                        diagnoseStreamFailure(
+                        const diagnostic = captureStreamFailureDiagnostic(
                           error,
                           phase,
                           signal.aborted,
@@ -480,6 +480,7 @@ export function createReviewRunGatewayRelay(input: {
                             requestRef,
                           ),
                         );
+                        emitStreamFailureDiagnostic(diagnostic);
                       }
                     },
                     async cancel() {
@@ -891,7 +892,7 @@ function safeFailure(error: unknown): RelayFailure {
     );
   return new RelayFailure("relay_unknown", 502, "effect_unknown");
 }
-function diagnoseStreamFailure(
+function captureStreamFailureDiagnostic(
   error: unknown,
   phase: "upstream_read" | "authority_recheck",
   signalAborted: boolean,
@@ -921,7 +922,7 @@ function diagnoseStreamFailure(
     const message: unknown = object
       ? Object.getOwnPropertyDescriptor(object, "message")?.value
       : undefined;
-    console.error({
+    return {
       event: "review_run_gateway_stream_failure",
       stage: phase,
       signalAborted,
@@ -944,7 +945,17 @@ function diagnoseStreamFailure(
         ? { httpStatus: status }
         : {}),
       ...(sdkCode === undefined ? {} : { sdkCode }),
-    });
+    };
+  } catch {
+    return undefined;
+  }
+}
+function emitStreamFailureDiagnostic(
+  diagnostic: ReturnType<typeof captureStreamFailureDiagnostic>,
+) {
+  if (!diagnostic) return;
+  try {
+    console.error(diagnostic);
   } catch {
     /* Diagnostics cannot replace stream failure or cleanup. */
   }
