@@ -57,6 +57,7 @@ import {
   canonicalJson,
   type ReviewProtocolLimitsProfileQueryPort,
   type ReviewRunAuthorization,
+  type ReviewRunAuthorizationQueryPort,
   type ReviewRunAuthorizationTokenResolution,
 } from "@reviewrouter/features-review-run-control";
 import {
@@ -162,6 +163,10 @@ type CommonDependencies = Readonly<{
 
 export type ReviewActionV2ExecutionHandlerDependencies = CommonDependencies &
   Readonly<{
+    authorizationQueries: Pick<
+      ReviewRunAuthorizationQueryPort,
+      "findReviewRunAuthorizationById"
+    >;
     executions: ReviewExecutionsComposition;
     evidence: ReturnTypeOfReviewEvidenceComposition;
     observations: ReviewObservationQueryPort;
@@ -592,6 +597,7 @@ async function acquireLease(
     resultReportUntil: minDate(
       add(now, limits.maxResultReportDurationMs),
       authorization.expiresAt,
+      snapshot.execution.executionDeadlineAt,
     ),
     retainUntil: add(now, d.timing.retentionDurationMs),
     limits,
@@ -693,20 +699,31 @@ async function renewLease(
     snapshot.execution.protocolLimitsProfileId,
     d,
   );
+  const renewRequestIdHash = await d.digest.digestUtf8(request.renewRequestId);
+  const hardDeadline = await requireLeaseRenewalAuthority(
+    authority,
+    lease,
+    snapshot.execution,
+    d,
+  );
+  const renewalNow = d.now();
+  const leaseDurationMs = Math.min(
+    d.timing.initialLeaseDurationMs,
+    limits.maxLeaseDurationMs,
+  );
   const result = await d.executions.invocationLeases.renew({
     leaseId: lease.leaseId,
     ownerIdHash: request.ownerIdHash,
     leaseCapabilityId: authority.capabilityId,
     fencingToken: decimal(request.fencingToken),
-    renewRequestIdHash: await d.digest.digestUtf8(request.renewRequestId),
+    renewRequestIdHash,
     renewRequestHash: request.requestBodyHash,
-    now,
-    expiresAt: minDate(
-      add(lease.acquiredAt, limits.maxLeaseDurationMs),
-      snapshot.execution.executionDeadlineAt,
-      lease.resultReportUntil,
+    now: renewalNow,
+    expiresAt: minDate(add(renewalNow, leaseDurationMs), hardDeadline),
+    resultReportUntil: minDate(
+      add(renewalNow, limits.maxResultReportDurationMs),
+      hardDeadline,
     ),
-    resultReportUntil: lease.resultReportUntil,
     limits,
   });
   if (
@@ -725,6 +742,12 @@ async function renewLease(
           scope: executionScope,
           executionId: snapshot.execution.executionId,
         },
+        d,
+      );
+      await requireLeaseRenewalAuthority(
+        authority,
+        result.lease,
+        snapshot.execution,
         d,
       );
     } catch (error) {
@@ -752,6 +775,66 @@ async function renewLease(
       leaseCapability,
     },
   };
+}
+
+async function requireLeaseRenewalAuthority(
+  authority: VerifiedReviewActionV2LeaseCapability,
+  lease: ReviewInvocationLease,
+  execution: ReviewExecution,
+  d: ReviewActionV2ExecutionHandlerDependencies,
+): Promise<Date> {
+  const authorization =
+    await d.authorizationQueries.findReviewRunAuthorizationById(
+      execution.authorizationId,
+    );
+  if (
+    !authorization ||
+    authorization.state !== ReviewRunAuthorizationState.Active
+  )
+    throw failure(
+      410,
+      ReviewActionV2ProtocolErrorCode.ResourceGone,
+      "lease_authorization_inactive",
+    );
+  await assertLeaseAuthorization(authority, authorization, d);
+  if (
+    !sameExecutionAuthority(execution, authorization) ||
+    lease.authorizationId !== authorization.authorizationId ||
+    lease.mutationEpoch !== authorization.mutationEpoch ||
+    lease.reviewRevisionHash !== authorization.reviewRevisionHash ||
+    execution.producerReleaseId !== authorization.producerReleaseId ||
+    lease.producerReleaseId !== authorization.producerReleaseId ||
+    execution.protocolLimitsProfileId !==
+      authorization.protocolLimitsProfileId ||
+    execution.sourceRunId !== authorization.sourceRunId ||
+    execution.sourceRunAttempt !== authorization.sourceRunAttempt ||
+    execution.mutationEpoch !== authorization.mutationEpoch ||
+    execution.revision.reviewRevisionHash !== authorization.reviewRevisionHash
+  )
+    throw failure(
+      403,
+      ReviewActionV2ProtocolErrorCode.Forbidden,
+      "lease_authorization_mismatch",
+    );
+  const hardDeadline = minDate(
+    authorization.expiresAt,
+    authorization.maxExpiresAt,
+    execution.executionDeadlineAt,
+  );
+  if (
+    lease.state !== ReviewInvocationLeaseState.Active ||
+    lease.expiresAt <= d.now() ||
+    hardDeadline <= d.now() ||
+    authorization.expiresAt > authorization.maxExpiresAt ||
+    lease.expiresAt > hardDeadline ||
+    lease.resultReportUntil > hardDeadline
+  )
+    throw failure(
+      410,
+      ReviewActionV2ProtocolErrorCode.ResourceGone,
+      "lease_authorization_deadline_invalid",
+    );
+  return hardDeadline;
 }
 
 async function releaseLease(
