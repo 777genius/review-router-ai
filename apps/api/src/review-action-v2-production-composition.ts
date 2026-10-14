@@ -776,6 +776,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
   });
   const common = {
     authorizations: runControl.authorizations,
+    authorizationQueries: repositories.authorizations,
     executionQueries: executionStore,
     protocolLimits: repositories.producerReleases,
     digest,

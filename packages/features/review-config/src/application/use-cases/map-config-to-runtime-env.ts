@@ -26,6 +26,14 @@ export function mapConfigToRuntimeEnv(
   };
   if (
     config.providers.some(
+      (provider) => provider.authMode === "codex_account_gateway",
+    )
+  ) {
+    // Match the gateway's one-hour request ceiling. The caller deadline and
+    // completion reserve can stop an invocation earlier.
+    runtimeEnv.RUN_TIMEOUT_SECONDS = "3600";
+  } else if (
+    config.providers.some(
       (provider) =>
         provider.kind === "codex" && provider.reasoningEffort === "ultra",
     )

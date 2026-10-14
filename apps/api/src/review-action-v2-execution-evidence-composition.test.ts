@@ -43,6 +43,7 @@ import {
   canonicalReviewAssignmentManifestHashPreimage,
   canonicalReviewExecutionPlanHashPreimage,
   decideLeaseAcquire,
+  decideLeaseRelease,
   decideLeaseRenewal,
   type ReviewExecutionSnapshot,
   type FinalizedReviewProjectionArtifact,
@@ -855,6 +856,279 @@ describe("Review Action v2 execution/evidence composition", () => {
     });
   });
 
+  it("rolls a live invocation lease beyond ten minutes without exceeding ownership TTL or the execution deadline", async () => {
+    let currentNow = new Date(now);
+    const hardDeadline = new Date(now.getTime() + 35 * 60_000);
+    const liveAuthorization = {
+      ...authorization,
+      expiresAt: new Date(now.getTime() + 6 * 60 * 60_000),
+      maxExpiresAt: new Date(now.getTime() + 6 * 60 * 60_000),
+    };
+    const longSnapshot = {
+      ...snapshot,
+      execution: { ...snapshot.execution, executionDeadlineAt: hardDeadline },
+    };
+    let currentLease: ReviewInvocationLease | null = null;
+    const acquire = vi.fn<
+      ReviewActionV2ExecutionHandlerDependencies["executions"]["invocationFlights"]["execute"]
+    >(async (command) => {
+      const decision = decideLeaseAcquire({
+        ...command,
+        stream: longSnapshot.stream,
+        execution: longSnapshot.execution,
+        activeLease: null,
+        fencingToken: 1n,
+      });
+      if (!("lease" in decision)) throw new Error("test_lease_not_acquired");
+      currentLease = decision.lease;
+      return {
+        status: AcquireOrJoinInvocationFlightStatus.OwnerAcquired,
+        flight: invocationFlight(currentLease),
+      };
+    });
+    const renew = vi.fn<
+      ReviewActionV2ExecutionHandlerDependencies["executions"]["invocationLeases"]["renew"]
+    >(async (command) => {
+      if (!currentLease) throw new Error("test_lease_not_acquired");
+      const decision = decideLeaseRenewal({
+        ...command,
+        lease: currentLease,
+        execution: longSnapshot.execution,
+      });
+      if (
+        decision.status !== LeaseTransitionDecisionStatus.Applied &&
+        decision.status !== LeaseTransitionDecisionStatus.Restored
+      )
+        throw new Error(`test_renewal_rejected:${decision.status}`);
+      currentLease = decision.lease;
+      return {
+        status:
+          decision.status === LeaseTransitionDecisionStatus.Applied
+            ? ReviewInvocationLeaseTransitionStatus.Applied
+            : ReviewInvocationLeaseTransitionStatus.Restored,
+        lease: currentLease,
+      };
+    });
+    const release = vi.fn<
+      ReviewActionV2ExecutionHandlerDependencies["executions"]["invocationLeases"]["release"]
+    >(async (command) => {
+      if (!currentLease) throw new Error("test_lease_not_acquired");
+      const decision = decideLeaseRelease({
+        ...command,
+        lease: currentLease,
+        execution: longSnapshot.execution,
+      });
+      if (decision.status !== LeaseTransitionDecisionStatus.Applied)
+        throw new Error("test_release_rejected");
+      currentLease = decision.lease;
+      return {
+        status: ReviewInvocationLeaseTransitionStatus.Applied,
+        lease: currentLease,
+      };
+    });
+    const dependencies = executionDependencies({
+      now: () => currentNow,
+      findExecution: vi.fn(async () => longSnapshot),
+      findLease: vi.fn(async () => currentLease),
+      acquire,
+      renew,
+      release,
+      leaseSafety: vi.fn(async () => ({
+        allowed: true,
+        decisionHash: hash("6"),
+      })),
+    });
+    const d: ReviewActionV2ExecutionHandlerDependencies = {
+      ...dependencies,
+      timing: { ...dependencies.timing, initialLeaseDurationMs: 600_000 },
+    };
+    d.authorizations.resolveReviewRunAuthorizationToken = vi.fn(async () => ({
+      status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+      authorization: liveAuthorization,
+    }));
+    d.authorizationQueries.findReviewRunAuthorizationById = vi.fn(
+      async () => liveAuthorization,
+    );
+    d.protocolLimits.findProtocolLimitsProfileById = vi.fn(async () => ({
+      ...protocolLimits,
+      maxLeaseDurationMs: 600_000,
+      maxResultReportDurationMs: 1_200_000,
+    }));
+    const prepared = manifest();
+    const identity = await buildProviderInvocationIdentity(digest, {
+      manifest: prepared,
+      providerVoteIdentityHash: hash("c"),
+    });
+    const handlers = createReviewActionV2ExecutionHandlers(d);
+    const acquired = await handlers.acquireLease.execute(
+      await withBodyHash(
+        ReviewActionV2OperationId.ReviewInvocationLeaseAcquire,
+        {
+          ...envelope("acquire-rolling"),
+          authorizationToken: "authorization-token",
+          idempotencyKey: "acquire-rolling",
+          requestBodyHash: hash("0"),
+          executionId: longSnapshot.execution.executionId,
+          workSlotId: "slot-1",
+          purpose: ReviewInvocationLeasePurpose.ProviderExecution,
+          manifestCanonicalJson:
+            serializeProviderInvocationManifestCanonicalWireJson(prepared),
+          manifestKey: identity.manifestKey,
+          providerVoteIdentityHash: hash("c"),
+          providerInvocationKey: identity.providerInvocationKey,
+          acquireRequestId: "acquire-rolling",
+          ownerIdHash: hash("d"),
+        } satisfies ReviewInvocationLeaseAcquireRequest,
+      ),
+    );
+    let capability = acquired.result.leaseCapability;
+    if (!capability) throw new Error("test_capability_missing");
+    for (const minute of [5, 10, 15, 20, 25, 30]) {
+      currentNow = new Date(now.getTime() + minute * 60_000);
+      const liveLease = await d.executionQueries.findLease("lease-generated");
+      if (!liveLease) throw new Error("test_lease_missing");
+      const request = await withBodyHash(
+        ReviewActionV2OperationId.ReviewInvocationLeaseRenew,
+        {
+          ...envelope(`renew-rolling-${minute}`),
+          leaseCapability: capability,
+          idempotencyKey: `renew-rolling-${minute}`,
+          requestBodyHash: hash("0"),
+          leaseId: liveLease.leaseId,
+          ownerIdHash: liveLease.ownerIdHash,
+          fencingToken: liveLease.fencingToken.toString(10),
+          renewRequestId: `renew-rolling-${minute}`,
+        },
+      );
+      const renewed = await handlers.renewLease.execute(request);
+      expect(renewed.result).toMatchObject({
+        status:
+          minute === 30
+            ? ReviewInvocationLeaseResultStatus.Restored
+            : ReviewInvocationLeaseResultStatus.Applied,
+        expiresAt: new Date(
+          Math.min(currentNow.getTime() + 600_000, hardDeadline.getTime()),
+        ).toISOString(),
+      });
+      const expectedReportUntil = new Date(
+        Math.min(currentNow.getTime() + 1_200_000, hardDeadline.getTime()),
+      );
+      expect(
+        (await d.executionQueries.findLease(liveLease.leaseId))
+          ?.resultReportUntil,
+      ).toEqual(expectedReportUntil);
+      if (!renewed.result.leaseCapability)
+        throw new Error("test_capability_missing");
+      await expect(
+        d.capabilities.verifyLease(renewed.result.leaseCapability, currentNow),
+      ).resolves.toMatchObject({ resultReportUntil: expectedReportUntil });
+      // Lost acknowledgement: the same request restores the original dates.
+      currentNow = new Date(currentNow.getTime() + 1_000);
+      await expect(handlers.renewLease.execute(request)).resolves.toMatchObject(
+        {
+          result: {
+            ...renewed.result,
+            status: ReviewInvocationLeaseResultStatus.Restored,
+            leaseCapability: expect.any(String),
+          },
+        },
+      );
+      expect(
+        (await d.executionQueries.findLease(liveLease.leaseId))
+          ?.resultReportUntil,
+      ).toEqual(expectedReportUntil);
+      if (minute === 30) {
+        await handlers.releaseLease.execute(
+          await withBodyHash(
+            ReviewActionV2OperationId.ReviewInvocationLeaseRelease,
+            {
+              ...envelope("release-rolling"),
+              leaseCapability: capability,
+              idempotencyKey: "release-rolling",
+              releaseRequestId: "release-rolling",
+              requestBodyHash: hash("0"),
+              leaseId: liveLease.leaseId,
+              ownerIdHash: liveLease.ownerIdHash,
+              fencingToken: liveLease.fencingToken.toString(10),
+            },
+          ),
+        );
+        const renewCount = renew.mock.calls.length;
+        await expect(
+          handlers.renewLease.execute(request),
+        ).rejects.toMatchObject({ statusCode: 410 });
+        expect(renew).toHaveBeenCalledTimes(renewCount);
+      }
+      if (!renewed.result.leaseCapability)
+        throw new Error("test_capability_missing");
+      capability = renewed.result.leaseCapability;
+    }
+    const renewCount = renew.mock.calls.length;
+    currentNow = hardDeadline;
+    await expect(
+      handlers.renewLease.execute(
+        await withBodyHash(
+          ReviewActionV2OperationId.ReviewInvocationLeaseRenew,
+          {
+            ...envelope("renew-at-hard-deadline"),
+            leaseCapability: capability,
+            idempotencyKey: "renew-at-hard-deadline",
+            requestBodyHash: hash("0"),
+            leaseId: "lease-generated",
+            ownerIdHash: hash("d"),
+            fencingToken: "1",
+            renewRequestId: "renew-at-hard-deadline",
+          },
+        ),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      issues: ["lease_capability_invalid"],
+    });
+    expect(renew).toHaveBeenCalledTimes(renewCount);
+  });
+
+  it.each(["revoked", "expired"] as const)(
+    "denies rolling renewal when the original authorization is %s",
+    async (condition) => {
+      const capabilities = capabilityAdapter();
+      const currentLease = lease();
+      const capability = await capabilities.issueLease(
+        currentLease,
+        manifest().scopeHash,
+      );
+      const d = executionDependencies({ capabilities, currentLease });
+      d.authorizationQueries.findReviewRunAuthorizationById = vi.fn(
+        async () => ({
+          ...authorization,
+          ...(condition === "revoked"
+            ? { state: ReviewRunAuthorizationState.Revoked }
+            : { expiresAt: now }),
+        }),
+      );
+      const issueLease = vi.spyOn(capabilities, "issueLease");
+      await expect(
+        createReviewActionV2ExecutionHandlers(d).renewLease.execute(
+          await withBodyHash(
+            ReviewActionV2OperationId.ReviewInvocationLeaseRenew,
+            {
+              ...envelope(`renew-${condition}-authorization`),
+              leaseCapability: capability,
+              idempotencyKey: `renew-${condition}-authorization`,
+              requestBodyHash: hash("0"),
+              leaseId: currentLease.leaseId,
+              ownerIdHash: currentLease.ownerIdHash,
+              fencingToken: currentLease.fencingToken.toString(10),
+              renewRequestId: `renew-${condition}-authorization`,
+            },
+          ),
+        ),
+      ).rejects.toMatchObject({ statusCode: 410 });
+      expect(d.executions.invocationLeases.renew).not.toHaveBeenCalled();
+      expect(issueLease).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns busy for an exact-revision join without issuing owner capability", async () => {
     const capabilities = capabilityAdapter();
     const issueLease = vi.spyOn(capabilities, "issueLease");
@@ -998,70 +1272,89 @@ describe("Review Action v2 execution/evidence composition", () => {
     );
   });
 
-  it("releases a renewed lease when the revision changes before capability issuance", async () => {
-    const capabilities = capabilityAdapter();
-    const originalLease = lease();
-    const renewedLease = lease({
-      renewedAt: new Date(now),
-      expiresAt: new Date(now.getTime() + 60_000),
-    });
-    const leaseCapability = await capabilities.issueLease(
-      originalLease,
-      manifest().scopeHash,
-    );
-    const issueLease = vi.spyOn(capabilities, "issueLease");
-    issueLease.mockClear();
-    const renew = vi.fn(async () => ({
-      status: ReviewInvocationLeaseTransitionStatus.Applied,
-      lease: renewedLease,
-    }));
-    const release = vi.fn(async () => ({
-      status: ReviewInvocationLeaseTransitionStatus.Applied,
-      lease: {
-        ...renewedLease,
-        state: ReviewInvocationLeaseState.Released,
-      },
-    }));
-    const currentRevision = vi
-      .fn()
-      .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Current)
-      .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Stale);
-    const request = await withBodyHash(
-      ReviewActionV2OperationId.ReviewInvocationLeaseRenew,
-      {
-        ...envelope("renew-revision-race"),
-        leaseCapability,
-        idempotencyKey: "renew-revision-race",
-        requestBodyHash: hash("0"),
-        leaseId: originalLease.leaseId,
-        ownerIdHash: originalLease.ownerIdHash,
-        fencingToken: originalLease.fencingToken.toString(10),
-        renewRequestId: "renew-revision-race",
-      },
-    );
+  it.each(["revision", "authorization"] as const)(
+    "releases a renewed lease when the %s changes before capability issuance",
+    async (changedAuthority) => {
+      const capabilities = capabilityAdapter();
+      const originalLease = lease();
+      const renewedLease = lease({
+        renewedAt: new Date(now),
+        expiresAt: new Date(now.getTime() + 60_000),
+      });
+      const leaseCapability = await capabilities.issueLease(
+        originalLease,
+        manifest().scopeHash,
+      );
+      const issueLease = vi.spyOn(capabilities, "issueLease");
+      issueLease.mockClear();
+      const renew = vi.fn(async () => ({
+        status: ReviewInvocationLeaseTransitionStatus.Applied,
+        lease: renewedLease,
+      }));
+      const release = vi.fn(async () => ({
+        status: ReviewInvocationLeaseTransitionStatus.Applied,
+        lease: {
+          ...renewedLease,
+          state: ReviewInvocationLeaseState.Released,
+        },
+      }));
+      const currentRevision = vi
+        .fn()
+        .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Current)
+        .mockResolvedValueOnce(
+          changedAuthority === "revision"
+            ? CurrentReviewExecutionRevisionStatus.Stale
+            : CurrentReviewExecutionRevisionStatus.Current,
+        );
+      const request = await withBodyHash(
+        ReviewActionV2OperationId.ReviewInvocationLeaseRenew,
+        {
+          ...envelope("renew-revision-race"),
+          leaseCapability,
+          idempotencyKey: "renew-revision-race",
+          requestBodyHash: hash("0"),
+          leaseId: originalLease.leaseId,
+          ownerIdHash: originalLease.ownerIdHash,
+          fencingToken: originalLease.fencingToken.toString(10),
+          renewRequestId: "renew-revision-race",
+        },
+      );
 
-    await expect(
-      createReviewActionV2ExecutionHandlers(
-        executionDependencies({
-          capabilities,
-          currentLease: originalLease,
-          currentRevision,
-          renew,
-          release,
+      const d = executionDependencies({
+        capabilities,
+        currentLease: originalLease,
+        currentRevision,
+        renew,
+        release,
+      });
+      if (changedAuthority === "authorization") {
+        d.authorizationQueries.findReviewRunAuthorizationById = vi
+          .fn()
+          .mockResolvedValueOnce(authorization)
+          .mockResolvedValueOnce({
+            ...authorization,
+            state: ReviewRunAuthorizationState.Revoked,
+          });
+      }
+      await expect(
+        createReviewActionV2ExecutionHandlers(d).renewLease.execute(request),
+      ).rejects.toMatchObject({
+        statusCode: changedAuthority === "revision" ? 412 : 410,
+        issues: [
+          changedAuthority === "revision"
+            ? "execution_revision_stale"
+            : "lease_authorization_inactive",
+        ],
+      });
+      expect(release).toHaveBeenCalledWith(
+        expect.objectContaining({
+          leaseId: renewedLease.leaseId,
+          fencingToken: renewedLease.fencingToken,
         }),
-      ).renewLease.execute(request),
-    ).rejects.toMatchObject({
-      statusCode: 412,
-      issues: ["execution_revision_stale"],
-    });
-    expect(release).toHaveBeenCalledWith(
-      expect.objectContaining({
-        leaseId: renewedLease.leaseId,
-        fencingToken: renewedLease.fencingToken,
-      }),
-    );
-    expect(issueLease).not.toHaveBeenCalled();
-  });
+      );
+      expect(issueLease).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects a renewal replay identity reused with a different body", async () => {
     const capabilities = capabilityAdapter();
@@ -1792,6 +2085,9 @@ function executionDependencies(
   );
   return {
     ...shared,
+    authorizationQueries: {
+      findReviewRunAuthorizationById: vi.fn(async () => authorization),
+    },
     executionQueries: {
       ...shared.executionQueries,
       ...(overrides.findExecution
@@ -2257,6 +2553,7 @@ const authorization = {
   headSha: gitSha("c"),
   reviewRevisionHash: hash("b"),
   expiresAt: new Date(now.getTime() + 600_000),
+  maxExpiresAt: new Date(now.getTime() + 600_000),
 } as unknown as ReviewRunAuthorization;
 
 const protocolLimits = {
