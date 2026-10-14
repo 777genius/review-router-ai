@@ -1,0 +1,4 @@
+-- Current schemaVersion 3 stores its canonical policy document here. Existing
+-- rows without it remain opaque historical evidence and are not execution input.
+ALTER TABLE "ReviewConfigurationVersion"
+ADD COLUMN "policyJson" TEXT;

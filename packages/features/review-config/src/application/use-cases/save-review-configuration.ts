@@ -1,6 +1,6 @@
 import {
+  parseRepositoryReviewPolicyOverride,
   parseReviewConfigurationStrict,
-  type ReviewConfiguration,
 } from "../../domain/review-configuration";
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 import type {
@@ -9,6 +9,7 @@ import type {
   ReviewConfigurationRepositoryPort,
   ReviewConfigurationOperationInput,
   ReviewConfigurationOperationRepositoryPort,
+  ReviewPolicySaveInput,
 } from "../ports/review-configuration-repository-port";
 
 export async function saveReviewConfigurationWithOperation(
@@ -61,7 +62,7 @@ export function snapshotReviewConfigurationOperation(
   );
   return freezeOperationIntent({
     target: snapshotOperationTarget(input.target),
-    config: parseReviewConfigurationStrict(input.config),
+    policy: snapshotPolicy(input.target, input.policy),
     expectedVersion,
     operationId: validateReviewConfigurationOperationId(input.operationId),
   });
@@ -130,22 +131,31 @@ export type RepositoryReviewConfigurationResult = Readonly<{
 export async function saveReviewConfiguration(
   input: {
     readonly target: ReviewConfigurationTarget;
-    readonly config: ReviewConfiguration;
+    readonly policy: ReviewPolicySaveInput["policy"];
     readonly expectedVersion?: number | null;
   },
   dependencies: {
     readonly configurations: ReviewConfigurationRepositoryPort;
   },
 ): Promise<PersistedReviewConfiguration> {
-  const config = parseReviewConfigurationStrict(input.config);
+  const policy = snapshotPolicy(input.target, input.policy);
 
   return dependencies.configurations.saveNextVersion({
     target: input.target,
-    config,
+    policy,
     ...(input.expectedVersion !== undefined
       ? { expectedVersion: input.expectedVersion }
       : {}),
   });
+}
+
+function snapshotPolicy(
+  target: ReviewConfigurationTarget,
+  policy: ReviewPolicySaveInput["policy"],
+): ReviewPolicySaveInput["policy"] {
+  return target.scope === "workspace"
+    ? parseReviewConfigurationStrict(policy)
+    : parseRepositoryReviewPolicyOverride(policy);
 }
 
 export async function findReviewConfiguration(

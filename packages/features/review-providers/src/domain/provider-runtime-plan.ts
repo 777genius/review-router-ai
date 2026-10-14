@@ -55,9 +55,8 @@ export type RuntimePlanLimits = {
 };
 
 export type ProviderRuntimePlanInput = {
-  readonly schemaVersion: number;
+  readonly schemaVersion: 3;
   readonly providers: readonly RuntimePlanProviderConfiguration[];
-  readonly provider?: RuntimePlanProviderConfiguration;
   readonly execution: RuntimePlanExecutionConfiguration;
   readonly blockingPolicy: RuntimePlanBlockingPolicy;
   readonly limits: RuntimePlanLimits;
@@ -101,11 +100,7 @@ export function buildProviderRuntimePlan(
       Math.min(input.execution.providerMaxParallel, providers.length),
     ),
     INLINE_MIN_AGREEMENT: String(input.execution.inlineMinAgreement),
-    INLINE_MAX_COMMENTS: String(
-      input.limits.inlineMaxComments === 5
-        ? 50
-        : input.limits.inlineMaxComments,
-    ),
+    INLINE_MAX_COMMENTS: String(input.limits.inlineMaxComments),
     INLINE_MIN_SEVERITY: "minor",
     TARGET_TOKENS_PER_BATCH: String(input.limits.targetTokensPerBatch),
     FAIL_ON_SEVERITY: input.blockingPolicy.failOnSeverity,
@@ -168,11 +163,7 @@ export function assertRuntimeEnvIsNonSecret(
 function normalizeRuntimePlanProviders(
   input: ProviderRuntimePlanInput,
 ): readonly RuntimePlanProviderConfiguration[] {
-  const providers = input.providers.length
-    ? input.providers
-    : input.provider
-      ? [input.provider]
-      : [];
+  const providers = input.providers;
   if (!providers.length) {
     throw new Error("provider_runtime_plan_requires_provider");
   }

@@ -3,6 +3,8 @@ import { createProvisionWorkflowPlan } from "../domain/workflow-provisioning";
 import {
   defaultWorkflowPath,
   renderReviewRouterWorkflowFiles,
+  renderAccountGatewayWorkflow,
+  readReviewRouterCallerSource,
 } from "../domain/workflow-template";
 
 const base = {
@@ -91,5 +93,75 @@ describe("createProvisionWorkflowPlan repository-bound Codex path", () => {
         defaultBranch: "trunk",
       }),
     ).toThrow("isolated_workflow_default_branch_must_be_main");
+  });
+});
+
+describe("stable ReviewRouter installation contract", () => {
+  const render = (actionRef: string) =>
+    renderAccountGatewayWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.site",
+      githubRepositoryId: "123456",
+    });
+
+  it("keeps installed source unchanged when the selected producer changes", () => {
+    const first = render(`777genius/review-router@${"a".repeat(40)}`);
+    const next = render(`777genius/review-router@${"b".repeat(40)}`);
+    expect(first).toEqual(next);
+    expect(first.path).toBe(".github/workflows/reviewrouter-review.yml");
+    expect(first.content).toContain("reviewrouter-runtime.yml@workflow-v1");
+    expect(first.content).toContain(
+      "reviewrouter-request-${{ github.repository_id }}-${{ inputs.review_request_id }}",
+    );
+    expect(first.content).not.toMatch(
+      /codex|provider_instance_id|runtime_ref|secrets:|pull-requests: write/,
+    );
+    expect(first.content.match(/required: true/g)).toHaveLength(3);
+    expect(readReviewRouterCallerSource(first.content)).toEqual({
+      runtimeRef: "workflow-v1",
+      controlPlaneUrl: "https://api.reviewrouter.site",
+    });
+  });
+
+  it("rejects source edits that add credentials, agent hints, or write permissions", () => {
+    const source = render(`777genius/review-router@${"a".repeat(40)}`).content;
+    for (const changed of [
+      source.replace("pull-requests: read", "pull-requests: write"),
+      `${source}    secrets: inherit\n`,
+      `${source}      codex_session_mode: account-gateway\n`,
+      source.replace("@workflow-v1", "@main"),
+    ]) {
+      expect(() => readReviewRouterCallerSource(changed)).toThrow();
+    }
+  });
+
+  it("adds only the explicit self-hosted control plane choice", () => {
+    const caller = renderAccountGatewayWorkflow({
+      actionRef: `777genius/review-router@${"a".repeat(40)}`,
+      apiUrl: "https://reviews.example/",
+      githubRepositoryId: "123456",
+    });
+    expect(caller.content).toContain(
+      'control_plane_url: "https://reviews.example"',
+    );
+    expect(
+      render(`777genius/review-router@${"a".repeat(40)}`).content,
+    ).not.toContain("control_plane_url:");
+  });
+
+  it("refuses credentials and insecure origins in installed source", () => {
+    for (const apiUrl of [
+      "http://reviews.example",
+      "https://user:password@reviews.example",
+      "https://reviews.example/?key=value",
+    ]) {
+      expect(() =>
+        renderAccountGatewayWorkflow({
+          actionRef: `777genius/review-router@${"a".repeat(40)}`,
+          apiUrl,
+          githubRepositoryId: "123456",
+        }),
+      ).toThrow();
+    }
   });
 });

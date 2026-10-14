@@ -508,6 +508,7 @@ model ReviewConfigurationVersion {
   gatewayProfileRef                       String?
   version                                 Int
   schemaVersion                           Int      @default(1)
+  policyJson                              String?
   providerKind                            String
   providerAuthMode                        String
   model                                   String

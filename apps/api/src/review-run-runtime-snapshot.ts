@@ -11,7 +11,6 @@ import {
 } from "@reviewrouter/features-provider-accounts";
 import {
   parseReviewConfigurationStrict,
-  safeDefaultReviewConfiguration,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config/review-configuration";
 import {
@@ -116,13 +115,11 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         repositoryId: identity.repositoryConnectionId,
       },
       reader,
-      true,
     );
+    if (!current) return null;
     let configuration: ReviewConfiguration;
     try {
-      configuration = parseReviewConfigurationStrict(
-        current?.config ?? safeDefaultReviewConfiguration,
-      );
+      configuration = parseReviewConfigurationStrict(current.config);
     } catch {
       return null;
     }

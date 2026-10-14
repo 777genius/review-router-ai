@@ -4,9 +4,12 @@ import {
   legacyReviewRouterWorkflowPath,
   managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
+  renderReviewRouterCaller,
+  reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
 import {
   areWorkflowDocumentsSemanticallyEqual,
+  readCanonicalWorkflowDocument,
   codexRotatingMaxChangedLinesVariableName,
   codexRotatingReviewDraftsVariableName,
   codexRotatingSecretName,
@@ -21,7 +24,6 @@ import {
   renderCanonicalIsolatedQualityWorkflow,
   isolatedQualityWorkflowPath,
   isolatedQualityWorkflowRepositoryId,
-  renderCanonicalAccountGatewayWorkflow,
   scanCodexRotatingAdvisoryWorkflow,
 } from "@reviewrouter/features-codex-oauth-rotating";
 
@@ -99,11 +101,49 @@ export function renderAccountGatewayWorkflow(options: {
   readonly githubRepositoryId: string;
   readonly reviewTimeoutMinutes?: number;
 }): ReviewRouterWorkflowUpsertFile {
-  const content = renderCanonicalAccountGatewayWorkflow(options);
+  if (isLoopbackHostname(new URL(options.apiUrl).hostname)) {
+    throw new Error("review_workflow_control_plane_url_invalid");
+  }
+  // A selected producer is server admission state, not an installation pin.
+  const content = renderReviewRouterCaller({ controlPlaneUrl: options.apiUrl });
   if (options.githubRepositoryId === isolatedQualityWorkflowRepositoryId) {
     throw new Error("account_gateway_workflow_path_not_supported");
   }
-  return { path: managedCodexWorkflowPath, content };
+  return { path: reviewRouterWorkflowContract.callerPath, content };
+}
+
+/** Source recognition never supplies the executed producer SHA or run authority. */
+export function readReviewRouterCallerSource(source: string): {
+  readonly runtimeRef: string;
+  readonly controlPlaneUrl: string;
+} {
+  const mapping = (value: unknown): Record<string, unknown> => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("review_workflow_source_not_canonical");
+    }
+    return value as Record<string, unknown>;
+  };
+  const root = mapping(readCanonicalWorkflowDocument(source));
+  const job = mapping(mapping(root.jobs).review);
+  const inputs = mapping(job.with);
+  const prefix = `${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@`;
+  if (typeof job.uses !== "string" || !job.uses.startsWith(prefix)) {
+    throw new Error("review_workflow_source_not_canonical");
+  }
+  const runtimeRef = job.uses.slice(prefix.length);
+  const controlPlaneUrl =
+    inputs.control_plane_url ?? reviewRouterWorkflowContract.controlPlaneUrl;
+  if (
+    typeof controlPlaneUrl !== "string" ||
+    isLoopbackHostname(new URL(controlPlaneUrl).hostname)
+  ) {
+    throw new Error("review_workflow_control_plane_url_invalid");
+  }
+  const expected = renderReviewRouterCaller({ runtimeRef, controlPlaneUrl });
+  if (!areWorkflowDocumentsSemanticallyEqual(source, expected)) {
+    throw new Error("review_workflow_source_not_canonical");
+  }
+  return { runtimeRef, controlPlaneUrl: new URL(controlPlaneUrl).origin };
 }
 export const reusableReviewWorkflowPath =
   ".github/workflows/reviewrouter-reusable.yml";

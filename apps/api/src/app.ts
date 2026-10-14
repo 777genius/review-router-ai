@@ -666,14 +666,6 @@ export async function createApiApp(
             createPrismaReviewRunControlRepositories(prisma);
           return {
             repositories: new PrismaActionControlPlaneRepository(prisma),
-            defaultProvider: {
-              model:
-                process.env.REVIEW_ROUTER_DEFAULT_MODEL?.trim() ||
-                "gpt-5.6-sol",
-              reasoningEffort: readDefaultReasoningEffort(
-                process.env.REVIEW_ROUTER_DEFAULT_EFFORT,
-              ),
-            },
             ...(conflictReviewFallbackEnabled
               ? {
                   conflictReviews: new PrismaConflictReviewRepository(prisma),
