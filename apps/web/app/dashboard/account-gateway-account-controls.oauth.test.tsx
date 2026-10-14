@@ -466,6 +466,46 @@ test("fresh OAuth handoff bypasses caches/storage and pending readback never reo
   assertNoCapability();
 });
 
+test("fresh pending completion survives an unavailable Accounts refresh after its handoff is consumed", async () => {
+  let releasePage!: (result: AccountsResult<AccountsPage>) => void;
+  vi.mocked(listGatewayAccounts).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        releasePage = resolve;
+      }),
+  );
+  await mount();
+  await startEnrollment();
+  const dialog = await screen.findByRole("dialog", {
+    name: "Complete Codex authorization",
+  });
+  await waitFor(() => expect(listGatewayAccounts).toHaveBeenCalledTimes(1));
+  await act(async () => releasePage({ status: "unavailable" }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Connect Codex OAuth" }),
+    ).toBeNull(),
+  );
+  expect(
+    screen.getByRole("dialog", { name: "Complete Codex authorization" }),
+  ).toBe(dialog);
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  fireEvent.keyDown(dialog, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const resume = screen.getByRole("button", {
+    name: "Resume Codex authorization",
+  }) as HTMLButtonElement;
+  expect(resume.disabled).toBe(false);
+  fireEvent.click(resume);
+  await screen.findByRole("dialog", { name: "Complete Codex authorization" });
+  expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
+  expect(handoff).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).toHaveBeenCalledExactlyOnceWith(capability);
+  expect(completeGatewayOAuth).not.toHaveBeenCalled();
+  assertNoCapability();
+  assertNoCallback();
+});
+
 // RED if callback ingress retains the DOM secret while awaiting, caches it,
 // navigates to localhost, reflects a thrown diagnostic or automatically retries.
 test("pending OAuth callback is cleared before ingress and lost ACK retains only safe readback", async () => {

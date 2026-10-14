@@ -441,6 +441,12 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                     </Badge>
                   ) : null}
                 </div>
+                {account.state === "quarantined" ? (
+                  <p className="mt-1 text-xs text-slate-400">
+                    Connection could not be confirmed. This account cannot run
+                    reviews until its connection is restored.
+                  </p>
+                ) : null}
                 {account.state === "disabled" ||
                 account.state === "tombstoned" ? (
                   <p className="mt-1 text-xs text-slate-400">
@@ -836,6 +842,7 @@ function OperationReadback({
 }) {
   const client = useQueryClient();
   const [pollUntil] = useState(() => Date.now() + 60000);
+  const [completionOffered, setCompletionOffered] = useState(false);
   const [completionSpent, setCompletionSpent] = useState(false);
   const operation = useQuery({
     queryKey: operationKey(scope, nonce),
@@ -872,12 +879,16 @@ function OperationReadback({
       >
         Check status
       </Button>
-      {state === "pending" && (oauthEnabled || autoOpenCompletion) ? (
+      {state === "pending" &&
+      (oauthEnabled || autoOpenCompletion || completionOffered) ? (
         <OAuthCompletionForm
           context={context}
           nonce={nonce}
           autoOpen={autoOpenCompletion}
-          consumeAutoOpen={consumeCompletionHandoff}
+          consumeAutoOpen={() => {
+            setCompletionOffered(true);
+            consumeCompletionHandoff();
+          }}
           spent={completionSpent}
           spend={() => setCompletionSpent(true)}
           restorePreEntry={() => setCompletionSpent(false)}
