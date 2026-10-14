@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
+  renderReviewRouterCaller,
+  reviewRouterWorkflowContract,
+} from "@reviewrouter/protocol-review-workflow";
+import {
   allocateVersionedProviderSecretNamespace,
   assertActiveVersionedSecretWorkflowAttestation,
   CodexRotatingReviewActionV2Mode,
@@ -49,6 +53,60 @@ vi.mock("@octokit/request", () => ({
 }));
 
 describe("OctokitCodexRotatingGitHubSecretGateway", () => {
+  it.each([
+    ["canonical channel", renderReviewRouterCaller(), true],
+    [
+      "extra permission",
+      renderReviewRouterCaller().replace("contents: read", "contents: write"),
+      false,
+    ],
+    [
+      "foreign runtime",
+      renderReviewRouterCaller().replace(
+        "777genius/review-router/",
+        "other/runtime/",
+      ),
+      false,
+    ],
+    [
+      "different control plane",
+      renderReviewRouterCaller({ controlPlaneUrl: "https://other.example" }),
+      false,
+    ],
+  ])(
+    "checks the neutral caller at the signed source SHA: %s",
+    async (_name, source, compatible) => {
+      mocks.auth.mockResolvedValueOnce({
+        token: "fixture-read",
+        expiresAt: "2026-10-14T20:00:00.000Z",
+        permissions: { contents: "read" },
+      });
+      mocks.request.mockResolvedValueOnce(fileContent(source));
+      const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+        appId: "123",
+        privateKey: "fixture-key",
+        trustedActionRefs: [],
+      });
+      await expect(
+        gateway.verifyManagedV2SessionBootstrapSource({
+          githubInstallationId: "129500385",
+          githubRepositoryId: "123456",
+          repositoryFullName: "777genius/example",
+          owner: "777genius",
+          workflowPath: reviewRouterWorkflowContract.callerPath,
+          workflowSha: "b".repeat(40),
+        }),
+      ).resolves.toEqual({ compatible });
+      expect(mocks.request).toHaveBeenCalledTimes(1);
+      expect(mocks.request).toHaveBeenCalledWith(
+        "GET /repos/{owner}/{repo}/contents/{path}",
+        expect.objectContaining({
+          path: reviewRouterWorkflowContract.callerPath,
+          ref: "b".repeat(40),
+        }),
+      );
+    },
+  );
   beforeEach(() => {
     mocks.auth.mockReset();
     mocks.request.mockReset();

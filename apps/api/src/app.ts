@@ -1215,23 +1215,6 @@ function readCredentialSha256(
   return value;
 }
 
-function readDefaultReasoningEffort(
-  value: string | undefined,
-): "low" | "medium" | "high" | "xhigh" | "max" | "ultra" {
-  const normalized = value?.trim() || "xhigh";
-  if (
-    normalized === "low" ||
-    normalized === "medium" ||
-    normalized === "high" ||
-    normalized === "xhigh" ||
-    normalized === "max" ||
-    normalized === "ultra"
-  ) {
-    return normalized;
-  }
-  throw new Error("review_router_default_effort_invalid");
-}
-
 async function readDatabaseServerTime(prisma: PrismaClient): Promise<Date> {
   const rows = await prisma.$queryRaw<Array<{ serverTime: Date }>>`
     SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AS "serverTime"

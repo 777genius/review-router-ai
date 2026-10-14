@@ -1,5 +1,6 @@
 export * from "./domain/review-run-control-types";
 export * from "./domain/producer-release";
+export * from "./domain/review-agent-profile";
 export * from "./domain/scm-repository-identity";
 export * from "./domain/review-mutation-authority";
 export * from "./domain/review-mutation-authority-proof";

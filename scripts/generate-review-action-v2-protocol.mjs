@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { format } from "prettier";
@@ -91,6 +91,20 @@ export async function generateReviewActionV2Protocol(input = {}) {
     parser: "json",
   });
   const files = new Map([
+    [
+      "generated/review-agent-profile.ts",
+      await format(
+        "// Generated from protocol-review-workflow/src/review-agent-profile.ts. Do not edit.\n" +
+          (await readFile(
+            join(
+              repositoryRoot,
+              "packages/protocol-review-workflow/src/review-agent-profile.ts",
+            ),
+            "utf8",
+          )),
+        { parser: "typescript" },
+      ),
+    ],
     ["index.ts", generatedIndex],
     ["generated/review-action-v2-negotiation.ts", generatedContract],
     ["generated/review-action-v2-negotiation.schema.json", generatedSchema],

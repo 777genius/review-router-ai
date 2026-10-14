@@ -1,3 +1,7 @@
+export {
+  parseReviewAgentProfiles,
+  type ReviewAgentProfile,
+} from "./review-agent-profile";
 export const legacyReviewRouterWorkflowPath =
   ".github/workflows/reviewrouter.yml";
 export const managedCodexWorkflowPath =
@@ -6,6 +10,7 @@ export const managedInteractionWorkflowPath =
   ".github/workflows/reviewrouter-interaction.yml";
 
 export const managedReviewRouterWorkflowPaths = [
+  ".github/workflows/reviewrouter-review.yml",
   legacyReviewRouterWorkflowPath,
   managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
@@ -29,6 +34,11 @@ export const reviewRouterWorkflowContract = Object.freeze({
     "id-token": "write",
   }),
 });
+
+export const reviewRouterRuntimeWorkflowRefPattern = new RegExp(
+  `^${`${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([a-f0-9]{40}|refs/tags/${reviewRouterWorkflowContract.channel})$`,
+  "i",
+);
 
 /** Only installation choices belong here; agent/provider policy stays server-owned. */
 export function renderReviewRouterCaller(

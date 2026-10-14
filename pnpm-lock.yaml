@@ -986,6 +986,9 @@ importers:
       '@reviewrouter/platform-signed-capabilities':
         specifier: workspace:*
         version: link:../../platform/signed-capabilities
+      '@reviewrouter/protocol-review-workflow':
+        specifier: workspace:*
+        version: link:../../protocol-review-workflow
 
   packages/features/review-snapshots:
     dependencies:

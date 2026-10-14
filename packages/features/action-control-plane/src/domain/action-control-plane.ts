@@ -19,6 +19,7 @@ import {
   managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
   managedReviewRouterWorkflowPaths,
+  reviewRouterRuntimeWorkflowRefPattern,
 } from "@reviewrouter/protocol-review-workflow";
 import { z } from "zod";
 
@@ -932,7 +933,10 @@ function isTrustedWorkflowRef(
   workflowRef: string,
   trustedWorkflowRefs: readonly string[] | undefined,
 ): boolean {
-  if (trustedReviewRouterReusableWorkflowRefPattern.test(workflowRef)) {
+  if (
+    reviewRouterRuntimeWorkflowRefPattern.test(workflowRef) ||
+    trustedReviewRouterReusableWorkflowRefPattern.test(workflowRef)
+  ) {
     return true;
   }
 

@@ -19,6 +19,7 @@ export type ResolvedReviewConfiguration = {
   readonly effectivePolicyDigest: string;
   readonly revisionToken: string;
   readonly config: ReviewConfiguration;
+  readonly policy: PersistedReviewConfiguration["policy"];
 };
 
 export type ResolvedReviewRuntimeEnv = ResolvedReviewConfiguration & {
@@ -48,6 +49,7 @@ function toResolvedConfiguration(
       persisted.revisionToken ??
       `policy:${persisted.workspaceVersion ?? 0}:${persisted.repositoryVersion ?? 0}:${persisted.effectivePolicyDigest}`,
     config: persisted.config,
+    policy: persisted.policy,
   };
 }
 

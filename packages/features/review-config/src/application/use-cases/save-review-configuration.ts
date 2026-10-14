@@ -60,12 +60,24 @@ export function snapshotReviewConfigurationOperation(
   const expectedVersion = validateReviewConfigurationExpectedVersion(
     input.expectedVersion,
   );
-  return freezeOperationIntent({
-    target: snapshotOperationTarget(input.target),
-    policy: snapshotPolicy(input.target, input.policy),
+  const target = snapshotOperationTarget(input.target);
+  const common = {
     expectedVersion,
     operationId: validateReviewConfigurationOperationId(input.operationId),
-  });
+  };
+  return freezeOperationIntent(
+    target.scope === "workspace"
+      ? {
+          target,
+          policy: parseReviewConfigurationStrict(input.policy),
+          ...common,
+        }
+      : {
+          target,
+          policy: parseRepositoryReviewPolicyOverride(input.policy),
+          ...common,
+        },
+  );
 }
 
 function validateReviewConfigurationExpectedVersion(

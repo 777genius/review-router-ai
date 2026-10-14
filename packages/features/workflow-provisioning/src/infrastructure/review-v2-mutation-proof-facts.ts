@@ -1,5 +1,4 @@
 import type { PrismaClient } from "@reviewrouter/platform-db";
-import { isClientTriggeredT0WorkflowSchemaVersion } from "@reviewrouter/features-codex-oauth-rotating";
 import {
   ProducerReleaseAttestationStatus,
   ProducerReleaseState,
@@ -61,17 +60,10 @@ export function createGatewayReviewV2ProducerReleaseAttestations(
 }
 
 function executionAuthorityMode(
-  inventory: {
-    readonly compatible: boolean;
-    readonly workflowSchemaVersion: number | null;
-  },
   dispatchAvailable: boolean,
 ): ReviewMutationExecutionAuthorityMode | null {
-  if (dispatchAvailable)
-    return ReviewMutationExecutionAuthorityMode.ManagedDispatch;
-  return inventory.compatible &&
-    isClientTriggeredT0WorkflowSchemaVersion(inventory.workflowSchemaVersion)
-    ? ReviewMutationExecutionAuthorityMode.ClientTriggered
+  return dispatchAvailable
+    ? ReviewMutationExecutionAuthorityMode.ManagedDispatch
     : null;
 }
 
@@ -84,6 +76,7 @@ export class ProductionReviewMutationAuthorityProofFacts implements ReviewMutati
       readonly actionRepositories: SelectedReviewV2RepositoryQueryPort;
       readonly releaseAttestations: ProducerReleaseAttestationPort;
       readonly producerReleases: ProducerReleaseQueryPort;
+      readonly selectedProducerActionCommitSha: () => string | null;
       readonly safety: ReviewSafetyDecisionResolverPort;
       readonly workflowInventory: ManagedReviewWorkflowInventoryInspectionPort;
       readonly dispatchCapability: ReviewV2DispatchCapabilityInspectionPort;
@@ -120,7 +113,9 @@ export class ProductionReviewMutationAuthorityProofFacts implements ReviewMutati
       ]);
     const now = this.dependencies.now();
     const registeredReleaseSelected =
-      await this.isExactRegisteredReleaseSelected(inventory.actionCommitSha);
+      await this.isExactRegisteredReleaseSelected(
+        this.dependencies.selectedProducerActionCommitSha(),
+      );
     const noTrackedLegacyActivity = Boolean(
       authority?.mode === ReviewMutationMode.V1Draining &&
       authority.v1AdmissionClosedAt &&
@@ -137,8 +132,7 @@ export class ProductionReviewMutationAuthorityProofFacts implements ReviewMutati
         completionWorkerConfigured:
           this.dependencies.completionWorkerConfigured,
         dispatchCapabilityAvailable:
-          executionAuthorityMode(inventory, dispatchCapability.available) !==
-          null,
+          executionAuthorityMode(dispatchCapability.available) !== null,
         managedWorkflowInventoryHash: inventory.inventoryHash,
         safetyDecisionEnabled: safety.effectAllowed,
         activationSafetyDecisionHash: safety.safetyDecisionHash,
@@ -195,9 +189,10 @@ export class ProductionReviewMutationAuthorityProofFacts implements ReviewMutati
       }),
     ]);
     const registeredReleaseSelected =
-      await this.isExactRegisteredReleaseSelected(inventory.actionCommitSha);
+      await this.isExactRegisteredReleaseSelected(
+        this.dependencies.selectedProducerActionCommitSha(),
+      );
     const selectedExecutionAuthorityMode = executionAuthorityMode(
-      inventory,
       dispatchCapability.available,
     );
     const freshV2OnlyProvisioningProven =

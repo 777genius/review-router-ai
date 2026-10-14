@@ -1,10 +1,29 @@
-import { canonicalJson } from "./review-run-control-types";
+import {
+  canonicalJson,
+  assertIdentifier,
+  assertCommitSha,
+  assertSha256,
+} from "./review-run-control-types";
+import {
+  parseReviewAgentProfiles,
+  type ReviewAgentProfile,
+} from "./review-agent-profile";
 
 /** Private admission data. Never included in public authorization claims/facts. */
 export type ReviewRunRuntimeSnapshot = {
-  readonly snapshotVersion: 1;
-  readonly configurationSource: "default" | "workspace" | "repository";
+  readonly snapshotVersion: 2;
+  readonly configurationSource: "workspace" | "repository";
   readonly configurationVersion: number;
+  readonly workspaceConfigurationVersion: number;
+  readonly repositoryConfigurationVersion: number | null;
+  readonly effectivePolicyDigest: string;
+  readonly agent: ReviewAgentProfile;
+  readonly agentProfileDigest: string;
+  readonly producer: Readonly<{
+    producerReleaseId: string;
+    actionCommitSha: string;
+    runtimeCommitSha: string;
+  }>;
   /** Opaque normalized safe configuration; production uses the shared strict parser. */
   readonly configurationCanonicalJson: string;
   readonly deadline: string;
@@ -58,8 +77,7 @@ export type ReviewRunGatewaySelection = {
   readonly invocationId: string;
   readonly attemptId: string;
   readonly operationId: string;
-  /** Absent only on legacy pins; absence cannot authorize preparation. */
-  readonly limits?: ReviewRunGatewayLimits;
+  readonly limits: ReviewRunGatewayLimits;
 };
 
 export function parseReviewRunRuntimeSnapshot(
@@ -74,6 +92,12 @@ export function parseReviewRunRuntimeSnapshot(
       "snapshotVersion",
       "configurationSource",
       "configurationVersion",
+      "workspaceConfigurationVersion",
+      "repositoryConfigurationVersion",
+      "effectivePolicyDigest",
+      "producer",
+      "agent",
+      "agentProfileDigest",
       "configurationCanonicalJson",
       "deadline",
       "gateway",
@@ -82,11 +106,21 @@ export function parseReviewRunRuntimeSnapshot(
     fail();
   const { configurationSource, configurationVersion, deadline } = parsed;
   if (
-    parsed.snapshotVersion !== 1 ||
-    (configurationSource !== "default" &&
-      configurationSource !== "workspace" &&
+    parsed.snapshotVersion !== 2 ||
+    (configurationSource !== "workspace" &&
       configurationSource !== "repository") ||
     !revision(configurationVersion) ||
+    !revision(parsed.workspaceConfigurationVersion) ||
+    (parsed.repositoryConfigurationVersion !== null &&
+      !revision(parsed.repositoryConfigurationVersion)) ||
+    typeof parsed.effectivePolicyDigest !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/.test(parsed.effectivePolicyDigest) ||
+    configurationVersion !==
+      (parsed.repositoryConfigurationVersion ??
+        parsed.workspaceConfigurationVersion) ||
+    (configurationSource === "workspace"
+      ? parsed.repositoryConfigurationVersion !== null
+      : parsed.repositoryConfigurationVersion === null) ||
     typeof deadline !== "string" ||
     !Number.isFinite(Date.parse(deadline)) ||
     new Date(deadline).toISOString() !== deadline
@@ -101,12 +135,36 @@ export function parseReviewRunRuntimeSnapshot(
   const configuration: unknown = JSON.parse(configurationCanonicalJson);
   if (
     !record(configuration) ||
+    configuration.schemaVersion !== 3 ||
     canonicalJson(configuration) !== configurationCanonicalJson
   )
     fail();
+  const producer = parsed.producer;
+  if (
+    !record(producer) ||
+    !keys(producer, [
+      "producerReleaseId",
+      "actionCommitSha",
+      "runtimeCommitSha",
+    ])
+  )
+    fail();
+  for (const name of [
+    "producerReleaseId",
+    "actionCommitSha",
+    "runtimeCommitSha",
+  ]) {
+    if (typeof producer[name] !== "string") fail();
+  }
+  assertIdentifier(String(producer.producerReleaseId), "producer_release_id");
+  assertCommitSha(String(producer.actionCommitSha), "action_commit_sha");
+  assertCommitSha(String(producer.runtimeCommitSha), "runtime_commit_sha");
+  const agent = parseReviewAgentProfiles([parsed.agent])[0]!;
+  if (typeof parsed.agentProfileDigest !== "string") fail();
+  assertSha256(parsed.agentProfileDigest, "review_agent_profile_digest");
   let gateway: ReviewRunGatewaySelection | null = null;
   if (parsed.gateway === null) {
-    // Legacy provider configuration has no gateway selection.
+    // Non-gateway model transports have no account binding.
   } else {
     const row = parsed.gateway;
     if (
@@ -123,7 +181,7 @@ export function parseReviewRunRuntimeSnapshot(
         "invocationId",
         "attemptId",
         "operationId",
-        ...("limits" in row ? ["limits"] : []),
+        "limits",
       ])
     )
       fail();
@@ -162,16 +220,27 @@ export function parseReviewRunRuntimeSnapshot(
       invocationId: String(row.invocationId),
       attemptId: String(row.attemptId),
       operationId: String(row.operationId),
-      ...("limits" in row
-        ? { limits: parseReviewRunGatewayLimits(row.limits) }
-        : {}),
+      limits: parseReviewRunGatewayLimits(row.limits),
     };
   }
   if (canonicalJson(parsed) !== value) fail();
   return {
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     configurationSource,
     configurationVersion,
+    workspaceConfigurationVersion: Number(parsed.workspaceConfigurationVersion),
+    repositoryConfigurationVersion:
+      parsed.repositoryConfigurationVersion === null
+        ? null
+        : Number(parsed.repositoryConfigurationVersion),
+    effectivePolicyDigest: String(parsed.effectivePolicyDigest),
+    agent,
+    agentProfileDigest: parsed.agentProfileDigest,
+    producer: {
+      producerReleaseId: String(producer.producerReleaseId),
+      actionCommitSha: String(producer.actionCommitSha),
+      runtimeCommitSha: String(producer.runtimeCommitSha),
+    },
     configurationCanonicalJson,
     deadline,
     gateway,

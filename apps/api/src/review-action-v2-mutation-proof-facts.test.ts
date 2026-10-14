@@ -7,7 +7,6 @@ import {
   ProducerReleaseState,
   ReviewCapabilityProfile,
   ReviewMutationLaneKind,
-  ReviewMutationExecutionAuthorityMode,
   ReviewMutationMode,
   ReviewSafetyDecisionKind,
   ScmProvider,
@@ -65,7 +64,7 @@ describe("ProductionReviewMutationAuthorityProofFacts", () => {
     expect(facts.facts.dispatchCapabilityAvailable).toBe(false);
   });
 
-  it("admits canonical client-triggered activation after the drain without dispatch", async () => {
+  it("denies activation without managed dispatch even with canonical source", async () => {
     const facts = await createFacts({
       dispatchCapabilityAvailable: false,
     }).inspectActivationFacts({
@@ -77,7 +76,7 @@ describe("ProductionReviewMutationAuthorityProofFacts", () => {
       noTrackedLegacyActivity: true,
       workflowInventoryCompatible: true,
       registeredReleaseSelected: true,
-      dispatchCapabilityAvailable: true,
+      dispatchCapabilityAvailable: false,
     });
   });
 
@@ -94,7 +93,7 @@ describe("ProductionReviewMutationAuthorityProofFacts", () => {
     expect(facts.facts.dispatchCapabilityAvailable).toBe(false);
   });
 
-  it("proves fresh direct V2 with a canonical client-triggered workflow", async () => {
+  it("keeps direct V2 execution authority absent without managed dispatch", async () => {
     const facts = await createFacts({
       authorityMissing: true,
       directV2InitializationEnabled: true,
@@ -112,12 +111,11 @@ describe("ProductionReviewMutationAuthorityProofFacts", () => {
       workflowInventoryCompatible: true,
       registeredReleaseSelected: true,
       completionWorkerConfigured: true,
-      executionAuthorityMode:
-        ReviewMutationExecutionAuthorityMode.ClientTriggered,
+      executionAuthorityMode: null,
     });
   });
 
-  it("accepts the schema-v3 client-triggered lifecycle workflow", async () => {
+  it("does not restore client-triggered authority for an old schema", async () => {
     const facts = await createFacts({
       authorityMissing: true,
       directV2InitializationEnabled: true,
@@ -128,9 +126,7 @@ describe("ProductionReviewMutationAuthorityProofFacts", () => {
       scmRepositoryIdentityId: "identity-1",
     });
 
-    expect(facts.facts.executionAuthorityMode).toBe(
-      ReviewMutationExecutionAuthorityMode.ClientTriggered,
-    );
+    expect(facts.facts.executionAuthorityMode).toBeNull();
   });
 
   it("rejects direct V2 when the configured release is revoked despite another registered release sharing its action SHA", async () => {
@@ -234,6 +230,7 @@ function createFacts(
     pausedAt: null,
   };
   return new ProductionReviewMutationAuthorityProofFacts({
+    selectedProducerActionCommitSha: () => "c".repeat(40),
     prisma: {
       producerRelease: { count: async () => 1 },
       reviewRunAuthorization: { count: async () => 0 },

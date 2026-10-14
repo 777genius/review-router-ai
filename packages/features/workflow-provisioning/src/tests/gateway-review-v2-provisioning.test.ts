@@ -146,6 +146,7 @@ async function fixture(
     authorities: kit.store,
     releaseAttestations: attestations,
     producerReleases: kit.store,
+    selectedProducerActionCommitSha: () => sha,
     safety: kit.control.safetyResolver,
     workflowInventory: inventory,
     dispatchCapability,
@@ -289,7 +290,7 @@ describe("normal fresh Gateway provisioning", () => {
       scope: ReviewSafetyPolicyScope.Global,
     });
     const result = await operation.execute(command);
-    expect(result).toMatchObject({
+    expect(result, JSON.stringify(result)).toMatchObject({
       status: "ready",
       outcome: "created",
       authorityEpoch: "1",

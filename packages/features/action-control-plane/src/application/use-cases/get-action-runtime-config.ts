@@ -1,5 +1,6 @@
 import {
   mapConfigToRuntimeEnv,
+  parseReviewConfigurationStrict,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import type { Clock } from "@reviewrouter/shared";

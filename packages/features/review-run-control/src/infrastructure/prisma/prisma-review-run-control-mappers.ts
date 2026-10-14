@@ -15,6 +15,7 @@ import type {
   ReviewProtocolLimitsV2,
 } from "../../domain/producer-release";
 import { reviewInvestigationCapabilityV1 } from "../../domain/producer-release";
+import { parseReviewAgentProfiles } from "../../domain/review-agent-profile";
 import type { ReviewMutationAuthority } from "../../domain/review-mutation-authority";
 import type { ReviewRunAuthorization } from "../../domain/review-run-authorization";
 import type {
@@ -67,10 +68,15 @@ export function producerReleaseToDomain(
     reviewInvestigationCapability,
     reviewInvestigationCoverageProfileHash,
     reviewInvestigationPolicyHash,
+    agentProfilesJson,
     ...release
   } = row;
   return {
     ...release,
+    agentProfiles:
+      agentProfilesJson === null
+        ? null
+        : parseReviewAgentProfiles(JSON.parse(agentProfilesJson)),
     reviewInvestigationProfile:
       reviewInvestigationCapability === null &&
       reviewInvestigationCoverageProfileHash === null &&

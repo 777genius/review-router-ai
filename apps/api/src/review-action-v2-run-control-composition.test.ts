@@ -64,6 +64,7 @@ import {
   createReviewActionV2RunControlHandlers,
   createServerOwnedReviewActionV2AdmissionFacts,
   hasAuthorizedCodexInvestigationRecording,
+  producerActionCommitFromClaims,
   type ReviewActionV2ResolvedRevision,
   type ReviewActionV2RunControlHandlerDependencies,
 } from "./review-action-v2-run-control-composition.js";
@@ -101,6 +102,37 @@ class TestActionRepositories implements ActionControlPlaneRepositoryPort {
 }
 
 describe("Review Action v2 run-control composition", () => {
+  it("uses the signed executable SHA for the managed channel without resolving the current tag", () => {
+    for (const sha of ["a".repeat(40), "b".repeat(40)])
+      expect(
+        producerActionCommitFromClaims({
+          ...oidcClaims("channel-proof"),
+          job_workflow_ref:
+            "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/tags/workflow-v1",
+          job_workflow_sha: sha,
+        }),
+      ).toBe(sha);
+  });
+  it("denies old executable paths, unknown channels and mismatched immutable pins", () => {
+    for (const ref of [
+      `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionSha}`,
+      "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/heads/main",
+      "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/tags/workflow-v2",
+      `777genius/review-router/.github/workflows/reviewrouter-runtime.yml@${"b".repeat(40)}`,
+    ])
+      expect(() =>
+        producerActionCommitFromClaims({
+          ...oidcClaims("denial-proof"),
+          job_workflow_ref: ref,
+        }),
+      ).toThrow();
+    expect(() =>
+      producerActionCommitFromClaims({
+        ...oidcClaims("missing-sha"),
+        job_workflow_sha: undefined,
+      }),
+    ).toThrow();
+  });
   let kit: ReviewRunControlTestKit;
   let dependencies: ReviewActionV2RunControlHandlerDependencies;
   let facts: ReviewActionV2ResolvedRevision;
@@ -1749,7 +1781,7 @@ function oidcClaims(jti: string): GitHubActionsOidcClaims {
     workflow_ref:
       "777genius/example/.github/workflows/reviewrouter.yml@refs/pull/42/merge",
     workflow_sha: headSha,
-    job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionSha}`,
+    job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-runtime.yml@${actionSha}`,
     job_workflow_sha: actionSha,
     actor: "777genius",
     jti,

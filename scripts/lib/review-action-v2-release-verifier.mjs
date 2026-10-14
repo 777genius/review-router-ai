@@ -7,6 +7,8 @@ import {
   PUBLIC_CONTEXT_GATEWAY_RELEASE_METADATA,
   PUBLIC_GENERATED_DIRECTORY,
   PUBLIC_RUNTIME_BUNDLE,
+  PUBLIC_REVIEW_AGENT_PROFILES,
+  readAgentProfileMetadata,
   sha256Digest,
 } from "./review-action-v2-release-manifests.mjs";
 import {
@@ -114,7 +116,17 @@ export function verifyPublicActionReleaseCommit(input) {
       "context gateway release metadata does not match the committed bundle",
     );
   }
+  const agentProfiles = readAgentProfileMetadata(
+    JSON.parse(
+      readCommitFile(
+        input.actionRepo,
+        input.actionCommitSha,
+        PUBLIC_REVIEW_AGENT_PROFILES,
+      ).toString("utf8"),
+    ),
+  );
   return Object.freeze({
+    agentProfiles,
     handoff,
     handoffBytes,
     handoffDigest: sha256Digest(handoffBytes),
@@ -132,6 +144,7 @@ export function verifyPublicActionReleaseCommit(input) {
 
 function assertRegularReleaseArtifacts(input) {
   const paths = [
+    { path: PUBLIC_REVIEW_AGENT_PROFILES, allowedModes: new Set(["100644"]) },
     {
       path: input.runtimeEntrypointPath,
       allowedModes: new Set(["100644", "100755"]),
