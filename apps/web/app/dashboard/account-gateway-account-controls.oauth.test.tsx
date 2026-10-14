@@ -129,7 +129,7 @@ function assertNoCallback() {
   for (const secret of [callbackURL, callbackCode, callbackState])
     expect(actual).not.toContain(secret);
   const field = screen.queryByLabelText(
-    "Browser callback URL",
+    "Authorization result address",
   ) as HTMLInputElement | null;
   if (field) expect(field.value).toBe("");
 }
@@ -424,7 +424,14 @@ test("fresh OAuth handoff bypasses caches/storage and pending readback never reo
       );
     }),
   ).toBe(true);
-  await screen.findByText("Operation 1: pending");
+  await screen.findByText("Connection 1 · Waiting for completion");
+  const completionDialog = await screen.findByRole("dialog", {
+    name: "Complete Codex authorization",
+  });
+  expect(within(completionDialog).getByText(/cannot return here/)).toBeTruthy();
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  fireEvent.keyDown(completionDialog, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   fireEvent.click(screen.getByRole("button", { name: "Check status" }));
   await waitFor(() =>
     expect(readGatewayOperation).toHaveBeenCalledWith(context, nonce),
@@ -434,13 +441,69 @@ test("fresh OAuth handoff bypasses caches/storage and pending readback never reo
   expect(reserved.location.replace).toHaveBeenCalledTimes(1);
   expect(submitGatewayApiKey).not.toHaveBeenCalled();
   assertNoCapability();
+  view.rerender(
+    <AccountGatewayControls
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  expect(screen.queryByRole("dialog")).toBeNull();
+  const readsBeforeReplayCheck =
+    vi.mocked(readGatewayOperation).mock.calls.length;
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  await waitFor(() =>
+    expect(readGatewayOperation).toHaveBeenCalledTimes(
+      readsBeforeReplayCheck + 1,
+    ),
+  );
+  expect(screen.queryByRole("dialog")).toBeNull();
   view.unmount();
   await mount(); // UUID survives a reload; the capability does not.
-  await screen.findByText("Operation 1: pending");
+  await screen.findByText("Connection 1 · Waiting for completion");
   expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
   expect(handoff).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("dialog")).toBeNull();
   assertNoCapability();
+});
+
+test("fresh pending completion survives an unavailable Accounts refresh after its handoff is consumed", async () => {
+  let releasePage!: (result: AccountsResult<AccountsPage>) => void;
+  vi.mocked(listGatewayAccounts).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        releasePage = resolve;
+      }),
+  );
+  await mount();
+  await startEnrollment();
+  const dialog = await screen.findByRole("dialog", {
+    name: "Complete Codex authorization",
+  });
+  await waitFor(() => expect(listGatewayAccounts).toHaveBeenCalledTimes(1));
+  await act(async () => releasePage({ status: "unavailable" }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Connect Codex OAuth" }),
+    ).toBeNull(),
+  );
+  expect(
+    screen.getByRole("dialog", { name: "Complete Codex authorization" }),
+  ).toBe(dialog);
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  fireEvent.keyDown(dialog, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const resume = screen.getByRole("button", {
+    name: "Resume Codex authorization",
+  }) as HTMLButtonElement;
+  expect(resume.disabled).toBe(false);
+  fireEvent.click(resume);
+  await screen.findByRole("dialog", { name: "Complete Codex authorization" });
+  expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
+  expect(handoff).toHaveBeenCalledTimes(1);
+  expect(reserved.location.replace).toHaveBeenCalledExactlyOnceWith(capability);
+  expect(completeGatewayOAuth).not.toHaveBeenCalled();
+  assertNoCapability();
+  assertNoCallback();
 });
 
 // RED if callback ingress retains the DOM secret while awaiting, caches it,
@@ -455,14 +518,27 @@ test("pending OAuth callback is cleared before ingress and lost ACK retains only
   });
   await mount();
   await startEnrollment();
-  await screen.findByText("Operation 1: pending");
+  await screen.findByText("Connection 1 · Waiting for completion");
   const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
-  fireEvent.click(screen.getByRole("button", { name: "Paste OAuth callback" }));
-  const dialog = await screen.findByRole("dialog");
-  expect(within(dialog).getByText(/localhost cannot connect/)).toBeTruthy();
-  fireEvent.change(within(dialog).getByLabelText("Browser callback URL"), {
-    target: { value: callbackURL },
+  const autoDialog = await screen.findByRole("dialog", {
+    name: "Complete Codex authorization",
   });
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  fireEvent.keyDown(autoDialog, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(
+    screen.getByRole("button", { name: "Resume Codex authorization" }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Complete Codex authorization",
+  });
+  expect(within(dialog).getByText(/cannot return here/)).toBeTruthy();
+  fireEvent.change(
+    within(dialog).getByLabelText("Authorization result address"),
+    {
+      target: { value: callbackURL },
+    },
+  );
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Complete authorization" }),
   );
@@ -473,14 +549,95 @@ test("pending OAuth callback is cleared before ingress and lost ACK retains only
   });
   assertNoCallback();
   await act(async () => rejectComplete(new Error(callbackURL)));
-  await screen.findByText("Operation 1: unknown");
+  await screen.findByText("Connection 1 · Status unavailable");
   expect(screen.queryByRole("dialog")).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Resume Codex authorization" }),
+  ).toBeNull();
+  vi.mocked(readGatewayOperation).mockImplementation(
+    async (_context, currentNonce) => safeOperation(currentNonce, "unknown"),
+  );
+  const readsBeforeStatus = vi.mocked(readGatewayOperation).mock.calls.length;
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  await waitFor(() =>
+    expect(readGatewayOperation).toHaveBeenCalledTimes(readsBeforeStatus + 1),
+  );
+  expect(readGatewayOperation).toHaveBeenLastCalledWith(context, nonce);
+  expect(
+    screen.queryByRole("button", { name: "Resume Codex authorization" }),
+  ).toBeNull();
   expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual([nonce]);
   expect(handoff).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).toHaveBeenCalledExactlyOnceWith(capability);
   expect(completeGatewayOAuth).toHaveBeenCalledTimes(1);
   assertNoCapability();
   assertNoCallback();
+});
+
+test("stale pending readback cannot rearm completion after a lost ACK", async () => {
+  let releaseStatus!: (result: AccountsResult<AccountOperationView>) => void;
+  let rejectComplete!: (error: Error) => void;
+  vi.mocked(completeGatewayOAuth).mockImplementationOnce(() => {
+    assertNoCallback();
+    return new Promise((_resolve, reject) => {
+      rejectComplete = reject;
+    });
+  });
+  await mount();
+  await startEnrollment();
+  await screen.findByText("Connection 1 · Waiting for completion");
+  const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
+  const autoDialog = await screen.findByRole("dialog");
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  fireEvent.keyDown(autoDialog, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  vi.mocked(readGatewayOperation).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        releaseStatus = resolve;
+      }),
+  );
+  const readsBeforeStatus = vi.mocked(readGatewayOperation).mock.calls.length;
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  await waitFor(() =>
+    expect(readGatewayOperation).toHaveBeenCalledTimes(readsBeforeStatus + 1),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Resume Codex authorization" }),
+  );
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.change(
+    within(dialog).getByLabelText("Authorization result address"),
+    {
+      target: { value: callbackURL },
+    },
+  );
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Complete authorization" }),
+  );
+  await waitFor(() => expect(completeGatewayOAuth).toHaveBeenCalledTimes(1));
+  expect(
+    (
+      within(dialog).getByRole("button", {
+        name: "Complete authorization",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  assertNoCallback();
+  await act(async () => rejectComplete(new Error(callbackURL)));
+  await screen.findByText("Connection 1 · Status unavailable");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await act(async () => releaseStatus(safeOperation(nonce, "pending")));
+  await screen.findByText("Connection 1 · Waiting for completion");
+  const resume = screen.getByRole("button", {
+    name: "Resume Codex authorization",
+  }) as HTMLButtonElement;
+  expect(resume.disabled).toBe(true);
+  fireEvent.click(resume);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(completeGatewayOAuth).toHaveBeenCalledTimes(1);
+  assertNoCallback();
+  assertNoCapability();
 });
 
 test("callback completion uses the saved nonce and stores only the safe acknowledgment", async () => {
@@ -492,22 +649,27 @@ test("callback completion uses the saved nonce and stores only the safe acknowle
     },
   );
   await mount();
-  await screen.findByText("Operation 1: pending");
-  fireEvent.click(screen.getByRole("button", { name: "Paste OAuth callback" }));
+  await screen.findByText("Connection 1 · Waiting for completion");
+  fireEvent.click(
+    screen.getByRole("button", { name: "Resume Codex authorization" }),
+  );
   const dialog = await screen.findByRole("dialog");
-  fireEvent.change(within(dialog).getByLabelText("Browser callback URL"), {
-    target: { value: callbackURL },
-  });
+  fireEvent.change(
+    within(dialog).getByLabelText("Authorization result address"),
+    {
+      target: { value: callbackURL },
+    },
+  );
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Complete authorization" }),
   );
-  await screen.findByText("Operation 1: applied");
+  await screen.findByText("Connection 1 · Completed");
   expect(completeGatewayOAuth).toHaveBeenCalledExactlyOnceWith(context, {
     nonce: savedNonce,
     callbackURL,
   });
   expect(
-    screen.queryByRole("button", { name: "Paste OAuth callback" }),
+    screen.queryByRole("button", { name: "Resume Codex authorization" }),
   ).toBeNull();
   expect(beginGatewayOAuth).not.toHaveBeenCalled();
   expect(handoff).not.toHaveBeenCalled();
@@ -526,7 +688,8 @@ test("lost Begin ACK retains unknown nonce and reconciles only through safe read
   );
   await mount();
   await startEnrollment();
-  await screen.findByText("Operation 1: unknown");
+  await screen.findByText("Connection 1 · Status unavailable");
+  expect(screen.queryByRole("dialog")).toBeNull();
   const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
   expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual([nonce]);
   expect(handoff).toHaveBeenCalledWith("about:blank", "_blank");
@@ -536,11 +699,12 @@ test("lost Begin ACK retains unknown nonce and reconciles only through safe read
     safeOperation(nonce),
   );
   fireEvent.click(screen.getByRole("button", { name: "Check status" }));
-  await screen.findByText("Operation 1: pending");
+  await screen.findByText("Connection 1 · Waiting for completion");
   expect(readGatewayOperation).toHaveBeenCalledWith(context, nonce);
   expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
   expect(handoff).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(submitGatewayApiKey).not.toHaveBeenCalled();
   assertNoCapability();
 });
@@ -554,7 +718,8 @@ test("blocked tab skips Begin and leaves no phantom operation nonce", async () =
   expect(beginGatewayOAuth).not.toHaveBeenCalled();
   expect(storageWrites).not.toHaveBeenCalled();
   expect(sessionStorage.getItem(storageKey)).toBeNull();
-  expect(screen.queryByText("Operation readback")).toBeNull();
+  expect(screen.queryByText("Connection status")).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(readGatewayOperation).not.toHaveBeenCalled();
   expect(reserved.location.replace).not.toHaveBeenCalled();
   assertNoCapability();
@@ -573,7 +738,8 @@ test("blank protection failure closes the tab before Begin or nonce reservation"
   expect(beginGatewayOAuth).not.toHaveBeenCalled();
   expect(storageWrites).not.toHaveBeenCalled();
   expect(sessionStorage.getItem(storageKey)).toBeNull();
-  expect(screen.queryByText("Operation readback")).toBeNull();
+  expect(screen.queryByText("Connection status")).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
   assertNoCapability();
 });
 
@@ -584,14 +750,15 @@ test("failed nonce persistence closes the reserved tab without Begin", async () 
   });
   await startEnrollment();
   await screen.findByText(
-    "Could not preserve operation readback. Nothing was submitted.",
+    "Could not preserve connection status. Nothing was submitted.",
   );
   expect(handoff).toHaveBeenCalledWith("about:blank", "_blank");
   expect(reserved.close).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).not.toHaveBeenCalled();
   expect(beginGatewayOAuth).not.toHaveBeenCalled();
   expect(sessionStorage.getItem(storageKey)).toBeNull();
-  expect(screen.queryByText("Operation readback")).toBeNull();
+  expect(screen.queryByText("Connection status")).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
   assertNoCapability();
 });
 
@@ -599,11 +766,12 @@ test("denied Begin closes the blank and dismisses its safe operation nonce", asy
   vi.mocked(beginGatewayOAuth).mockResolvedValueOnce({ status: "denied" });
   await mount();
   await startEnrollment();
-  await screen.findByText(/Accounts are available only/);
+  await screen.findByText(/workspace owner or admin/);
   expect(reserved.close).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).not.toHaveBeenCalled();
   expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual([]);
-  expect(screen.queryByText("Operation readback")).toBeNull();
+  expect(screen.queryByText("Connection status")).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
   assertNoCapability();
 });
@@ -623,7 +791,8 @@ test("missing fresh URL closes the blank and retains pending readback without re
   );
   await mount();
   await startEnrollment();
-  await screen.findByText("Operation 1: pending");
+  await screen.findByText("Connection 1 · Waiting for completion");
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(reserved.close).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).not.toHaveBeenCalled();
   const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
@@ -635,6 +804,7 @@ test("missing fresh URL closes the blank and retains pending readback without re
   expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
   expect(handoff).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog")).toBeNull();
   assertNoCapability();
 });
 
@@ -647,7 +817,8 @@ test("failed fresh navigation closes the tab and retains unknown readback withou
   );
   await mount();
   await startEnrollment();
-  await screen.findByText("Operation 1: unknown");
+  await screen.findByText("Connection 1 · Status unavailable");
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(reserved.close).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).toHaveBeenCalledExactlyOnceWith(capability);
   const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
@@ -659,6 +830,7 @@ test("failed fresh navigation closes the tab and retains unknown readback withou
   expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
   expect(handoff).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("dialog")).toBeNull();
   assertNoCapability();
 });
 
@@ -675,7 +847,7 @@ test("OAuth rows hide API-key reconnect and become selectable only after an acti
     authKind: "api_key",
   });
   await mount();
-  await screen.findByText("Operation 1: pending");
+  await screen.findByText("Connection 1 · Waiting for completion");
   const oauthRow = screen
     .getByText("Workspace Codex")
     .closest("div.flex")! as HTMLElement;
@@ -773,6 +945,9 @@ test("OAuth reconnect reuses the ordinary handoff and original account revisions
   await waitFor(() =>
     expect(reserved.location.replace).toHaveBeenCalledTimes(1),
   );
+  await screen.findByRole("dialog", {
+    name: "Complete Codex authorization",
+  });
   expect(submitGatewayApiKey).not.toHaveBeenCalled();
   assertNoCapability();
 });

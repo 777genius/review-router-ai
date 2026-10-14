@@ -60,12 +60,39 @@ const inputClass =
   "min-h-11 rounded-lg border border-cyan-200/20 bg-slate-950 px-3 text-cyan-50";
 function statusText(status: AccountsResult<unknown>["status"]) {
   return status === "denied"
-    ? "Accounts are available only to current workspace owners and admins."
+    ? "You need workspace owner or admin access."
     : status === "conflict"
-      ? "The account changed. Refresh Accounts before trying a new operation."
+      ? "The account changed. Refresh Accounts before trying again."
       : status === "invalid"
         ? "Check the account fields."
-        : "Account management is unavailable. Refresh or check an outstanding operation later.";
+        : "Account management is unavailable. Refresh or check the connection later.";
+}
+function operationStateText(
+  state: AccountOperationView["state"] | "unresolved",
+) {
+  return state === "pending"
+    ? "Waiting for completion"
+    : state === "applied"
+      ? "Completed"
+      : state === "rejected"
+        ? "Declined"
+        : state === "unresolved"
+          ? "Checking status"
+          : "Status unavailable";
+}
+function validAuthorizationURL(value: string | undefined): value is string {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      Boolean(url.host) &&
+      url.username === "" &&
+      url.password === ""
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function AccountGatewayControls({
@@ -91,6 +118,10 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
   const [ready, setReady] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [completionHandoff, setCompletionHandoff] = useState<string | null>(
+    null,
+  );
+  const completionHandoffRef = useRef<string | null>(null);
   const submitting = useRef(false);
   const page = useQuery({
     queryKey: pageKey(scope, cursor),
@@ -106,7 +137,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
       setReady(true);
     } catch {
       setMessage(
-        "Operation readback storage is unavailable. Enable session storage before starting an operation.",
+        "Connection status is unavailable in this tab. Enable session storage before starting a connection.",
       );
     }
   }, [storageKey]);
@@ -121,10 +152,20 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
         ),
     );
   }, [client, scope]);
+  const offerCompletionHandoff = useCallback((nonce: string) => {
+    if (completionHandoffRef.current) return;
+    completionHandoffRef.current = nonce;
+    setCompletionHandoff(nonce);
+  }, []);
+  const consumeCompletionHandoff = useCallback((nonce: string) => {
+    if (completionHandoffRef.current !== nonce) return;
+    completionHandoffRef.current = null;
+    setCompletionHandoff((current) => (current === nonce ? null : current));
+  }, []);
   function reserveNonce(): string | null {
     if (!ready || nonces.length >= 8) {
       setMessage(
-        "Check or dismiss completed operations before starting another.",
+        "Check recent connections or hide old results before starting another.",
       );
       return null;
     }
@@ -138,7 +179,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
       return nonce;
     } catch {
       setMessage(
-        "Could not preserve operation readback. Nothing was submitted.",
+        "Could not preserve connection status. Nothing was submitted.",
       );
       return null;
     }
@@ -149,7 +190,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
       sessionStorage.setItem(storageKey, JSON.stringify(next));
       setNonces(next);
     } catch {
-      setMessage("Could not update operation readback storage.");
+      setMessage("Could not update connection status.");
     }
   }
   async function accept(
@@ -161,10 +202,10 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
     setMessage(
       result.status === "ok"
         ? result.value.state === "applied"
-          ? "Gateway acknowledged the operation. Cleanup remains unverified; bindings require an active current account."
+          ? "The connection request finished. Workspace use may still require selecting an account."
           : result.value.state === "rejected"
-            ? "The gateway rejected the operation."
-            : "The operation is unresolved. Check its status; enrollment or credentials will not be submitted again."
+            ? "The connection request was declined."
+            : "We could not confirm this connection request. Check its status later; it will not be submitted twice."
         : statusText(result.status),
     );
     await refresh();
@@ -196,32 +237,44 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
     submitting.current = true;
     setBusy(true);
     let navigated = false;
+    let completionReady = false;
     try {
       // Direct ingress: neither the Begin response nor its temporary URL enters
       // a query/mutation cache, component state, storage or a readback request.
       const fresh = await beginGatewayOAuth(context, { ...intent, nonce });
       const safe: AccountsResult<AccountOperationView> =
         fresh.status === "ok"
-          ? { status: "ok", value: fresh.value.operation }
+          ? fresh.value.operation.nonce === nonce
+            ? { status: "ok", value: fresh.value.operation }
+            : {
+                status: "ok",
+                value: { nonce, state: "unknown", cleanup: "unresolved" },
+              }
           : fresh;
+      const authorizationURL =
+        fresh.status === "ok" ? fresh.value.authorizationURL : undefined;
       // The browser gets one fresh handoff. Readback never contains/rebuilds a URL.
       if (
         fresh.status === "ok" &&
-        fresh.value.authorizationURL &&
+        validAuthorizationURL(authorizationURL) &&
+        fresh.value.operation.nonce === nonce &&
+        fresh.value.operation.state === "pending" &&
         !tab.closed
       ) {
         const link = tab.document.createElement("a");
         link.target = "_self";
         link.rel = "noreferrer";
         link.referrerPolicy = "no-referrer";
-        link.href = fresh.value.authorizationURL;
+        link.href = authorizationURL;
         try {
           link.click();
           navigated = true;
+          completionReady = true;
         } finally {
           link.removeAttribute("href");
         }
       } else tab.close();
+      if (completionReady) offerCompletionHandoff(nonce);
       await accept(nonce, safe);
     } catch {
       if (!navigated) tab.close();
@@ -388,6 +441,12 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                     </Badge>
                   ) : null}
                 </div>
+                {account.state === "quarantined" ? (
+                  <p className="mt-1 text-xs text-slate-400">
+                    Connection could not be confirmed. This account cannot run
+                    reviews until its connection is restored.
+                  </p>
+                ) : null}
                 {account.state === "disabled" ||
                 account.state === "tombstoned" ? (
                   <p className="mt-1 text-xs text-slate-400">
@@ -518,15 +577,12 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
       {nonces.length ? (
         <div className="space-y-2 border-t border-cyan-200/10 pt-4">
           <h4 className="text-sm font-semibold text-cyan-50">
-            Operation readback
+            Connection status
           </h4>
           <p className="text-xs text-slate-400">
-            Only operation nonces are retained in this tab. Keys are cleared
-            after submission. Pending or unknown operations are never
-            automatically resubmitted. Acknowledgment does not prove credential
-            erasure or transport cleanup. OAuth authorization is offered only
-            once after a fresh enrollment; status readback cannot reopen it.
-            Allow the authorization tab if your browser blocks popups.
+            Track recent connection requests here. Pending Codex authorizations
+            can be resumed below. A request is never submitted twice, and
+            checking its status never opens a new authorization tab.
           </p>
           {nonces.map((nonce, index) => (
             <OperationReadback
@@ -537,6 +593,8 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
               index={index + 1}
               dismiss={() => dismiss(nonce)}
               refresh={refresh}
+              autoOpenCompletion={completionHandoff === nonce}
+              consumeCompletionHandoff={() => consumeCompletionHandoff(nonce)}
               oauthEnabled={
                 data?.status === "ok" &&
                 data.value.profiles.some((p) => p.authKind === "oauth")
@@ -769,6 +827,8 @@ function OperationReadback({
   dismiss,
   refresh,
   oauthEnabled,
+  autoOpenCompletion,
+  consumeCompletionHandoff,
 }: {
   context: string;
   scope: string;
@@ -777,9 +837,13 @@ function OperationReadback({
   dismiss(): void;
   refresh(): Promise<void>;
   oauthEnabled: boolean;
+  autoOpenCompletion: boolean;
+  consumeCompletionHandoff(): void;
 }) {
   const client = useQueryClient();
   const [pollUntil] = useState(() => Date.now() + 60000);
+  const [completionOffered, setCompletionOffered] = useState(false);
+  const [completionSpent, setCompletionSpent] = useState(false);
   const operation = useQuery({
     queryKey: operationKey(scope, nonce),
     queryFn: () => readGatewayOperation(context, nonce),
@@ -802,7 +866,7 @@ function OperationReadback({
   return (
     <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
       <span>
-        Operation {index}: {state}
+        Connection {index} · {operationStateText(state)}
         {data?.status === "ok" && data.value.account
           ? ` · ${data.value.account.label}`
           : ""}
@@ -815,19 +879,28 @@ function OperationReadback({
       >
         Check status
       </Button>
-      {state === "pending" && oauthEnabled ? (
+      {state === "pending" &&
+      (oauthEnabled || autoOpenCompletion || completionOffered) ? (
         <OAuthCompletionForm
           context={context}
           nonce={nonce}
+          autoOpen={autoOpenCompletion}
+          consumeAutoOpen={() => {
+            setCompletionOffered(true);
+            consumeCompletionHandoff();
+          }}
+          spent={completionSpent}
+          spend={() => setCompletionSpent(true)}
+          restorePreEntry={() => setCompletionSpent(false)}
           accept={async (result) => {
             client.setQueryData(operationKey(scope, nonce), result);
             await refresh();
           }}
         />
       ) : null}
-      {terminal ? (
+      {terminal || state === "unknown" ? (
         <Button variant="outline" size="sm" onClick={dismiss}>
-          Dismiss
+          {state === "unknown" ? "Hide" : "Dismiss"}
         </Button>
       ) : null}
     </div>
@@ -837,19 +910,35 @@ function OperationReadback({
 function OAuthCompletionForm({
   context,
   nonce,
+  autoOpen,
+  consumeAutoOpen,
+  spent,
+  spend,
+  restorePreEntry,
   accept,
 }: {
   context: string;
   nonce: string;
+  autoOpen: boolean;
+  consumeAutoOpen(): void;
+  spent: boolean;
+  spend(): void;
+  restorePreEntry(): void;
   accept(result: AccountsResult<AccountOperationView>): Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const submitting = useRef(false);
+  useEffect(() => {
+    if (!autoOpen) return;
+    if (!spent) setOpen(true);
+    consumeAutoOpen();
+  }, [autoOpen, consumeAutoOpen, spent]);
   async function complete(callbackURL: string) {
-    if (submitting.current) return;
+    if (submitting.current || spent) return;
     submitting.current = true;
+    spend(); // The nonce owner retains this across child unmounts and stale polls.
     setBusy(true);
     setMessage("");
     try {
@@ -859,6 +948,9 @@ function OAuthCompletionForm({
         callbackURL,
       });
       if (result.status !== "ok") {
+        // The server returns ok/unknown after sensitive ingress has entered.
+        if (result.status === "invalid" || result.status === "denied")
+          restorePreEntry();
         setMessage(statusText(result.status));
         return;
       }
@@ -878,9 +970,9 @@ function OAuthCompletionForm({
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger
-        render={<Button variant="outline" size="sm" disabled={busy} />}
+        render={<Button variant="outline" size="sm" disabled={busy || spent} />}
       >
-        Paste OAuth callback
+        Resume Codex authorization
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop />
@@ -890,10 +982,9 @@ function OAuthCompletionForm({
           </Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-slate-400">
             Finish authorizing Codex in the browser tab opened for this
-            operation. Copy the full address from that tab and paste it below,
-            even if the browser says localhost cannot connect. The address
-            starts with http://localhost:1455/auth/callback. It is cleared when
-            submitted.
+            connection. If that tab cannot return here, copy its full web
+            address and paste it below. The address is cleared as soon as you
+            submit it.
           </Dialog.Description>
           <form
             className="mt-4 grid gap-4"
@@ -910,7 +1001,7 @@ function OAuthCompletionForm({
             }}
           >
             <label className="grid gap-2 text-sm">
-              Browser callback URL
+              Authorization result address
               <input
                 className={inputClass}
                 type="text"
@@ -919,11 +1010,11 @@ function OAuthCompletionForm({
                 spellCheck={false}
                 required
                 maxLength={8192}
-                disabled={busy}
+                disabled={busy || spent}
               />
             </label>
             {message ? <p role="status">{message}</p> : null}
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy || spent}>
               Complete authorization
             </Button>
           </form>
