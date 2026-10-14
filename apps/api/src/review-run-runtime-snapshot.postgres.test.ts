@@ -14,7 +14,11 @@ import {
 import Fastify from "fastify";
 import type { AddressInfo } from "node:net";
 import type * as Gateway from "@agent-teams/account-gateway/contracts";
-import { createPrismaClient } from "@reviewrouter/platform-db";
+import {
+  createPrismaClient,
+  rotateScmRepositoryIdentityEpoch,
+} from "@reviewrouter/platform-db";
+import { PrismaGitHubInstallationRepository } from "@reviewrouter/features-github-installations";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import {
   mapConfigToRuntimeEnv,
@@ -2171,6 +2175,58 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         authorizationVersion: 1,
       });
       expect(ordinaryCreation.occurredAt).toEqual(ordinary.createdAt);
+
+      // A Berlin session must not shift a UTC epoch through either the raw
+      // installation clock or the timestamp column's GREATEST assignment.
+      const identityBeforeFence =
+        await prisma.scmRepositoryIdentity.findUniqueOrThrow({
+          where: { scmRepositoryIdentityId: harness.scmRepositoryIdentityId },
+        });
+      const transactionEpochMs = await prisma.$transaction(async (tx) => {
+        const [time] = await tx.$queryRaw<readonly { epochMs: bigint }[]>`
+          SELECT round(extract(epoch FROM transaction_timestamp()) * 1000)::bigint AS "epochMs"
+        `;
+        if (!time) throw new Error("c2c_fence_transaction_time_missing");
+        await rotateScmRepositoryIdentityEpoch(tx, {
+          scmRepositoryIdentityId: harness.scmRepositoryIdentityId,
+          repositoryConnectionId,
+          currentWorkspaceId: workspaceId,
+          boundAt: new Date(Number(time.epochMs)),
+        });
+        return Number(time.epochMs);
+      });
+      const reboundIdentity =
+        await prisma.scmRepositoryIdentity.findUniqueOrThrow({
+          where: { scmRepositoryIdentityId: harness.scmRepositoryIdentityId },
+        });
+      expect(reboundIdentity.version).toBe(identityBeforeFence.version + 1);
+      expect(reboundIdentity.boundAt?.getTime()).toBe(
+        Math.max(identityBeforeFence.boundAt!.getTime(), transactionEpochMs) +
+          1,
+      );
+      const readEpochMs = async () => {
+        const [time] = await prisma.$queryRaw<readonly { epochMs: bigint }[]>`
+          SELECT round(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS "epochMs"
+        `;
+        if (!time) throw new Error("c2c_fence_database_time_missing");
+        return Number(time.epochMs);
+      };
+      const beforeRemovalEpochMs = await readEpochMs();
+      await new PrismaGitHubInstallationRepository(
+        prisma,
+      ).markInstallationRemoved("123456");
+      const afterRemovalEpochMs = await readEpochMs();
+      const removedIdentity =
+        await prisma.scmRepositoryIdentity.findUniqueOrThrow({
+          where: { scmRepositoryIdentityId: harness.scmRepositoryIdentityId },
+        });
+      expect(removedIdentity.version).toBe(reboundIdentity.version + 1);
+      expect(removedIdentity.boundAt?.getTime()).toBeGreaterThanOrEqual(
+        Math.max(reboundIdentity.boundAt!.getTime(), beforeRemovalEpochMs) + 1,
+      );
+      expect(removedIdentity.boundAt?.getTime()).toBeLessThanOrEqual(
+        Math.max(reboundIdentity.boundAt!.getTime(), afterRemovalEpochMs) + 1,
+      );
     } finally {
       await closeRelayApp?.();
       await closeGateway?.();
