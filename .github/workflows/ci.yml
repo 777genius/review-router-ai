@@ -376,7 +376,14 @@ jobs:
 
   quality-gates:
     name: Quality Gates
-    needs: [quality, static-checks, managed-migration-pg17]
+    needs:
+      [
+        quality,
+        quality-db-contracts,
+        quality-source-certification,
+        static-checks,
+        managed-migration-pg17,
+      ]
     if: ${{ always() }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
@@ -385,11 +392,15 @@ jobs:
         shell: bash
         env:
           QUALITY_RESULT: ${{ needs.quality.result }}
+          QUALITY_DB_CONTRACTS_RESULT: ${{ needs.quality-db-contracts.result }}
+          QUALITY_SOURCE_CERTIFICATION_RESULT: ${{ needs.quality-source-certification.result }}
           STATIC_CHECKS_RESULT: ${{ needs.static-checks.result }}
           MANAGED_PG17_RESULT: ${{ needs.managed-migration-pg17.result }}
         run: |
           set -euo pipefail
           test "$QUALITY_RESULT" = success
+          test "$QUALITY_DB_CONTRACTS_RESULT" = success
+          test "$QUALITY_SOURCE_CERTIFICATION_RESULT" = success
           test "$STATIC_CHECKS_RESULT" = success
           test "$MANAGED_PG17_RESULT" = success
 
@@ -492,24 +503,157 @@ jobs:
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
-      # Source/bundle parity needs installed dependencies, not app builds or databases.
-      - name: Codex rotating action artifact smoke
-        run: pnpm action:artifact:check:smoke
+      - name: Generate Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+
+      - name: Create CI databases
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci'
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_provider_scope_ci_test'
+          psql -h 127.0.0.1 -p 5433 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci_test'
+
+      # Application suites need the stock, role-free schema. Keep it in its own
+      # cluster because the combined rehearsal provisions release roles globally.
+      - name: Apply ordinary test database migrations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN ('reviewrouter_release_migration', 'reviewrouter_release_schema_owner')")" = 0
+          DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
+
+      - name: Apply dev database migrations
+        run: pnpm db:migrate:deploy
+
+      - name: Local readiness
+        env:
+          REVIEW_ROUTER_SKIP_ENV_FILE: "1"
+          REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING: "1"
+          GITHUB_APP_CLIENT_ID: ci-client-id
+          GITHUB_APP_CLIENT_SECRET: ci-client-secret
+          GITHUB_APP_ID: "1"
+          GITHUB_APP_SLUG: reviewrouter-ci
+        run: |
+          # Construct the deliberately invalid CI fixture, never an App credential.
+          export GITHUB_APP_PRIVATE_KEY="$(printf '%s %s\n%s\n%s %s\n' \
+            '-----BEGIN' 'PRIVATE KEY-----' 'ci-placeholder' '-----END' 'PRIVATE KEY-----')"
+          pnpm local:check
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Architecture boundaries
+        run: pnpm architecture:check
+
+      - name: GitHub/OIDC contract tests
+        run: pnpm spike:test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Codex secret-write boundary
+        run: pnpm codex-rotating:secret-write-boundary
+
+      - name: Compiled runtime smoke
+        run: pnpm runtime:smoke
+
+      - name: Web page smoke
+        run: pnpm web:smoke
+
+      - name: Hosted readiness smoke
+        run: pnpm hosted:check:smoke
+
+      - name: Public beta readiness smoke
+        run: pnpm public-beta:check:smoke
+
+      - name: Whitespace check
+        run: git diff --check
+
+      - name: Codex auth seeding shell syntax
+        run: bash -n scripts/seed-codex-auth.sh
+
+      - name: Local bootstrap shell syntax
+        run: bash -n scripts/bootstrap-local.sh
+
+      - name: Public beta readiness shell syntax
+        run: bash -n scripts/check-public-beta-readiness.sh
+
+      - name: GitHub App readiness script syntax
+        run: node --check scripts/check-github-app-readiness.mjs
+
+  quality-db-contracts:
+    name: DB Contract and Migration Checks
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 75
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
+      REVIEW_ROUTER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
+
+    services:
+      postgres:
+        image: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres-app-test:
+        image: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ca-certificates curl
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
 
       - name: Generate Prisma client
         env:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
         run: node scripts/generate-prisma-offline.mjs
 
-      - name: Review Action v2 protocol drift check
-        run: pnpm protocol:check
-
       # Later offline role/schema fixtures also require this image on this runner.
       - name: Pull pinned offline fixture image
         run: docker pull postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
-
-      - name: Review Action v2 handoff contract tests
-        run: pnpm protocol:handoff:test
 
       - name: Disposable release-role catalog PG17 fixture (no skips)
         env:
@@ -703,6 +847,139 @@ jobs:
           DROP DATABASE IF EXISTS review_router_provider_scope_ci_test;
           SQL
 
+      - name: Migration smoke test
+        run: pnpm db:migrate:smoke
+
+      - name: Review v2 migration rehearsal
+        run: pnpm review-v2:migration-rehearsal
+
+      - name: Review investigation migration rehearsal
+        run: pnpm review-investigation:migration-rehearsal
+
+      - name: Review Action v2 production DB E2E
+        run: pnpm review-v2:e2e
+
+      - name: Review investigation production DB E2E
+        run: pnpm review-investigation:e2e
+
+      - name: Backup restore smoke test
+        run: pnpm db:restore:smoke
+
+      - name: Webhook lifecycle DB E2E
+        run: node scripts/run-with-env.mjs pnpm spike:webhook-lifecycle:e2e
+
+      - name: Outbox maintenance DB E2E
+        run: node scripts/run-with-env.mjs pnpm spike:outbox-maintenance:e2e
+
+      - name: Rate limit DB E2E
+        run: node scripts/run-with-env.mjs pnpm spike:rate-limit:e2e
+
+      - name: Distributed lock DB E2E
+        run: node scripts/run-with-env.mjs pnpm spike:distributed-lock:e2e
+
+      - name: Review config DB E2E
+        run: node scripts/run-with-env.mjs pnpm spike:review-config:e2e
+
+      - name: Action control plane DB E2E
+        run: node scripts/run-with-env.mjs pnpm spike:action:e2e
+
+      - name: Support diagnostics DB E2E
+        run: node scripts/run-with-env.mjs pnpm spike:support-diagnostics:e2e
+
+  quality-source-certification:
+    name: Source and Certification Checks
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 75
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
+      REVIEW_ROUTER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
+
+    services:
+      postgres:
+        image: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres-app-test:
+        image: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ca-certificates curl
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+
+      - name: Install dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+
+      # Source/bundle parity needs installed dependencies, not app builds or databases.
+      - name: Codex rotating action artifact smoke
+        run: pnpm action:artifact:check:smoke
+
+      - name: Generate Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+
+      - name: Review Action v2 protocol drift check
+        run: pnpm protocol:check
+
+      - name: Review Action v2 handoff contract tests
+        run: pnpm protocol:handoff:test
+
+      - name: Create CI databases
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci'
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_provider_scope_ci_test'
+          psql -h 127.0.0.1 -p 5433 -U postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_ci_test'
+
+      # Application suites need the stock, role-free schema. Keep it in its own
+      # cluster because the combined rehearsal provisions release roles globally.
+      - name: Apply ordinary test database migrations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN ('reviewrouter_release_migration', 'reviewrouter_release_schema_owner')")" = 0
+          DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
+
       - name: Bind hosted certification input bytes
         env:
           REVIEW_ROUTER_HOSTED_CERTIFICATION_WORKSPACE_SNAPSHOT: ${{ runner.temp }}/hosted-certification-workspace.json
@@ -779,21 +1056,6 @@ jobs:
 
       - name: Rotating Codex dropped-response loopback proof
         run: pnpm codex-rotating:loopback-proof
-
-      - name: Migration smoke test
-        run: pnpm db:migrate:smoke
-
-      - name: Review v2 migration rehearsal
-        run: pnpm review-v2:migration-rehearsal
-
-      - name: Review investigation migration rehearsal
-        run: pnpm review-investigation:migration-rehearsal
-
-      - name: Review Action v2 production DB E2E
-        run: pnpm review-v2:e2e
-
-      - name: Review investigation production DB E2E
-        run: pnpm review-investigation:e2e
 
       - name: Validate paired Action release pin
         run: |
@@ -888,26 +1150,6 @@ jobs:
         run: |
           node -e "require('node:fs').rmSync('.paired', { recursive: true, force: true })"
 
-      - name: Backup restore smoke test
-        run: pnpm db:restore:smoke
-
-      - name: Local readiness
-        env:
-          REVIEW_ROUTER_SKIP_ENV_FILE: "1"
-          REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING: "1"
-          GITHUB_APP_CLIENT_ID: ci-client-id
-          GITHUB_APP_CLIENT_SECRET: ci-client-secret
-          GITHUB_APP_ID: "1"
-          GITHUB_APP_SLUG: reviewrouter-ci
-        run: |
-          # Construct the deliberately invalid CI fixture, never an App credential.
-          export GITHUB_APP_PRIVATE_KEY="$(printf '%s %s\n%s\n%s %s\n' \
-            '-----BEGIN' 'PRIVATE KEY-----' 'ci-placeholder' '-----END' 'PRIVATE KEY-----')"
-          pnpm local:check
-
-      - name: Unit tests
-        run: pnpm test
-
       - name: EF v3 SDK growth contract
         run: pnpm --filter @reviewrouter/features-sdk-growth-authority test:ef-v3
 
@@ -945,63 +1187,3 @@ jobs:
         if: always()
         run: |
           node -e "require('node:fs').rmSync('.candidate', { recursive: true, force: true })"
-
-      - name: Architecture boundaries
-        run: pnpm architecture:check
-
-      - name: GitHub/OIDC contract tests
-        run: pnpm spike:test
-
-      - name: Webhook lifecycle DB E2E
-        run: node scripts/run-with-env.mjs pnpm spike:webhook-lifecycle:e2e
-
-      - name: Outbox maintenance DB E2E
-        run: node scripts/run-with-env.mjs pnpm spike:outbox-maintenance:e2e
-
-      - name: Rate limit DB E2E
-        run: node scripts/run-with-env.mjs pnpm spike:rate-limit:e2e
-
-      - name: Distributed lock DB E2E
-        run: node scripts/run-with-env.mjs pnpm spike:distributed-lock:e2e
-
-      - name: Review config DB E2E
-        run: node scripts/run-with-env.mjs pnpm spike:review-config:e2e
-
-      - name: Action control plane DB E2E
-        run: node scripts/run-with-env.mjs pnpm spike:action:e2e
-
-      - name: Support diagnostics DB E2E
-        run: node scripts/run-with-env.mjs pnpm spike:support-diagnostics:e2e
-
-      - name: Build
-        run: pnpm build
-
-      - name: Codex secret-write boundary
-        run: pnpm codex-rotating:secret-write-boundary
-
-      - name: Compiled runtime smoke
-        run: pnpm runtime:smoke
-
-      - name: Web page smoke
-        run: pnpm web:smoke
-
-      - name: Hosted readiness smoke
-        run: pnpm hosted:check:smoke
-
-      - name: Public beta readiness smoke
-        run: pnpm public-beta:check:smoke
-
-      - name: Whitespace check
-        run: git diff --check
-
-      - name: Codex auth seeding shell syntax
-        run: bash -n scripts/seed-codex-auth.sh
-
-      - name: Local bootstrap shell syntax
-        run: bash -n scripts/bootstrap-local.sh
-
-      - name: Public beta readiness shell syntax
-        run: bash -n scripts/check-public-beta-readiness.sh
-
-      - name: GitHub App readiness script syntax
-        run: node --check scripts/check-github-app-readiness.mjs
