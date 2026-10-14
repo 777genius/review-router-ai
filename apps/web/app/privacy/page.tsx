@@ -9,22 +9,21 @@ import { createPublicPageMetadata } from "../seo";
 export const metadata: Metadata = createPublicPageMetadata({
   title: "Privacy-first AI code review",
   description:
-    "Privacy model for ReviewRouter: AI pull request review runs in customer CI while code, PR diffs, prompts, and provider secrets stay out of the SaaS by default.",
+    "Privacy model for ReviewRouter: review runs in customer CI, submitted context reaches the selected provider, and credential custody depends on direct or Account Gateway mode.",
   path: "/privacy",
 });
 
 const collectedMetadata = [
   "GitHub account login, avatar URL, and GitHub user id after sign-in",
   "workspace, installation, repository, and selected-repository metadata",
+  "Account Gateway credential records and enrollment state in Gateway mode; stored credentials are encrypted at rest in protected server custody",
   "workflow setup PR URLs, action refs, config versions, and safe health summaries",
+  "review metadata and normalized findings, which may include source excerpts",
   "audit events for setup, config, support diagnostics, and operational actions",
   "user-confirmed Balanced Memory snippets and safe memory metadata when Memory is enabled",
 ] as const;
 
 const notCollectedByDefault = [
-  "repository source code",
-  "pull request diffs, prompts, or model responses",
-  "Codex auth.json, Claude Code OAuth tokens, OpenAI API keys, or OpenRouter keys",
   "raw GitHub webhook payload bodies after normalization",
   "raw memory source comments, embeddings, or deleted memory bodies in exports",
 ] as const;
@@ -66,15 +65,15 @@ const memoryLifecycleRows = [
 const privacyBoundary = [
   {
     title: "Code path",
-    body: "The repository checkout and review prompt are created inside the customer's GitHub Actions job, not inside ReviewRouter cloud.",
+    body: "The repository checkout and review prompt are created inside the authorized CI job. Submitted review context is sent to the selected provider, through Account Gateway relay in Gateway mode.",
   },
   {
     title: "Model path",
-    body: "When AI review runs, the action calls the provider selected by the customer using credentials controlled by the customer.",
+    body: "The selected provider sees submitted source and context. Provider calls use direct CI credentials or the Account Gateway relay, depending on mode.",
   },
   {
     title: "Control path",
-    body: "ReviewRouter cloud keeps setup metadata, policy, audit, and health state so teams can operate reviews across many repositories.",
+    body: "ReviewRouter cloud keeps setup metadata, policy, audit, health, and protected Account Gateway credential custody.",
   },
 ] as const;
 
@@ -85,14 +84,14 @@ export default function PrivacyPage(): React.ReactElement {
         <div className="space-y-5">
           <Badge tone="accent">Privacy</Badge>
           <h1 className="max-w-3xl text-5xl font-semibold tracking-tight text-cyan-50 md:text-7xl">
-            Your code stays in your CI.
+            Review execution runs in your CI.
           </h1>
           <p className="max-w-2xl text-lg leading-8 text-slate-300">
-            ReviewRouter is designed for complex private codebases where code
-            review needs central policy without centralizing source code. The
-            SaaS keeps setup, model settings, health, and audit state while
-            repository code, provider credentials, and review execution stay in
-            customer GitHub Actions by default.
+            Review execution runs in the authorized CI job. Submitted review
+            context reaches the selected provider and may pass through Account
+            Gateway relay. Direct credentials stay in GitHub Actions or trusted
+            runners; Gateway credentials use write-only server ingress,
+            transient plaintext enrollment, and encrypted storage at rest.
           </p>
           <div className="flex flex-wrap gap-3">
             <LinkButton href="/security" variant="soft" tone="success">
@@ -110,13 +109,13 @@ export default function PrivacyPage(): React.ReactElement {
         <Card className="space-y-4">
           <Badge tone="success">Core claim</Badge>
           <h2 className="text-2xl font-semibold text-cyan-50">
-            Review execution stays in customer CI by default.
+            Review execution runs in the authorized CI job.
           </h2>
           <p className="text-sm leading-6 text-slate-300">
             ReviewRouter SaaS stores metadata needed for setup, config, health,
-            audit, and support diagnostics. Source code, PR diffs, prompts,
-            model responses, provider credentials, and review workloads stay out
-            of ReviewRouter cloud by default.
+            audit, support diagnostics, and normalized review findings that may
+            include source excerpts. Submitted review context is sent to the
+            selected provider, through Account Gateway relay in Gateway mode.
           </p>
         </Card>
       </section>
@@ -149,9 +148,9 @@ export default function PrivacyPage(): React.ReactElement {
         </Card>
 
         <Card className="space-y-4 border-lime-300/20">
-          <Badge tone="success">Not stored by default</Badge>
+          <Badge tone="success">Storage boundary</Badge>
           <h2 className="text-2xl font-semibold text-cyan-50">
-            What should not enter the SaaS
+            What is not persisted by default
           </h2>
           <ul className="grid gap-3 text-sm leading-6 text-slate-300">
             {notCollectedByDefault.map((item) => (
