@@ -65,6 +65,7 @@ import {
   type ReviewInvocationLeaseAcquireRequest,
   type ReviewInvocationLeaseReleaseRequest,
   type ReviewRunAuthorizeRequest,
+  type ReviewRunRenewRequest,
 } from "../../../packages/protocol-review-action-v2/src/index.js";
 import { exportJWK, SignJWT } from "jose";
 import {
@@ -409,6 +410,25 @@ export class ReviewActionV2E2EHarness {
       reviewRevisionHash: requiredString(facts.reviewRevisionHash),
       selectedProtocolVersion: requiredString(facts.selectedProtocolVersion),
     };
+  }
+
+  async createRenewRequest(
+    authorization: ReviewActionV2E2EAuthorization,
+  ): Promise<ReviewRunRenewRequest> {
+    const renewalRequestId = `${this.prefix}-renew-${randomUUID()}`;
+    return withBodyHash(ReviewActionV2OperationId.ReviewRunRenew, {
+      ...envelope(renewalRequestId),
+      authorizationId: authorization.authorizationId,
+      authorizationToken: authorization.authorizationToken,
+      renewalRequestId,
+      idempotencyKey: renewalRequestId,
+      requestBodyHash: "0".repeat(64),
+      oidcToken: await this.signOidcToken(
+        authorization.sourceRunAttempt ?? "1",
+        Math.floor(Date.now() / 1000) + this.oidcLifetimeSeconds,
+      ),
+      requestedTtlMs: 900_000,
+    });
   }
 
   async createCommittedFlow(
