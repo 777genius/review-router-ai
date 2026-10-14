@@ -508,6 +508,12 @@ jobs:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
         run: node scripts/generate-prisma-offline.mjs
 
+      - name: Bootstrap contract sources for unit tests
+        run: node scripts/check-review-action-v2-protocol.mjs --bootstrap-only
+
+      - name: Pull pinned offline fixture image
+        run: docker pull postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+
       - name: Create CI databases
         env:
           PGPASSWORD: postgres
@@ -979,6 +985,9 @@ jobs:
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
+
+      - name: Apply dev database migrations
+        run: pnpm db:migrate:deploy
 
       - name: Bind hosted certification input bytes
         env:
