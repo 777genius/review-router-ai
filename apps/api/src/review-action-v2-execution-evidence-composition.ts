@@ -245,8 +245,24 @@ export function createReviewActionV2ExecutionHandlers(
     finalize: enabled((request: ReviewExecutionFinalizeRequest) =>
       finalizeExecution(request, d),
     ),
-    acquireLease: enabled((request: ReviewInvocationLeaseAcquireRequest) =>
-      acquireLease(request, d),
+    acquireLease: enabled(
+      async (request: ReviewInvocationLeaseAcquireRequest) => {
+        const response = await acquireLease(request, d);
+        try {
+          console.info("review_invocation_lease_acquire_outcome", {
+            status: response.result.status,
+            rejectionReason:
+              "rejectionReason" in response.result
+                ? response.result.rejectionReason
+                : null,
+            executionId: request.executionId,
+            workSlotId: request.workSlotId,
+          });
+        } catch {
+          // Diagnostics cannot change the selected response or lease outcome.
+        }
+        return response;
+      },
     ),
     renewLease: enabled((request: ReviewInvocationLeaseRenewRequest) =>
       renewLease(request, d),
