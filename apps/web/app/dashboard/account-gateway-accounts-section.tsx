@@ -22,8 +22,13 @@ export async function AccountGatewayAccountsSection({
         <p className="mt-2 text-sm text-slate-400">
           Connect a MiMo or OpenRouter key, or enroll Codex when OAuth is
           enabled for this workspace. Workspace admins can manage these
-          accounts. Credentials are stored on our server and are never returned
-          here or copied to repository secrets.
+          accounts. Credentials are stored encrypted on our server and are not
+          returned here or copied into the review CI job or repository secrets.
+        </p>
+        <p className="mt-2 text-sm text-slate-400">
+          The selected provider receives the review context. Code in the
+          authorized CI job can use its scoped review access; tool environment
+          filtering does not fully isolate that access.
         </p>
         <p className="mt-2 text-sm text-slate-400">
           Codex authorization opens once after a fresh enrollment. Enrollment

@@ -13,8 +13,7 @@ export const metadata: Metadata = createPublicPageMetadata({
 const responsibilities = [
   "Install the GitHub App only on repositories you are authorized to manage.",
   "Review generated workflow PRs before merging them.",
-  "Store provider credentials only in trusted GitHub Actions secrets or trusted self-hosted runners.",
-  "Do not use ReviewRouter to process data you are not allowed to expose to the configured CI environment.",
+  "Use the supported server-managed Account Gateway flow or explicitly configured GitHub Actions/self-hosted runner credentials, and submit only data you may expose to the selected provider.",
 ] as const;
 
 const limitations = [
@@ -36,7 +35,8 @@ export default function TermsPage(): React.ReactElement {
           <p className="max-w-2xl text-lg leading-8 text-slate-300">
             These guidelines set operational expectations for early users:
             install only where authorized, review generated workflow PRs, and
-            keep provider credentials in your own GitHub Actions secrets.
+            use a supported credential mode for data you may expose to the
+            selected provider.
           </p>
           <div className="flex flex-wrap gap-3">
             <LinkButton href="/privacy" variant="soft" tone="success">
@@ -57,12 +57,14 @@ export default function TermsPage(): React.ReactElement {
         <Card className="space-y-4">
           <Badge tone="warning">Beta scope</Badge>
           <h2 className="text-2xl font-semibold text-cyan-50">
-            ReviewRouter configures review, CI executes review.
+            ReviewRouter configures review; the authorized CI job runs it.
           </h2>
           <p className="text-sm leading-6 text-slate-300">
             The v1 control plane helps install, configure, audit, and monitor AI
-            review workflows. It does not provide a warranty that every bug will
-            be found or that every finding is correct.
+            review workflows. Submitted review context is sent to the selected
+            provider, through Account Gateway relay in Gateway mode. It does not
+            provide a warranty that every bug will be found or that every
+            finding is correct.
           </p>
         </Card>
       </section>
