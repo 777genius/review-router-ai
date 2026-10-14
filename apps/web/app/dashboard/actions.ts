@@ -1,5 +1,7 @@
 "use server";
 
+import { resolveReviewPolicy } from "@reviewrouter/features-review-config";
+
 import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -147,6 +149,8 @@ import {
   readProviderSetupConfirmationMode,
   readProviderSetupSelection,
   readReviewConfigurationForm,
+  readRepositoryReviewPolicyForm,
+  readReviewPolicyExpectedVersion,
   readReviewDiscussionMode,
   readWorkflowStyle,
 } from "./dashboard-action-form-readers";
@@ -2885,7 +2889,8 @@ async function saveWorkspaceReviewConfigMutation(
     const saved = await saveReviewConfiguration(
       {
         target: { scope: "workspace", workspaceId },
-        config,
+        policy: config,
+        expectedVersion: readReviewPolicyExpectedVersion(formData),
       },
       {
         configurations: new PrismaReviewConfigurationRepository(
@@ -2904,9 +2909,9 @@ async function saveWorkspaceReviewConfigMutation(
         targetId: workspaceId,
         metadata: {
           version: saved.version,
-          providerKind: saved.config.provider.kind,
-          authMode: saved.config.provider.authMode,
-          model: saved.config.provider.model,
+          providerKind: saved.config.providers[0]!.kind,
+          authMode: saved.config.providers[0]!.authMode,
+          model: saved.config.providers[0]!.model,
           failOnSeverity: saved.config.blockingPolicy.failOnSeverity,
           ...dashboardMutationAccessAuditMetadata(actor),
         },
@@ -2978,7 +2983,17 @@ async function saveRepositoryReviewConfigMutation(
       workspaceId,
       resourceId: repositoryId,
     });
-    const config = readReviewConfigurationForm(formData);
+    const configurations = new PrismaReviewConfigurationRepository(
+      prisma,
+      process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+    );
+    const workspace = await configurations.findLatest({
+      scope: "workspace",
+      workspaceId,
+    });
+    if (!workspace) throw new Error("review_workspace_policy_required");
+    const policy = readRepositoryReviewPolicyForm(formData);
+    const config = resolveReviewPolicy(workspace.config, policy);
     assertCodexProductionReviewConfigAllowed(config);
     assertCodexRotatingReviewConfigAllowed({
       config,
@@ -3006,7 +3021,8 @@ async function saveRepositoryReviewConfigMutation(
     const saved = await saveReviewConfiguration(
       {
         target: { scope: "repository", workspaceId, repositoryId },
-        config,
+        policy,
+        expectedVersion: readReviewPolicyExpectedVersion(formData),
       },
       {
         configurations: new PrismaReviewConfigurationRepository(
@@ -3026,9 +3042,9 @@ async function saveRepositoryReviewConfigMutation(
         metadata: {
           repository: repository.fullName,
           version: saved.version,
-          providerKind: saved.config.provider.kind,
-          authMode: saved.config.provider.authMode,
-          model: saved.config.provider.model,
+          providerKind: saved.config.providers[0]!.kind,
+          authMode: saved.config.providers[0]!.authMode,
+          model: saved.config.providers[0]!.model,
           failOnSeverity: saved.config.blockingPolicy.failOnSeverity,
           ...dashboardMutationAccessAuditMetadata(actor),
         },

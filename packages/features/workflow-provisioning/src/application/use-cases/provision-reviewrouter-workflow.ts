@@ -1,6 +1,4 @@
 import {
-  mapConfigToRuntimeEnv,
-  safeDefaultReviewConfiguration,
   resolveReviewConfiguration,
   type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
@@ -67,8 +65,7 @@ export async function provisionReviewRouterWorkflow(
   }
   if (
     gatewaySelected &&
-    (saved?.source !== "repository" ||
-      input.codexSessionMode !== "account-gateway" ||
+    (input.codexSessionMode !== "account-gateway" ||
       input.runtimeConfigMode !== "oidc" ||
       input.staticRuntimeEnv !== undefined ||
       (input.workflowStyle !== undefined &&
@@ -147,10 +144,14 @@ export async function provisionReviewRouterWorkflow(
   }
 
   try {
-    const staticRuntimeEnv = gatewayFile
-      ? {}
-      : (plan.staticRuntimeEnv ??
-        mapConfigToRuntimeEnv(safeDefaultReviewConfiguration));
+    if (
+      !gatewayFile &&
+      plan.runtimeConfigMode === "static" &&
+      plan.staticRuntimeEnv === undefined
+    ) {
+      throw new Error("workflow_static_policy_required");
+    }
+    const staticRuntimeEnv = gatewayFile ? {} : (plan.staticRuntimeEnv ?? {});
     if (!gatewayFile) {
       assertProductionCodexWorkflowProvisioningAllowed({
         codexRotatingProviderInstanceId: plan.codexRotatingProviderInstanceId,

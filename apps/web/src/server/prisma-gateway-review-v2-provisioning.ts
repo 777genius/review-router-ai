@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { PrismaClient } from "@reviewrouter/platform-db";
-import { requireGitHubAppPrivateKey } from "@reviewrouter/platform-config";
+import {
+  requireGitHubAppPrivateKey,
+  resolveReviewRouterCodexRotatingActionRef,
+} from "@reviewrouter/platform-config";
 import {
   ManageProducerReleases,
   ManageReviewMutationAuthority,
@@ -130,6 +133,17 @@ export async function provisionGatewayReviewV2Repository(input: {
       identities: repositories.repositoryIdentities,
       authorities: repositories.mutationAuthorities,
       producerReleases: repositories.producerReleases,
+      selectedProducerActionCommitSha: () => {
+        try {
+          return (
+            resolveReviewRouterCodexRotatingActionRef(input.env).split(
+              "@",
+            )[1] ?? null
+          );
+        } catch {
+          return null;
+        }
+      },
       releaseAttestations: attestations,
       safety,
       workflowInventory: inventory,

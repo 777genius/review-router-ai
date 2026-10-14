@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
   parseReviewConfigurationStrict,
-  safeDefaultReviewConfiguration,
   type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
 import type { ProvisionWorkflowInput } from "../domain/workflow-provisioning";
@@ -105,9 +104,39 @@ const activeTarget = {
   installationStatus: "active",
 } satisfies WorkflowProvisioningTarget;
 
+const workspacePolicy = parseReviewConfigurationStrict({
+  schemaVersion: 3,
+  providers: [
+    {
+      kind: "codex",
+      authMode: "codex_subscription_oauth_rotating",
+      model: "gpt-5.5",
+      reasoningEffort: "high",
+      agenticContext: true,
+      fastMode: false,
+    },
+  ],
+  execution: {
+    providerLimit: 1,
+    providerMaxParallel: 1,
+    inlineMinAgreement: 1,
+  },
+  blockingPolicy: { failOnSeverity: "critical" },
+  limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  reviewLanguage: null,
+  investigationRollout: {
+    recordingEnabled: false,
+    shadowEnabled: false,
+    contextCriticEnabled: false,
+    verifiedCleanEnabled: false,
+    crossRevisionReplayEnabled: false,
+    productionEffectsEnabled: false,
+  },
+});
+
 const savedGatewayConfig = parseReviewConfigurationStrict({
-  ...safeDefaultReviewConfiguration,
-  schemaVersion: 2,
+  ...workspacePolicy,
+  schemaVersion: 3,
   providers: [
     {
       kind: "codex",
@@ -134,8 +163,23 @@ function savedConfigurations(
 ): ReviewConfigurationRepositoryPort {
   return {
     findLatest: async (target) =>
-      target.scope === selection
-        ? { version: 1, config: savedGatewayConfig }
+      target.scope === "repository" &&
+      (selection === "repository" || selection === "workspace")
+        ? {
+            version: 1,
+            source:
+              selection === "workspace"
+                ? ("workspace" as const)
+                : ("repository" as const),
+            workspaceVersion: 1,
+            repositoryVersion: selection === "workspace" ? null : 1,
+            effectivePolicyDigest: "a".repeat(64),
+            policy:
+              selection === "workspace"
+                ? savedGatewayConfig
+                : { schemaVersion: 3 as const },
+            config: savedGatewayConfig,
+          }
         : null,
     saveNextVersion: async () => {
       throw new Error("unexpected_config_write");
@@ -156,30 +200,46 @@ it("provisions only the keyless caller from server-loaded saved repository confi
   });
   const files = setupGateway.input!.workflowFiles;
   expect(files).toHaveLength(1);
-  expect(files[0]!.path).toBe(".github/workflows/reviewrouter-codex.yml");
+  expect(files[0]!.path).toBe(".github/workflows/reviewrouter-review.yml");
   const file = files[0]!;
-  const job = parse("content" in file ? file.content : "").jobs["codex-review"];
+  const job = parse("content" in file ? file.content : "").jobs.review;
   expect(job.with).toMatchObject({
-    codex_session_mode: "account-gateway",
-    workflow_schema_version: 2,
-    provider_instance_id: "codex-rotating:123456",
-    runtime_config_mode: "oidc",
+    review_request_id: "${{ inputs.review_request_id }}",
+    pr_number: "${{ inputs.pr_number }}",
+    review_head_sha: "${{ inputs.review_head_sha }}",
   });
   expect(job.uses).toBe(
-    gatewayInput.actionRef.replace(
-      "@",
-      "/.github/workflows/reviewrouter-t0-reusable.yml@",
-    ),
+    "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
   );
   expect(job.secrets).toBeUndefined();
 });
 it.each([
+  "777genius/review-router@main",
+  "",
+  `other/repo@${"a".repeat(40)}`,
+  `777genius/review-router@${"A".repeat(40)}`,
+])(
+  "uses the canonical managed channel independently of old actionRef=%s",
+  async (actionRef) => {
+    const setupGateway = new CapturingSetupGateway();
+    await provisionReviewRouterWorkflow(
+      { ...gatewayInput, actionRef },
+      {
+        setupGateway,
+        provisioning: new CapturingProvisioningRepository(),
+        configurations: savedConfigurations(),
+        trustedGithubRepositoryId: "123456",
+      },
+    );
+    const file = setupGateway.input!.workflowFiles[0]!;
+    expect(parse("content" in file ? file.content : "").jobs.review.uses).toBe(
+      "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
+    );
+  },
+);
+it.each([
   ["missing-mode", { codexSessionMode: undefined }],
   ["wrong-mode", { codexSessionMode: "oauth" }],
-  ["mutable-ref", { actionRef: "777genius/review-router@main" }],
-  ["missing-ref", { actionRef: "" }],
-  ["wrong-repo-ref", { actionRef: `other/repo@${"a".repeat(40)}` }],
-  ["uppercase-ref", { actionRef: `777genius/review-router@${"A".repeat(40)}` }],
   ["missing-identity", { githubRepositoryId: undefined }],
   ["invalid-identity", { githubRepositoryId: "01" }],
   ["different-identity", { githubRepositoryId: "654321" }],
@@ -209,7 +269,21 @@ it.each([
     expect(provisioning.attempts).toBe(0);
   },
 );
-it.each(["missing", "workspace", "mixed"])(
+it("provisions from inherited workspace policy without creating a repository override", async () => {
+  const setupGateway = new CapturingSetupGateway();
+  await provisionReviewRouterWorkflow(gatewayInput, {
+    setupGateway,
+    provisioning: new CapturingProvisioningRepository(),
+    configurations: savedConfigurations("workspace"),
+    trustedGithubRepositoryId: "123456",
+  });
+  const file = setupGateway.input!.workflowFiles[0]!;
+  expect(file.path).toBe(".github/workflows/reviewrouter-review.yml");
+  expect(parse("content" in file ? file.content : "").jobs.review.uses).toBe(
+    "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
+  );
+});
+it.each(["missing", "mixed"])(
   "denies %s saved gateway selection before setup",
   async (selection) => {
     const setupGateway = new CapturingSetupGateway();
@@ -223,7 +297,7 @@ it.each(["missing", "workspace", "mixed"])(
           ...savedGatewayConfig,
           providers: [
             ...savedGatewayConfig.providers,
-            safeDefaultReviewConfiguration.provider,
+            workspacePolicy.providers[0],
           ],
         }),
       });

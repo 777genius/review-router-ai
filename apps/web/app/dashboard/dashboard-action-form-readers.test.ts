@@ -1,11 +1,63 @@
+import { repositoryPolicyFormFields } from "./review-policy-form-contract";
 import { describe, expect, it } from "vitest";
 import {
   readProviderSetupSelection,
   readReviewConfigurationForm,
+  readRepositoryReviewPolicyForm,
+  readReviewPolicyExpectedVersion,
   readReviewDiscussionMode,
 } from "./dashboard-action-form-readers";
 
 describe("dashboard action form readers", () => {
+  it("requires an explicit CAS version or create-only intent", () => {
+    const form = new FormData();
+    expect(() => readReviewPolicyExpectedVersion(form)).toThrow();
+    form.set("policyExpectedVersion", "none");
+    expect(readReviewPolicyExpectedVersion(form)).toBeNull();
+    form.set("policyExpectedVersion", "7");
+    expect(readReviewPolicyExpectedVersion(form)).toBe(7);
+    for (const value of ["0", "-1", "1.5", "9007199254740992"]) {
+      form.set("policyExpectedVersion", value);
+      expect(() => readReviewPolicyExpectedVersion(form)).toThrow();
+    }
+  });
+
+  it("resets all repository fields by removing overrides", () => {
+    const form = new FormData();
+    for (const field of repositoryPolicyFormFields)
+      form.set(`policyMode.${field.join(".")}`, "inherit");
+    expect(readRepositoryReviewPolicyForm(form)).toEqual({ schemaVersion: 3 });
+  });
+  it("keeps explicit zero, false and null without copying inherited values", () => {
+    const form = reviewConfigFormData([
+      {
+        authMode: "codex_subscription_oauth_rotating",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+      },
+    ]);
+    for (const field of repositoryPolicyFormFields)
+      form.set(`policyMode.${field.join(".")}`, "inherit");
+    for (const field of [
+      "limits.inlineMaxComments",
+      "investigationRollout.recordingEnabled",
+      "reviewLanguage",
+    ])
+      form.set(`policyMode.${field}`, "override");
+    form.set("inlineMaxComments", "0");
+    form.set("investigationRollout.recordingEnabled", "false");
+    form.set("reviewLanguage", "");
+    expect(readRepositoryReviewPolicyForm(form)).toEqual({
+      schemaVersion: 3,
+      limits: { inlineMaxComments: 0 },
+      investigationRollout: { recordingEnabled: false },
+      reviewLanguage: null,
+    });
+  });
+  it("refuses missing inheritance intent rather than guessing from values", () => {
+    expect(() => readRepositoryReviewPolicyForm(new FormData())).toThrow();
+  });
+
   it("preserves explicit gateway binding and profile references in policy submissions", () => {
     const formData = reviewConfigFormData([
       {
@@ -16,7 +68,7 @@ describe("dashboard action form readers", () => {
     ]);
     formData.set("providerGatewayBindingId.0", "binding-mimo");
     formData.set("providerGatewayProfileRef.0", "profile-mimo");
-    expect(readReviewConfigurationForm(formData).provider).toMatchObject({
+    expect(readReviewConfigurationForm(formData).providers[0]).toMatchObject({
       kind: "codex",
       authMode: "codex_account_gateway",
       model: "mimo-v2-pro",
@@ -27,7 +79,7 @@ describe("dashboard action form readers", () => {
     expect(() => readReviewConfigurationForm(formData)).toThrow();
   });
 
-  it("normalizes stale legacy Codex policy submissions to rotating Codex without dropping hybrid providers", () => {
+  it("rejects stale legacy auth instead of silently converting policy", () => {
     const formData = reviewConfigFormData([
       {
         authMode: "codex_subscription_oauth",
@@ -41,35 +93,9 @@ describe("dashboard action form readers", () => {
       },
     ]);
 
-    const config = readReviewConfigurationForm(formData);
-
-    expect(config.providers).toHaveLength(2);
-    expect(config.provider).toMatchObject({
-      kind: "codex",
-      authMode: "codex_subscription_oauth_rotating",
-      model: "gpt-5.5",
-      reasoningEffort: "high",
-      requiredHealthy: true,
-    });
-    expect(config.providers[1]).toMatchObject({
-      kind: "openrouter",
-      authMode: "openrouter_api_key",
-      model: "openai/gpt-5.3-codex",
-      reasoningEffort: "medium",
-    });
-    expect(config.execution).toMatchObject({
-      providerLimit: 2,
-      providerMaxParallel: 2,
-      inlineMinAgreement: 2,
-    });
-    expect(config.investigationRollout).toEqual({
-      recordingEnabled: false,
-      shadowEnabled: false,
-      contextCriticEnabled: false,
-      verifiedCleanEnabled: false,
-      crossRevisionReplayEnabled: false,
-      productionEffectsEnabled: false,
-    });
+    expect(() => readReviewConfigurationForm(formData)).toThrow(
+      "review_auth_mode_requires_reconnect",
+    );
   });
 
   it("preserves explicitly enabled investigation rollout flags", () => {
@@ -130,7 +156,7 @@ describe("dashboard action form readers", () => {
     ]);
 
     expect(() => readReviewConfigurationForm(formData)).toThrow(
-      "duplicate_review_provider",
+      "duplicate review provider",
     );
   });
 

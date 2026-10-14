@@ -155,7 +155,12 @@ export class PrismaReviewConfigurationRepository
             intent.operationId,
           );
           if (original) {
-            return matchOperationReceipt(original, receipt.operationIntentHash);
+            return matchOperationReceipt(
+              this.prisma,
+              intent.target.workspaceId,
+              original,
+              receipt.operationIntentHash,
+            );
           }
           if (isPrismaReviewConfigurationWriteConflict(error))
             throw new WriteConflict();

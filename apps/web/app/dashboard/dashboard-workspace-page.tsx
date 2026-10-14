@@ -1,4 +1,5 @@
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
+import { initialWorkspaceReviewPolicyDraft } from "../../src/server/initial-workspace-review-policy";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
 import { GatewayRepositoryBatchRefreshBoundary } from "./gateway-repository-batch-controls";
 import {
@@ -50,7 +51,6 @@ import {
   findReviewConfiguration,
   findRepositoryReviewConfigurations,
   PrismaReviewConfigurationRepository,
-  safeDefaultReviewConfiguration,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
@@ -638,10 +638,8 @@ export async function loadDashboardSectionData(
             (
               repositoryConfigs.find(
                 (item) => item.repositoryId === repository.id,
-              )?.config?.config ??
-              reviewConfig?.config ??
-              safeDefaultReviewConfiguration
-            ).providers.some(
+              )?.config?.config ?? reviewConfig?.config
+            )?.providers.some(
               (provider) => provider.authMode === "codex_account_gateway",
             ),
           )
@@ -1701,8 +1699,49 @@ function WorkspaceCard({
     memoryPolicySimulation,
     hostedPool,
   } = data;
-  const activeConfig =
-    data.reviewConfig?.config ?? safeDefaultReviewConfiguration;
+  const activeConfig = data.reviewConfig?.config;
+  if (!activeConfig) {
+    const draft = hasWorkspaceWideAccess
+      ? initialWorkspaceReviewPolicyDraft(gatewayAccounts)
+      : null;
+    return (
+      <div id="dashboard-section-content" className="min-w-0 space-y-5">
+        <DashboardActionToast
+          params={params}
+          selectedSection={selectedSection}
+        />
+        <WorkspaceSourceConnectionPanel
+          workspaceId={workspace.id}
+          workspaceKey={workspaceKey}
+          installations={workspace.installations.filter(
+            (item) => item.status === "active",
+          )}
+          gitLabInstallations={workspace.gitLabInstallations}
+          repositories={repositories}
+          hasWorkspaceWideAccess={hasWorkspaceWideAccess}
+          mutationsEnabled={mutationsEnabled}
+        />
+        <p>Save workspace review settings before enabling reviews.</p>
+        {hasWorkspaceWideAccess ? (
+          <AccountGatewayAccountsSection workspaceId={workspace.id} />
+        ) : (
+          <p>A workspace owner or admin needs to complete review setup.</p>
+        )}
+        {draft ? (
+          <WorkspaceReviewConfigForm
+            workspaceId={workspace.id}
+            expectedVersion={null}
+            config={draft}
+            modelOptions={modelOptions}
+            gatewayAccounts={gatewayAccounts}
+            codexRotatingOAuthEnabled={isCodexRotatingOAuthAllowedForWorkspaceDefault()}
+            claudeCodeProviderEnabled={claudeCodeProviderEnabled}
+            mutationsEnabled={mutationsEnabled}
+          />
+        ) : null}
+      </div>
+    );
+  }
   const activeConfigVersion = data.reviewConfig?.version ?? 1;
   const requestedRepositoryFullName = readParam(params.repository);
   const providerSecretCheckFailedRepositoryFullName =
@@ -1939,6 +1978,7 @@ function WorkspaceCard({
                 </div>
                 <WorkspaceReviewConfigForm
                   workspaceId={workspace.id}
+                  expectedVersion={data.reviewConfig?.version ?? null}
                   config={activeConfig}
                   modelOptions={modelOptions}
                   gatewayAccounts={gatewayAccounts}
@@ -2269,7 +2309,11 @@ function DashboardSectionHeader({
     selectedSection === "repositories"
       ? `${repositoryCount} synced repositories`
       : selectedSection === "policy"
-        ? `${activeConfig.provider.model} / ${activeConfig.provider.reasoningEffort}`
+        ? activeConfig.providers
+            .map(
+              (provider) => `${provider.model} / ${provider.reasoningEffort}`,
+            )
+            .join(", ")
         : selectedSection === "memory"
           ? "In development"
           : "Metadata only";

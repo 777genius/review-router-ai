@@ -82,7 +82,7 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
               configured.contextGatewayEntrypointDigest,
             reviewInvestigationProfile:
               configured.reviewInvestigationProfile ?? null,
-            agentProfiles: configured.agentProfiles,
+            agentProfiles: configured.agentProfiles ?? null,
             schemaDigest: configured.schemaDigest,
             capabilityProfile: configured.capabilityProfile,
             protocolLimitsProfileId: configured.protocolLimitsProfileId,

@@ -115,14 +115,14 @@ jobs:
 
 ## Что будет удобно обновлять после запуска
 
-| Изменение | Где выполняется | Customer YAML |
-| --- | --- | --- |
-| CLI/runtime dependencies и orchestration | Compatible approved runtime release + channel move | Не меняется |
-| Qualified agent с теми же capabilities/permissions | Runtime adapter/profile + server setting | Не меняется |
-| Model/provider connection и review policy | Existing server config/catalog/settings | Не меняется |
-| Product/workspace defaults | Versioned workspace policy update; explicit repo overrides остаются | Не меняется |
-| Internal schema/storage | Server-side migration/serializer и compatible runtime release | Не меняется, если public ABI сохранён |
-| New required inputs, permissions, execution location или другой public major ABI | Новый contract major и installation update | Может потребоваться миграция |
+| Изменение                                                                        | Где выполняется                                                     | Customer YAML                         |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------- |
+| CLI/runtime dependencies и orchestration                                         | Compatible approved runtime release + channel move                  | Не меняется                           |
+| Qualified agent с теми же capabilities/permissions                               | Runtime adapter/profile + server setting                            | Не меняется                           |
+| Model/provider connection и review policy                                        | Existing server config/catalog/settings                             | Не меняется                           |
+| Product/workspace defaults                                                       | Versioned workspace policy update; explicit repo overrides остаются | Не меняется                           |
+| Internal schema/storage                                                          | Server-side migration/serializer и compatible runtime release       | Не меняется, если public ABI сохранён |
+| New required inputs, permissions, execution location или другой public major ABI | Новый contract major и installation update                          | Может потребоваться миграция          |
 
 После launch workflow-v1 сохраняет input names/types, permissions и failure semantics. Новые public поля только optional с deliberate defaults. Breaking public ABI получает новый major. Old active jobs сохраняют admitted exact release/snapshot до завершения. Zero-user разрешение на cleanup применяется сейчас; оно не означает, что после появления клиентов можно незаметно ломать contract.
 
@@ -132,13 +132,13 @@ Owner/repository/file path reusable workflow и API origin фиксируютс�
 
 ## Минимальные проверки и rollback
 
-| Набор | Конкретная поломка |
-| --- | --- |
-| Caller/OIDC/producer | Лишние права, missing/unknown signed SHA, wrong source/repository/attempt; denied provider calls=0 |
-| Agent/snapshot | Agent выводится из model kind, profile drift, live settings меняют active run, unsafe rerun, broken cancellation/cleanup |
-| Policy | Explicit 5/0/false, sparse/reset/array semantics, workspace edit/save race, FK/tenant bypass, hidden old-schema reader |
-| Pre-launch cutover | Dispatch не остановлен до old path removal, unknown effect rerun, canary failure включает неподтверждённый path |
-| Один live canary | Actual claims, exact revision и App-first publication |
+| Набор                | Конкретная поломка                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Caller/OIDC/producer | Лишние права, missing/unknown signed SHA, wrong source/repository/attempt; denied provider calls=0                       |
+| Agent/snapshot       | Agent выводится из model kind, profile drift, live settings меняют active run, unsafe rerun, broken cancellation/cleanup |
+| Policy               | Explicit 5/0/false, sparse/reset/array semantics, workspace edit/save race, FK/tenant bypass, hidden old-schema reader   |
+| Pre-launch cutover   | Dispatch не остановлен до old path removal, unknown effect rerun, canary failure включает неподтверждённый path          |
+| Один live canary     | Actual claims, exact revision и App-first publication                                                                    |
 
 Обновлять ближайшие existing suites и relevant typechecks, не создавать отдельную suite на каждом слое. Один synthetic case на 1000 installation records показывает bounded reads и ноль workflow writes при compatible channel/profile change; не создавать 1000 GitHub repos или live provider reviews.
 

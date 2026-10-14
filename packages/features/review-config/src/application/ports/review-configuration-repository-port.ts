@@ -18,7 +18,10 @@ export type PersistedReviewConfiguration = {
 
 export type ReviewPolicySaveInput =
   | {
-      readonly target: Extract<ReviewConfigurationTarget, { scope: "workspace" }>;
+      readonly target: Extract<
+        ReviewConfigurationTarget,
+        { scope: "workspace" }
+      >;
       readonly policy: WorkspaceReviewPolicy;
     }
   | {

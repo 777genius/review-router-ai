@@ -1,5 +1,7 @@
 "use client";
 
+import { repositoryPolicyFormFields } from "./review-policy-form-contract";
+
 import { useRouter } from "next/navigation";
 import {
   useEffect,
@@ -14,6 +16,7 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   reviewProviderConfigurationSchema,
   type ReviewConfiguration,
+  type RepositoryReviewPolicyOverride,
   type ReviewProviderConfiguration,
 } from "@reviewrouter/features-review-config/review-configuration";
 import {
@@ -62,6 +65,7 @@ type RepositoryPolicyEditorRepository = {
 };
 
 type RepositoryPolicyEditorConfig = {
+  readonly policy: RepositoryReviewPolicyOverride;
   readonly version: number;
   readonly config: ReviewConfiguration;
 } | null;
@@ -245,16 +249,6 @@ const fieldHelp = {
   reviewLanguage:
     "Natural language for inline comments and the main reviewer summary (free text, e.g. Russian). Leave empty to inherit the workspace default, which is English.",
 } as const;
-
-function dashboardInlineMaxComments(value: number): number {
-  if (value === 0) {
-    return 0;
-  }
-  if (value === 5) {
-    return 50;
-  }
-  return value;
-}
 
 const defaultCodexProvider = {
   ...getDefaultProviderConfigForAuthMode("codex_subscription_oauth_rotating"),
@@ -702,6 +696,9 @@ export function RepositoryPolicyOverrideDetails({
             <ReviewConfigForm
               action={saveRepositoryOverride}
               config={effectiveConfig}
+              repositoryPolicy={
+                repositoryConfig?.policy ?? { schemaVersion: 3 }
+              }
               modelOptions={modelOptions}
               gatewayAccounts={gatewayAccounts}
               codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
@@ -709,6 +706,12 @@ export function RepositoryPolicyOverrideDetails({
               hiddenFields={[
                 { name: "workspaceId", value: workspaceId },
                 { name: "repositoryId", value: repository.id },
+                {
+                  name: "policyExpectedVersion",
+                  value: repositoryConfig
+                    ? String(repositoryConfig.version)
+                    : "none",
+                },
               ]}
               mutationsEnabled={canEdit}
               repositoryFullName={repository.fullName}
@@ -1040,6 +1043,7 @@ function reviewConfigActionErrorText(error: string): string {
 
 export function WorkspaceReviewConfigForm({
   workspaceId,
+  expectedVersion,
   config,
   modelOptions,
   gatewayAccounts,
@@ -1048,6 +1052,7 @@ export function WorkspaceReviewConfigForm({
   mutationsEnabled,
 }: {
   readonly workspaceId: string;
+  readonly expectedVersion: number | null;
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
@@ -1078,7 +1083,13 @@ export function WorkspaceReviewConfigForm({
         gatewayAccounts={gatewayAccounts}
         codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
         claudeCodeProviderEnabled={claudeCodeProviderEnabled}
-        hiddenFields={[{ name: "workspaceId", value: workspaceId }]}
+        hiddenFields={[
+          { name: "workspaceId", value: workspaceId },
+          {
+            name: "policyExpectedVersion",
+            value: expectedVersion === null ? "none" : String(expectedVersion),
+          },
+        ]}
         mutationsEnabled={mutationsEnabled}
         submitLabel="Save workspace default"
       />
@@ -1087,6 +1098,7 @@ export function WorkspaceReviewConfigForm({
 }
 
 export function ReviewConfigForm({
+  repositoryPolicy,
   action,
   config,
   modelOptions,
@@ -1100,6 +1112,7 @@ export function ReviewConfigForm({
   repositorySecretCheckTarget,
 }: {
   readonly action: DashboardFormAction;
+  readonly repositoryPolicy?: RepositoryReviewPolicyOverride;
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
@@ -1116,8 +1129,23 @@ export function ReviewConfigForm({
     | RepositorySecretCheckTarget
     | undefined;
 }): React.ReactElement {
-  const configuredProviders =
-    config.providers.length > 0 ? [...config.providers] : [config.provider];
+  const [overrideModes, setOverrideModes] = useState<Record<string, string>>(
+    () =>
+      Object.fromEntries(
+        repositoryPolicyFormFields.map((field) => {
+          const [root, leaf] = field;
+          const value = repositoryPolicy?.[root];
+          const explicit =
+            leaf === undefined
+              ? Object.hasOwn(repositoryPolicy ?? {}, root)
+              : value !== null &&
+                typeof value === "object" &&
+                Object.hasOwn(value, leaf);
+          return [field.join("."), explicit ? "override" : "inherit"];
+        }),
+      ),
+  );
+  const configuredProviders = [...config.providers];
   const legacyCodexReconnectRequired = configuredProviders.some(
     isDisabledCodexAuthMode,
   );
@@ -1386,11 +1414,47 @@ export function ReviewConfigForm({
             value={field.value}
           />
         ))}
+        {repositoryPolicy && (
+          <fieldset className="grid gap-2 sm:grid-cols-2">
+            <legend className="mb-2 text-sm font-medium">
+              Repository overrides
+            </legend>
+            {repositoryPolicyFormFields.map((field) => {
+              const name = field.join(".");
+              return (
+                <label
+                  key={name}
+                  className="flex items-center justify-between gap-2 text-xs"
+                >
+                  <span>
+                    {(field.at(-1) ?? "")
+                      .replace(/([A-Z])/g, " $1")
+                      .replace(/^./, (value) => value.toUpperCase())}
+                  </span>
+                  <select
+                    name={`policyMode.${name}`}
+                    value={overrideModes[name]}
+                    disabled={!mutationsEnabled}
+                    onChange={(event) =>
+                      setOverrideModes((previous) => ({
+                        ...previous,
+                        [name]: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="inherit">Inherit workspace</option>
+                    <option value="override">Override</option>
+                  </select>
+                </label>
+              );
+            })}
+          </fieldset>
+        )}
         <input type="hidden" name="providerCount" value={providers.length} />
         <input
           type="hidden"
           name="inlineMaxComments"
-          value={dashboardInlineMaxComments(config.limits.inlineMaxComments)}
+          value={config.limits.inlineMaxComments}
         />
         <input
           type="hidden"
