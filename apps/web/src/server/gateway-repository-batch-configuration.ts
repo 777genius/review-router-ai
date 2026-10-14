@@ -266,7 +266,7 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
             continue;
           }
           const current = await findReviewConfiguration(target, dependencies);
-          if ((current?.version ?? null) !== expectedVersion) {
+          if ((current?.repositoryVersion ?? null) !== expectedVersion) {
             results.push({ repositoryId, status: "conflict" });
             continue;
           }
@@ -283,7 +283,9 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
             },
           });
           intendedPolicy = parseRepositoryReviewPolicyOverride({
-            ...(current?.policy ?? { schemaVersion: 3 as const }),
+            ...(current?.source === "repository"
+              ? current.policy
+              : { schemaVersion: 3 as const }),
             providers: [input.selection],
             execution: {
               providerLimit: 1,

@@ -47,10 +47,12 @@ export async function switchRepositoryConfigurationAuthMode(input: {
     {
       target: repositoryTarget,
       policy: {
-        ...(repositoryConfiguration?.policy ?? { schemaVersion: 3 as const }),
+        ...(repositoryConfiguration?.source === "repository"
+          ? repositoryConfiguration.policy
+          : { schemaVersion: 3 as const }),
         providers: next.providers,
       },
-      expectedVersion: repositoryConfiguration?.version ?? null,
+      expectedVersion: repositoryConfiguration?.repositoryVersion ?? null,
     },
     { configurations },
   );

@@ -356,13 +356,7 @@ async function saveNextReviewConfigurationVersion(
   },
 ): Promise<PersistedReviewConfiguration> {
   const target = snapshotTarget(input.target);
-  await acquireReviewConfigurationWriteScope(prisma, {
-    scope: "workspace",
-    workspaceId: target.workspaceId,
-  });
-  if (target.scope === "repository") {
-    await acquireReviewConfigurationWriteScope(prisma, target);
-  }
+  await acquireReviewConfigurationWriteScope(prisma, target);
   if (receipt) {
     const original = await findOperationReceipt(
       prisma,
@@ -479,13 +473,7 @@ async function deleteReviewConfigurationTarget(
   prisma: Prisma.TransactionClient,
   target: ReviewConfigurationTarget,
 ): Promise<boolean> {
-  await acquireReviewConfigurationWriteScope(prisma, {
-    scope: "workspace",
-    workspaceId: target.workspaceId,
-  });
-  if (target.scope === "repository") {
-    await acquireReviewConfigurationWriteScope(prisma, target);
-  }
+  await acquireReviewConfigurationWriteScope(prisma, target);
   const scope = {
     workspaceId: target.workspaceId,
     targetKey: reviewConfigurationTargetKey(target),

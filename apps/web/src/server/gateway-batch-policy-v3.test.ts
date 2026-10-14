@@ -6,9 +6,14 @@ import {
 import { createGatewayRepositoryBatchAdapter } from "./gateway-repository-batch-configuration";
 
 describe("gateway batch sparse policy", () => {
-  it.each([false, true])(
-    "preserves sparse intent when outcome is unknown=%s and workspace changes",
-    async (unknownOutcome) => {
+  it.each([
+    [false, true],
+    [true, true],
+    [false, false],
+    [true, false],
+  ])(
+    "preserves sparse intent with unknown outcome=%s and existing override=%s",
+    async (unknownOutcome, hasOverride) => {
       const selection = {
         kind: "codex" as const,
         authMode: "codex_account_gateway" as const,
@@ -64,6 +69,10 @@ describe("gateway batch sparse policy", () => {
           : workspace;
         receipt = {
           version: 2,
+          source: "repository",
+          workspaceVersion: 7,
+          repositoryVersion: 2,
+          effectivePolicyDigest: "b".repeat(64),
           policy: input.policy,
           config: resolveReviewPolicy(currentWorkspace, input.policy),
         };
@@ -73,9 +82,15 @@ describe("gateway batch sparse policy", () => {
       const adapter = createGatewayRepositoryBatchAdapter({
         configurations: {
           findLatest: async () => ({
-            version: 1,
-            policy,
-            config: resolveReviewPolicy(workspace, policy),
+            version: hasOverride ? 1 : 7,
+            source: hasOverride ? "repository" : "workspace",
+            workspaceVersion: 7,
+            repositoryVersion: hasOverride ? 1 : null,
+            effectivePolicyDigest: "a".repeat(64),
+            policy: hasOverride ? policy : workspace,
+            config: hasOverride
+              ? resolveReviewPolicy(workspace, policy)
+              : workspace,
           }),
           findOperation: async () => receipt,
           saveNextVersionWithOperation: write,
@@ -133,7 +148,12 @@ describe("gateway batch sparse policy", () => {
       const result = await adapter.save({
         workspaceId: "fixture-workspace",
         operationId: "10000000-0000-4000-8000-000000000001",
-        targets: [{ repositoryId: "fixture-repository", expectedVersion: 1 }],
+        targets: [
+          {
+            repositoryId: "fixture-repository",
+            expectedVersion: hasOverride ? 1 : null,
+          },
+        ],
         selection,
       });
       expect(result.results).toEqual([
@@ -143,7 +163,7 @@ describe("gateway batch sparse policy", () => {
       const saved = write.mock.calls[0]![0].policy;
       expect(saved).toEqual({
         schemaVersion: 3,
-        limits: { inlineMaxComments: 0 },
+        ...(hasOverride ? { limits: { inlineMaxComments: 0 } } : {}),
         providers: [selection],
         execution: {
           providerLimit: 1,
@@ -164,7 +184,10 @@ describe("gateway batch sparse policy", () => {
         ),
       ).toMatchObject({
         reviewLanguage: "German",
-        limits: { inlineMaxComments: 0, targetTokensPerBatch: 20000 },
+        limits: {
+          inlineMaxComments: hasOverride ? 0 : 17,
+          targetTokensPerBatch: 20000,
+        },
       });
     },
   );

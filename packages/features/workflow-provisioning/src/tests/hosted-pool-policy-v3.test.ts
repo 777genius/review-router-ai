@@ -65,6 +65,8 @@ describe("hosted pool current policy", () => {
     mocks.find
       .mockResolvedValueOnce({
         version: 7,
+        source: "repository",
+        repositoryVersion: 7,
         config,
         policy: { schemaVersion: 3, limits: { inlineMaxComments: 0 } },
       })
