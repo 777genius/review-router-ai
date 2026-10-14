@@ -144,7 +144,7 @@ describe("review configuration", () => {
     expect(effectiveInlineMaxComments(12)).toBe(12);
   });
 
-  it.each(["max", "ultra"] as const)(
+  it.each(["high", "max", "ultra"] as const)(
     "persists and maps %s reasoning effort to runtime env",
     (reasoningEffort) => {
       const config = parseReviewConfigurationStrict({
@@ -938,6 +938,23 @@ const gatewayConfigInput = (provider: unknown) => ({
   blockingPolicy: { failOnSeverity: "critical" },
   limits: { inlineMaxComments: 50, targetTokensPerBatch: 50000 },
 });
+
+it.each([
+  { model: "mimo-v2.6-pro", reasoningEffort: "high" },
+  { model: "openai/gpt-5.6-sol", reasoningEffort: "ultra" },
+] as const)(
+  "maps Account Gateway $model/$reasoningEffort to the bounded invocation budget",
+  ({ model, reasoningEffort }) => {
+    const config = parseReviewConfigurationStrict(
+      gatewayConfigInput({ ...gatewayProvider, model, reasoningEffort }),
+    );
+
+    const runtimeEnv = mapConfigToRuntimeEnv(config);
+    expect(runtimeEnv.RUN_TIMEOUT_SECONDS).toBe("3600");
+    expect(runtimeEnv.CODEX_MODEL).toBe(model);
+    expect(runtimeEnv.CODEX_REASONING_EFFORT).toBe(reasoningEffort);
+  },
+);
 
 // Detects lost flat references, legacy coercion, OpenAI-only reasoning gates or primary drift.
 it("retains gateway references and upstream settings in v1 and v2 normalization", () => {

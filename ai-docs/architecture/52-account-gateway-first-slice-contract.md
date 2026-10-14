@@ -7,6 +7,30 @@ its exact bytes/digest in every implementation packet). [50](./50-reusable-accou
 preserves vision and [51](./51-account-gateway-modular-implementation-plan.md)
 owns delivery order. Historical readiness/evidence below is NONNORMATIVE.
 
+## Normal production review failure - 2026-10-14 (NONNORMATIVE)
+
+Production SaaS `6dd3bed59ded93defad3a91148bddff7a481bdb3` with published
+Action `b1719b8742a8e0c07be238255cec65c5f0c8a334` passed service health and
+ordinary repository setup. Fresh disposable [run 38553188388](https://github.com/777genius/rr-selfhost-direct-v2-e2e-20260730t120036z/actions/runs/38553188388),
+attempt 1, approved review head `99e768ba54b48f338ebe7599ac5db7af1ad626c9`,
+failed: three provider requests completed, a fourth retained `effect_unknown`,
+and no final parsed review or App publication was accepted. Terminal receipt
+SHA256 `1fc94276f7dc474e49e275102e1ab2a4495ecafcd4e0957a15f22d555c0dab9c`
+records PARTIAL, revoked authorization, expired lease, fenced native execution,
+cleanup DONE and zero occupied transports; exact native per-request closure ACK
+remains unverified. Neither cleanup nor completed requests proves successful review.
+
+Selected lease receipt SHA256
+`a98af3ddf66eba84291f02e7545b9a410f459af5e054ce9e837365e9051c5d1a`
+proves expiry exactly 600000 ms after acquisition; sanitized CI records Codex
+CLI abortion 13 ms after that expiry, while the authorization deadline remained
+in the future. Investigation identified an acquisition-anchored API renewal
+bound despite the domain's now-relative duration checks. Renewal correction and
+agent runtime-budget alignment require focused regression, independent review,
+normal delivery and a fresh ordinary E2E. This checkpoint qualifies no fix or
+whole-plan completion. Failed effects and prior evidence remain retained;
+no replay of the failed invocation is permitted.
+
 ## Production delivery correction - 2026-10-12
 
 Production acceptance remains incomplete. Disposable run
