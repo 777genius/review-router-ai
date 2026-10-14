@@ -1,3 +1,4 @@
+import { createApiApp } from "./app";
 import { describe, expect, it } from "vitest";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
@@ -729,6 +730,32 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       const row = await fresh.reviewRunAuthorization.findUniqueOrThrow({
         where: { authorizationId: first.authorizationId },
       });
+      const renewalApp = await createApiApp({
+        prisma,
+        actionControlPlaneEnabled: false,
+        memoryServiceEnabled: false,
+        reviewRunControlV2Enabled: true,
+        reviewActionV2Env: harness.env,
+      });
+      try {
+        const renewal = await renewalApp.inject({
+          method: "POST",
+          url: "/api/action/v2/review-runs/renew",
+          payload: await harness.createRenewRequest(first),
+        });
+        expect(renewal.statusCode).toBe(200);
+        const response = renewal.json();
+        expect(response.result.authorizationId).toBe(first.authorizationId);
+        expect(
+          Date.parse(response.result.expiresAt) -
+            Date.parse(response.serverTime),
+        ).toBeGreaterThan(0);
+        expect(
+          Math.abs(Date.parse(response.serverTime) - Date.now()),
+        ).toBeLessThan(5000);
+      } finally {
+        await renewalApp.close();
+      }
       const pin = parseReviewRunRuntimeSnapshot(
         row.runtimeSnapshotCanonicalJson,
       )!;
