@@ -165,7 +165,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
   function reserveNonce(): string | null {
     if (!ready || nonces.length >= 8) {
       setMessage(
-        "Check or dismiss completed operations before starting another.",
+        "Check recent connections or hide old results before starting another.",
       );
       return null;
     }
@@ -898,9 +898,9 @@ function OperationReadback({
           }}
         />
       ) : null}
-      {terminal ? (
+      {terminal || state === "unknown" ? (
         <Button variant="outline" size="sm" onClick={dismiss}>
-          Dismiss
+          {state === "unknown" ? "Hide" : "Dismiss"}
         </Button>
       ) : null}
     </div>
