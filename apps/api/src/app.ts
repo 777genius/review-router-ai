@@ -1242,7 +1242,7 @@ function readDefaultReasoningEffort(
 
 async function readDatabaseServerTime(prisma: PrismaClient): Promise<Date> {
   const rows = await prisma.$queryRaw<Array<{ serverTime: Date }>>`
-    SELECT CURRENT_TIMESTAMP AS "serverTime"
+    SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AS "serverTime"
   `;
   const serverTime = rows[0]?.serverTime;
   if (!(serverTime instanceof Date) || !Number.isFinite(serverTime.getTime())) {
