@@ -275,6 +275,40 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Positive local non-entry release is admitted only as exact checkout131.
+  // Recurse through the unchanged pinned canonical130 contract.
+  const unenteredClaimMigration = catalog.find(
+    (row) => row.migrationName === "000131_personal_canonical_unentered_claim",
+  );
+  if (unenteredClaimMigration) {
+    if (
+      unenteredClaimMigration.checksum !==
+        "342221539d29efff72a110415311e43556e7b83dddaddf763610d9bc734c8ef3" ||
+      manifest(catalog) !==
+        "sha256:826c8dd79768289887e3dcde7c632a4fc3bc84527b72e5fef39042bfad324f11"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== unenteredClaimMigration),
+    );
+  }
+  // Canonical H coordination is admitted only as the exact complete checkout130.
+  // Remove its pinned row, then recurse through unchanged snapshot129 admission.
+  const personalCanonicalMigration = catalog.find(
+    (row) => row.migrationName === "000130_personal_canonical_operations",
+  );
+  if (personalCanonicalMigration) {
+    if (
+      personalCanonicalMigration.checksum !==
+        "aefb85f4e439bf7526a3b7c658ec3eeaec6f70c10a26435ca63c25c9f6ef11ca" ||
+      manifest(catalog) !==
+        "sha256:fab01456f5745f715b91efa23358b1261c717330155a14865d939471a0e8a19e"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== personalCanonicalMigration),
+    );
+  }
   // Inert H snapshot-v2 storage is an exact checkout-only extension. Its SQL
   // changes neither managed92/historical source nor SQL128 API column authority.
   const personalSnapshotMigration = catalog.find(

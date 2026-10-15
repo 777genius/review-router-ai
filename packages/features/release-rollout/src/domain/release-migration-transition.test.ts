@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout129 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout131 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,9 +107,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(129);
+    expect(full).toHaveLength(131);
     expect(manifest(full)).toBe(
-      "sha256:19c80297e4a4d01882c1253cbc1a62df6a95e0f916992d308ff627f30d7a6c25",
+      "sha256:826c8dd79768289887e3dcde7c632a4fc3bc84527b72e5fef39042bfad324f11",
     );
     const old125 = full
       .filter(
@@ -117,7 +117,9 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000126_review_configuration_mimo_auth_kind" &&
           row.migrationName !== "000127_owner_workspace_deletion" &&
           row.migrationName !== "000128_account_admission_row_lock" &&
-          row.migrationName !== "000129_personal_run_snapshot_v2",
+          row.migrationName !== "000129_personal_run_snapshot_v2" &&
+          row.migrationName !== "000130_personal_canonical_operations" &&
+          row.migrationName !== "000131_personal_canonical_unentered_claim",
       )
       .map((row) =>
         row.migrationName === "000119_review_configuration_gateway_binding"
@@ -139,7 +141,7 @@ describe("canonical release migration transition", () => {
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-22).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-24).map((row) => row.migrationName)).toEqual([
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
@@ -162,6 +164,8 @@ describe("canonical release migration transition", () => {
       "000127_owner_workspace_deletion",
       "000128_account_admission_row_lock",
       "000129_personal_run_snapshot_v2",
+      "000130_personal_canonical_operations",
+      "000131_personal_canonical_unentered_claim",
     ]);
     const withoutProviderKey = historicalFull.filter(
       (row) =>

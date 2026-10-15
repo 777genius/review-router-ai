@@ -33,6 +33,8 @@ const providerKeyMigrationName = "000110_provider_api_key_workspace_management";
 const reconnectMigrationName = "000125_hosted_codex_device_reconnect";
 const mimoAuthMigrationName = "000126_review_configuration_mimo_auth_kind";
 const accountAdmissionMigrationName = "000128_account_admission_row_lock";
+const unenteredClaimMigrationName = "000131_personal_canonical_unentered_claim";
+const personalCanonicalMigrationName = "000130_personal_canonical_operations";
 const personalSnapshotMigrationName = "000129_personal_run_snapshot_v2";
 const ownerDeletionMigrationName = "000127_owner_workspace_deletion";
 const historicalMigration119Checksum =
@@ -56,7 +58,9 @@ const canonicalPrismaMigrationNames =
       name !== mimoAuthMigrationName &&
       name !== accountAdmissionMigrationName &&
       name !== ownerDeletionMigrationName &&
-      name !== personalSnapshotMigrationName,
+      name !== personalSnapshotMigrationName &&
+      name !== personalCanonicalMigrationName &&
+      name !== unenteredClaimMigrationName,
   );
 
 // Node 24 can require these ESM files directly. This keeps copied fixtures
@@ -404,8 +408,89 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("admits only exact inert snapshot129 over unchanged checkout128", () => {
+  it("admits exact local-non-entry131 only over unchanged canonical130", () => {
     const full = readRenderManagedCheckoutInventory();
+    expect(full).toHaveLength(131);
+    expect(full.at(-1)).toEqual({
+      migrationName: unenteredClaimMigrationName,
+      checksum:
+        "342221539d29efff72a110415311e43556e7b83dddaddf763610d9bc734c8ef3",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    expect(
+      partitionRenderSchemaHandoffCheckout(
+        full.filter((row) => row.migrationName !== unenteredClaimMigrationName),
+      ),
+    ).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === unenteredClaimMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === unenteredClaimMigrationName
+          ? { ...row, migrationName: "000131_relabelled" }
+          : row,
+      ),
+      full.filter(
+        (row) => row.migrationName !== personalCanonicalMigrationName,
+      ),
+      full.filter((row) => row.migrationName !== personalSnapshotMigrationName),
+      [...full, { migrationName: "000132_unknown", checksum: "0".repeat(64) }],
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow(
+        "checkout_extension",
+      );
+  });
+
+  it("admits exact canonical130 only with its complete unchanged129 predecessor", () => {
+    const full = readRenderManagedCheckoutInventory().filter(
+      (row) => row.migrationName !== unenteredClaimMigrationName,
+    );
+    expect(full).toHaveLength(130);
+    expect(full.at(-1)).toEqual({
+      migrationName: personalCanonicalMigrationName,
+      checksum:
+        "aefb85f4e439bf7526a3b7c658ec3eeaec6f70c10a26435ca63c25c9f6ef11ca",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    expect(
+      partitionRenderSchemaHandoffCheckout(
+        full.filter(
+          (row) =>
+            row.migrationName !== personalCanonicalMigrationName &&
+            row.migrationName !== unenteredClaimMigrationName,
+        ),
+      ),
+    ).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === personalCanonicalMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === personalCanonicalMigrationName
+          ? { ...row, migrationName: "000130_relabelled" }
+          : row,
+      ),
+      full.filter((row) => row.migrationName !== personalSnapshotMigrationName),
+      full.filter((row) => row.migrationName !== accountAdmissionMigrationName),
+      full.filter((row) => row.migrationName !== ownerDeletionMigrationName),
+      [...full, { migrationName: "000131_unknown", checksum: "0".repeat(64) }],
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow(
+        "checkout_extension",
+      );
+  });
+
+  it("admits only exact inert snapshot129 over unchanged checkout128", () => {
+    const full = readRenderManagedCheckoutInventory().filter(
+      (row) =>
+        row.migrationName !== personalCanonicalMigrationName &&
+        row.migrationName !== unenteredClaimMigrationName,
+    );
     expect(full).toHaveLength(129);
     expect(full.at(-1)).toEqual({
       migrationName: personalSnapshotMigrationName,
@@ -414,7 +499,10 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     });
     expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
     const old128 = full.filter(
-      (row) => row.migrationName !== personalSnapshotMigrationName,
+      (row) =>
+        row.migrationName !== personalSnapshotMigrationName &&
+        row.migrationName !== personalCanonicalMigrationName &&
+        row.migrationName !== unenteredClaimMigrationName,
     );
     expect(partitionRenderSchemaHandoffCheckout(old128)).toEqual(catalog);
     for (const changed of [
@@ -439,7 +527,10 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
 
   it("admits exact owner deletion plus C1 additions and preserves the old C1 checkout", () => {
     const full = readRenderManagedCheckoutInventory().filter(
-      (row) => row.migrationName !== personalSnapshotMigrationName,
+      (row) =>
+        row.migrationName !== personalSnapshotMigrationName &&
+        row.migrationName !== personalCanonicalMigrationName &&
+        row.migrationName !== unenteredClaimMigrationName,
     );
     expect(full).toHaveLength(128);
     expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
@@ -472,7 +563,9 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       (row) =>
         row.migrationName !== accountAdmissionMigrationName &&
         row.migrationName !== ownerDeletionMigrationName &&
-        row.migrationName !== personalSnapshotMigrationName,
+        row.migrationName !== personalSnapshotMigrationName &&
+        row.migrationName !== personalCanonicalMigrationName &&
+        row.migrationName !== unenteredClaimMigrationName,
     );
     const old125 = current
       .filter((row) => row.migrationName !== mimoAuthMigrationName)
@@ -1446,6 +1539,12 @@ describe("complete filesystem checkout inventory", () => {
         recursive: true,
       });
       rmSync(join(migrations, ownerDeletionMigrationName), { recursive: true });
+      rmSync(join(migrations, unenteredClaimMigrationName), {
+        recursive: true,
+      });
+      rmSync(join(migrations, personalCanonicalMigrationName), {
+        recursive: true,
+      });
       rmSync(join(migrations, personalSnapshotMigrationName), {
         recursive: true,
       });
@@ -1474,7 +1573,15 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(129);
+    expect(inventory).toHaveLength(131);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, unenteredClaimMigrationName), {
+      recursive: true,
+    });
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, personalCanonicalMigrationName), {
+      recursive: true,
+    });
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, personalSnapshotMigrationName), {
       recursive: true,
@@ -1781,8 +1888,8 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      // Removing only the new inert tail restores the exact admitted128 checkout.
-      if (name === personalSnapshotMigrationName)
+      // Removing only the unentered-claim tail restores exact admitted130.
+      if (name === unenteredClaimMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

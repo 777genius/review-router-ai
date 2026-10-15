@@ -1,3 +1,4 @@
+import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import {
   findReviewConfiguration,
   findReviewConfigurationOperation,
@@ -180,6 +181,10 @@ function receiptMatchesSelection(
 export function createGatewayRepositoryBatchAdapter(dependencies: {
   readonly configurations: ReviewConfigurationRepositoryPort &
     ReviewConfigurationOperationRepositoryPort;
+  configurationsForActor?(
+    actor: WorkspaceAccountActor,
+  ): ReviewConfigurationRepositoryPort &
+    ReviewConfigurationOperationRepositoryPort;
   readonly bindings: ProviderAccountDependencies;
   authorize(
     workspaceId: string,
@@ -260,7 +265,11 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
                 operationId: input.operationId,
                 config: intendedConfig,
               },
-              dependencies,
+              {
+                configurations:
+                  dependencies.configurationsForActor?.(actor) ??
+                  dependencies.configurations,
+              },
             );
             results.push({
               repositoryId,
@@ -326,7 +335,11 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
               expectedVersion,
               operationId: input.operationId,
             },
-            dependencies,
+            {
+              configurations:
+                dependencies.configurationsForActor?.(freshActor) ??
+                dependencies.configurations,
+            },
           );
           results.push({
             repositoryId,
@@ -410,15 +423,27 @@ export async function gatewayRepositoryBatchServerAdapter() {
       ? undefined
       : accountGatewayReference.parse(configuredOperatorWorkspaceId);
   const prisma = db.getPrisma();
+  const personalAccountsEnabled = readPersonalAccountSharingEnabled(
+    process.env,
+  );
   const providerAccounts = new providers.PrismaProviderAccountRepository(
     prisma,
     operatorWorkspaceId,
+    personalAccountsEnabled,
   );
   return createGatewayRepositoryBatchAdapter({
     configurations: new configs.PrismaReviewConfigurationRepository(
       prisma,
       operatorWorkspaceId,
+      personalAccountsEnabled,
     ),
+    configurationsForActor: (actor) =>
+      new configs.PrismaReviewConfigurationRepository(
+        prisma,
+        operatorWorkspaceId,
+        personalAccountsEnabled,
+        actor.userId,
+      ),
     bindings: {
       accounts: providerAccounts,
       operatorGrants: providerAccounts,
@@ -513,6 +538,15 @@ export async function gatewayRepositoryBatchServerAdapter() {
       };
     },
     async profiles(workspaceId) {
+      const { productionPersonalAccounts } =
+        await import("./personal-account-composition");
+      const personal = await productionPersonalAccounts();
+      if (
+        personal &&
+        (await personal.workspaceAccess(workspaceId).catch(() => null))
+      ) {
+        return personal.reviewProfiles(workspaceId);
+      }
       const bootstrap = await accounts.loadAccountsBootstrap(workspaceId);
       if (bootstrap.page.status === "denied") throw new GatewayBatchDenied();
       if (bootstrap.page.status !== "ok")

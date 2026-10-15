@@ -1,3 +1,11 @@
+import { PrismaPersonalCanonicalOperations } from "../src/infrastructure/prisma/prisma-personal-canonical-operations";
+import {
+  beginPersonalCanonicalOperation,
+  submitPersonalCanonicalOperation,
+  readPersonalCanonicalOperation,
+} from "../src/application/use-cases/personal-canonical-operations";
+import type { PersonalCanonicalIntent } from "../src/domain/personal-canonical-operation";
+import type { PersonalGatewayAccount } from "../src/application/ports/provider-account-synchronization-port";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { AuthenticatedPrincipal } from "../../auth/src/domain/authenticated-principal";
@@ -9,7 +17,10 @@ import type { TestContext } from "node:test";
 import type { Client } from "pg";
 import type { PrismaClient } from "@prisma/client";
 import { PrismaPersonalAccountOperations } from "../src/infrastructure/prisma/prisma-personal-account-operations";
-import type { PersonalAccountIntent } from "../src/application/use-cases/personal-account-operations";
+import {
+  personalOperationId,
+  type PersonalAccountIntent,
+} from "../src/application/use-cases/personal-account-operations";
 import { selectBinding } from "../src/domain/provider-account";
 import { PrismaProviderAccountRepository } from "../src/infrastructure/prisma/prisma-provider-account-repository";
 import { PrismaProviderAccountSynchronization } from "../src/infrastructure/prisma/prisma-provider-account-synchronization";
@@ -795,6 +806,726 @@ export async function runBindingFencePostgresTests(
           "revoked",
         );
         // Retain these scoped receipts/history for MAIN inspection in the disposable DB.
+      },
+    );
+
+    // RED: rotation enters before durable fences, a lost ingress ACK replays,
+    // stale GET replaces original operation result, or role loss revives a ref.
+    await t.test(
+      "recipient admin detaches exact personal lifetime without canonical access",
+      async () => {
+        const suffix = randomUUID(),
+          donor = `h-detach-donor-${suffix}`,
+          admin = `h-detach-admin-${suffix}`;
+        const member = `h-detach-member-${suffix}`,
+          outsider = `h-detach-outsider-${suffix}`;
+        await db.user.createMany({
+          data: [donor, admin, member, outsider].map((id) => ({ id })),
+        });
+        const store = new PrismaPersonalAccountOperations(db),
+          other = new PrismaPersonalAccountOperations(secondDb);
+        const p = await store.resolvePersonalWorkspace(donor);
+        const x = await db.workspace.create({
+          data: { slug: `h-detach-x-${suffix}`, name: "Recipient X" },
+        });
+        const y = await db.workspace.create({
+          data: { slug: `h-detach-y-${suffix}`, name: "Unrelated Y" },
+        });
+        await db.workspaceMember.createMany({
+          data: [
+            { workspaceId: x.id, userId: donor, role: "owner" },
+            { workspaceId: x.id, userId: admin, role: "admin" },
+            { workspaceId: x.id, userId: member, role: "member" },
+            { workspaceId: y.id, userId: donor, role: "owner" },
+          ],
+        });
+        const source = await db.providerAccountConnection.create({
+          data: {
+            ownerUserId: donor,
+            gatewayAccountRef: `h-detach-account-${suffix}`,
+            profileRef: "fixture-profile",
+            displayName: "Personal donor",
+            state: "active",
+            authorizationEpochMirror: 7n,
+          },
+        });
+        const personal = await db.workspaceAccountBinding.create({
+          data: { workspaceId: p, connectionId: source.id, state: "active" },
+        });
+        const attach = (
+          workspaceId: string,
+          predecessorBindingId: string | null = null,
+          expectedPredecessorRevision: number | null = null,
+        ) =>
+          store.attach({
+            action: "attach",
+            actorUserId: donor,
+            personalWorkspaceId: p,
+            clientOperationId: randomUUID(),
+            sourceId: source.id,
+            targetWorkspaceId: workspaceId,
+            expectedSourceMetadataRevision: 1,
+            expectedGatewayRevision: 37,
+            predecessorBindingId,
+            expectedPredecessorRevision,
+          });
+        const bx = (await attach(x.id)).binding!,
+          by = (await attach(y.id)).binding!;
+        const canonical = await db.providerAccountConnection.create({
+          data: {
+            ownerWorkspaceId: x.id,
+            gatewayAccountRef: `h-detach-org-${suffix}`,
+            profileRef: "fixture-profile",
+            displayName: "Independent organization",
+            state: "active",
+          },
+        });
+        const org = await db.workspaceAccountBinding.create({
+          data: {
+            workspaceId: x.id,
+            connectionId: canonical.id,
+            state: "active",
+          },
+        });
+        const row = (id: string) =>
+          db.workspaceAccountBinding.findUniqueOrThrow({ where: { id } });
+        const beforeP = await row(personal.id),
+          beforeY = await row(by.id),
+          beforeOrg = await row(org.id);
+        const operationCount = await db.personalAccountOperation.count();
+        const request = {
+          actorUserId: admin,
+          workspaceId: x.id,
+          bindingId: bx.id,
+          expectedBindingRevision: 1,
+        };
+        await assert.rejects(
+          store.detachRecipientBinding({ ...request, actorUserId: member }),
+          denied("workspace_forbidden"),
+        );
+        await assert.rejects(
+          store.detachRecipientBinding({ ...request, actorUserId: outsider }),
+          denied("workspace_forbidden"),
+        );
+        await assert.rejects(
+          store.detachRecipientBinding({
+            ...request,
+            workspaceId: p,
+            bindingId: personal.id,
+          }),
+          denied("workspace_forbidden"),
+        );
+        await assert.rejects(
+          store.detachRecipientBinding({ ...request, bindingId: by.id }),
+          denied("binding_unavailable"),
+        );
+        await assert.rejects(
+          store.detachRecipientBinding({ ...request, bindingId: org.id }),
+          denied("connection_unavailable"),
+        );
+        await assert.rejects(
+          store.detachRecipientBinding({
+            ...request,
+            expectedBindingRevision: 2,
+          }),
+          denied("revision_conflict"),
+        );
+        assert.equal((await row(bx.id)).revision, 1);
+        // Two identical CAS callers mutate once. The loser reads the exact newly
+        // retired ID and original random fence; it never substitutes a pair lookup.
+        const [first, replay] = await Promise.all([
+          store.detachRecipientBinding(request),
+          other.detachRecipientBinding(request),
+        ]);
+        assert.deepEqual(first, replay);
+        assert.deepEqual(first, {
+          bindingId: bx.id,
+          workspaceId: x.id,
+          revision: 2,
+          state: "revoked",
+          localAuthorization: "local_denied",
+          remoteFenceDelivery: "remote_pending",
+        });
+        assert.equal(await db.personalAccountOperation.count(), operationCount);
+        const retired = await row(bx.id);
+        assert.equal(retired.policyRevision, 2);
+        assert.equal(retired.pendingFencePolicySubject, bx.id);
+        assert.equal(retired.pendingFencePolicyRevision, 2);
+        assert.ok(retired.pendingFenceOperationId);
+        await store.detachRecipientBinding(request);
+        assert.deepEqual(await row(bx.id), retired);
+        assert.deepEqual(await row(personal.id), beforeP);
+        assert.deepEqual(await row(by.id), beforeY);
+        assert.deepEqual(await row(org.id), beforeOrg);
+        assert.deepEqual(
+          await db.providerAccountConnection.findUniqueOrThrow({
+            where: { id: source.id },
+          }),
+          source,
+        );
+        // Controlled fixture ACK, not a live Gateway call. Readback truthfully
+        // changes only after the exact persisted fence receipt is acknowledged.
+        assert.equal(
+          await accounts.acknowledgeBindingFence({
+            bindingId: bx.id,
+            workspaceId: x.id,
+            operationId: retired.pendingFenceOperationId!,
+            policySubject: bx.id,
+            policyRevision: 2,
+          }),
+          true,
+        );
+        assert.equal(
+          (await store.detachRecipientBinding(request)).remoteFenceDelivery,
+          "remote_applied",
+        );
+        const next = (await attach(x.id, bx.id, 2)).binding!;
+        const beforeNext = await row(next.id);
+        assert.equal(
+          (await store.detachRecipientBinding(request)).bindingId,
+          bx.id,
+        );
+        assert.deepEqual(await row(next.id), beforeNext);
+        await assert.rejects(
+          store.detachRecipientBinding({
+            ...request,
+            bindingId: next.id,
+            expectedBindingRevision: 2,
+          }),
+          denied("revision_conflict"),
+        );
+        const adminMember = await db.workspaceMember.findUniqueOrThrow({
+          where: { workspaceId_userId: { workspaceId: x.id, userId: admin } },
+        });
+        await store.changeEligibility({
+          actorUserId: donor,
+          workspaceId: x.id,
+          memberId: adminMember.id,
+          userId: admin,
+          expectedRole: "admin",
+          nextRole: "member",
+        });
+        await assert.rejects(
+          store.detachRecipientBinding({ ...request, bindingId: next.id }),
+          denied("workspace_forbidden"),
+        );
+        await assert.rejects(
+          store.detachRecipientBinding(request),
+          denied("workspace_forbidden"),
+        );
+        assert.deepEqual(await row(next.id), beforeNext);
+        await store.changeEligibility({
+          actorUserId: donor,
+          workspaceId: x.id,
+          memberId: adminMember.id,
+          userId: admin,
+          expectedRole: "member",
+          nextRole: "admin",
+        });
+        // Canonical pending/disabled state cannot prevent local recipient denial,
+        // and this local action does not change source revisions or other uses.
+        const pending = await db.providerAccountConnection.update({
+          where: { id: source.id },
+          data: { state: "pending", metadataRevision: { increment: 1 } },
+        });
+        const detached = await store.detachRecipientBinding({
+          ...request,
+          bindingId: next.id,
+        });
+        assert.equal(detached.bindingId, next.id);
+        assert.equal(detached.remoteFenceDelivery, "remote_pending");
+        assert.deepEqual(
+          await db.providerAccountConnection.findUniqueOrThrow({
+            where: { id: source.id },
+          }),
+          pending,
+        );
+        assert.deepEqual(await row(personal.id), beforeP);
+        assert.deepEqual(await row(by.id), beforeY);
+        await db.workspace.update({
+          where: { id: x.id },
+          data: {
+            deletionState: "delete_pending",
+            deletionRevision: { increment: 1 },
+          },
+        });
+        await assert.rejects(
+          store.detachRecipientBinding(request),
+          denied("workspace_forbidden"),
+        );
+      },
+    );
+
+    await t.test(
+      "canonical rename, one-winner rotation and irreversible retirement",
+      async () => {
+        const suffix = randomUUID(),
+          userId = `canonical-owner-${suffix}`;
+        await db.user.create({ data: { id: userId } });
+        const legacy = new PrismaPersonalAccountOperations(db);
+        const store = new PrismaPersonalCanonicalOperations(db);
+        const personalWorkspaceId =
+          await legacy.resolvePersonalWorkspace(userId);
+        const orgs = await Promise.all(
+          ["x", "y"].map((name) =>
+            db.workspace.create({
+              data: { slug: `canonical-${name}-${suffix}`, name },
+            }),
+          ),
+        );
+        await db.workspaceMember.createMany({
+          data: orgs.map((workspace) => ({
+            workspaceId: workspace.id,
+            userId,
+            role: "owner",
+          })),
+        });
+        let account: PersonalGatewayAccount = {
+          accountRef: `canonical-account-${suffix}`,
+          profileId: "fixture-profile",
+          displayName: "Canonical",
+          state: "active",
+          metadataRevision: 4,
+          authorizationEpoch: 7,
+        };
+        const sourceId = `canonical-source-${suffix}`,
+          connectNonce = randomUUID();
+        await legacy.reserveConnect({
+          action: "connect",
+          actorUserId: userId,
+          clientOperationId: connectNonce,
+          personalWorkspaceId,
+          proposedSourceId: sourceId,
+          profileId: account.profileId,
+          displayName: account.displayName,
+          ingress: "api-key-create",
+        });
+        await legacy.claimConnect(userId, connectNonce);
+        const connected = await legacy.finalizeConnect(
+          userId,
+          connectNonce,
+          account,
+        );
+        const shared = await Promise.all(
+          orgs.map((workspace) =>
+            legacy.attach({
+              action: "attach",
+              actorUserId: userId,
+              clientOperationId: randomUUID(),
+              personalWorkspaceId,
+              sourceId,
+              targetWorkspaceId: workspace.id,
+              expectedSourceMetadataRevision: 1,
+              expectedGatewayRevision: 4,
+              predecessorBindingId: null,
+              expectedPredecessorRevision: null,
+            }),
+          ),
+        );
+        const base = { actorUserId: userId, personalWorkspaceId, sourceId };
+        const results = new Map<
+          string,
+          {
+            accountRef: string;
+            metadataRevision: number;
+            authorizationEpoch: number;
+          }
+        >();
+        let hideResult = false,
+          entries = 0;
+        const deps = {
+          store,
+          authorizeOwner: async () => {},
+          gateway: {
+            get: async () => ({ ...account }),
+            operation: async (operationId: string) => ({
+              operationId,
+              state: hideResult ? ("unknown" as const) : ("applied" as const),
+              ...(hideResult ? {} : { result: results.get(operationId)! }),
+            }),
+          },
+        };
+        const rename: PersonalCanonicalIntent = {
+          ...base,
+          action: "rename",
+          clientOperationId: randomUUID(),
+          expectedSourceMetadataRevision: 1,
+          expectedGatewayRevision: 4,
+          expectedAuthorizationEpoch: 7,
+          displayName: "Renamed",
+        };
+        const reservedRename = await beginPersonalCanonicalOperation(
+          rename,
+          deps,
+        );
+        assert.equal(reservedRename.source.pendingSourceOperationId, null);
+        assert.equal(
+          (
+            await db.workspaceAccountBinding.findUniqueOrThrow({
+              where: { id: shared[0]!.binding!.id },
+            })
+          ).policyRevision,
+          1,
+        );
+        async function denyAfterClaim(intent: PersonalCanonicalIntent) {
+          const sourceBefore =
+            await db.providerAccountConnection.findUniqueOrThrow({
+              where: { id: sourceId },
+            });
+          const bindingsBefore = await db.workspaceAccountBinding.findMany({
+            where: { connectionId: sourceId },
+            orderBy: { id: "asc" },
+          });
+          const entriesBefore = entries;
+          let authorizations = 0;
+          await assert.rejects(
+            submitPersonalCanonicalOperation(
+              userId,
+              intent.clientOperationId,
+              {
+                ...deps,
+                authorizeOwner: async () => {
+                  if (++authorizations === 3)
+                    throw new Error("session_revoked_after_claim");
+                },
+              },
+              async () => {
+                entries++;
+              },
+            ),
+            /session_revoked_after_claim/,
+          );
+          assert.equal(authorizations, 3);
+          assert.equal(entries, entriesBefore);
+          const released = await store.read(userId, intent.clientOperationId);
+          assert.equal(
+            released.id,
+            personalOperationId(userId, intent.clientOperationId),
+          );
+          assert.deepEqual(released.intent, intent);
+          assert.equal(
+            released.phase,
+            intent.action === "rename" ? "reserved" : "fencing",
+          );
+          assert.deepEqual(
+            await db.providerAccountConnection.findUniqueOrThrow({
+              where: { id: sourceId },
+            }),
+            sourceBefore,
+          );
+          assert.deepEqual(
+            await db.workspaceAccountBinding.findMany({
+              where: { connectionId: sourceId },
+              orderBy: { id: "asc" },
+            }),
+            bindingsBefore,
+          );
+        }
+        await denyAfterClaim(rename);
+        const renamed = await submitPersonalCanonicalOperation(
+          userId,
+          rename.clientOperationId,
+          deps,
+          async (command) => {
+            entries++;
+            assert.equal(command.displayName, "Renamed");
+            account = {
+              ...account,
+              displayName: "Renamed",
+              metadataRevision: 5,
+            };
+            results.set(command.operationId, {
+              accountRef: account.accountRef,
+              metadataRevision: 5,
+              authorizationEpoch: 7,
+            });
+          },
+        );
+        assert.equal(renamed.phase, "applied");
+        assert.equal(renamed.source.metadataRevision, 2);
+        for (const bindingId of [
+          connected.binding!.id,
+          ...shared.map((row) => row.binding!.id),
+        ]) {
+          const joined = await db.workspaceAccountBinding.findUniqueOrThrow({
+            where: { id: bindingId },
+            include: { connection: true },
+          });
+          assert.equal(joined.connection.displayName, "Renamed");
+          assert.equal(joined.policyRevision, 1);
+        }
+        assert.equal(
+          (await beginPersonalCanonicalOperation(rename, deps)).id,
+          renamed.id,
+        );
+        await assert.rejects(
+          beginPersonalCanonicalOperation(
+            { ...rename, displayName: "Changed" },
+            deps,
+          ),
+          denied("operation_conflict"),
+        );
+        const reconnect: PersonalCanonicalIntent = {
+          ...base,
+          action: "reconnect",
+          clientOperationId: randomUUID(),
+          expectedSourceMetadataRevision: 2,
+          expectedGatewayRevision: 5,
+          expectedAuthorizationEpoch: 7,
+        };
+        const rotation = await beginPersonalCanonicalOperation(reconnect, deps);
+        assert.equal(rotation.phase, "fencing");
+        assert.equal(rotation.source.state, "pending");
+        assert.equal(rotation.source.pendingSourceOperationId, rotation.id);
+        const neverIngress = async () => {
+          entries++;
+          throw new Error("must_not_enter");
+        };
+        await submitPersonalCanonicalOperation(
+          userId,
+          reconnect.clientOperationId,
+          deps,
+          neverIngress,
+        );
+        assert.equal(entries, 1);
+        const fences = await store.listFences(
+          userId,
+          reconnect.clientOperationId,
+        );
+        assert.equal(fences.length, 3);
+        assert.equal(new Set(fences.map((row) => row.operationId)).size, 3);
+        assert.equal(
+          await accounts.acknowledgeBindingFence({
+            ...fences[0]!,
+            operationId: "wrong-operation",
+          }),
+          false,
+        );
+        for (const fence of fences)
+          assert.equal(await accounts.acknowledgeBindingFence(fence), true);
+        assert.equal(
+          (await store.ready(userId, reconnect.clientOperationId)).phase,
+          "ready",
+        );
+        await assert.rejects(
+          submitPersonalCanonicalOperation(
+            userId,
+            reconnect.clientOperationId,
+            {
+              ...deps,
+              authorizeOwner: async () => {
+                throw new Error("session_revoked");
+              },
+            },
+            neverIngress,
+          ),
+        );
+        assert.equal(
+          (await store.read(userId, reconnect.clientOperationId)).phase,
+          "ready",
+        );
+        await denyAfterClaim(reconnect);
+        // Future persisted time proves release/ready/claim never regress the CAS
+        // token even if the application clock moves backwards.
+        const future = new Date(Date.now() + 60_000);
+        await db.personalAccountOperation.update({
+          where: { id: rotation.id },
+          data: { updatedAt: future },
+        });
+        // Reclaim cannot be released by the old winner, even in the same ms.
+        await store.ready(userId, reconnect.clientOperationId);
+        const firstClaim = await store.claim(
+          userId,
+          reconnect.clientOperationId,
+        );
+        assert.ok(firstClaim);
+        assert.ok(new Date(firstClaim.claimToken).getTime() > future.getTime());
+        assert.equal(
+          await store.releaseUnenteredClaim(
+            userId,
+            reconnect.clientOperationId,
+            firstClaim.claimToken,
+          ),
+          true,
+        );
+        await store.ready(userId, reconnect.clientOperationId);
+        const nextClaim = await store.claim(
+          userId,
+          reconnect.clientOperationId,
+        );
+        assert.ok(nextClaim);
+        assert.notEqual(nextClaim.claimToken, firstClaim.claimToken);
+        assert.equal(
+          await store.releaseUnenteredClaim(
+            userId,
+            reconnect.clientOperationId,
+            firstClaim.claimToken,
+          ),
+          false,
+        );
+        assert.equal(
+          await store.releaseUnenteredClaim(
+            userId,
+            reconnect.clientOperationId,
+            nextClaim.claimToken,
+          ),
+          true,
+        );
+        hideResult = true;
+        const ingress = async (command: { operationId: string }) => {
+          entries++;
+          account = { ...account, metadataRevision: 6, authorizationEpoch: 8 };
+          results.set(command.operationId, {
+            accountRef: account.accountRef,
+            metadataRevision: 6,
+            authorizationEpoch: 8,
+          });
+          throw new Error("synthetic_lost_ack");
+        };
+        await Promise.all([
+          submitPersonalCanonicalOperation(
+            userId,
+            reconnect.clientOperationId,
+            deps,
+            ingress,
+          ),
+          submitPersonalCanonicalOperation(
+            userId,
+            reconnect.clientOperationId,
+            deps,
+            ingress,
+          ),
+        ]);
+        assert.equal(entries, 2);
+        assert.equal(
+          (await store.read(userId, reconnect.clientOperationId)).phase,
+          "unknown",
+        );
+        const uncertain = await db.personalAccountOperation.findUniqueOrThrow({
+          where: { id: rotation.id },
+        });
+        assert.equal(
+          await store.releaseUnenteredClaim(
+            userId,
+            reconnect.clientOperationId,
+            uncertain.updatedAt.toISOString(),
+          ),
+          false,
+        );
+        await assert.rejects(
+          db.personalAccountOperation.update({
+            where: { id: rotation.id },
+            data: { phase: "fencing" },
+          }),
+        );
+        // Same operation readback; a newer account GET is never accepted as its result.
+        hideResult = false;
+        const exact = account;
+        account = { ...exact, metadataRevision: 7, authorizationEpoch: 9 };
+        assert.equal(
+          (
+            await readPersonalCanonicalOperation(
+              userId,
+              reconnect.clientOperationId,
+              deps,
+            )
+          ).phase,
+          "unknown",
+        );
+        account = exact;
+        const member = await db.workspaceMember.findUniqueOrThrow({
+          where: { workspaceId_userId: { workspaceId: orgs[0]!.id, userId } },
+        });
+        await legacy.changeEligibility({
+          actorUserId: userId,
+          workspaceId: orgs[0]!.id,
+          memberId: member.id,
+          userId,
+          expectedRole: "owner",
+          nextRole: "member",
+        });
+        const rotated = await readPersonalCanonicalOperation(
+          userId,
+          reconnect.clientOperationId,
+          deps,
+        );
+        assert.equal(rotated.phase, "applied");
+        assert.equal(rotated.source.authorizationEpochMirror, 8);
+        assert.equal(rotated.source.metadataRevision, 4);
+        assert.equal(
+          (
+            await db.workspaceAccountBinding.findUniqueOrThrow({
+              where: { id: shared[0]!.binding!.id },
+            })
+          ).state,
+          "revoked",
+        );
+        for (const bindingId of [
+          connected.binding!.id,
+          shared[1]!.binding!.id,
+        ]) {
+          const live = await db.workspaceAccountBinding.findUniqueOrThrow({
+            where: { id: bindingId },
+          });
+          assert.equal(live.state, "active");
+          assert.equal(live.policyRevision, 3);
+        }
+        await submitPersonalCanonicalOperation(
+          userId,
+          reconnect.clientOperationId,
+          deps,
+          neverIngress,
+        );
+        assert.equal(entries, 2);
+        const retire: PersonalCanonicalIntent = {
+          ...base,
+          action: "retire",
+          clientOperationId: randomUUID(),
+          expectedSourceMetadataRevision: 4,
+          expectedGatewayRevision: 6,
+          expectedAuthorizationEpoch: 8,
+        };
+        await beginPersonalCanonicalOperation(retire, deps);
+        assert.equal(
+          await db.workspaceAccountBinding.count({
+            where: { connectionId: sourceId, state: "active" },
+          }),
+          0,
+        );
+        for (const fence of await store.listFences(
+          userId,
+          retire.clientOperationId,
+        ))
+          assert.equal(await accounts.acknowledgeBindingFence(fence), true);
+        const retired = await submitPersonalCanonicalOperation(
+          userId,
+          retire.clientOperationId,
+          deps,
+          async (command) => {
+            entries++;
+            account = {
+              ...account,
+              state: "disabled",
+              metadataRevision: 7,
+              authorizationEpoch: 9,
+            };
+            results.set(command.operationId, {
+              accountRef: account.accountRef,
+              metadataRevision: 7,
+              authorizationEpoch: 9,
+            });
+          },
+        );
+        assert.equal(retired.phase, "applied");
+        assert.equal(retired.source.state, "disabled");
+        assert.equal(entries, 3);
+        await assert.rejects(
+          sql.query(
+            `UPDATE "PersonalAccountOperation" SET "expectedAuthorizationEpoch"=999 WHERE "id"=$1`,
+            [retired.id],
+          ),
+          sqlCode("23514"),
+        );
       },
     );
 

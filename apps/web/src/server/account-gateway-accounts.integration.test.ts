@@ -232,6 +232,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
     let selectedWorkspace = workspaceId;
     let afterOAuthBegin: (() => Promise<void>) | undefined;
     let afterOAuthRead: (() => Promise<void>) | undefined;
+    let afterAccountRead: (() => Promise<void>) | undefined;
     let afterOAuthComplete: (() => Promise<void>) | undefined;
     let httpReads = 0;
     let mutationEntries = 0;
@@ -333,6 +334,9 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
               notifyHeld?.();
               return;
             }
+            const accountReadHook = afterAccountRead;
+            afterAccountRead = undefined;
+            await accountReadHook?.();
             return json(response, 200, {
               ...account,
               ...(wrongOwner ? { ownerRef: "foreign-workspace-owner" } : {}),
@@ -1614,6 +1618,71 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
           },
           profiles: new Map([[profileId, "api-key-create"]]),
         });
+      // Real store awaits cannot retain a session across reserve/claim and secret ingress.
+      let activePersonalUser = stableUser;
+      const sessionPersonal = personal(async () => activePersonalUser);
+      const beforeDeniedConnect = await db.personalAccountOperation.count({
+        where: { actorUserId: stableUser },
+      });
+      const resolvePersonal = store.resolvePersonalWorkspace.bind(store);
+      const resolveSpy = vi
+        .spyOn(store, "resolvePersonalWorkspace")
+        .mockImplementationOnce(async (actorUserId) => {
+          const resolved = await resolvePersonal(actorUserId);
+          activePersonalUser = member.userId!;
+          return resolved;
+        });
+      try {
+        await assert.rejects(
+          sessionPersonal.connect(
+            { nonce: randomUUID(), profileId, label: "Denied before reserve" },
+            sentinel,
+          ),
+        );
+      } finally {
+        resolveSpy.mockRestore();
+      }
+      assert.equal(
+        await db.personalAccountOperation.count({
+          where: { actorUserId: stableUser },
+        }),
+        beforeDeniedConnect,
+      );
+      assert.equal(personalIngressEntries, 0);
+      activePersonalUser = stableUser;
+      const deniedClaimNonce = randomUUID();
+      const claimPersonal = store.claimConnect.bind(store);
+      const claimSpy = vi
+        .spyOn(store, "claimConnect")
+        .mockImplementationOnce(async (actorUserId, operationNonce) => {
+          const claimed = await claimPersonal(actorUserId, operationNonce);
+          activePersonalUser = member.userId!;
+          return claimed;
+        });
+      try {
+        await assert.rejects(
+          sessionPersonal.connect(
+            { nonce: deniedClaimNonce, profileId, label: "Denied after claim" },
+            sentinel,
+          ),
+        );
+      } finally {
+        claimSpy.mockRestore();
+      }
+      const deniedClaim = await store.readOperation(
+        stableUser,
+        deniedClaimNonce,
+      );
+      assert.equal(deniedClaim.phase, "submitted");
+      assert.equal(deniedClaim.source, null);
+      assert.equal(personalIngressEntries, 0);
+      activePersonalUser = stableUser;
+      // Retained claim is readback-only even after the owner returns.
+      await sessionPersonal.connect(
+        { nonce: deniedClaimNonce, profileId, label: "Denied after claim" },
+        sentinel,
+      );
+      assert.equal(personalIngressEntries, 0);
       const personalIntent = {
         nonce: randomUUID(),
         profileId,
@@ -1675,6 +1744,24 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         assert.equal(genericReadRefs.at(-1), personalOriginal.id);
       }
       account = personalOriginalAccount;
+      // Switch at the actual inner SDK GET: no connect mirror/P binding may be finalized.
+      afterAccountRead = async () => {
+        activePersonalUser = member.userId!;
+      };
+      await assert.rejects(sessionPersonal.operation(personalIntent.nonce));
+      assert.equal(
+        await db.providerAccountConnection.count({
+          where: { id: personalOriginal.intent.proposedSourceId },
+        }),
+        0,
+      );
+      assert.equal(
+        await db.workspaceAccountBinding.count({
+          where: { connectionId: personalOriginal.intent.proposedSourceId },
+        }),
+        0,
+      );
+      activePersonalUser = stableUser;
       const finalized = await Promise.all([
         personal().operation(personalIntent.nonce),
         personal().operation(personalIntent.nonce),
@@ -1805,6 +1892,39 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
           predecessorBindingId: null,
           expectedPredecessorRevision: null,
         });
+      // The actual adapter/usecase GET is an await inside the facade's outer call.
+      // Session loss there must precede the real store.attach commit.
+      const deniedAttachNonce = randomUUID();
+      const beforeDeniedAttach = await db.personalAccountOperation.count({
+        where: { actorUserId: stableUser },
+      });
+      afterAccountRead = async () => {
+        activePersonalUser = member.userId!;
+      };
+      await assert.rejects(
+        sessionPersonal.attach({
+          nonce: deniedAttachNonce,
+          sourceId,
+          targetWorkspaceId: orgX,
+          expectedSourceMetadataRevision: 1,
+          expectedGatewayRevision: 2,
+          predecessorBindingId: null,
+          expectedPredecessorRevision: null,
+        }),
+      );
+      assert.equal(
+        await db.personalAccountOperation.count({
+          where: { actorUserId: stableUser },
+        }),
+        beforeDeniedAttach,
+      );
+      assert.equal(
+        await db.workspaceAccountBinding.count({
+          where: { connectionId: sourceId, workspaceId: orgX },
+        }),
+        0,
+      );
+      activePersonalUser = stableUser;
       const bx = await attach(orgX);
       const by = await attach(orgY);
       assert.ok(bx.bindingId && by.bindingId);

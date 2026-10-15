@@ -36,6 +36,7 @@ import {
   type ProviderAccountSynchronizationPort,
 } from "@reviewrouter/features-provider-accounts/synchronization";
 import { PrismaWorkspaceAccessRepository } from "@reviewrouter/features-auth";
+import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import { z } from "zod";
 import {
   canonicalMimoBaseURL,
@@ -61,6 +62,7 @@ export type AccountProfileView = {
   dedicatedBaseURL?: string;
 };
 export type AccountView = {
+  origin?: "organization" | "personal" | "operator";
   canManage?: boolean;
   connectionId: string;
   label: string;
@@ -87,6 +89,15 @@ export type AccountOperationView = {
   nonce: string;
   state: c.Operation["state"];
   account?: AccountView;
+  // Original safe reconnect fields, present only after durable fences are ready.
+  // A continuation re-enters a credential using this same nonce.
+  resume?: {
+    kind: "reconnect";
+    connectionId: string;
+    profileId: string;
+    gatewayRevision: number;
+    mirrorRevision: number;
+  };
   // Management disable is logical denial. This SDK supplies no erasure/transport cleanup proof.
   cleanup: "unresolved";
 };
@@ -188,8 +199,12 @@ const intentSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("disable"), nonce: uuid, ...existing }),
 ]);
 const hash = (v: string) => createHash("sha256").update(v).digest("hex");
-function ownerRef(workspaceId: string) {
+export function accountGatewayWorkspaceOwnerRef(workspaceId: string) {
   return `rrw_${hash(`rr-workspace-owner-v1\0${workspaceId}`)}`;
+}
+export function accountGatewayUserOwnerRef(userId: string) {
+  c.reference.parse(userId);
+  return `rru_${hash(`rr-user-owner-v1\0${userId}`)}`;
 }
 function operationRef(owner: string, nonce: string) {
   // ALL intents share this namespace: reusing a nonce with changed intent conflicts at the gateway.
@@ -316,7 +331,7 @@ export function createAccountsAdapter(input: {
       return {
         workspaceId: authority.workspaceId,
         actor: { ...authority.actor },
-        owner: ownerRef(authority.workspaceId),
+        owner: accountGatewayWorkspaceOwnerRef(authority.workspaceId),
       };
     } catch {
       throw new Denied();
@@ -678,7 +693,7 @@ export function createAccountsAdapter(input: {
           const operatorAuthority = {
             ...authority,
             workspaceId: operatorWorkspaceId,
-            owner: ownerRef(operatorWorkspaceId),
+            owner: accountGatewayWorkspaceOwnerRef(operatorWorkspaceId),
           };
           const account = verified(
             await client.get(grant.connection.gatewayAccountRef),
@@ -1067,7 +1082,9 @@ export function createAccountsAdapter(input: {
         const operatorAuthority = {
           ...authority,
           workspaceId: bindingDependencies.operatorWorkspaceId,
-          owner: ownerRef(bindingDependencies.operatorWorkspaceId),
+          owner: accountGatewayWorkspaceOwnerRef(
+            bindingDependencies.operatorWorkspaceId,
+          ),
         };
         const account = verified(
           await client.get(selection.connection.gatewayAccountRef),
@@ -1297,14 +1314,12 @@ export function createDisabledPersonalAccountsAdapter(input: {
     c.reference.parse(profileId);
     z.enum(["api-key-create", "oauth-begin"]).parse(ingress);
   }
-  const userOwner = (userId: string) =>
-    `rru_${hash(`rr-user-owner-v1\0${userId}`)}`;
   const gateway = {
     async get(actorUserId: string, accountRef: string, profileId: string) {
       const account = await client.get(accountRef);
       if (
         account.accountRef !== accountRef ||
-        account.ownerRef !== userOwner(actorUserId) ||
+        account.ownerRef !== accountGatewayUserOwnerRef(actorUserId) ||
         account.profileId !== profileId ||
         !profiles.has(profileId)
       )
@@ -1329,7 +1344,17 @@ export function createDisabledPersonalAccountsAdapter(input: {
       };
     },
   };
-  const dependencies = { store: input.store, gateway };
+  const dependenciesFor = (actorUserId: string) => ({
+    store: input.store,
+    gateway,
+    async authorizeOwner(expectedActor: string) {
+      if (
+        expectedActor !== actorUserId ||
+        (await input.authorizeUser()) !== actorUserId
+      )
+        throw new ProviderAccountError("connection_unavailable");
+    },
+  });
   const view = (result: PersonalOperationResult) => ({
     operationId: result.id,
     phase: result.phase,
@@ -1452,12 +1477,12 @@ export function createDisabledPersonalAccountsAdapter(input: {
       let authorizationURL: string | undefined;
       const result = await connectPersonalAccount(
         intent,
-        dependencies,
+        dependenciesFor(actorUserId),
         async () => {
           // Only the committed CAS winner reaches this closure once.
           const original = {
             operationId: personalOperationId(actorUserId, safe.nonce),
-            ownerRef: userOwner(actorUserId),
+            ownerRef: accountGatewayUserOwnerRef(actorUserId),
             profileId: intent.profileId,
             displayName: intent.displayName,
           };
@@ -1480,11 +1505,12 @@ export function createDisabledPersonalAccountsAdapter(input: {
     },
     async operation(nonce: string) {
       const clientOperationId = uuid.parse(nonce);
+      const actorUserId = await input.authorizeUser();
       return view(
         await readPersonalAccountOperation(
-          await input.authorizeUser(),
+          actorUserId,
           clientOperationId,
-          dependencies,
+          dependenciesFor(actorUserId),
         ),
       );
     },
@@ -1528,7 +1554,7 @@ export function createDisabledPersonalAccountsAdapter(input: {
           return view(original);
         const request = secretSubmission.oauthComplete.parse({
           operationId: original.id,
-          ownerRef: userOwner(actorUserId),
+          ownerRef: accountGatewayUserOwnerRef(actorUserId),
           callbackURL: safe.callbackURL,
         });
         const receipt = await checked(() => client.operation(original.id));
@@ -1537,7 +1563,11 @@ export function createDisabledPersonalAccountsAdapter(input: {
           await checked(() => client.completeOAuth(request));
         return view(
           await checked(() =>
-            readPersonalAccountOperation(actorUserId, safe.nonce, dependencies),
+            readPersonalAccountOperation(
+              actorUserId,
+              safe.nonce,
+              dependenciesFor(actorUserId),
+            ),
           ),
         );
       } catch {
@@ -1569,7 +1599,7 @@ export function createDisabledPersonalAccountsAdapter(input: {
             personalWorkspaceId,
             clientOperationId: safe.nonce,
           },
-          dependencies,
+          dependenciesFor(actorUserId),
         ),
       );
     },
@@ -1577,11 +1607,7 @@ export function createDisabledPersonalAccountsAdapter(input: {
 }
 
 // One server-configured origin/management role. Never read a caller URL/token/native ID.
-function configuration() {
-  const origin =
-    process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "";
-  const token =
-    process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "";
+export function accountGatewayProfilesConfiguration() {
   const contextKey =
     process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET ?? "";
   if (contextKey.length < 32) throw new Error("accounts_unavailable");
@@ -1629,10 +1655,15 @@ function configuration() {
     apiKeyProfiles,
     apiKeyProfileBaseURLs,
     ...(oauthProfile ? { codexOAuthProfileId: oauthProfile } : {}),
+  };
+}
+function configuration() {
+  return {
+    ...accountGatewayProfilesConfiguration(),
     gateway: createManagementClient({
       role: "management",
-      origin,
-      token,
+      origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
+      token: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
       timeoutMs: 10000,
       responseBytes: 65536,
     }),
@@ -1652,6 +1683,7 @@ async function production() {
   const accounts = new PrismaProviderAccountRepository(
     prisma,
     settings.operatorWorkspaceId,
+    readPersonalAccountSharingEnabled(process.env),
   );
   const access = new PrismaWorkspaceAccessRepository(prisma);
   const adapter = createAccountsAdapter({

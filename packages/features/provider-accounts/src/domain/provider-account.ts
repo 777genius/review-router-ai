@@ -54,6 +54,20 @@ export type BindingScope = {
   readonly workspaceId: string;
   readonly connectionId: string;
 };
+/** Repository-loaded facts from the current target and immutable source owner.
+ * Never supplied by a request or retained as a permission across dispatches.
+ */
+export type PersonalBindingUse = {
+  readonly workspaceId: string;
+  readonly personalOwnerUserId: string | null;
+  readonly donorUserId: string;
+  readonly donorRole: "owner" | "admin" | "member" | null;
+};
+export type BindingSelection = {
+  readonly binding: WorkspaceAccountBinding;
+  readonly connection: ProviderAccountConnection;
+  readonly personalUse?: PersonalBindingUse;
+};
 export type SafeBindingTuple = {
   readonly workspaceId: string;
   readonly bindingId: string;
@@ -63,6 +77,8 @@ export type SafeBindingTuple = {
   readonly connectionId: string;
   readonly gatewayAccountRef: string;
   readonly profileRef: string | null;
+  /** Present only for eligible personal use; pinned unchanged by a v2 run. */
+  readonly expectedAuthorizationEpoch?: number;
 };
 export type ProviderAccountErrorCode =
   | "workspace_forbidden"
@@ -173,7 +189,25 @@ export function assertWorkspaceUseOwner(
   connection: ProviderAccountConnection | null,
   workspaceId: string,
   operatorWorkspaceId?: string,
+  personalUse?: PersonalBindingUse,
 ): asserts connection is ProviderAccountConnection {
+  if (connection?.owner.kind === "user") {
+    const epoch = connection.authorizationEpochMirror;
+    if (
+      !personalUse ||
+      personalUse.workspaceId !== workspaceId ||
+      personalUse.donorUserId !== connection.owner.userId ||
+      (personalUse.personalOwnerUserId !== null
+        ? personalUse.personalOwnerUserId !== connection.owner.userId
+        : personalUse.donorRole !== "owner" &&
+          personalUse.donorRole !== "admin") ||
+      typeof epoch !== "number" ||
+      !Number.isSafeInteger(epoch) ||
+      epoch < 1
+    )
+      throw new ProviderAccountError("connection_unavailable");
+    return;
+  }
   if (
     !connection ||
     connection.owner.kind !== "workspace" ||
@@ -186,10 +220,7 @@ export function assertWorkspaceUseOwner(
 export function selectBinding(
   workspaceId: string,
   bindingId: string,
-  selection: {
-    readonly binding: WorkspaceAccountBinding;
-    readonly connection: ProviderAccountConnection;
-  } | null,
+  selection: BindingSelection | null,
   operatorWorkspaceId?: string,
 ): SafeBindingTuple {
   if (
@@ -208,6 +239,7 @@ export function selectBinding(
     selection.connection,
     workspaceId,
     operatorWorkspaceId,
+    selection.personalUse,
   );
   assertExecutable(selection.connection);
   return {
@@ -219,5 +251,11 @@ export function selectBinding(
     connectionId: selection.connection.id,
     gatewayAccountRef: selection.connection.gatewayAccountRef,
     profileRef: selection.connection.profileRef,
+    ...(selection.connection.owner.kind === "user"
+      ? {
+          expectedAuthorizationEpoch:
+            selection.connection.authorizationEpochMirror!,
+        }
+      : {}),
   };
 }

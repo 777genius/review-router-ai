@@ -144,22 +144,30 @@ test("gateway batch offers qualified MiMo reasoning and denies unsupported effor
   const unused = async (): Promise<never> => {
     throw new Error("fixture_unexpected_write");
   };
-  const adapter = createGatewayRepositoryBatchAdapter({
-    configurations: {
-      findLatest: async () => ({
-        config: safeDefaultReviewConfiguration,
-        version: 1,
-      }),
-      findOperation: async () => null,
-      saveNextVersionWithOperation: write,
-      saveNextVersion: unused,
-      deleteTarget: unused,
-    },
-    authorize: async () => ({
-      userId: "fixture-user",
-      githubUserId: "123",
-      githubLogin: "fixture",
+  const configurations = {
+    findLatest: async () => ({
+      config: safeDefaultReviewConfiguration,
+      version: 1,
     }),
+    findOperation: async () => null,
+    saveNextVersionWithOperation: write,
+    saveNextVersion: unused,
+    deleteTarget: unused,
+  };
+  const authorize = vi.fn<
+    Parameters<typeof createGatewayRepositoryBatchAdapter>[0]["authorize"]
+  >(async () => ({
+    userId: "fixture-user",
+    githubUserId: "123",
+    githubLogin: "fixture",
+  }));
+  const configurationsForActor = vi.fn<
+    (actor: Awaited<ReturnType<typeof authorize>>) => typeof configurations
+  >(() => configurations);
+  const adapter = createGatewayRepositoryBatchAdapter({
+    configurations,
+    configurationsForActor,
+    authorize,
     profiles: async () => page.value.profiles,
     bindings: {
       workspaceAccess: {
@@ -296,6 +304,33 @@ test("gateway batch offers qualified MiMo reasoning and denies unsupported effor
       ).results,
     ).toEqual([{ repositoryId: "fixture-repository", status: "denied" }]);
     expect(write).toHaveBeenCalledTimes(3);
+    // Both targets must bind the writer to their own post-read authorization.
+    authorize.mockClear();
+    configurationsForActor.mockClear();
+    const targets = ["fixture-repository", "fixture-other-repository"].map(
+      (repositoryId) => ({ repositoryId, expectedVersion: 1 }),
+    );
+    expect(
+      (await adapter.save({ ...first, operationId: randomUUID(), targets }))
+        .results,
+    ).toEqual(
+      targets.map(({ repositoryId }) => ({
+        repositoryId,
+        status: "applied",
+        version: 2,
+      })),
+    );
+    expect(configurationsForActor).toHaveBeenCalledTimes(2);
+    for (const [index, call] of configurationsForActor.mock.calls.entries()) {
+      expect(authorize.mock.calls[index * 2 + 1]).toEqual([
+        workspaceId,
+        targets[index]!.repositoryId,
+        "write",
+      ]);
+      expect(call[0]).toBe(await authorize.mock.results[index * 2 + 1]!.value);
+      expect(call[0]).not.toBe(await authorize.mock.results[index * 2]!.value);
+    }
+    expect(write).toHaveBeenCalledTimes(5);
   } finally {
     view.unmount();
     cleanup();

@@ -187,6 +187,7 @@ model PersonalAccountOperation {
   normalizedIntentHash String
   expectedSourceMetadataRevision Int?
   expectedGatewayRevision BigInt?
+  expectedAuthorizationEpoch BigInt? // Original Gateway epoch, never metadata revision.
   predecessorBindingId String?
   expectedPredecessorRevision Int?
   bindingId String?

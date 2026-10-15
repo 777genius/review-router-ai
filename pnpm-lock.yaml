@@ -852,6 +852,9 @@ importers:
       '@prisma/client':
         specifier: ^7.8.0
         version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
+      '@reviewrouter/features-provider-accounts':
+        specifier: workspace:*
+        version: link:../provider-accounts
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../review-providers
@@ -1041,6 +1044,9 @@ importers:
       '@reviewrouter/features-codex-oauth-rotating':
         specifier: workspace:*
         version: link:../codex-oauth-rotating
+      '@reviewrouter/features-provider-accounts':
+        specifier: workspace:*
+        version: link:../provider-accounts
       '@reviewrouter/features-review-config':
         specifier: workspace:*
         version: link:../review-config
