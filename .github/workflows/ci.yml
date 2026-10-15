@@ -1138,8 +1138,22 @@ jobs:
         run: |
           set -euo pipefail
           createdb -h 127.0.0.1 -p 5433 -U postgres rr_gateway_test_c2c_agent_profile_ci
+          # The earlier fixtures leave the canonical owner without its login.
+          # Reuse the guarded disposable shared-cluster construction path.
+          node --input-type=module -e 'import { disposableFreshDatabasePreflightSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+            psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d rr_gateway_test_c2c_agent_profile_ci -v ON_ERROR_STOP=1
+          PGPORT=5433 node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs provision-ci
+          node --input-type=module -e 'import { disposableReleasePairPreflightSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+            psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d rr_gateway_test_c2c_agent_profile_ci -v ON_ERROR_STOP=1
+          before87_config="$(node scripts/self-hosted-e2e/disposable-release-role-fixture.mjs catalog "$RUNNER_TEMP")"
+          DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5433/rr_gateway_test_c2c_agent_profile_ci \
+            pnpm --filter @reviewrouter/platform-db exec prisma migrate deploy --config "$before87_config"
+          node --input-type=module -e 'import { disposableBefore87HandoffSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+            psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d rr_gateway_test_c2c_agent_profile_ci -v ON_ERROR_STOP=1
           DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5433/rr_gateway_test_c2c_agent_profile_ci \
             pnpm --filter @reviewrouter/platform-db db:migrate:deploy
+          node --input-type=module -e 'import { disposableFullChainVerificationSql as sql } from "./scripts/self-hosted-e2e/disposable-release-role-fixture.mjs"; process.stdout.write(sql)' |
+            psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d rr_gateway_test_c2c_agent_profile_ci -v ON_ERROR_STOP=1
           pnpm exec vitest run apps/api/src/personal-runtime-snapshot.postgres.test.ts
 
       - name: Record paired Action release gate

@@ -1437,6 +1437,8 @@ async function createHarness(
     },
   });
   await prisma.producerRelease.create({
+    // Keep this through-000079 fixture's return projection before SQL133.
+    omit: { agentProfilesJson: true },
     data: {
       producerReleaseId,
       distributionKind: "hosted_composite",
