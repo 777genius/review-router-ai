@@ -282,9 +282,9 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (policyMigration) {
     if (
       policyMigration.checksum !==
-        "b30521564c9242be28cadbda3ec62f30723ba9bf78b578d014cb320f8b2bdf4d" ||
+        "926bd2e4a9d1b89c3878704dc05aa330db7d52084803772f9481ab2987b223b9" ||
       manifest(catalog) !==
-        "sha256:41a65c538872f960e35ae34b217f340f449371500bcf4bc6633b182e1adca91a"
+        "sha256:4e38b924c2acb0b28dc2714ff70c7ac5f4c9cf8baaac9cd3235e13b0b1f435ba"
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(

@@ -729,21 +729,21 @@ describe.skipIf(!enabled)(
           { ...operation, expectedVersion: 1 },
           {
             ...operation,
-            config: parseReviewConfigurationStrict({
+            policy: parseReviewConfigurationStrict({
               ...override,
               limits: { ...override.limits, inlineMaxComments: 7 },
             }),
           },
           {
             ...operation,
-            config: parseReviewConfigurationStrict({
+            policy: parseReviewConfigurationStrict({
               ...override,
               reviewLanguage: "French",
             }),
           },
           {
             ...operation,
-            config: parseReviewConfigurationStrict({
+            policy: parseReviewConfigurationStrict({
               ...override,
               investigationRollout: {
                 ...override.investigationRollout,
@@ -751,7 +751,7 @@ describe.skipIf(!enabled)(
               },
             }),
           },
-          { ...operation, config },
+          { ...operation, policy: config },
         ]) {
           await expect(
             saveReviewConfigurationWithOperation(changed, receiptDeps),
