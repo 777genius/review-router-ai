@@ -15,6 +15,7 @@ import {
   canonicalJson,
   parseReviewRunGatewayExecutionBinding,
   parseReviewRunRuntimeSnapshot,
+  reviewRunGatewayEpochMatches,
   reviewRunGatewayOwnedIdentity,
   type ReviewRunAuthorizationQueryPort,
   type ReviewRunGatewayExecutionBinding,
@@ -125,6 +126,14 @@ export function createReviewRunGatewayPreparation(input: {
       if (!live() || saved.status !== "live") return { status: "denied" };
       // Ordinary restore is a private SQL read. Reacquiring run access after a
       // lost HTTP/attachment requires the explicit same-operation entry point.
+      if (
+        saved.binding &&
+        !reviewRunGatewayEpochMatches(
+          snapshot,
+          saved.binding.authorizationEpoch,
+        )
+      )
+        return { status: "denied" };
       if (saved.binding && (!recovery || session?.attached))
         return { status: "restored", binding: saved.binding };
       if (!recovery && initialAttempted) return { status: "denied" };
@@ -194,6 +203,14 @@ export function createReviewRunGatewayPreparation(input: {
         canonical,
         attached: false,
       };
+      if (
+        !reviewRunGatewayEpochMatches(snapshot, selected.authorizationEpoch)
+      ) {
+        // The acquired exact capability is cleanup-only. Retain it for close,
+        // but never attach, dispatch or recover another preparation for this pin.
+        closed = true;
+        return { status: "denied" };
+      }
       if (!live() || closed) return { status: "denied" };
       // ExecutionClient and the control credential remain inside backend closures;
       // only this safe projection enters SQL. Attachment loss is caller-recovered.

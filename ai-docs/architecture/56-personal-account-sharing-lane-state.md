@@ -1,5 +1,97 @@
 # H personal sharing: состояние отдельной полосы
 
+## Current implementation checkpoint: 2026-10-15
+
+Status: **FOUNDATION_MERGED / INTERNAL_CATALOG_AND_REVOKE_MERGED / C3_EPOCH_FOUNDATION_VERIFIED / PUBLIC_H_OFF**.
+This section supersedes the historical implementation status below. Planning
+review receipts remain historical evidence, not runtime acceptance.
+
+- Source audited at `main` `429d8aac524a69e085c9c2ca16729bff1e1dd51e`.
+  [PR 514](https://github.com/777genius/review-router-ai/pull/514) published the
+  accepted H plan;
+  [PR 515](https://github.com/777genius/review-router-ai/pull/515) delivered C2a
+  stable User/personal-workspace identity and migration 000123;
+  [PR 516](https://github.com/777genius/review-router-ai/pull/516) integrated C1
+  consumer control;
+  [PR 518](https://github.com/777genius/review-router-ai/pull/518) delivered
+  disabled C2b personal operations, migration 000124, terminal personal binding
+  lifetimes and eligibility retirement;
+  [PR 566](https://github.com/777genius/review-router-ai/pull/566) added owner
+  deletion guards. These foundations are reused.
+- Installed Gateway SDK source pin is now
+  `28d6da0539fc7b879e3c2b9a955b7ef91ba4ecd1`, as recorded by the current vendor
+  artifact and README. The older 0d12/c086 receipts below describe historical
+  inputs. No new SDK or native implementation is required for the next slice.
+- [PR 585](https://github.com/777genius/review-router-ai/pull/585) merged the
+  disabled internal owner-filtered catalog and exact source-owner revoke at
+  `066e56f3d97babadaae04b5fa8bafaf6f807b4ce`. The adapter now exposes list,
+  connect, operation readback, OAuth completion, attach and revoke. The existing
+  store coordinates terminal binding lifetimes and eligibility retirement.
+  Both required checks (`Quality Gates`, dedicated PG17 authority contract)
+  passed for exact reviewed source `548fd9df0ae99f12b14275eb61d6b04cff168001`.
+- The inert C3 epoch foundation adds strict private v1/v2 parsing and NEW SQL129,
+  requiring the original positive expected authorization epoch to equal the
+  selected execution epoch. Existing v1/nonpersonal behavior, immutable original
+  selection, deadlines/caps and SQL128 account row-lock authority remain intact.
+  Preparation retains the exact acquired client for explicit cleanup on mismatch.
+  Focused host control/API types, contract tests and the real pinned-SDK/PG17
+  snapshot/cleanup case (2.60 s) passed; exact-head CI remains pending here.
+- Public personal use remains denied and production capture still writes v1.
+  Remaining C3 work covers trusted donor/P eligibility, locked source epoch
+  capture/live checks and configuration validation. Canonical management (C4),
+  existing Accounts/Models UX (C5), and assembled qualification/activation (C6)
+  continue in isolated local components. No public H, assembled acceptance or
+  production deployment is claimed here.
+- Fresh isolated workstream `review-router/personal-sharing-20261015` was prepared
+  from verified complete Git bundle at exact 429d8aac, preserving the old H
+  controller and outputs. Current worker policy is MiMo `mimo-v2.6-pro`, thinking
+  enabled, default tier. The configured old MiMo route remains pinned to its
+  historical source and was not reset.
+- Job `mimo-rr-personal-sharing-20261015-catalog-revoke-w1` failed before provider
+  launch on the 5 GiB scratch floor; supported stop and `failed_no_output` custody
+  retained attempt `877349e8-f3e7-4c53-995a-d22fc7da4ed6`. W2 creation was denied
+  before a manifest/workspace existed. Successor W3 reached the executor but its
+  provider allocation again failed the scratch floor at 06:36 UTC, with clean
+  workspace and no authored changes. There is no model-produced H patch from
+  these attempts. Both now have supported `failed_no_output` custody and
+  technical review markers; no authored code was approved. W4 creation was
+  denied before any manifest/model launch: admission reports two unreadable
+  native authority roots (`hosted_research_launch_denied` for W1/W3), despite
+  the trusted initial-root operator context. No new Create is allowed until
+  the supported admission audit is clean.
+- Approved cleanup reclaimed 1,043,111,936 bytes of completed Action dependency
+  caches and 902,094,848 bytes in two unused reproducible source snapshots.
+  The independent canonical source, verified complete bundle, failed-job
+  workspaces, state, receipts and auth were preserved. Last measured scratch
+  availability after cleanup was 6,930,599,936 bytes; capacity is no longer the
+  observed admission blocker.
+- Following explicit Root direction, the local orchestrator implemented the
+  bounded disabled catalog / source-owner revoke checkpoint while MiMo remains
+  unavailable. This is local implementation provenance, not hosted completion.
+  An independent local source reviewer found a missing pre-commit session
+  recheck; it was fixed with a regression that asserts no binding, receipt or
+  fence mutation after a session switch. Corrected source review is approved;
+  hosted focused command checks now pass: provider source/test types, selected
+  Accounts types, and the real controlled SDK/HTTP + PostgreSQL 17.10 boundary
+  (one substantive case, 1.09 s) after all 128 current migrations. The fixture
+  retains immutable synthetic receipts and respects current deletion guards.
+  Exact-head CI passed and PR585 merged; this is a disabled internal component,
+  not complete H acceptance.
+- Parallel local C3 snapshot-v2/epoch/SQL compatibility and C5 gated Accounts /
+  Models UX work use separate external worktrees. Public personal use remains
+  disabled until the complete authorization, fencing and qualification batch.
+  MiMo workers resume only after an external runtime fix; do not bypass its
+  protected authority inspection guard or create another workstream.
+- Next: publish the reviewed inert C3 foundation and gated C5 UI components,
+  complete C3 consumption/C4/server composition, and qualify the full readable
+  frontend flow with real end-to-end evidence. Only Root may coordinate the H
+  production cutover, preserving its current Action171/15-row deployment state.
+  No first-checkpoint/full-H completion equivalence is claimed.
+  Norm53 remains unchanged at SHA256
+  `66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0`.
+
+## Historical 2026-10-06 planning and delivery receipts
+
 Task `review-router-account-gateway-v1-h-planner-v1`, 2026-10-06. **REVIEWED_PLAN / TWO_DISTINCT_FRESH_ROUNDS_COMPLETE / PUBLICATION_ONLY_ADAPTATION**. R1 единственный P1 исправлен, R2 APPROVE exacte51 без замечаний; MAIN fully read520 technical lines. Production implementation не начата; MAIN final publication integration read COMPLETE; две consistency правки внесены. Текущий D/E/F/G/E2E не блокируется H; Norm53 sole current contract.
 
 - Owned NEW files: `56-personal-account-organization-sharing-plan.md` и этот compact state. Только эти два untracked docs изменены; index/production/Norm53/другие документы не менялись. Source-only; no commits/PR/dependencies/tests/build/runtime/browser/provider/DB/fixtures/deploy/credentials/agent launches. Trusted orchestrator commits later.

@@ -1602,9 +1602,9 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       const stableUser = `h-http-user-${randomUUID()}`;
       await db.user.create({ data: { id: stableUser } });
       const store = new PrismaPersonalAccountOperations(db);
-      const personal = () =>
+      const personal = (authorizeUser = async () => stableUser) =>
         createDisabledPersonalAccountsAdapter({
-          authorizeUser: async () => stableUser,
+          authorizeUser,
           store,
           control: {
             role: "consumer-control",
@@ -1692,8 +1692,11 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         1,
       );
       assert.equal(personalIngressEntries, 1);
+      const catalogForeignUser = `h-http-foreign-${randomUUID()}`;
+      await db.user.create({ data: { id: catalogForeignUser } });
+      await store.resolvePersonalWorkspace(catalogForeignUser);
       const foreign = createDisabledPersonalAccountsAdapter({
-        authorizeUser: async () => member.userId!,
+        authorizeUser: async () => catalogForeignUser,
         store,
         control: {
           role: "consumer-control",
@@ -1702,6 +1705,198 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         },
         profiles: new Map([[profileId, "api-key-create"]]),
       });
+      // Catalog is owner-filtered before keyset limit; no remote read, pending
+      // finalization, Gateway identity, operation reference or org labels leak.
+      const sourceId = personalOriginal.intent.proposedSourceId;
+      const pendingNonce = randomUUID();
+      const pendingId = `${sourceId}-catalog-pending`;
+      const reservedPending = await store.reserveConnect({
+        ...personalOriginal.intent,
+        clientOperationId: pendingNonce,
+        proposedSourceId: pendingId,
+      });
+      await db.providerAccountConnection.createMany({
+        data: [
+          {
+            id: pendingId,
+            ownerUserId: stableUser,
+            gatewayAccountRef: `${prefix}-pending-private-gateway`,
+            gatewayOperationRef: reservedPending.id,
+            profileRef: profileId,
+            displayName: "Pending own source",
+            state: "pending",
+            pendingSourceOperationId: reservedPending.id,
+          },
+          {
+            id: `${sourceId}-0-foreign`,
+            ownerUserId: catalogForeignUser,
+            gatewayAccountRef: `${prefix}-foreign-private-gateway`,
+            profileRef: profileId,
+            displayName: "Foreign private source",
+            state: "active",
+          },
+        ],
+      });
+      const beforeCatalog = httpReads;
+      const firstPage = await personal().list({ limit: 1 });
+      assert.equal(firstPage.sources.length, 1);
+      assert.equal(firstPage.sources[0]!.sourceId, sourceId);
+      assert.equal(firstPage.nextCursor, sourceId);
+      const secondPage = await personal().list({
+        limit: 1,
+        afterSourceId: firstPage.nextCursor!,
+      });
+      assert.deepEqual(secondPage, {
+        sources: [
+          {
+            sourceId: pendingId,
+            label: "Pending own source",
+            profileId,
+            state: "pending",
+            metadataRevision: 1,
+            sourceOperationPending: true,
+          },
+        ],
+        nextCursor: null,
+      });
+      assert.equal((await personal().list()).sources.length, 2);
+      await assert.rejects(personal().list({ limit: 101 }));
+      assert.equal(httpReads, beforeCatalog);
+      assert.equal(
+        (
+          await db.providerAccountConnection.findUniqueOrThrow({
+            where: { id: pendingId },
+          })
+        ).pendingSourceOperationId,
+        reservedPending.id,
+      );
+      for (const secret of [
+        "gatewayAccountRef",
+        "ownerUserId",
+        "authorizationEpoch",
+        reservedPending.id,
+      ])
+        assert.equal(
+          JSON.stringify([firstPage, secondPage]).includes(secret),
+          false,
+        );
+
+      // Source-owner revoke remains possible after leaving X. It retires exact
+      // BX only, with one retained nonce and honest pending fencing; P/Y survive.
+      const orgX = `${prefix}-personal-share-x`;
+      const orgY = `${prefix}-personal-share-y`;
+      await db.workspace.createMany({
+        data: [orgX, orgY].map((id) => ({ id, slug: id, name: id })),
+      });
+      await db.workspaceMember.createMany({
+        data: [orgX, orgY].map((workspaceId) => ({
+          workspaceId,
+          userId: stableUser,
+          role: "admin",
+        })),
+      });
+      const attach = async (targetWorkspaceId: string) =>
+        personal().attach({
+          nonce: randomUUID(),
+          sourceId,
+          targetWorkspaceId,
+          expectedSourceMetadataRevision: 1,
+          expectedGatewayRevision: 2,
+          predecessorBindingId: null,
+          expectedPredecessorRevision: null,
+        });
+      const bx = await attach(orgX);
+      const by = await attach(orgY);
+      assert.ok(bx.bindingId && by.bindingId);
+      const revoke = {
+        nonce: randomUUID(),
+        sourceId,
+        targetWorkspaceId: orgX,
+        expectedSourceMetadataRevision: 1,
+        expectedGatewayRevision: 2,
+        bindingId: bx.bindingId,
+        expectedBindingRevision: 1,
+      };
+      const beforeRevoke = httpReads;
+      // A target admin is not the source owner at this seam.
+      await db.workspaceMember.create({
+        data: { workspaceId: orgX, userId: catalogForeignUser, role: "admin" },
+      });
+      await assert.rejects(foreign.revoke(revoke));
+      await assert.rejects(
+        personal().revoke({ ...revoke, expectedBindingRevision: 2 }),
+      );
+      const beforeSessionLoss =
+        await db.workspaceAccountBinding.findUniqueOrThrow({
+          where: { id: bx.bindingId },
+        });
+      const beforeSessionLossOperations =
+        await db.personalAccountOperation.count({
+          where: { actorUserId: stableUser },
+        });
+      let authorizationCalls = 0;
+      await assert.rejects(
+        personal(async () =>
+          ++authorizationCalls === 1 ? stableUser : member.userId!,
+        ).revoke(revoke),
+      );
+      assert.deepEqual(
+        await db.workspaceAccountBinding.findUniqueOrThrow({
+          where: { id: bx.bindingId },
+        }),
+        beforeSessionLoss,
+      );
+      assert.equal(
+        await db.personalAccountOperation.count({
+          where: { actorUserId: stableUser },
+        }),
+        beforeSessionLossOperations,
+      );
+      await db.workspaceMember.deleteMany({
+        where: { workspaceId: orgX, userId: stableUser },
+      });
+      const revokedShare = await personal().revoke(revoke);
+      assert.equal(revokedShare.operation.bindingId, bx.bindingId);
+      assert.equal(revokedShare.operation.state, "revoked");
+      assert.equal(revokedShare.operation.available, false);
+      assert.equal(revokedShare.remoteFenceDelivery, "remote_pending");
+      assert.deepEqual(await personal().revoke(revoke), revokedShare);
+      await assert.rejects(
+        personal().revoke({ ...revoke, bindingId: by.bindingId }),
+      );
+      assert.equal(httpReads, beforeRevoke); // denial requires no remote authority/ACK
+      const retainedX = await db.workspaceAccountBinding.findUniqueOrThrow({
+        where: { id: bx.bindingId },
+      });
+      assert.equal(
+        retainedX.pendingFenceOperationId,
+        revokedShare.operation.operationId,
+      );
+      assert.equal(retainedX.revision, 2);
+      assert.equal(
+        (
+          await db.workspaceAccountBinding.findUniqueOrThrow({
+            where: { id: by.bindingId },
+          })
+        ).state,
+        "active",
+      );
+      assert.equal(
+        (
+          await db.workspaceAccountBinding.findUniqueOrThrow({
+            where: { id: finalized[0]!.bindingId! },
+          })
+        ).state,
+        "active",
+      );
+      assert.equal(
+        (
+          await db.providerAccountConnection.findUniqueOrThrow({
+            where: { id: sourceId },
+          })
+        ).state,
+        "active",
+      );
       const beforeForeign = httpReads;
       await assert.rejects(foreign.operation(personalIntent.nonce));
       await assert.rejects(
@@ -1725,22 +1920,9 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
-      // Only this test's synthetic rows, never broad delete or migration.
-      await db.workspaceAccountBinding.deleteMany({ where: { workspaceId } });
-      await db.providerAccountConnection.deleteMany({
-        where: { ownerWorkspaceId: { in: [workspaceId, otherWorkspaceId] } },
-      });
-      await db.workspaceMember.deleteMany({
-        where: { workspaceId: { in: [workspaceId, otherWorkspaceId] } },
-      });
-      await db.workspace.deleteMany({
-        where: { id: { in: [workspaceId, otherWorkspaceId] } },
-      });
-      if (personalWorkspaceId)
-        await db.workspace.delete({ where: { id: personalWorkspaceId } });
-      await db.user.deleteMany({
-        where: { id: { in: [actor.userId!, member.userId!] } },
-      });
+      // This checked disposable database retains its synthetic rows and immutable
+      // personal receipts for inspection. Whole-fixture disposal belongs to the
+      // owning harness; raw row deletion must not bypass current owner guards.
       await db.$disconnect();
     }
   },

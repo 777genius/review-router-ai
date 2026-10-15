@@ -98,7 +98,7 @@ describe.skipIf(!enabled)(
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
         expect(names).toHaveLength(129);
-        expect(names.at(-1)).toBe("000129_review_policy_schema_v3");
+        expect(names.at(-1)).toBe("000130_review_policy_schema_v3");
         let legacyBefore: unknown;
         for (const name of names) {
           if (name === "000119_review_configuration_gateway_binding") {

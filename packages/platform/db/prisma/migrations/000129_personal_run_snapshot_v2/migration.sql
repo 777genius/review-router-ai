@@ -1,28 +1,22 @@
--- Current schemaVersion 3 stores its canonical policy document here. Existing
--- rows without it remain opaque historical evidence and are not execution input.
-ALTER TABLE "ReviewConfigurationVersion"
-ADD COLUMN "policyJson" TEXT;
+-- Inert H C3 format foundation. Capture/public personal consumption remain disabled.
+-- Preserve SQL120 immutability, SQL121 selected shape and SQL128 narrow API ACL.
+BEGIN;
 
--- Approved agent definitions extend the existing immutable producer registry.
-ALTER TABLE "ProducerRelease" ADD COLUMN "agentProfilesJson" TEXT;
+ALTER TABLE "ReviewRunAuthorization" DROP CONSTRAINT "ReviewRunAuthorization_runtime_snapshot_bound";
+ALTER TABLE "ReviewRunAuthorization" ADD CONSTRAINT "ReviewRunAuthorization_runtime_snapshot_bound"
+CHECK ("runtimeSnapshotCanonicalJson" IS NULL OR (
+  octet_length("runtimeSnapshotCanonicalJson") BETWEEN 2 AND 32768
+  AND jsonb_typeof("runtimeSnapshotCanonicalJson"::jsonb) = 'object'
+  AND (
+    "runtimeSnapshotCanonicalJson"::jsonb -> 'snapshotVersion' = '1'::jsonb
+    OR ("runtimeSnapshotCanonicalJson"::jsonb -> 'snapshotVersion' = '2'::jsonb AND
+      CASE WHEN jsonb_typeof("runtimeSnapshotCanonicalJson"::jsonb #> '{gateway,expectedAuthorizationEpoch}') = 'number'
+        AND ("runtimeSnapshotCanonicalJson"::jsonb #>> '{gateway,expectedAuthorizationEpoch}') ~ '^[1-9][0-9]{0,15}$'
+      THEN ("runtimeSnapshotCanonicalJson"::jsonb #>> '{gateway,expectedAuthorizationEpoch}')::numeric BETWEEN 1 AND 9007199254740991
+      ELSE false END)
+  )
+) IS TRUE);
 
--- Retain immutable historical v1 snapshots while admitting the current v2 wire
--- document. Runtime readers accept only v2; storage is not an execution parser.
-ALTER TABLE "ReviewRunAuthorization"
-DROP CONSTRAINT "ReviewRunAuthorization_runtime_snapshot_bound";
-ALTER TABLE "ReviewRunAuthorization"
-ADD CONSTRAINT "ReviewRunAuthorization_runtime_snapshot_bound"
-  CHECK ("runtimeSnapshotCanonicalJson" IS NULL OR
-    (octet_length("runtimeSnapshotCanonicalJson") BETWEEN 2 AND 32768 AND
-     jsonb_typeof("runtimeSnapshotCanonicalJson"::jsonb) = 'object' AND
-     "runtimeSnapshotCanonicalJson"::jsonb ->> 'snapshotVersion' IN ('1', '2')) IS TRUE);
-
--- A write receipt captures its effective result, while policyJson remains a
--- sparse override. Later inheritance edits or clearing do not rewrite receipts.
-ALTER TABLE "ReviewConfigurationVersion" ADD COLUMN "operationSnapshotJson" TEXT;
-
--- New Gateway effects require the current captured snapshot. Existing attached
--- executions and historical evidence retain every immutability/liveness guard.
 CREATE OR REPLACE FUNCTION review_run_gateway_execution_immutable() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -63,7 +57,13 @@ BEGIN
   caps := original #> '{gateway,limits}';
   IF (NEW."state" = 'active' AND NEW."expiresAt" > (clock_timestamp() AT TIME ZONE 'UTC')
       AND NEW."maxExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC')
-      AND original ->> 'snapshotVersion' = '2'
+      AND (original -> 'snapshotVersion' = '1'::jsonb OR
+        (original -> 'snapshotVersion' = '2'::jsonb AND
+          CASE WHEN jsonb_typeof(original #> '{gateway,expectedAuthorizationEpoch}') = 'number'
+            AND (original #>> '{gateway,expectedAuthorizationEpoch}') ~ '^[1-9][0-9]{0,15}$'
+          THEN (original #>> '{gateway,expectedAuthorizationEpoch}')::numeric BETWEEN 1 AND 9007199254740991
+            AND selected -> 'authorizationEpoch' = original #> '{gateway,expectedAuthorizationEpoch}'
+          ELSE false END))
       AND jsonb_typeof(original -> 'gateway') = 'object'
       AND selected ->> 'operationId' = original #>> '{gateway,operationId}'
       AND selected ->> 'accountRef' = original #>> '{gateway,permittedAccountRef}'
@@ -85,3 +85,5 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+COMMIT;

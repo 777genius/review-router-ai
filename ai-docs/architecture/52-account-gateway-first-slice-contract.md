@@ -1043,3 +1043,83 @@ source and controlled regression checkpoints.
 
 Full provider tools, nonempty final and approved-head App publication: **0/3**.
 Norm53 is unchanged; no production deployment or release is qualified here.
+
+## NONNORMATIVE production170 successor evidence - 2026-10-15
+
+This dated successor supplements the historical states above; it does not mark
+the whole contract complete. The [finite production170 receipt](../../docs/release-evidence/account-gateway-production170-20261015.json)
+records the exact runtime, approved head, observations and primary receipt digests.
+Earlier failures and UNKNOWN outcomes remain unchanged.
+
+Production runs SaaS `6d7478f523199699ff93eaed1add12d25ca59aeb`, immutable image
+`sha256:89ebafa749ac0c7ed8fbc9593dc533e1fd4b36ee4bbb263ef0055fb48157d0d8`,
+Action `ce8106e02c475e31b93b29e0a55151e2af803a8f`, Gateway
+`4f334cbdf75ece216ed14a6fa0ead25b80a2f3fb` and approved native compatibility
+source `d7181e38e292594ea2245224ea6d735d3b748bf3`. Both 170 fixes passed focused
+regressions, independent review and required CI before normal release/apply.
+Whole upstream-main native runtime qualification is not claimed.
+
+App setup PR13 merged as `2bd79747ef9e0843ee4aac0e11a313fc8735d5dd` in the
+existing disposable `777genius/rr-selfhost-direct-v2-e2e-20260730t120036z`.
+One marker push requested one ordinary App-dispatched review of PR2 at
+`705049c7159a3ae1ed10fca44c78d890b9250468`; no manual workflow dispatch or
+automatic paid retry. Run `38664268518/a1` used MiMo `mimo-v2.6-pro`, high
+reasoning, fast mode off, with credentials remaining server-side.
+
+The accepted authenticated manifest records 14 successful tools, complete=true,
+confinementTainted=false and no terminal failure. The normalized observation has
+3574 bytes, one finding and zero quality flags; finalized coverage is completed.
+Raw agent-final bytes were not measured. App review 5526985883 and
+inline 4278122640 were published at the exact approved head. The major finding
+targets `src/cart.js:6`. Workflow exit 1 with `review_merge_gate_failed` is the
+configured blocking-finding conclusion after completed review/publication,
+not an infrastructure-failure classification.
+
+The context session accepted its seal after 1507350ms (25min7s), beyond the old
+20-minute limit and before the original approved expiry. This is actual changed
+boundary evidence for the lifetime and rolling-lease fixes. Execution completed,
+slot satisfied, lease released and authorization revoked. The exact kernel
+execution is closed, all four requests completed, cleanup done and occupied
+transports 0. This is durable closure joined to the qualified ACK-gated
+implementation; a separately captured native ACK is not claimed.
+
+The user's canonical Codex account was freshly reauthorized under its original
+operator owner and is ACTIVE, revision 5/authorization epoch 3, with a new native
+birth. Old erased-generation/ownership history is retained. Complete Codex
+authorization opens immediately after fresh enrollment/reconnect; the former
+Operation readback section is now Connection status. Padel use still awaits the
+already requested specific browser confirmation for its supported S operator
+grant. The duplicate quarantined Padel account was not activated or transferred.
+
+Earlier D-long, E OpenRouter, F Codex, joined G custody, UI batch/S grants,
+controlled deletion and retention proofs remain accepted within their original
+qualified scopes, not relabeled as current 170 runs. RAM remains
+owner-stopped/unqualified; H personal sharing is deferred; production deletion
+is NOT_RUN. Whole-plan completion remains withheld for the pending Padel use
+result and final joined delivery record. No additional RAM, restore, provider or
+long-run probe was required for this evidence join.
+
+### Confirmed Padel canonical Codex use - 2026-10-15
+
+The earlier pending-confirmation state above is historical. After the user's
+specific confirmation, one normal UI grant succeeded at binding revision1.
+Fresh Padel Accounts shows the canonical Codex account ACTIVE / WORKSPACE
+BINDING READY. A scoped read-only SQL proof verifies exactly one canonical
+connection under its original operator owner and exactly one active Padel
+binding to that same connection, policy/binding revision1 with no pending fence.
+The [finite receipt](../../docs/release-evidence/account-gateway-production170-20261015.json)
+retains this proof and its digest. No second OAuth enrollment, account copy,
+principal transfer, provider canary or default provider change was performed.
+
+This is the existing S operator-use mechanism, not the deferred H personal
+multi-organization sharing feature. Authorization, metadata and account-global
+capacity belong to the one canonical account; per-workspace bindings remain
+separate. The deployed UI currently shows the common label and readiness but
+has no explicit shared-account/owner badge. That display limitation does not
+create separate accounts or permissions. The original duplicate quarantined
+Padel enrollment remains denied and was not silently activated.
+
+Production170 review/publication and the requested canonical Padel use are now
+delivered. Prior D/E/F/G and retention/lifecycle evidence keep their original
+scopes; RAM remains owner-stopped/unqualified, H deferred, and unrestricted
+whole-Norm53/D-final memory qualification is not asserted.

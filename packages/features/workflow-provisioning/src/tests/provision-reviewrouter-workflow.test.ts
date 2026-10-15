@@ -189,30 +189,33 @@ function savedConfigurations(
     },
   };
 }
-it("provisions only the keyless caller from server-loaded saved repository config", async () => {
-  const setupGateway = new CapturingSetupGateway();
-  await provisionRepositoryReviewRouterWorkflow(gatewayInput, {
-    targets: new StaticWorkflowProvisioningTarget(activeTarget),
-    setupGateway,
-    provisioning: new CapturingProvisioningRepository(),
-    configurations: savedConfigurations(),
-    trustedGithubRepositoryId: "123456",
-  });
-  const files = setupGateway.input!.workflowFiles;
-  expect(files).toHaveLength(1);
-  expect(files[0]!.path).toBe(".github/workflows/reviewrouter-review.yml");
-  const file = files[0]!;
-  const job = parse("content" in file ? file.content : "").jobs.review;
-  expect(job.with).toMatchObject({
-    review_request_id: "${{ inputs.review_request_id }}",
-    pr_number: "${{ inputs.pr_number }}",
-    review_head_sha: "${{ inputs.review_head_sha }}",
-  });
-  expect(job.uses).toBe(
-    "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
-  );
-  expect(job.secrets).toBeUndefined();
-});
+it.each(["repository", "workspace"])(
+  "provisions only the keyless caller from server-loaded saved %s config",
+  async (selection) => {
+    const setupGateway = new CapturingSetupGateway();
+    await provisionRepositoryReviewRouterWorkflow(gatewayInput, {
+      targets: new StaticWorkflowProvisioningTarget(activeTarget),
+      setupGateway,
+      provisioning: new CapturingProvisioningRepository(),
+      configurations: savedConfigurations(selection),
+      trustedGithubRepositoryId: "123456",
+    });
+    const files = setupGateway.input!.workflowFiles;
+    expect(files).toHaveLength(1);
+    expect(files[0]!.path).toBe(".github/workflows/reviewrouter-review.yml");
+    const file = files[0]!;
+    const job = parse("content" in file ? file.content : "").jobs.review;
+    expect(job.with).toMatchObject({
+      review_request_id: "${{ inputs.review_request_id }}",
+      pr_number: "${{ inputs.pr_number }}",
+      review_head_sha: "${{ inputs.review_head_sha }}",
+    });
+    expect(job.uses).toBe(
+      "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
+    );
+    expect(job.secrets).toBeUndefined();
+  },
+);
 it.each([
   "777genius/review-router@main",
   "",

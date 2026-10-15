@@ -275,20 +275,37 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
-  // Current policy storage extends the exact pre-launch checkout only.
+  // Current policy/profile storage is one unpublished extension over checkout129.
   const policyMigration = catalog.find(
-    (row) => row.migrationName === "000129_review_policy_schema_v3",
+    (row) => row.migrationName === "000130_review_policy_schema_v3",
   );
   if (policyMigration) {
     if (
       policyMigration.checksum !==
-        "94f1dbb5dd0ddd8c127ccb42dd06d18d2b24d0ea93fed9bb95ec9104ca483e63" ||
+        "ac0abf93d6088957825731f178903709d2b8535a7e9894eb2236449396711f21" ||
       manifest(catalog) !==
-        "sha256:2fd29821cfe790f0ca50da68071727874b9220f58e69cc72456790ede02a9a7f"
+        "sha256:d5c7537fb7da73118bc1aa4ad9f46ba1eb10bd64fb850b441f6d7d258dd886a7"
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(
       catalog.filter((row) => row !== policyMigration),
+    );
+  }
+  // Inert H snapshot-v2 storage is an exact checkout-only extension. Its SQL
+  // changes neither managed92/historical source nor SQL128 API column authority.
+  const personalSnapshotMigration = catalog.find(
+    (row) => row.migrationName === "000129_personal_run_snapshot_v2",
+  );
+  if (personalSnapshotMigration) {
+    if (
+      personalSnapshotMigration.checksum !==
+        "d36995df0392fdaf9ad5f39d6204c18bc0c78b400963c549547648c48b64e0ab" ||
+      manifest(catalog) !==
+        "sha256:19c80297e4a4d01882c1253cbc1a62df6a95e0f916992d308ff627f30d7a6c25"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== personalSnapshotMigration),
     );
   }
   // Owner deletion is admitted only in the exact complete checkout128.

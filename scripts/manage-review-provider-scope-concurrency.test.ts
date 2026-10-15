@@ -23,9 +23,9 @@ type WorkflowStep = {
 
 function qualitySteps(workflowSource: string): WorkflowStep[] {
   const workflow = parse(workflowSource) as {
-    jobs?: { quality?: { steps?: WorkflowStep[] } };
+    jobs?: { "quality-db-contracts"?: { steps?: WorkflowStep[] } };
   };
-  const steps = workflow.jobs?.quality?.steps;
+  const steps = workflow.jobs?.["quality-db-contracts"]?.steps;
   if (!Array.isArray(steps)) {
     throw new Error("missing quality job steps");
   }
@@ -229,13 +229,13 @@ function assertProviderFixtureContract(
 ): void {
   const workflow = parse(workflowSource) as {
     jobs?: {
-      quality?: {
+      "quality-db-contracts"?: {
         env?: Record<string, string>;
         services?: Record<string, { ports?: string[] }>;
       };
     };
   };
-  const quality = workflow.jobs?.quality;
+  const quality = workflow.jobs?.["quality-db-contracts"];
   const steps = qualitySteps(workflowSource);
   const step = (name: string) => namedStep(steps, name);
   const index = (name: string) => steps.indexOf(step(name));
@@ -440,10 +440,14 @@ describe("provider scope concurrency rollout control", () => {
     join(import.meta.dirname, "run-hosted-pool-postgres-e2e.mjs"),
     "utf8",
   );
-  const qualityGatesWorkflow = readFileSync(
+  const providerJob = readFileSync(
     join(import.meta.dirname, "../.github/workflows/ci.yml"),
     "utf8",
-  );
+  )
+    .split(/^ {2}(?=[a-z][a-z0-9-]+:\n)/mu)
+    .find((job) => job.startsWith("quality-db-contracts:\n"));
+  if (!providerJob) throw new Error("missing provider-scope CI job");
+  const qualityGatesWorkflow = `jobs:\n  ${providerJob}`;
   const realProviderScopeSuite = readFileSync(
     join(
       import.meta.dirname,

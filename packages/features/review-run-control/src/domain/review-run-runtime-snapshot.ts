@@ -11,7 +11,7 @@ import {
 
 /** Private admission data. Never included in public authorization claims/facts. */
 export type ReviewRunRuntimeSnapshot = {
-  readonly snapshotVersion: 2;
+  readonly snapshotVersion: 3;
   readonly configurationSource: "workspace" | "repository";
   readonly configurationVersion: number;
   readonly workspaceConfigurationVersion: number;
@@ -29,6 +29,17 @@ export type ReviewRunRuntimeSnapshot = {
   readonly deadline: string;
   readonly gateway: ReviewRunGatewaySelection | null;
 };
+
+/** An explicit captured epoch is binding on both initial selection and recovery. */
+export function reviewRunGatewayEpochMatches(
+  snapshot: ReviewRunRuntimeSnapshot,
+  selectedEpoch: number,
+): boolean {
+  return (
+    snapshot.gateway?.expectedAuthorizationEpoch === undefined ||
+    snapshot.gateway.expectedAuthorizationEpoch === selectedEpoch
+  );
+}
 
 /** Pure finite allowance data, independent of SDK/HTTP validation. */
 export type ReviewRunGatewayLimits = {
@@ -78,6 +89,7 @@ export type ReviewRunGatewaySelection = {
   readonly attemptId: string;
   readonly operationId: string;
   readonly limits: ReviewRunGatewayLimits;
+  readonly expectedAuthorizationEpoch?: number;
 };
 
 export function parseReviewRunRuntimeSnapshot(
@@ -106,7 +118,7 @@ export function parseReviewRunRuntimeSnapshot(
     fail();
   const { configurationSource, configurationVersion, deadline } = parsed;
   if (
-    parsed.snapshotVersion !== 2 ||
+    parsed.snapshotVersion !== 3 ||
     (configurationSource !== "workspace" &&
       configurationSource !== "repository") ||
     !revision(configurationVersion) ||
@@ -182,6 +194,9 @@ export function parseReviewRunRuntimeSnapshot(
         "attemptId",
         "operationId",
         "limits",
+        ...("expectedAuthorizationEpoch" in row
+          ? ["expectedAuthorizationEpoch"]
+          : []),
       ])
     )
       fail();
@@ -207,8 +222,18 @@ export function parseReviewRunRuntimeSnapshot(
       !revision(row.policyRevision)
     )
       fail();
+    if (
+      "expectedAuthorizationEpoch" in row &&
+      (typeof row.expectedAuthorizationEpoch !== "number" ||
+        !Number.isSafeInteger(row.expectedAuthorizationEpoch) ||
+        row.expectedAuthorizationEpoch < 1)
+    )
+      fail();
     // Fields were bounded/checked above; construct a detached primitive projection.
     gateway = {
+      ...("expectedAuthorizationEpoch" in row
+        ? { expectedAuthorizationEpoch: Number(row.expectedAuthorizationEpoch) }
+        : {}),
       providerIndex: row.providerIndex,
       bindingId: String(row.bindingId),
       connectionId: String(row.connectionId),
@@ -225,7 +250,7 @@ export function parseReviewRunRuntimeSnapshot(
   }
   if (canonicalJson(parsed) !== value) fail();
   return {
-    snapshotVersion: 2,
+    snapshotVersion: 3,
     configurationSource,
     configurationVersion,
     workspaceConfigurationVersion: Number(parsed.workspaceConfigurationVersion),

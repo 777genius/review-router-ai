@@ -443,8 +443,11 @@ export function createReviewRunGatewayRelay(input: {
                 body: new ReadableStream<Uint8Array>(
                   {
                     async pull(stream) {
+                      let phase: "upstream_read" | "authority_recheck" =
+                        "upstream_read";
                       try {
                         const chunk = await reader.read();
+                        phase = "authority_recheck";
                         await fresh();
                         // SDK cancellation can resolve read() with done=true. That
                         // is transport teardown, not successful terminal delivery.
@@ -459,7 +462,13 @@ export function createReviewRunGatewayRelay(input: {
                           dispose();
                           stream.close();
                         } else stream.enqueue(chunk.value);
-                      } catch {
+                      } catch (error) {
+                        const diagnostic = captureStreamFailureDiagnostic(
+                          error,
+                          phase,
+                          signal.aborted,
+                          requestRef,
+                        );
                         controller.abort();
                         dispose();
                         await upstream.cancel().catch(() => {});
@@ -471,6 +480,7 @@ export function createReviewRunGatewayRelay(input: {
                             requestRef,
                           ),
                         );
+                        emitStreamFailureDiagnostic(diagnostic);
                       }
                     },
                     async cancel() {
@@ -881,6 +891,74 @@ function safeFailure(error: unknown): RelayFailure {
       error.requestRef,
     );
   return new RelayFailure("relay_unknown", 502, "effect_unknown");
+}
+function captureStreamFailureDiagnostic(
+  error: unknown,
+  phase: "upstream_read" | "authority_recheck",
+  signalAborted: boolean,
+  requestRef: string,
+) {
+  try {
+    const object =
+      error !== null && typeof error === "object" ? error : undefined;
+    const code: unknown = object
+      ? Object.getOwnPropertyDescriptor(object, "code")?.value
+      : undefined;
+    const sdkCode =
+      typeof code === "string" &&
+      [
+        "invalid_input",
+        "transport",
+        "invalid_response",
+        "cancelled",
+        "safe_error",
+      ].includes(code)
+        ? code
+        : undefined;
+    const status: unknown = object
+      ? (Object.getOwnPropertyDescriptor(object, "status")?.value ??
+        Object.getOwnPropertyDescriptor(object, "statusCode")?.value)
+      : undefined;
+    const message: unknown = object
+      ? Object.getOwnPropertyDescriptor(object, "message")?.value
+      : undefined;
+    return {
+      event: "review_run_gateway_stream_failure",
+      stage: phase,
+      signalAborted,
+      requestRef,
+      rateLimitMessageObserved:
+        typeof message === "string" &&
+        /API rate limit exceeded|secondary rate limit/i.test(message),
+      errorCategory:
+        error instanceof TypeError
+          ? "TypeError"
+          : error instanceof RangeError
+            ? "RangeError"
+            : error instanceof Error
+              ? "Error"
+              : "other",
+      ...(typeof status === "number" &&
+      Number.isInteger(status) &&
+      status >= 400 &&
+      status <= 599
+        ? { httpStatus: status }
+        : {}),
+      ...(sdkCode === undefined ? {} : { sdkCode }),
+    };
+  } catch {
+    return undefined;
+  }
+}
+function emitStreamFailureDiagnostic(
+  diagnostic: ReturnType<typeof captureStreamFailureDiagnostic>,
+) {
+  if (!diagnostic) return;
+  try {
+    console.error(diagnostic);
+  } catch {
+    /* Diagnostics cannot replace stream failure or cleanup. */
+  }
 }
 function diagnoseUnknown(
   error: unknown,

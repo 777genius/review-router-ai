@@ -3,7 +3,7 @@ import { canonicalJson } from "../domain/review-run-control-types";
 import { parseReviewRunRuntimeSnapshot } from "../domain/review-run-runtime-snapshot";
 
 const snapshot = {
-  snapshotVersion: 2,
+  snapshotVersion: 3,
   configurationSource: "repository",
   configurationVersion: 7,
   workspaceConfigurationVersion: 2,
@@ -28,7 +28,7 @@ const snapshot = {
   deadline: "2026-10-15T00:00:00.000Z",
   gateway: null,
 };
-describe("private runtime snapshot v2 codec", () => {
+describe("private runtime snapshot v3 codec", () => {
   it("captures exact producer commits instead of a mutable channel hint", () => {
     expect(
       parseReviewRunRuntimeSnapshot(canonicalJson(snapshot))?.producer,

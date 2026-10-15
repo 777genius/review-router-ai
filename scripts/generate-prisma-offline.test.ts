@@ -391,6 +391,8 @@ describe("offline Prisma generate", () => {
       "release-authority-pg17-contract",
       "managed-migration-pg17",
       "quality",
+      "quality-db-contracts",
+      "quality-source-certification",
       "static-checks",
     ]) {
       const generationSteps = (workflow.jobs[jobId]?.steps ?? []).filter(
@@ -422,5 +424,63 @@ describe("offline Prisma generate", () => {
     expect(dockerfile).not.toContain(
       "pnpm --filter @reviewrouter/platform-db db:generate",
     );
+  });
+
+  it("fails the aggregate gate for every unsuccessful required lane", () => {
+    const workflow = parse(
+      readFileSync(".github/workflows/ci.yml", "utf8"),
+    ) as {
+      jobs: Record<
+        string,
+        {
+          if?: string;
+          needs?: string[];
+          steps?: {
+            name?: string;
+            env?: Record<string, string>;
+            run?: string;
+          }[];
+        }
+      >;
+    };
+    const required = [
+      "quality",
+      "quality-db-contracts",
+      "quality-source-certification",
+      "static-checks",
+      "managed-migration-pg17",
+    ];
+    const gate = workflow.jobs["quality-gates"];
+    expect(gate?.if).toBe("${{ always() }}");
+    expect(gate?.needs?.toSorted()).toEqual(required.toSorted());
+    const enforcement = gate?.steps?.find(
+      (step) => step.name === "Enforce every quality and PG17 lane",
+    );
+    expect(enforcement?.run).toBeDefined();
+    const variables = required.map((jobId) => {
+      expect(workflow.jobs[jobId], `${jobId}: required job`).toBeDefined();
+      const variable = Object.entries(enforcement?.env ?? {}).find(
+        ([, value]) => value === "${{ needs." + jobId + ".result }}",
+      )?.[0];
+      expect(variable, `${jobId}: bound result`).toBeDefined();
+      return variable!;
+    });
+    const success = Object.fromEntries(
+      variables.map((name) => [name, "success"]),
+    );
+    const runGate = (results: Record<string, string>) =>
+      spawnSync("bash", ["-c", enforcement!.run!], {
+        env: { ...process.env, ...results },
+        encoding: "utf8",
+      });
+    expect(runGate(success).status).toBe(0);
+    for (const variable of variables) {
+      for (const result of ["failure", "cancelled", "skipped", ""]) {
+        expect(
+          runGate({ ...success, [variable]: result }).status,
+          `${variable}=${result || "missing"}: aggregate must fail`,
+        ).toBe(1);
+      }
+    }
   });
 });

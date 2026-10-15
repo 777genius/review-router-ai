@@ -107,6 +107,45 @@ export class AcquireOrJoinInvocationFlight {
         requestedAt: command.now,
       });
       const incumbent = observation.flight;
+      if (incumbent?.executionId === command.executionId) {
+        const incumbentLease = await this.executions.findLease(
+          incumbent.ownerLeaseId,
+        );
+        if (
+          incumbentLease?.acquireRequestIdHash ===
+            command.acquireRequestIdHash &&
+          incumbentLease.providerInvocationKey === command.providerInvocationKey
+        ) {
+          // Exact retries recover their owner acknowledgement; the store checks
+          // the complete request identity before restoring the original lease.
+          const replay = await this.commands.acquireLease(command);
+          if (
+            replay.status ===
+            ReviewInvocationLeaseAcquireStatus.IdempotencyConflict
+          ) {
+            return {
+              status: AcquireOrJoinInvocationFlightStatus.IdempotencyConflict,
+            };
+          }
+          if (
+            replay.status !== ReviewInvocationLeaseAcquireStatus.Restored ||
+            replay.lease === undefined
+          ) {
+            throw new Error("invocation_flight_acquire_replay_not_restored");
+          }
+          const flight = await this.restoreAcquiredFlight(
+            replay.lease,
+            requestedIdentity,
+            command.now,
+          );
+          return flight === null
+            ? { status: AcquireOrJoinInvocationFlightStatus.NotRunnable }
+            : {
+                status: AcquireOrJoinInvocationFlightStatus.OwnerRestored,
+                flight,
+              };
+        }
+      }
       const decision = decideInvocationFlightJoin({
         incumbent,
         requestedIdentity,
@@ -146,9 +185,8 @@ export class AcquireOrJoinInvocationFlight {
         }
         const flight = await this.restoreAcquiredFlight(
           acquired.lease,
-          acquired.snapshot ?? target,
           requestedIdentity,
-          observation.observedAt,
+          command.now,
         );
         if (flight === null) {
           return { status: AcquireOrJoinInvocationFlightStatus.NotRunnable };
@@ -172,28 +210,43 @@ export class AcquireOrJoinInvocationFlight {
 
   private async restoreAcquiredFlight(
     lease: ReviewInvocationLease,
-    observed: ReviewExecutionSnapshot,
     requestedIdentity: InvocationFlightIdentity,
-    now: Date,
+    requestedAt: Date,
   ): Promise<InvocationFlight | null> {
-    if (
-      lease.state !== ReviewInvocationLeaseState.Active ||
-      lease.expiresAt <= now
-    ) {
-      return null;
-    }
-    const snapshot =
-      observed.execution.executionId === lease.executionId
-        ? observed
-        : await this.executions.findExecution(lease.executionId);
+    const snapshot = await this.executions.findExecution(lease.executionId);
     const slot = findLeaseSlot(snapshot, lease);
     if (snapshot === null || slot === null) {
       throw new Error("invocation_flight_acquired_aggregate_missing");
     }
+    const observation = await this.flights.observeActiveInvocationFlight({
+      scope: lease,
+      providerInvocationKey: lease.providerInvocationKey,
+      providerVoteIdentityHash: lease.providerVoteIdentityHash,
+      requestedAt,
+    });
+    const currentLease = snapshot.activeLeases.find(
+      (candidate) => candidate.leaseId === lease.leaseId,
+    );
+    if (
+      currentLease === undefined ||
+      currentLease.state !== ReviewInvocationLeaseState.Active ||
+      currentLease.expiresAt <= observation.observedAt ||
+      observation.flight === null ||
+      observation.flight.ownerLeaseId !== lease.leaseId ||
+      !invocationFlightIdentitiesEqual(
+        observation.flight.identity,
+        requestedIdentity,
+      ) ||
+      snapshot.execution.state !== ReviewExecutionState.Running ||
+      snapshot.stream.activeExecutionId !== lease.executionId ||
+      slot.activeLeaseId !== lease.leaseId
+    ) {
+      return null;
+    }
     const flight = restoreInvocationFlight({
       execution: snapshot.execution,
       slot,
-      lease,
+      lease: currentLease,
     });
     if (!invocationFlightIdentitiesEqual(flight.identity, requestedIdentity)) {
       throw new Error("invocation_flight_acquired_identity_mismatch");

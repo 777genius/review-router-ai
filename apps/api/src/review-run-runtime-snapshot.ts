@@ -220,7 +220,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     try {
       return parseReviewRunRuntimeSnapshot(
         canonicalJson({
-          snapshotVersion: 2,
+          snapshotVersion: 3,
           configurationSource: current.source,
           configurationVersion: current.version,
           workspaceConfigurationVersion: current.workspaceVersion,

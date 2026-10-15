@@ -1,4 +1,4 @@
-export const gatewaySessionMaxLifetimeMs = 60 * 60 * 1_000;
+export const gatewaySessionMaxLifetimeMs = 6 * 60 * 60 * 1_000;
 
 export enum ContextProviderKind {
   Codex = "codex",
