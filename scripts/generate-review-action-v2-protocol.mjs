@@ -96,10 +96,7 @@ export async function generateReviewActionV2Protocol(input = {}) {
       await format(
         "// Generated from shared/src/review-agent-profile.ts. Do not edit.\n" +
           (await readFile(
-            join(
-              repositoryRoot,
-              "packages/shared/src/review-agent-profile.ts",
-            ),
+            join(repositoryRoot, "packages/shared/src/review-agent-profile.ts"),
             "utf8",
           )),
         { parser: "typescript" },
