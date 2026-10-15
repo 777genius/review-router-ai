@@ -17,7 +17,10 @@ import type { TestContext } from "node:test";
 import type { Client } from "pg";
 import type { PrismaClient } from "@prisma/client";
 import { PrismaPersonalAccountOperations } from "../src/infrastructure/prisma/prisma-personal-account-operations";
-import type { PersonalAccountIntent } from "../src/application/use-cases/personal-account-operations";
+import {
+  personalOperationId,
+  type PersonalAccountIntent,
+} from "../src/application/use-cases/personal-account-operations";
 import { selectBinding } from "../src/domain/provider-account";
 import { PrismaProviderAccountRepository } from "../src/infrastructure/prisma/prisma-provider-account-repository";
 import { PrismaProviderAccountSynchronization } from "../src/infrastructure/prisma/prisma-provider-account-synchronization";
@@ -1164,6 +1167,61 @@ export async function runBindingFencePostgresTests(
           ).policyRevision,
           1,
         );
+        async function denyAfterClaim(intent: PersonalCanonicalIntent) {
+          const sourceBefore =
+            await db.providerAccountConnection.findUniqueOrThrow({
+              where: { id: sourceId },
+            });
+          const bindingsBefore = await db.workspaceAccountBinding.findMany({
+            where: { connectionId: sourceId },
+            orderBy: { id: "asc" },
+          });
+          const entriesBefore = entries;
+          let authorizations = 0;
+          await assert.rejects(
+            submitPersonalCanonicalOperation(
+              userId,
+              intent.clientOperationId,
+              {
+                ...deps,
+                authorizeOwner: async () => {
+                  if (++authorizations === 3)
+                    throw new Error("session_revoked_after_claim");
+                },
+              },
+              async () => {
+                entries++;
+              },
+            ),
+            /session_revoked_after_claim/,
+          );
+          assert.equal(authorizations, 3);
+          assert.equal(entries, entriesBefore);
+          const released = await store.read(userId, intent.clientOperationId);
+          assert.equal(
+            released.id,
+            personalOperationId(userId, intent.clientOperationId),
+          );
+          assert.deepEqual(released.intent, intent);
+          assert.equal(
+            released.phase,
+            intent.action === "rename" ? "reserved" : "fencing",
+          );
+          assert.deepEqual(
+            await db.providerAccountConnection.findUniqueOrThrow({
+              where: { id: sourceId },
+            }),
+            sourceBefore,
+          );
+          assert.deepEqual(
+            await db.workspaceAccountBinding.findMany({
+              where: { connectionId: sourceId },
+              orderBy: { id: "asc" },
+            }),
+            bindingsBefore,
+          );
+        }
+        await denyAfterClaim(rename);
         const renamed = await submitPersonalCanonicalOperation(
           userId,
           rename.clientOperationId,
@@ -1266,6 +1324,53 @@ export async function runBindingFencePostgresTests(
           (await store.read(userId, reconnect.clientOperationId)).phase,
           "ready",
         );
+        await denyAfterClaim(reconnect);
+        // Future persisted time proves release/ready/claim never regress the CAS
+        // token even if the application clock moves backwards.
+        const future = new Date(Date.now() + 60_000);
+        await db.personalAccountOperation.update({
+          where: { id: rotation.id },
+          data: { updatedAt: future },
+        });
+        // Reclaim cannot be released by the old winner, even in the same ms.
+        await store.ready(userId, reconnect.clientOperationId);
+        const firstClaim = await store.claim(
+          userId,
+          reconnect.clientOperationId,
+        );
+        assert.ok(firstClaim);
+        assert.ok(new Date(firstClaim.claimToken).getTime() > future.getTime());
+        assert.equal(
+          await store.releaseUnenteredClaim(
+            userId,
+            reconnect.clientOperationId,
+            firstClaim.claimToken,
+          ),
+          true,
+        );
+        await store.ready(userId, reconnect.clientOperationId);
+        const nextClaim = await store.claim(
+          userId,
+          reconnect.clientOperationId,
+        );
+        assert.ok(nextClaim);
+        assert.notEqual(nextClaim.claimToken, firstClaim.claimToken);
+        assert.equal(
+          await store.releaseUnenteredClaim(
+            userId,
+            reconnect.clientOperationId,
+            firstClaim.claimToken,
+          ),
+          false,
+        );
+        assert.equal(
+          await store.releaseUnenteredClaim(
+            userId,
+            reconnect.clientOperationId,
+            nextClaim.claimToken,
+          ),
+          true,
+        );
         hideResult = true;
         const ingress = async (command: { operationId: string }) => {
           entries++;
@@ -1295,6 +1400,23 @@ export async function runBindingFencePostgresTests(
         assert.equal(
           (await store.read(userId, reconnect.clientOperationId)).phase,
           "unknown",
+        );
+        const uncertain = await db.personalAccountOperation.findUniqueOrThrow({
+          where: { id: rotation.id },
+        });
+        assert.equal(
+          await store.releaseUnenteredClaim(
+            userId,
+            reconnect.clientOperationId,
+            uncertain.updatedAt.toISOString(),
+          ),
+          false,
+        );
+        await assert.rejects(
+          db.personalAccountOperation.update({
+            where: { id: rotation.id },
+            data: { phase: "fencing" },
+          }),
         );
         // Same operation readback; a newer account GET is never accepted as its result.
         hideResult = false;

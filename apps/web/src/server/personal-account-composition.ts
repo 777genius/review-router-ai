@@ -248,7 +248,7 @@ export async function productionPersonalAccounts() {
           workspace.members[0]?.role === "admin"),
     };
   }
-  async function models(workspaceId: string) {
+  async function reviewProfiles(workspaceId: string) {
     await workspaceAccess(workspaceId);
     const live = await checked(() => control.profiles());
     const available: AccountProfileView[] = live.profiles.flatMap((wire) => {
@@ -260,13 +260,21 @@ export async function productionPersonalAccounts() {
       return configured
         ? [
             {
-              ...configured,
+              id: configured.id,
+              label: configured.label,
+              authKind: configured.authKind,
+              canReconnect: false,
               protocol: wire.protocol,
               models: [...wire.modelIds],
             },
           ]
         : [];
     });
+    await workspaceAccess(workspaceId);
+    return available;
+  }
+  async function models(workspaceId: string) {
+    const available = await reviewProfiles(workspaceId);
     return createGatewayModelAccountOptions({
       prisma,
       env: process.env,
@@ -328,6 +336,7 @@ export async function productionPersonalAccounts() {
     canonical,
     scope,
     models,
+    reviewProfiles,
     workspaceAccess,
     detachRecipient,
   };

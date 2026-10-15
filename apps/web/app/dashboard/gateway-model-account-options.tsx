@@ -121,11 +121,12 @@ export function useGatewayModelAccounts(
       for (const profile of page.value.profiles)
         profiles.set(profile.id, profile);
     }
-  // Exact lookup wins over stale page data. Missing/revoked IDs are never
-  // replaced with a newer binding for the same source or the first option.
+  // Keep an exact known page row during its first detail read. Once settled,
+  // that read wins; unavailable IDs never follow a newer binding lifetime.
   [...new Set(selectedBindingIds.filter(Boolean))].forEach(
     (bindingId, index) => {
       const detail = details[index];
+      if (detail?.isPending) return;
       accounts.delete(bindingId);
       if (
         !detail?.isError &&

@@ -3218,12 +3218,7 @@ async function loadGatewayReviewProfiles(workspaceId: string) {
       .workspaceAccess(workspaceId)
       .catch(() => null);
     if (allowed) {
-      const page = await (
-        await personal.models(workspaceId)
-      ).list({ limit: 1 });
-      if (page.status !== "ok")
-        throw new Error("gateway_review_catalog_unavailable");
-      return page.value.profiles;
+      return personal.reviewProfiles(workspaceId);
     }
   }
   const { loadAccountsBootstrap } =

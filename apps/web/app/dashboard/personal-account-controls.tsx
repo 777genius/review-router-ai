@@ -167,6 +167,10 @@ function PersonalControls({
         queryKey: keys.sources(bootstrap.scope),
         exact: true,
       }),
+      client.invalidateQueries({
+        queryKey: keys.organizations(bootstrap.scope, []),
+        exact: false,
+      }),
       ...sourceIds.map((sourceId) =>
         client.invalidateQueries({
           queryKey: keys.grants(bootstrap.scope, sourceId),

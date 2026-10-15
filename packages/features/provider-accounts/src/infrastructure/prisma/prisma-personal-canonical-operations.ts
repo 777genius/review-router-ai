@@ -285,7 +285,12 @@ export class PrismaPersonalCanonicalOperations implements PersonalCanonicalOpera
         ) {
           const ready = await tx.personalAccountOperation.update({
             where: { id: row.id },
-            data: { phase: "ready" },
+            data: {
+              phase: "ready",
+              updatedAt: new Date(
+                Math.max(Date.now(), row.updatedAt.getTime() + 1),
+              ),
+            },
           });
           return this.receipt(tx, ready);
         }
@@ -302,7 +307,7 @@ export class PrismaPersonalCanonicalOperations implements PersonalCanonicalOpera
       );
       const intent = intentOf(row);
       if (row.phase !== (intent.action === "rename" ? "reserved" : "ready"))
-        return false;
+        return null;
       if (
         intent.action !== "rename" &&
         (source.pendingSourceOperationId !== row.id ||
@@ -313,10 +318,46 @@ export class PrismaPersonalCanonicalOperations implements PersonalCanonicalOpera
             },
           })) !== 0)
       )
-        return false;
+        return null;
+      // Millisecond precision matches Prisma's persisted DateTime. Monotonic even
+      // for rapid release/reclaim prevents an old caller releasing a new winner.
+      const claimedAt = new Date(
+        Math.max(Date.now(), row.updatedAt.getTime() + 1),
+      );
       const changed = await tx.personalAccountOperation.updateMany({
         where: { id: row.id, phase: row.phase },
-        data: { phase: "submitted" },
+        data: { phase: "submitted", updatedAt: claimedAt },
+      });
+      return changed.count === 1
+        ? { claimToken: claimedAt.toISOString() }
+        : null;
+    });
+  }
+  async releaseUnenteredClaim(
+    actorUserId: string,
+    clientOperationId: string,
+    claimToken: string,
+  ) {
+    const claimedAt = new Date(claimToken);
+    if (!Number.isFinite(claimedAt.getTime())) return false;
+    return this.prisma.$transaction(async (tx) => {
+      const { row } = await this.lockOperation(
+        tx,
+        actorUserId,
+        clientOperationId,
+      );
+      // Never reset unknown, terminal, or a different submitted winner.
+      if (
+        row.phase !== "submitted" ||
+        row.updatedAt.getTime() !== claimedAt.getTime()
+      )
+        return false;
+      const changed = await tx.personalAccountOperation.updateMany({
+        where: { id: row.id, phase: "submitted", updatedAt: claimedAt },
+        data: {
+          phase: row.action === "rename" ? "reserved" : "fencing",
+          updatedAt: new Date(Math.max(Date.now(), claimedAt.getTime() + 1)),
+        },
       });
       return changed.count === 1;
     });

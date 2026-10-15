@@ -16,7 +16,8 @@ const originalHistory = readRenderManagedCheckoutInventory()
       row.migrationName !== "000127_owner_workspace_deletion" &&
       row.migrationName !== "000128_account_admission_row_lock" &&
       row.migrationName !== "000129_personal_run_snapshot_v2" &&
-      row.migrationName !== "000130_personal_canonical_operations",
+      row.migrationName !== "000130_personal_canonical_operations" &&
+      row.migrationName !== "000131_personal_canonical_unentered_claim",
   )
   .map((row) =>
     row.migrationName === "000119_review_configuration_gateway_binding"

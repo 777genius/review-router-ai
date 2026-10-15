@@ -75,9 +75,21 @@ export async function submitPersonalCanonicalOperation(
   const original = await deps.store.ready(actorUserId, clientOperationId);
   if (original.phase === "ready" || original.phase === "reserved") {
     await deps.authorizeOwner(actorUserId);
-    if (await deps.store.claim(actorUserId, clientOperationId)) {
+    const claim = await deps.store.claim(actorUserId, clientOperationId);
+    if (claim) {
       try {
         await deps.authorizeOwner(actorUserId);
+      } catch (error) {
+        // Positive local non-entry only. Once ingress is called, never release.
+        // A concurrent readback that marked unknown makes the CAS fail closed.
+        await deps.store.releaseUnenteredClaim(
+          actorUserId,
+          clientOperationId,
+          claim.claimToken,
+        );
+        throw error;
+      }
+      try {
         await ingress({
           operationId: original.id,
           accountRef: original.source.gatewayAccountRef,

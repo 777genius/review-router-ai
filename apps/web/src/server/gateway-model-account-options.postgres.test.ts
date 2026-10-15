@@ -272,7 +272,39 @@ describe.skipIf(process.env.RR_H_MODEL_ACCOUNT_OPTIONS_PG_TEST !== "1")(
         expect((await api.get(bx.id)).status).toBe("denied");
         transform = (account) => ({ ...account, authorizationEpoch: 8 });
         expect((await api.get(bx.id)).status).toBe("denied");
+        transform = (account) =>
+          account.accountRef === personal.gatewayAccountRef
+            ? { ...account, authorizationEpoch: 8 }
+            : account;
+        const drifted = await api.list({ limit: 2 });
+        expect(drifted.status).toBe("ok");
+        if (drifted.status !== "ok")
+          throw new Error("drifted_row_poisoned_page");
+        expect(drifted.value.accounts.map((row) => row.binding?.id)).toEqual([
+          bd.id,
+        ]);
+        expect(drifted.value.profiles[0]?.id).toBe(profile);
+        expect(drifted.value.nextCursor).toBe(bd.id);
+        const emptyFirst = await api.list({ limit: 1 });
+        expect(emptyFirst.status === "ok" && emptyFirst.value.accounts).toEqual(
+          [],
+        );
+        expect(emptyFirst.status === "ok" && emptyFirst.value.nextCursor).toBe(
+          bx.id,
+        );
         transform = undefined;
+        onGet = async () => {
+          throw new Error("synthetic_gateway_outage");
+        };
+        expect((await api.list({ limit: 2 })).status).toBe("unavailable");
+        // A scope change on the second lookup must discard the already valid first row.
+        onGet = async () => {
+          onGet = async () => {
+            userId = u;
+          };
+        };
+        expect((await api.list({ limit: 2 })).status).toBe("denied");
+        userId = member;
         onGet = async () => {
           userId = u;
         };
@@ -294,18 +326,26 @@ describe.skipIf(process.env.RR_H_MODEL_ACCOUNT_OPTIONS_PG_TEST !== "1")(
         await db.workspaceMember.create({
           data: { workspaceId: x, userId: member, role: "member" },
         });
-        await store.revoke({
-          actorUserId: u,
-          personalWorkspaceId: p,
-          action: "revoke",
-          clientOperationId: `${prefix}-retire-old`,
-          sourceId: personal.id,
-          targetWorkspaceId: x,
-          expectedSourceMetadataRevision: 1,
-          expectedGatewayRevision: 41,
-          bindingId: bx.id,
-          expectedBindingRevision: 1,
-        });
+        onGet = () =>
+          store
+            .revoke({
+              actorUserId: u,
+              personalWorkspaceId: p,
+              action: "revoke",
+              clientOperationId: `${prefix}-retire-old`,
+              sourceId: personal.id,
+              targetWorkspaceId: x,
+              expectedSourceMetadataRevision: 1,
+              expectedGatewayRevision: 41,
+              bindingId: bx.id,
+              expectedBindingRevision: 1,
+            })
+            .then(() => undefined);
+        const retiredPage = await api.list({ limit: 2 });
+        expect(
+          retiredPage.status === "ok" &&
+            retiredPage.value.accounts.map((row) => row.binding?.id),
+        ).toEqual([bd.id]);
         // Consumption fixture only: C2's separate PG suite owns attach/ACK
         // issuance. Even another active ID must never replace this retired pin.
         const successor = await bind("40-personal-successor", personal.id);

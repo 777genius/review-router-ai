@@ -545,12 +545,7 @@ export async function gatewayRepositoryBatchServerAdapter() {
         personal &&
         (await personal.workspaceAccess(workspaceId).catch(() => null))
       ) {
-        const page = await (
-          await personal.models(workspaceId)
-        ).list({ limit: 1 });
-        if (page.status !== "ok")
-          throw new Error("gateway_batch_catalog_unavailable");
-        return page.value.profiles;
+        return personal.reviewProfiles(workspaceId);
       }
       const bootstrap = await accounts.loadAccountsBootstrap(workspaceId);
       if (bootstrap.page.status === "denied") throw new GatewayBatchDenied();

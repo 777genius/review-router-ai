@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -40,8 +41,8 @@ const page: AccountsPage = {
   profiles: [profile],
   nextCursor: "page-one",
 };
-function Harness() {
-  const options = useGatewayModelAccounts({ status: "ok", value: page }, [
+function Harness({ initial = page }: { initial?: AccountsPage }) {
+  const options = useGatewayModelAccounts({ status: "ok", value: initial }, [
     "saved-binding",
   ]);
   const ready = getReadyGatewayAccounts(options.accounts);
@@ -61,6 +62,49 @@ function Harness() {
     </>
   );
 }
+test.each(["denied", "error"] as const)(
+  "retains the exact first-paint selection while detail is pending, then removes it on %s",
+  async (outcome) => {
+    type Detail = Awaited<ReturnType<GatewayModelAccountsApi["get"]>>;
+    let resolveDetail!: (value: Detail) => void;
+    let rejectDetail!: (reason: Error) => void;
+    const detail = new Promise<Detail>((resolve, reject) => {
+      resolveDetail = resolve;
+      rejectDetail = reject;
+    });
+    const api = {
+      list: vi.fn<GatewayModelAccountsApi["list"]>(),
+      get: vi.fn<GatewayModelAccountsApi["get"]>().mockReturnValue(detail),
+    };
+    render(
+      <GatewayModelAccountsProvider scope="org-x" api={api}>
+        <Harness
+          initial={{
+            ...page,
+            accounts: [account("saved-binding"), account("fresh-binding")],
+            nextCursor: null,
+          }}
+        />
+      </GatewayModelAccountsProvider>,
+    );
+    expect(screen.getByText("Saved selection available")).toBeTruthy();
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("saved-binding"));
+    expect(screen.getByText("Saved selection available")).toBeTruthy();
+    await act(async () => {
+      if (outcome === "denied") resolveDetail({ status: "denied" });
+      else rejectDetail(new Error("detail transport unavailable"));
+    });
+    await waitFor(() =>
+      expect(screen.getByText("Saved selection unavailable")).toBeTruthy(),
+    );
+    expect(
+      (screen.getByLabelText("Saved binding") as HTMLInputElement).value,
+    ).toBe("saved-binding");
+    expect(screen.getByText("fresh-binding")).toBeTruthy();
+    expect(api.get).toHaveBeenCalledTimes(1);
+    expect(api.list).not.toHaveBeenCalled();
+  },
+);
 test("exact saved offpage binding stays selected, while a retired binding never follows a fresh lifetime", async () => {
   const api = {
     list: vi.fn<GatewayModelAccountsApi["list"]>().mockResolvedValue({

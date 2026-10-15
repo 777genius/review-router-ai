@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 import type {
   PersonalAccountsApi,
   PersonalAccountsBootstrap,
@@ -16,8 +17,11 @@ import type {
 } from "../../src/features/account-gateway/personal-accounts";
 import { PersonalAccountControls } from "./personal-account-controls";
 
+const clients = new Set<QueryClient>();
 afterEach(() => {
   cleanup();
+  for (const client of clients) client.clear();
+  clients.clear();
   sessionStorage.clear();
 });
 const source = (id: string): PersonalSource => ({
@@ -201,6 +205,123 @@ test("revokes exact own grant after role loss without disclosing an organization
   expect(
     await screen.findAllByText(/gateway confirmation pending/),
   ).not.toHaveLength(0);
+});
+
+test("revocation invalidates cached eligible selections in its scope before reusing the acknowledged predecessor", async () => {
+  const { bootstrap, api } = fixture();
+  const client = new QueryClient();
+  clients.add(client);
+  const otherScope = [
+    "personal-accounts",
+    "other-user",
+    "organizations",
+    "source-0",
+  ] as const;
+  const operationKey = [
+    "personal-accounts",
+    bootstrap.scope,
+    "operation",
+    "unrelated-operation",
+  ] as const;
+  client.setQueryData(otherScope, { retained: true });
+  client.setQueryData(operationKey, { retained: true });
+  api.listSources.mockResolvedValue(bootstrap.page);
+  let revoked = false;
+  api.listEligibleOrganizations.mockImplementation(async () => ({
+    status: "ok",
+    value: {
+      organizations: [
+        {
+          workspaceId: "org-x",
+          label: "Organization X",
+          predecessors: [
+            {
+              sourceId: "source-0",
+              bindingId: revoked ? "original-binding" : "retired-binding",
+              revision: revoked ? 10 : 4,
+            },
+          ],
+        },
+      ],
+      nextCursor: null,
+    },
+  }));
+  api.revoke.mockImplementation(async (request) => {
+    revoked = true;
+    return {
+      status: "ok",
+      value: {
+        operation: {
+          operationId: request.nonce,
+          phase: "applied",
+          sourceId: request.sourceId,
+          bindingId: request.bindingId,
+          available: false,
+          state: "revoked",
+        },
+        remoteFenceDelivery: "remote_applied",
+      },
+    };
+  });
+  render(
+    <PersonalAccountControls
+      bootstrap={bootstrap}
+      api={api}
+      queryClient={client}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText("Select Personal source-0"));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Share selected accounts" }),
+  );
+  await screen.findByLabelText("Organization X");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Manage sharing for Personal source-0",
+    }),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Revoke access" }));
+  await waitFor(() => expect(api.revoke).toHaveBeenCalledTimes(1));
+  const eligibleKey = [
+    "personal-accounts",
+    bootstrap.scope,
+    "organizations",
+    "source-0",
+  ] as const;
+  await waitFor(() =>
+    expect(client.getQueryState(eligibleKey)?.isInvalidated).toBe(true),
+  );
+  expect(client.getQueryState(otherScope)?.isInvalidated).toBe(false);
+  expect(client.getQueryState(operationKey)?.isInvalidated).toBe(false);
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Share selected accounts",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Share selected accounts" }),
+  );
+  await waitFor(() =>
+    expect(api.listEligibleOrganizations).toHaveBeenCalledTimes(2),
+  );
+  await waitFor(() =>
+    expect(client.getQueryState(eligibleKey)?.isInvalidated).toBe(false),
+  );
+  fireEvent.click(await screen.findByLabelText("Organization X"));
+  fireEvent.click(screen.getByRole("button", { name: "Share 1 connection" }));
+  await waitFor(() => expect(api.attach).toHaveBeenCalledTimes(1));
+  expect(api.attach.mock.calls[0]?.[0]).toMatchObject({
+    sourceId: "source-0",
+    targetWorkspaceId: "org-x",
+    predecessorBindingId: "original-binding",
+    expectedPredecessorRevision: 10,
+  });
 });
 
 test("an uncertain attach preserves one nonce and checks status without repeating the mutation", async () => {

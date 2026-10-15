@@ -27,6 +27,7 @@ type ModelAccount = AccountView & {
 };
 type ModelPage = Omit<AccountsPage, "accounts"> & { accounts: ModelAccount[] };
 class Denied extends Error {}
+class RowDenied extends Error {}
 
 /** Server-only read composition. No browser owner/scope/allow-personal input,
  * Gateway discovery, mirror writes, provisioning or implicit binding creation.
@@ -121,12 +122,22 @@ export function createGatewayModelAccountOptions(input: {
       authority.personalOwnerUserId !== authority.actor.userId
     )
       throw new Denied();
-    return selectBinding(
-      authority.workspaceId,
-      bindingId,
-      row,
-      operatorWorkspaceId,
-    );
+    try {
+      return selectBinding(
+        authority.workspaceId,
+        bindingId,
+        row,
+        operatorWorkspaceId,
+      );
+    } catch (error) {
+      if (
+        error instanceof ProviderAccountError &&
+        (error.code === "connection_unavailable" ||
+          error.code === "binding_unavailable")
+      )
+        throw new RowDenied();
+      throw error;
+    }
   }
   async function detail(
     authority: Authority,
@@ -140,7 +151,7 @@ export function createGatewayModelAccountOptions(input: {
     const profile = original.profileRef
       ? catalogue.get(original.profileRef)
       : undefined;
-    if (!profile || !before) throw new Denied();
+    if (!profile || !before) throw new RowDenied();
     const remote = c.account.parse(
       await checked(authority, () => gateway.get(original.gatewayAccountRef)),
     );
@@ -167,7 +178,7 @@ export function createGatewayModelAccountOptions(input: {
       (live.expectedAuthorizationEpoch !== undefined &&
         remote.authorizationEpoch !== live.expectedAuthorizationEpoch)
     )
-      throw new Denied();
+      throw new RowDenied();
     const own =
       row.connection.owner.kind === "user"
         ? authority.personalOwnerUserId === authority.actor.userId &&
@@ -209,7 +220,8 @@ export function createGatewayModelAccountOptions(input: {
     try {
       return { status: "ok", value: await work() };
     } catch (error) {
-      if (error instanceof Denied) return { status: "denied" };
+      if (error instanceof Denied || error instanceof RowDenied)
+        return { status: "denied" };
       if (error instanceof ProviderAccountError)
         return {
           status: error.code === "invalid_input" ? "invalid" : "denied",
@@ -259,8 +271,13 @@ export function createGatewayModelAccountOptions(input: {
         );
         const rows = candidates.slice(0, limit);
         const projected: ModelAccount[] = [];
-        for (const row of rows)
-          projected.push((await detail(authority, row.id)).account);
+        for (const row of rows) {
+          try {
+            projected.push((await detail(authority, row.id)).account);
+          } catch (error) {
+            if (!(error instanceof RowDenied)) throw error;
+          }
+        }
         await checked(authority, async () => undefined);
         return {
           accounts: projected,

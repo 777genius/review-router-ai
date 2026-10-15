@@ -166,6 +166,37 @@ The final live acceptance matrix under the owned H evidence directory remains
 mandatory. No source/UI check claims normal-session personal enrollment, live
 multi-organization use, tools/final/App publication or full H completion.
 
+## Final exact-head review corrections
+
+PR587 EFD passed all applicable exact-head CI checks in run `38715603599`; its
+PR-only full rehearsal was the expected skip. Before merge, four actual review
+findings were corrected together: one stale Models row no longer denies other
+authorized rows, profile validation reads the qualified catalog directly, the
+first pending exact selection remains visible, and eligibility caches refresh
+after sharing changes. HOST handle `42848` proved precise OLD RED failures and
+NEW 19/19 targeted cases, WEB types, ten-file lint and Prettier3.8.3.
+
+The post-claim session barrier also now distinguishes a positively unentered
+authorization failure from an uncertain ingress effect. New migration
+`000131_personal_canonical_unentered_claim` has SHA256
+`342221539d29efff72a110415311e43556e7b83dddaddf763610d9bc734c8ef3`.
+Only its winning exact monotonic claim token can restore the same original
+rename to reserved, or reconnect/retire to fencing, before ingress was invoked.
+Source pending state and all binding fences remain intact. Unknown, terminal
+and stale claims cannot rewind; a concurrent unknown readback remains denied.
+Frozen129/130 bytes are unchanged. HOST handle `1379` proved the precise old130
+SQL guard failure, then four real-PG cases on131, provider source/test types, six
+canonical WEB cases, five-file lint and formatting. Independent source reviews
+cover the Models, UI, canonical and finite131 inventory deltas separately.
+
+The inherited conflict rename-pathspec finding is unchanged from main and was
+explicitly deferred in its thread; no fix or new conflict behavior is claimed.
+The corrected combined head requires fresh exact CI before merge, then exact
+main full rehearsal and the normal SaaS171 image release. Root alone applies
+migrations129–131, the staged dedicated WEB grant, image and API/WEB flag, then
+performs normal-session personal multi-organization UI and real tools/final/App
+acceptance. Public H and full H completion remain pending those live results.
+
 ## Historical 2026-10-06 planning and delivery receipts
 
 Task `review-router-account-gateway-v1-h-planner-v1`, 2026-10-06. **REVIEWED_PLAN / TWO_DISTINCT_FRESH_ROUNDS_COMPLETE / PUBLICATION_ONLY_ADAPTATION**. R1 единственный P1 исправлен, R2 APPROVE exacte51 без замечаний; MAIN fully read520 technical lines. Production implementation не начата; MAIN final publication integration read COMPLETE; две consistency правки внесены. Текущий D/E/F/G/E2E не блокируется H; Norm53 sole current contract.

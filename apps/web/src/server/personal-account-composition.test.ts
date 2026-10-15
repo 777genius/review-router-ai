@@ -176,6 +176,25 @@ it("a switch during the workspace read blocks discovery and subsequent mutation"
   expect(h.control.profiles).not.toHaveBeenCalled();
   expect(h.control.fence).not.toHaveBeenCalled();
 });
+it("loads qualified profiles without projecting accounts and rechecks membership after discovery", async () => {
+  const service = (await composition.productionPersonalAccounts())!;
+  expect(await service.reviewProfiles("org")).toMatchObject([
+    {
+      id: "profile",
+      protocol: "openai-responses",
+      models: ["qualified-model"],
+    },
+  ]);
+  expect(h.models).not.toHaveBeenCalled();
+  expect(h.control.get).not.toHaveBeenCalled();
+  h.control.profiles.mockImplementationOnce(async () => {
+    h.workspace.mockResolvedValue(scopeRow(null, false));
+    return { profiles: [] };
+  });
+  await expect(service.reviewProfiles("org")).rejects.toMatchObject(forbidden);
+  expect(h.models).not.toHaveBeenCalled();
+  expect(h.control.get).not.toHaveBeenCalled();
+});
 it("retains a real committed local detach on fence outage only while the same actor remains", async () => {
   const service = (await composition.productionPersonalAccounts())!;
   const known = {

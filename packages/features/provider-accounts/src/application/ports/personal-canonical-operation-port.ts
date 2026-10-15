@@ -39,7 +39,16 @@ export interface PersonalCanonicalOperationStore {
     actorUserId: string,
     clientOperationId: string,
   ): Promise<PersonalCanonicalReceipt>;
-  claim(actorUserId: string, clientOperationId: string): Promise<boolean>;
+  claim(
+    actorUserId: string,
+    clientOperationId: string,
+  ): Promise<{ readonly claimToken: string } | null>;
+  /** Only the winning caller that has not invoked ingress may release its exact claim. */
+  releaseUnenteredClaim(
+    actorUserId: string,
+    clientOperationId: string,
+    claimToken: string,
+  ): Promise<boolean>;
   notePhase(
     actorUserId: string,
     clientOperationId: string,

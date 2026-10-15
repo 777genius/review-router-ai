@@ -40,6 +40,7 @@ function fixture() {
     authorizationEpoch: 4,
   };
   let operation: PersonalCanonicalReceipt | undefined;
+  let claimSequence = 0;
   const intents: PersonalCanonicalIntent[] = [];
   const read = async () => {
     if (!operation) throw new ProviderAccountError("not_found");
@@ -85,8 +86,14 @@ function fixture() {
       return read();
     },
     claim: async () => {
-      if (operation?.phase !== "ready" || !acknowledged) return false;
+      if (operation?.phase !== "ready" || !acknowledged) return null;
       operation = { ...operation, phase: "submitted" };
+      return { claimToken: String(++claimSequence) };
+    },
+    releaseUnenteredClaim: async (_user, _nonce, token) => {
+      if (token !== String(claimSequence) || operation?.phase !== "submitted")
+        return false;
+      operation = { ...operation, phase: "fencing" };
       return true;
     },
     notePhase: async (_user, _nonce, phase) => {
