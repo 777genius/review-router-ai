@@ -506,7 +506,6 @@ describe("ReviewConfigForm", () => {
       action: vi.fn(),
       config: {
         ...workspacePolicy,
-        provider,
         providers: [provider],
       },
       modelOptions,
@@ -590,7 +589,6 @@ describe("ReviewConfigForm", () => {
     renderReviewConfigForm({
       config: {
         ...workspacePolicy,
-        provider,
         providers: [provider],
       },
       repositoryFullName: "test/disposable-gateway",
@@ -636,7 +634,6 @@ describe("ReviewConfigForm", () => {
     renderReviewConfigForm({
       config: {
         ...workspacePolicy,
-        provider,
         providers: [provider],
       },
       repositoryFullName: "test/disposable-gateway",
