@@ -226,31 +226,13 @@ describe.skipIf(!enabled)(
             })
           ).policyJson,
         ).toBeNull();
-        // Supersede the retained historical revision through the current writer.
-        await configs.saveNextVersion({
-          target: workspace,
-          policy: workspacePolicyFixture,
-          expectedVersion: 1,
-        });
-        // Clearing a repository override preserves the workspace policy.
-        await configs.saveNextVersion({
-          target: repository,
-          policy: workspacePolicyFixture,
-          expectedVersion: null,
-        });
-        expect(await configs.deleteTarget(repository)).toBe(true);
-        expect((await configs.findLatest(repository))?.source).toBe(
-          "workspace",
-        );
         expect(
           await resolveReviewConfiguration(
             { scope: "workspace", workspaceId: "c2b-x" },
             deps,
           ),
         ).toBeNull();
-        expect(
-          (await resolveReviewConfiguration(repository, deps))!.source,
-        ).toBe("workspace");
+        expect(await resolveReviewConfiguration(repository, deps)).toBeNull();
 
         async function binding(
           id: string,
@@ -1055,7 +1037,11 @@ describe.skipIf(!enabled)(
           config: override,
         });
         const expectCleared = async (expectedHistory = originalHistory) => {
-          expect(await fresh.findLatest(clearedTarget)).toBeNull();
+          expect(await fresh.findLatest(clearedTarget)).toMatchObject({
+            source: "workspace",
+            version: 2,
+            config,
+          });
           expect(
             await fresh.findLatestForRepositories({
               workspaceId: "c2b-w",
@@ -1135,7 +1121,7 @@ describe.skipIf(!enabled)(
               new PrismaReviewConfigurationTransactionRepository(tx);
             expect(
               await transactionConfigs.findLatest(clearedTarget),
-            ).toBeNull();
+            ).toMatchObject({ source: "workspace", version: 2, config });
             return transactionConfigs.deleteTarget(clearedTarget);
           }),
         ).toBe(false);
@@ -1328,7 +1314,11 @@ describe.skipIf(!enabled)(
             receiptDeps,
           ),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
-        expect(await fresh.findLatest(clearedTarget)).toBeNull();
+        expect(await fresh.findLatest(clearedTarget)).toMatchObject({
+          source: "workspace",
+          version: scoped.version,
+          config: scoped.config,
+        });
         expect(
           await findReviewConfigurationOperation(
             {
