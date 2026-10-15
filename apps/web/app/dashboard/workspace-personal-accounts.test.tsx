@@ -94,27 +94,39 @@ test("is inert without an explicit authorized API", () => {
   expect(f.api.list).not.toHaveBeenCalled();
   expect(f.detach).not.toHaveBeenCalled();
 });
-test("members see canonical personal rows without detach or owner/management fields", async () => {
-  const f = fixture();
-  f.api.list.mockResolvedValue(
-    page([account("old-BX"), account("org-owned", "organization")]),
-  );
-  render(
-    <WorkspacePersonalAccounts
-      scope="org-x"
-      api={f.api}
-      canDetach={false}
-      detach={f.detach}
-    />,
-  );
-  expect(await screen.findByText("Canonical old-BX")).toBeTruthy();
-  expect(screen.getByText("Shared personal account")).toBeTruthy();
-  expect(screen.queryByText("Canonical org-owned")).toBeNull();
-  expect(screen.queryByRole("button", { name: /Detach/ })).toBeNull();
-  expect(screen.queryByText("incoming-masked-binding-handle")).toBeNull();
-  expect(screen.queryByText("90")).toBeNull();
-  expect(f.detach).not.toHaveBeenCalled();
-});
+test.each([false, true])(
+  "shows only the authorized personal ownership fact without granting management (%s)",
+  async (isOwnedByViewer) => {
+    const f = fixture();
+    f.api.list.mockResolvedValue(
+      page([
+        { ...account("old-BX"), isOwnedByViewer },
+        account("org-owned", "organization"),
+      ]),
+    );
+    render(
+      <WorkspacePersonalAccounts
+        scope="org-x"
+        api={f.api}
+        canDetach={false}
+        detach={f.detach}
+      />,
+    );
+    expect(await screen.findByText("Canonical old-BX")).toBeTruthy();
+    expect(
+      screen.getByText(
+        isOwnedByViewer
+          ? "Your personal account · shared here"
+          : "Shared personal account",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Canonical org-owned")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Detach/ })).toBeNull();
+    expect(screen.queryByText("incoming-masked-binding-handle")).toBeNull();
+    expect(screen.queryByText("90")).toBeNull();
+    expect(f.detach).not.toHaveBeenCalled();
+  },
+);
 test("an empty filtered page keeps the next page reachable", async () => {
   const f = fixture();
   f.api.list

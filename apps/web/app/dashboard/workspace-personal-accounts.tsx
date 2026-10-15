@@ -12,6 +12,7 @@ import type {
   AccountsPage,
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
+import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
 import {
   useGatewayModelAccountsQueryClient,
   type GatewayModelAccountsApi,
@@ -203,6 +204,10 @@ function WorkspacePersonalRows({
         reviews. Detaching removes only this organization's access; it does not
         retire the owner's account or affect other organizations.
       </p>
+      <p className="mt-1 text-sm text-slate-400">
+        The owner manages the account's name, sign-in and retirement in My
+        personal accounts. Here you manage only this organization's access.
+      </p>
       {pages.isPending ? <p role="status">Loading shared accounts...</p> : null}
       {failed ? (
         <p role="status">
@@ -225,7 +230,10 @@ function WorkspacePersonalRows({
           <div>
             <p>{row.label}</p>
             <div className="mt-1 flex flex-wrap gap-2">
-              <Badge tone="neutral">Shared personal account</Badge>
+              <Badge tone="neutral">
+                {personalAccountOriginText(row)}
+                {row.isOwnedByViewer === true ? " · shared here" : ""}
+              </Badge>
               <Badge tone="neutral">{row.state}</Badge>
             </div>
           </div>

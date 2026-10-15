@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   readRepositoryReviewPolicyForm: vi.fn(),
   saveReviewConfiguration: vi.fn(),
   assertReviewConfigSaveAllowed: vi.fn(),
+  assertWorkflowSetupPrAllowed: vi.fn(),
   isWorkflowSetupAlreadyCurrent: vi.fn(),
   resolveReviewRuntimeEnv: vi.fn(),
   provisionGatewayReviewV2Repository: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("./dashboard-action-form-readers", async (importOriginal) => ({
 vi.mock("../../src/server/dashboard-rate-limits", () => ({
   createDashboardRateLimitPolicy: () => ({
     assertReviewConfigSaveAllowed: mocks.assertReviewConfigSaveAllowed,
+    assertWorkflowSetupPrAllowed: mocks.assertWorkflowSetupPrAllowed,
   }),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -94,6 +96,7 @@ import {
 
 import {
   confirmSetupPullRequestMergedClientAction,
+  createSetupPullRequestClientAction,
   saveRepositoryReviewConfigClientAction,
   saveWorkspaceReviewConfigClientAction,
 } from "./actions";
@@ -101,6 +104,16 @@ import {
 const { isWorkflowSetupAlreadyCurrent } = await vi.importActual<
   typeof import("../../src/server/workflow-setup-readiness")
 >("../../src/server/workflow-setup-readiness");
+
+function workspacePolicyHeadsFixture() {
+  return {
+    findMany: vi.fn(async ({ where }: { where: { workspaceId: string } }) =>
+      where.workspaceId === "workspace_1"
+        ? [{ targetKey: "workspace:default", versions: [{ version: 1 }] }]
+        : [],
+    ),
+  };
+}
 
 function reusableWorkflowResponse(mimo = false) {
   return {
@@ -210,6 +223,49 @@ describe("dashboard setup PR recovery", () => {
 
   afterEach(() => vi.unstubAllEnvs());
 
+  it.each([
+    [false, "review_workspace_policy_required"],
+    [true, "review_policy_resave_required"],
+  ] as const)(
+    "reports %s workspace presence correctly when a repository policy head remains",
+    async (workspacePresent, expectedCode) => {
+      mocks.getPrisma.mockReturnValue({
+        repositoryConnection: {
+          findUnique: vi.fn(async () => ({
+            id: "repository_1",
+            workspaceId: "workspace_1",
+            provider: "github",
+            githubRepositoryId: 456n,
+            owner: "acme",
+            name: "widget",
+            fullName: "acme/widget",
+            defaultBranch: "main",
+            visibility: "private",
+            installation: { id: "installation_1", githubInstallationId: 123n },
+          })),
+        },
+        reviewConfiguration: {
+          findMany: vi.fn(async () => [
+            { targetKey: "repo:repository_1", versions: [{ version: 7 }] },
+            ...(workspacePresent
+              ? [{ targetKey: "workspace:default", versions: [{ version: 1 }] }]
+              : []),
+          ]),
+        },
+      });
+      mocks.resolveReviewRuntimeEnv.mockRejectedValueOnce(
+        new Error("review_workspace_policy_required"),
+      );
+      const form = new FormData();
+      form.set("workspaceId", "workspace_1");
+      form.set("repositoryId", "repository_1");
+      const result = await createSetupPullRequestClientAction(form);
+      expect(result.params.error).toBe(expectedCode);
+      expect(mocks.resolveReviewRuntimeEnv).toHaveBeenCalledOnce();
+      expect(mocks.createGitHubAppInstallationOctokit).not.toHaveBeenCalled();
+    },
+  );
+
   it("saves a workspace MiMo review configuration without an operator grant", async () => {
     const provider = {
       kind: "codex-mimo",
@@ -277,6 +333,7 @@ describe("dashboard setup PR recovery", () => {
     };
     mocks.getPrisma.mockReturnValue({
       reviewConfiguration: {
+        ...workspacePolicyHeadsFixture(),
         findUnique: vi.fn(async () => ({
           active: true,
           repositoryId: null,
@@ -401,6 +458,7 @@ describe("dashboard setup PR recovery", () => {
       },
     };
     mocks.getPrisma.mockReturnValue({
+      reviewConfiguration: workspacePolicyHeadsFixture(),
       repositoryConnection: {
         findUnique: repositoryFindUnique,
         findFirst: transactionClient.repositoryConnection.findFirst,
@@ -525,6 +583,7 @@ describe("dashboard setup PR recovery", () => {
       };
       mocks.getPrisma.mockReturnValue({
         ...state.prisma,
+        reviewConfiguration: workspacePolicyHeadsFixture(),
         repositoryConnection: {
           ...state.repositoryConnection,
           findUnique: vi.fn(async () => repository),
@@ -644,6 +703,7 @@ describe("dashboard setup PR recovery", () => {
       };
       mocks.getPrisma.mockReturnValue({
         ...state.prisma,
+        reviewConfiguration: workspacePolicyHeadsFixture(),
         repositoryConnection: {
           ...state.repositoryConnection,
           findUnique: vi.fn(async () => repository),

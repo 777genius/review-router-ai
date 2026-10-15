@@ -255,25 +255,32 @@ test("revocation invalidates cached eligible selections in its scope before reus
   client.setQueryData(operationKey, { retained: true });
   api.listSources.mockResolvedValue(bootstrap.page);
   let revoked = false;
-  api.listEligibleOrganizations.mockImplementation(async () => ({
-    status: "ok",
-    value: {
-      organizations: [
-        {
-          workspaceId: "org-x",
-          label: "Organization X",
-          predecessors: [
-            {
-              sourceId: "source-0",
-              bindingId: revoked ? "original-binding" : "retired-binding",
-              revision: revoked ? 10 : 4,
-            },
-          ],
-        },
-      ],
-      nextCursor: null,
-    },
-  }));
+  let releaseRefetch!: () => void;
+  const refetch = new Promise<void>((resolve) => {
+    releaseRefetch = resolve;
+  });
+  api.listEligibleOrganizations.mockImplementation(async () => {
+    if (revoked) await refetch;
+    return {
+      status: "ok",
+      value: {
+        organizations: [
+          {
+            workspaceId: "org-x",
+            label: "Organization X",
+            predecessors: [
+              {
+                sourceId: "source-0",
+                bindingId: revoked ? "original-binding" : "retired-binding",
+                revision: revoked ? 10 : 4,
+              },
+            ],
+          },
+        ],
+        nextCursor: null,
+      },
+    };
+  });
   api.revoke.mockImplementation(async (request) => {
     revoked = true;
     return {
@@ -323,6 +330,7 @@ test("revocation invalidates cached eligible selections in its scope before reus
   );
   expect(client.getQueryState(otherScope)?.isInvalidated).toBe(false);
   expect(client.getQueryState(operationKey)?.isInvalidated).toBe(false);
+  await act(async () => releaseRefetch());
   await waitFor(() =>
     expect(
       (
@@ -354,9 +362,12 @@ test("revocation invalidates cached eligible selections in its scope before reus
 
 test("an uncertain attach preserves one nonce and checks status without repeating the mutation", async () => {
   const { bootstrap, api } = fixture();
+  api.listSources.mockResolvedValue(bootstrap.page);
   api.attach.mockRejectedValue(new Error("private transport diagnostic"));
   api.readOperation.mockResolvedValue({ status: "unavailable" });
-  render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
+  const view = render(
+    <PersonalAccountControls bootstrap={bootstrap} api={api} />,
+  );
   fireEvent.click(screen.getByLabelText("Select Personal source-0"));
   fireEvent.click(
     screen.getByRole("button", { name: "Share selected accounts" }),
@@ -364,6 +375,9 @@ test("an uncertain attach preserves one nonce and checks status without repeatin
   fireEvent.click(await screen.findByLabelText("Organization Y"));
   fireEvent.click(screen.getByRole("button", { name: "Share 1 connection" }));
   await waitFor(() => expect(api.attach).toHaveBeenCalledTimes(1));
+  expect(
+    await screen.findByText("Personal source-0 · Organization Y"),
+  ).toBeTruthy();
   const nonce = api.attach.mock.calls[0]![0].nonce;
   await waitFor(() =>
     expect(
@@ -383,6 +397,22 @@ test("an uncertain attach preserves one nonce and checks status without repeatin
   expect(document.body.textContent).not.toContain(
     "private transport diagnostic",
   );
+  expect(
+    sessionStorage.getItem("rr-personal-account-operations:user-personal"),
+  ).not.toContain("Organization Y");
+  const originalURL = window.location.href;
+  try {
+    window.history.replaceState(null, "", "?workspace=another-workspace");
+    view.rerender(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Personal source-0 · Organization Y"),
+      ).toBeNull(),
+    );
+    expect(api.attach).toHaveBeenCalledTimes(1);
+  } finally {
+    window.history.replaceState(null, "", originalURL);
+  }
 });
 
 test("a delayed pre-mutation readback cannot overwrite a newer applied receipt", async () => {

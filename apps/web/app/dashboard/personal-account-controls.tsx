@@ -32,6 +32,12 @@ const keys = {
 };
 const noncePattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+type PairContext = { sourceId: string; workspaceId: string };
+function workspaceKey(): string {
+  return typeof window === "undefined"
+    ? ""
+    : (new URL(window.location.href).searchParams.get("workspace") ?? "");
+}
 function errorText(status: string) {
   return status === "conflict"
     ? "This selection changed. Refresh and confirm a new selection."
@@ -90,6 +96,11 @@ function PersonalControls({
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [message, setMessage] = useState("");
+  const [pairs, setPairs] = useState<
+    Record<string, PairContext & { viewKey: string }>
+  >({});
+  const currentWorkspace = workspaceKey();
+  useEffect(() => setPairs({}), [currentWorkspace]);
   const storageKey = `rr-personal-account-operations:${bootstrap.scope}`;
   const mutation = useMutation({
     mutationKey: ["personal-accounts", bootstrap.scope, "mutation"] as const,
@@ -181,6 +192,7 @@ function PersonalControls({
   }
   async function run(
     call: (nonce: string) => ReturnType<PersonalAccountsApi["attach"]>,
+    pair: PairContext,
   ) {
     let nonce: string;
     try {
@@ -191,6 +203,12 @@ function PersonalControls({
       );
       return;
     }
+    // Keep only opaque intent references in this mounted view, never labels in
+    // session storage. Names are resolved through current authorized queries.
+    setPairs((prior) => ({
+      ...prior,
+      [nonce]: { ...pair, viewKey: currentWorkspace },
+    }));
     let result: PersonalAccountsResult<PersonalMutationReceipt>;
     try {
       result = await call(nonce);
@@ -232,18 +250,20 @@ function PersonalControls({
           const predecessor = target.predecessors?.find(
             (row) => row.sourceId === source.sourceId,
           );
-          await run((nonce) =>
-            mutation.mutateAsync({
-              kind: "attach",
-              intent: {
-                nonce,
-                sourceId: source.sourceId,
-                targetWorkspaceId: target.workspaceId,
-                expectedSourceMetadataRevision: source.metadataRevision,
-                predecessorBindingId: predecessor?.bindingId ?? null,
-                expectedPredecessorRevision: predecessor?.revision ?? null,
-              },
-            }),
+          await run(
+            (nonce) =>
+              mutation.mutateAsync({
+                kind: "attach",
+                intent: {
+                  nonce,
+                  sourceId: source.sourceId,
+                  targetWorkspaceId: target.workspaceId,
+                  expectedSourceMetadataRevision: source.metadataRevision,
+                  predecessorBindingId: predecessor?.bindingId ?? null,
+                  expectedPredecessorRevision: predecessor?.revision ?? null,
+                },
+              }),
+            { sourceId: source.sourceId, workspaceId: target.workspaceId },
           );
         }
       await refresh(selected.map((source) => source.sourceId));
@@ -257,18 +277,20 @@ function PersonalControls({
     busyRef.current = true;
     setBusy(true);
     try {
-      await run((nonce) =>
-        mutation.mutateAsync({
-          kind: "revoke",
-          intent: {
-            nonce,
-            sourceId: source.sourceId,
-            targetWorkspaceId: grant.targetWorkspaceId,
-            expectedSourceMetadataRevision: source.metadataRevision,
-            bindingId: grant.bindingId,
-            expectedBindingRevision: grant.revision,
-          },
-        }),
+      await run(
+        (nonce) =>
+          mutation.mutateAsync({
+            kind: "revoke",
+            intent: {
+              nonce,
+              sourceId: source.sourceId,
+              targetWorkspaceId: grant.targetWorkspaceId,
+              expectedSourceMetadataRevision: source.metadataRevision,
+              bindingId: grant.bindingId,
+              expectedBindingRevision: grant.revision,
+            },
+          }),
+        { sourceId: source.sourceId, workspaceId: grant.targetWorkspaceId },
       );
       await refresh([source.sourceId]);
     } finally {
@@ -459,6 +481,11 @@ function PersonalControls({
               nonce={nonce}
               api={api}
               sources={sourceFailure || sources.isError ? [] : sourceRows}
+              pair={
+                pairs[nonce]?.viewKey === currentWorkspace
+                  ? pairs[nonce]
+                  : undefined
+              }
               dismiss={() => {
                 try {
                   const next = nonces.filter((value) => value !== nonce);
@@ -729,12 +756,14 @@ function OperationStatus({
   nonce,
   api,
   sources,
+  pair,
   dismiss,
 }: {
   scope: string;
   nonce: string;
   api: PersonalAccountsApi;
   sources: readonly PersonalSource[];
+  pair: PairContext | undefined;
   dismiss(): void;
 }) {
   const operation = useQuery({
@@ -744,11 +773,43 @@ function OperationStatus({
     retry: false,
   });
   const result = operation.data;
+  const useIntentPair =
+    result?.status !== "denied" &&
+    (result?.status !== "ok" || !result.value.operation.bindingId);
   const source = sources.find(
     (row) =>
-      result?.status === "ok" &&
-      row.sourceId === result.value.operation.sourceId,
+      result?.status !== "denied" &&
+      row.sourceId ===
+        (result?.status === "ok"
+          ? (result.value.operation.sourceId ?? pair?.sourceId)
+          : pair?.sourceId),
   );
+  const pendingOrganizations = useInfiniteQuery({
+    queryKey: keys.organizations(scope, source ? [source.sourceId] : []),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.listEligibleOrganizations({
+        sourceIds: [source!.sourceId],
+        ...(pageParam ? { afterWorkspaceId: pageParam } : {}),
+        limit: 25,
+      }),
+    getNextPageParam: (page) =>
+      page.status === "ok" ? page.value.nextCursor : null,
+    enabled: Boolean(source && pair && useIntentPair),
+    staleTime: 15000,
+    retry: false,
+  });
+  const pendingOrganization =
+    !useIntentPair ||
+    pendingOrganizations.isError ||
+    pendingOrganizations.isFetching ||
+    pendingOrganizations.data?.pages.some((page) => page.status !== "ok")
+      ? undefined
+      : pendingOrganizations.data?.pages
+          .flatMap((page) =>
+            page.status === "ok" ? page.value.organizations : [],
+          )
+          .find((row) => row.workspaceId === pair?.workspaceId);
   // Reuse authorized grant pages; do not persist display names or guess an
   // organization from an opaque binding. Off-page or hidden names stay hidden.
   const grants = useInfiniteQuery({
@@ -793,7 +854,9 @@ function OperationStatus({
         {source ? (
           <span className="block font-medium">
             {source.label} ·{" "}
-            {grant?.organizationLabel ?? "Organization unavailable"}
+            {grant?.organizationLabel ??
+              pendingOrganization?.label ??
+              "Organization unavailable"}
           </span>
         ) : null}
         Request {nonce.slice(0, 8)}:{" "}
@@ -807,7 +870,11 @@ function OperationStatus({
         <Button
           variant="outline"
           size="sm"
-          disabled={operation.isFetching || grants.isFetching}
+          disabled={
+            operation.isFetching ||
+            grants.isFetching ||
+            pendingOrganizations.isFetching
+          }
           onClick={() => {
             void operation.refetch();
             if (
@@ -816,6 +883,8 @@ function OperationStatus({
               result.value.operation.bindingId
             )
               void grants.refetch();
+            else if (source && pair && result?.status !== "denied")
+              void pendingOrganizations.refetch();
           }}
         >
           Check status

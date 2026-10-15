@@ -924,6 +924,33 @@ function fixture(
     hostedCodexRepositoryBinding,
     hostedCodexPool: { findFirst: vi.fn(async () => ({ id: "pool-1" })) },
     reviewConfiguration: {
+      findMany: vi.fn(
+        async ({
+          where,
+        }: {
+          where: { workspaceId: string; OR: readonly { targetKey: string }[] };
+        }) => {
+          if (where.workspaceId !== "workspace_1") return [];
+          const requestedTargets = new Set(
+            where.OR.map((target) => target.targetKey),
+          );
+          return [
+            ...(requestedTargets.has("workspace:default")
+              ? [{ targetKey: "workspace:default", versions: [{ version: 1 }] }]
+              : []),
+            ...(configuration.active &&
+            configurationVersion &&
+            requestedTargets.has(configuration.targetKey)
+              ? [
+                  {
+                    targetKey: configuration.targetKey,
+                    versions: [{ version: configurationVersion.version }],
+                  },
+                ]
+              : []),
+          ];
+        },
+      ),
       findUnique: vi.fn(
         async ({
           where,

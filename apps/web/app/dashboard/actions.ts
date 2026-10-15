@@ -3812,7 +3812,7 @@ async function loadResolvedReviewRuntime(input: {
     if (
       error instanceof Error &&
       error.message === "review_workspace_policy_required" &&
-      [...heads.values()].some((version) => version != null)
+      heads.get("workspace:default") != null
     ) {
       throw new Error("review_policy_resave_required");
     }

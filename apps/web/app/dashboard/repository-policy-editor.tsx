@@ -2,6 +2,7 @@
 
 import { Button, Dialog } from "@reviewrouter/ui";
 import { repositoryPolicyFormFields } from "./review-policy-form-contract";
+import { dashboardSectionHref } from "./dashboard-section";
 
 import { useRouter } from "next/navigation";
 import {
@@ -1326,6 +1327,10 @@ export function ReviewConfigForm({
   }
   const providersInherited =
     repositoryPolicy !== undefined && overrideModes.providers === "inherit";
+  const accountsHref = dashboardSectionHref(
+    "setup",
+    hiddenFields.find((field) => field.name === "workspaceId")?.value,
+  );
   const gatewaySelectionInvalid =
     !providersInherited &&
     providers.some(
@@ -1957,13 +1962,27 @@ export function ReviewConfigForm({
                           Refresh account options
                         </button>
                       ) : null}
-                      {personalAccountOriginText(
-                        gatewayAccount ?? { label: "" },
-                      ) === "Shared personal account" ? (
+                      {gatewayAccount?.origin === "personal" ? (
                         <p>
-                          This personal connection shares its authentication and
-                          capacity with its other authorized uses. Manage the
-                          source in personal Accounts.
+                          This account is shared by its owner. Its name,
+                          authentication and capacity are shared with its other
+                          authorized uses. The owner manages the account in
+                          personal Accounts.
+                        </p>
+                      ) : null}
+                      {provider.gatewayBindingId &&
+                      !gatewayAccount &&
+                      !gatewayOptions.loading ? (
+                        <p role="status">
+                          The saved account is unavailable. If access was shared
+                          again, choose the available account again and save.
+                          Your saved selection has not been replaced.{" "}
+                          <a
+                            href={accountsHref}
+                            className="text-cyan-200 underline underline-offset-4"
+                          >
+                            Open Accounts
+                          </a>
                         </p>
                       ) : null}
                       {!gatewayModels.includes(provider.model.trim()) ? (

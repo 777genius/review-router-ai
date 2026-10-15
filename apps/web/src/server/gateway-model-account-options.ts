@@ -194,6 +194,9 @@ export function createGatewayModelAccountOptions(input: {
             : row.connection.owner.workspaceId === operatorWorkspaceId
               ? "operator"
               : "organization",
+        isOwnedByViewer:
+          row.connection.owner.kind === "user" &&
+          row.connection.owner.userId === authority.actor.userId,
         canManage:
           own &&
           (authority.personalOwnerUserId !== null ||

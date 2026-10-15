@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -36,6 +37,10 @@ import type {
   AccountsPage,
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
+import {
+  GatewayModelAccountsProvider,
+  type GatewayModelAccountsApi,
+} from "./gateway-model-account-options";
 
 const routerMock = vi.hoisted(() => ({
   refresh: vi.fn(),
@@ -886,7 +891,7 @@ describe("ReviewConfigForm", () => {
         providers: [provider],
       },
       modelOptions,
-      hiddenFields: [],
+      hiddenFields: [{ name: "workspaceId", value: "workspace_1" }],
       mutationsEnabled: true,
       submitLabel: "Save",
     };
@@ -939,6 +944,18 @@ describe("ReviewConfigForm", () => {
     expect(pageText()).toContain(
       "Choose an available account and model before saving",
     );
+    if (condition !== "stale-model") {
+      expect(pageText()).toContain(
+        "choose the available account again and save",
+      );
+      expect(
+        screen
+          .getByRole("link", { name: "Open Accounts" })
+          .getAttribute("href"),
+      ).toBe(
+        "/dashboard/setup?workspace=workspace_1#dashboard-section-content",
+      );
+    }
     if (condition === "pagination")
       expect(pageText()).toContain("Additional accounts are not available");
     if (condition === "denied" || condition === "unavailable") {
@@ -949,6 +966,54 @@ describe("ReviewConfigForm", () => {
           .getAttribute("aria-disabled"),
       ).toBe("true");
     }
+  });
+
+  it("waits for the exact off-page account read before offering unavailable-account recovery", async () => {
+    type Detail = Awaited<ReturnType<GatewayModelAccountsApi["get"]>>;
+    let resolveDetail!: (value: Detail) => void;
+    const detail = new Promise<Detail>((resolve) => {
+      resolveDetail = resolve;
+    });
+    const api = {
+      list: vi.fn<GatewayModelAccountsApi["list"]>(),
+      get: vi.fn<GatewayModelAccountsApi["get"]>().mockReturnValue(detail),
+    };
+    const provider = {
+      ...workspacePolicy.providers[0]!,
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      gatewayBindingId: "binding-mimo",
+      gatewayProfileRef: "profile-mimo",
+      model: "mimo-v2-pro",
+    } satisfies ReviewProviderConfiguration;
+    render(
+      <GatewayModelAccountsProvider scope="org-x" api={api}>
+        <ReviewConfigForm
+          action={vi.fn()}
+          config={{ ...workspacePolicy, providers: [provider] }}
+          gatewayAccounts={{
+            status: "ok",
+            value: { ...gatewayPage, accounts: [] },
+          }}
+          modelOptions={modelOptions}
+          hiddenFields={[]}
+          mutationsEnabled
+          submitLabel="Save"
+        />
+      </GatewayModelAccountsProvider>,
+    );
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("binding-mimo"));
+    expect(screen.queryByRole("link", { name: "Open Accounts" })).toBeNull();
+    await act(async () => resolveDetail({ status: "denied" }));
+    expect(
+      await screen.findByRole("link", { name: "Open Accounts" }),
+    ).toBeTruthy();
+    expect(
+      readReviewConfigurationForm(new FormData(document.querySelector("form")!))
+        .providers[0],
+    ).toEqual(provider);
+    expect(api.get).toHaveBeenCalledTimes(1);
+    expect(api.list).not.toHaveBeenCalled();
   });
 
   it("preserves saved gateway model whitespace and ultra effort and offers max and ultra", () => {
