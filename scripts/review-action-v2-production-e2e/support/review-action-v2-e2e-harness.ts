@@ -1628,17 +1628,7 @@ async function seedProductionControlPlane(
       runtimeCommitSha,
       wrapperEntrypointDigest: null,
       runtimeEntrypointDigest: sha256("runtime-entrypoint"),
-      agentProfilesJson: JSON.stringify([
-        {
-          profileRef: "codex-default",
-          agentKind: "codex",
-          packageVersion: "0.147.0",
-          binarySha256: "c".repeat(64),
-          modelTransports: ["account_gateway", "provider_api"],
-          contextGateway: true,
-          cancellation: true,
-        },
-      ]),
+      agentProfilesJson: JSON.stringify(approvedAgentProfilesFixture),
       contextGatewayPolicyVersion:
         ids.investigationProfile?.gatewayPolicyVersion ??
         "e2e-gateway-policy-v1",
@@ -1799,6 +1789,14 @@ function productionEnv(input: {
         runtimeCommitSha,
         wrapperEntrypointDigest: null,
         runtimeEntrypointDigest: sha256("runtime-entrypoint"),
+        agentProfiles: approvedAgentProfilesFixture,
+        reviewInvestigationCapability: input.investigationProfile
+          ? reviewInvestigationCapabilityV1
+          : null,
+        reviewInvestigationCoverageProfileHash:
+          input.investigationProfile?.coverageProfileHash ?? null,
+        reviewInvestigationPolicyHash:
+          input.investigationProfile?.policyHash ?? null,
         contextGatewayPolicyVersion:
           input.investigationProfile?.gatewayPolicyVersion ??
           "e2e-gateway-policy-v1",
@@ -1808,15 +1806,6 @@ function productionEnv(input: {
         capabilityProfile: "exact_revision_v2",
         protocolLimitsProfileId: input.protocolLimitsProfileId,
         operationalSloProfileId: input.operationalSloProfileId,
-        ...(input.investigationProfile
-          ? {
-              reviewInvestigationCapability: reviewInvestigationCapabilityV1,
-              reviewInvestigationCoverageProfileHash:
-                input.investigationProfile.coverageProfileHash,
-              reviewInvestigationPolicyHash:
-                input.investigationProfile.policyHash,
-            }
-          : {}),
       },
     ]),
     [reviewActionV2ProviderVoteLanesEnv]: JSON.stringify([
@@ -2027,3 +2016,15 @@ export function assertDisposableDatabaseUrl(databaseUrl: string): void {
 }
 
 const zeroHash = "0".repeat(64);
+
+const approvedAgentProfilesFixture = [
+  {
+    profileRef: "codex-default",
+    agentKind: "codex",
+    packageVersion: "0.147.0",
+    binarySha256: "c".repeat(64),
+    modelTransports: ["account_gateway", "provider_api"],
+    contextGateway: true,
+    cancellation: true,
+  },
+];

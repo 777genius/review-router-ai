@@ -588,6 +588,14 @@ describe.skipIf(!enabled)(
         ).toBe(3);
 
         await refetched.user.create({ data: { id: "c2b-user" } });
+        await refetched.workspace.create({
+          data: {
+            id: "c2b-personal",
+            slug: "c2b-personal",
+            name: "Synthetic personal",
+            personalOwnerUserId: "c2b-user",
+          },
+        });
         // These are DB fixtures only; they cannot become C2b personal/sharing selection.
         await binding("c2b-user-owned", "c2b-w", "profile-mimo", "c2b-user");
         await expect(
@@ -597,14 +605,6 @@ describe.skipIf(!enabled)(
             expectedVersion: 3,
           }),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
-        await refetched.workspace.create({
-          data: {
-            id: "c2b-personal",
-            slug: "c2b-personal",
-            name: "Synthetic personal",
-            personalOwnerUserId: "c2b-user",
-          },
-        });
         await binding("c2b-personal-binding", "c2b-personal");
         await expect(
           fresh.saveNextVersion({
