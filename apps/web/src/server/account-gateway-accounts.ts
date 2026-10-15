@@ -36,6 +36,7 @@ import {
   type ProviderAccountSynchronizationPort,
 } from "@reviewrouter/features-provider-accounts/synchronization";
 import { PrismaWorkspaceAccessRepository } from "@reviewrouter/features-auth";
+import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import { z } from "zod";
 import {
   canonicalMimoBaseURL,
@@ -1682,6 +1683,7 @@ async function production() {
   const accounts = new PrismaProviderAccountRepository(
     prisma,
     settings.operatorWorkspaceId,
+    readPersonalAccountSharingEnabled(process.env),
   );
   const access = new PrismaWorkspaceAccessRepository(prisma);
   const adapter = createAccountsAdapter({

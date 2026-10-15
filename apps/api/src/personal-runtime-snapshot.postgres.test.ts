@@ -1,3 +1,4 @@
+import { switchRepositoryConfigurationAuthMode } from "../../../packages/features/workflow-provisioning/src/infrastructure/prisma/prisma-hosted-pool-configuration";
 import { describe, expect, it } from "vitest";
 import { createPrismaClient } from "@reviewrouter/platform-db";
 import {
@@ -228,6 +229,32 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         });
         expect(await matches(pin)).toBe(true);
         expect(await live(pin)).toBe(true);
+        // Exercise the real production factory, not just the injected foundation.
+        // Only the exact trusted server value enables consumption; no truthy coercion.
+        expect(
+          await production.runtimeSnapshots.capture({
+            identity: run,
+            deadline: run.maxExpiresAt,
+          }),
+        ).toBeNull();
+        for (const value of ["1", "true", " 1"]) {
+          const composed = composeReviewActionV2ProductionRunControl({
+            prisma: db,
+            env: {
+              ...harness.env,
+              REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED: value,
+              REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
+                profiles: [{ profileRef: profile, limits }],
+              }),
+            },
+          });
+          const captured = await composed.runtimeSnapshots.capture({
+            identity: run,
+            deadline: run.maxExpiresAt,
+          });
+          if (value === "1") expect(captured).toEqual(pin);
+          else expect(captured).toBeNull();
+        }
         const { expectedAuthorizationEpoch: _epoch, ...legacyGateway } =
           pin.gateway;
         expect(
@@ -459,6 +486,57 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         await expect(save(bx2.id, 1)).rejects.toThrow(
           "review_configuration_write_conflict",
         );
+        // The legacy pool switch has no verified saving User.id. Even with
+        // consumption enabled it must leave a mixed personal config unchanged.
+        await configurations.saveNextVersion({
+          target,
+          expectedVersion: 2,
+          config: parseReviewConfigurationStrict({
+            ...config(bx2.id),
+            providers: [
+              ...config(bx2.id).providers,
+              {
+                ...safeDefaultReviewConfiguration.provider,
+                authMode: "codex_subscription_oauth_rotating",
+              },
+            ],
+          }),
+        });
+        const oldGate =
+          process.env.REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED;
+        const switchPool = () =>
+          db.$transaction(
+            (transaction) =>
+              switchRepositoryConfigurationAuthMode({
+                transaction,
+                workspaceId: x,
+                repositoryId,
+                authMode: "codex_subscription_oauth_hosted_pool",
+              }),
+            { isolationLevel: "Serializable" },
+          );
+        try {
+          process.env.REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED = "0";
+          await expect(switchPool()).rejects.toThrow(
+            "review_configuration_gateway_binding_unavailable",
+          );
+          process.env.REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED = "1";
+          await expect(switchPool()).rejects.toThrow(
+            "review_configuration_personal_actor_forbidden",
+          );
+          const mixed = await configurations.findLatest(target);
+          expect(mixed?.version).toBe(3);
+          expect(mixed?.config.providers[0]?.gatewayBindingId).toBe(bx2.id);
+          expect(mixed?.config.providers[1]?.authMode).toBe(
+            "codex_subscription_oauth_rotating",
+          );
+        } finally {
+          if (oldGate === undefined)
+            delete process.env.REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED;
+          else
+            process.env.REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED =
+              oldGate;
+        }
       } finally {
         // Retained source/grant/config evidence lives until this disposable
         // cluster is removed by the qualifier, not through weakened SQL guards.

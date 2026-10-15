@@ -52,3 +52,10 @@ export function createWorkspaceAccountDeletionCoordinator(input: {
       readWorkspaceAccountDeletion(request, dependencies),
   };
 }
+
+/** One finite trusted server gate. Never read from a request, session or config DTO. */
+export function readPersonalAccountSharingEnabled(
+  env: Readonly<Record<string, string | undefined>>,
+): boolean {
+  return env.REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED === "1";
+}

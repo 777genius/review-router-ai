@@ -1044,6 +1044,9 @@ importers:
       '@reviewrouter/features-codex-oauth-rotating':
         specifier: workspace:*
         version: link:../codex-oauth-rotating
+      '@reviewrouter/features-provider-accounts':
+        specifier: workspace:*
+        version: link:../provider-accounts
       '@reviewrouter/features-review-config':
         specifier: workspace:*
         version: link:../review-config
