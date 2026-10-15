@@ -118,6 +118,7 @@ const workspacePolicyFixture: ReviewConfiguration = {
       reasoningEffort: "medium",
       agenticContext: true,
       fastMode: false,
+      requiredHealthy: true,
     },
   ],
   execution: {
@@ -816,7 +817,7 @@ describe("action control plane", () => {
         oidcVerifier: new StaticOidcVerifier(
           githubOidcClaims({
             workflow_ref:
-              "777genius/example/.github/workflows/reviewrouter-codex.yml@refs/pull/1/merge",
+              "777genius/example/.github/workflows/reviewrouter-review.yml@refs/pull/1/merge",
           }),
         ),
         repositories: new InMemoryActionControlPlaneRepository(),
@@ -827,7 +828,7 @@ describe("action control plane", () => {
 
     expect(sessions.signedClaims).toMatchObject({
       repository: "777genius/example",
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: ".github/workflows/reviewrouter-review.yml",
     });
   });
 
@@ -888,7 +889,7 @@ describe("action control plane", () => {
     expect(
       isManagedV2SessionBootstrapSource({
         eventName: "workflow_dispatch",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         githubRepositoryId: qualityRepository.githubRepositoryId,
         repositoryFullName: "attacker/renamed",
       }),
@@ -896,7 +897,7 @@ describe("action control plane", () => {
     expect(
       isManagedV2SessionBootstrapSource({
         eventName: "workflow_dispatch",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         githubRepositoryId: qualityRepository.githubRepositoryId,
         repositoryFullName: qualityRepository.fullName,
       }),
@@ -906,7 +907,7 @@ describe("action control plane", () => {
         claims: {
           ...qualityClaims,
           workflow_ref:
-            "777genius/review-router-saas-e2e/.github/workflows/reviewrouter-codex.yml@refs/heads/main",
+            "777genius/review-router-saas-e2e/.github/workflows/reviewrouter-review.yml@refs/heads/main",
         },
         repository: qualityRepository,
       }),
@@ -958,7 +959,7 @@ describe("action control plane", () => {
     expect(
       isManagedV2SessionBootstrapSource({
         eventName: "pull_request_target",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         githubRepositoryId: repositoryContext.githubRepositoryId,
         repositoryFullName: repositoryContext.fullName,
       }),
@@ -966,7 +967,7 @@ describe("action control plane", () => {
     expect(
       isManagedV2SessionBootstrapSource({
         eventName: "schedule",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         githubRepositoryId: repositoryContext.githubRepositoryId,
         repositoryFullName: repositoryContext.fullName,
       }),
@@ -2005,7 +2006,7 @@ describe("action control plane", () => {
         repositories,
         sessions: new StaticSessionTokenService({
           ...sessionClaims,
-          workflowPath: ".github/workflows/reviewrouter-codex.yml",
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
         }),
         clock,
       },
@@ -2263,7 +2264,8 @@ describe("action control plane", () => {
         execution:
           "execution" in providerSet
             ? {
-                ...providerSet.execution,
+                providerMaxParallel: 1,
+                inlineMinAgreement: 1,
                 providerLimit: providerSet.providers.length,
               }
             : {
@@ -2355,7 +2357,7 @@ describe("action control plane", () => {
     const signed = await sessions.sign({
       claims: {
         ...sessionClaims,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
       },
       expiresInSeconds: 60,
       issuedAt: fixedNow,
@@ -2367,7 +2369,6 @@ describe("action control plane", () => {
           repositories,
           sessions,
           clock,
-          defaultProvider: { model: "gpt-5.5", reasoningEffort: "medium" },
         },
       ),
     );
@@ -2416,7 +2417,7 @@ describe("action control plane", () => {
           ? ".github/workflows/reviewrouter.yml"
           : scenario === "wrong"
             ? ".github/workflows/other.yml"
-            : ".github/workflows/reviewrouter-codex.yml";
+            : ".github/workflows/reviewrouter-review.yml";
       await expect(
         getActionRuntimeConfig(
           { sessionToken: "session" },
@@ -2460,7 +2461,7 @@ describe("action control plane", () => {
         repositories,
         sessions: new StaticSessionTokenService({
           ...sessionClaims,
-          workflowPath: ".github/workflows/reviewrouter-codex.yml",
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
         }),
         clock,
       },
@@ -2569,7 +2570,7 @@ describe("action control plane", () => {
           repositories,
           sessions: new StaticSessionTokenService({
             ...isolatedSession,
-            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+            workflowPath: ".github/workflows/reviewrouter-review.yml",
           }),
           clock,
         },
@@ -3711,7 +3712,7 @@ describe("action control plane", () => {
     );
     const claims: ActionSessionClaims = {
       ...sessionClaims,
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: ".github/workflows/reviewrouter-review.yml",
     };
     const signed = await sessions.sign({
       claims,

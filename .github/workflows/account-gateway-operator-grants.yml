@@ -87,3 +87,11 @@ jobs:
         run: pnpm --filter @reviewrouter/platform-db db:migrate:deploy
       - name: Qualify real PostgreSQL grants through controlled Gateway HTTP
         run: pnpm exec vitest run apps/api/src/account-gateway-operator-grants.postgres.test.ts
+      - name: Qualify inherited policy and CAS in isolated PostgreSQL
+        env:
+          RR_REVIEW_CONFIG_GATEWAY_PG_TEST: "1"
+          RR_REVIEW_CONFIG_GATEWAY_DISPOSABLE_CLUSTER: "1"
+          RR_REVIEW_CONFIG_GATEWAY_PG_TEST_URL: postgresql://fixture_owner@127.0.0.1:5432/rr_gateway_test_c2b_policy_ci
+        run: |
+          psql postgresql://fixture_owner@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE rr_gateway_test_c2b_policy_ci'
+          pnpm exec vitest run packages/features/review-config/src/tests/gateway-configuration.postgres.test.ts

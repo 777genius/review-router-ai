@@ -67,37 +67,28 @@ it.each([
     githubRepositoryId: readinessInput.githubRepositoryId,
   }).content;
   if (scenario === "wrong-mode")
-    workflow = workflow.replace("account-gateway", "oauth");
-  if (scenario === "missing-mode")
     workflow = workflow.replace(
-      "      codex_session_mode: account-gateway\n",
-      "",
+      "reviewrouter-runtime.yml",
+      "other-runtime.yml",
     );
+  if (scenario === "missing-mode")
+    workflow = workflow.replace(/^.*review_request_id:.*\n/m, "");
   if (scenario === "static")
     workflow = workflow.replace(
-      "runtime_config_mode: oidc",
-      "runtime_config_mode: static",
+      "    with:",
+      "    env: { STATIC: '1' }\n    with:",
     );
   if (scenario === "extra-secret") workflow += "    secrets: inherit\n";
   if (scenario === "wrong-schema")
-    workflow = workflow.replace(
-      "workflow_schema_version: 2",
-      "workflow_schema_version: 4",
-    );
+    workflow = workflow.replace("@workflow-v1", "@workflow-v2");
   if (scenario === "wrong-identity")
-    workflow = workflow.replace(
-      "codex-rotating:123456",
-      "codex-rotating:999999",
-    );
+    workflow += "      repository_id: 999999\n";
   if (scenario === "old-ref")
-    workflow = workflow.replaceAll(
-      versionedActionRef.split("@")[1]!,
-      "a".repeat(40),
-    );
+    workflow = workflow.replace("@workflow-v1", "@v1");
   if (scenario === "namespace")
     workflow = workflow.replace(
-      "ReviewRouter Codex",
-      "ReviewRouter Codex OAuth [namespace-v4]",
+      "name: ReviewRouter",
+      "name: ReviewRouter [namespace-v4]",
     );
   const paths: string[] = [];
   const current = await isWorkflowSetupAlreadyCurrent(
@@ -125,7 +116,7 @@ it.each([
     },
   );
   expect(current).toBe(scenario === "current");
-  expect(paths).toEqual([".github/workflows/reviewrouter-codex.yml"]);
+  expect(paths).toEqual([".github/workflows/reviewrouter-review.yml"]);
 });
 const v4SecretNamespace = createVersionedProviderSecretNamespace({
   scope: {

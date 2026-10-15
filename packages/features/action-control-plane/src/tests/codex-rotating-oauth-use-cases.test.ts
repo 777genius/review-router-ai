@@ -1,3 +1,5 @@
+import { workspacePolicyFixture } from "../../../review-config/src/tests/current-policy-fixture";
+import { savedWorkspaceRuntimeFixture } from "./runtime-configuration-fixture";
 import { describe, expect, it, vi } from "vitest";
 import {
   InMemoryCodexRotatingOAuthRepository,
@@ -36,7 +38,7 @@ const repository = {
 const memoryWorkflowAttestation = (workflowSchemaVersion = 4) =>
   createVersionedSecretWorkflowSourceAttestation({
     repositoryId: repository.githubRepositoryId,
-    workflowPath: ".github/workflows/reviewrouter-codex.yml",
+    workflowPath: ".github/workflows/reviewrouter-review.yml",
     workflowSourceCommitSha: workflowSha,
     workflowSourceBlobSha: "b".repeat(40),
     workflowSourceSha256: "c".repeat(64),
@@ -64,7 +66,7 @@ const claims = {
   run_id: "9001",
   run_attempt: "1",
   workflow_ref:
-    "777genius/agent-teams-ai/.github/workflows/reviewrouter-codex.yml@refs/heads/main",
+    "777genius/agent-teams-ai/.github/workflows/reviewrouter-review.yml@refs/heads/main",
   workflow_sha: workflowSha,
   actor: "belief",
   runner_environment: "github-hosted",
@@ -170,7 +172,7 @@ describe("Codex rotating OAuth action control plane", () => {
         repositoryFullName: repository.fullName,
         githubRepositoryId: repository.githubRepositoryId,
         actionRef: `777genius/review-router@${workflowSha}`,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSchemaVersion: 4,
       },
     } as never);
@@ -195,7 +197,7 @@ describe("Codex rotating OAuth action control plane", () => {
         repositoryFullName: repository.fullName,
         githubRepositoryId: repository.githubRepositoryId,
         actionRef: `777genius/review-router@${workflowSha}`,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSchemaVersion: 4,
       },
     ]);
@@ -287,7 +289,7 @@ describe("Codex rotating OAuth action control plane", () => {
       repositoryFullName: "777genius/agent-teams-ai",
       githubRepositoryId: "123456",
       actionRef: `777genius/review-router@${workflowSha}`,
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: ".github/workflows/reviewrouter-review.yml",
       workflowSchemaVersion: 4,
     } as const;
     const ledger = new InMemoryCodexRotatingOAuthRepository([binding], {
@@ -439,7 +441,7 @@ describe("Codex rotating OAuth action control plane", () => {
           repositoryFullName: "777genius/agent-teams-ai",
           githubRepositoryId: "123456",
           actionRef: `777genius/review-router@${workflowSha}`,
-          workflowPath: ".github/workflows/reviewrouter-codex.yml",
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
           workflowSchemaVersion: 4,
         },
       ],
@@ -455,7 +457,9 @@ describe("Codex rotating OAuth action control plane", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -466,7 +470,7 @@ describe("Codex rotating OAuth action control plane", () => {
             repositoryFullName: "777genius/agent-teams-ai",
             githubRepositoryId: "123456",
             actionRef: `777genius/review-router@${workflowSha}`,
-            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+            workflowPath: ".github/workflows/reviewrouter-review.yml",
             workflowSchemaVersion: 4,
           },
           attestation: memoryWorkflowAttestation(),
@@ -527,7 +531,7 @@ describe("Codex rotating OAuth action control plane", () => {
             publishAndVerifyVersionedWorkflow: vi.fn(async ({ namespace }) =>
               createVersionedSecretWorkflowSourceAttestation({
                 repositoryId: namespace.scope.repositoryId,
-                workflowPath: ".github/workflows/reviewrouter-codex.yml",
+                workflowPath: ".github/workflows/reviewrouter-review.yml",
                 workflowSourceCommitSha: "a".repeat(40),
                 workflowSourceBlobSha: "b".repeat(40),
                 workflowSourceSha256: "c".repeat(64),
@@ -974,7 +978,7 @@ describe("Codex rotating OAuth action control plane", () => {
       githubRepositoryId: "123456",
       actionRef: currentActionRef,
       ...(allowedActionRefs ? { allowedActionRefs } : {}),
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: ".github/workflows/reviewrouter-review.yml",
       workflowSchemaVersion: 4,
     };
     const codexRotatingOAuth = new InMemoryCodexRotatingOAuthRepository([
@@ -986,7 +990,9 @@ describe("Codex rotating OAuth action control plane", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -997,7 +1003,7 @@ describe("Codex rotating OAuth action control plane", () => {
             repositoryFullName: "777genius/agent-teams-ai",
             githubRepositoryId: "123456",
             actionRef: workflowActionRef,
-            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+            workflowPath: ".github/workflows/reviewrouter-review.yml",
             workflowSchemaVersion: 4,
           },
           attestation: memoryWorkflowAttestation(),
@@ -1045,7 +1051,7 @@ describe("Codex rotating OAuth action control plane", () => {
         repositoryFullName: "777genius/agent-teams-ai",
         githubRepositoryId: "123456",
         actionRef: `777genius/review-router@${workflowSha}`,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSchemaVersion: 4,
       },
     ]);
@@ -1062,7 +1068,9 @@ describe("Codex rotating OAuth action control plane", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -1073,7 +1081,7 @@ describe("Codex rotating OAuth action control plane", () => {
             repositoryFullName: "777genius/agent-teams-ai",
             githubRepositoryId: "123456",
             actionRef: `777genius/review-router@${workflowSha}`,
-            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+            workflowPath: ".github/workflows/reviewrouter-review.yml",
             workflowSchemaVersion: 4,
           },
           attestation: memoryWorkflowAttestation(),
@@ -1131,7 +1139,7 @@ describe("Codex rotating OAuth action control plane", () => {
             repositoryFullName: "777genius/agent-teams-ai",
             githubRepositoryId: "123456",
             actionRef: "evil/review-router@main",
-            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+            workflowPath: ".github/workflows/reviewrouter-review.yml",
             workflowSchemaVersion: 4,
           },
           attestation: memoryWorkflowAttestation(),
@@ -1184,7 +1192,7 @@ describe("Codex rotating OAuth action control plane", () => {
         repositoryFullName: "777genius/agent-teams-ai",
         githubRepositoryId: "123456",
         actionRef: `777genius/review-router@${workflowSha}`,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSchemaVersion: 4,
       },
     ]);
@@ -1220,7 +1228,7 @@ describe("Codex rotating OAuth action control plane", () => {
         repositoryFullName: "777genius/agent-teams-ai",
         githubRepositoryId: "123456",
         actionRef: `777genius/review-router@${workflowSha}`,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSchemaVersion: 4,
       },
     ]);
@@ -1382,7 +1390,7 @@ describe("Codex rotating OAuth action control plane", () => {
       repositoryFullName: "777genius/agent-teams-ai",
       githubRepositoryId: "123456",
       actionRef: `777genius/review-router@${workflowSha}`,
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: ".github/workflows/reviewrouter-review.yml",
       workflowSchemaVersion: 4,
     } as const;
     const dependencies = buildRotatingDependencies({
@@ -1514,7 +1522,9 @@ describe("Codex rotating OAuth action control plane", () => {
         findSelectedRepositoryByGithubId: vi
           .fn()
           .mockResolvedValue(isolatedRepository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth: new InMemoryCodexRotatingOAuthRepository([
@@ -1658,12 +1668,16 @@ describe("Codex rotating OAuth action control plane", () => {
         findRuntimeReviewConfiguration: vi.fn().mockResolvedValue({
           source: "repository",
           version: 17,
+          workspaceVersion: 1,
+          repositoryVersion: 17,
+          effectivePolicyDigest: "sha256:" + "a".repeat(64),
           config: parseReviewConfiguration({
-            schemaVersion: 2,
+            ...workspacePolicyFixture,
             providers: [
               {
                 kind: "codex",
                 authMode: "codex_subscription_oauth_rotating",
+                requiredHealthy: true,
                 model: "gpt-5.5",
                 reasoningEffort: "high",
                 agenticContext: true,
@@ -1695,6 +1709,7 @@ describe("Codex rotating OAuth action control plane", () => {
               },
             ],
             execution: {
+              providerLimit: 4,
               providerMaxParallel: 4,
               inlineMinAgreement: 2,
             },
@@ -2151,7 +2166,7 @@ describe("Codex rotating OAuth action control plane", () => {
         repositoryFullName: "777genius/agent-teams-ai",
         githubRepositoryId: "123456",
         actionRef: `777genius/review-router@${workflowSha}`,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSchemaVersion: 4,
       },
     ]);
@@ -2439,7 +2454,7 @@ function buildRotatingDependencies(
           repositoryFullName: "777genius/agent-teams-ai",
           githubRepositoryId: "123456",
           actionRef: `777genius/review-router@${workflowSha}`,
-          workflowPath: ".github/workflows/reviewrouter-codex.yml",
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
           workflowSchemaVersion: 4,
         },
       ],
@@ -2464,7 +2479,7 @@ function buildRotatingDependencies(
             publishAndVerifyVersionedWorkflow: vi.fn(async ({ namespace }) =>
               createVersionedSecretWorkflowSourceAttestation({
                 repositoryId: namespace.scope.repositoryId,
-                workflowPath: ".github/workflows/reviewrouter-codex.yml",
+                workflowPath: ".github/workflows/reviewrouter-review.yml",
                 workflowSourceCommitSha: "a".repeat(40),
                 workflowSourceBlobSha: "b".repeat(40),
                 workflowSourceSha256: "c".repeat(64),
@@ -2490,7 +2505,9 @@ function buildRotatingDependencies(
     },
     repositories: {
       findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-      findRuntimeReviewConfiguration: vi.fn(),
+      findRuntimeReviewConfiguration: vi
+        .fn()
+        .mockResolvedValue(savedWorkspaceRuntimeFixture),
       recordHealthReport: vi.fn(),
     },
     codexRotatingOAuth,
@@ -2509,7 +2526,7 @@ function buildRotatingDependencies(
           repositoryFullName: "777genius/agent-teams-ai",
           githubRepositoryId: "123456",
           actionRef: `777genius/review-router@${workflowSha}`,
-          workflowPath: ".github/workflows/reviewrouter-codex.yml",
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
           workflowSchemaVersion: 4,
         },
         attestation: memoryWorkflowAttestation(),

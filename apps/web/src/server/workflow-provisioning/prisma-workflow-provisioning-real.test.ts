@@ -40,7 +40,7 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
     installationId,
     status: "not_started" as const,
     branch: "reviewrouter/setup",
-    workflowPath: ".github/workflows/reviewrouter-codex.yml",
+    workflowPath: ".github/workflows/reviewrouter-review.yml",
     workflowStyle: "reusable" as const,
     actionVersion: "a".repeat(40),
     pullRequestHeadSha: "b".repeat(40),

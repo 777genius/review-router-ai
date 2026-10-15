@@ -87,7 +87,7 @@ function v5ValidationFixture(finalRows: readonly Record<string, unknown>[]) {
   });
   const expectedCurrent = createVersionedSecretWorkflowSourceAttestation({
     repositoryId: activeClaim.githubRepositoryId,
-    workflowPath: ".github/workflows/reviewrouter-codex.yml",
+    workflowPath: ".github/workflows/reviewrouter-review.yml",
     workflowSourceCommitSha: "5".repeat(40),
     workflowSourceBlobSha: "5".repeat(40),
     workflowSourceSha256: "5".repeat(64),
@@ -354,7 +354,7 @@ describe("Prisma rotating setup writer proof", () => {
                     "REVIEWROUTER_CODEX_AUTH_JSON_R123456_P0000000000000000_E1_00000000000000000000000000000000",
                   repositoryId: claim.githubRepositoryId,
                   repositoryFullName: manifest.repositoryFullName,
-                  workflowPath: ".github/workflows/reviewrouter-codex.yml",
+                  workflowPath: ".github/workflows/reviewrouter-review.yml",
                   workflowSourceCommitSha: "a".repeat(40),
                   workflowSourceBlobSha: "b".repeat(40),
                   workflowSourceSha256: "c".repeat(64),
@@ -1485,7 +1485,7 @@ describe("Prisma rotating setup writer proof", () => {
         secretName: attempt.secretName,
         repositoryId: claim.githubRepositoryId,
         repositoryFullName: manifest.repositoryFullName,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSourceCommitSha: "a".repeat(40),
         workflowSourceBlobSha: "b".repeat(40),
         workflowSourceSha256: "c".repeat(64),
@@ -1560,7 +1560,7 @@ describe("Prisma rotating setup writer proof", () => {
     const workflow = (schema: 4 | 5, marker: string) =>
       createVersionedSecretWorkflowSourceAttestation({
         repositoryId: activeClaim.githubRepositoryId,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSourceCommitSha: marker.repeat(40),
         workflowSourceBlobSha: marker.repeat(40),
         workflowSourceSha256: marker.repeat(64),
@@ -1577,7 +1577,7 @@ describe("Prisma rotating setup writer proof", () => {
         expectedGenerationHash: runtimeGenerationHash,
         repositoryId: activeClaim.githubRepositoryId,
         repositoryFullName: manifest.repositoryFullName,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         namespace,
       },
       expectedCurrent: workflow(4, "4"),
@@ -1660,7 +1660,7 @@ describe("Prisma rotating setup writer proof", () => {
       const workflow = (schema: 4 | 5, marker: string) =>
         createVersionedSecretWorkflowSourceAttestation({
           repositoryId: activeClaim.githubRepositoryId,
-          workflowPath: ".github/workflows/reviewrouter-codex.yml",
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
           workflowSourceCommitSha: marker.repeat(40),
           workflowSourceBlobSha: marker.repeat(40),
           workflowSourceSha256: marker.repeat(64),
@@ -1678,7 +1678,7 @@ describe("Prisma rotating setup writer proof", () => {
             expectedGenerationHash: "9".repeat(64),
             repositoryId: activeClaim.githubRepositoryId,
             repositoryFullName: manifest.repositoryFullName,
-            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+            workflowPath: ".github/workflows/reviewrouter-review.yml",
             namespace,
           },
           expectedCurrent: workflow(4, "4"),

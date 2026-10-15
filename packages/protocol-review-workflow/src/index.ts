@@ -1,3 +1,4 @@
+import { reviewRouterWorkflowPath } from "@reviewrouter/shared";
 export {
   parseReviewAgentProfiles,
   type ReviewAgentProfile,
@@ -10,7 +11,7 @@ export const managedInteractionWorkflowPath =
   ".github/workflows/reviewrouter-interaction.yml";
 
 export const managedReviewRouterWorkflowPaths = [
-  ".github/workflows/reviewrouter-review.yml",
+  reviewRouterWorkflowPath,
   legacyReviewRouterWorkflowPath,
   managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
@@ -18,7 +19,7 @@ export const managedReviewRouterWorkflowPaths = [
 /** Stable installation ABI; executable identity is verified separately through OIDC. */
 export const reviewRouterWorkflowContract = Object.freeze({
   major: 1,
-  callerPath: ".github/workflows/reviewrouter-review.yml",
+  callerPath: reviewRouterWorkflowPath,
   runtimeRepository: "777genius/review-router",
   runtimePath: ".github/workflows/reviewrouter-runtime.yml",
   channel: "workflow-v1",

@@ -760,6 +760,7 @@ function producerRelease(
     contextGatewayPolicyVersion: null,
     contextGatewayEntrypointDigest: null,
     reviewInvestigationProfile: null,
+    agentProfiles: null,
     schemaDigest: digest(id, "schema"),
     capabilityProfile: ReviewCapabilityProfile.ExactRevisionV2,
     protocolLimitsProfileId: limits.protocolLimitsProfileId,

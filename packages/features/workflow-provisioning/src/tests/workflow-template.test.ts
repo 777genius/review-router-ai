@@ -51,7 +51,7 @@ it("emits the immutable schema2 keyless dispatched PR caller contract", () => {
     githubRepositoryId: "123456",
   });
   const document = parse(file.content);
-  expect(file.path).toBe(".github/workflows/reviewrouter-codex.yml");
+  expect(file.path).toBe(".github/workflows/reviewrouter-review.yml");
   expect(Object.keys(document.on)).toEqual(["workflow_dispatch"]);
   const inputs = document.on.workflow_dispatch.inputs;
   expect(Object.keys(inputs)).toEqual([

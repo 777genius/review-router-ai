@@ -1,8 +1,8 @@
+import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createHash } from "node:crypto";
 import {
   mapConfigToRuntimeEnv,
   parseReviewConfiguration,
-  safeDefaultReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -251,7 +251,7 @@ const { isWorkflowSetupAlreadyCurrent: checkWorkflowReadiness } =
 
 const actionRef = `777genius/review-router@${"a".repeat(40)}`;
 const commitSha = "d".repeat(40);
-const workflowPath = ".github/workflows/reviewrouter-codex.yml";
+const workflowPath = ".github/workflows/reviewrouter-review.yml";
 
 function matches(
   actual: Record<string, unknown>,
@@ -420,7 +420,7 @@ function fixture(
     vi.stubEnv("REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS", "W".repeat(43));
     mocks.runtime.mockResolvedValue({
       config: parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
@@ -445,7 +445,7 @@ function fixture(
   if (mode === "rotating_hosted" || scenario.includes("hosted_config"))
     mocks.runtime.mockResolvedValue({
       config: parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
@@ -478,7 +478,7 @@ function fixture(
     vi.stubEnv("REVIEW_ROUTER_CONFLICT_REVIEW_FALLBACK_REPOSITORIES", "");
     mocks.runtime.mockResolvedValue({
       config: parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "openrouter",
@@ -643,7 +643,7 @@ function fixture(
     gatewayBindingId: null,
     gatewayProfileRef: null,
     version: 1,
-    schemaVersion: 2,
+    schemaVersion: 3,
     providerKind: "codex",
     providerAuthMode:
       rotating && !rotatingWithBinding
@@ -685,6 +685,32 @@ function fixture(
         requiredHealthy: true,
       },
     ];
+  const workspacePolicyJson = JSON.stringify({
+    ...workspacePolicyFixture,
+    providers: [
+      {
+        kind: configurationVersion.providerKind,
+        authMode: configurationVersion.providerAuthMode,
+        model: configurationVersion.model,
+        reasoningEffort: configurationVersion.reasoningEffort,
+        agenticContext: configurationVersion.agenticContext,
+        fastMode: configurationVersion.fastMode,
+        requiredHealthy: true,
+        ...(gateway
+          ? {
+              gatewayBindingId: configurationVersion.gatewayBindingId,
+              gatewayProfileRef: configurationVersion.gatewayProfileRef,
+            }
+          : {}),
+      },
+    ],
+    blockingPolicy: { failOnSeverity: configurationVersion.failOnSeverity },
+    limits: {
+      inlineMaxComments: configurationVersion.inlineMaxComments,
+      targetTokensPerBatch: configurationVersion.targetTokensPerBatch,
+    },
+  });
+  configurationVersion.policyJson = workspacePolicyJson;
   const configuration = {
     id: "configuration-1",
     workspaceId: "workspace_1",
@@ -824,7 +850,7 @@ function fixture(
     ),
     setupNamespaceStatus: "active",
     setupNamespacePermanentlyRetired: false,
-    setupNamespaceWorkflowPath: ".github/workflows/reviewrouter-codex.yml",
+    setupNamespaceWorkflowPath: ".github/workflows/reviewrouter-review.yml",
     setupNamespaceWorkflowSourceCommitSha: commitSha,
     setupNamespaceWorkflowSourceBlobSha: blobSha,
     setupNamespaceWorkflowSourceSha256: createHash("sha256")
@@ -845,7 +871,7 @@ function fixture(
     ),
     namespaceStatus: "active",
     namespacePermanentlyRetired: false,
-    namespaceWorkflowPath: ".github/workflows/reviewrouter-codex.yml",
+    namespaceWorkflowPath: ".github/workflows/reviewrouter-review.yml",
     namespaceWorkflowSourceCommitSha: commitSha,
     namespaceWorkflowSourceBlobSha: blobSha,
     namespaceWorkflowSourceSha256: createHash("sha256")
@@ -897,12 +923,25 @@ function fixture(
             workspaceId_targetKey: { workspaceId: string; targetKey: string };
           };
         }) =>
-          matches(configuration, where.workspaceId_targetKey)
+          where.workspaceId_targetKey.workspaceId === "workspace_1" &&
+          where.workspaceId_targetKey.targetKey === "workspace:default"
             ? {
-                active: configuration.active,
-                versions: configurationVersion ? [configurationVersion] : [],
+                active: true,
+                repositoryId: null,
+                versions: [
+                  {
+                    version: 1,
+                    schemaVersion: 3,
+                    policyJson: workspacePolicyJson,
+                  },
+                ],
               }
-            : null,
+            : matches(configuration, where.workspaceId_targetKey)
+              ? {
+                  active: configuration.active,
+                  versions: configurationVersion ? [configurationVersion] : [],
+                }
+              : null,
       ),
       upsert: vi.fn(
         async ({
@@ -1165,7 +1204,7 @@ describe("hosted setup recovery composition", () => {
     vi.stubEnv("REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF", actionRef);
     mocks.runtime.mockResolvedValue({
       config: parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
@@ -1325,7 +1364,7 @@ describe("hosted setup recovery composition", () => {
       f.state.replace(null);
       const remote = new WorkflowGitHubFixture();
       const config = parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "openrouter" as const,
@@ -1821,7 +1860,7 @@ describe("hosted setup recovery composition", () => {
     if (scenario === "pending_generic_config")
       mocks.runtime.mockResolvedValue({
         config: parseReviewConfiguration({
-          ...safeDefaultReviewConfiguration,
+          ...workspacePolicyFixture,
           providers: [
             {
               kind: "openrouter",

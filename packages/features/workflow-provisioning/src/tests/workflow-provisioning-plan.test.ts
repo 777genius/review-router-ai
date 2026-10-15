@@ -79,7 +79,7 @@ describe("createProvisionWorkflowPlan repository-bound Codex path", () => {
         ...base,
         githubRepositoryId: "1228051727",
         repositoryFullName: "777genius/review-router-saas-e2e",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
       }),
     ).toThrow("codex_workflow_repository_path_mismatch");
   });

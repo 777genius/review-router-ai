@@ -1,3 +1,4 @@
+import { savedWorkspaceRuntimeFixture } from "./runtime-configuration-fixture";
 import { describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import type {
@@ -40,7 +41,7 @@ const allowNewWorkAdmission = {
 const runtimeWorkflowAttestation = () =>
   createVersionedSecretWorkflowSourceAttestation({
     repositoryId: repository.githubRepositoryId,
-    workflowPath: ".github/workflows/reviewrouter-codex.yml",
+    workflowPath: ".github/workflows/reviewrouter-review.yml",
     workflowSourceCommitSha: workflowSha,
     workflowSourceBlobSha: "b".repeat(40),
     workflowSourceSha256: "c".repeat(64),
@@ -224,7 +225,7 @@ describe("Codex rotating OAuth local E2E", () => {
         repositoryFullName: repository.fullName,
         githubRepositoryId: repository.githubRepositoryId,
         actionRef,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSchemaVersion: 5,
       },
     ]);
@@ -250,7 +251,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -265,7 +268,7 @@ describe("Codex rotating OAuth local E2E", () => {
               repositoryFullName: repository.fullName,
               githubRepositoryId: repository.githubRepositoryId,
               actionRef: workflowMetadata.actionRef,
-              workflowPath: ".github/workflows/reviewrouter-codex.yml",
+              workflowPath: ".github/workflows/reviewrouter-review.yml",
               workflowSchemaVersion: workflowMetadata.workflowSchemaVersion,
             },
             attestation: runtimeWorkflowAttestation(),
@@ -427,7 +430,7 @@ describe("Codex rotating OAuth local E2E", () => {
         repositoryFullName: repository.fullName,
         githubRepositoryId: repository.githubRepositoryId,
         actionRef,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSchemaVersion: 5,
       },
     ]);
@@ -455,7 +458,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -469,7 +474,7 @@ describe("Codex rotating OAuth local E2E", () => {
             repositoryFullName: repository.fullName,
             githubRepositoryId: repository.githubRepositoryId,
             actionRef: workflowMetadata.actionRef,
-            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+            workflowPath: ".github/workflows/reviewrouter-review.yml",
             workflowSchemaVersion: workflowMetadata.workflowSchemaVersion,
           },
           attestation: runtimeWorkflowAttestation(),
@@ -855,7 +860,7 @@ describe("Codex rotating OAuth local E2E", () => {
         repositoryFullName: repository.fullName,
         githubRepositoryId: repository.githubRepositoryId,
         actionRef,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSchemaVersion: 5,
       },
     ]);
@@ -871,7 +876,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -954,7 +961,7 @@ describe("Codex rotating OAuth local E2E", () => {
           repositoryFullName: repository.fullName,
           githubRepositoryId: repository.githubRepositoryId,
           actionRef,
-          workflowPath: ".github/workflows/reviewrouter-codex.yml",
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
           workflowSchemaVersion: 5,
         },
       ]);
@@ -972,7 +979,9 @@ describe("Codex rotating OAuth local E2E", () => {
           findSelectedRepositoryByGithubId: vi
             .fn()
             .mockResolvedValue(repository),
-          findRuntimeReviewConfiguration: vi.fn(),
+          findRuntimeReviewConfiguration: vi
+            .fn()
+            .mockResolvedValue(savedWorkspaceRuntimeFixture),
           recordHealthReport: vi.fn(),
         },
         codexRotatingOAuth,
@@ -983,7 +992,7 @@ describe("Codex rotating OAuth local E2E", () => {
               repositoryFullName: repository.fullName,
               githubRepositoryId: repository.githubRepositoryId,
               actionRef,
-              workflowPath: ".github/workflows/reviewrouter-codex.yml",
+              workflowPath: ".github/workflows/reviewrouter-review.yml",
               workflowSchemaVersion: 5,
             },
             attestation: runtimeWorkflowAttestation(),
@@ -1037,7 +1046,7 @@ describe("Codex rotating OAuth local E2E", () => {
         repositoryFullName: repository.fullName,
         githubRepositoryId: repository.githubRepositoryId,
         actionRef,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSchemaVersion: 5,
       },
     ]);
@@ -1066,7 +1075,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -1077,7 +1088,7 @@ describe("Codex rotating OAuth local E2E", () => {
             repositoryFullName: repository.fullName,
             githubRepositoryId: repository.githubRepositoryId,
             actionRef: workflowMetadata.actionRef,
-            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+            workflowPath: ".github/workflows/reviewrouter-review.yml",
             workflowSchemaVersion: workflowMetadata.workflowSchemaVersion,
           },
           attestation: runtimeWorkflowAttestation(),
@@ -1136,7 +1147,7 @@ describe("Codex rotating OAuth local E2E", () => {
         repositoryFullName: repository.fullName,
         githubRepositoryId: repository.githubRepositoryId,
         actionRef,
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSchemaVersion: 5,
       },
     ]);
@@ -1161,7 +1172,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -1172,7 +1185,7 @@ describe("Codex rotating OAuth local E2E", () => {
             repositoryFullName: repository.fullName,
             githubRepositoryId: repository.githubRepositoryId,
             actionRef,
-            workflowPath: ".github/workflows/reviewrouter-codex.yml",
+            workflowPath: ".github/workflows/reviewrouter-review.yml",
             workflowSchemaVersion: 5,
           },
           attestation: runtimeWorkflowAttestation(),
@@ -1312,7 +1325,7 @@ function githubOidcClaims(input: {
     run_id: input.runId,
     run_attempt: input.runAttempt ?? "1",
     workflow_ref:
-      "777genius/agent-teams-ai/.github/workflows/reviewrouter-codex.yml@refs/heads/main",
+      "777genius/agent-teams-ai/.github/workflows/reviewrouter-review.yml@refs/heads/main",
     workflow_sha: workflowSha,
     actor: "belief",
     runner_environment: "github-hosted",
@@ -1350,7 +1363,7 @@ function buildTokenFakes(ledger?: InMemoryCodexRotatingOAuthRepository) {
           publishAndVerifyVersionedWorkflow: vi.fn(async ({ namespace }) =>
             createVersionedSecretWorkflowSourceAttestation({
               repositoryId: namespace.scope.repositoryId,
-              workflowPath: ".github/workflows/reviewrouter-codex.yml",
+              workflowPath: ".github/workflows/reviewrouter-review.yml",
               workflowSourceCommitSha: "a".repeat(40),
               workflowSourceBlobSha: "b".repeat(40),
               workflowSourceSha256: "c".repeat(64),

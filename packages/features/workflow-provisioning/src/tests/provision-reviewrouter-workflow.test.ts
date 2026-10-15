@@ -631,7 +631,7 @@ describe("provisionReviewRouterWorkflow", () => {
 
     const workflowFiles = gateway.input?.workflowFiles ?? [];
     const codexWorkflow = workflowFiles.find(
-      (file) => file.path === ".github/workflows/reviewrouter-codex.yml",
+      (file) => file.path === ".github/workflows/reviewrouter-review.yml",
     );
     const interactionWorkflows = workflowFiles.filter(
       (file) => file.path === ".github/workflows/reviewrouter-interaction.yml",
@@ -641,7 +641,7 @@ describe("provisionReviewRouterWorkflow", () => {
     );
     expect(workflowFiles).toHaveLength(3);
     expect(codexWorkflow).toMatchObject({
-      path: ".github/workflows/reviewrouter-codex.yml",
+      path: ".github/workflows/reviewrouter-review.yml",
     });
     expect(codexWorkflow?.operation).not.toBe("delete");
     expect(interactionWorkflows).toHaveLength(1);
@@ -708,7 +708,7 @@ describe("provisionReviewRouterWorkflow", () => {
       ]),
     );
     expect(provisioning.opened).toMatchObject({
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: ".github/workflows/reviewrouter-review.yml",
       workflowStyle: "reusable",
       actionVersion: actionRef,
     });
@@ -760,7 +760,7 @@ describe("provisionReviewRouterWorkflow", () => {
           operation: "delete",
         }),
         expect.objectContaining({
-          path: ".github/workflows/reviewrouter-codex.yml",
+          path: ".github/workflows/reviewrouter-review.yml",
           operation: "delete",
         }),
       ]),
@@ -980,7 +980,7 @@ describe("provisionReviewRouterWorkflow", () => {
     ).resolves.toMatchObject({ number: 1 });
 
     const workflow = gateway.input?.workflowFiles.find(
-      (file) => file.path === ".github/workflows/reviewrouter-codex.yml",
+      (file) => file.path === ".github/workflows/reviewrouter-review.yml",
     );
     expect(workflow?.operation).not.toBe("delete");
     expect(workflow && "content" in workflow ? workflow.content : "").toContain(
@@ -1024,7 +1024,7 @@ describe("provisionReviewRouterWorkflow", () => {
     );
 
     const workflow = gateway.input?.workflowFiles.find(
-      (file) => file.path === ".github/workflows/reviewrouter-codex.yml",
+      (file) => file.path === ".github/workflows/reviewrouter-review.yml",
     );
     expect(workflow?.operation).not.toBe("delete");
     expect(workflow && "content" in workflow ? workflow.content : "").toContain(

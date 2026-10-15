@@ -57,7 +57,7 @@ function harness() {
   const events: string[] = [];
   const attestation = createVersionedSecretWorkflowSourceAttestation({
     repositoryId: "123456",
-    workflowPath: ".github/workflows/reviewrouter-codex.yml",
+    workflowPath: ".github/workflows/reviewrouter-review.yml",
     workflowSourceCommitSha: "a".repeat(40),
     workflowSourceBlobSha: "b".repeat(40),
     workflowSourceSha256: "c".repeat(64),
@@ -400,7 +400,7 @@ describe("versioned rotating runtime writeback dispatcher", () => {
             current = executorExpiry;
             return createVersionedSecretWorkflowSourceAttestation({
               repositoryId: "123456",
-              workflowPath: ".github/workflows/reviewrouter-codex.yml",
+              workflowPath: ".github/workflows/reviewrouter-review.yml",
               workflowSourceCommitSha: "a".repeat(40),
               workflowSourceBlobSha: "b".repeat(40),
               workflowSourceSha256: "c".repeat(64),

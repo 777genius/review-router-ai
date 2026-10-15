@@ -1,3 +1,4 @@
+import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 // @vitest-environment jsdom
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
@@ -33,7 +34,6 @@ import {
   findReviewConfiguration,
   clearReviewConfiguration,
   PrismaReviewConfigurationRepository,
-  safeDefaultReviewConfiguration,
   saveReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
@@ -147,7 +147,7 @@ test("gateway batch offers qualified MiMo reasoning and denies unsupported effor
   const adapter = createGatewayRepositoryBatchAdapter({
     configurations: {
       findLatest: async () => ({
-        config: safeDefaultReviewConfiguration,
+        config: workspacePolicyFixture,
         version: 1,
       }),
       findOperation: async () => null,
@@ -518,7 +518,7 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
       });
       const configurations = new PrismaReviewConfigurationRepository(db);
       const workspaceConfig = {
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         blockingPolicy: { failOnSeverity: "major" as const },
         limits: { inlineMaxComments: 17, targetTokensPerBatch: 16000 },
         reviewLanguage: "French",

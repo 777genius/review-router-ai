@@ -1,3 +1,4 @@
+import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getPrisma: vi.fn(),
   recordAuditEvent: vi.fn(),
   readReviewConfigurationForm: vi.fn(),
+  readRepositoryReviewPolicyForm: vi.fn(),
   saveReviewConfiguration: vi.fn(),
   assertReviewConfigSaveAllowed: vi.fn(),
   isWorkflowSetupAlreadyCurrent: vi.fn(),
@@ -33,6 +35,7 @@ vi.mock("@reviewrouter/features-review-config", async (importOriginal) => ({
 vi.mock("./dashboard-action-form-readers", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./dashboard-action-form-readers")>()),
   readReviewConfigurationForm: mocks.readReviewConfigurationForm,
+  readRepositoryReviewPolicyForm: mocks.readRepositoryReviewPolicyForm,
 }));
 vi.mock("../../src/server/dashboard-rate-limits", () => ({
   createDashboardRateLimitPolicy: () => ({
@@ -82,10 +85,7 @@ vi.mock("../../src/server/workflow-public-api-url", () => ({
 }));
 
 import { resolveReviewRouterActionRef } from "@reviewrouter/platform-config";
-import {
-  parseReviewConfiguration,
-  safeDefaultReviewConfiguration,
-} from "@reviewrouter/features-review-config";
+import { parseReviewConfiguration } from "@reviewrouter/features-review-config";
 import { renderReviewRouterReusableWorkflow } from "@reviewrouter/features-workflow-provisioning";
 import {
   createProvisioningPrisma,
@@ -196,7 +196,7 @@ describe("dashboard setup PR recovery", () => {
     );
     mocks.resolveReviewRuntimeEnv.mockResolvedValue({
       config: parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "openrouter",
@@ -221,8 +221,7 @@ describe("dashboard setup PR recovery", () => {
       requiredHealthy: true,
     } as const;
     const config = {
-      ...safeDefaultReviewConfiguration,
-      provider,
+      ...workspacePolicyFixture,
       providers: [provider],
     };
     mocks.getPrisma.mockReturnValue({});
@@ -233,6 +232,7 @@ describe("dashboard setup PR recovery", () => {
     mocks.saveReviewConfiguration.mockResolvedValue({ version: 2, config });
     const formData = new FormData();
     formData.set("workspaceId", "workspace_1");
+    formData.set("policyExpectedVersion", "1");
 
     await expect(
       saveWorkspaceReviewConfigClientAction(formData),
@@ -252,7 +252,11 @@ describe("dashboard setup PR recovery", () => {
       expect.anything(),
     );
     expect(mocks.saveReviewConfiguration).toHaveBeenCalledWith(
-      { target: { scope: "workspace", workspaceId: "workspace_1" }, config },
+      {
+        target: { scope: "workspace", workspaceId: "workspace_1" },
+        policy: config,
+        expectedVersion: 1,
+      },
       expect.anything(),
     );
   });
@@ -268,11 +272,23 @@ describe("dashboard setup PR recovery", () => {
       requiredHealthy: true,
     } as const;
     const config = {
-      ...safeDefaultReviewConfiguration,
-      provider,
+      ...workspacePolicyFixture,
       providers: [provider],
     };
     mocks.getPrisma.mockReturnValue({
+      reviewConfiguration: {
+        findUnique: vi.fn(async () => ({
+          active: true,
+          repositoryId: null,
+          versions: [
+            {
+              version: 1,
+              schemaVersion: 3,
+              policyJson: JSON.stringify(workspacePolicyFixture),
+            },
+          ],
+        })),
+      },
       repositoryConnection: {
         findUnique: vi.fn(async () => ({
           id: "repository_1",
@@ -293,11 +309,13 @@ describe("dashboard setup PR recovery", () => {
     mocks.assertDashboardRepositoryConfigMutationAllowed.mockResolvedValue({
       actor: "user:admin",
     });
-    mocks.readReviewConfigurationForm.mockReturnValue(config);
+    const policy = { schemaVersion: 3, providers: [provider] };
+    mocks.readRepositoryReviewPolicyForm.mockReturnValue(policy);
     mocks.saveReviewConfiguration.mockResolvedValue({ version: 3, config });
     const formData = new FormData();
     formData.set("workspaceId", "workspace_1");
     formData.set("repositoryId", "repository_1");
+    formData.set("policyExpectedVersion", "2");
 
     await expect(
       saveRepositoryReviewConfigClientAction(formData),
@@ -315,7 +333,8 @@ describe("dashboard setup PR recovery", () => {
           workspaceId: "workspace_1",
           repositoryId: "repository_1",
         },
-        config,
+        policy,
+        expectedVersion: 2,
       },
       expect.anything(),
     );
@@ -452,7 +471,7 @@ describe("dashboard setup PR recovery", () => {
 
     mocks.resolveReviewRuntimeEnv.mockResolvedValueOnce({
       config: parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex-mimo",

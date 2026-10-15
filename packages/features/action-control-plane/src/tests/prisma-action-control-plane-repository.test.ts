@@ -1,3 +1,4 @@
+import { workspacePolicyFixture } from "../../../review-config/src/tests/current-policy-fixture";
 import type { PrismaClient } from "@prisma/client";
 import {
   allocateVersionedProviderSecretNamespace,
@@ -146,7 +147,7 @@ describe("persisted workflow schema admission", () => {
           namespaceEpoch: namespace.epoch,
           secretName: namespace.name,
           status: "active",
-          workflowPath: ".github/workflows/reviewrouter-codex.yml",
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
           workflowSourceCommitSha: "a".repeat(40),
           workflowSourceBlobSha: "b".repeat(40),
           workflowSourceSha256: "c".repeat(64),
@@ -867,47 +868,56 @@ describe("PrismaActionControlPlaneRepository helpers", () => {
   it.each(["max", "ultra"] as const)(
     "hydrates stored %s effort without downgrading it",
     async (reasoningEffort) => {
-      const prisma = {
-        reviewConfiguration: {
-          findUnique: vi.fn().mockResolvedValue({
-            versions: [
-              {
-                version: 11,
-                schemaVersion: 2,
-                providerKind: "codex",
-                providerAuthMode: "codex_subscription_oauth",
-                model: "gpt-5.5",
-                reasoningEffort,
-                agenticContext: true,
-                fastMode: false,
-                failOnSeverity: "critical",
-                inlineMaxComments: 5,
-                providerLimit: 1,
-                providerMaxParallel: 1,
-                inlineMinAgreement: 1,
-                targetTokensPerBatch: 50000,
-                reviewLanguage: "Russian",
-                investigationRecordingEnabled: true,
-                investigationShadowEnabled: true,
-                investigationContextCriticEnabled: true,
-                investigationVerifiedCleanEnabled: true,
-                investigationCrossRevisionReplayEnabled: true,
-                investigationProductionEffectsEnabled: true,
-                providers: [
-                  {
-                    providerKind: "claude",
-                    providerAuthMode: "claude_code_oauth",
-                    model: "sonnet",
-                    reasoningEffort,
-                    agenticContext: true,
-                    fastMode: false,
-                    requiredHealthy: true,
-                  },
-                ],
-              },
-            ],
-          }),
+      const policy = {
+        ...workspacePolicyFixture,
+        reviewLanguage: "Russian",
+        providers: [
+          {
+            kind: "codex",
+            authMode: "codex_subscription_oauth_rotating",
+            model: "gpt-5.6-sol",
+            reasoningEffort,
+            agenticContext: true,
+            fastMode: false,
+            requiredHealthy: true,
+          },
+        ],
+        investigationRollout: {
+          recordingEnabled: true,
+          shadowEnabled: true,
+          contextCriticEnabled: true,
+          verifiedCleanEnabled: true,
+          crossRevisionReplayEnabled: true,
+          productionEffectsEnabled: true,
         },
+      };
+      const transaction = {
+        reviewConfiguration: {
+          findUnique: vi.fn(
+            async ({
+              where,
+            }: {
+              where: { workspaceId_targetKey: { targetKey: string } };
+            }) =>
+              where.workspaceId_targetKey.targetKey === "workspace:default"
+                ? {
+                    active: true,
+                    repositoryId: null,
+                    versions: [
+                      {
+                        version: 11,
+                        schemaVersion: 3,
+                        policyJson: JSON.stringify(policy),
+                      },
+                    ],
+                  }
+                : null,
+          ),
+        },
+      };
+      const prisma = {
+        $transaction: async (callback: (tx: typeof transaction) => unknown) =>
+          callback(transaction),
       } as unknown as PrismaClient;
       const repository = new PrismaActionControlPlaneRepository(prisma);
 
@@ -916,10 +926,10 @@ describe("PrismaActionControlPlaneRepository helpers", () => {
         repositoryId: "repo_1",
       });
 
-      expect(record?.config.provider).toMatchObject({
-        kind: "claude",
-        authMode: "claude_code_oauth",
-        model: "sonnet",
+      expect(record?.config.providers[0]).toMatchObject({
+        kind: "codex",
+        authMode: "codex_subscription_oauth_rotating",
+        model: "gpt-5.6-sol",
         reasoningEffort,
       });
       expect(record?.config.reviewLanguage).toBe("Russian");
@@ -1598,7 +1608,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       });
       const attestation = createVersionedSecretWorkflowSourceAttestation({
         repositoryId: "123456",
-        workflowPath: ".github/workflows/reviewrouter-codex.yml",
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
         workflowSourceCommitSha: "a".repeat(40),
         workflowSourceBlobSha: "b".repeat(40),
         workflowSourceSha256: "c".repeat(64),

@@ -68,3 +68,5 @@ export function ciProviderToScmProvider(provider: CiProvider): ScmProvider {
       return "gitlab";
   }
 }
+
+export { reviewRouterWorkflowPath } from "./review-workflow";

@@ -1,3 +1,4 @@
+import { reviewRouterWorkflowPath } from "@reviewrouter/shared";
 import {
   canonicalCodexRotatingProviderId,
   codexRotatingAuthMode,
@@ -159,8 +160,7 @@ export function assertCodexRotatingSetupReady(input: {
       evidence.setupNamespaceDatabaseRecoveryWitness,
       input.currentDatabaseRecoveryWitnessFingerprint,
     ) ||
-    evidence.setupNamespaceWorkflowPath !==
-      ".github/workflows/reviewrouter-codex.yml" ||
+    evidence.setupNamespaceWorkflowPath !== reviewRouterWorkflowPath ||
     evidence.setupNamespaceWorkflowSourceCommitSha === null ||
     evidence.setupNamespaceWorkflowSourceBlobSha === null ||
     evidence.setupNamespaceWorkflowSourceSha256 === null ||
@@ -179,8 +179,7 @@ export function assertCodexRotatingSetupReady(input: {
     ) ||
     evidence.namespaceStatus !== "active" ||
     evidence.namespacePermanentlyRetired ||
-    evidence.namespaceWorkflowPath !==
-      ".github/workflows/reviewrouter-codex.yml" ||
+    evidence.namespaceWorkflowPath !== reviewRouterWorkflowPath ||
     evidence.namespaceWorkflowSourceCommitSha === null ||
     evidence.namespaceWorkflowSourceBlobSha === null ||
     evidence.namespaceWorkflowSourceSha256 === null ||

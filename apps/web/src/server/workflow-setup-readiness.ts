@@ -20,6 +20,8 @@ import {
   isolatedQualityWorkflowPath,
   type ReviewRouterDiscussionMode,
   renderAccountGatewayWorkflow,
+  readReviewRouterCallerSource,
+  reviewRouterWorkflowContract,
 } from "@reviewrouter/features-workflow-provisioning";
 import { resolveWorkflowPublicApiUrl } from "./workflow-public-api-url";
 
@@ -86,7 +88,7 @@ export async function isWorkflowSetupAlreadyCurrent(
       name: input.name,
       defaultBranch: input.defaultBranch,
       workflowPath: expected.path,
-      expectedActionRef: input.actionRef,
+      expectedActionRef: `${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@${readReviewRouterCallerSource(expected.content).runtimeRef}`,
       expectedContentValidator: (workflow) =>
         areWorkflowDocumentsSemanticallyEqual(workflow, expected.content),
     });

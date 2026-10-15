@@ -14,9 +14,9 @@ import {
   looksLikeSecretValue,
   safeConflictReviewDispatchId,
   safeGitHubBranchName,
+  reviewRouterWorkflowPath,
 } from "@reviewrouter/shared";
 import {
-  managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
   managedReviewRouterWorkflowPaths,
   reviewRouterRuntimeWorkflowRefPattern,
@@ -61,8 +61,8 @@ export function isManagedV2SessionBootstrapSource(input: {
     repositoryFullName: input.repositoryFullName ?? "",
   });
   if (
-    input.workflowPath === managedCodexWorkflowPath &&
-    repositoryReviewWorkflowPath === managedCodexWorkflowPath &&
+    input.workflowPath === reviewRouterWorkflowPath &&
+    repositoryReviewWorkflowPath === reviewRouterWorkflowPath &&
     (input.eventName === "workflow_dispatch" ||
       input.eventName === "schedule" ||
       input.eventName === "pull_request" ||
@@ -72,7 +72,7 @@ export function isManagedV2SessionBootstrapSource(input: {
   }
   if (
     input.workflowPath === repositoryReviewWorkflowPath &&
-    input.workflowPath !== managedCodexWorkflowPath &&
+    input.workflowPath !== reviewRouterWorkflowPath &&
     input.eventName === "workflow_dispatch"
   ) {
     return true;
@@ -778,7 +778,7 @@ export function validateOidcClaimsAgainstRepository(input: {
           : [
               ...allowedWorkflowPaths.filter(
                 (path) =>
-                  path !== managedCodexWorkflowPath ||
+                  path !== reviewRouterWorkflowPath ||
                   codexWorkflowIdentityAdmitted,
               ),
             ],

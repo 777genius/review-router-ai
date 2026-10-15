@@ -55,7 +55,7 @@ describe("PrismaCodexRotatingOAuthRepository provider binding", () => {
           githubRepositoryId: "123456",
           actionRef:
             "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-          workflowPath: ".github/workflows/reviewrouter-codex.yml",
+          workflowPath: ".github/workflows/reviewrouter-review.yml",
           workflowSchemaVersion: 4,
           activeSecretNamespace,
         },
