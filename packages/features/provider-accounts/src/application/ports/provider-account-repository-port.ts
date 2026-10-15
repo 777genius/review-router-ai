@@ -83,7 +83,14 @@ export interface ProviderAccountAccountsQueryPort extends ProviderAccountReposit
 export type PersonalOperationResult = {
   readonly id: string;
   readonly intent: PersonalAccountIntent;
-  readonly phase: "reserved" | "submitted" | "unknown" | "rejected" | "applied";
+  readonly phase:
+    | "reserved"
+    | "fencing"
+    | "ready"
+    | "submitted"
+    | "unknown"
+    | "rejected"
+    | "applied";
   readonly source: ProviderAccountConnection | null;
   readonly binding: WorkspaceAccountBinding | null;
   readonly available: boolean;

@@ -82,11 +82,31 @@ review receipts remain historical evidence, not runtime acceptance.
   disabled until the complete authorization, fencing and qualification batch.
   MiMo workers resume only after an external runtime fix; do not bypass its
   protected authority inspection guard or create another workstream.
-- Next: publish the reviewed inert C3 foundation and gated C5 UI components,
-  complete C3 consumption/C4/server composition, and qualify the full readable
-  frontend flow with real end-to-end evidence. Only Root may coordinate the H
-  production cutover, preserving its current Action171/15-row deployment state.
-  No first-checkpoint/full-H completion equivalence is claimed.
+- C3a private snapshot-v2/epoch compatibility merged in PR586, merge
+  `3da915b31647e1fa21eedce3de8b7ff6c33fad00`. Public consumption is still gated.
+- C4 canonical rename/reconnect/retire, late-session rechecks and exact recipient
+  detach are locally authored and independently reviewed. HOST provider types,
+  four substantive canonical/recipient PostgreSQL cases and the controlled
+  SDK/HTTP session-switch fixture pass. SQL130/classifier compatibility has
+  focused fixture evidence; the schema and SDK pins remain bounded by the plan.
+- C5 PR587 retains the gated own catalog, multiselect sharing and exact Models
+  selection. Its initial CI passed quality, DB, source, E2E and OCI checks, but
+  failed formatting in one test; the whitespace-only correction is retained.
+  The same PR is temporarily closed while reviewed child PRs assemble on its
+  head branch. It will reopen for the final exact-main required gate; component
+  evidence does not stand for combined-tree CI.
+- Actual qualification handles: C4 format `94775` and final focused checks
+  `13502` completed successfully; wiring/Models managed job
+  `18c7b3c0020742a09d4ac0faea2eefea` completed successfully; Action171 public
+  projection/parser managed job `eda5dd90e2b72b5ee636135f6a439200` was running at
+  this recorded checkpoint. Handles and terminal receipts live under the owned
+  `tmp/personal-sharing-h-20261015` evidence directory, not in production state.
+- Remaining: complete trusted server/UI composition, qualify assembled source
+  and the actual Action171 boundary, then perform normal-session personal
+  enrollment and multi-organization live E2E including tools, nonempty final
+  output and approved-head App publication. A protected dedicated WEB control
+  grant is being prepared separately; only Root executes the coherent rollout.
+  No live or full-H acceptance is claimed by these component checks.
   Norm53 remains unchanged at SHA256
   `66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0`.
 
