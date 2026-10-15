@@ -2031,6 +2031,19 @@ describe("action control plane", () => {
     ).rejects.toThrow("review_workspace_policy_required");
   });
 
+  it("propagates opaque policy readiness instead of treating it as missing configuration", async () => {
+    const repositories = new InMemoryActionControlPlaneRepository();
+    repositories.findRuntimeReviewConfiguration = async () => {
+      throw new Error("review_policy_resave_required");
+    };
+    await expect(
+      getActionRuntimeConfig(
+        { sessionToken: "session" },
+        { repositories, sessions: new StaticSessionTokenService(), clock },
+      ),
+    ).rejects.toThrow("review_policy_resave_required");
+  });
+
   it("checks the conflict runtime gate before rejecting unsupported production providers", async () => {
     const conflictReviewRuntimeGate =
       new ConfigurableConflictReviewRuntimeGate();

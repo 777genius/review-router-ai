@@ -64,7 +64,7 @@ import {
   createReviewActionV2RunControlHandlers,
   createServerOwnedReviewActionV2AdmissionFacts,
   hasAuthorizedCodexInvestigationRecording,
-  producerActionCommitFromClaims,
+  producerExecutionFromClaims,
   type ReviewActionV2ResolvedRevision,
   type ReviewActionV2RunControlHandlerDependencies,
 } from "./review-action-v2-run-control-composition.js";
@@ -105,29 +105,69 @@ describe("Review Action v2 run-control composition", () => {
   it("uses the signed executable SHA for the managed channel without resolving the current tag", () => {
     for (const sha of ["a".repeat(40), "b".repeat(40)])
       expect(
-        producerActionCommitFromClaims({
+        producerExecutionFromClaims({
           ...oidcClaims("channel-proof"),
           job_workflow_ref:
             "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/tags/workflow-v1",
           job_workflow_sha: sha,
         }),
-      ).toBe(sha);
+      ).toEqual({ actionCommitSha: sha, modelTransport: "account_gateway" });
   });
-  it("denies old executable paths, unknown channels and mismatched immutable pins", () => {
+  it("admits secret-backed T0 only with its exact executable and managed caller", () => {
+    const claims = oidcClaims("secret-t0-proof");
+    expect(
+      producerExecutionFromClaims({
+        ...claims,
+        workflow_ref: `${claims.repository}/.github/workflows/reviewrouter-codex.yml@refs/heads/main`,
+        job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionSha}`,
+        job_workflow_sha: actionSha,
+      }),
+    ).toEqual({ actionCommitSha: actionSha, modelTransport: "provider_api" });
+  });
+  it("denies wrong callers, unknown channels and mismatched immutable pins", () => {
     for (const ref of [
       `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionSha}`,
+      "777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@refs/heads/main",
+      "777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@refs/tags/v1",
+      `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${"b".repeat(40)}`,
       "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/heads/main",
       "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/tags/workflow-v2",
       `777genius/review-router/.github/workflows/reviewrouter-runtime.yml@${"b".repeat(40)}`,
     ])
       expect(() =>
-        producerActionCommitFromClaims({
+        producerExecutionFromClaims({
           ...oidcClaims("denial-proof"),
+          workflow_ref:
+            "777genius/example/.github/workflows/reviewrouter-review.yml@refs/heads/main",
           job_workflow_ref: ref,
         }),
-      ).toThrow();
+      ).toThrow(
+        expect.objectContaining({
+          statusCode: 403,
+          issues: ["producer_release_workflow_not_immutable"],
+        }),
+      );
+    for (const executableRef of [
+      "refs/heads/main",
+      "refs/tags/v1",
+      "b".repeat(40),
+    ]) {
+      expect(() =>
+        producerExecutionFromClaims({
+          ...oidcClaims("managed-caller-denial"),
+          workflow_ref:
+            "777genius/example/.github/workflows/reviewrouter-codex.yml@refs/heads/main",
+          job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${executableRef}`,
+        }),
+      ).toThrow(
+        expect.objectContaining({
+          statusCode: 403,
+          issues: ["producer_release_workflow_not_immutable"],
+        }),
+      );
+    }
     expect(() =>
-      producerActionCommitFromClaims({
+      producerExecutionFromClaims({
         ...oidcClaims("missing-sha"),
         job_workflow_sha: undefined,
       }),
@@ -270,6 +310,7 @@ describe("Review Action v2 run-control composition", () => {
       trustDomain: ReviewTrustDomain.TrustedManaged,
       producerReleaseId: "release_v2",
       producerActionCommitSha: actionSha,
+      modelTransport: "account_gateway",
       providerVoteLanes: [
         {
           providerKind: ReviewProviderKind.Codex,
@@ -393,6 +434,7 @@ describe("Review Action v2 run-control composition", () => {
       pullRequestNumber: 42,
       producerReleaseId: "release_v2",
       producerActionCommitSha: actionSha,
+      modelTransport: "account_gateway",
       trustDomain: ReviewTrustDomain.TrustedManaged,
     });
     expect(resolved.producerRelease.producerReleaseId).toBe("release_v2");
@@ -1318,6 +1360,7 @@ describe("Review Action v2 run-control composition", () => {
       ...facts,
       producerReleaseId: producerRelease.producerReleaseId,
       producerActionCommitSha: investigationActionSha,
+      modelTransport: "account_gateway",
     };
     const descriptor = {
       ...reviewInvestigationProfile,

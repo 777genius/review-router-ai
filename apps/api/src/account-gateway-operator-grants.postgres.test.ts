@@ -605,11 +605,13 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
         await configure(y, gy.id);
         const deadline = new Date(Date.now() + 60000);
         const pinX = await snapshots.capture({
+            modelTransport: "account_gateway",
             producerRelease,
             identity: identity(x),
             deadline,
           }),
           pinY = await snapshots.capture({
+            modelTransport: "account_gateway",
             producerRelease,
             identity: identity(y),
             deadline,
@@ -626,6 +628,7 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
         });
         expect(
           await ordinarySnapshots.capture({
+            modelTransport: "account_gateway",
             producerRelease,
             identity: identity(x),
             deadline,
@@ -683,6 +686,7 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
         ).toBe(false);
         expect(
           await snapshots.capture({
+            modelTransport: "account_gateway",
             producerRelease,
             identity: identity(x, "new-id"),
             deadline,
@@ -838,12 +842,14 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
           deps,
         );
         const newY = await snapshots.capture({
+          modelTransport: "account_gateway",
           producerRelease,
           identity: identity(y, "fresh-granted"),
           deadline,
         });
         await configure(x, byok.id, 1);
         const ownPin = await ordinarySnapshots.capture({
+          modelTransport: "account_gateway",
           producerRelease,
           identity: identity(x),
           deadline,
@@ -863,6 +869,7 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
         );
         await configure(x, gx.id, 2);
         const freshX = await snapshots.capture({
+          modelTransport: "account_gateway",
           producerRelease,
           identity: identity(x, "fresh-granted"),
           deadline,
@@ -942,6 +949,7 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
           ).toBe(false);
           expect(
             await snapshots.capture({
+              modelTransport: "account_gateway",
               producerRelease,
               identity: identity(workspaceId, "after-disable"),
               deadline,

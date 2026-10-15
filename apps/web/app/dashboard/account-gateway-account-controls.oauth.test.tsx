@@ -388,8 +388,39 @@ test("personal scope reuses canonical controls through injected actions and neve
       ).disabled,
     ).toBe(false),
   );
+  const mutationCount = api.mutateGatewayAccount.mock.calls.length;
+  const reservationCount = storageWrites.mock.calls.length;
   fireEvent.click(
     screen.getByRole("button", { name: "Retire personal account" }),
+  );
+  dialog = await screen.findByRole("dialog", {
+    name: "Retire personal account?",
+  });
+  expect(
+    within(dialog).getByText(
+      /Retiring Personal MiMo permanently removes its use in all organizations and your personal workspace/,
+    ),
+  ).toBeTruthy();
+  const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+  await waitFor(() => expect(document.activeElement).toBe(cancel));
+  expect(api.mutateGatewayAccount).toHaveBeenCalledTimes(mutationCount);
+  expect(storageWrites).toHaveBeenCalledTimes(reservationCount);
+  fireEvent.click(cancel);
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("dialog", { name: "Retire personal account?" }),
+    ).toBeNull(),
+  );
+  expect(api.mutateGatewayAccount).toHaveBeenCalledTimes(mutationCount);
+  expect(storageWrites).toHaveBeenCalledTimes(reservationCount);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Retire personal account" }),
+  );
+  dialog = await screen.findByRole("dialog", {
+    name: "Retire personal account?",
+  });
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Confirm retirement" }),
   );
   await waitFor(() =>
     expect(api.mutateGatewayAccount).toHaveBeenCalledWith(context, {
@@ -400,6 +431,7 @@ test("personal scope reuses canonical controls through injected actions and neve
       mirrorRevision: 1,
     }),
   );
+  expect(api.mutateGatewayAccount).toHaveBeenCalledTimes(mutationCount + 1);
   expect(mutateGatewayAccount).not.toHaveBeenCalled();
   expect(submitGatewayApiKey).not.toHaveBeenCalled();
   expect(bindGatewayAccount).not.toHaveBeenCalled();

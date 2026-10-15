@@ -194,9 +194,14 @@ function WorkspacePersonalRows({
             : null;
   return (
     <section aria-label="Personal accounts shared with this organization">
-      <h3 className="font-medium text-cyan-50">Shared personal accounts</h3>
+      <h3 className="font-medium text-cyan-50">
+        Personal accounts available to this organization
+      </h3>
       <p className="mt-1 text-sm text-slate-400">
-        These accounts are shared for use in this organization.
+        Their owners share the same account, name, sign-in and review capacity
+        with this organization. Choose an account in Models to use it for
+        reviews. Detaching removes only this organization's access; it does not
+        retire the owner's account or affect other organizations.
       </p>
       {pages.isPending ? <p role="status">Loading shared accounts...</p> : null}
       {failed ? (

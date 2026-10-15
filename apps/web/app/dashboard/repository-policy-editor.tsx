@@ -1,5 +1,6 @@
 "use client";
 
+import { Button, Dialog } from "@reviewrouter/ui";
 import { repositoryPolicyFormFields } from "./review-policy-form-contract";
 
 import { useRouter } from "next/navigation";
@@ -7,6 +8,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type FocusEvent,
@@ -605,6 +607,93 @@ function SecretRefreshButton({
   );
 }
 
+function repositoryPolicySummary(
+  policy: RepositoryReviewPolicyOverride | undefined,
+): string {
+  if (!policy) return "override";
+  const count = repositoryPolicyFormFields.filter(([root, leaf]) => {
+    const value = policy[root];
+    return leaf === undefined
+      ? Object.hasOwn(policy, root)
+      : value != null &&
+          typeof value === "object" &&
+          Object.hasOwn(value, leaf);
+  }).length;
+  return !Object.hasOwn(policy, "providers")
+    ? `Uses workspace models · ${count} review options overridden`
+    : "override";
+}
+
+function RemoveRepositoryOverrides({
+  action,
+  workspaceId,
+  repositoryId,
+  repositoryName,
+  legacy,
+  disabled,
+}: {
+  readonly action: (formData: FormData) => Promise<boolean>;
+  readonly workspaceId: string;
+  readonly repositoryId: string;
+  readonly repositoryName: string;
+  readonly legacy: boolean;
+  readonly disabled: boolean;
+}): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+      >
+        {legacy
+          ? "Remove legacy override (inherit workspace)"
+          : "Remove all repository overrides…"}
+      </Button>
+      <Dialog.Root open={open} onOpenChange={setOpen}>
+        <Dialog.Portal>
+          <Dialog.Backdrop />
+          <Dialog.Popup initialFocus={cancelRef}>
+            <Dialog.Title>Remove all repository overrides?</Dialog.Title>
+            <Dialog.Description>
+              {repositoryName} will inherit workspace models and all review
+              options, including execution, limits, blocking and rollout
+              settings. A repository Account Gateway configuration will be
+              removed; inheriting workspace settings does not enable Gateway.
+            </Dialog.Description>
+            <form
+              action={async (formData) => {
+                if (await action(formData)) setOpen(false);
+              }}
+              className="mt-4 flex gap-2"
+            >
+              <input type="hidden" name="workspaceId" value={workspaceId} />
+              <input type="hidden" name="repositoryId" value={repositoryId} />
+              <Button
+                ref={cancelRef}
+                type="button"
+                variant="outline"
+                onClick={() => setOpen(false)}
+              >
+                Cancel
+              </Button>
+              <FormSubmitButton
+                variant="solid"
+                disabled={disabled}
+                idleLabel="Remove all overrides"
+                pendingLabel="Removing..."
+              />
+            </form>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
+  );
+}
+
 export function RepositoryPolicyOverrideDetails({
   workspaceId,
   repository,
@@ -633,6 +722,7 @@ export function RepositoryPolicyOverrideDetails({
   readonly claudeCodeProviderEnabled?: boolean;
 }): React.ReactElement {
   const reviewConfigAction = useReviewConfigActionToast();
+  const legacy = !repositoryConfig && expectedVersion != null;
   const [open, setOpen] = useState(false);
   const panelId = `repo-review-config-${repository.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const canEdit =
@@ -649,8 +739,8 @@ export function RepositoryPolicyOverrideDetails({
     );
   }
 
-  async function clearRepositoryOverride(formData: FormData): Promise<void> {
-    await reviewConfigAction.run(
+  async function clearRepositoryOverride(formData: FormData): Promise<boolean> {
+    return reviewConfigAction.run(
       () => clearRepositoryReviewConfigClientAction(formData),
       {
         error: "dashboard_action_stale",
@@ -677,9 +767,11 @@ export function RepositoryPolicyOverrideDetails({
                 {repository.fullName}
               </p>
               <p className="text-xs text-slate-400">
-                {repositoryConfig
-                  ? `Repository override / v${configVersion}`
-                  : `Inherits workspace default / v${configVersion}`}
+                {legacy
+                  ? `Legacy override v${expectedVersion} — not applied; reviews for this repository are stopped`
+                  : repositoryConfig
+                    ? `${repositoryPolicySummary(repositoryConfig.policy)} / v${configVersion}`
+                    : `Inherits workspace default / v${configVersion}`}
               </p>
             </div>
             <span
@@ -690,7 +782,7 @@ export function RepositoryPolicyOverrideDetails({
                   : "border-emerald-300/30 bg-emerald-300/[0.07] text-emerald-100",
               ].join(" ")}
             >
-              {repositoryConfig ? "override" : "inherits"}
+              {legacy ? "legacy" : repositoryConfig ? "override" : "inherits"}
             </span>
           </div>
         </button>
@@ -698,6 +790,7 @@ export function RepositoryPolicyOverrideDetails({
         {open ? (
           <div id={panelId} className="mt-4 space-y-3">
             <ReviewConfigForm
+              key={String(expectedVersion ?? "none")}
               action={saveRepositoryOverride}
               config={effectiveConfig}
               repositoryPolicy={
@@ -722,7 +815,11 @@ export function RepositoryPolicyOverrideDetails({
                 repositoryId: repository.id,
               }}
               submitLabel={
-                repositoryConfig ? "Update override" : "Save override"
+                legacy
+                  ? "Replace legacy override"
+                  : repositoryConfig
+                    ? "Update override"
+                    : "Save override"
               }
             />
             {!canEdit && editDisabledReason ? (
@@ -730,22 +827,15 @@ export function RepositoryPolicyOverrideDetails({
                 {editDisabledReason}
               </p>
             ) : null}
-            {repositoryConfig ? (
-              <form action={clearRepositoryOverride}>
-                <input type="hidden" name="workspaceId" value={workspaceId} />
-                <input
-                  type="hidden"
-                  name="repositoryId"
-                  value={repository.id}
-                />
-                <FormSubmitButton
-                  variant="outline"
-                  size="sm"
-                  disabled={!canEdit}
-                  idleLabel="Inherit workspace default"
-                  pendingLabel="Saving..."
-                />
-              </form>
+            {repositoryConfig || legacy ? (
+              <RemoveRepositoryOverrides
+                action={clearRepositoryOverride}
+                workspaceId={workspaceId}
+                repositoryId={repository.id}
+                repositoryName={repository.fullName}
+                legacy={legacy}
+                disabled={!canEdit}
+              />
             ) : null}
           </div>
         ) : null}
@@ -782,10 +872,15 @@ export function RepositoryPolicyEditor({
   readonly compact?: boolean;
 }): React.ReactElement {
   const reviewConfigAction = useReviewConfigActionToast();
+  const legacy = !repositoryConfig && expectedVersion != null;
   const [open, setOpen] = useState(false);
   const canEdit =
     mutationsEnabled && repository.selected && !repository.archived;
-  const policyMode = repositoryConfig ? "override" : "inherits workspace";
+  const policyMode = legacy
+    ? "legacy"
+    : repositoryConfig
+      ? repositoryPolicySummary(repositoryConfig.policy)
+      : "inherits workspace";
   const panelId = `repo-settings-${repository.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
   async function saveRepositorySettings(formData: FormData): Promise<void> {
@@ -799,8 +894,8 @@ export function RepositoryPolicyEditor({
     );
   }
 
-  async function clearRepositorySettings(formData: FormData): Promise<void> {
-    await reviewConfigAction.run(
+  async function clearRepositorySettings(formData: FormData): Promise<boolean> {
+    return reviewConfigAction.run(
       () => clearRepositoryReviewConfigClientAction(formData),
       {
         error: "dashboard_action_stale",
@@ -848,7 +943,15 @@ export function RepositoryPolicyEditor({
             compact ? "col-span-full w-full flex-[1_0_100%]" : "",
           ].join(" ")}
         >
+          {legacy ? (
+            <p role="alert">
+              Legacy override v{expectedVersion} — not applied; reviews for this
+              repository are stopped. Review and save explicitly, or remove the
+              override to inherit workspace settings.
+            </p>
+          ) : null}
           <ReviewConfigForm
+            key={String(expectedVersion ?? "none")}
             action={saveRepositorySettings}
             config={effectiveConfig}
             repositoryPolicy={repositoryConfig?.policy ?? { schemaVersion: 3 }}
@@ -866,7 +969,11 @@ export function RepositoryPolicyEditor({
             ]}
             mutationsEnabled={canEdit}
             submitLabel={
-              repositoryConfig ? "Update repo settings" : "Save repo settings"
+              legacy
+                ? "Replace legacy override"
+                : repositoryConfig
+                  ? "Update repo settings"
+                  : "Save repo settings"
             }
             repositoryFullName={repository.fullName}
             repositorySecretCheckTarget={{
@@ -880,18 +987,15 @@ export function RepositoryPolicyEditor({
             </p>
           ) : null}
 
-          {repositoryConfig ? (
-            <form action={clearRepositorySettings}>
-              <input type="hidden" name="workspaceId" value={workspaceId} />
-              <input type="hidden" name="repositoryId" value={repository.id} />
-              <FormSubmitButton
-                variant="outline"
-                size="sm"
-                disabled={!canEdit}
-                idleLabel="Inherit workspace default"
-                pendingLabel="Saving..."
-              />
-            </form>
+          {repositoryConfig || legacy ? (
+            <RemoveRepositoryOverrides
+              action={clearRepositorySettings}
+              workspaceId={workspaceId}
+              repositoryId={repository.id}
+              repositoryName={repository.fullName}
+              legacy={legacy}
+              disabled={!canEdit}
+            />
           ) : null}
         </div>
       ) : null}
@@ -904,7 +1008,7 @@ function useReviewConfigActionToast(): {
   readonly run: (
     action: () => Promise<ReviewConfigActionResult>,
     fallbackParams: ReviewConfigActionParams,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 } {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -932,7 +1036,8 @@ function useReviewConfigActionToast(): {
         ...reviewConfigActionToast(params),
         key: (current?.key ?? 0) + 1,
       }));
-      startTransition(() => router.refresh());
+      if (!params.error) startTransition(() => router.refresh());
+      return !params.error;
     },
   };
 }
@@ -1029,6 +1134,12 @@ function reviewConfigActionErrorText(error: string): string {
       return "Archived repositories cannot be changed.";
     case "rate_limited":
       return "Too many dashboard requests for this resource. Wait a bit before retrying.";
+    case "review_policy_resave_required":
+      return "Saved review policy uses a retired or unreadable format and reviews are stopped. Review and save the policy explicitly, or remove the repository override to inherit workspace settings.";
+    case "review_workspace_policy_required":
+      return "Save workspace review settings before enabling reviews.";
+    case "workflow_delete_untrusted":
+      return "A ReviewRouter workflow belongs to another active mode (GitHub Secrets/Hosted Pool) or was edited; it is not removed automatically. Disconnect that mode or remove the file, then retry.";
     case "invalid_form":
       return "The submitted form is invalid. Refresh the dashboard and try again.";
     case "entitlement_denied":
@@ -1059,7 +1170,9 @@ export function WorkspaceReviewConfigForm({
   codexRotatingOAuthEnabled = false,
   claudeCodeProviderEnabled = true,
   mutationsEnabled,
+  submitLabel = "Save workspace default",
 }: {
+  readonly submitLabel?: string | undefined;
   readonly workspaceId: string;
   readonly expectedVersion: number | null;
   readonly config: ReviewConfiguration;
@@ -1086,6 +1199,7 @@ export function WorkspaceReviewConfigForm({
     <>
       {reviewConfigAction.toast}
       <ReviewConfigForm
+        key={String(expectedVersion ?? "none")}
         action={saveWorkspaceSettings}
         config={config}
         modelOptions={modelOptions}
@@ -1100,7 +1214,7 @@ export function WorkspaceReviewConfigForm({
           },
         ]}
         mutationsEnabled={mutationsEnabled}
-        submitLabel="Save workspace default"
+        submitLabel={submitLabel}
       />
     </>
   );
@@ -1210,23 +1324,30 @@ export function ReviewConfigForm({
         )?.models ?? [])
       : [];
   }
-  const gatewaySelectionInvalid = providers.some(
-    (provider) =>
-      provider.authMode === "codex_account_gateway" &&
-      !gatewayModelsForProvider(provider).includes(provider.model.trim()),
-  );
-  const gatewayReasoningInvalid = providers.some(
-    (provider) =>
-      provider.authMode === "codex_account_gateway" &&
-      !gatewayModelSupportsReasoningEffort(
-        provider.model,
-        provider.reasoningEffort,
-      ),
-  );
+  const providersInherited =
+    repositoryPolicy !== undefined && overrideModes.providers === "inherit";
+  const gatewaySelectionInvalid =
+    !providersInherited &&
+    providers.some(
+      (provider) =>
+        provider.authMode === "codex_account_gateway" &&
+        !gatewayModelsForProvider(provider).includes(provider.model.trim()),
+    );
+  const gatewayReasoningInvalid =
+    !providersInherited &&
+    providers.some(
+      (provider) =>
+        provider.authMode === "codex_account_gateway" &&
+        !gatewayModelSupportsReasoningEffort(
+          provider.model,
+          provider.reasoningEffort,
+        ),
+    );
   const hasGateway = providers.some(
     (provider) => provider.authMode === "codex_account_gateway",
   );
-  const gatewaySingleProviderViolation = hasGateway && providers.length !== 1;
+  const gatewaySingleProviderViolation =
+    !providersInherited && hasGateway && providers.length !== 1;
   const gatewaySingleProviderMessage =
     "Account Gateway currently supports only one provider. Remove extra providers or switch gateway providers to direct auth before saving.";
   const providerAuthOptions = useMemo(
@@ -1506,6 +1627,9 @@ export function ReviewConfigForm({
             </p>
           </div>
 
+          {providersInherited ? (
+            <p role="status">Will use workspace defaults after save.</p>
+          ) : null}
           <div className="grid gap-4">
             {providers.map((provider, index) => {
               const providerOptions = modelOptionsByProvider[provider.kind];
@@ -1560,7 +1684,11 @@ export function ReviewConfigForm({
                     </div>
                     <button
                       type="button"
-                      disabled={!mutationsEnabled || providers.length === 1}
+                      disabled={
+                        providersInherited ||
+                        !mutationsEnabled ||
+                        providers.length === 1
+                      }
                       onClick={() => removeProvider(index)}
                       className="text-sm font-semibold text-cyan-300 transition hover:text-cyan-100 disabled:cursor-not-allowed disabled:text-slate-500"
                     >
@@ -1574,7 +1702,7 @@ export function ReviewConfigForm({
                       label="Provider auth"
                       helpText={fieldHelp.providerAuthMode}
                       value={provider.authMode}
-                      disabled={!mutationsEnabled}
+                      disabled={providersInherited || !mutationsEnabled}
                       options={providerAuthOptionsForProvider(provider)}
                       onValueChange={(value) =>
                         changeProviderAuth(
@@ -1598,6 +1726,7 @@ export function ReviewConfigForm({
                               : "Choose an account"
                           }
                           disabled={
+                            providersInherited ||
                             !mutationsEnabled ||
                             eligibleGatewayAccounts.length === 0
                           }
@@ -1642,7 +1771,11 @@ export function ReviewConfigForm({
                               ? "Selected model unavailable"
                               : "Choose a model"
                           }
-                          disabled={!mutationsEnabled || !gatewayAccount}
+                          disabled={
+                            providersInherited ||
+                            !mutationsEnabled ||
+                            !gatewayAccount
+                          }
                           options={gatewayModels.map((model) => ({
                             value: model,
                             label: model,
@@ -1671,7 +1804,7 @@ export function ReviewConfigForm({
                         label="Model"
                         helpText={fieldHelp.model}
                         value={provider.model}
-                        disabled={!mutationsEnabled}
+                        disabled={providersInherited || !mutationsEnabled}
                         options={providerOptions}
                         onValueChange={(value) =>
                           updateProvider(index, (current) => {
@@ -1703,6 +1836,7 @@ export function ReviewConfigForm({
                           : provider.requiredHealthy
                       }
                       disabled={
+                        providersInherited ||
                         !mutationsEnabled ||
                         provider.authMode ===
                           "codex_subscription_oauth_rotating"
@@ -1726,7 +1860,7 @@ export function ReviewConfigForm({
                           label="Reasoning effort"
                           helpText={fieldHelp.reasoningEffort}
                           value={provider.reasoningEffort}
-                          disabled={!mutationsEnabled}
+                          disabled={providersInherited || !mutationsEnabled}
                           options={reasoningEffortOptionsForModel(
                             provider.model,
                             provider.authMode,
@@ -1744,7 +1878,7 @@ export function ReviewConfigForm({
                           label="Fast mode"
                           helpText={fieldHelp.fastMode}
                           checked={provider.fastMode}
-                          disabled={!mutationsEnabled}
+                          disabled={providersInherited || !mutationsEnabled}
                           onCheckedChange={(checked) =>
                             updateProvider(index, (current) => ({
                               ...current,
@@ -1757,7 +1891,7 @@ export function ReviewConfigForm({
                           label="Agentic context"
                           helpText={fieldHelp.agenticContext}
                           value={String(provider.agenticContext)}
-                          disabled={!mutationsEnabled}
+                          disabled={providersInherited || !mutationsEnabled}
                           options={agenticContextOptions}
                           onValueChange={(value) =>
                             updateProvider(index, (current) => ({
@@ -1866,7 +2000,7 @@ export function ReviewConfigForm({
           <button
             type="button"
             aria-label="Add provider"
-            disabled={!mutationsEnabled || hasGateway}
+            disabled={providersInherited || !mutationsEnabled || hasGateway}
             onClick={addProvider}
             className="inline-flex w-fit items-center gap-2 rounded-lg border border-cyan-300/50 px-3 py-2 text-sm font-semibold text-cyan-300 transition hover:border-cyan-200 hover:bg-cyan-300/[0.08] hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -2123,6 +2257,7 @@ function DashboardReviewLanguageField({
   readonly defaultValue: string;
   readonly disabled: boolean;
 }): React.ReactElement {
+  const [value, setValue] = useState(defaultValue);
   const listId = "review-language-suggestions";
   return (
     <label className="grid min-w-0 gap-2 text-sm text-slate-300">
@@ -2135,7 +2270,8 @@ function DashboardReviewLanguageField({
       <input
         name="reviewLanguage"
         type="text"
-        defaultValue={defaultValue}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
         placeholder="English (default)"
         maxLength={40}
         autoComplete="off"

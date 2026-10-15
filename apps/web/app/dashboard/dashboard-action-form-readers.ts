@@ -19,9 +19,9 @@ import {
   type ProviderKind,
 } from "@reviewrouter/features-review-providers";
 
-export function readReviewConfigurationForm(
+function readReviewProvidersForm(
   formData: FormData,
-): ReviewConfiguration {
+): ReviewConfiguration["providers"] {
   const providerCount = readFormNumber(formData, "providerCount");
   if (!Number.isInteger(providerCount) || providerCount < 1) {
     throw new Error("invalid_form_value:providerCount");
@@ -59,6 +59,14 @@ export function readReviewConfigurationForm(
         ) ?? undefined,
     });
   });
+
+  return providers;
+}
+
+export function readReviewConfigurationForm(
+  formData: FormData,
+): ReviewConfiguration {
+  const providers = readReviewProvidersForm(formData);
 
   return parseReviewConfigurationStrict({
     schemaVersion: 3,
@@ -365,17 +373,25 @@ export function readRepositoryReviewPolicyForm(
   });
   if (fields.length === 0)
     return parseRepositoryReviewPolicyOverride({ schemaVersion: 3 });
-  const full = readReviewConfigurationForm(formData) as unknown as Record<
-    string,
-    unknown
-  >;
   const policy: Record<string, unknown> = { schemaVersion: 3 };
-  for (const field of fields) {
-    const [root, leaf] = field;
-    if (leaf === undefined) policy[root] = full[root];
-    else {
+  for (const [root, leaf] of fields) {
+    if (root === "providers") {
+      policy.providers = readReviewProvidersForm(formData);
+    } else if (root === "reviewLanguage") {
+      policy.reviewLanguage =
+        readOptionalFormString(formData, "reviewLanguage") ?? null;
+    } else {
+      const name = leaf!;
+      const value =
+        root === "investigationRollout"
+          ? (readOptionalFormBoolean(formData, `${root}.${name}`) ?? false)
+          : root === "blockingPolicy"
+            ? readFormString(formData, name)
+            : name === "providerLimit"
+              ? readFormNumber(formData, "providerCount")
+              : readFormNumber(formData, name);
       const target = (policy[root] ??= {}) as Record<string, unknown>;
-      target[leaf] = (full[root] as Record<string, unknown>)[leaf];
+      target[name] = value;
     }
   }
   return parseRepositoryReviewPolicyOverride(policy);

@@ -217,6 +217,7 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
         });
       try {
         harness = await createReviewActionV2E2EHarness(url.toString(), {
+          modelTransport: "account_gateway",
           oidcLifetimeSeconds: 4,
           environmentOverrides: {
             REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({

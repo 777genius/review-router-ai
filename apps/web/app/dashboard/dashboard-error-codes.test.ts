@@ -94,3 +94,22 @@ describe("safeDashboardErrorCode", () => {
     },
   );
 });
+
+// Legacy policy failures must survive transport normalization for actionable recovery.
+describe("policy readiness errors", () => {
+  it.each([
+    "review_policy_resave_required",
+    "review_workspace_policy_required",
+  ])("preserves %s", (code) => {
+    expect(safeDashboardErrorCode(new Error(code))).toBe(code);
+  });
+  it("removes untrusted workflow paths from the public code", () => {
+    expect(
+      safeDashboardErrorCode(
+        new Error(
+          "workflow_delete_untrusted:.github/workflows/reviewrouter-codex.yml",
+        ),
+      ),
+    ).toBe("workflow_delete_untrusted");
+  });
+});

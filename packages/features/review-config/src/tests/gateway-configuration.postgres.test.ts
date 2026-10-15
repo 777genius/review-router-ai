@@ -222,6 +222,19 @@ describe.skipIf(!enabled)(
         const deps = { configurations: configs };
         // Historical rows remain evidence, never an executable policy/default.
         expect(await configs.findLatest(workspace)).toBeNull();
+        const legacyRuntime = new PrismaActionControlPlaneRepository(prisma);
+        await expect(
+          legacyRuntime.findRuntimeReviewConfiguration({
+            workspaceId: "c2b-w",
+            repositoryId: "c2b-repo",
+          }),
+        ).rejects.toThrow("review_policy_resave_required");
+        expect(
+          await legacyRuntime.findRuntimeReviewConfiguration({
+            workspaceId: "c2b-x",
+            repositoryId: "c2b-repo",
+          }),
+        ).toBeNull();
         expect(
           (
             await prisma.reviewConfigurationVersion.findUniqueOrThrow({
@@ -304,6 +317,79 @@ describe.skipIf(!enabled)(
         );
         expect(savedDefault.version).toBe(2);
         expect(savedDefault.config).toEqual(config);
+        // A retired repository head is not equivalent to no override, even with a valid workspace.
+        await prisma.repositoryConnection.create({
+          data: {
+            id: "c2b-opaque-repo",
+            workspaceId: "c2b-w",
+            externalRepositoryId: "c2b-opaque-repo",
+            owner: "synthetic",
+            name: "opaque-repo",
+            fullName: "synthetic/opaque-repo",
+            defaultBranch: "main",
+            visibility: "private",
+          },
+        });
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO "ReviewConfiguration" ("id", "workspaceId", "repositoryId", "targetKey", "updatedAt") VALUES ('c2b-opaque-config', 'c2b-w', 'c2b-opaque-repo', 'repo:c2b-opaque-repo', now())`,
+        );
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO "ReviewConfigurationVersion" ("id", "configurationId", "workspaceId", "version", "schemaVersion", "providerKind", "providerAuthMode", "model", "reasoningEffort", "failOnSeverity", "inlineMaxComments", "targetTokensPerBatch") VALUES ('c2b-opaque-version', 'c2b-opaque-config', 'c2b-w', 1, 2, 'codex', 'codex_subscription_oauth_rotating', 'gpt-5.6-sol', 'high', 'critical', 0, 50000)`,
+        );
+        const opaqueTarget = { ...repository, repositoryId: "c2b-opaque-repo" };
+        const opaqueRuntimeTarget = {
+          workspaceId: "c2b-w",
+          repositoryId: "c2b-opaque-repo",
+        };
+        expect(await configs.findLatest(opaqueTarget)).toBeNull();
+        await expect(
+          legacyRuntime.findRuntimeReviewConfiguration(opaqueRuntimeTarget),
+        ).rejects.toThrow("review_policy_resave_required");
+        await expect(
+          saveReviewConfiguration(
+            {
+              target: opaqueTarget,
+              policy: { schemaVersion: 3 },
+              expectedVersion: 0,
+            },
+            deps,
+          ),
+        ).rejects.toThrow();
+        const replacement = await saveReviewConfiguration(
+          {
+            target: opaqueTarget,
+            policy: {
+              schemaVersion: 3,
+              limits: { inlineMaxComments: 0 },
+              investigationRollout: { productionEffectsEnabled: false },
+            },
+            expectedVersion: 1,
+          },
+          deps,
+        );
+        expect(replacement.version).toBe(2);
+        expect(replacement.config.limits.inlineMaxComments).toBe(0);
+        expect(
+          replacement.config.investigationRollout.productionEffectsEnabled,
+        ).toBe(false);
+        // The existing clear path must also recover directly from a retired head.
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO "ReviewConfigurationVersion" ("id", "configurationId", "workspaceId", "version", "schemaVersion", "providerKind", "providerAuthMode", "model", "reasoningEffort", "failOnSeverity", "inlineMaxComments", "targetTokensPerBatch") VALUES ('c2b-opaque-version-3', 'c2b-opaque-config', 'c2b-w', 3, 2, 'codex', 'codex_subscription_oauth_rotating', 'gpt-5.6-sol', 'high', 'critical', 0, 50000)`,
+        );
+        await expect(
+          legacyRuntime.findRuntimeReviewConfiguration(opaqueRuntimeTarget),
+        ).rejects.toThrow("review_policy_resave_required");
+        expect(await configs.deleteTarget(opaqueTarget)).toBe(true);
+        expect(
+          await legacyRuntime.findRuntimeReviewConfiguration(
+            opaqueRuntimeTarget,
+          ),
+        ).toMatchObject({
+          source: "workspace",
+          workspaceVersion: 2,
+          repositoryVersion: null,
+          config,
+        });
         expect(
           (await resolveReviewConfiguration(repository, deps))!.config,
         ).toEqual(config);
@@ -1560,19 +1646,27 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
         };
         const repo = (actor?: string) =>
           new PrismaReviewConfigurationRepository(db, undefined, true, actor);
+        // The shared harness creates an explicit current workspace policy. These
+        // actor checks must preserve that policy on denial and use its actual CAS.
+        const baseline = await repo().findLatest(target);
+        expect(baseline).toMatchObject({
+          version: 1,
+          config: workspacePolicyFixture,
+        });
+        const baselineVersion = baseline!.version;
         const save = (actor?: string) =>
           repo(actor).saveNextVersion({
             target,
             policy: config(binding.id),
-            expectedVersion: null,
+            expectedVersion: baselineVersion,
           });
         for (const actor of [undefined, member, outsider]) {
           await expect(save(actor)).rejects.toThrow(
             "review_configuration_personal_actor_forbidden",
           );
-          expect(await repo().findLatest(target)).toBeNull();
+          expect(await repo().findLatest(target)).toEqual(baseline);
         }
-        expect((await save(admin)).version).toBe(1);
+        expect((await save(admin)).version).toBe(baselineVersion + 1);
         const actorRow = await db.workspaceMember.findUniqueOrThrow({
           where: { workspaceId_userId: { workspaceId, userId: admin } },
         });
@@ -1588,10 +1682,10 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
               await current.saveNextVersion({
                 target,
                 policy: config(binding.id),
-                expectedVersion: 1,
+                expectedVersion: baselineVersion + 1,
               })
             ).version,
-          ).toBe(2);
+          ).toBe(baselineVersion + 2);
           // The actual row lock must survive validation and the configuration write.
           await expect(
             db.$transaction(
@@ -1625,7 +1719,7 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
           repo(admin).saveNextVersion({
             target,
             policy: config(binding.id),
-            expectedVersion: 2,
+            expectedVersion: baselineVersion + 2,
           }),
         ).rejects.toThrow("review_configuration_personal_actor_forbidden");
         await expect(
@@ -1638,11 +1732,13 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
             ).saveNextVersion({
               target,
               policy: config(binding.id),
-              expectedVersion: 2,
+              expectedVersion: baselineVersion + 2,
             }),
           ),
         ).rejects.toThrow("review_configuration_personal_actor_forbidden");
-        expect((await repo().findLatest(target))?.version).toBe(2);
+        expect((await repo().findLatest(target))?.version).toBe(
+          baselineVersion + 2,
+        );
         // Original committed receipts remain readonly; role loss never creates a new save.
         expect(
           (await repo(admin).saveNextVersionWithOperation(operation)).version,
@@ -1670,10 +1766,10 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
             await repo().saveNextVersion({
               target,
               policy: config(orgBinding.id),
-              expectedVersion: 2,
+              expectedVersion: baselineVersion + 2,
             })
           ).version,
-        ).toBe(3);
+        ).toBe(baselineVersion + 3);
         const mixed = parseReviewConfigurationStrict({
           ...config(orgBinding.id),
           execution: {
@@ -1687,17 +1783,21 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
           ],
         });
         await expect(
-          repo().saveNextVersion({ target, policy: mixed, expectedVersion: 3 }),
+          repo().saveNextVersion({
+            target,
+            policy: mixed,
+            expectedVersion: baselineVersion + 3,
+          }),
         ).rejects.toThrow("review_configuration_personal_actor_forbidden");
         expect(
           (
             await repo(donor).saveNextVersion({
               target,
               policy: mixed,
-              expectedVersion: 3,
+              expectedVersion: baselineVersion + 3,
             })
           ).version,
-        ).toBe(4);
+        ).toBe(baselineVersion + 4);
       } finally {
         await harness.close();
       }

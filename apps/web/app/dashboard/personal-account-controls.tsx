@@ -296,20 +296,17 @@ function PersonalControls({
       aria-labelledby="personal-accounts-title"
     >
       <div>
-        <h3
-          id="personal-accounts-title"
-          className="text-lg font-semibold text-cyan-50"
-        >
-          My personal accounts
-        </h3>
+        <h4 id="personal-accounts-title" className="font-medium text-cyan-50">
+          Share with organizations
+        </h4>
         <p className="mt-2 text-sm text-slate-400">
-          Choose your accounts to share with organizations you administer. Each
-          organization uses the same connection, name, authentication and
-          account capacity. Sharing does not add capacity.
+          Select your accounts, then choose the organizations that can use them.
+          After sharing, choose the account in that organization's Models
+          settings to use it for reviews.
         </p>
         <p className="mt-2 text-sm text-slate-400">
-          Organization accounts remain separate. Removing one organization's
-          access preserves your personal use and other organizations' access.
+          Removing one organization's access keeps your personal account and its
+          other uses. Accounts owned by an organization remain separate.
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
@@ -461,6 +458,7 @@ function PersonalControls({
               scope={bootstrap.scope}
               nonce={nonce}
               api={api}
+              sources={sourceFailure || sources.isError ? [] : sourceRows}
               dismiss={() => {
                 try {
                   const next = nonces.filter((value) => value !== nonce);
@@ -549,9 +547,9 @@ function ShareDialog({
             Share with organizations
           </Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-slate-400">
-            Select organizations where you are an owner or admin. Your canonical
-            account name will be visible there. Each account and organization is
-            processed separately.
+            Select organizations where you are an owner or admin. Your account
+            name will be visible there. Each account and organization is
+            processed separately; check each result below.
           </Dialog.Description>
           <div className="my-4 max-h-72 space-y-3 overflow-y-auto">
             {organizations.isPending ? (
@@ -671,10 +669,12 @@ function OwnGrants({
         Organization access to {source.label}
       </h4>
       <p className="text-sm text-slate-400">
-        You can revoke your own shared connection even after leaving an
-        organization. Its name is hidden when you no longer have access.
-        Existing saved settings keep the revoked connection unavailable until an
-        explicit new selection.
+        Removing access here affects only that organization, not your personal
+        account or other organizations. You can remove access even after
+        leaving; its name is hidden when you no longer have access. Existing
+        saved settings keep the revoked connection unavailable until an explicit
+        new selection. Sharing again requires choosing the available account
+        again in Models and saving.
       </p>
       {grants.isPending ? <p role="status">Loading access...</p> : null}
       {failure ? <p role="status">{errorText(failure.status)}</p> : null}
@@ -728,11 +728,13 @@ function OperationStatus({
   scope,
   nonce,
   api,
+  sources,
   dismiss,
 }: {
   scope: string;
   nonce: string;
   api: PersonalAccountsApi;
+  sources: readonly PersonalSource[];
   dismiss(): void;
 }) {
   const operation = useQuery({
@@ -742,6 +744,44 @@ function OperationStatus({
     retry: false,
   });
   const result = operation.data;
+  const source = sources.find(
+    (row) =>
+      result?.status === "ok" &&
+      row.sourceId === result.value.operation.sourceId,
+  );
+  // Reuse authorized grant pages; do not persist display names or guess an
+  // organization from an opaque binding. Off-page or hidden names stay hidden.
+  const grants = useInfiniteQuery({
+    queryKey: keys.grants(scope, source?.sourceId ?? ""),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.listOwnGrants({
+        sourceId: source!.sourceId,
+        ...(pageParam ? { afterBindingId: pageParam } : {}),
+        limit: 25,
+      }),
+    getNextPageParam: (page) =>
+      page.status === "ok" ? page.value.nextCursor : null,
+    enabled: Boolean(
+      source && result?.status === "ok" && result.value.operation.bindingId,
+    ),
+    staleTime: 15000,
+    retry: false,
+  });
+  const grantsUnavailable =
+    grants.isError ||
+    grants.isFetching ||
+    grants.data?.pages.some((page) => page.status !== "ok");
+  const grant = grantsUnavailable
+    ? undefined
+    : grants.data?.pages
+        .flatMap((page) => (page.status === "ok" ? page.value.grants : []))
+        .find(
+          (row) =>
+            result?.status === "ok" &&
+            row.sourceId === source?.sourceId &&
+            row.bindingId === result.value.operation.bindingId,
+        );
   const resolved =
     result?.status === "ok" &&
     (result.value.remoteFenceDelivery === "remote_applied" ||
@@ -750,6 +790,12 @@ function OperationStatus({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 py-2">
       <p className="text-sm text-slate-300">
+        {source ? (
+          <span className="block font-medium">
+            {source.label} ·{" "}
+            {grant?.organizationLabel ?? "Organization unavailable"}
+          </span>
+        ) : null}
         Request {nonce.slice(0, 8)}:{" "}
         {result?.status === "ok"
           ? receiptText(result.value)
@@ -761,8 +807,16 @@ function OperationStatus({
         <Button
           variant="outline"
           size="sm"
-          disabled={operation.isFetching}
-          onClick={() => void operation.refetch()}
+          disabled={operation.isFetching || grants.isFetching}
+          onClick={() => {
+            void operation.refetch();
+            if (
+              source &&
+              result?.status === "ok" &&
+              result.value.operation.bindingId
+            )
+              void grants.refetch();
+          }}
         >
           Check status
         </Button>

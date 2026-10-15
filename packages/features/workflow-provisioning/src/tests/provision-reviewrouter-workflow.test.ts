@@ -201,9 +201,18 @@ it.each(["repository", "workspace"])(
       trustedGithubRepositoryId: "123456",
     });
     const files = setupGateway.input!.workflowFiles;
-    expect(files).toHaveLength(1);
-    expect(files[0]!.path).toBe(".github/workflows/reviewrouter-review.yml");
-    const file = files[0]!;
+    expect(files).toHaveLength(4);
+    expect(setupGateway.input!.setupMode).toBe("gateway");
+    expect(files.slice(0, 3)).toMatchObject([
+      { operation: "delete", path: ".github/workflows/reviewrouter-codex.yml" },
+      { operation: "delete", path: ".github/workflows/reviewrouter.yml" },
+      {
+        operation: "delete",
+        path: ".github/workflows/reviewrouter-interaction.yml",
+      },
+    ]);
+    expect(files[3]!.path).toBe(".github/workflows/reviewrouter-review.yml");
+    const file = files[3]!;
     const job = parse("content" in file ? file.content : "").jobs.review;
     expect(job.with).toMatchObject({
       review_request_id: "${{ inputs.review_request_id }}",
@@ -236,7 +245,7 @@ it.each([
       },
     );
     expect(provisioning.opened?.actionVersion).toBe("workflow-v1");
-    const file = setupGateway.input!.workflowFiles[0]!;
+    const file = setupGateway.input!.workflowFiles[3]!;
     expect(parse("content" in file ? file.content : "").jobs.review.uses).toBe(
       "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
     );
@@ -282,7 +291,7 @@ it("provisions from inherited workspace policy without creating a repository ove
     configurations: savedConfigurations("workspace"),
     trustedGithubRepositoryId: "123456",
   });
-  const file = setupGateway.input!.workflowFiles[0]!;
+  const file = setupGateway.input!.workflowFiles[3]!;
   expect(file.path).toBe(".github/workflows/reviewrouter-review.yml");
   expect(parse("content" in file ? file.content : "").jobs.review.uses).toBe(
     "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
@@ -1111,4 +1120,21 @@ it("rejects schema 6 before GitHub provisioning mutations", async () => {
   expect(auditLog.events.map((event) => event.action)).toEqual([
     "workflow.setup_pr_failed",
   ]);
+});
+
+it("persists a normalized untrusted deletion failure without the workflow path", async () => {
+  const provisioning = new CapturingProvisioningRepository();
+  await expect(
+    provisionReviewRouterWorkflow(gatewayInput, {
+      setupGateway: new CapturingSetupGateway(
+        new Error(
+          "workflow_delete_untrusted:.github/workflows/reviewrouter-codex.yml",
+        ),
+      ),
+      provisioning,
+      configurations: savedConfigurations(),
+      trustedGithubRepositoryId: "123456",
+    }),
+  ).rejects.toThrow("workflow_delete_untrusted:");
+  expect(provisioning.failed?.errorMessage).toBe("workflow_delete_untrusted");
 });

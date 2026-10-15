@@ -1,5 +1,7 @@
 "use server";
 
+import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
+
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import { resolveReviewPolicy } from "@reviewrouter/features-review-config";
 
@@ -2990,11 +2992,17 @@ async function saveRepositoryReviewConfigMutation(
       prisma,
       process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
     );
+    const heads = await readReviewPolicyHeadVersions(prisma, workspaceId);
     const workspace = await configurations.findLatest({
       scope: "workspace",
       workspaceId,
     });
-    if (!workspace) throw new Error("review_workspace_policy_required");
+    if (!workspace)
+      throw new Error(
+        heads.get("workspace:default") != null
+          ? "review_policy_resave_required"
+          : "review_workspace_policy_required",
+      );
     const policy = readRepositoryReviewPolicyForm(formData);
     const config = resolveReviewPolicy(workspace.config, policy);
     assertCodexProductionReviewConfigAllowed(config);
@@ -3788,6 +3796,11 @@ async function loadResolvedReviewRuntime(input: {
   readonly repositoryId: string;
 }): Promise<ResolvedReviewRuntimeEnv> {
   const configurations = new PrismaReviewConfigurationRepository(input.prisma);
+  const heads = await readReviewPolicyHeadVersions(
+    input.prisma,
+    input.workspaceId,
+    [input.repositoryId],
+  );
   const runtime = await resolveReviewRuntimeEnv(
     {
       scope: "repository",
@@ -3795,7 +3808,16 @@ async function loadResolvedReviewRuntime(input: {
       repositoryId: input.repositoryId,
     },
     { configurations },
-  );
+  ).catch((error: unknown) => {
+    if (
+      error instanceof Error &&
+      error.message === "review_workspace_policy_required" &&
+      [...heads.values()].some((version) => version != null)
+    ) {
+      throw new Error("review_policy_resave_required");
+    }
+    throw error;
+  });
   return runtime;
 }
 

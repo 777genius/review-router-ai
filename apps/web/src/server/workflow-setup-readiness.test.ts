@@ -103,6 +103,11 @@ it.each([
         createRequester: async () => ({
           request: async (_route, parameters) => {
             paths.push(String(parameters?.path));
+            if (
+              parameters?.path !== ".github/workflows/reviewrouter-review.yml"
+            ) {
+              throw Object.assign(new Error("not found"), { status: 404 });
+            }
             return {
               data: {
                 type: "file",
@@ -116,8 +121,48 @@ it.each([
     },
   );
   expect(current).toBe(scenario === "current");
-  expect(paths).toEqual([".github/workflows/reviewrouter-review.yml"]);
+  expect(paths).toEqual(
+    scenario === "current"
+      ? [
+          ".github/workflows/reviewrouter-review.yml",
+          defaultWorkflowPath,
+          defaultCodexRotatingWorkflowPath,
+          defaultInteractionWorkflowPath,
+        ]
+      : [".github/workflows/reviewrouter-review.yml"],
+  );
 });
+it.each([
+  defaultWorkflowPath,
+  defaultCodexRotatingWorkflowPath,
+  defaultInteractionWorkflowPath,
+])(
+  "requires the obsolete %s caller to be absent on the default branch",
+  async (competingPath) => {
+    const current = await isWorkflowSetupAlreadyCurrent(
+      {
+        ...readinessInput,
+        actionRef: versionedActionRef,
+        codexSessionMode: "account-gateway",
+      },
+      {
+        resolvePublicApiUrl: () => "https://app.reviewrouter.dev",
+        workflowProbe: {
+          probeWorkflow: async (input) => ({
+            status:
+              input.workflowPath === competingPath ||
+              input.workflowPath === ".github/workflows/reviewrouter-review.yml"
+                ? "present"
+                : "missing",
+            expectedActionRefFound: true,
+            expectedContentMarkersFound: true,
+          }),
+        },
+      },
+    );
+    expect(current).toBe(false);
+  },
+);
 it("keeps 1000 installed callers current across compatible producer and profile updates", async () => {
   vi.stubEnv("REVIEW_ROUTER_AGENT_PROFILE", "qualified-before");
   try {
@@ -152,10 +197,18 @@ it("keeps 1000 installed callers current across compatible producer and profile 
             throw new Error("unexpected_workflow_mutation");
           }
           reads++;
-          expect(parameters?.path).toBe(
+          expect([
             ".github/workflows/reviewrouter-review.yml",
-          );
+            defaultWorkflowPath,
+            defaultCodexRotatingWorkflowPath,
+            defaultInteractionWorkflowPath,
+          ]).toContain(parameters?.path);
           expect(parameters?.ref).toBe("main");
+          if (
+            parameters?.path !== ".github/workflows/reviewrouter-review.yml"
+          ) {
+            throw Object.assign(new Error("not found"), { status: 404 });
+          }
           const source = installedSources.get(
             `${parameters?.owner}/${parameters?.repo}`,
           );
@@ -184,7 +237,7 @@ it("keeps 1000 installed callers current across compatible producer and profile 
         ),
       ).toBe(true);
     }
-    expect(reads).toBe(1000);
+    expect(reads).toBe(4000);
     expect(writes).toBe(0);
     expect(installedSources.size).toBe(1000);
   } finally {

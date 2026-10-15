@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import {
   readReviewConfigurationForm,
   readRepositoryReviewPolicyForm,
@@ -43,6 +44,10 @@ const routerMock = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => routerMock,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { custom: vi.fn(), dismiss: vi.fn() },
 }));
 
 vi.mock("./actions", () => ({
@@ -444,6 +449,12 @@ describe("ReviewConfigForm", () => {
         );
         fireEvent.click(screen.getByRole("button", { name: /Edit settings/ }));
       }
+      if (scope === "repository") {
+        fireEvent.change(
+          document.querySelector('select[name="policyMode.providers"]')!,
+          { target: { value: "override" } },
+        );
+      }
       const legacySecretChecks = vi.mocked(
         checkProviderRepositorySecretClientAction,
       ).mock.calls.length;
@@ -562,7 +573,7 @@ describe("ReviewConfigForm", () => {
       }
       fireEvent.click(
         screen.getByRole("button", {
-          name: /Save workspace default|Save override|Save repo settings/,
+          name: /Save workspace default|Save override|Save repo settings|Replace legacy override/,
         }),
       );
       await waitFor(() => expect(save).toHaveBeenCalledOnce());
@@ -646,6 +657,207 @@ describe("ReviewConfigForm", () => {
       expect(clearRepositoryReviewConfigClientAction).not.toHaveBeenCalled();
     },
   );
+
+  it("ignores an unavailable provider draft when providers inherit workspace", () => {
+    const provider = {
+      ...workspacePolicy.providers[0]!,
+      kind: "codex" as const,
+      authMode: "codex_account_gateway" as const,
+      gatewayBindingId: "removed-binding",
+      gatewayProfileRef: "profile-mimo",
+      model: "mimo-v2-pro",
+    };
+    render(
+      <ReviewConfigForm
+        action={vi.fn()}
+        config={{ ...workspacePolicy, providers: [provider] }}
+        repositoryPolicy={{
+          schemaVersion: 3,
+          providers: [provider],
+          investigationRollout: { productionEffectsEnabled: false },
+        }}
+        modelOptions={modelOptions}
+        gatewayAccounts={{ status: "unavailable" }}
+        hiddenFields={[]}
+        mutationsEnabled
+        submitLabel="Save"
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+    ).toBe(true);
+    const mode = document.querySelector('select[name="policyMode.providers"]')!;
+    fireEvent.change(mode, { target: { value: "inherit" } });
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+    ).toBe(false);
+    expect(
+      screen
+        .getByRole("combobox", { name: "Provider auth" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(pageText()).toContain("Will use workspace defaults after save");
+    expect(
+      readRepositoryReviewPolicyForm(
+        new FormData(document.querySelector("form")!),
+      ),
+    ).toEqual({
+      schemaVersion: 3,
+      investigationRollout: { productionEffectsEnabled: false },
+    });
+  });
+
+  it("requires confirmation before removing a legacy override and retains raw CAS", async () => {
+    vi.mocked(clearRepositoryReviewConfigClientAction).mockResolvedValue({
+      params: { notice: "repository_review_config_cleared" },
+    });
+    render(
+      <RepositoryPolicyEditor
+        workspaceId="workspace_1"
+        repository={{
+          id: "repo_1",
+          fullName: "test/disposable",
+          selected: true,
+          archived: false,
+        }}
+        repositoryConfig={null}
+        expectedVersion={11}
+        effectiveConfig={openRouterReviewConfiguration()}
+        modelOptions={modelOptions}
+        mutationsEnabled
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Edit settings/ }));
+    expect(
+      screen.getByRole("button", { name: "Replace legacy override" }),
+    ).toBeTruthy();
+    expect(
+      new FormData(document.querySelector("form")!).get(
+        "policyExpectedVersion",
+      ),
+    ).toBe("11");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Remove legacy override (inherit workspace)",
+      }),
+    );
+    expect(clearRepositoryReviewConfigClientAction).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(pageText()).toContain(
+      "including execution, limits, blocking and rollout settings",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove all overrides" }),
+    );
+    await waitFor(() =>
+      expect(clearRepositoryReviewConfigClientAction).toHaveBeenCalledOnce(),
+    );
+  });
+
+  it("preserves the unsaved review language after a failed form action and retries it", async () => {
+    vi.mocked(saveWorkspaceReviewConfigClientAction)
+      .mockResolvedValueOnce({ params: { error: "review_config_conflict" } })
+      .mockResolvedValueOnce({
+        params: { notice: "workspace_review_config_saved" },
+      });
+    render(
+      <WorkspaceReviewConfigForm
+        workspaceId="workspace_1"
+        expectedVersion={1}
+        config={openRouterReviewConfiguration()}
+        modelOptions={modelOptions}
+        mutationsEnabled
+      />,
+    );
+    const language = document.querySelector<HTMLInputElement>(
+      'input[name="reviewLanguage"]',
+    )!;
+    fireEvent.change(language, { target: { value: "Ukrainian" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save workspace default" }),
+    );
+    await waitFor(() =>
+      expect(saveWorkspaceReviewConfigClientAction).toHaveBeenCalledOnce(),
+    );
+    await waitFor(() =>
+      expect(toast.custom).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.objectContaining({
+          id: expect.stringContaining("danger|Action needs attention|"),
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Save workspace default" })
+          .hasAttribute("disabled"),
+      ).toBe(false),
+    );
+    expect(language.value).toBe("Ukrainian");
+    expect(routerMock.refresh).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save workspace default" }),
+    );
+    await waitFor(() =>
+      expect(saveWorkspaceReviewConfigClientAction).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      vi
+        .mocked(saveWorkspaceReviewConfigClientAction)
+        .mock.calls[1]![0].get("reviewLanguage"),
+    ).toBe("Ukrainian");
+  });
+
+  it("reconciles repository form state only when the accepted policy revision changes", () => {
+    const config = openRouterReviewConfiguration();
+    const props = {
+      workspaceId: "workspace_1",
+      repository: {
+        id: "repo_1",
+        fullName: "test/disposable",
+        selected: true,
+        archived: false,
+      },
+      repositoryConfig: {
+        version: 1,
+        policy: { schemaVersion: 3 as const, providers: config.providers },
+        config,
+      },
+      expectedVersion: 1,
+      effectiveConfig: config,
+      modelOptions,
+      mutationsEnabled: true,
+    };
+    const { rerender } = render(<RepositoryPolicyEditor {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: /Edit settings/ }));
+    fireEvent.change(
+      document.querySelector('select[name="policyMode.providers"]')!,
+      { target: { value: "inherit" } },
+    );
+    rerender(<RepositoryPolicyEditor {...props} />);
+    expect(
+      (
+        document.querySelector(
+          'select[name="policyMode.providers"]',
+        ) as HTMLSelectElement
+      ).value,
+    ).toBe("inherit");
+    rerender(
+      <RepositoryPolicyEditor
+        {...props}
+        expectedVersion={2}
+        repositoryConfig={{ ...props.repositoryConfig, version: 2 }}
+      />,
+    );
+    expect(
+      (
+        document.querySelector(
+          'select[name="policyMode.providers"]',
+        ) as HTMLSelectElement
+      ).value,
+    ).toBe("override");
+  });
 
   // Regression: refreshed choices must not replace a saved tuple or admit stale selections.
   it.each([
@@ -1472,9 +1684,15 @@ describe("ReviewConfigForm", () => {
 
     expect(screen.getByText("Provider 1")).toBeTruthy();
     await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toContain(
-        "OPENROUTER_API_KEY is set in this repository's GitHub Actions secrets",
-      );
+      expect(
+        screen
+          .getAllByRole("status")
+          .find((status) =>
+            status.textContent?.includes(
+              "OPENROUTER_API_KEY is set in this repository's GitHub Actions secrets",
+            ),
+          ),
+      ).toBeTruthy();
     });
     expect(checkProviderRepositorySecretClientAction).toHaveBeenCalledTimes(1);
 
@@ -1483,9 +1701,15 @@ describe("ReviewConfigForm", () => {
     fireEvent.click(rowButton!);
 
     await waitFor(() => {
-      expect(screen.getByRole("status").textContent).toContain(
-        "OPENROUTER_API_KEY is set in this repository's GitHub Actions secrets",
-      );
+      expect(
+        screen
+          .getAllByRole("status")
+          .find((status) =>
+            status.textContent?.includes(
+              "OPENROUTER_API_KEY is set in this repository's GitHub Actions secrets",
+            ),
+          ),
+      ).toBeTruthy();
     });
     expect(checkProviderRepositorySecretClientAction).toHaveBeenCalledTimes(1);
   });

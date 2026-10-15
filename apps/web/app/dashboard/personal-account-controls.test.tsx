@@ -137,7 +137,7 @@ test("public personal controls are inert unless explicitly enabled with an adapt
       api={api}
     />,
   );
-  expect(document.body.textContent).not.toContain("My personal accounts");
+  expect(document.body.textContent).not.toContain("Share with organizations");
   expect(api.listSources).not.toHaveBeenCalled();
   expect(api.listEligibleOrganizations).not.toHaveBeenCalled();
 });
@@ -181,31 +181,59 @@ test("selects accounts across pages and shares independently with exact predeces
     expect(request).not.toHaveProperty("expectedGatewayRevision");
 });
 
-test("revokes exact own grant after role loss without disclosing an organization label or claiming remote completion", async () => {
-  const { bootstrap, api } = fixture();
-  render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
-  fireEvent.click(
-    screen.getByRole("button", {
-      name: "Manage sharing for Personal source-0",
-    }),
-  );
-  expect(await screen.findByText("Organization unavailable")).toBeTruthy();
-  expect(document.body.textContent).not.toContain("opaque-former-org");
-  expect(document.body.textContent).not.toContain("Organization X");
-  fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
-  await waitFor(() => expect(api.revoke).toHaveBeenCalledTimes(1));
-  expect(api.revoke.mock.calls[0]?.[0]).toEqual({
-    nonce: expect.any(String),
-    sourceId: "source-0",
-    targetWorkspaceId: "opaque-former-org",
-    expectedSourceMetadataRevision: 7,
-    bindingId: "original-binding",
-    expectedBindingRevision: 9,
-  });
-  expect(
-    await screen.findAllByText(/gateway confirmation pending/),
-  ).not.toHaveLength(0);
-});
+test.each([null, "Organization X"])(
+  "revokes the exact own grant and labels its request only with the authorized organization name (%s)",
+  async (organizationLabel) => {
+    const { bootstrap, api } = fixture();
+    api.listSources.mockResolvedValue(bootstrap.page);
+    const originalGrants = await api.listOwnGrants({
+      sourceId: "source-0",
+      limit: 25,
+    });
+    if (originalGrants.status !== "ok") throw new Error("fixture unavailable");
+    api.listOwnGrants.mockResolvedValue({
+      status: "ok",
+      value: {
+        ...originalGrants.value,
+        grants: originalGrants.value.grants.map((grant) => ({
+          ...grant,
+          organizationLabel,
+        })),
+      },
+    });
+    render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Manage sharing for Personal source-0",
+      }),
+    );
+    expect(
+      await screen.findByText(organizationLabel ?? "Organization unavailable"),
+    ).toBeTruthy();
+    expect(document.body.textContent).not.toContain("opaque-former-org");
+    if (organizationLabel === null)
+      expect(document.body.textContent).not.toContain("Organization X");
+    fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
+    await waitFor(() => expect(api.revoke).toHaveBeenCalledTimes(1));
+    expect(api.revoke.mock.calls[0]?.[0]).toEqual({
+      nonce: expect.any(String),
+      sourceId: "source-0",
+      targetWorkspaceId: "opaque-former-org",
+      expectedSourceMetadataRevision: 7,
+      bindingId: "original-binding",
+      expectedBindingRevision: 9,
+    });
+    expect(
+      await screen.findAllByText(/gateway confirmation pending/),
+    ).not.toHaveLength(0);
+    expect(
+      await screen.findByText(
+        `Personal source-0 · ${organizationLabel ?? "Organization unavailable"}`,
+      ),
+    ).toBeTruthy();
+    expect(document.body.textContent).not.toContain("opaque-former-org");
+  },
+);
 
 test("revocation invalidates cached eligible selections in its scope before reusing the acknowledged predecessor", async () => {
   const { bootstrap, api } = fixture();

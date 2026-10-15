@@ -170,7 +170,7 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
       !workspace.policyJson ||
       (repository && (repository.schemaVersion !== 3 || !repository.policyJson))
     )
-      return null;
+      throw new Error("review_policy_resave_required");
     let config: ReviewConfiguration;
     try {
       const workspacePolicy = parseReviewConfigurationStrict(
@@ -183,7 +183,7 @@ export class PrismaActionControlPlaneRepository implements ActionControlPlaneRep
         : null;
       config = resolveReviewPolicy(workspacePolicy, repositoryPolicy);
     } catch {
-      return null;
+      throw new Error("review_policy_resave_required");
     }
     const digest = `sha256:${createHash("sha256").update(canonicalJson(config)).digest("hex")}`;
     return {

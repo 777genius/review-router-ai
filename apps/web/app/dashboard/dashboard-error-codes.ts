@@ -4,6 +4,8 @@ export function safeDashboardErrorCode(error: unknown): string {
   if (summarizedGitHubApiError) {
     return summarizedGitHubApiError;
   }
+  if (message.startsWith("workflow_delete_untrusted:"))
+    return "workflow_delete_untrusted";
   if (message.startsWith("workspace_mutation_forbidden:")) {
     return "workspace_mutation_forbidden";
   }
@@ -32,6 +34,9 @@ export function safeDashboardErrorCode(error: unknown): string {
   }
   if (
     [
+      "review_policy_resave_required",
+      "review_workspace_policy_required",
+      "workflow_delete_untrusted",
       "repository_access_token_missing",
       "repository_access_token_revoked",
       "repository_access_token_expired",

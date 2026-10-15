@@ -1,3 +1,4 @@
+import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import { initialWorkspaceReviewPolicyDraft } from "../../src/server/initial-workspace-review-policy";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
@@ -472,35 +473,9 @@ export async function loadDashboardSectionData(
   const repositoryIds = visibleRepositories.map((repository) => repository.id);
   // Capture CAS metadata before parsing policy. An opaque head is still an
   // existing target; a later metadata read must not authorize a stale draft.
-  const policyHeads = needsConfig
-    ? await prisma.reviewConfiguration.findMany({
-        where: {
-          workspaceId: workspace.id,
-          active: true,
-          OR: [
-            { targetKey: "workspace:default", repositoryId: null },
-            ...repositoryIds.map((repositoryId) => ({
-              targetKey: `repo:${repositoryId}`,
-              repositoryId,
-            })),
-          ],
-        },
-        select: {
-          targetKey: true,
-          versions: {
-            orderBy: { version: "desc" },
-            take: 1,
-            select: { version: true },
-          },
-        },
-      })
-    : [];
-  const policyHeadVersions = new Map(
-    policyHeads.map((head) => [
-      head.targetKey,
-      head.versions[0]?.version ?? null,
-    ]),
-  );
+  const policyHeadVersions = needsConfig
+    ? await readReviewPolicyHeadVersions(prisma, workspace.id, repositoryIds)
+    : new Map<string, number | null>();
   const visibleRepositoryOwners = new Set(
     visibleRepositories.map((repository) => repository.owner.toLowerCase()),
   );
@@ -678,7 +653,10 @@ export async function loadDashboardSectionData(
             (
               repositoryConfigs.find(
                 (item) => item.repositoryId === repository.id,
-              )?.config?.config ?? reviewConfig?.config
+              )?.config?.config ??
+              (policyHeadVersions.get(`repo:${repository.id}`) != null
+                ? undefined
+                : reviewConfig?.config)
             )?.providers.some(
               (provider) => provider.authMode === "codex_account_gateway",
             ),
@@ -1821,7 +1799,16 @@ function WorkspaceCard({
           hasWorkspaceWideAccess={hasWorkspaceWideAccess}
           mutationsEnabled={mutationsEnabled}
         />
-        <p>Save workspace review settings before enabling reviews.</p>
+        {data.reviewConfigExpectedVersion !== null ? (
+          <p role="alert">
+            Saved workspace policy v{data.reviewConfigExpectedVersion} uses a
+            retired format and is not applied — reviews are stopped. The form
+            below shows product defaults, not your previous values. Review and
+            save explicitly.
+          </p>
+        ) : (
+          <p>Save workspace review settings before enabling reviews.</p>
+        )}
         {hasWorkspaceWideAccess ? (
           <AccountGatewayAccountsSection workspaceId={workspace.id} />
         ) : (
@@ -1831,6 +1818,11 @@ function WorkspaceCard({
           <WorkspaceReviewConfigForm
             workspaceId={workspace.id}
             expectedVersion={data.reviewConfigExpectedVersion}
+            submitLabel={
+              data.reviewConfigExpectedVersion !== null
+                ? `Replace legacy policy v${data.reviewConfigExpectedVersion}`
+                : undefined
+            }
             config={draft}
             modelOptions={modelOptions}
             gatewayAccounts={gatewayAccounts}
@@ -1857,6 +1849,14 @@ function WorkspaceCard({
       )
     : undefined;
   const selectedRepository = requestedRepository ?? null;
+  const selectedRepositoryLegacy =
+    selectedRepository != null &&
+    repositoryConfigs.some(
+      (item) =>
+        item.repositoryId === selectedRepository.id &&
+        !item.config &&
+        item.expectedVersion != null,
+    );
   const selectedRepositoryConfig =
     repositoryConfigs.find(
       (item) => item.repositoryId === selectedRepository?.id,
@@ -1892,6 +1892,7 @@ function WorkspaceCard({
     selectedRepository &&
     selectedInstallation &&
     providerGuidanceSet ? (
+      !selectedRepositoryLegacy &&
       selectedRepositoryConfig.providers.some(
         (provider) => provider.authMode === "codex_account_gateway",
       ) ? (
