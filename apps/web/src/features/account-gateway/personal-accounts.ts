@@ -24,7 +24,7 @@ export type OwnAccountGrant = {
   organizationLabel: string | null;
   revision: number;
   state: "active" | "revoked";
-  remoteFenceDelivery: "remote_pending" | "remote_applied";
+  remoteFenceDelivery: "not_required" | "remote_pending" | "remote_applied";
   canRevoke: boolean;
 };
 export type OwnAccountGrantPage = {
