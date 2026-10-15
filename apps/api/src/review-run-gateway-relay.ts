@@ -109,9 +109,10 @@ export function createReviewRunGatewayRelay(input: {
     | "expireOrRevokeReviewRunAuthorization"
   >;
   readonly queries: ReviewRunAuthorizationQueryPort;
-  // Async SCM preflight; final protected local authority follows the binding read.
+  // Full SCM freshness at phase boundaries; opaque chunks keep every local guard.
   readonly checkAuthority: (
     authorization: ReviewRunAuthorization,
+    freshness: "full" | "local",
   ) => Promise<boolean>;
   readonly confirmAuthority: (
     token: string,
@@ -159,13 +160,13 @@ export function createReviewRunGatewayRelay(input: {
       finish();
     }
   }
-  async function resolve(token: string) {
+  async function resolve(token: string, freshness: "full" | "local" = "full") {
     const result =
       await input.authorizations.resolveReviewRunAuthorizationToken({ token });
     if (result.status !== "valid")
       throw new RelayFailure("authorization_denied", 401);
     const auth = result.authorization;
-    if (!(await input.checkAuthority(auth)))
+    if (!(await input.checkAuthority(auth, freshness)))
       throw new RelayFailure("authorization_denied", 401);
     const canonical = auth.runtimeSnapshotCanonicalJson;
     if (
@@ -191,8 +192,9 @@ export function createReviewRunGatewayRelay(input: {
     token: string,
     auth: ReviewRunAuthorization,
     session: Session,
+    freshness: "full" | "local" = "full",
   ) {
-    const current = await resolve(token);
+    const current = await resolve(token, freshness);
     if (
       session.closed ||
       stopping ||
@@ -448,7 +450,10 @@ export function createReviewRunGatewayRelay(input: {
                       try {
                         const chunk = await reader.read();
                         phase = "authority_recheck";
-                        await fresh();
+                        // A body chunk/EOF is not a new native admission or
+                        // accepted review. Keep local authority live without
+                        // withholding opaque bytes on another remote SCM read.
+                        await check(token, auth, session, "local");
                         // SDK cancellation can resolve read() with done=true. That
                         // is transport teardown, not successful terminal delivery.
                         if (signal.aborted)

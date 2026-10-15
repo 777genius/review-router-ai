@@ -9,6 +9,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Badge, Button, Dialog, SelectField } from "@reviewrouter/ui";
+import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
 import {
   canonicalMimoBaseURL,
   mimoTokenPlanEndpoints,
@@ -431,6 +432,11 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Badge tone="neutral">{account.state}</Badge>
+                  {personalAccountOriginText(account) ? (
+                    <Badge tone="neutral">
+                      {personalAccountOriginText(account)}
+                    </Badge>
+                  ) : null}
                   {account.binding ? (
                     <Badge tone="neutral">
                       {account.binding.fencePending

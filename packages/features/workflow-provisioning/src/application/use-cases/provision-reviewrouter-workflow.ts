@@ -67,7 +67,7 @@ export async function provisionReviewRouterWorkflow(
   }
   if (
     gatewaySelected &&
-    (saved?.source !== "repository" ||
+    (saved?.source === "default" ||
       input.codexSessionMode !== "account-gateway" ||
       input.runtimeConfigMode !== "oidc" ||
       input.staticRuntimeEnv !== undefined ||
