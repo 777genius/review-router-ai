@@ -793,6 +793,18 @@ describe("Review Action v2 production composition", () => {
       coverageProfileHash: "a".repeat(64),
       policyHash: "b".repeat(64),
     } as const;
+    const agentProfiles = [
+      {
+        agentKind: "codex",
+        binarySha256:
+          "cb0a15567e9a60a5820d54b0f6ae86d504dc3805c1eab21a47f70e3eb7b73a40",
+        cancellation: true,
+        contextGateway: true,
+        modelTransports: ["account_gateway"],
+        packageVersion: "0.147.0",
+        profileRef: "codex-default",
+      },
+    ] as const;
     const materializer = createTrustedProducerReleaseMaterializer({
       digest: {} as never,
       producerReleases: {
@@ -827,10 +839,14 @@ describe("Review Action v2 production composition", () => {
       protocolLimitsProfileId: "limits-v2",
       operationalSloProfileId: "slo-v2",
       reviewInvestigationProfile,
+      agentProfiles,
     } as never);
 
     expect(registerProducerRelease).toHaveBeenCalledWith({
-      candidate: expect.objectContaining({ reviewInvestigationProfile }),
+      candidate: expect.objectContaining({
+        reviewInvestigationProfile,
+        agentProfiles,
+      }),
       expectedProtocolLimitsDigest: "c".repeat(64),
       expectedOperationalSloDigest: "d".repeat(64),
     });
