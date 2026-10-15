@@ -63,22 +63,18 @@ function Harness() {
 }
 test("exact saved offpage binding stays selected, while a retired binding never follows a fresh lifetime", async () => {
   const api = {
-    list: vi
-      .fn<GatewayModelAccountsApi["list"]>()
-      .mockResolvedValue({
-        status: "ok",
-        value: {
-          accounts: [account("fresh-binding")],
-          profiles: [profile],
-          nextCursor: null,
-        },
-      }),
-    get: vi
-      .fn<GatewayModelAccountsApi["get"]>()
-      .mockResolvedValue({
-        status: "ok",
-        value: { account: account("saved-binding"), profile },
-      }),
+    list: vi.fn<GatewayModelAccountsApi["list"]>().mockResolvedValue({
+      status: "ok",
+      value: {
+        accounts: [account("fresh-binding")],
+        profiles: [profile],
+        nextCursor: null,
+      },
+    }),
+    get: vi.fn<GatewayModelAccountsApi["get"]>().mockResolvedValue({
+      status: "ok",
+      value: { account: account("saved-binding"), profile },
+    }),
   };
   render(
     <GatewayModelAccountsProvider scope="org-x" api={api}>
