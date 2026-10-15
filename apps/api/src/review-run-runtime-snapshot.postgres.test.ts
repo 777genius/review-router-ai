@@ -11,6 +11,7 @@ import {
   createServer,
   request as httpRequest,
   type IncomingMessage,
+  type ServerResponse,
 } from "node:http";
 import Fastify from "fastify";
 import type { AddressInfo } from "node:net";
@@ -641,6 +642,9 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
     let recheckRuntimeConfig: (() => Promise<void>) | undefined;
     let restoreGatewayFetch: (() => void) | undefined;
     let relay: ReviewRunGatewayRelay | undefined;
+    let startBindingRevocationStream:
+      | (() => Promise<() => Promise<void>>)
+      | undefined;
     const closes: Gateway.Close[] = [];
     try {
       const { prisma, workspaceId, repositoryConnectionId } = harness;
@@ -845,6 +849,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         | "held"
       )[] = [];
       const sse = `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "x".repeat(150000) })}\n\ndata: {"type":"response.completed"}\n\n`;
+      let heldResponse: ServerResponse | undefined;
       let holdAccess: (() => Promise<void>) | undefined;
       let holdStatus: (() => Promise<void>) | undefined;
       let statusCalls = 0;
@@ -894,6 +899,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
                   }),
                 );
             } else if (mode === "held") {
+              heldResponse = response;
               response.writeHead(200, {
                 "content-type": "text/event-stream",
                 "x-gateway-request-ref": requestRef,
@@ -1609,6 +1615,69 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         });
         expect(requests).toHaveLength(7); // No partial-output retry/re-ID.
         responses = ["held"];
+        const flowing = await relay.responses(
+          first.authorizationToken,
+          new TextEncoder().encode('{"input":"fixture"}'),
+          new AbortController(),
+        );
+        if (flowing.kind !== "stream")
+          throw new Error("fixture_stream_missing");
+        const reader = flowing.body.getReader();
+        const remoteEntered = gate(),
+          remoteRelease = gate();
+        const readsAfterAdmission = scmReads;
+        holdScm = async () => {
+          remoteEntered.release();
+          await remoteRelease.pending;
+        };
+        try {
+          // OLD deterministically enters the deferred remote resolver after
+          // admission; NEW delivers while retaining every local authority read.
+          const firstChunk = await Promise.race([
+            reader.read().then((chunk) => ({ kind: "chunk" as const, chunk })),
+            remoteEntered.pending.then(() => ({ kind: "remote" as const })),
+          ]);
+          expect(firstChunk.kind).toBe("chunk");
+          if (firstChunk.kind !== "chunk")
+            throw new Error("fixture_remote_chunk_gate");
+          expect(new TextDecoder().decode(firstChunk.chunk.value)).toBe(
+            'data: {"type":"response.created"}\n\n',
+          );
+          // Opaque model-turn bytes and EOF never become review finality.
+          heldResponse!.end('data: {"type":"response.completed"}\n\n');
+          expect(new TextDecoder().decode((await reader.read()).value)).toBe(
+            'data: {"type":"response.completed"}\n\n',
+          );
+          expect(await reader.read()).toMatchObject({ done: true });
+          expect(scmReads).toBe(readsAfterAdmission);
+        } finally {
+          holdScm = undefined;
+          remoteRelease.release();
+          await reader.cancel().catch(() => {});
+        }
+        expect(requests).toHaveLength(8);
+        harness.setRevision({
+          baseSha: row.baseSha,
+          mergeBaseSha: row.mergeBaseSha,
+          headSha: "9".repeat(40),
+        });
+        try {
+          await expect(
+            relay.responses(
+              first.authorizationToken,
+              new TextEncoder().encode('{"input":"fixture"}'),
+              new AbortController(),
+            ),
+          ).rejects.toMatchObject({ code: "authorization_denied" });
+          expect(requests).toHaveLength(8); // New admission still requires remote head.
+        } finally {
+          harness.setRevision({
+            baseSha: row.baseSha,
+            mergeBaseSha: row.mergeBaseSha,
+            headSha: row.headSha,
+          });
+        }
+        responses = ["held"];
         const cancelled = new AbortController();
         const held = await relay.responses(
           first.authorizationToken,
@@ -1620,7 +1689,28 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         await expect(new Response(held.body).text()).rejects.toMatchObject({
           effect: "effect_unknown",
         });
-        expect(requests).toHaveLength(8); // Cancel never becomes success or retry.
+        expect(requests).toHaveLength(9); // Cancel never becomes success or retry.
+        startBindingRevocationStream = async () => {
+          responses = ["held"];
+          const response = await relay!.responses(
+            first.authorizationToken,
+            new TextEncoder().encode('{"input":"fixture"}'),
+            new AbortController(),
+          );
+          if (response.kind !== "stream")
+            throw new Error("fixture_stream_missing");
+          const currentReader = response.body.getReader();
+          expect((await currentReader.read()).done).toBe(false);
+          return async () => {
+            heldResponse!.write(
+              'data: {"type":"response.output_text.delta"}\n\n',
+            );
+            await expect(currentReader.read()).rejects.toMatchObject({
+              effect: "effect_unknown",
+            });
+            expect(requests).toHaveLength(10); // Original binding revoke, no new attempt.
+          };
+        };
       }
       const replay = await harness.authorize(); // New verified OIDC nonce, same owned tuple.
       expect(replay.authorizationId).toBe(first.authorizationId);
@@ -1926,12 +2016,15 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       ).toBe("expired");
       crossDuringBindingRead = false;
       observedNow = production.clock.now();
+      expect(startBindingRevocationStream).toBeDefined();
+      const assertStreamRevoked = await startBindingRevocationStream!();
       await accounts.compareAndSetBinding({
         workspaceId,
         connectionId: connection.id,
         expectedRevision: binding.revision,
         state: "revoked",
       });
+      await assertStreamRevoked();
       await expect(harness.authorize()).rejects.toThrow();
       await expect(
         harness.authorize({ sourceRunAttempt: "4" }),
