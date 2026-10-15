@@ -167,7 +167,9 @@ function fixture() {
     gateway,
     queries,
     readBindingAttachOperation,
-    createAdapter: vi.fn((_authorize: () => Promise<string>) => adapter),
+    createAdapter: vi.fn<(authorize: () => Promise<string>) => typeof adapter>(
+      () => adapter,
+    ),
   };
   // Unused store writers are deliberately absent: this boundary delegates to C2.
   const api = createPersonalAccountSharingApi(

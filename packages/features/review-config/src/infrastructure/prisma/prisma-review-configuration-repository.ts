@@ -7,7 +7,7 @@ import {
   ProviderAccountError,
   assertOpaqueReference,
 } from "@reviewrouter/features-provider-accounts";
-import { Prisma, type PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   parseReviewConfiguration,
   type ReviewConfiguration,
@@ -759,9 +759,9 @@ async function lockPersonalWriteActor(
   ];
   const members = await prisma.$queryRaw<
     { userId: string | null; role: string }[]
-  >(Prisma.sql`
+  >`
     SELECT "userId", "role" FROM "WorkspaceMember" WHERE "workspaceId" = ${workspaceId}
-      AND "userId" IN (${Prisma.join(users)}) ORDER BY "id" FOR SHARE`);
+      AND "userId" = ANY(${users}::text[]) ORDER BY "id" FOR SHARE`;
   if (
     scope.personalOwnerUserId !== null
       ? scope.personalOwnerUserId !== actorUserId
@@ -818,7 +818,9 @@ async function assertGatewaySelections(
       );
     } catch (error) {
       if (error instanceof ProviderAccountError)
-        throw new Error("review_configuration_gateway_binding_unavailable");
+        throw new Error("review_configuration_gateway_binding_unavailable", {
+          cause: error,
+        });
       throw error;
     }
     // A row absent from the preliminary immutable-owner read cannot acquire

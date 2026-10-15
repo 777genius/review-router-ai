@@ -81,7 +81,11 @@ const label = z
   .max(120)
   .refine(
     (value) =>
-      Buffer.byteLength(value, "utf8") <= 400 && !/[\x00-\x1f\x7f]/.test(value),
+      Buffer.byteLength(value, "utf8") <= 400 &&
+      [...value].every((character) => {
+        const code = character.charCodeAt(0);
+        return code >= 0x20 && code !== 0x7f;
+      }),
   );
 const fresh = z.strictObject({
   nonce,
@@ -429,7 +433,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         await scope.authorize();
         return scope.view(original);
       }
-      original = await scope.checked(() =>
+      await scope.checked(() =>
         input.canonical.ready(scope.actor, request.nonce),
       );
     }

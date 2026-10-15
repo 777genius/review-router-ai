@@ -1132,7 +1132,7 @@ export async function runBindingFencePostgresTests(
           entries = 0;
         const deps = {
           store,
-          authorizeOwner: async (_actorUserId: string) => {},
+          authorizeOwner: async () => {},
           gateway: {
             get: async () => ({ ...account }),
             operation: async (operationId: string) => ({

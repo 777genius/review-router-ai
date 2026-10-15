@@ -30,6 +30,13 @@ const OptionsContext = createContext<{
   client: QueryClient;
 } | null>(null);
 
+export function useGatewayModelAccountsQueryClient(
+  scope: string,
+): QueryClient | null {
+  const context = useContext(OptionsContext);
+  return context?.scope === scope ? context.client : null;
+}
+
 // Optional composition seam. Without a server-authorized adapter the existing
 // first-paint behavior is retained, and no additional endpoint is called.
 export function GatewayModelAccountsProvider({

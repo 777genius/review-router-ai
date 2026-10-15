@@ -179,24 +179,34 @@ function fixture() {
       ],
       nextCursor: null,
     })),
-    connect: vi.fn(
-      async (
+    connect: vi.fn<
+      (
         request: { nonce: string; profileId: string; label: string },
-        _credential?: string,
-      ) => ({
+        credential?: string,
+      ) => Promise<{
         operation: {
-          operationId: "connect",
-          phase: "submitted" as const,
-          sourceId: null,
-          bindingId: null,
-          available: false,
-          state: "pending" as const,
-        },
-        ...(request.profileId === "profile-oauth"
-          ? { authorizationURL: "https://auth.example.test/one-off-secret" }
-          : {}),
-      }),
-    ),
+          operationId: string;
+          phase: "submitted";
+          sourceId: null;
+          bindingId: null;
+          available: false;
+          state: "pending";
+        };
+        authorizationURL?: string;
+      }>
+    >(async (request) => ({
+      operation: {
+        operationId: "connect",
+        phase: "submitted" as const,
+        sourceId: null,
+        bindingId: null,
+        available: false,
+        state: "pending" as const,
+      },
+      ...(request.profileId === "profile-oauth"
+        ? { authorizationURL: "https://auth.example.test/one-off-secret" }
+        : {}),
+    })),
     operation: vi.fn(async () => ({
       operationId: "connect",
       phase: "submitted" as "submitted" | "unknown",

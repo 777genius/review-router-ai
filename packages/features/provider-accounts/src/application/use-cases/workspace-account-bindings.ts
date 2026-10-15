@@ -215,18 +215,21 @@ export async function resolveWorkspaceAccountBinding(
   // Members may read/select in their current workspace; missing membership must
   // pass the existing explicit local override seam. No login-role fallback.
   if (!role) await assertAdmin(input.workspaceId, input.actor, dependencies);
-  const selection: BindingSelection | null = await dependencies.accounts.findBinding({
-    workspaceId: input.workspaceId,
-    bindingId: input.bindingId,
-  });
+  const selection: BindingSelection | null =
+    await dependencies.accounts.findBinding({
+      workspaceId: input.workspaceId,
+      bindingId: input.bindingId,
+    });
   if (selection?.connection.owner.kind === "user" && selection.personalUse) {
     // H never inherits the legacy local-login or GitHub-only actor fallback.
     // An ordinary live org member may consume; a P belongs only to its stable U.
     if (
-      !input.actor.userId || !role ||
+      !input.actor.userId ||
+      !role ||
       (selection.personalUse?.personalOwnerUserId != null &&
         selection.personalUse.personalOwnerUserId !== input.actor.userId)
-    ) throw new ProviderAccountError("workspace_forbidden");
+    )
+      throw new ProviderAccountError("workspace_forbidden");
   }
   return selectBinding(
     input.workspaceId,
