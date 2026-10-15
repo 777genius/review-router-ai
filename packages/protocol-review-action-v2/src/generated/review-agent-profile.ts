@@ -1,4 +1,4 @@
-// Generated from protocol-review-workflow/src/review-agent-profile.ts. Do not edit.
+// Generated from shared/src/review-agent-profile.ts. Do not edit.
 /** Approved toolchain metadata; model providers never select an agent kind. */
 export type ReviewAgentProfile = Readonly<{
   profileRef: string;

@@ -30,7 +30,7 @@
     "@prisma/client": "7.8.0",
     "@reviewrouter/platform-db": "workspace:*",
     "@reviewrouter/platform-signed-capabilities": "workspace:*",
-    "@reviewrouter/protocol-review-workflow": "workspace:*"
+    "@reviewrouter/shared": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

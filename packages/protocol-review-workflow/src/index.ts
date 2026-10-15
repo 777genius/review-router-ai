@@ -1,7 +1,7 @@
 export {
   parseReviewAgentProfiles,
   type ReviewAgentProfile,
-} from "./review-agent-profile";
+} from "@reviewrouter/shared";
 export const legacyReviewRouterWorkflowPath =
   ".github/workflows/reviewrouter.yml";
 export const managedCodexWorkflowPath =

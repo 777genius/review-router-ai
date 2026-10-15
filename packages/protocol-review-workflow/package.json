@@ -10,6 +10,9 @@
       "default": "./src/index.ts"
     }
   },
+  "dependencies": {
+    "@reviewrouter/shared": "workspace:*"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"

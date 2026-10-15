@@ -2,8 +2,8 @@ import { invalid } from "./review-run-control-types";
 import {
   parseReviewAgentProfiles as parseProfileWire,
   type ReviewAgentProfile,
-} from "@reviewrouter/protocol-review-workflow";
-export type { ReviewAgentProfile } from "@reviewrouter/protocol-review-workflow";
+} from "@reviewrouter/shared";
+export type { ReviewAgentProfile } from "@reviewrouter/shared";
 export function parseReviewAgentProfiles(
   value: unknown,
 ): readonly ReviewAgentProfile[] {

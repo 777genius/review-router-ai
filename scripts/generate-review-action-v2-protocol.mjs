@@ -94,11 +94,11 @@ export async function generateReviewActionV2Protocol(input = {}) {
     [
       "generated/review-agent-profile.ts",
       await format(
-        "// Generated from protocol-review-workflow/src/review-agent-profile.ts. Do not edit.\n" +
+        "// Generated from shared/src/review-agent-profile.ts. Do not edit.\n" +
           (await readFile(
             join(
               repositoryRoot,
-              "packages/protocol-review-workflow/src/review-agent-profile.ts",
+              "packages/shared/src/review-agent-profile.ts",
             ),
             "utf8",
           )),

@@ -5,7 +5,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnvFile } from "./lib/env-file.mjs";
 import { normalizeGitHubAppPermissionProfile } from "./lib/github-app-permission-profiles.mjs";
-import { parseReviewAgentProfiles } from "../packages/protocol-review-workflow/src/review-agent-profile.ts";
+import { parseReviewAgentProfiles } from "../packages/shared/src/review-agent-profile.ts";
 import { reviewV2ProjectionPolicyVersion } from "./review-v2-render-env.mjs";
 import { isLoopbackHostname } from "../packages/shared/src/validation/loopback-hostname.mjs";
 import { resolveCodexRotatingInstallerDescriptor } from "../packages/shared/src/validation/codex-rotating-installer-descriptor.mjs";

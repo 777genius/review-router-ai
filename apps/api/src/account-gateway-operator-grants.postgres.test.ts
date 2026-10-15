@@ -22,7 +22,6 @@ import {
   parseReviewConfigurationStrict,
   PrismaReviewConfigurationRepository,
   saveReviewConfiguration,
-  safeDefaultReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
   ReviewTrustDomain,
@@ -30,6 +29,23 @@ import {
 } from "@reviewrouter/features-review-run-control";
 import { ProductionReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
 import { createRunAccessClient } from "./account-gateway-run-access";
+
+const producerRelease = {
+  producerReleaseId: "operator-grants-test-producer",
+  actionCommitSha: "a".repeat(40),
+  runtimeCommitSha: "b".repeat(40),
+  agentProfiles: [
+    {
+      profileRef: "codex-default",
+      agentKind: "codex",
+      binarySha256: "c".repeat(64),
+      packageVersion: "0.147.0",
+      modelTransports: ["account_gateway", "provider_api"],
+      contextGateway: true,
+      cancellation: true,
+    },
+  ],
+} as const;
 
 function disposableDatabase() {
   const raw = process.env.RR_S_OPERATOR_GRANTS_PG_TEST_URL ?? "";
@@ -538,8 +554,24 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
             {
               target: { scope: "workspace", workspaceId },
               expectedVersion,
-              config: parseReviewConfigurationStrict({
-                ...safeDefaultReviewConfiguration,
+              policy: parseReviewConfigurationStrict({
+                schemaVersion: 3,
+                execution: {
+                  providerLimit: 1,
+                  providerMaxParallel: 1,
+                  inlineMinAgreement: 1,
+                },
+                blockingPolicy: { failOnSeverity: "critical" },
+                limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+                reviewLanguage: null,
+                investigationRollout: {
+                  recordingEnabled: false,
+                  shadowEnabled: false,
+                  contextCriticEnabled: false,
+                  verifiedCleanEnabled: false,
+                  crossRevisionReplayEnabled: false,
+                  productionEffectsEnabled: false,
+                },
                 providers: [
                   {
                     kind: "codex",
@@ -573,10 +605,15 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
         await configure(y, gy.id);
         const deadline = new Date(Date.now() + 60000);
         const pinX = await snapshots.capture({
+            producerRelease,
             identity: identity(x),
             deadline,
           }),
-          pinY = await snapshots.capture({ identity: identity(y), deadline });
+          pinY = await snapshots.capture({
+            producerRelease,
+            identity: identity(y),
+            deadline,
+          });
         expect(pinX?.gateway).toMatchObject({
           permittedAccountRef: connection.gatewayAccountRef,
           bindingRevision: gx.revision,
@@ -588,7 +625,11 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
           policyRevision: gy.policyRevision,
         });
         expect(
-          await ordinarySnapshots.capture({ identity: identity(x), deadline }),
+          await ordinarySnapshots.capture({
+            producerRelease,
+            identity: identity(x),
+            deadline,
+          }),
         ).toBeNull();
         const runAccess = createRunAccessClient({
           origin,
@@ -642,6 +683,7 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
         ).toBe(false);
         expect(
           await snapshots.capture({
+            producerRelease,
             identity: identity(x, "new-id"),
             deadline,
           }),
@@ -796,11 +838,13 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
           deps,
         );
         const newY = await snapshots.capture({
+          producerRelease,
           identity: identity(y, "fresh-granted"),
           deadline,
         });
         await configure(x, byok.id, 1);
         const ownPin = await ordinarySnapshots.capture({
+          producerRelease,
           identity: identity(x),
           deadline,
         });
@@ -819,6 +863,7 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
         );
         await configure(x, gx.id, 2);
         const freshX = await snapshots.capture({
+          producerRelease,
           identity: identity(x, "fresh-granted"),
           deadline,
         });
@@ -897,6 +942,7 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
           ).toBe(false);
           expect(
             await snapshots.capture({
+              producerRelease,
               identity: identity(workspaceId, "after-disable"),
               deadline,
             }),

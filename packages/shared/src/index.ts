@@ -5,3 +5,8 @@ export * from "./safe-payload/index";
 export * from "./scm/index";
 export * from "./time/index";
 export * from "./validation/index";
+
+export {
+  parseReviewAgentProfiles,
+  type ReviewAgentProfile,
+} from "./review-agent-profile";
