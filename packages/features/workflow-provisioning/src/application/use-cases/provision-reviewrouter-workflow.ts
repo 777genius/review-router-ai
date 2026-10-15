@@ -11,7 +11,6 @@ import {
   renderReviewRouterWorkflowFiles,
   renderAccountGatewayWorkflow,
   reviewRouterWorkflowContract,
-  defaultCodexRotatingWorkflowPath,
 } from "../../domain/workflow-template";
 import {
   createProvisionWorkflowPlan,
@@ -79,7 +78,7 @@ export async function provisionReviewRouterWorkflow(
       input.codexRotatingReviewActionV2Mode !== undefined ||
       input.codexRotatingWorkflowSchemaVersion !== undefined ||
       (input.workflowPath !== undefined &&
-        input.workflowPath !== defaultCodexRotatingWorkflowPath))
+        input.workflowPath !== reviewRouterWorkflowContract.callerPath))
   ) {
     throw new Error("account_gateway_workflow_options_not_supported");
   }

@@ -3,6 +3,7 @@ import type { ProviderKind } from "@reviewrouter/features-review-providers";
 import { isLoopbackHostname } from "@reviewrouter/shared";
 import {
   legacyReviewRouterWorkflowPath,
+  managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
   renderReviewRouterCaller,
   reviewRouterWorkflowContract,
@@ -86,8 +87,7 @@ export type WorkflowProviderCompatibility = {
 };
 
 export const defaultWorkflowPath = legacyReviewRouterWorkflowPath;
-export const defaultCodexRotatingWorkflowPath =
-  reviewRouterWorkflowContract.callerPath;
+export const defaultCodexRotatingWorkflowPath = managedCodexWorkflowPath;
 export const defaultInteractionWorkflowPath = managedInteractionWorkflowPath;
 export const defaultRequiredWorkflowPath =
   ".github/workflows/reviewrouter-required.yml";

@@ -69,7 +69,7 @@ describe("provisionHostedPoolRepositoryWorkflow", () => {
     });
     const hosted = request.workflowFiles.find(
       (file) =>
-        file.path === ".github/workflows/reviewrouter-review.yml" &&
+        file.path === ".github/workflows/reviewrouter-codex.yml" &&
         file.operation !== "delete",
     );
     if (!hosted || hosted.operation === "delete")
@@ -88,7 +88,7 @@ describe("provisionHostedPoolRepositoryWorkflow", () => {
     expect(markSetupPullRequestOpen).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "setup_pr_open",
-        workflowPath: ".github/workflows/reviewrouter-review.yml",
+        workflowPath: ".github/workflows/reviewrouter-codex.yml",
       }),
     );
   });
@@ -132,7 +132,7 @@ describe("provisionHostedPoolRepositoryWorkflow", () => {
     const request = createOrUpdateSetupPullRequest.mock.calls[0]?.[0];
     const hosted = request?.workflowFiles.find(
       (file) =>
-        file.path === ".github/workflows/reviewrouter-review.yml" &&
+        file.path === ".github/workflows/reviewrouter-codex.yml" &&
         file.operation !== "delete",
     );
     expect(
