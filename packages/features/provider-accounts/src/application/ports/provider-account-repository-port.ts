@@ -88,7 +88,18 @@ export type PersonalOperationResult = {
   readonly binding: WorkspaceAccountBinding | null;
   readonly available: boolean;
 };
+/** Display only: excludes Gateway identifiers, operation IDs and organization data. */
+export type PersonalSourceCatalogItem = Pick<
+  ProviderAccountConnection,
+  "id" | "displayName" | "profileRef" | "state" | "metadataRevision"
+> & { readonly sourceOperationPending: boolean };
 export interface PersonalAccountOperationStore {
+  /** Apply the immutable User-owner filter before the keyset boundary and limit. */
+  listOwnedSources(input: {
+    readonly actorUserId: string;
+    readonly limit: number;
+    readonly afterSourceId?: string;
+  }): Promise<readonly PersonalSourceCatalogItem[]>;
   resolvePersonalWorkspace(actorUserId: string): Promise<string>;
   findOwnedSource(
     actorUserId: string,
