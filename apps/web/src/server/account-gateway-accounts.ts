@@ -1329,7 +1329,17 @@ export function createDisabledPersonalAccountsAdapter(input: {
       };
     },
   };
-  const dependencies = { store: input.store, gateway };
+  const dependenciesFor = (actorUserId: string) => ({
+    store: input.store,
+    gateway,
+    async authorizeOwner(expectedActor: string) {
+      if (
+        expectedActor !== actorUserId ||
+        (await input.authorizeUser()) !== actorUserId
+      )
+        throw new ProviderAccountError("connection_unavailable");
+    },
+  });
   const view = (result: PersonalOperationResult) => ({
     operationId: result.id,
     phase: result.phase,
@@ -1452,7 +1462,7 @@ export function createDisabledPersonalAccountsAdapter(input: {
       let authorizationURL: string | undefined;
       const result = await connectPersonalAccount(
         intent,
-        dependencies,
+        dependenciesFor(actorUserId),
         async () => {
           // Only the committed CAS winner reaches this closure once.
           const original = {
@@ -1480,11 +1490,12 @@ export function createDisabledPersonalAccountsAdapter(input: {
     },
     async operation(nonce: string) {
       const clientOperationId = uuid.parse(nonce);
+      const actorUserId = await input.authorizeUser();
       return view(
         await readPersonalAccountOperation(
-          await input.authorizeUser(),
+          actorUserId,
           clientOperationId,
-          dependencies,
+          dependenciesFor(actorUserId),
         ),
       );
     },
@@ -1537,7 +1548,11 @@ export function createDisabledPersonalAccountsAdapter(input: {
           await checked(() => client.completeOAuth(request));
         return view(
           await checked(() =>
-            readPersonalAccountOperation(actorUserId, safe.nonce, dependencies),
+            readPersonalAccountOperation(
+              actorUserId,
+              safe.nonce,
+              dependenciesFor(actorUserId),
+            ),
           ),
         );
       } catch {
@@ -1569,7 +1584,7 @@ export function createDisabledPersonalAccountsAdapter(input: {
             personalWorkspaceId,
             clientOperationId: safe.nonce,
           },
-          dependencies,
+          dependenciesFor(actorUserId),
         ),
       );
     },

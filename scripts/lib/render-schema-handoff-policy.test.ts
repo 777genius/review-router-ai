@@ -33,6 +33,8 @@ const providerKeyMigrationName = "000110_provider_api_key_workspace_management";
 const reconnectMigrationName = "000125_hosted_codex_device_reconnect";
 const mimoAuthMigrationName = "000126_review_configuration_mimo_auth_kind";
 const accountAdmissionMigrationName = "000128_account_admission_row_lock";
+const personalCanonicalMigrationName = "000130_personal_canonical_operations";
+const personalSnapshotMigrationName = "000129_personal_run_snapshot_v2";
 const ownerDeletionMigrationName = "000127_owner_workspace_deletion";
 const historicalMigration119Checksum =
   "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70";
@@ -54,7 +56,9 @@ const canonicalPrismaMigrationNames =
       name !== reconnectMigrationName &&
       name !== mimoAuthMigrationName &&
       name !== accountAdmissionMigrationName &&
-      name !== ownerDeletionMigrationName,
+      name !== ownerDeletionMigrationName &&
+      name !== personalSnapshotMigrationName &&
+      name !== personalCanonicalMigrationName,
   );
 
 // Node 24 can require these ESM files directly. This keeps copied fixtures
@@ -402,8 +406,86 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("admits exact owner deletion plus C1 additions and preserves the old C1 checkout", () => {
+  it("admits exact canonical130 only with its complete unchanged129 predecessor", () => {
     const full = readRenderManagedCheckoutInventory();
+    expect(full).toHaveLength(130);
+    expect(full.at(-1)).toEqual({
+      migrationName: personalCanonicalMigrationName,
+      checksum:
+        "aefb85f4e439bf7526a3b7c658ec3eeaec6f70c10a26435ca63c25c9f6ef11ca",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    expect(
+      partitionRenderSchemaHandoffCheckout(
+        full.filter(
+          (row) => row.migrationName !== personalCanonicalMigrationName,
+        ),
+      ),
+    ).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === personalCanonicalMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === personalCanonicalMigrationName
+          ? { ...row, migrationName: "000130_relabelled" }
+          : row,
+      ),
+      full.filter((row) => row.migrationName !== personalSnapshotMigrationName),
+      full.filter((row) => row.migrationName !== accountAdmissionMigrationName),
+      full.filter((row) => row.migrationName !== ownerDeletionMigrationName),
+      [...full, { migrationName: "000131_unknown", checksum: "0".repeat(64) }],
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow(
+        "checkout_extension",
+      );
+  });
+
+  it("admits only exact inert snapshot129 over unchanged checkout128", () => {
+    const full = readRenderManagedCheckoutInventory().filter(
+      (row) => row.migrationName !== personalCanonicalMigrationName,
+    );
+    expect(full).toHaveLength(129);
+    expect(full.at(-1)).toEqual({
+      migrationName: personalSnapshotMigrationName,
+      checksum:
+        "d36995df0392fdaf9ad5f39d6204c18bc0c78b400963c549547648c48b64e0ab",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    const old128 = full.filter(
+      (row) =>
+        row.migrationName !== personalSnapshotMigrationName &&
+        row.migrationName !== personalCanonicalMigrationName,
+    );
+    expect(partitionRenderSchemaHandoffCheckout(old128)).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === personalSnapshotMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === personalSnapshotMigrationName
+          ? { ...row, migrationName: "000129_relabelled" }
+          : row,
+      ),
+      full.filter((row) => row.migrationName !== accountAdmissionMigrationName),
+      full.filter((row) => row.migrationName !== ownerDeletionMigrationName),
+      [...full, { migrationName: "000130_unknown", checksum: "0".repeat(64) }],
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow(
+        "checkout_extension",
+      );
+  });
+
+  it("admits exact owner deletion plus C1 additions and preserves the old C1 checkout", () => {
+    const full = readRenderManagedCheckoutInventory().filter(
+      (row) =>
+        row.migrationName !== personalSnapshotMigrationName &&
+        row.migrationName !== personalCanonicalMigrationName,
+    );
     expect(full).toHaveLength(128);
     expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
     expect(
@@ -434,7 +516,9 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     const current = readRenderManagedCheckoutInventory().filter(
       (row) =>
         row.migrationName !== accountAdmissionMigrationName &&
-        row.migrationName !== ownerDeletionMigrationName,
+        row.migrationName !== ownerDeletionMigrationName &&
+        row.migrationName !== personalSnapshotMigrationName &&
+        row.migrationName !== personalCanonicalMigrationName,
     );
     const old125 = current
       .filter((row) => row.migrationName !== mimoAuthMigrationName)
@@ -1408,6 +1492,12 @@ describe("complete filesystem checkout inventory", () => {
         recursive: true,
       });
       rmSync(join(migrations, ownerDeletionMigrationName), { recursive: true });
+      rmSync(join(migrations, personalCanonicalMigrationName), {
+        recursive: true,
+      });
+      rmSync(join(migrations, personalSnapshotMigrationName), {
+        recursive: true,
+      });
       for (const name of canonicalPrismaMigrationNames.slice(count))
         rmSync(join(migrations, name), { recursive: true });
       if (canonicalPrefix(count).includes(migration119.migrationName))
@@ -1433,7 +1523,15 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(128);
+    expect(inventory).toHaveLength(130);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, personalCanonicalMigrationName), {
+      recursive: true,
+    });
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, personalSnapshotMigrationName), {
+      recursive: true,
+    });
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, ownerDeletionMigrationName), {
       recursive: true,
@@ -1736,8 +1834,8 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      // Removing only owner deletion restores the exact admitted C1 checkout.
-      if (name === ownerDeletionMigrationName)
+      // Removing only the canonical tail restores the exact admitted129 checkout.
+      if (name === personalCanonicalMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

@@ -275,6 +275,40 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Canonical H coordination is admitted only as the exact complete checkout130.
+  // Remove its pinned row, then recurse through unchanged snapshot129 admission.
+  const personalCanonicalMigration = catalog.find(
+    (row) => row.migrationName === "000130_personal_canonical_operations",
+  );
+  if (personalCanonicalMigration) {
+    if (
+      personalCanonicalMigration.checksum !==
+        "aefb85f4e439bf7526a3b7c658ec3eeaec6f70c10a26435ca63c25c9f6ef11ca" ||
+      manifest(catalog) !==
+        "sha256:fab01456f5745f715b91efa23358b1261c717330155a14865d939471a0e8a19e"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== personalCanonicalMigration),
+    );
+  }
+  // Inert H snapshot-v2 storage is an exact checkout-only extension. Its SQL
+  // changes neither managed92/historical source nor SQL128 API column authority.
+  const personalSnapshotMigration = catalog.find(
+    (row) => row.migrationName === "000129_personal_run_snapshot_v2",
+  );
+  if (personalSnapshotMigration) {
+    if (
+      personalSnapshotMigration.checksum !==
+        "d36995df0392fdaf9ad5f39d6204c18bc0c78b400963c549547648c48b64e0ab" ||
+      manifest(catalog) !==
+        "sha256:19c80297e4a4d01882c1253cbc1a62df6a95e0f916992d308ff627f30d7a6c25"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== personalSnapshotMigration),
+    );
+  }
   // Owner deletion is admitted only in the exact complete checkout128.
   // Remove only its pinned row, then reuse the unchanged128/126 projections.
   const ownerDeletionMigration = catalog.find(

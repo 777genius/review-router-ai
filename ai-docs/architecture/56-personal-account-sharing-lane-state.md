@@ -2,7 +2,7 @@
 
 ## Current implementation checkpoint: 2026-10-15
 
-Status: **FOUNDATION_MERGED / INTERNAL_CATALOG_AND_REVOKE_PENDING / PUBLIC_H_OFF**.
+Status: **FOUNDATION_MERGED / INTERNAL_CATALOG_AND_REVOKE_MERGED / C3_EPOCH_FOUNDATION_VERIFIED / PUBLIC_H_OFF**.
 This section supersedes the historical implementation status below. Planning
 review receipts remain historical evidence, not runtime acceptance.
 
@@ -22,18 +22,26 @@ review receipts remain historical evidence, not runtime acceptance.
   `28d6da0539fc7b879e3c2b9a955b7ef91ba4ecd1`, as recorded by the current vendor
   artifact and README. The older 0d12/c086 receipts below describe historical
   inputs. No new SDK or native implementation is required for the next slice.
-- The internal personal adapter currently exposes connect, operation readback,
-  OAuth completion and attach. The store already implements terminal revoke and
-  coordinated eligibility retirement. The prepared bounded checkpoint adds an
-  owner-filtered paged catalog and explicit source-owner revoke to that disabled
-  adapter, with honest pending-fence status and safe DTOs.
-- Public personal use remains denied by current account-use ownership policy and
-  Accounts bootstrap. C3 is incomplete: snapshot parsing and SQL 000120/000121
-  still accept version 1 only. The accepted v2 epoch pin and compatible new
-  migration must be implemented before personal configuration/run consumption.
-  Remaining work then includes canonical management propagation (C4), existing
-  Accounts/Models UX (C5), and assembled qualification plus H activation (C6).
-  No public H, runtime qualification or production deployment is accepted here.
+- [PR 585](https://github.com/777genius/review-router-ai/pull/585) merged the
+  disabled internal owner-filtered catalog and exact source-owner revoke at
+  `066e56f3d97babadaae04b5fa8bafaf6f807b4ce`. The adapter now exposes list,
+  connect, operation readback, OAuth completion, attach and revoke. The existing
+  store coordinates terminal binding lifetimes and eligibility retirement.
+  Both required checks (`Quality Gates`, dedicated PG17 authority contract)
+  passed for exact reviewed source `548fd9df0ae99f12b14275eb61d6b04cff168001`.
+- The inert C3 epoch foundation adds strict private v1/v2 parsing and NEW SQL129,
+  requiring the original positive expected authorization epoch to equal the
+  selected execution epoch. Existing v1/nonpersonal behavior, immutable original
+  selection, deadlines/caps and SQL128 account row-lock authority remain intact.
+  Preparation retains the exact acquired client for explicit cleanup on mismatch.
+  Focused host control/API types, contract tests and the real pinned-SDK/PG17
+  snapshot/cleanup case (2.60 s) passed; exact-head CI remains pending here.
+- Public personal use remains denied and production capture still writes v1.
+  Remaining C3 work covers trusted donor/P eligibility, locked source epoch
+  capture/live checks and configuration validation. Canonical management (C4),
+  existing Accounts/Models UX (C5), and assembled qualification/activation (C6)
+  continue in isolated local components. No public H, assembled acceptance or
+  production deployment is claimed here.
 - Fresh isolated workstream `review-router/personal-sharing-20261015` was prepared
   from verified complete Git bundle at exact 429d8aac, preserving the old H
   controller and outputs. Current worker policy is MiMo `mimo-v2.6-pro`, thinking
@@ -67,15 +75,38 @@ review receipts remain historical evidence, not runtime acceptance.
   Accounts types, and the real controlled SDK/HTTP + PostgreSQL 17.10 boundary
   (one substantive case, 1.09 s) after all 128 current migrations. The fixture
   retains immutable synthetic receipts and respects current deletion guards.
-  Exact-head CI remains required before component acceptance.
+  Exact-head CI passed and PR585 merged; this is a disabled internal component,
+  not complete H acceptance.
 - Parallel local C3 snapshot-v2/epoch/SQL compatibility and C5 gated Accounts /
   Models UX work use separate external worktrees. Public personal use remains
   disabled until the complete authorization, fencing and qualification batch.
   MiMo workers resume only after an external runtime fix; do not bypass its
   protected authority inspection guard or create another workstream.
-- Next: focused hosted command checks, reviewed component PR/current-head CI,
-  then continue C3–C6 including understandable frontend and real end-to-end
-  qualification. No first-checkpoint/full-H completion equivalence is claimed.
+- C3a private snapshot-v2/epoch compatibility merged in PR586, merge
+  `3da915b31647e1fa21eedce3de8b7ff6c33fad00`. Public consumption is still gated.
+- C4 canonical rename/reconnect/retire, late-session rechecks and exact recipient
+  detach are locally authored and independently reviewed. HOST provider types,
+  four substantive canonical/recipient PostgreSQL cases and the controlled
+  SDK/HTTP session-switch fixture pass. SQL130/classifier compatibility has
+  focused fixture evidence; the schema and SDK pins remain bounded by the plan.
+- C5 PR587 retains the gated own catalog, multiselect sharing and exact Models
+  selection. Its initial CI passed quality, DB, source, E2E and OCI checks, but
+  failed formatting in one test; the whitespace-only correction is retained.
+  The same PR is temporarily closed while reviewed child PRs assemble on its
+  head branch. It will reopen for the final exact-main required gate; component
+  evidence does not stand for combined-tree CI.
+- Actual qualification handles: C4 format `94775` and final focused checks
+  `13502` completed successfully; wiring/Models managed job
+  `18c7b3c0020742a09d4ac0faea2eefea` completed successfully; Action171 public
+  projection/parser managed job `eda5dd90e2b72b5ee636135f6a439200` was running at
+  this recorded checkpoint. Handles and terminal receipts live under the owned
+  `tmp/personal-sharing-h-20261015` evidence directory, not in production state.
+- Remaining: complete trusted server/UI composition, qualify assembled source
+  and the actual Action171 boundary, then perform normal-session personal
+  enrollment and multi-organization live E2E including tools, nonempty final
+  output and approved-head App publication. A protected dedicated WEB control
+  grant is being prepared separately; only Root executes the coherent rollout.
+  No live or full-H acceptance is claimed by these component checks.
   Norm53 remains unchanged at SHA256
   `66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0`.
 

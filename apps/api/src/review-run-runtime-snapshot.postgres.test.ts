@@ -11,6 +11,7 @@ import {
   createServer,
   request as httpRequest,
   type IncomingMessage,
+  type ServerResponse,
 } from "node:http";
 import Fastify from "fastify";
 import type { AddressInfo } from "node:net";
@@ -641,6 +642,9 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
     let recheckRuntimeConfig: (() => Promise<void>) | undefined;
     let restoreGatewayFetch: (() => void) | undefined;
     let relay: ReviewRunGatewayRelay | undefined;
+    let startBindingRevocationStream:
+      | (() => Promise<() => Promise<void>>)
+      | undefined;
     const closes: Gateway.Close[] = [];
     try {
       const { prisma, workspaceId, repositoryConnectionId } = harness;
@@ -831,6 +835,128 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         authorizationEpoch: 55,
         deadline: pin.deadline,
       };
+      // Inert C3 storage contract: no production v2 writer/personal use enabled.
+      // Clone only this test's existing admitted row inside rolled-back transactions.
+      // Direct SQL bypasses the TS parser and proves both independent DB gates.
+      const v2Snapshot = canonicalJson({
+        ...pin,
+        snapshotVersion: 2,
+        gateway: { ...pin.gateway, expectedAuthorizationEpoch: 55 },
+      });
+      async function withPrivateSnapshot(
+        canonical: string,
+        inspect: (
+          tx: Prisma.TransactionClient,
+          authorizationId: string,
+        ) => Promise<void>,
+      ) {
+        const rollback = new Error("c3_private_snapshot_fixture_rollback");
+        try {
+          await prisma.$transaction(async (tx) => {
+            const suffix = randomUUID();
+            const authorizationId = `c3-snapshot-${suffix}`;
+            await tx.reviewRunAuthorization.create({
+              data: {
+                ...row,
+                authorizationId,
+                sourceRunId: `${row.sourceRunId}-${suffix}`,
+                oidcReplayKeyHash: `c3-replay-${suffix}`,
+                providerVoteLanes:
+                  row.providerVoteLanes as Prisma.InputJsonValue,
+                runtimeSnapshotCanonicalJson: canonical,
+                gatewayExecutionCanonicalJson: null,
+              },
+            });
+            await inspect(tx, authorizationId);
+            throw rollback;
+          });
+        } catch (error) {
+          if (error !== rollback) throw error;
+        }
+      }
+      const attachPrivate = async (
+        canonical: string,
+        execution: typeof selected,
+      ) =>
+        withPrivateSnapshot(canonical, async (tx, authorizationId) => {
+          await tx.$executeRaw`UPDATE "ReviewRunAuthorization"
+          SET "gatewayExecutionCanonicalJson" = ${canonicalJson(execution)}
+          WHERE "authorizationId" = ${authorizationId}`;
+          const stored = await tx.reviewRunAuthorization.findUniqueOrThrow({
+            where: { authorizationId },
+          });
+          expect(stored.runtimeSnapshotCanonicalJson).toBe(canonical);
+          expect(stored.gatewayExecutionCanonicalJson).toBe(
+            canonicalJson(execution),
+          );
+        });
+      await attachPrivate(v2Snapshot, selected);
+      // Existing nonpersonal v1 accepts the selected epoch rather than a new pin.
+      await attachPrivate(row.runtimeSnapshotCanonicalJson!, selected);
+      for (const epoch of [0, 54, 56]) {
+        await expect(
+          attachPrivate(v2Snapshot, { ...selected, authorizationEpoch: epoch }),
+        ).rejects.toThrow();
+      }
+      for (const epoch of [
+        undefined,
+        null,
+        "55",
+        0,
+        -1,
+        1.5,
+        Number.MAX_SAFE_INTEGER + 1,
+      ]) {
+        const invalid = canonicalJson({
+          ...pin,
+          snapshotVersion: 2,
+          gateway: { ...pin.gateway, expectedAuthorizationEpoch: epoch },
+        });
+        await expect(
+          withPrivateSnapshot(invalid, async () => {}),
+        ).rejects.toThrow();
+      }
+      for (const snapshotVersion of [0, 3, "2"]) {
+        await expect(
+          withPrivateSnapshot(
+            canonicalJson({ ...pin, snapshotVersion }),
+            async () => {},
+          ),
+        ).rejects.toThrow();
+      }
+      // V2 is still subject to all original operation/account/deadline/cap guards.
+      for (const patch of [
+        { operationId: "other-operation" },
+        { accountRef: "other-account" },
+        { deadline: new Date(Date.parse(pin.deadline) - 1000).toISOString() },
+      ])
+        await expect(
+          attachPrivate(v2Snapshot, { ...selected, ...patch }),
+        ).rejects.toThrow();
+      await expect(
+        attachPrivate(
+          canonicalJson({
+            ...pin,
+            snapshotVersion: 2,
+            gateway: {
+              ...pin.gateway,
+              expectedAuthorizationEpoch: 55,
+              limits: { ...limits, tokens: 0 },
+            },
+          }),
+          selected,
+        ),
+      ).rejects.toThrow();
+      await withPrivateSnapshot(v2Snapshot, async (tx, authorizationId) => {
+        await expect(
+          tx.reviewRunAuthorization.update({
+            where: { authorizationId },
+            data: {
+              runtimeSnapshotCanonicalJson: row.runtimeSnapshotCanonicalJson,
+            },
+          }),
+        ).rejects.toThrow();
+      });
       const requests: {
         requestRef: string;
         admission: Gateway.Admission;
@@ -845,6 +971,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         | "held"
       )[] = [];
       const sse = `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "x".repeat(150000) })}\n\ndata: {"type":"response.completed"}\n\n`;
+      let heldResponse: ServerResponse | undefined;
       let holdAccess: (() => Promise<void>) | undefined;
       let holdStatus: (() => Promise<void>) | undefined;
       let statusCalls = 0;
@@ -894,6 +1021,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
                   }),
                 );
             } else if (mode === "held") {
+              heldResponse = response;
               response.writeHead(200, {
                 "content-type": "text/event-stream",
                 "x-gateway-request-ref": requestRef,
@@ -1609,6 +1737,69 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         });
         expect(requests).toHaveLength(7); // No partial-output retry/re-ID.
         responses = ["held"];
+        const flowing = await relay.responses(
+          first.authorizationToken,
+          new TextEncoder().encode('{"input":"fixture"}'),
+          new AbortController(),
+        );
+        if (flowing.kind !== "stream")
+          throw new Error("fixture_stream_missing");
+        const reader = flowing.body.getReader();
+        const remoteEntered = gate(),
+          remoteRelease = gate();
+        const readsAfterAdmission = scmReads;
+        holdScm = async () => {
+          remoteEntered.release();
+          await remoteRelease.pending;
+        };
+        try {
+          // OLD deterministically enters the deferred remote resolver after
+          // admission; NEW delivers while retaining every local authority read.
+          const firstChunk = await Promise.race([
+            reader.read().then((chunk) => ({ kind: "chunk" as const, chunk })),
+            remoteEntered.pending.then(() => ({ kind: "remote" as const })),
+          ]);
+          expect(firstChunk.kind).toBe("chunk");
+          if (firstChunk.kind !== "chunk")
+            throw new Error("fixture_remote_chunk_gate");
+          expect(new TextDecoder().decode(firstChunk.chunk.value)).toBe(
+            'data: {"type":"response.created"}\n\n',
+          );
+          // Opaque model-turn bytes and EOF never become review finality.
+          heldResponse!.end('data: {"type":"response.completed"}\n\n');
+          expect(new TextDecoder().decode((await reader.read()).value)).toBe(
+            'data: {"type":"response.completed"}\n\n',
+          );
+          expect(await reader.read()).toMatchObject({ done: true });
+          expect(scmReads).toBe(readsAfterAdmission);
+        } finally {
+          holdScm = undefined;
+          remoteRelease.release();
+          await reader.cancel().catch(() => {});
+        }
+        expect(requests).toHaveLength(8);
+        harness.setRevision({
+          baseSha: row.baseSha,
+          mergeBaseSha: row.mergeBaseSha,
+          headSha: "9".repeat(40),
+        });
+        try {
+          await expect(
+            relay.responses(
+              first.authorizationToken,
+              new TextEncoder().encode('{"input":"fixture"}'),
+              new AbortController(),
+            ),
+          ).rejects.toMatchObject({ code: "authorization_denied" });
+          expect(requests).toHaveLength(8); // New admission still requires remote head.
+        } finally {
+          harness.setRevision({
+            baseSha: row.baseSha,
+            mergeBaseSha: row.mergeBaseSha,
+            headSha: row.headSha,
+          });
+        }
+        responses = ["held"];
         const cancelled = new AbortController();
         const held = await relay.responses(
           first.authorizationToken,
@@ -1620,7 +1811,28 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         await expect(new Response(held.body).text()).rejects.toMatchObject({
           effect: "effect_unknown",
         });
-        expect(requests).toHaveLength(8); // Cancel never becomes success or retry.
+        expect(requests).toHaveLength(9); // Cancel never becomes success or retry.
+        startBindingRevocationStream = async () => {
+          responses = ["held"];
+          const response = await relay!.responses(
+            first.authorizationToken,
+            new TextEncoder().encode('{"input":"fixture"}'),
+            new AbortController(),
+          );
+          if (response.kind !== "stream")
+            throw new Error("fixture_stream_missing");
+          const currentReader = response.body.getReader();
+          expect((await currentReader.read()).done).toBe(false);
+          return async () => {
+            heldResponse!.write(
+              'data: {"type":"response.output_text.delta"}\n\n',
+            );
+            await expect(currentReader.read()).rejects.toMatchObject({
+              effect: "effect_unknown",
+            });
+            expect(requests).toHaveLength(10); // Original binding revoke, no new attempt.
+          };
+        };
       }
       const replay = await harness.authorize(); // New verified OIDC nonce, same owned tuple.
       expect(replay.authorizationId).toBe(first.authorizationId);
@@ -1926,12 +2138,15 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       ).toBe("expired");
       crossDuringBindingRead = false;
       observedNow = production.clock.now();
+      expect(startBindingRevocationStream).toBeDefined();
+      const assertStreamRevoked = await startBindingRevocationStream!();
       await accounts.compareAndSetBinding({
         workspaceId,
         connectionId: connection.id,
         expectedRevision: binding.revision,
         state: "revoked",
       });
+      await assertStreamRevoked();
       await expect(harness.authorize()).rejects.toThrow();
       await expect(
         harness.authorize({ sourceRunAttempt: "4" }),
@@ -2202,6 +2417,62 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         authorizationVersion: 1,
       });
       expect(ordinaryCreation.occurredAt).toEqual(ordinary.createdAt);
+
+      // RED: a valid acquired execution at a different epoch was abandoned
+      // before retaining its cleanup client. Use the existing real SDK/HTTP
+      // server; authority doubles isolate this transport-lifecycle boundary.
+      {
+        const mismatchCanonical = canonicalJson({
+          ...pin,
+          snapshotVersion: 2,
+          gateway: { ...pin.gateway, expectedAuthorizationEpoch: 54 },
+        });
+        let mismatchAttachments = 0;
+        const beforeMismatchIntents = intents.length;
+        const beforeMismatchRequests = requests.length;
+        const beforeMismatchCloses = closes.length;
+        const cleanupOnly = createReviewRunGatewayPreparation({
+          authorizationId: gatewayRun.authorizationId,
+          identity: gatewayRun,
+          runAccess: {
+            origin,
+            runControlBearer: runControlToken,
+            timeoutMs: 5000,
+          },
+          authorizations: {
+            findReviewRunAuthorizationById: async () => ({
+              ...gatewayRun,
+              runtimeSnapshotCanonicalJson: mismatchCanonical,
+            }),
+          },
+          snapshots: { capture: async () => null, isLive: async () => true },
+          bindings: {
+            read: async () => ({ status: "live", binding: null }),
+            attach: async () => {
+              mismatchAttachments++;
+              return { status: "denied" };
+            },
+          },
+        });
+        expect(await cleanupOnly.prepare()).toEqual({ status: "denied" });
+        expect(intents).toHaveLength(beforeMismatchIntents + 1);
+        expect(mismatchAttachments).toBe(0);
+        await expect(
+          cleanupOnly.request("mismatch-request", new Uint8Array()),
+        ).rejects.toThrow();
+        expect(requests).toHaveLength(beforeMismatchRequests);
+        expect(await cleanupOnly.prepare()).toEqual({ status: "denied" });
+        expect(await cleanupOnly.recoverSameOperation()).toEqual({
+          status: "denied",
+        });
+        expect(intents).toHaveLength(beforeMismatchIntents + 1);
+        expect(await cleanupOnly.close("cancelled")).toMatchObject({
+          state: "applied",
+        });
+        // The server accepts only its exact selected execution path and bearer.
+        expect(closes).toHaveLength(beforeMismatchCloses + 1);
+        expect(closes.at(-1)?.reason).toBe("cancelled");
+      }
 
       // A Berlin session must not shift a UTC epoch through either the raw
       // installation clock or the timestamp column's GREATEST assignment.
