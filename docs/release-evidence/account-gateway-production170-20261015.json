@@ -220,6 +220,24 @@
     "newOAuthLogin": false,
     "newProviderCanary": false,
     "oldDuplicateAccountActivatedOrTransferred": false,
-    "uiProvenanceBadge": "NOT_PRESENT; current UI shows the shared canonical label and readiness, without a shared-account or owner badge."
+    "uiProvenanceBadge": "NOT_PRESENT; current UI shows the shared canonical label and readiness, without a shared-account or owner badge.",
+    "retainedEvidence": {
+      "sqlCommandFile": "docs/release-evidence/padel-canonical-use-20261015.readonly.sql",
+      "sqlResultFile": "docs/release-evidence/padel-canonical-use-20261015.actual.public.json",
+      "execution": {
+        "transport": "Strict-host-key SSH to the verified production host; guarded read-only PostgreSQL session",
+        "command": "sudo -n -u reviewrouter_pg /usr/lib/postgresql/17/bin/psql -X -qAt -v ON_ERROR_STOP=1 -h /var/lib/review-router-postgres/socket -p 5434 -U reviewrouter_pg -d review_router_dimy < padel-canonical-use-20261015.readonly.sql",
+        "sessionId": 3813,
+        "exitCode": 0
+      },
+      "uiAction": {
+        "command": "Accounts > canonical Codex main Account > Manage operator grant; target Padel workspace stable ID, expected revision0, state active; click Apply once after explicit user confirmation",
+        "result": "Use granted at binding revision 1.",
+        "subsequentRead": "Padel Accounts: ACTIVE / WORKSPACE BINDING READY",
+        "browserTaskId": "2dca076d-b9eb-45a9-b6c6-dbab60d66f29",
+        "ownerTarget": "075983A2EA00655AB30DAAB91DC38C57",
+        "padelTarget": "32E8390EFF81B6CBD4E5A2C7B7F7C484"
+      }
+    }
   }
 }
