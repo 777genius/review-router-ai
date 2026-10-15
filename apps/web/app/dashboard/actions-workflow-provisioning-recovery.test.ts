@@ -644,6 +644,7 @@ describe("dashboard setup PR recovery", () => {
     "unmerged_wrong_base",
     "stored_head_wrong_base",
     "head_mismatch",
+    "head_mismatch_tampered",
     "wrong_workspace",
     "missing_installation",
     "transfer_during_probe",
@@ -664,12 +665,11 @@ describe("dashboard setup PR recovery", () => {
     async (scenario) => {
       const historical = {
         ...initialCandidate,
-        pullRequestHeadSha:
-          scenario === "head_mismatch"
-            ? "c".repeat(40)
-            : scenario === "stored_head_wrong_base"
-              ? "b".repeat(40)
-              : null,
+        pullRequestHeadSha: scenario.startsWith("head_mismatch")
+          ? "c".repeat(40)
+          : scenario === "stored_head_wrong_base"
+            ? "b".repeat(40)
+            : null,
         workflowPath:
           scenario === "artifact_path"
             ? ".github/workflows/other.yml"
@@ -739,7 +739,9 @@ describe("dashboard setup PR recovery", () => {
               data: {
                 merged: scenario !== "unmerged_wrong_base",
                 state: scenario === "unmerged_wrong_base" ? "open" : "closed",
-                base: { ref: scenario === "head_mismatch" ? "main" : "master" },
+                base: {
+                  ref: scenario.startsWith("head_mismatch") ? "main" : "master",
+                },
                 head: { ref: historical.branch, sha: "b".repeat(40) },
               },
             };
@@ -751,7 +753,9 @@ describe("dashboard setup PR recovery", () => {
             if (parameters?.ref === "main" && scenario === "workflow_absent")
               throw Object.assign(new Error("missing"), { status: 404 });
             const ref =
-              parameters?.ref === "main" && scenario === "workflow_wrong_ref"
+              parameters?.ref === "main" &&
+              (scenario === "workflow_wrong_ref" ||
+                scenario === "head_mismatch_tampered")
                 ? `777genius/review-router@${"d".repeat(40)}`
                 : resolveReviewRouterActionRef();
             return {
@@ -791,7 +795,7 @@ describe("dashboard setup PR recovery", () => {
       );
       form.set("repositoryId", "repository_1");
       const result = await confirmSetupPullRequestMergedClientAction(form);
-      if (scenario === "verified") {
+      if (scenario === "verified" || scenario === "head_mismatch") {
         expect({ params: result.params, events }).toMatchObject({
           params: { notice: "setup_pr_merged" },
           events: ["inspect_pr", "workflow:main", "activation"],
@@ -828,25 +832,20 @@ describe("dashboard setup PR recovery", () => {
           expect(state.current()).toEqual(expectedCurrent);
           if (
             scenario === "workflow_absent" ||
-            scenario === "workflow_wrong_ref"
+            scenario === "workflow_wrong_ref" ||
+            scenario === "head_mismatch_tampered"
           )
             expect(result.params.error).toBe("setup_pr_not_merged");
-          if (
-            scenario.includes("_during_") ||
-            scenario.startsWith("artifact_") ||
-            scenario === "head_mismatch"
-          )
+          if (scenario.includes("_during_") || scenario.startsWith("artifact_"))
             expect(result.params.error).toBe("github_operation_failed");
           expect(events).toEqual(
             scenario === "wrong_workspace" ||
               scenario === "missing_installation"
               ? []
-              : scenario === "head_mismatch"
-                ? ["inspect_pr"]
-                : scenario === "activation_failed" ||
-                    scenario.endsWith("_during_activation")
-                  ? ["inspect_pr", "workflow:main", "activation"]
-                  : ["inspect_pr", "workflow:main"],
+              : scenario === "activation_failed" ||
+                  scenario.endsWith("_during_activation")
+                ? ["inspect_pr", "workflow:main", "activation"]
+                : ["inspect_pr", "workflow:main"],
           );
         }
         if (

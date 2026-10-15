@@ -61,12 +61,14 @@ workflow-v1 - compatible neutral Gateway caller ABI, independent of product semv
 The neutral Gateway caller uses
 `777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1`.
 Compatible agent, model and runtime updates keep its inputs and permissions
-unchanged. The release workflow moves this channel alongside the product tags;
-the signed actual executable SHA must still be approved in the producer registry.
-For subsequent compatible releases, register the verified exact producer through
-the existing registration flow **before** publishing the moving channel. Keep the
-previous approved producer available for already admitted runs. A channel tag is
-never execution authority by itself.
+unchanged. Product release does not move this workflow channel. Publish the exact
+public release, deliver and activate the paired private runtime, and register the
+verified exact producer before explicitly promoting the channel to that existing
+immutable release tag. Promotion checks the existing workflow ABI and compares
+the previous channel SHA before moving it; the signed actual executable SHA must
+still be approved in the producer registry. Keep the previous approved producer
+available for already admitted runs. A channel tag is never execution authority
+by itself.
 
 The first pre-launch publication introduces an unused channel: keep known
 installations stopped until the paired API/schema, producer registration and new
@@ -175,7 +177,9 @@ For a new public/stable runtime release:
 3. Merge the pin and wait for control plane CI on the resulting exact commit
 4. Release 777genius/review-router-ai at the same v1.0.x
 5. Verify both v1 tags resolve to the new exact release commits
-6. Verify generated/setup PRs still use @v1 unless an exact pin was requested
+6. Activate the paired private runtime and verify the exact public producer is registered
+7. Explicitly promote workflow-v1 to the existing public exact release tag after its ABI check and previous-channel SHA comparison
+8. Verify generated/setup PRs use their intended channel or exact pin
 ```
 
 Why the Action repo goes first:
@@ -224,7 +228,8 @@ The Action `Release` workflow validates:
 - committed release artifacts are clean after build
 
 Only after those gates pass, it creates `v1.0.x`, force-moves `v1`, and creates
-the GitHub Release.
+the GitHub Release. It leaves `workflow-v1` unchanged; that channel is promoted
+separately after paired private activation and producer registration.
 
 ## Self-hosted Control Plane Runtime Release
 
@@ -481,6 +486,20 @@ Rollback options, safest first:
 Emergency rollback is the only normal exception to "do not move `v1` manually".
 If used, record the incident, the old and new SHAs, and follow up with a fixed
 release workflow run. Never rewrite exact `v1.0.x` tags.
+
+### Workflow channel rollback — 2026-10-15
+
+Public release 177 (`175e3a1f86712373226e767561c3cd0d32066228`) moved
+`workflow-v1` before producer adoption. A fresh production read showed registry
+revision 18 approved producer 176 and did not approve 177. The release owner
+restored only `workflow-v1` to `9428b431a4b6a3bb6dcdd789cde0cd67ed59dacb`
+using a comparison against the observed 177 channel SHA and verified the result.
+The immutable `v1.0.177` tag and product `v1` were unchanged. Promote the workflow
+channel to 177 only after paired private activation and producer registration
+revision 19 are verified. This recovery is not evidence of a successful 177 E2E.
+The public rollback receipt is retained at
+`tmp/shared-summary177/channel-rollback.actual.public.json` in the release owner's
+workspace.
 
 Helpful emergency checks:
 

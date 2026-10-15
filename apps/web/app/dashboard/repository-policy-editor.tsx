@@ -631,6 +631,7 @@ function RemoveRepositoryOverrides({
   repositoryId,
   repositoryName,
   legacy,
+  expectedVersion,
   disabled,
 }: {
   readonly action: (formData: FormData) => Promise<boolean>;
@@ -638,9 +639,11 @@ function RemoveRepositoryOverrides({
   readonly repositoryId: string;
   readonly repositoryName: string;
   readonly legacy: boolean;
+  readonly expectedVersion: number | null;
   readonly disabled: boolean;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
+  const [resetVersion, setResetVersion] = useState(expectedVersion);
   const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <>
@@ -648,7 +651,10 @@ function RemoveRepositoryOverrides({
         variant="outline"
         size="sm"
         disabled={disabled}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setResetVersion(expectedVersion);
+          setOpen(true);
+        }}
       >
         {legacy
           ? "Remove legacy override (inherit workspace)"
@@ -673,6 +679,11 @@ function RemoveRepositoryOverrides({
             >
               <input type="hidden" name="workspaceId" value={workspaceId} />
               <input type="hidden" name="repositoryId" value={repositoryId} />
+              <input
+                type="hidden"
+                name="policyExpectedVersion"
+                value={String(resetVersion ?? "none")}
+              />
               <Button
                 ref={cancelRef}
                 type="button"
@@ -835,6 +846,7 @@ export function RepositoryPolicyOverrideDetails({
                 repositoryId={repository.id}
                 repositoryName={repository.fullName}
                 legacy={legacy}
+                expectedVersion={expectedVersion ?? null}
                 disabled={!canEdit}
               />
             ) : null}
@@ -995,6 +1007,7 @@ export function RepositoryPolicyEditor({
               repositoryId={repository.id}
               repositoryName={repository.fullName}
               legacy={legacy}
+              expectedVersion={expectedVersion ?? null}
               disabled={!canEdit}
             />
           ) : null}

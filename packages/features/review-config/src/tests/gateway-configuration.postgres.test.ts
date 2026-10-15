@@ -372,6 +372,23 @@ describe.skipIf(!enabled)(
         expect(
           replacement.config.investigationRollout.productionEffectsEnabled,
         ).toBe(false);
+        const historyBeforeStaleReset =
+          await prisma.reviewConfigurationVersion.findMany({
+            where: { configurationId: "c2b-opaque-config" },
+            orderBy: { version: "asc" },
+          });
+        await expect(
+          configs.deleteTarget(opaqueTarget, 1),
+        ).rejects.toMatchObject({
+          code: "review_configuration_write_conflict",
+        });
+        expect(await configs.findLatest(opaqueTarget)).toEqual(replacement);
+        expect(
+          await prisma.reviewConfigurationVersion.findMany({
+            where: { configurationId: "c2b-opaque-config" },
+            orderBy: { version: "asc" },
+          }),
+        ).toEqual(historyBeforeStaleReset);
         // The existing clear path must also recover directly from a retired head.
         await prisma.$executeRawUnsafe(
           `INSERT INTO "ReviewConfigurationVersion" ("id", "configurationId", "workspaceId", "version", "schemaVersion", "providerKind", "providerAuthMode", "model", "reasoningEffort", "failOnSeverity", "inlineMaxComments", "targetTokensPerBatch") VALUES ('c2b-opaque-version-3', 'c2b-opaque-config', 'c2b-w', 3, 2, 'codex', 'codex_subscription_oauth_rotating', 'gpt-5.6-sol', 'high', 'critical', 0, 50000)`,
@@ -379,7 +396,18 @@ describe.skipIf(!enabled)(
         await expect(
           legacyRuntime.findRuntimeReviewConfiguration(opaqueRuntimeTarget),
         ).rejects.toThrow("review_policy_resave_required");
-        expect(await configs.deleteTarget(opaqueTarget)).toBe(true);
+        const legacyHistory = await prisma.reviewConfigurationVersion.findMany({
+          where: { configurationId: "c2b-opaque-config" },
+          orderBy: { version: "asc" },
+        });
+        expect(await configs.deleteTarget(opaqueTarget, 3)).toBe(true);
+        expect(await configs.deleteTarget(opaqueTarget, null)).toBe(false);
+        expect(
+          await prisma.reviewConfigurationVersion.findMany({
+            where: { configurationId: "c2b-opaque-config" },
+            orderBy: { version: "asc" },
+          }),
+        ).toEqual(legacyHistory);
         expect(
           await legacyRuntime.findRuntimeReviewConfiguration(
             opaqueRuntimeTarget,
@@ -390,6 +418,16 @@ describe.skipIf(!enabled)(
           repositoryVersion: null,
           config,
         });
+        const afterReset = await saveReviewConfiguration(
+          {
+            target: opaqueTarget,
+            policy: { schemaVersion: 3 },
+            expectedVersion: null,
+          },
+          deps,
+        );
+        expect(afterReset.version).toBe(4);
+        expect(await configs.deleteTarget(opaqueTarget, 4)).toBe(true);
         expect(
           (await resolveReviewConfiguration(repository, deps))!.config,
         ).toEqual(config);

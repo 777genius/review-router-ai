@@ -1580,21 +1580,19 @@ async function confirmSetupPullRequestMergedMutation(
         )
       : null;
     const setupPullRequestStatus = setupPullRequestInspection?.status ?? null;
-    // Migrated PRs have no immutable head binding. They must independently
-    // verify the installed workflow before using the fenced recovery path.
+    // Missing or changed PR heads cannot establish the original artifact.
+    // Recover only through independent installed-workflow verification and CAS.
     const historicalMergedSetupPullRequest =
       setupPullRequestInspection?.merged === true &&
-      setupProvisioning?.pullRequestHeadSha === null;
+      (setupProvisioning?.pullRequestHeadSha === null ||
+        (setupPullRequestStatus === "merged" &&
+          setupProvisioning?.pullRequestHeadSha !==
+            setupPullRequestInspection.headSha));
     const setupPullRequestMerged =
       setupPullRequestStatus === "merged" &&
-      setupProvisioning?.pullRequestHeadSha != null;
-    if (
-      setupPullRequestMerged &&
-      (!setupProvisioning?.pullRequestHeadSha ||
-        setupProvisioning.pullRequestHeadSha !==
-          setupPullRequestInspection?.headSha)
-    )
-      throw new Error("workflow_provisioning_match_not_found");
+      setupProvisioning?.pullRequestHeadSha != null &&
+      setupProvisioning.pullRequestHeadSha ===
+        setupPullRequestInspection?.headSha;
     const setupBaseBranch = historicalMergedSetupPullRequest
       ? repository.defaultBranch
       : (setupPullRequestInspection?.baseBranch ??
@@ -3126,7 +3124,12 @@ async function clearRepositoryReviewConfigMutation(
     });
 
     const cleared = await clearReviewConfiguration(
-      { scope: "repository", workspaceId, repositoryId },
+      {
+        scope: "repository",
+        workspaceId,
+        repositoryId,
+        expectedVersion: readReviewPolicyExpectedVersion(formData),
+      },
       {
         configurations: new PrismaReviewConfigurationRepository(prisma),
       },

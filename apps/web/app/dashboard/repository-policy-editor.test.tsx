@@ -716,7 +716,7 @@ describe("ReviewConfigForm", () => {
     vi.mocked(clearRepositoryReviewConfigClientAction).mockResolvedValue({
       params: { notice: "repository_review_config_cleared" },
     });
-    render(
+    const editor = (version: number) => (
       <RepositoryPolicyEditor
         workspaceId="workspace_1"
         repository={{
@@ -726,12 +726,13 @@ describe("ReviewConfigForm", () => {
           archived: false,
         }}
         repositoryConfig={null}
-        expectedVersion={11}
+        expectedVersion={version}
         effectiveConfig={openRouterReviewConfiguration()}
         modelOptions={modelOptions}
         mutationsEnabled
-      />,
+      />
     );
+    const { rerender } = render(editor(11));
     fireEvent.click(screen.getByRole("button", { name: /Edit settings/ }));
     expect(
       screen.getByRole("button", { name: "Replace legacy override" }),
@@ -748,6 +749,8 @@ describe("ReviewConfigForm", () => {
     );
     expect(clearRepositoryReviewConfigClientAction).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeTruthy();
+    // A refresh while this confirmation is open must not silently authorize a newer head.
+    rerender(editor(12));
     expect(pageText()).toContain(
       "including execution, limits, blocking and rollout settings",
     );
@@ -757,6 +760,11 @@ describe("ReviewConfigForm", () => {
     await waitFor(() =>
       expect(clearRepositoryReviewConfigClientAction).toHaveBeenCalledOnce(),
     );
+    expect(
+      vi
+        .mocked(clearRepositoryReviewConfigClientAction)
+        .mock.calls[0]![0].get("policyExpectedVersion"),
+    ).toBe("11");
   });
 
   it("preserves the unsaved review language after a failed form action and retries it", async () => {

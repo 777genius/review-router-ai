@@ -48,7 +48,10 @@ function harness() {
         events.push("target");
         return { id: "c", workspaceId: "w", active: true };
       }),
-      updateMany: vi.fn(async () => ({ count: 0 })),
+      updateMany: vi.fn(async () => {
+        events.push("deactivate");
+        return { count: 0 };
+      }),
       deleteMany: vi.fn(async () => {
         events.push("delete");
         return { count: 0 };
@@ -174,7 +177,8 @@ describe("production config and entitlement scope writers", () => {
       "target",
       "version-read",
       "version-create",
-      "delete",
+      "config-read",
+      "deactivate",
     ]);
     expect(h.prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -193,11 +197,29 @@ describe("production config and entitlement scope writers", () => {
         "shared",
         ...(scope.scope === "repository" ? ["shared"] : []),
         "exclusive",
-        "delete",
+        "config-read",
+        "deactivate",
         "commit",
       ]);
     },
   );
+
+  it("checks reset CAS after acquiring current scope guards before deactivation", async () => {
+    const h = harness();
+    await expect(
+      new PrismaReviewConfigurationRepository(h.client).deleteTarget(target, 1),
+    ).rejects.toMatchObject({ code: "review_configuration_write_conflict" });
+    expect(h.events).toEqual([
+      "begin",
+      "shared",
+      "shared",
+      "exclusive",
+      "config-read",
+      "rollback",
+    ]);
+    expect(h.tx.reviewConfiguration.updateMany).not.toHaveBeenCalled();
+    expect(h.tx.reviewConfiguration.deleteMany).not.toHaveBeenCalled();
+  });
 
   it("preserves expected-version conflicts and rolls back the target insertion", async () => {
     const h = harness();

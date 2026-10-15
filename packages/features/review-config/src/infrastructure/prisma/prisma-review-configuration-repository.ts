@@ -101,9 +101,12 @@ export class PrismaReviewConfigurationRepository
     throw new Error("review_configuration_transaction_retry_exhausted");
   }
 
-  deleteTarget(target: ReviewConfigurationTarget) {
+  deleteTarget(
+    target: ReviewConfigurationTarget,
+    expectedVersion?: number | null,
+  ) {
     return this.prisma.$transaction((tx) =>
-      deleteReviewConfigurationTarget(tx, target),
+      deleteReviewConfigurationTarget(tx, target, expectedVersion),
     );
   }
 
@@ -224,8 +227,15 @@ export class PrismaReviewConfigurationTransactionRepository
     );
   }
 
-  deleteTarget(target: ReviewConfigurationTarget) {
-    return deleteReviewConfigurationTarget(this.prisma, target);
+  deleteTarget(
+    target: ReviewConfigurationTarget,
+    expectedVersion?: number | null,
+  ) {
+    return deleteReviewConfigurationTarget(
+      this.prisma,
+      target,
+      expectedVersion,
+    );
   }
 }
 
@@ -522,27 +532,25 @@ async function saveNextReviewConfigurationVersion(
 async function deleteReviewConfigurationTarget(
   prisma: Prisma.TransactionClient,
   target: ReviewConfigurationTarget,
+  expectedVersion?: number | null,
 ): Promise<boolean> {
   await acquireReviewConfigurationWriteScope(prisma, target);
   const scope = {
     workspaceId: target.workspaceId,
     targetKey: reviewConfigurationTargetKey(target),
   };
-  const retained = await prisma.reviewConfiguration.updateMany({
-    where: {
-      ...scope,
-      active: true,
-      versions: { some: { operationId: { not: null } } },
-    },
+  const current = await findLatestPolicyVersion(prisma, scope);
+  if (
+    expectedVersion !== undefined &&
+    (current?.version ?? null) !== expectedVersion
+  ) {
+    throw new WriteConflict();
+  }
+  const result = await prisma.reviewConfiguration.updateMany({
+    where: { ...scope, active: true },
     data: { active: false },
   });
-  const result = await prisma.reviewConfiguration.deleteMany({
-    where: {
-      ...scope,
-      versions: { none: { operationId: { not: null } } },
-    },
-  });
-  return retained.count + result.count > 0;
+  return result.count > 0;
 }
 
 function parsePolicyForTarget(

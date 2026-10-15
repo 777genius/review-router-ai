@@ -217,10 +217,15 @@ export async function findRepositoryReviewConfigurations(
 }
 
 export async function clearReviewConfiguration(
-  target: ReviewConfigurationTarget,
+  target: ReviewConfigurationTarget & {
+    readonly expectedVersion?: number | null;
+  },
   dependencies: {
     readonly configurations: ReviewConfigurationRepositoryPort;
   },
 ): Promise<boolean> {
-  return dependencies.configurations.deleteTarget(target);
+  return dependencies.configurations.deleteTarget(
+    target,
+    target.expectedVersion,
+  );
 }
