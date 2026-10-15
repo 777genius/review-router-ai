@@ -38,6 +38,7 @@ const checkoutOnlyMigrations = Object.freeze([
   "000126_review_configuration_mimo_auth_kind",
   "000127_owner_workspace_deletion",
   "000128_account_admission_row_lock",
+  "000129_review_policy_schema_v3",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
@@ -54,7 +55,7 @@ export function readRenderHistorical96CheckoutInventory() {
     ![
       96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
       111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
-      126, 127,
+      126, 127, 128,
     ].includes(
       checkout.filter(
         (row) =>

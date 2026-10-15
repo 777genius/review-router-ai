@@ -1288,7 +1288,8 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000125_hosted_codex_device_reconnect" &&
         name !== "000126_review_configuration_mimo_auth_kind" &&
         name !== "000127_owner_workspace_deletion" &&
-        name !== "000128_account_admission_row_lock",
+        name !== "000128_account_admission_row_lock" &&
+        name !== "000129_review_policy_schema_v3",
     );
     const withoutProviderKey = historicalCheckout.filter(
       (name) => name !== "000110_provider_api_key_workspace_management",
@@ -1342,9 +1343,9 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(128);
+    expect(migrationNames).toHaveLength(129);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:573ad770b1198ff48207d023af722679f7eb4e67c9603c883a179692251d5c37",
+      "sha256:41a65c538872f960e35ae34b217f340f449371500bcf4bc6633b182e1adca91a",
     );
     expect(historicalCheckout).toHaveLength(124);
     expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(
@@ -1443,6 +1444,7 @@ describe("disposable dual-version rehearsal", () => {
       "000126_review_configuration_mimo_auth_kind",
       "000127_owner_workspace_deletion",
       "000128_account_admission_row_lock",
+      "000129_review_policy_schema_v3",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1638,6 +1640,7 @@ describe("disposable dual-version rehearsal", () => {
     "000126_review_configuration_mimo_auth_kind",
     "000127_owner_workspace_deletion",
     "000128_account_admission_row_lock",
+    "000129_review_policy_schema_v3",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1696,7 +1699,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000125_hosted_codex_device_reconnect" &&
                 name !== "000126_review_configuration_mimo_auth_kind" &&
                 name !== "000127_owner_workspace_deletion" &&
-                name !== "000128_account_admission_row_lock",
+                name !== "000128_account_admission_row_lock" &&
+                name !== "000129_review_policy_schema_v3",
               "000102_sdk_growth_current_authority",
             ),
           ),
