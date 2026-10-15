@@ -1,4 +1,5 @@
 import { switchRepositoryConfigurationAuthMode } from "../../../packages/features/workflow-provisioning/src/infrastructure/prisma/prisma-hosted-pool-configuration";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createPrismaClient } from "@reviewrouter/platform-db";
 import {
@@ -16,9 +17,12 @@ import {
 } from "@reviewrouter/features-review-config";
 import {
   canonicalJson,
+  createProducerRelease,
+  type ReviewAgentProfile,
   type ReviewRunAuthorizationCandidate,
   type ReviewRunRuntimeSnapshot,
 } from "@reviewrouter/features-review-run-control";
+import { PrismaProducerReleaseRepository } from "../../../packages/features/review-run-control/src/infrastructure/prisma/prisma-producer-release-repository";
 import { createReviewActionV2E2EHarness } from "../../../scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness";
 import { composeReviewActionV2ProductionRunControl } from "./review-action-v2-production-composition";
 import { ProductionReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
@@ -229,6 +233,194 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         });
         expect(await matches(pin)).toBe(true);
         expect(await live(pin)).toBe(true);
+        // Real registered producer authority, independent from the model profile.
+        // Recovery must use this original selection, never today's server selector.
+        const producers = new PrismaProducerReleaseRepository(db);
+        const legacyProducer = await producers.findProducerReleaseById(
+          run.producerReleaseId,
+        );
+        if (!legacyProducer) throw new Error("legacy_fixture_producer_missing");
+        const approvedAgent: ReviewAgentProfile = {
+          profileRef: "approved-claude-toolchain",
+          agentKind: "claude",
+          binarySha256: "a".repeat(64),
+          packageVersion: "1.2.3",
+          modelTransports: ["account_gateway"],
+          contextGateway: true,
+          cancellation: true,
+        };
+        const alternateAgent: ReviewAgentProfile = {
+          ...approvedAgent,
+          profileRef: "alternate-codex-toolchain",
+          agentKind: "codex",
+        };
+        const agentRelease = createProducerRelease(
+          {
+            ...legacyProducer,
+            producerReleaseId: `${prefix}-agent-producer`,
+            actionCommitSha: createHash("sha256")
+              .update(`${prefix}-agent-action`)
+              .digest("hex")
+              .slice(0, 40),
+            runtimeCommitSha: createHash("sha256")
+              .update(`${prefix}-agent-runtime`)
+              .digest("hex")
+              .slice(0, 40),
+            agentProfiles: [approvedAgent, alternateAgent],
+          },
+          new Date(),
+        );
+        expect(
+          (await producers.registerProducerRelease(agentRelease)).status,
+        ).toBe("created");
+        const approvedSnapshots = new ProductionReviewRunRuntimeSnapshot(
+          db,
+          { profiles: [{ profileRef: profile, limits }] },
+          undefined,
+          true,
+          approvedAgent.profileRef,
+        );
+        const changedSelector = new ProductionReviewRunRuntimeSnapshot(
+          db,
+          { profiles: [{ profileRef: profile, limits }] },
+          undefined,
+          true,
+          alternateAgent.profileRef,
+        );
+        const captureAgent = () =>
+          approvedSnapshots.capture({
+            identity: run,
+            deadline: run.maxExpiresAt,
+            producerRelease: agentRelease,
+          });
+        const agentPin = await captureAgent();
+        if (
+          !agentPin ||
+          agentPin.snapshotVersion !== 2 ||
+          !agentPin.agentAuthority
+        )
+          throw new Error("personal_agent_authority_missing");
+        const agentDigest = (agent: ReviewAgentProfile) =>
+          createHash("sha256").update(canonicalJson(agent)).digest("hex");
+        expect(agentPin.agentAuthority).toEqual({
+          version: 1,
+          producer: {
+            producerReleaseId: agentRelease.producerReleaseId,
+            actionCommitSha: agentRelease.actionCommitSha,
+            runtimeCommitSha: agentRelease.runtimeCommitSha,
+          },
+          agent: approvedAgent,
+          agentProfileDigest: agentDigest(approvedAgent),
+        });
+        expect(agentPin.gateway.expectedAuthorizationEpoch).toBe(7);
+        const agentLive = (
+          snapshot: ReviewRunRuntimeSnapshot,
+          producerReleaseId = agentRelease.producerReleaseId,
+        ) =>
+          changedSelector.isLive({
+            snapshot,
+            identity: run,
+            producerReleaseId,
+            now: new Date(),
+          });
+        const agentMatches = (
+          snapshot: ReviewRunRuntimeSnapshot,
+          producerReleaseId = agentRelease.producerReleaseId,
+        ) =>
+          db.$transaction(
+            (tx) =>
+              changedSelector.matchesAdmission(tx, {
+                ...candidate(snapshot),
+                producerReleaseId,
+              }),
+            { isolationLevel: "Serializable" },
+          );
+        expect(await agentLive(agentPin)).toBe(true);
+        expect(await agentMatches(agentPin)).toBe(true);
+        expect(
+          (
+            await changedSelector.capture({
+              identity: run,
+              deadline: run.maxExpiresAt,
+              producerRelease: agentRelease,
+            })
+          )?.agentAuthority?.agent.profileRef,
+        ).toBe(alternateAgent.profileRef);
+        expect((await captureAgent())?.agentAuthority).toEqual(
+          agentPin.agentAuthority,
+        );
+        expect(
+          await snapshots.capture({
+            identity: run,
+            deadline: run.maxExpiresAt,
+            producerRelease: agentRelease,
+          }),
+        ).toBeNull();
+        expect(
+          await new ProductionReviewRunRuntimeSnapshot(
+            db,
+            { profiles: [{ profileRef: profile, limits }] },
+            undefined,
+            true,
+            "unregistered-toolchain",
+          ).capture({
+            identity: run,
+            deadline: run.maxExpiresAt,
+            producerRelease: agentRelease,
+          }),
+        ).toBeNull();
+        expect(
+          await approvedSnapshots.capture({
+            identity: run,
+            deadline: run.maxExpiresAt,
+            producerRelease: {
+              ...agentRelease,
+              agentProfiles: [
+                { ...approvedAgent, modelTransports: ["provider_api"] },
+              ],
+            },
+          }),
+        ).toBeNull();
+        expect(await agentLive(pin)).toBe(false); // A roster producer cannot masquerade as legacy.
+        expect(await agentMatches(pin)).toBe(false);
+        expect(await agentLive(agentPin, run.producerReleaseId)).toBe(false); // Legacy cannot acquire authority.
+        expect(await agentMatches(agentPin, run.producerReleaseId)).toBe(false);
+        expect(await agentLive(pin, run.producerReleaseId)).toBe(true);
+        expect(pin.agentAuthority).toBeUndefined();
+        const forgedAgent = { ...approvedAgent, binarySha256: "f".repeat(64) };
+        for (const authority of [
+          { ...agentPin.agentAuthority, agentProfileDigest: "0".repeat(64) },
+          {
+            ...agentPin.agentAuthority,
+            agent: forgedAgent,
+            agentProfileDigest: agentDigest(forgedAgent),
+          },
+          {
+            ...agentPin.agentAuthority,
+            producer: {
+              ...agentPin.agentAuthority.producer,
+              producerReleaseId: run.producerReleaseId,
+            },
+          },
+          {
+            ...agentPin.agentAuthority,
+            producer: {
+              ...agentPin.agentAuthority.producer,
+              actionCommitSha: "f".repeat(40),
+            },
+          },
+          {
+            ...agentPin.agentAuthority,
+            producer: {
+              ...agentPin.agentAuthority.producer,
+              runtimeCommitSha: "f".repeat(40),
+            },
+          },
+        ]) {
+          const forged = { ...agentPin, agentAuthority: authority };
+          expect(await agentLive(forged)).toBe(false);
+          expect(await agentMatches(forged)).toBe(false);
+        }
         // Exercise the real production factory, not just the injected foundation.
         // Only the exact trusted server value enables consumption; no truthy coercion.
         expect(
@@ -362,6 +554,8 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         });
         expect(await live(pin)).toBe(false);
         expect(await matches(pin)).toBe(false);
+        expect(await agentLive(agentPin)).toBe(false);
+        expect(await agentMatches(agentPin)).toBe(false);
         const freshPin = await capture();
         if (!freshPin || freshPin.snapshotVersion !== 2)
           throw new Error("fresh_personal_pin_missing");

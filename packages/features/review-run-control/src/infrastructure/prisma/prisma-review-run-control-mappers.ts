@@ -15,6 +15,7 @@ import type {
   ReviewProtocolLimitsV2,
 } from "../../domain/producer-release";
 import { reviewInvestigationCapabilityV1 } from "../../domain/producer-release";
+import { parseReviewAgentProfiles } from "../../domain/review-agent-profile";
 import type { ReviewMutationAuthority } from "../../domain/review-mutation-authority";
 import type { ReviewRunAuthorization } from "../../domain/review-run-authorization";
 import type {
@@ -24,6 +25,7 @@ import type {
 } from "../../domain/review-safety-policy";
 import type { ScmRepositoryIdentity } from "../../domain/scm-repository-identity";
 import {
+  canonicalJson,
   ProducerDistributionKind,
   ProducerReleaseState,
   ReviewCapabilityProfile,
@@ -67,10 +69,15 @@ export function producerReleaseToDomain(
     reviewInvestigationCapability,
     reviewInvestigationCoverageProfileHash,
     reviewInvestigationPolicyHash,
+    agentProfilesJson,
     ...release
   } = row;
   return {
     ...release,
+    agentProfiles:
+      agentProfilesJson == null
+        ? null
+        : parsePersistedAgentProfiles(agentProfilesJson),
     reviewInvestigationProfile:
       reviewInvestigationCapability === null &&
       reviewInvestigationCoverageProfileHash === null &&
@@ -549,4 +556,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function corrupt(field: string, value: string): never {
   throw new Error(`review_run_control_persistence_corrupt:${field}:${value}`);
+}
+
+function parsePersistedAgentProfiles(json: string) {
+  const profiles = parseReviewAgentProfiles(JSON.parse(json));
+  if (canonicalJson(profiles) !== json)
+    throw new Error("producer_agent_profiles_noncanonical");
+  return profiles;
 }

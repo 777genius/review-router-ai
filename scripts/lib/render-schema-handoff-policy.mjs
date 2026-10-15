@@ -275,6 +275,22 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Narrow immutable producer roster over unchanged personal131; policy132 is absent.
+  const agentProfilesMigration = catalog.find(
+    (row) => row.migrationName === "000133_producer_agent_profiles",
+  );
+  if (agentProfilesMigration) {
+    if (
+      agentProfilesMigration.checksum !==
+        "09628886b836db09b4150e2394e92d8da5929d4bc226eff4d3e809e897d6efb6" ||
+      manifest(catalog) !==
+        "sha256:b2f844bbc680f7f7e19ed14a048a92cdfa58842b579baae0d171d8bac29f990b"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== agentProfilesMigration),
+    );
+  }
   // Positive local non-entry release is admitted only as exact checkout131.
   // Recurse through the unchanged pinned canonical130 contract.
   const unenteredClaimMigration = catalog.find(

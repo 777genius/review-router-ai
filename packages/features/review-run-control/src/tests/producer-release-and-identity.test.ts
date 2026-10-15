@@ -1,3 +1,8 @@
+import {
+  parseReviewAgentProfiles,
+  selectReviewAgentProfile,
+} from "../domain/review-agent-profile";
+import { createTrustedProducerReleaseMaterializer } from "../infrastructure/trusted-producer-release-materializer";
 import { describe, expect, it } from "vitest";
 import {
   ImmutableRegistryWriteStatus,
@@ -26,6 +31,8 @@ import {
   sloThresholds,
 } from "./fixtures";
 import {
+  cloneProducerRelease,
+  producerReleaseImmutableKey,
   canonicalReviewProtocolLimits,
   createProducerRelease,
   reviewInvestigationCapabilityV1,
@@ -33,6 +40,106 @@ import {
 } from "../domain/producer-release";
 
 describe("immutable release registries", () => {
+  it("retains legacy key bytes and materializes an immutable detached agent roster", async () => {
+    const kit = createReviewRunControlTestKit();
+    const legacy = createProducerRelease(releaseCandidate, kit.clock.now());
+    expect(legacy.agentProfiles).toBeNull();
+    const key = producerReleaseImmutableKey(releaseCandidate);
+    expect(key).toBe(
+      `{"actionCommitSha":"${"a".repeat(40)}","capabilityProfile":"exact_revision_v2","contextGatewayEntrypointDigest":null,"contextGatewayPolicyVersion":null,"distributionKind":"public_reusable","operationalSloProfileId":"slo-1","protocolLimitsProfileId":"limits-1","reviewInvestigationCapability":null,"reviewInvestigationCoverageProfileHash":null,"reviewInvestigationPolicyHash":null,"runtimeCommitSha":"${"b".repeat(40)}","runtimeEntrypointDigest":"${hashA}","schemaDigest":"${hashB}","wrapperEntrypointDigest":null}`,
+    );
+    expect(
+      producerReleaseImmutableKey({ ...releaseCandidate, agentProfiles: null }),
+    ).toBe(key);
+    const input = [
+      {
+        profileRef: "codex-approved",
+        agentKind: "codex" as const,
+        binarySha256: hashA,
+        packageVersion: "1.2.3",
+        modelTransports: ["account_gateway" as const],
+        contextGateway: true as const,
+        cancellation: true as const,
+      },
+    ];
+    const release = createProducerRelease(
+      { ...releaseCandidate, agentProfiles: input },
+      kit.clock.now(),
+    );
+    input[0]!.packageVersion = "9.9.9";
+    expect(release.agentProfiles![0]!.packageVersion).toBe("1.2.3");
+    const clone = cloneProducerRelease(release);
+    expect(clone.agentProfiles).toEqual(release.agentProfiles);
+    expect(clone.agentProfiles).not.toBe(release.agentProfiles);
+    expect(clone.agentProfiles![0]!.modelTransports).not.toBe(
+      release.agentProfiles![0]!.modelTransports,
+    );
+    const materializer = createTrustedProducerReleaseMaterializer({
+      digest: kit.digest,
+      producerReleases: kit.control.producerReleases,
+      releaseQueries: kit.store,
+      protocolLimitsQueries: kit.store,
+      operationalSloQueries: kit.store,
+    });
+    await materializer.ensureRegistered(release);
+    await materializer.ensureRegistered(clone);
+    expect((await kit.store.registerProducerRelease(clone)).status).toBe(
+      ImmutableRegistryWriteStatus.Restored,
+    );
+    expect(
+      (
+        await kit.store.registerProducerRelease({
+          ...release,
+          agentProfiles: [
+            { ...release.agentProfiles![0]!, packageVersion: "2.0.0" },
+          ],
+        })
+      ).status,
+    ).toBe(ImmutableRegistryWriteStatus.Conflict);
+    expect(
+      (await kit.store.findProducerReleaseById(release.producerReleaseId))!
+        .agentProfiles,
+    ).toEqual(release.agentProfiles);
+    await expect(
+      materializer.ensureRegistered({ ...release, agentProfiles: null }),
+    ).rejects.toThrow("trusted_producer_release_conflict");
+    await expect(
+      materializer.ensureRegistered({
+        ...release,
+        producerReleaseId: "different-id",
+        agentProfiles: null,
+      }),
+    ).rejects.toThrow("trusted_producer_release_conflict");
+    expect(
+      selectReviewAgentProfile(
+        release.agentProfiles,
+        "codex-approved",
+        "account_gateway",
+      ),
+    ).toEqual(release.agentProfiles![0]);
+    expect(() =>
+      selectReviewAgentProfile(
+        release.agentProfiles,
+        "codex-approved",
+        "provider_api",
+      ),
+    ).toThrow("review_agent_profile_unavailable");
+    for (const invalid of [
+      [],
+      [...input, ...input],
+      [{ ...input[0], extra: true }],
+      [{ ...input[0], binarySha256: "not-a-digest" }],
+      [{ ...input[0], cancellation: false }],
+      [
+        {
+          ...input[0],
+          modelTransports: ["account_gateway", "account_gateway"],
+        },
+      ],
+    ])
+      expect(() => parseReviewAgentProfiles(invalid)).toThrow();
+  });
+
   it("rejects caller-supplied profile digests that do not match canonical bytes", async () => {
     const kit = createReviewRunControlTestKit();
     await expect(

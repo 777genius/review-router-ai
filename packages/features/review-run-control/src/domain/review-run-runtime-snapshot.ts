@@ -1,3 +1,7 @@
+import {
+  parseReviewAgentProfiles,
+  type ReviewAgentProfile,
+} from "./review-agent-profile";
 import { canonicalJson } from "./review-run-control-types";
 
 /** Private admission data. Never included in public authorization claims/facts. */
@@ -7,6 +11,19 @@ type RuntimeSnapshotConfiguration = {
   /** Opaque normalized safe configuration; production uses the shared strict parser. */
   readonly configurationCanonicalJson: string;
   readonly deadline: string;
+  readonly agentAuthority?: ReviewRunAgentAuthority;
+};
+
+/** Versioned private toolchain authority; absent only for legacy producers. */
+export type ReviewRunAgentAuthority = {
+  readonly version: 1;
+  readonly producer: {
+    readonly producerReleaseId: string;
+    readonly actionCommitSha: string;
+    readonly runtimeCommitSha: string;
+  };
+  readonly agent: ReviewAgentProfile;
+  readonly agentProfileDigest: string;
 };
 
 /** V2 is an inert private format until personal live-policy/capture is qualified. */
@@ -102,6 +119,7 @@ export function parseReviewRunRuntimeSnapshot(
       "configurationCanonicalJson",
       "deadline",
       "gateway",
+      ...("agentAuthority" in parsed ? ["agentAuthority"] : []),
     ])
   )
     fail();
@@ -212,6 +230,9 @@ export function parseReviewRunRuntimeSnapshot(
     configurationVersion,
     configurationCanonicalJson,
     deadline,
+    ...("agentAuthority" in parsed
+      ? { agentAuthority: parseAgentAuthority(parsed.agentAuthority) }
+      : {}),
   };
   if (parsed.snapshotVersion === 2) {
     if (
@@ -231,6 +252,42 @@ export function parseReviewRunRuntimeSnapshot(
     };
   }
   return { ...configurationFields, snapshotVersion: 1, gateway };
+}
+
+function parseAgentAuthority(value: unknown): ReviewRunAgentAuthority {
+  if (
+    !record(value) ||
+    !keys(value, ["version", "producer", "agent", "agentProfileDigest"]) ||
+    value.version !== 1
+  )
+    fail();
+  const producer = value.producer;
+  if (
+    !record(producer) ||
+    !keys(producer, [
+      "producerReleaseId",
+      "actionCommitSha",
+      "runtimeCommitSha",
+    ]) ||
+    !reference(producer.producerReleaseId) ||
+    typeof producer.actionCommitSha !== "string" ||
+    !/^[a-f0-9]{40}$/.test(producer.actionCommitSha) ||
+    typeof producer.runtimeCommitSha !== "string" ||
+    !/^[a-f0-9]{40}$/.test(producer.runtimeCommitSha) ||
+    typeof value.agentProfileDigest !== "string" ||
+    !/^[a-f0-9]{64}$/.test(value.agentProfileDigest)
+  )
+    fail();
+  return {
+    version: 1,
+    producer: {
+      producerReleaseId: producer.producerReleaseId,
+      actionCommitSha: producer.actionCommitSha,
+      runtimeCommitSha: producer.runtimeCommitSha,
+    },
+    agent: parseReviewAgentProfiles([value.agent])[0]!,
+    agentProfileDigest: value.agentProfileDigest,
+  };
 }
 
 function record(value: unknown): value is Record<string, unknown> {

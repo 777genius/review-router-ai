@@ -231,6 +231,13 @@ export function createReviewRunGatewayCheckout(input: {
       )
         throw new CheckoutFailure("checkout_unavailable", 403);
       const runtimeEnv = mapConfigToRuntimeEnv(configuration);
+      if (snapshot.agentAuthority) {
+        runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON = canonicalJson(
+          snapshot.agentAuthority.agent,
+        );
+        runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_DIGEST =
+          snapshot.agentAuthority.agentProfileDigest;
+      }
       // Protected server observation policy; no lifecycle mutation permission.
       if (observationAuthorsJson !== undefined) {
         runtimeEnv.REVIEW_ROUTER_LIFECYCLE_OBSERVATION_AUTHORS =

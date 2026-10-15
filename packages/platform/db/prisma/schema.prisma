@@ -1098,6 +1098,7 @@ model ReviewOperationalSloProfileV2 {
 }
 
 model ProducerRelease {
+  agentProfilesJson                       String?
   producerReleaseId                      String                     @id
   distributionKind                       ProducerDistributionKindV2
   actionCommitSha                        String

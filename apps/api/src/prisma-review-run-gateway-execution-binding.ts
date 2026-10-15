@@ -124,7 +124,12 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
       return null;
     if (
       !(await this.snapshots.isLive(
-        { snapshot, identity: owner.identity, now: new Date() },
+        {
+          snapshot,
+          producerReleaseId: row.producerReleaseId,
+          identity: owner.identity,
+          now: new Date(),
+        },
         tx,
       ))
     )

@@ -210,6 +210,7 @@ export class ManageReviewRunAuthorizations {
       );
       const captured = await this.dependencies.runtimeSnapshots.capture({
         identity: verifiedIdentity,
+        producerRelease: eligibility.release,
         deadline:
           gatewayMaxExpiresAt > now ? gatewayMaxExpiresAt : maxExpiresAt,
       });
@@ -583,12 +584,18 @@ export class ManageReviewRunAuthorizations {
     const snapshot = parseReviewRunRuntimeSnapshot(
       authorization.runtimeSnapshotCanonicalJson,
     );
-    if (!snapshot) return true;
+    const release = await this.dependencies.releases.findProducerReleaseById(
+      authorization.producerReleaseId,
+    );
+    if (!snapshot) return !release?.agentProfiles;
+    if (Boolean(release?.agentProfiles) !== Boolean(snapshot.agentAuthority))
+      return false;
     if (now >= new Date(snapshot.deadline)) return false;
-    if (!snapshot.gateway) return true;
+    if (!snapshot.gateway && !snapshot.agentAuthority) return true;
     const live =
       (await this.dependencies.runtimeSnapshots?.isLive({
         snapshot,
+        producerReleaseId: authorization.producerReleaseId,
         identity: authorization,
         now,
       })) ?? false;

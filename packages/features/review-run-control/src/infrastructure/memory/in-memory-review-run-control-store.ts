@@ -219,7 +219,12 @@ export class InMemoryReviewRunControlStore
             existingId: existingById.producerReleaseId,
           };
     }
-    const tupleOwner = this.releaseIdsByTuple.get(tuple);
+    // Artifact identity remains unique independently of the approved roster.
+    const artifactTuple = producerReleaseImmutableKey({
+      ...release,
+      agentProfiles: null,
+    });
+    const tupleOwner = this.releaseIdsByTuple.get(artifactTuple);
     if (tupleOwner) {
       return {
         status: ImmutableRegistryWriteStatus.Conflict,
@@ -227,7 +232,7 @@ export class InMemoryReviewRunControlStore
       };
     }
     this.releases.set(release.producerReleaseId, cloneProducerRelease(release));
-    this.releaseIdsByTuple.set(tuple, release.producerReleaseId);
+    this.releaseIdsByTuple.set(artifactTuple, release.producerReleaseId);
     return {
       status: ImmutableRegistryWriteStatus.Created,
       value: cloneProducerRelease(release),

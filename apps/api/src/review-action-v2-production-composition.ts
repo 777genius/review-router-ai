@@ -328,6 +328,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
     ),
     input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
     readPersonalAccountSharingEnabled(input.env),
+    input.env.REVIEW_ROUTER_REVIEW_AGENT_PROFILE_REF,
   );
   const repositories = createPrismaReviewRunControlRepositories(
     input.prisma,
@@ -1156,6 +1157,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
             !(await runtimeSnapshots.isLive(
               {
                 snapshot: checkoutSnapshot,
+                producerReleaseId: authorization.producerReleaseId,
                 identity: authorization,
                 now: clock.now(),
               },

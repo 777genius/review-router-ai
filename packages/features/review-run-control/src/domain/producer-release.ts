@@ -11,6 +11,10 @@ import {
   cloneDate,
   invalid,
 } from "./review-run-control-types";
+import {
+  parseReviewAgentProfiles,
+  type ReviewAgentProfile,
+} from "./review-agent-profile";
 
 export const reviewInvestigationCapabilityV1 = "review_investigation_v1";
 
@@ -71,6 +75,7 @@ export type ProducerRelease = {
   readonly contextGatewayPolicyVersion: string | null;
   readonly contextGatewayEntrypointDigest: string | null;
   readonly reviewInvestigationProfile: ProducerReviewInvestigationProfile | null;
+  readonly agentProfiles?: readonly ReviewAgentProfile[] | null;
   readonly schemaDigest: string;
   readonly capabilityProfile: ReviewCapabilityProfile;
   readonly protocolLimitsProfileId: string;
@@ -88,10 +93,12 @@ export type ProducerReleaseCandidate = Omit<
   | "contextGatewayPolicyVersion"
   | "contextGatewayEntrypointDigest"
   | "reviewInvestigationProfile"
+  | "agentProfiles"
 > & {
   readonly contextGatewayPolicyVersion?: string | null;
   readonly contextGatewayEntrypointDigest?: string | null;
   readonly reviewInvestigationProfile?: ProducerReviewInvestigationProfile | null;
+  readonly agentProfiles?: readonly ReviewAgentProfile[] | null;
 };
 
 export function createReviewProtocolLimitsProfile(input: {
@@ -275,6 +282,10 @@ export function createProducerRelease(
     contextGatewayPolicyVersion,
     contextGatewayEntrypointDigest,
     reviewInvestigationProfile,
+    agentProfiles:
+      candidate.agentProfiles == null
+        ? null
+        : parseReviewAgentProfiles(candidate.agentProfiles),
     schemaDigest: candidate.schemaDigest,
     capabilityProfile: candidate.capabilityProfile,
     protocolLimitsProfileId: candidate.protocolLimitsProfileId,
@@ -322,6 +333,9 @@ export function producerReleaseImmutableKey(
       release.reviewInvestigationProfile?.coverageProfileHash ?? null,
     reviewInvestigationPolicyHash:
       release.reviewInvestigationProfile?.policyHash ?? null,
+    ...(release.agentProfiles == null
+      ? {}
+      : { agentProfiles: parseReviewAgentProfiles(release.agentProfiles) }),
     schemaDigest: release.schemaDigest,
     capabilityProfile: release.capabilityProfile,
     protocolLimitsProfileId: release.protocolLimitsProfileId,
@@ -334,6 +348,10 @@ export function cloneProducerRelease(
 ): ProducerRelease {
   return {
     ...release,
+    agentProfiles:
+      release.agentProfiles == null
+        ? null
+        : parseReviewAgentProfiles(release.agentProfiles),
     registeredAt: cloneDate(release.registeredAt),
     revokedAt: release.revokedAt ? cloneDate(release.revokedAt) : null,
   };

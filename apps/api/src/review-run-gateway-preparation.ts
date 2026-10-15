@@ -138,7 +138,12 @@ export function createReviewRunGatewayPreparation(input: {
         return { status: "restored", binding: saved.binding };
       if (!recovery && initialAttempted) return { status: "denied" };
       if (
-        !(await snapshots.isLive({ snapshot, identity, now: new Date() })) ||
+        !(await snapshots.isLive({
+          snapshot,
+          producerReleaseId: authorization.producerReleaseId,
+          identity,
+          now: new Date(),
+        })) ||
         !live()
       )
         return { status: "denied" };

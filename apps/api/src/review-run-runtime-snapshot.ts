@@ -18,6 +18,8 @@ import {
 import {
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
+  parseReviewAgentProfiles,
+  selectReviewAgentProfile,
   type ReviewRunAuthorizationCandidate,
   type ReviewRunGatewaySelection,
   type ReviewRunGatewayLimits,
@@ -28,7 +30,7 @@ import {
 
 type RuntimeReader = Pick<
   PrismaClient,
-  "reviewConfiguration" | "workspaceAccountBinding"
+  "reviewConfiguration" | "workspaceAccountBinding" | "producerRelease"
 >;
 
 /** Backend configuration only. Never sourced from CI/OIDC/request DTOs. */
@@ -77,7 +79,9 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     private readonly operatorWorkspaceId?: string,
     // Trusted backend composition only; never a caller/config/OIDC permission.
     private readonly personalAccountsEnabled = false,
+    private readonly agentProfileRef?: string,
   ) {
+    if (agentProfileRef !== undefined) assertOpaqueReference(agentProfileRef);
     if (operatorWorkspaceId !== undefined)
       assertOpaqueReference(operatorWorkspaceId);
     const profiles = new Map<string, ReviewRunGatewayLimits>();
@@ -108,12 +112,32 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     input: {
       readonly identity: VerifiedScmRunIdentity;
       readonly deadline: Date;
+      readonly producerRelease?: Parameters<
+        ReviewRunRuntimeSnapshotPort["capture"]
+      >[0]["producerRelease"];
     },
     reader: RuntimeReader = this.prisma,
+    capturedProfileRef?: string,
   ): Promise<ReviewRunRuntimeSnapshot | null> {
     // Retain primitives across all reads; never retain the caller's nested identity.
     const identity = { ...input.identity };
     const deadline = new Date(input.deadline).toISOString();
+    let producer: typeof input.producerRelease;
+    try {
+      producer = input.producerRelease
+        ? {
+            producerReleaseId: input.producerRelease.producerReleaseId,
+            actionCommitSha: input.producerRelease.actionCommitSha,
+            runtimeCommitSha: input.producerRelease.runtimeCommitSha,
+            agentProfiles:
+              input.producerRelease.agentProfiles == null
+                ? null
+                : parseReviewAgentProfiles(input.producerRelease.agentProfiles),
+          }
+        : undefined;
+    } catch {
+      return null;
+    }
     const current = await this.repositories.findRuntimeReviewConfiguration(
       {
         workspaceId: identity.workspaceId,
@@ -137,6 +161,43 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     // profiles need a qualified shared allowance contract, not fresh invocations.
     if (selectedProviders.length > 1) return null;
     const selected = selectedProviders[0];
+    let agentAuthority: ReviewRunRuntimeSnapshot["agentAuthority"];
+    if (producer?.agentProfiles) {
+      try {
+        const profileRef = capturedProfileRef ?? this.agentProfileRef;
+        if (!profileRef) return null;
+        const agent = selectReviewAgentProfile(
+          producer.agentProfiles,
+          profileRef,
+          selected ? "account_gateway" : "provider_api",
+        );
+        if (
+          configuration.providers.some(
+            (provider) =>
+              !agent.modelTransports.includes(
+                provider.authMode === "codex_account_gateway"
+                  ? "account_gateway"
+                  : "provider_api",
+              ),
+          )
+        )
+          return null;
+        agentAuthority = {
+          version: 1,
+          producer: {
+            producerReleaseId: producer.producerReleaseId,
+            actionCommitSha: producer.actionCommitSha,
+            runtimeCommitSha: producer.runtimeCommitSha,
+          },
+          agent,
+          agentProfileDigest: createHash("sha256")
+            .update(canonicalJson(agent))
+            .digest("hex"),
+        };
+      } catch {
+        return null;
+      }
+    }
     let gateway:
       | (ReviewRunGatewaySelection & { expectedAuthorizationEpoch?: number })
       | null = null;
@@ -190,6 +251,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           configurationCanonicalJson: canonicalJson(configuration),
           deadline,
           gateway,
+          ...(agentAuthority ? { agentAuthority } : {}),
         }),
       );
     } catch {
@@ -200,6 +262,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
   async isLive(
     input: {
       readonly snapshot: ReviewRunRuntimeSnapshot;
+      readonly producerReleaseId?: string;
       readonly identity: VerifiedScmRunIdentity;
       readonly now: Date;
     },
@@ -210,10 +273,34 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       canonicalJson(input.snapshot),
     );
     if (!snapshot) return false;
+    if (input.producerReleaseId || snapshot.agentAuthority) {
+      if (!input.producerReleaseId) return false;
+      const producer = await reader.producerRelease.findUnique({
+        where: { producerReleaseId: input.producerReleaseId },
+      });
+      if (
+        !producer ||
+        producer.state !== "registered" ||
+        !this.agentAuthorityMatches(snapshot, producer)
+      )
+        return false;
+    }
     const configuration = parseReviewConfigurationStrict(
       JSON.parse(snapshot.configurationCanonicalJson),
     );
     if (canonicalJson(configuration) !== snapshot.configurationCanonicalJson)
+      return false;
+    if (
+      snapshot.agentAuthority &&
+      configuration.providers.some(
+        (provider) =>
+          !snapshot.agentAuthority!.agent.modelTransports.includes(
+            provider.authMode === "codex_account_gateway"
+              ? "account_gateway"
+              : "provider_api",
+          ),
+      )
+    )
       return false;
     const gatewayProviders = configuration.providers.filter(
       (provider) => provider.authMode === "codex_account_gateway",
@@ -295,6 +382,15 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       candidate.runtimeSnapshotCanonicalJson,
     );
     if (!original) return false;
+    const producer = await transaction.producerRelease.findUnique({
+      where: { producerReleaseId: candidate.producerReleaseId },
+    });
+    if (
+      !producer ||
+      producer.state !== "registered" ||
+      !this.agentAuthorityMatches(original, producer)
+    )
+      return false;
     const workspaceId = candidate.workspaceId;
     const targetKey = `repo:${candidate.repositoryConnectionId}`;
     const owned = await transaction.$queryRaw<readonly { id: string }[]>`
@@ -312,13 +408,63 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         {
           identity: candidate,
           deadline: candidate.maxExpiresAt,
+          producerRelease: {
+            ...producer,
+            agentProfiles:
+              producer.agentProfilesJson === null
+                ? null
+                : parseReviewAgentProfiles(
+                    JSON.parse(producer.agentProfilesJson),
+                  ),
+          },
         },
         transaction,
+        original.agentAuthority?.agent.profileRef,
       );
       return canonicalJson(current) === candidate.runtimeSnapshotCanonicalJson;
     } catch (error) {
       if (error instanceof ProviderAccountError) return false;
       throw error;
+    }
+  }
+  private agentAuthorityMatches(
+    snapshot: ReviewRunRuntimeSnapshot,
+    producer: {
+      producerReleaseId: string;
+      actionCommitSha: string;
+      runtimeCommitSha: string;
+      agentProfilesJson: string | null;
+    },
+  ): boolean {
+    const authority = snapshot.agentAuthority;
+    if (producer.agentProfilesJson === null) return authority === undefined;
+    if (
+      !authority ||
+      canonicalJson(authority.producer) !==
+        canonicalJson({
+          producerReleaseId: producer.producerReleaseId,
+          actionCommitSha: producer.actionCommitSha,
+          runtimeCommitSha: producer.runtimeCommitSha,
+        })
+    )
+      return false;
+    try {
+      const profiles = parseReviewAgentProfiles(
+        JSON.parse(producer.agentProfilesJson),
+      );
+      if (canonicalJson(profiles) !== producer.agentProfilesJson) return false;
+      const approved = profiles.find(
+        (profile) => profile.profileRef === authority.agent.profileRef,
+      );
+      return (
+        approved !== undefined &&
+        canonicalJson(approved) === canonicalJson(authority.agent) &&
+        createHash("sha256")
+          .update(canonicalJson(authority.agent))
+          .digest("hex") === authority.agentProfileDigest
+      );
+    } catch {
+      return false;
     }
   }
 }

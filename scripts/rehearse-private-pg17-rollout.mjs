@@ -338,6 +338,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000129_personal_run_snapshot_v2",
     "000130_personal_canonical_operations",
     "000131_personal_canonical_unentered_claim",
+    "000133_producer_agent_profiles",
   ]),
   retained: Object.freeze([
     "000067_review_live_progress",

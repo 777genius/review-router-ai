@@ -152,6 +152,68 @@ describe("production run-authorization prerequisites", () => {
     },
   );
 
+  it("preserves configured agent authority and rejects roster rebinding of a registered legacy release", async () => {
+    const kit = createReviewRunControlTestKit();
+    const agentProfiles = [
+      {
+        profileRef: "approved-agent",
+        agentKind: "codex" as const,
+        binarySha256: hashA,
+        packageVersion: "1.2.3",
+        modelTransports: ["account_gateway" as const],
+        contextGateway: true as const,
+        cancellation: true as const,
+      },
+    ];
+    const wire = {
+      ...attestation(),
+      reviewInvestigationCapability: null,
+      reviewInvestigationCoverageProfileHash: null,
+      reviewInvestigationPolicyHash: null,
+      agentProfiles,
+    };
+    const parsed = readConfiguredProducerReleaseAttestations({
+      [reviewRunProducerReleaseAttestationsEnv]: JSON.stringify([wire]),
+    });
+    const registry = new ConfiguredProducerReleaseAttestationRegistry(
+      parsed,
+      kit.store,
+    );
+    const request = {
+      actionCommitSha: shaA,
+      expectedSchemaDigest: hashB,
+      expectedCanonicalizerDigest: hashC,
+    };
+    await expect(registry.attest(request)).resolves.toMatchObject({
+      status: ProducerReleaseAttestationStatus.Attested,
+      release: { agentProfiles },
+    });
+    const direct = new ConfiguredProducerReleaseAttestationRegistry(
+      [{ ...attestation(), agentProfiles }],
+      kit.store,
+    );
+    agentProfiles[0]!.packageVersion = "9.9.9";
+    await expect(direct.attest(request)).resolves.toMatchObject({
+      release: { agentProfiles: [{ packageVersion: "1.2.3" }] },
+    });
+    await provisionV2AuthorizationContext(kit);
+    await expect(registry.attest(request)).resolves.toEqual({
+      status: ProducerReleaseAttestationStatus.Mismatch,
+    });
+    for (const roster of [
+      [],
+      [{ ...agentProfiles[0], contextGateway: false }],
+      [{ ...agentProfiles[0], secret: "forbidden" }],
+    ])
+      expect(() =>
+        readConfiguredProducerReleaseAttestations({
+          [reviewRunProducerReleaseAttestationsEnv]: JSON.stringify([
+            { ...wire, agentProfiles: roster },
+          ]),
+        }),
+      ).toThrow();
+  });
+
   it("attests only an exact registered immutable release tuple", async () => {
     const kit = createReviewRunControlTestKit();
     await provisionV2AuthorizationContext(kit);
