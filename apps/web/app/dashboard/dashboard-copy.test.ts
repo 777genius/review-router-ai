@@ -36,3 +36,21 @@ describe("dashboard Codex rotating OAuth copy", () => {
     ).toContain("Codex rotating setup is incomplete");
   });
 });
+
+it.each([
+  ["gateway_review_v2_inventory_retry", "Wait a minute"],
+  [
+    "gateway_review_v2_workflow_incompatible",
+    "base branches of open pull requests",
+  ],
+  ["gateway_review_v2_provisioning_failed", "safe server error code"],
+  ["gateway_review_v2_release_untrusted", "release and its registration"],
+  ["gateway_review_v2_dispatch_unavailable", "Actions write permission"],
+  ["gateway_review_v2_proof_blocked", "repository enrollment"],
+  ["gateway_review_v2_safety_blocked", "safety policy or an emergency stop"],
+])("explains the next setup action for %s", (issue, guidance) => {
+  const copy = dashboardErrorText(issue);
+  expect(copy).toContain(guidance);
+  expect(copy).not.toContain("GitHub operation failed");
+  expect(copy).not.toMatch(/rerun|restart|replay/i);
+});

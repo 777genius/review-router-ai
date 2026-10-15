@@ -287,7 +287,10 @@ export function RepositorySetupProgressPanel({
               ? "This repository has a legacy review enrollment. Complete its migration before reviews can run."
               : gatewayReviewV2Readiness?.status === "paused"
                 ? "Review authorization is paused. Complete its recovery before reviews can run."
-                : "Review authorization is not ready. Confirm the merged workflow or check workspace configuration."}
+                : gatewayReviewV2Readiness &&
+                    "issue" in gatewayReviewV2Readiness
+                  ? sharedDashboardErrorText(gatewayReviewV2Readiness.issue)
+                  : "Review authorization is not ready. Confirm the merged workflow or check workspace configuration."}
         </p>
       ) : null}
       {toast ? (

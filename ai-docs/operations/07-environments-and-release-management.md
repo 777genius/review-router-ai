@@ -70,6 +70,10 @@ still be approved in the producer registry. Keep the previous approved producer
 available for already admitted runs. A channel tag is never execution authority
 by itself.
 
+Installed callers must remain semantically compatible with the server template
+throughout `workflow-v1`. A template change must continue accepting installed
+documents or introduce a new workflow ABI major with an installation update.
+
 The first pre-launch publication introduces an unused channel: keep known
 installations stopped until the paired API/schema, producer registration and new
 caller are ready. GitHub Secrets and Hosted Pool keep their existing entrypoints.
@@ -177,7 +181,7 @@ For a new public/stable runtime release:
 3. Merge the pin and wait for control plane CI on the resulting exact commit
 4. Release 777genius/review-router-ai at the same v1.0.x
 5. Verify both v1 tags resolve to the new exact release commits
-6. Activate the paired private runtime and verify the exact public producer is registered
+6. Activate the paired private runtime and verify the exact public producer is registered; align REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF and REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF with the approved target producer before promotion
 7. Explicitly promote workflow-v1 to the existing public exact release tag after its ABI check and previous-channel SHA comparison
 8. Verify generated/setup PRs use their intended channel or exact pin
 ```

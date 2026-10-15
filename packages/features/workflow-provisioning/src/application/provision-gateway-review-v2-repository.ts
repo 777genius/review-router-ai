@@ -61,6 +61,7 @@ export type GatewayReviewV2ProvisioningIssue =
   | "gateway_review_v2_runtime_not_ready"
   | "gateway_review_v2_release_registry_missing"
   | "gateway_review_v2_provisioning_failed"
+  | "gateway_review_v2_inventory_retry"
   | "gateway_repository_identity_missing"
   | "gateway_repository_binding_conflict"
   | "gateway_review_v2_workflow_incompatible"

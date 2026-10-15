@@ -246,9 +246,17 @@ export async function provisionGatewayReviewV2Repository(input: {
     console.warn("gateway_review_v2_provisioning_failed", {
       code: provisioningFailureCode(error),
     });
+    const inventoryRetry =
+      error instanceof Error &&
+      [
+        "codex_rotating_workflow_inventory_coverage_moved",
+        "codex_rotating_workflow_inventory_mergeability_unavailable",
+      ].includes(error.message);
     return {
       status: "blocked",
-      issue: "gateway_review_v2_provisioning_failed",
+      issue: inventoryRetry
+        ? "gateway_review_v2_inventory_retry"
+        : "gateway_review_v2_provisioning_failed",
     };
   }
 }

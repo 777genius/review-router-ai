@@ -433,6 +433,20 @@ export function dashboardErrorText(error: string): string {
       return "GitHub is temporarily unavailable for this action. Retry after GitHub recovers.";
     case "hosted_account_subject_already_enrolled":
       return "This ChatGPT is already on the list, or it was removed and cannot be added again.";
+    case "gateway_review_v2_inventory_retry":
+      return "GitHub is still calculating pull request mergeability, or branches changed during the workflow check. Wait a minute, then click “I merged it” again to check the setup.";
+    case "gateway_review_v2_workflow_incompatible":
+      return "Gateway found incompatible ReviewRouter workflows. Check the base branches of open pull requests for legacy .github/workflows/reviewrouter.yml or reviewrouter-codex.yml; remove only obsolete ReviewRouter files from those branches, and close obsolete setup PRs that add them. Then check the merged setup again.";
+    case "gateway_review_v2_provisioning_failed":
+      return "Gateway setup verification failed. Check audit events or ask your workspace administrator for the safe server error code before trying again.";
+    case "gateway_review_v2_release_untrusted":
+      return "The Gateway runtime release is not approved. Ask your workspace administrator to check the configured release and its registration, then check the merged setup again.";
+    case "gateway_review_v2_dispatch_unavailable":
+      return "The GitHub App cannot dispatch reviews for this repository. Check its repository access and Actions write permission, then check the merged setup again.";
+    case "gateway_review_v2_proof_blocked":
+      return "Gateway authorization prerequisites are incomplete. Ask your workspace administrator to check the repository enrollment and safe server error code.";
+    case "gateway_review_v2_safety_blocked":
+      return "Workspace safety policy or an emergency stop blocks Gateway reviews. Ask your workspace administrator to review that restriction before checking setup again.";
     case "github_operation_failed":
       return "GitHub operation failed. Check audit events or server logs for the safe error code.";
     case "repository_not_selected":

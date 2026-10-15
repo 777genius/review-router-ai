@@ -1722,11 +1722,25 @@ async function confirmSetupPullRequestMergedMutation(
         (await octokit.request(refRoute, refParameters)).data,
       );
       if (accountGateway) currentGatewaySourceCommitSha = commitSha;
-      const content = await octokit.request(contentRoute, {
-        ...location,
-        path: selectedCodexWorkflowPath,
-        ref: commitSha,
-      });
+      const content = await octokit
+        .request(contentRoute, {
+          ...location,
+          path: selectedCodexWorkflowPath,
+          ref: commitSha,
+        })
+        .catch((error: unknown) => {
+          if (
+            accountGateway &&
+            setupPullRequestStatus === "open" &&
+            setupPullRequestInspection?.merged === false &&
+            typeof error === "object" &&
+            error !== null &&
+            "status" in error &&
+            error.status === 404
+          )
+            throw new Error("setup_pr_not_merged");
+          throw error;
+        });
       if (
         (content.data as { path?: unknown } | null)?.path !==
         selectedCodexWorkflowPath
