@@ -282,6 +282,9 @@ importers:
       '@reviewrouter/protocol-review-action-v2':
         specifier: workspace:*
         version: link:../../packages/protocol-review-action-v2
+      '@reviewrouter/protocol-review-workflow':
+        specifier: workspace:*
+        version: link:../../packages/protocol-review-workflow
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -795,6 +798,9 @@ importers:
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../review-providers
+      '@reviewrouter/shared':
+        specifier: workspace:*
+        version: link:../../shared
       zod:
         specifier: ^4.4.2
         version: 4.4.2
@@ -989,6 +995,9 @@ importers:
       '@reviewrouter/platform-signed-capabilities':
         specifier: workspace:*
         version: link:../../platform/signed-capabilities
+      '@reviewrouter/shared':
+        specifier: workspace:*
+        version: link:../../shared
 
   packages/features/review-snapshots:
     dependencies:
@@ -1113,7 +1122,11 @@ importers:
 
   packages/protocol-review-action-v2: {}
 
-  packages/protocol-review-workflow: {}
+  packages/protocol-review-workflow:
+    dependencies:
+      '@reviewrouter/shared':
+        specifier: workspace:*
+        version: link:../shared
 
   packages/shared: {}
 

@@ -1,4 +1,8 @@
 import {
+  reviewPolicyFixture,
+  fixtureProviderSettings,
+} from "./review-policy-fixture.js";
+import {
   defaultActionOidcAudience,
   githubActionsOidcIssuer,
   JoseActionSessionTokenService,
@@ -9,7 +13,6 @@ import {
 } from "../../../packages/features/action-control-plane/src/index.ts";
 import {
   PrismaReviewConfigurationRepository,
-  safeDefaultReviewConfiguration,
   saveReviewConfiguration,
 } from "../../../packages/features/review-config/src/index.ts";
 import { createPrismaClient } from "../../../packages/platform/db/src/index.ts";
@@ -57,12 +60,20 @@ try {
     throw new Error("fixture repository is missing GitHub id");
   }
   const e2eProvider = {
-    ...safeDefaultReviewConfiguration.provider,
+    ...fixtureProviderSettings,
     kind: "openrouter" as const,
     authMode: "openrouter_api_key" as const,
     model: "poolside/laguna-m.1:free",
   };
 
+  const configurations = new PrismaReviewConfigurationRepository(prisma);
+  await saveReviewConfiguration(
+    {
+      target: { scope: "workspace", workspaceId: repository.workspaceId },
+      policy: reviewPolicyFixture([e2eProvider]),
+    },
+    { configurations },
+  );
   await saveReviewConfiguration(
     {
       target: {
@@ -70,11 +81,7 @@ try {
         workspaceId: repository.workspaceId,
         repositoryId: repository.id,
       },
-      config: {
-        ...safeDefaultReviewConfiguration,
-        provider: e2eProvider,
-        providers: [e2eProvider],
-      },
+      policy: { schemaVersion: 3, providers: [e2eProvider] },
     },
     { configurations: new PrismaReviewConfigurationRepository(prisma) },
   );

@@ -45,6 +45,7 @@ export interface ManagedReviewWorkflowInventoryInspectionPort {
     readonly compatible: boolean;
     readonly inventoryHash: string;
     readonly actionCommitSha: string | null;
+    readonly runtimeRef: string | null;
     readonly workflowSchemaVersion: number | null;
     readonly defaultBranchHeadSha: string;
   }>;
@@ -302,11 +303,12 @@ export class ProvisionGatewayReviewV2Repository {
       );
     if (
       !inventory.compatible ||
-      inventory.actionCommitSha !==
-        command.expectedGatewaySource.actionCommitSha ||
+      (inventory.runtimeRef !== reviewRouterWorkflowContract.channel &&
+        inventory.runtimeRef !==
+          command.expectedGatewaySource.actionCommitSha) ||
       inventory.defaultBranchHeadSha !==
         command.expectedGatewaySource.sourceRevision ||
-      inventory.workflowSchemaVersion !== 2
+      inventory.workflowSchemaVersion !== reviewRouterWorkflowContract.major
     )
       return {
         status: "blocked",
@@ -324,7 +326,7 @@ export class ProvisionGatewayReviewV2Repository {
         issue: "gateway_review_v2_dispatch_unavailable",
       };
     const attested = await this.dependencies.attestations.attestSelectedAction(
-      inventory.actionCommitSha,
+      command.expectedGatewaySource.actionCommitSha,
     );
     if (attested.status !== ProducerReleaseAttestationStatus.Attested)
       return {
@@ -414,7 +416,7 @@ export class ProvisionGatewayReviewV2Repository {
       scmRepositoryIdentityId: target.scmRepositoryIdentityId,
       authorityVersion: authority!.version,
       authorityEpoch: authority!.epoch.toString(),
-      actionCommitSha: inventory.actionCommitSha,
+      actionCommitSha: attested.release.actionCommitSha,
     };
   }
 
@@ -503,3 +505,4 @@ export class ProvisionGatewayReviewV2Repository {
     return null;
   }
 }
+import { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";

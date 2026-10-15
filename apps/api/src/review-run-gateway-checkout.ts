@@ -231,6 +231,12 @@ export function createReviewRunGatewayCheckout(input: {
       )
         throw new CheckoutFailure("checkout_unavailable", 403);
       const runtimeEnv = mapConfigToRuntimeEnv(configuration);
+      // Only the admitted agent definition is exported, never today's setting.
+      runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON = canonicalJson(
+        snapshot.agent,
+      );
+      runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_DIGEST =
+        snapshot.agentProfileDigest;
       // Protected server observation policy; no lifecycle mutation permission.
       if (observationAuthorsJson !== undefined) {
         runtimeEnv.REVIEW_ROUTER_LIFECYCLE_OBSERVATION_AUTHORS =

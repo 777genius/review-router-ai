@@ -207,10 +207,13 @@ export class PrismaProducerReleaseRepository
           existingId: tupleOwner.producerReleaseId,
         };
       }
-      const { reviewInvestigationProfile, ...releaseRecord } = release;
+      const { reviewInvestigationProfile, agentProfiles, ...releaseRecord } =
+        release;
       const created = await transaction.producerRelease.create({
         data: {
           ...releaseRecord,
+          agentProfilesJson:
+            agentProfiles === null ? null : canonicalJson(agentProfiles),
           distributionKind: distributionKindToPersistence(
             release.distributionKind,
           ),

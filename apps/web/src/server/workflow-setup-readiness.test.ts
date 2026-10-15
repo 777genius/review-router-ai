@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   OctokitRepositoryWorkflowProbe,
   type RepositoryWorkflowCheck,
@@ -67,37 +67,28 @@ it.each([
     githubRepositoryId: readinessInput.githubRepositoryId,
   }).content;
   if (scenario === "wrong-mode")
-    workflow = workflow.replace("account-gateway", "oauth");
-  if (scenario === "missing-mode")
     workflow = workflow.replace(
-      "      codex_session_mode: account-gateway\n",
-      "",
+      "reviewrouter-runtime.yml",
+      "other-runtime.yml",
     );
+  if (scenario === "missing-mode")
+    workflow = workflow.replace(/^.*review_request_id:.*\n/m, "");
   if (scenario === "static")
     workflow = workflow.replace(
-      "runtime_config_mode: oidc",
-      "runtime_config_mode: static",
+      "    with:",
+      "    env: { STATIC: '1' }\n    with:",
     );
   if (scenario === "extra-secret") workflow += "    secrets: inherit\n";
   if (scenario === "wrong-schema")
-    workflow = workflow.replace(
-      "workflow_schema_version: 2",
-      "workflow_schema_version: 4",
-    );
+    workflow = workflow.replace("@workflow-v1", "@workflow-v2");
   if (scenario === "wrong-identity")
-    workflow = workflow.replace(
-      "codex-rotating:123456",
-      "codex-rotating:999999",
-    );
+    workflow += "      repository_id: 999999\n";
   if (scenario === "old-ref")
-    workflow = workflow.replaceAll(
-      versionedActionRef.split("@")[1]!,
-      "a".repeat(40),
-    );
+    workflow = workflow.replace("@workflow-v1", "@v1");
   if (scenario === "namespace")
     workflow = workflow.replace(
-      "ReviewRouter Codex",
-      "ReviewRouter Codex OAuth [namespace-v4]",
+      "name: ReviewRouter",
+      "name: ReviewRouter [namespace-v4]",
     );
   const paths: string[] = [];
   const current = await isWorkflowSetupAlreadyCurrent(
@@ -125,8 +116,82 @@ it.each([
     },
   );
   expect(current).toBe(scenario === "current");
-  expect(paths).toEqual([".github/workflows/reviewrouter-codex.yml"]);
+  expect(paths).toEqual([".github/workflows/reviewrouter-review.yml"]);
 });
+it("keeps 1000 installed callers current across compatible producer and profile updates", async () => {
+  vi.stubEnv("REVIEW_ROUTER_AGENT_PROFILE", "qualified-before");
+  try {
+    const installations = Array.from({ length: 1000 }, (_, index) => ({
+      ...readinessInput,
+      githubRepositoryId: String(100000 + index),
+      repositoryFullName: `acme/project-${index}`,
+      owner: "acme",
+      name: `project-${index}`,
+      actionRef: versionedActionRef,
+      codexSessionMode: "account-gateway" as const,
+    }));
+    const installedSources = new Map(
+      installations.map((installation) => [
+        installation.repositoryFullName,
+        renderAccountGatewayWorkflow({
+          actionRef: installation.actionRef,
+          apiUrl: "https://app.reviewrouter.dev",
+          githubRepositoryId: installation.githubRepositoryId,
+        }).content,
+      ]),
+    );
+    vi.stubEnv("REVIEW_ROUTER_AGENT_PROFILE", "qualified-after");
+    const nextProducer = `777genius/review-router@${"b".repeat(40)}`;
+    let reads = 0;
+    let writes = 0;
+    const workflowProbe = new OctokitRepositoryWorkflowProbe({
+      createRequester: async () => ({
+        request: async (route, parameters) => {
+          if (route !== "GET /repos/{owner}/{repo}/contents/{path}") {
+            writes++;
+            throw new Error("unexpected_workflow_mutation");
+          }
+          reads++;
+          expect(parameters?.path).toBe(
+            ".github/workflows/reviewrouter-review.yml",
+          );
+          expect(parameters?.ref).toBe("main");
+          const source = installedSources.get(
+            `${parameters?.owner}/${parameters?.repo}`,
+          );
+          if (!source) throw new Error("unknown_installation");
+          return {
+            data: {
+              type: "file",
+              encoding: "base64",
+              content: Buffer.from(source).toString("base64"),
+            },
+          };
+        },
+      }),
+    });
+    for (const installation of installations) {
+      expect(
+        await isWorkflowSetupAlreadyCurrent(
+          {
+            ...installation,
+            actionRef: nextProducer,
+          },
+          {
+            workflowProbe,
+            resolvePublicApiUrl: () => "https://app.reviewrouter.dev",
+          },
+        ),
+      ).toBe(true);
+    }
+    expect(reads).toBe(1000);
+    expect(writes).toBe(0);
+    expect(installedSources.size).toBe(1000);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 const v4SecretNamespace = createVersionedProviderSecretNamespace({
   scope: {
     repositoryId: "123456",

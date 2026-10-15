@@ -1,3 +1,4 @@
+import { managedCodexWorkflowPath } from "@reviewrouter/shared";
 import {
   assertCodexRotatingWorkflowV4ToV5Transition,
   codexRotatingV4CompatibilityWindowSeconds,
@@ -162,8 +163,7 @@ function canonicalBoundAttestation(
     attestation.repositoryId !== target.repositoryId ||
     (attestation.workflowPath !== target.workflowPath &&
       (!allowManagedPreviousPath ||
-        attestation.workflowPath !==
-          ".github/workflows/reviewrouter-codex.yml")) ||
+        attestation.workflowPath !== managedCodexWorkflowPath)) ||
     attestation.sourceTrust !== WorkflowSourceTrust.TrustedDefaultBranchRevision
   ) {
     throw new Error("codex_rotating_workflow_source_attestation_missing");

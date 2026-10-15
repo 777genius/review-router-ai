@@ -1,18 +1,42 @@
-import type { ReviewConfiguration } from "../../domain/review-configuration";
+import type {
+  RepositoryReviewPolicyOverride,
+  ReviewConfiguration,
+  WorkspaceReviewPolicy,
+} from "../../domain/review-configuration";
 import type { ReviewConfigurationTarget } from "../../domain/review-configuration-target";
 
 export type PersistedReviewConfiguration = {
   readonly version: number;
   readonly config: ReviewConfiguration;
+  readonly policy: WorkspaceReviewPolicy | RepositoryReviewPolicyOverride;
+  readonly source: "workspace" | "repository";
+  readonly workspaceVersion: number | null;
+  readonly repositoryVersion: number | null;
+  readonly effectivePolicyDigest: string;
   readonly revisionToken?: string;
 };
 
+export type ReviewPolicySaveInput =
+  | {
+      readonly target: Extract<
+        ReviewConfigurationTarget,
+        { scope: "workspace" }
+      >;
+      readonly policy: WorkspaceReviewPolicy;
+    }
+  | {
+      readonly target: Extract<
+        ReviewConfigurationTarget,
+        { scope: "repository" }
+      >;
+      readonly policy: RepositoryReviewPolicyOverride;
+    };
+
 export type ReviewConfigurationOperationInput = Readonly<{
-  target: ReviewConfigurationTarget;
-  config: ReviewConfiguration;
   expectedVersion: number | null;
   operationId: string;
-}>;
+}> &
+  ReviewPolicySaveInput;
 
 /** Callers must authorize the target against live membership on EVERY call.
  * A receipt records a historical write; it never authorizes selection/execution.
@@ -75,7 +99,7 @@ export interface ReviewConfigurationRepositoryPort {
 
   saveNextVersion(input: {
     readonly target: ReviewConfigurationTarget;
-    readonly config: ReviewConfiguration;
+    readonly policy: WorkspaceReviewPolicy | RepositoryReviewPolicyOverride;
     /**
      * Omitted disables CAS, null expects no version, and a number expects that
      * exact latest version. Implementations throw a write conflict on mismatch.

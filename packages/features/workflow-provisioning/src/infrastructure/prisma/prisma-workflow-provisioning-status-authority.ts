@@ -1,3 +1,4 @@
+import { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";
 import type { PrismaClient } from "@prisma/client";
 import type {
   WorkflowProvisioningAttempt,
@@ -127,7 +128,7 @@ export class PrismaWorkflowProvisioningStatusAuthority {
       const unboundTransfer =
         current.status === "not_started" &&
         current.branch === "reviewrouter/setup" &&
-        current.workflowPath === ".github/workflows/reviewrouter-codex.yml" &&
+        current.workflowPath === reviewRouterWorkflowContract.callerPath &&
         current.workflowStyle === "explicit" &&
         current.actionVersion === "" &&
         current.pullRequestUrl === null &&

@@ -1,3 +1,8 @@
+import {
+  workspacePolicyFixture,
+  workspaceProviderFixture,
+} from "./current-policy-fixture";
+import { InMemoryReviewConfigurationRepository } from "./in-memory-review-configuration";
 import { describe, expect, it } from "vitest";
 import {
   findReviewConfiguration,
@@ -6,15 +11,9 @@ import {
   parseReviewConfiguration,
   parseReviewConfigurationStrict,
   PrismaReviewConfigurationRepository,
-  reviewConfigurationTargetKey,
   resolveReviewConfiguration,
   resolveReviewRuntimeEnv,
   saveReviewConfiguration,
-  safeDefaultReviewConfiguration,
-  effectiveInlineMaxComments,
-  type PersistedReviewConfiguration,
-  type ReviewConfigurationBatchReaderPort,
-  type ReviewConfigurationRepositoryPort,
 } from "../index";
 
 const enabledInvestigationRollout = {
@@ -35,15 +34,6 @@ const disabledInvestigationRollout = {
   productionEffectsEnabled: false,
 } as const;
 
-const defaultInvestigationRuntimeEnv = {
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: "1",
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: "1",
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED: "1",
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED: "1",
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED: "0",
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "1",
-} as const;
-
 const disabledInvestigationRuntimeEnv = {
   REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: "0",
   REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: "0",
@@ -53,115 +43,48 @@ const disabledInvestigationRuntimeEnv = {
   REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "0",
 } as const;
 
-class InMemoryReviewConfigurationRepository
-  implements
-    ReviewConfigurationRepositoryPort,
-    ReviewConfigurationBatchReaderPort
-{
-  private readonly versions = new Map<string, PersistedReviewConfiguration[]>();
-
-  async findLatest(
-    target: Parameters<ReviewConfigurationRepositoryPort["findLatest"]>[0],
-  ) {
-    const records = this.versions.get(reviewConfigurationTargetKey(target));
-    return records?.at(-1) ?? null;
-  }
-
-  async findLatestForRepositories(input: {
-    readonly workspaceId: string;
-    readonly repositoryIds: readonly string[];
-  }) {
-    return [...new Set(input.repositoryIds)].flatMap((repositoryId) => {
-      const config = this.versions
-        .get(
-          reviewConfigurationTargetKey({
-            scope: "repository",
-            workspaceId: input.workspaceId,
-            repositoryId,
-          }),
-        )
-        ?.at(-1);
-      return config ? [{ repositoryId, config }] : [];
-    });
-  }
-
-  async saveNextVersion(
-    input: Parameters<ReviewConfigurationRepositoryPort["saveNextVersion"]>[0],
-  ) {
-    const key = reviewConfigurationTargetKey(input.target);
-    const records = this.versions.get(key) ?? [];
-    const persisted = {
-      version: records.length + 1,
-      config: input.config,
-    } satisfies PersistedReviewConfiguration;
-    this.versions.set(key, [...records, persisted]);
-    return persisted;
-  }
-
-  async deleteTarget(
-    target: Parameters<ReviewConfigurationRepositoryPort["deleteTarget"]>[0],
-  ) {
-    return this.versions.delete(reviewConfigurationTargetKey(target));
-  }
-}
-
 describe("review configuration", () => {
-  it("maps safe default rotating Codex OAuth config to runtime env without secrets", () => {
-    const env = mapConfigToRuntimeEnv(safeDefaultReviewConfiguration);
-
+  it("maps an explicit workspace policy without secrets", () => {
+    const env = mapConfigToRuntimeEnv(workspacePolicyFixture);
     expect(env).toMatchObject({
       REVIEW_AUTH_MODE: "codex-oauth-rotating",
-      CODEX_MODEL: "gpt-5.6-sol",
-      CODEX_REASONING_EFFORT: "xhigh",
-      CODEX_AGENTIC_CONTEXT: "true",
-      CODEX_FAST_MODE: "false",
-      REVIEW_PROVIDERS: "codex/gpt-5.6-sol",
-      REQUIRED_HEALTHY_PROVIDERS: "codex/gpt-5.6-sol",
-      SYNTHESIS_MODEL: "codex/gpt-5.6-sol",
-      PROVIDER_LIMIT: "1",
-      PROVIDER_MAX_PARALLEL: "1",
-      INLINE_MIN_AGREEMENT: "1",
-      FAIL_ON_SEVERITY: "critical",
-      INLINE_MAX_COMMENTS: "50",
-      INLINE_MIN_SEVERITY: "minor",
-      ...defaultInvestigationRuntimeEnv,
+      CODEX_MODEL: "gpt-5.5",
+      CODEX_REASONING_EFFORT: "high",
+      INLINE_MAX_COMMENTS: "5",
+      ...disabledInvestigationRuntimeEnv,
     });
-    expect(safeDefaultReviewConfiguration.investigationRollout).toEqual({
-      recordingEnabled: true,
-      shadowEnabled: true,
-      contextCriticEnabled: true,
-      verifiedCleanEnabled: true,
-      crossRevisionReplayEnabled: false,
-      productionEffectsEnabled: true,
-    });
-    expect(Object.keys(env).join("\n")).not.toContain("SECRET");
-    expect(Object.keys(env).join("\n")).not.toContain("KEY");
+    expect(Object.keys(env).join("\n")).not.toMatch(/SECRET|KEY/);
   });
 
-  it("treats the stored legacy inline cap of 5 as 50 and keeps 0 disabled", () => {
-    expect(effectiveInlineMaxComments(0)).toBe(0);
-    expect(effectiveInlineMaxComments(5)).toBe(50);
-    expect(effectiveInlineMaxComments(12)).toBe(12);
-  });
+  it.each([0, 5, 12])(
+    "preserves explicit inline cap %s",
+    (inlineMaxComments) => {
+      const config = parseReviewConfigurationStrict({
+        ...workspacePolicyFixture,
+        limits: { ...workspacePolicyFixture.limits, inlineMaxComments },
+      });
+      expect(mapConfigToRuntimeEnv(config).INLINE_MAX_COMMENTS).toBe(
+        String(inlineMaxComments),
+      );
+    },
+  );
 
   it.each(["high", "max", "ultra"] as const)(
     "persists and maps %s reasoning effort to runtime env",
     (reasoningEffort) => {
       const config = parseReviewConfigurationStrict({
-        ...safeDefaultReviewConfiguration,
-        provider: {
-          ...safeDefaultReviewConfiguration.provider,
-          reasoningEffort,
-        },
+        ...workspacePolicyFixture,
+
         providers: [
           {
-            ...safeDefaultReviewConfiguration.provider,
+            ...workspaceProviderFixture,
+            model: "gpt-5.6-sol",
             reasoningEffort,
           },
         ],
       });
 
-      expect(config.provider.reasoningEffort).toBe(reasoningEffort);
+      expect(config.providers[0]!.reasoningEffort).toBe(reasoningEffort);
       const runtimeEnv = mapConfigToRuntimeEnv(config);
       expect(runtimeEnv.CODEX_REASONING_EFFORT).toBe(reasoningEffort);
       if (reasoningEffort === "ultra") {
@@ -173,36 +96,32 @@ describe("review configuration", () => {
   );
 
   it.each(["max", "ultra"] as const)(
-    "tolerates stored %s effort for an older model but rejects a new save",
+    "rejects unsupported %s effort for an older model on read and save",
     (reasoningEffort) => {
       const input = {
-        ...safeDefaultReviewConfiguration,
-        provider: {
-          ...safeDefaultReviewConfiguration.provider,
-          model: "gpt-5.5",
-          reasoningEffort,
-        },
+        ...workspacePolicyFixture,
+
         providers: [
           {
-            ...safeDefaultReviewConfiguration.provider,
+            ...workspaceProviderFixture,
             model: "gpt-5.5",
             reasoningEffort,
           },
         ],
       };
 
-      expect(parseReviewConfiguration(input).provider.reasoningEffort).toBe(
-        reasoningEffort,
+      expect(() => parseReviewConfiguration(input)).toThrow(
+        "review reasoning effort is unsupported for model",
       );
       expect(() => parseReviewConfigurationStrict(input)).toThrow(
-        "review_reasoning_effort_unsupported_for_model",
+        "review reasoning effort is unsupported for model",
       );
     },
   );
 
   it("maps only explicitly enabled investigation rollout flags to canonical 1 values", () => {
     const config = parseReviewConfiguration({
-      ...safeDefaultReviewConfiguration,
+      ...workspacePolicyFixture,
       investigationRollout: enabledInvestigationRollout,
     });
 
@@ -216,7 +135,7 @@ describe("review configuration", () => {
     });
     expect(() =>
       parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         investigationRollout: { recordingEnabled: "1" },
       }),
     ).toThrow();
@@ -224,7 +143,7 @@ describe("review configuration", () => {
 
   it("keeps an explicitly disabled investigation rollout disabled", () => {
     const config = parseReviewConfiguration({
-      ...safeDefaultReviewConfiguration,
+      ...workspacePolicyFixture,
       investigationRollout: disabledInvestigationRollout,
     });
 
@@ -235,14 +154,14 @@ describe("review configuration", () => {
 
   it("maps OpenRouter API-key config to fully-qualified runtime models", () => {
     const provider = {
-      ...safeDefaultReviewConfiguration.provider,
+      ...workspaceProviderFixture,
       kind: "openrouter" as const,
       authMode: "openrouter_api_key" as const,
       model: "poolside/laguna-m.1:free",
     };
     const env = mapConfigToRuntimeEnv({
-      ...safeDefaultReviewConfiguration,
-      provider,
+      ...workspacePolicyFixture,
+
       providers: [provider],
     });
 
@@ -253,7 +172,7 @@ describe("review configuration", () => {
       SYNTHESIS_MODEL: "openrouter/poolside/laguna-m.1:free",
       PROVIDER_LIMIT: "1",
       PROVIDER_MAX_PARALLEL: "1",
-      CODEX_REASONING_EFFORT: "xhigh",
+      CODEX_REASONING_EFFORT: "high",
       CODEX_AGENTIC_CONTEXT: "true",
     });
     expect(env).not.toHaveProperty("CODEX_MODEL");
@@ -263,14 +182,14 @@ describe("review configuration", () => {
 
   it("maps Claude Code OAuth config without leaking secret names or Codex env", () => {
     const provider = {
-      ...safeDefaultReviewConfiguration.provider,
+      ...workspaceProviderFixture,
       kind: "claude" as const,
       authMode: "claude_code_oauth" as const,
       model: "sonnet",
     };
     const env = mapConfigToRuntimeEnv({
-      ...safeDefaultReviewConfiguration,
-      provider,
+      ...workspacePolicyFixture,
+
       providers: [provider],
     });
 
@@ -292,7 +211,8 @@ describe("review configuration", () => {
   it("rejects provider auth mode pairs that do not match catalog ownership", () => {
     expect(() =>
       parseReviewConfiguration({
-        schemaVersion: 2,
+        ...workspacePolicyFixture,
+        schemaVersion: 3,
         providers: [
           {
             kind: "codex",
@@ -309,74 +229,28 @@ describe("review configuration", () => {
     ).toThrow();
   });
 
-  it("normalizes legacy v1 config into v2 provider list", () => {
-    const config = parseReviewConfiguration({
-      schemaVersion: 1,
-      provider: {
-        kind: "codex",
-        authMode: "codex_subscription_oauth",
-        model: "gpt-5.4",
-      },
-      blockingPolicy: { failOnSeverity: "critical" },
-      limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
-    });
-
-    expect(config).toMatchObject({
-      schemaVersion: 2,
-      provider: {
-        authMode: "codex_subscription_oauth_rotating",
-        model: "gpt-5.4",
-        reasoningEffort: "xhigh",
-      },
-      providers: [
-        {
-          authMode: "codex_subscription_oauth_rotating",
-          model: "gpt-5.4",
-          requiredHealthy: true,
-        },
-      ],
-      execution: {
-        providerLimit: 1,
-        providerMaxParallel: 1,
-        inlineMinAgreement: 1,
-      },
-    });
+  it.each([1, 2])("rejects obsolete policy schema %s", (schemaVersion) => {
+    expect(() =>
+      parseReviewConfiguration({ ...workspacePolicyFixture, schemaVersion }),
+    ).toThrow();
   });
 
-  it("normalizes all-false required health flags to first provider", () => {
-    const config = parseReviewConfiguration({
-      schemaVersion: 2,
-      providers: [
-        {
-          kind: "openrouter",
-          authMode: "openrouter_api_key",
-          model: "openai/gpt-5.3-codex",
-          requiredHealthy: false,
-        },
-        {
-          kind: "openrouter",
-          authMode: "openrouter_api_key",
-          model: "poolside/laguna-m.1:free",
-          requiredHealthy: false,
-        },
-      ],
-      blockingPolicy: { failOnSeverity: "critical" },
-      limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  it("preserves explicit disabled health requirements", () => {
+    const config = parseReviewConfigurationStrict({
+      ...workspacePolicyFixture,
+      providers: [{ ...workspaceProviderFixture, requiredHealthy: false }],
     });
-
-    expect(
-      config.providers.map((provider) => provider.requiredHealthy),
-    ).toEqual([true, false]);
+    expect(config.providers[0]?.requiredHealthy).toBe(false);
   });
 
   it("maps hybrid rotating Codex provider config to parallel runtime env", () => {
     const env = mapConfigToRuntimeEnv(
       parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
-            authMode: "codex_subscription_oauth",
+            authMode: "codex_subscription_oauth_rotating",
             model: "gpt-5.5",
             reasoningEffort: "high",
             agenticContext: true,
@@ -423,10 +297,11 @@ describe("review configuration", () => {
     });
   });
 
-  it("rejects multiple rotating Codex providers", () => {
+  it("rejects provider arrays with mismatched execution limits", () => {
     expect(() =>
       parseReviewConfiguration({
-        schemaVersion: 2,
+        ...workspacePolicyFixture,
+        schemaVersion: 3,
         providers: [
           {
             kind: "codex",
@@ -442,13 +317,14 @@ describe("review configuration", () => {
         blockingPolicy: { failOnSeverity: "critical" },
         limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
       }),
-    ).toThrow("codex_rotating_single_provider_required");
+    ).toThrow("review execution limits do not match providers");
   });
 
   it("rejects exact duplicate provider and model rows", () => {
     expect(() =>
       parseReviewConfigurationStrict({
-        schemaVersion: 2,
+        ...workspacePolicyFixture,
+        schemaVersion: 3,
         providers: [
           {
             kind: "openrouter",
@@ -464,48 +340,43 @@ describe("review configuration", () => {
         blockingPolicy: { failOnSeverity: "critical" },
         limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
       }),
-    ).toThrow("duplicate_review_provider");
+    ).toThrow("duplicate review provider");
   });
 
-  it("deduplicates exact duplicate provider rows when reading persisted configs", () => {
-    const config = parseReviewConfiguration({
-      schemaVersion: 2,
-      providers: [
-        {
-          kind: "openrouter",
-          authMode: "openrouter_api_key",
-          model: "openai/gpt-5.3-codex",
-        },
-        {
-          kind: "openrouter",
-          authMode: "openrouter_api_key",
-          model: "openai/gpt-5.3-codex",
-        },
-      ],
+  it("rejects exact duplicate provider rows on reads and writes", () => {
+    const provider = {
+      ...workspaceProviderFixture,
+      kind: "openrouter" as const,
+      authMode: "openrouter_api_key" as const,
+      model: "poolside/laguna-m.1:free",
+    };
+    const input = {
+      ...workspacePolicyFixture,
+      providers: [provider, provider],
       execution: {
+        providerLimit: 2,
         providerMaxParallel: 2,
-        inlineMinAgreement: 2,
+        inlineMinAgreement: 1,
       },
-      blockingPolicy: { failOnSeverity: "critical" },
-      limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
-    });
-
-    expect(config.providers).toHaveLength(1);
-    expect(config.execution).toMatchObject({
-      providerLimit: 1,
-      providerMaxParallel: 1,
-      inlineMinAgreement: 1,
-    });
+    };
+    expect(() => parseReviewConfiguration(input)).toThrow(
+      "duplicate review provider",
+    );
+    expect(() => parseReviewConfigurationStrict(input)).toThrow(
+      "duplicate review provider",
+    );
   });
 
   it("rejects invalid limits", () => {
     expect(() =>
       parseReviewConfiguration({
-        provider: {
-          kind: "codex",
-          authMode: "codex_subscription_oauth",
-          model: "gpt-5.5",
-        },
+        providers: [
+          {
+            kind: "codex",
+            authMode: "codex_subscription_oauth",
+            model: "gpt-5.5",
+          },
+        ],
         blockingPolicy: { failOnSeverity: "critical" },
         limits: { inlineMaxComments: 500, targetTokensPerBatch: 50000 },
       }),
@@ -520,7 +391,7 @@ describe("review configuration", () => {
       saveReviewConfiguration(
         {
           target,
-          config: safeDefaultReviewConfiguration,
+          policy: workspacePolicyFixture,
         },
         { configurations },
       ),
@@ -529,15 +400,15 @@ describe("review configuration", () => {
     const updated = await saveReviewConfiguration(
       {
         target,
-        config: (() => {
+        policy: (() => {
           const provider = {
-            ...safeDefaultReviewConfiguration.provider,
+            ...workspaceProviderFixture,
             reasoningEffort: "high" as const,
             fastMode: true,
           };
           return {
-            ...safeDefaultReviewConfiguration,
-            provider,
+            ...workspacePolicyFixture,
+
             providers: [provider],
             investigationRollout: disabledInvestigationRollout,
           };
@@ -552,7 +423,7 @@ describe("review configuration", () => {
     ).resolves.toMatchObject({
       version: 2,
       config: {
-        provider: { reasoningEffort: "high", fastMode: true },
+        providers: [{ reasoningEffort: "high", fastMode: true }],
         investigationRollout: disabledInvestigationRollout,
       },
     });
@@ -572,6 +443,7 @@ describe("review configuration", () => {
       id: string;
       version: number;
       schemaVersion: number;
+      policyJson: string;
       providerKind: string;
       providerAuthMode: string;
       model: string;
@@ -608,6 +480,7 @@ describe("review configuration", () => {
       ): Promise<T>;
       reviewConfiguration: {
         upsert(): Promise<ConfigurationRow>;
+        findMany(): Promise<{ versions: { policyJson: string }[] }[]>;
         findUnique(): Promise<{ active: boolean; versions: VersionRow[] }>;
         update(input: {
           where: { id: string };
@@ -630,6 +503,7 @@ describe("review configuration", () => {
       active: true,
     };
     const versions: VersionRow[] = [];
+    const descendants: { versions: { policyJson: string }[] }[] = [];
     let transactionAttempts = 0;
     const prisma: PrismaStub = {
       $transaction: async <T>(
@@ -650,6 +524,7 @@ describe("review configuration", () => {
         });
       },
       reviewConfiguration: {
+        findMany: async () => descendants,
         upsert: async () => ({ ...configuration }),
         findUnique: async () => ({
           active: configuration.active,
@@ -682,6 +557,7 @@ describe("review configuration", () => {
             id: `version_${versions.length + 1}`,
             version: data.version,
             schemaVersion: data.schemaVersion,
+            policyJson: data.policyJson,
             providerKind: data.providerKind,
             providerAuthMode: data.providerAuthMode,
             model: data.model,
@@ -714,7 +590,7 @@ describe("review configuration", () => {
     };
     const repository = new PrismaReviewConfigurationRepository(prisma as never);
     const config = parseReviewConfiguration({
-      ...safeDefaultReviewConfiguration,
+      ...workspacePolicyFixture,
       providers: [
         {
           kind: "codex",
@@ -743,7 +619,7 @@ describe("review configuration", () => {
 
     const saved = await repository.saveNextVersion({
       target: { scope: "workspace", workspaceId: "workspace_1" },
-      config,
+      policy: config,
     });
     const latest = await repository.findLatest({
       scope: "workspace",
@@ -762,15 +638,40 @@ describe("review configuration", () => {
     ]);
     expect(
       versions[0]?.providers.map((provider) => provider.requiredHealthy),
-    ).toEqual([true, false]);
+    ).toEqual([false, false]);
     expect(latest?.config.investigationRollout).toEqual(
       enabledInvestigationRollout,
     );
     expect(versions[0]?.investigationProductionEffectsEnabled).toBe(true);
     expect(transactionAttempts).toBe(2);
+    descendants.push({
+      versions: [
+        {
+          policyJson: JSON.stringify({
+            schemaVersion: 3,
+            execution: { providerLimit: 2 },
+          }),
+        },
+      ],
+    });
+    await expect(
+      repository.saveNextVersion({
+        target: { scope: "workspace", workspaceId: "workspace_1" },
+        expectedVersion: 1,
+        policy: workspacePolicyFixture,
+      }),
+    ).rejects.toThrow("review execution limits do not match providers");
+    expect(versions).toHaveLength(1);
+    const compatible = await repository.saveNextVersion({
+      target: { scope: "workspace", workspaceId: "workspace_1" },
+      expectedVersion: 1,
+      policy: { ...config, reviewLanguage: "ru" },
+    });
+    expect(compatible.version).toBe(2);
+    expect(compatible.config.reviewLanguage).toBe("ru");
   });
 
-  it("resolves repository config before workspace default and safe default", async () => {
+  it("requires workspace policy and resolves explicit repository overrides", async () => {
     const configurations = new InMemoryReviewConfigurationRepository();
     const workspaceTarget = {
       scope: "workspace",
@@ -784,22 +685,19 @@ describe("review configuration", () => {
 
     await expect(
       resolveReviewConfiguration(repositoryTarget, { configurations }),
-    ).resolves.toMatchObject({
-      source: "default",
-      config: { provider: { model: "gpt-5.6-sol" } },
-    });
+    ).resolves.toBeNull();
 
     await saveReviewConfiguration(
       {
         target: workspaceTarget,
-        config: (() => {
+        policy: (() => {
           const provider = {
-            ...safeDefaultReviewConfiguration.provider,
+            ...workspaceProviderFixture,
             model: "gpt-5.4",
           };
           return {
-            ...safeDefaultReviewConfiguration,
-            provider,
+            ...workspacePolicyFixture,
+
             providers: [provider],
             investigationRollout: disabledInvestigationRollout,
           };
@@ -812,7 +710,7 @@ describe("review configuration", () => {
     ).resolves.toMatchObject({
       source: "workspace",
       config: {
-        provider: { model: "gpt-5.4" },
+        providers: [{ model: "gpt-5.4" }],
         investigationRollout: {
           recordingEnabled: false,
           productionEffectsEnabled: false,
@@ -823,14 +721,14 @@ describe("review configuration", () => {
     await saveReviewConfiguration(
       {
         target: repositoryTarget,
-        config: (() => {
+        policy: (() => {
           const provider = {
-            ...safeDefaultReviewConfiguration.provider,
+            ...workspaceProviderFixture,
             model: "gpt-5.4-mini",
           };
           return {
-            ...safeDefaultReviewConfiguration,
-            provider,
+            ...workspacePolicyFixture,
+
             providers: [provider],
             blockingPolicy: { failOnSeverity: "major" as const },
             investigationRollout: enabledInvestigationRollout,
@@ -869,14 +767,14 @@ describe("review configuration", () => {
     await saveReviewConfiguration(
       {
         target: workspaceTarget,
-        config: (() => {
+        policy: (() => {
           const provider = {
-            ...safeDefaultReviewConfiguration.provider,
+            ...workspaceProviderFixture,
             model: "gpt-5.4",
           };
           return {
-            ...safeDefaultReviewConfiguration,
-            provider,
+            ...workspacePolicyFixture,
+
             providers: [provider],
           };
         })(),
@@ -886,14 +784,14 @@ describe("review configuration", () => {
     await saveReviewConfiguration(
       {
         target: repositoryTarget,
-        config: (() => {
+        policy: (() => {
           const provider = {
-            ...safeDefaultReviewConfiguration.provider,
+            ...workspaceProviderFixture,
             model: "gpt-5.4-mini",
           };
           return {
-            ...safeDefaultReviewConfiguration,
-            provider,
+            ...workspacePolicyFixture,
+
             providers: [provider],
           };
         })(),
@@ -905,7 +803,7 @@ describe("review configuration", () => {
       resolveReviewConfiguration(repositoryTarget, { configurations }),
     ).resolves.toMatchObject({
       source: "repository",
-      config: { provider: { model: "gpt-5.4-mini" } },
+      config: { providers: [{ model: "gpt-5.4-mini" }] },
     });
     await expect(
       clearReviewConfiguration(repositoryTarget, { configurations }),
@@ -914,7 +812,7 @@ describe("review configuration", () => {
       resolveReviewConfiguration(repositoryTarget, { configurations }),
     ).resolves.toMatchObject({
       source: "workspace",
-      config: { provider: { model: "gpt-5.4" } },
+      config: { providers: [{ model: "gpt-5.4" }] },
     });
     await expect(
       clearReviewConfiguration(repositoryTarget, { configurations }),
@@ -933,7 +831,8 @@ const gatewayProvider = {
   gatewayProfileRef: "profile-mimo",
 } as const;
 const gatewayConfigInput = (provider: unknown) => ({
-  schemaVersion: 2,
+  ...workspacePolicyFixture,
+  schemaVersion: 3,
   providers: [provider],
   blockingPolicy: { failOnSeverity: "critical" },
   limits: { inlineMaxComments: 50, targetTokensPerBatch: 50000 },
@@ -957,22 +856,30 @@ it.each([
 );
 
 // Detects lost flat references, legacy coercion, OpenAI-only reasoning gates or primary drift.
-it("retains gateway references and upstream settings in v1 and v2 normalization", () => {
+it("retains current Gateway selections and rejects legacy normalization", () => {
   const first = parseReviewConfigurationStrict(
     gatewayConfigInput(gatewayProvider),
   );
-  expect(first.provider).toEqual({ ...gatewayProvider, requiredHealthy: true });
-  expect(first.provider).toBe(first.providers[0]);
-  const legacyShape = parseReviewConfiguration({
-    schemaVersion: 1,
-    provider: gatewayProvider,
-    blockingPolicy: {},
-    limits: {},
+  expect(first.providers[0]!).toEqual({
+    ...gatewayProvider,
+    requiredHealthy: false,
   });
-  expect(legacyShape.provider).toEqual(first.provider);
+  expect(first.providers[0]!).toBe(first.providers[0]);
+  expect(() =>
+    parseReviewConfiguration({
+      schemaVersion: 1,
+      providers: [gatewayProvider],
+      blockingPolicy: {},
+      limits: {},
+    }),
+  ).toThrow();
   const mixed = parseReviewConfigurationStrict({
     ...gatewayConfigInput(gatewayProvider),
-    provider: { ...gatewayProvider, gatewayBindingId: "ignored-primary" },
+    execution: {
+      providerLimit: 2,
+      providerMaxParallel: 2,
+      inlineMinAgreement: 1,
+    },
     providers: [
       gatewayProvider,
       {
@@ -984,7 +891,7 @@ it("retains gateway references and upstream settings in v1 and v2 normalization"
       },
     ],
   });
-  expect(mixed.provider).toEqual(first.provider);
+  expect(mixed.providers[0]!).toEqual(first.providers[0]!);
   expect(mixed.providers[1]).toMatchObject({
     model: "openai/gpt-5.6-sol",
     reasoningEffort: "ultra",
@@ -1000,6 +907,11 @@ it("keeps distinct bindings ordered and rejects only exact duplicate selections"
   const input = {
     ...gatewayConfigInput(gatewayProvider),
     providers: [gatewayProvider, second],
+    execution: {
+      providerLimit: 2,
+      providerMaxParallel: 2,
+      inlineMinAgreement: 1,
+    },
   };
   expect(parseReviewConfigurationStrict(input).providers).toHaveLength(2);
   expect(() =>
@@ -1007,7 +919,7 @@ it("keeps distinct bindings ordered and rejects only exact duplicate selections"
       ...input,
       providers: [gatewayProvider, gatewayProvider],
     }),
-  ).toThrow("duplicate_review_provider");
+  ).toThrow("duplicate review provider");
 });
 
 // Detects missing/partial selections, URL/token references or unbounded identifiers being accepted.

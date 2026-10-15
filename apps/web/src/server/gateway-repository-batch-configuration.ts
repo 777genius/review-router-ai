@@ -4,6 +4,9 @@ import {
   findReviewConfigurationOperation,
   isReviewConfigurationWriteConflictError,
   parseReviewConfigurationStrict,
+  parseRepositoryReviewPolicyOverride,
+  canonicalJson,
+  type RepositoryReviewPolicyOverride,
   resolveReviewConfiguration,
   reviewProviderConfigurationSchema,
   saveReviewConfigurationWithOperation,
@@ -167,9 +170,6 @@ function receiptMatchesSelection(
   return (
     saved.config.providers.length === 1 &&
     JSON.stringify(
-      reviewProviderConfigurationSchema.parse(saved.config.provider),
-    ) === JSON.stringify(reviewProviderConfigurationSchema.parse(selection)) &&
-    JSON.stringify(
       reviewProviderConfigurationSchema.parse(saved.config.providers[0]),
     ) === JSON.stringify(reviewProviderConfigurationSchema.parse(selection))
   );
@@ -196,7 +196,7 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
   async function receipt(
     input: GatewayBatchRequest,
     selected: GatewayBatchTarget,
-    intendedConfig?: ReviewConfiguration,
+    intendedPolicy?: RepositoryReviewPolicyOverride,
   ): Promise<GatewayBatchTargetResult> {
     const { workspaceId, operationId } = input;
     const { repositoryId, expectedVersion } = selected;
@@ -212,9 +212,9 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
     if (!saved) return { repositoryId, status: "unknown" };
     if (
       !receiptMatchesSelection(saved, input.selection) ||
-      (intendedConfig &&
-        JSON.stringify(parseReviewConfigurationStrict(saved.config)) !==
-          JSON.stringify(parseReviewConfigurationStrict(intendedConfig)))
+      (intendedPolicy &&
+        canonicalJson(parseRepositoryReviewPolicyOverride(saved.policy)) !==
+          canonicalJson(intendedPolicy))
     )
       return { repositoryId, status: "conflict" };
     return { repositoryId, status: "applied", version: saved.version };
@@ -232,7 +232,7 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
           repositoryId,
         };
         let writeEntered = false;
-        let intendedConfig: ReviewConfiguration | undefined;
+        let intendedPolicy: RepositoryReviewPolicyOverride | undefined;
         try {
           const actor = await dependencies.authorize(
             input.workspaceId,
@@ -252,18 +252,14 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
             }
             // P111 compares the full durable intent, including expectedVersion.
             // Reconstruct from the exact receipt, never from latest settings.
-            intendedConfig = parseReviewConfigurationStrict({
-              ...prior.config,
-              provider: input.selection,
-              providers: [input.selection],
-            });
+            intendedPolicy = parseRepositoryReviewPolicyOverride(prior.policy);
             writeEntered = true;
             const saved = await saveReviewConfigurationWithOperation(
               {
                 target,
                 expectedVersion,
                 operationId: input.operationId,
-                config: intendedConfig,
+                policy: intendedPolicy,
               },
               {
                 configurations:
@@ -279,15 +275,15 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
             continue;
           }
           const current = await findReviewConfiguration(target, dependencies);
-          if ((current?.version ?? null) !== expectedVersion) {
+          if ((current?.repositoryVersion ?? null) !== expectedVersion) {
             results.push({ repositoryId, status: "conflict" });
             continue;
           }
           const effective =
             current ?? (await resolveReviewConfiguration(target, dependencies));
-          const config = parseReviewConfigurationStrict({
+          if (!effective) throw new GatewayBatchDenied();
+          parseReviewConfigurationStrict({
             ...effective.config,
-            provider: input.selection,
             providers: [input.selection],
             execution: {
               providerLimit: 1,
@@ -295,7 +291,17 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
               inlineMinAgreement: 1,
             },
           });
-          intendedConfig = config;
+          intendedPolicy = parseRepositoryReviewPolicyOverride({
+            ...(current?.source === "repository"
+              ? current.policy
+              : { schemaVersion: 3 as const }),
+            providers: [input.selection],
+            execution: {
+              providerLimit: 1,
+              providerMaxParallel: 1,
+              inlineMinAgreement: 1,
+            },
+          });
           const profiles = await dependencies.profiles(input.workspaceId);
           // Fresh authority after intervening reads, on every target. Prisma also
           // checks workspace ownership, active binding/profile and pending fences.
@@ -331,7 +337,7 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
           const saved = await saveReviewConfigurationWithOperation(
             {
               target,
-              config,
+              policy: intendedPolicy,
               expectedVersion,
               operationId: input.operationId,
             },
@@ -356,7 +362,7 @@ export function createGatewayRepositoryBatchAdapter(dependencies: {
               result = await receipt(
                 input,
                 { repositoryId, expectedVersion },
-                intendedConfig,
+                intendedPolicy,
               );
             } catch (recoveryError) {
               result = {

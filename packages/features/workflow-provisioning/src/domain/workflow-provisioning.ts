@@ -23,22 +23,14 @@ import {
 export function isAccountGatewayConfiguration(
   config: ReviewConfiguration,
 ): boolean {
-  const selected =
-    config.provider.authMode === "codex_account_gateway" ||
-    config.providers.some(
-      (provider) => provider.authMode === "codex_account_gateway",
-    );
+  const selected = config.providers.some(
+    (provider) => provider.authMode === "codex_account_gateway",
+  );
   if (!selected) return false;
   const parsed = parseReviewConfigurationStrict(config);
   if (
     parsed.providers.length !== 1 ||
-    parsed.provider.authMode !== "codex_account_gateway" ||
-    config.provider.authMode !== "codex_account_gateway" ||
-    config.provider.gatewayBindingId !== parsed.provider.gatewayBindingId ||
-    config.provider.gatewayProfileRef !== parsed.provider.gatewayProfileRef ||
-    config.provider.model !== parsed.provider.model ||
-    config.provider.reasoningEffort !== parsed.provider.reasoningEffort ||
-    config.provider.fastMode !== parsed.provider.fastMode
+    parsed.providers[0]?.authMode !== "codex_account_gateway"
   ) {
     throw new Error("account_gateway_single_provider_required");
   }

@@ -39,13 +39,16 @@ export class PrismaReviewConfigurationOperatorMutation implements ReviewConfigur
             const current = await resolveReviewConfiguration(input.target, {
               configurations,
             });
-            if (current.revisionToken !== input.expectedRevisionToken) {
+            if (
+              !current ||
+              current.revisionToken !== input.expectedRevisionToken
+            ) {
               throw new ReviewConfigurationWriteConflictError();
             }
 
             const saved = await configurations.saveNextVersion({
               target: input.target,
-              config: input.config,
+              policy: input.policy,
               expectedVersion:
                 current.source === "repository" ? current.version : null,
             });

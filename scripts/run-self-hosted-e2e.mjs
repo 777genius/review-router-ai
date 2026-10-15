@@ -312,6 +312,17 @@ function createTestEnvironment() {
     REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON: JSON.stringify([
       {
         producerReleaseId: "self-hosted-e2e-action-v2",
+        agentProfiles: [
+          {
+            profileRef: "codex-default",
+            agentKind: "codex",
+            binarySha256: "a".repeat(64),
+            packageVersion: "0.147.0",
+            modelTransports: ["account_gateway"],
+            contextGateway: true,
+            cancellation: true,
+          },
+        ],
         distributionKind: "public_reusable",
         actionCommitSha,
         runtimeCommitSha: "b".repeat(40),

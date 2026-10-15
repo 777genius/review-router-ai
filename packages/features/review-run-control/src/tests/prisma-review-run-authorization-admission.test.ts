@@ -27,6 +27,9 @@ describe("Prisma selected-release admission precondition", () => {
       };
       const row = {
         ...expectedBase,
+        agentProfilesJson: expectedBase.agentProfiles
+          ? JSON.stringify(expectedBase.agentProfiles)
+          : null,
         state:
           state === "revoked"
             ? ProducerReleaseState.Revoked

@@ -1,8 +1,8 @@
+import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createHash } from "node:crypto";
 import {
   mapConfigToRuntimeEnv,
   parseReviewConfiguration,
-  safeDefaultReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -285,6 +285,9 @@ function fixture(
   mode?: "stored_active" | "rotating_hosted" | "generic" | "gateway",
 ) {
   const gateway = mode === "gateway";
+  const workflowPath = gateway
+    ? ".github/workflows/reviewrouter-review.yml"
+    : ".github/workflows/reviewrouter-codex.yml";
   const rotating =
     scenario.startsWith("rotating_") || mode === "rotating_hosted";
   const activeStored =
@@ -326,7 +329,11 @@ function fixture(
         ? ("explicit" as const)
         : ("reusable" as const),
     actionVersion:
-      scenario === "artifact_version" ? "obsolete" : actualActionRef,
+      scenario === "artifact_version"
+        ? "obsolete"
+        : gateway
+          ? "workflow-v1"
+          : actualActionRef,
     ...(scenario === "no_history" ? { pullRequestUrl: null } : {}),
   };
   const state = createProvisioningPrisma(
@@ -420,7 +427,7 @@ function fixture(
     vi.stubEnv("REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS", "W".repeat(43));
     mocks.runtime.mockResolvedValue({
       config: parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
@@ -445,7 +452,7 @@ function fixture(
   if (mode === "rotating_hosted" || scenario.includes("hosted_config"))
     mocks.runtime.mockResolvedValue({
       config: parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
@@ -478,7 +485,7 @@ function fixture(
     vi.stubEnv("REVIEW_ROUTER_CONFLICT_REVIEW_FALLBACK_REPOSITORIES", "");
     mocks.runtime.mockResolvedValue({
       config: parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "openrouter",
@@ -643,7 +650,7 @@ function fixture(
     gatewayBindingId: null,
     gatewayProfileRef: null,
     version: 1,
-    schemaVersion: 2,
+    schemaVersion: 3,
     providerKind: "codex",
     providerAuthMode:
       rotating && !rotatingWithBinding
@@ -685,6 +692,34 @@ function fixture(
         requiredHealthy: true,
       },
     ];
+  const workspacePolicyJson = JSON.stringify({
+    ...workspacePolicyFixture,
+    providers: [
+      {
+        kind: configurationVersion.providerKind,
+        authMode: configurationVersion.providerAuthMode,
+        model: configurationVersion.model,
+        reasoningEffort: configurationVersion.reasoningEffort,
+        agenticContext: configurationVersion.agenticContext,
+        fastMode: configurationVersion.fastMode,
+        requiredHealthy: true,
+        ...(gateway
+          ? {
+              gatewayBindingId: configurationVersion.gatewayBindingId,
+              gatewayProfileRef: configurationVersion.gatewayProfileRef,
+            }
+          : {}),
+      },
+    ],
+    blockingPolicy: { failOnSeverity: configurationVersion.failOnSeverity },
+    limits: {
+      inlineMaxComments: configurationVersion.inlineMaxComments,
+      targetTokensPerBatch: configurationVersion.targetTokensPerBatch,
+    },
+  });
+  configurationVersion.policyJson = workspacePolicyJson;
+  if (gateway && scenario === "inherited_workspace")
+    configurationVersion = null;
   const configuration = {
     id: "configuration-1",
     workspaceId: "workspace_1",
@@ -897,12 +932,25 @@ function fixture(
             workspaceId_targetKey: { workspaceId: string; targetKey: string };
           };
         }) =>
-          matches(configuration, where.workspaceId_targetKey)
+          where.workspaceId_targetKey.workspaceId === "workspace_1" &&
+          where.workspaceId_targetKey.targetKey === "workspace:default"
             ? {
-                active: configuration.active,
-                versions: configurationVersion ? [configurationVersion] : [],
+                active: true,
+                repositoryId: null,
+                versions: [
+                  {
+                    version: 1,
+                    schemaVersion: 3,
+                    policyJson: workspacePolicyJson,
+                  },
+                ],
               }
-            : null,
+            : matches(configuration, where.workspaceId_targetKey)
+              ? {
+                  active: configuration.active,
+                  versions: configurationVersion ? [configurationVersion] : [],
+                }
+              : null,
       ),
       upsert: vi.fn(
         async ({
@@ -1165,7 +1213,7 @@ describe("hosted setup recovery composition", () => {
     vi.stubEnv("REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF", actionRef);
     mocks.runtime.mockResolvedValue({
       config: parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
@@ -1198,6 +1246,8 @@ describe("hosted setup recovery composition", () => {
 
   it.each([
     "exact",
+    "inherited_workspace",
+    "producer_updated",
     "rotating_provider",
     "active_binding",
     "head_moved",
@@ -1207,6 +1257,14 @@ describe("hosted setup recovery composition", () => {
     "confirms the saved keyless caller with source fences: %s",
     async (scenario) => {
       const f = fixture("main", scenario, "gateway");
+      const workflowPath = ".github/workflows/reviewrouter-review.yml";
+      if (scenario === "producer_updated") {
+        vi.stubEnv(
+          "REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF",
+          `777genius/review-router@${"f".repeat(40)}`,
+        );
+        vi.stubEnv("REVIEW_ROUTER_AGENT_PROFILE", "qualified-next");
+      }
       const sourceChanged = [
         "head_moved",
         "caller_removed",
@@ -1284,7 +1342,7 @@ describe("hosted setup recovery composition", () => {
         expect(f.state.current()).toMatchObject({
           status: "configured",
           workflowPath,
-          actionVersion: actionRef,
+          actionVersion: "workflow-v1",
         });
         expect(f.events).toContain(`workflow:${workflowPath}:${commitSha}`);
       }
@@ -1299,14 +1357,17 @@ describe("hosted setup recovery composition", () => {
       expect(f.configWrites).not.toHaveBeenCalled();
       expect(f.updateBinding).not.toHaveBeenCalled();
       expect(f.binding()).toEqual(f.initialBinding);
-      expect(f.configuration()).toMatchObject({
-        providerAuthMode: "codex_account_gateway",
-        gatewayBindingId: "binding-account-v",
-        gatewayProfileRef: "default",
-        model: "gpt-6.1-sol",
-        reasoningEffort: "high",
-        fastMode: false,
-      });
+      if (scenario === "inherited_workspace")
+        expect(f.configuration()).toBeNull();
+      else
+        expect(f.configuration()).toMatchObject({
+          providerAuthMode: "codex_account_gateway",
+          gatewayBindingId: "binding-account-v",
+          gatewayProfileRef: "default",
+          model: "gpt-6.1-sol",
+          reasoningEffort: "high",
+          fastMode: false,
+        });
     },
   );
 
@@ -1325,7 +1386,7 @@ describe("hosted setup recovery composition", () => {
       f.state.replace(null);
       const remote = new WorkflowGitHubFixture();
       const config = parseReviewConfiguration({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "openrouter" as const,
@@ -1821,7 +1882,7 @@ describe("hosted setup recovery composition", () => {
     if (scenario === "pending_generic_config")
       mocks.runtime.mockResolvedValue({
         config: parseReviewConfiguration({
-          ...safeDefaultReviewConfiguration,
+          ...workspacePolicyFixture,
           providers: [
             {
               kind: "openrouter",

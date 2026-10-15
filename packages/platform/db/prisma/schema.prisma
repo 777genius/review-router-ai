@@ -504,11 +504,13 @@ model ReviewConfigurationVersion {
   configurationId                         String
   operationId                             String?
   operationIntentHash                     String?
+  operationSnapshotJson                   String?
   workspaceId                             String
   gatewayBindingId                        String?
   gatewayProfileRef                       String?
   version                                 Int
   schemaVersion                           Int      @default(1)
+  policyJson                              String?
   providerKind                            String
   providerAuthMode                        String
   model                                   String
@@ -1098,6 +1100,7 @@ model ReviewOperationalSloProfileV2 {
 }
 
 model ProducerRelease {
+  agentProfilesJson                       String?
   producerReleaseId                      String                     @id
   distributionKind                       ProducerDistributionKindV2
   actionCommitSha                        String

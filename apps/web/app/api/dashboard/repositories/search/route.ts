@@ -3,7 +3,6 @@ import {
   findRepositoryReviewConfigurations,
   findReviewConfiguration,
   PrismaReviewConfigurationRepository,
-  safeDefaultReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
   listWorkspaceRepositoryHealth,
@@ -213,7 +212,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           ),
         ])
       : [null, []];
-  const activeConfig = reviewConfig?.config ?? safeDefaultReviewConfiguration;
+  const activeConfig = reviewConfig?.config ?? null;
   const configuredProviderSetupByRepositoryId =
     buildConfiguredProviderSetupByRepositoryId({
       providerSetup,

@@ -1,6 +1,7 @@
 "use server";
 
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
+import { resolveReviewPolicy } from "@reviewrouter/features-review-config";
 
 import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
@@ -92,6 +93,7 @@ import {
   type ReviewRouterWorkflowStyle,
   isAccountGatewayConfiguration,
   validateAccountGatewayActionRef,
+  reviewRouterWorkflowContract,
 } from "@reviewrouter/features-workflow-provisioning";
 import {
   confirmCodexRotatingSetupReadiness,
@@ -149,6 +151,8 @@ import {
   readProviderSetupConfirmationMode,
   readProviderSetupSelection,
   readReviewConfigurationForm,
+  readRepositoryReviewPolicyForm,
+  readReviewPolicyExpectedVersion,
   readReviewDiscussionMode,
   readWorkflowStyle,
 } from "./dashboard-action-form-readers";
@@ -1229,7 +1233,7 @@ async function createSetupPullRequestMutation(
     );
     if (
       accountGateway &&
-      (resolvedRuntime.source === "default" ||
+      (resolvedRuntime.source !== "repository" ||
         workflowStyle === "explicit" ||
         discussionMode === "suggest")
     ) {
@@ -1312,7 +1316,7 @@ async function createSetupPullRequestMutation(
         ? false
         : isConflictReviewFallbackAllowedForRepository(repository.fullName);
     const workflowPath = accountGateway
-      ? defaultCodexRotatingWorkflowPath
+      ? reviewRouterWorkflowContract.callerPath
       : codexRotatingProviderInstanceId
         ? codexWorkflowPathForRepository({
             repositoryId: githubRepository.githubRepositoryId.toString(),
@@ -1647,9 +1651,6 @@ async function confirmSetupPullRequestMergedMutation(
     const accountGateway = isAccountGatewayConfiguration(
       resolvedRuntime.config,
     );
-    if (accountGateway && resolvedRuntime.source === "default") {
-      throw new Error("account_gateway_saved_config_required");
-    }
     const gatewayActionRef = accountGateway
       ? validateAccountGatewayActionRef(
           process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF,
@@ -1666,10 +1667,10 @@ async function confirmSetupPullRequestMergedMutation(
     const rotatingWorkflowExpected = resolvedRuntime.config.providers.some(
       (provider) => provider.authMode === "codex_subscription_oauth_rotating",
     );
-    const selectedCodexWorkflowPath =
-      !accountGateway &&
-      (setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
-        (!setupProvisioning?.workflowPath && rotatingWorkflowExpected))
+    const selectedCodexWorkflowPath = accountGateway
+      ? reviewRouterWorkflowContract.callerPath
+      : setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
+          (!setupProvisioning?.workflowPath && rotatingWorkflowExpected)
         ? codexWorkflowPathForRepository({
             repositoryId: githubRepository.githubRepositoryId.toString(),
             repositoryFullName: repository.fullName,
@@ -1995,14 +1996,16 @@ async function confirmSetupPullRequestMergedMutation(
       throw new Error("workflow_provisioning_match_not_found");
     let verifiedWorkflowArtifact = {
       workflowPath: accountGateway
-        ? defaultCodexRotatingWorkflowPath
+        ? reviewRouterWorkflowContract.callerPath
         : codexWorkflow
           ? selectedCodexWorkflowPath
           : defaultWorkflowPath,
       workflowStyle: codexWorkflow
         ? ("reusable" as const)
         : genericWorkflowStyle!,
-      actionVersion: verifiedWorkflowActionRef,
+      actionVersion: accountGateway
+        ? reviewRouterWorkflowContract.channel
+        : verifiedWorkflowActionRef,
     };
     const assertCurrentSetup = async (artifact: {
       readonly workflowPath: string;
@@ -2887,7 +2890,8 @@ async function saveWorkspaceReviewConfigMutation(
     const saved = await saveReviewConfiguration(
       {
         target: { scope: "workspace", workspaceId },
-        config,
+        policy: config,
+        expectedVersion: readReviewPolicyExpectedVersion(formData),
       },
       {
         configurations: new PrismaReviewConfigurationRepository(
@@ -2908,9 +2912,9 @@ async function saveWorkspaceReviewConfigMutation(
         targetId: workspaceId,
         metadata: {
           version: saved.version,
-          providerKind: saved.config.provider.kind,
-          authMode: saved.config.provider.authMode,
-          model: saved.config.provider.model,
+          providerKind: saved.config.providers[0]!.kind,
+          authMode: saved.config.providers[0]!.authMode,
+          model: saved.config.providers[0]!.model,
           failOnSeverity: saved.config.blockingPolicy.failOnSeverity,
           ...dashboardMutationAccessAuditMetadata(actor),
         },
@@ -2982,7 +2986,17 @@ async function saveRepositoryReviewConfigMutation(
       workspaceId,
       resourceId: repositoryId,
     });
-    const config = readReviewConfigurationForm(formData);
+    const configurations = new PrismaReviewConfigurationRepository(
+      prisma,
+      process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+    );
+    const workspace = await configurations.findLatest({
+      scope: "workspace",
+      workspaceId,
+    });
+    if (!workspace) throw new Error("review_workspace_policy_required");
+    const policy = readRepositoryReviewPolicyForm(formData);
+    const config = resolveReviewPolicy(workspace.config, policy);
     assertCodexProductionReviewConfigAllowed(config);
     assertCodexRotatingReviewConfigAllowed({
       config,
@@ -3010,7 +3024,8 @@ async function saveRepositoryReviewConfigMutation(
     const saved = await saveReviewConfiguration(
       {
         target: { scope: "repository", workspaceId, repositoryId },
-        config,
+        policy,
+        expectedVersion: readReviewPolicyExpectedVersion(formData),
       },
       {
         configurations: new PrismaReviewConfigurationRepository(
@@ -3032,9 +3047,9 @@ async function saveRepositoryReviewConfigMutation(
         metadata: {
           repository: repository.fullName,
           version: saved.version,
-          providerKind: saved.config.provider.kind,
-          authMode: saved.config.provider.authMode,
-          model: saved.config.provider.model,
+          providerKind: saved.config.providers[0]!.kind,
+          authMode: saved.config.providers[0]!.authMode,
+          model: saved.config.providers[0]!.model,
           failOnSeverity: saved.config.blockingPolicy.failOnSeverity,
           ...dashboardMutationAccessAuditMetadata(actor),
         },

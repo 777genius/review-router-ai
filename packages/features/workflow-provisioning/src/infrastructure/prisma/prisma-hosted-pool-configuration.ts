@@ -3,7 +3,6 @@ import {
   acquireReviewConfigurationWriteScope,
   findReviewConfiguration,
   PrismaReviewConfigurationTransactionRepository,
-  safeDefaultReviewConfiguration,
   saveReviewConfiguration,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
@@ -43,16 +42,20 @@ export async function switchRepositoryConfigurationAuthMode(input: {
     { configurations },
   );
   const current =
-    repositoryConfiguration?.config ??
-    workspaceConfiguration?.config ??
-    safeDefaultReviewConfiguration;
+    repositoryConfiguration?.config ?? workspaceConfiguration?.config;
+  if (!current) throw new Error("workspace_review_policy_not_configured");
   const next = withCodexAuthMode(current, input.authMode);
   if (!next) return false;
   await saveReviewConfiguration(
     {
       target: repositoryTarget,
-      config: next,
-      expectedVersion: repositoryConfiguration?.version ?? null,
+      policy: {
+        ...(repositoryConfiguration?.source === "repository"
+          ? repositoryConfiguration.policy
+          : { schemaVersion: 3 as const }),
+        providers: next.providers,
+      },
+      expectedVersion: repositoryConfiguration?.repositoryVersion ?? null,
     },
     { configurations },
   );
@@ -80,6 +83,5 @@ function withCodexAuthMode(
   return {
     ...configuration,
     providers,
-    provider: providers[0]!,
   };
 }

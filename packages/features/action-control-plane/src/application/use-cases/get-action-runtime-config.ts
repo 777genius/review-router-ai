@@ -1,8 +1,6 @@
 import {
-  effectiveInlineMaxComments,
   mapConfigToRuntimeEnv,
   parseReviewConfigurationStrict,
-  safeDefaultReviewConfiguration,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import type { Clock } from "@reviewrouter/shared";
@@ -28,10 +26,6 @@ import type { ActionSessionTokenServicePort } from "../ports/action-session-toke
 export type GetActionRuntimeConfigDependencies = {
   readonly repositories: ActionControlPlaneRepositoryPort;
   readonly sessions: ActionSessionTokenServicePort;
-  readonly defaultProvider?: {
-    readonly model: string;
-    readonly reasoningEffort: ReviewConfiguration["provider"]["reasoningEffort"];
-  };
   readonly entitlements?: ActionEntitlementPolicyPort;
   readonly conflictReviewRuntimeGate?: ActionConflictReviewRuntimeGatePort;
   readonly conflictReviewPostingAvailable?: boolean;
@@ -89,14 +83,13 @@ export async function getActionRuntimeConfig(
       throw new Error("conflict_review_config_snapshot_mismatch");
     }
   }
-  const config =
-    record?.config ??
-    buildDefaultReviewConfiguration(dependencies.defaultProvider);
+  if (!record) throw new Error("review_workspace_policy_required");
+  const config = record.config;
   assertStandardRuntimeProviderSupport(config, session, repository);
   if (session.reviewKind === "conflict-head") {
     assertConflictRuntimeProviderSupport(config);
   }
-  const version = record?.version ?? 1;
+  const version = record.version;
   const runtimeEnv = mapConfigToRuntimeEnv(config);
   const primaryProvider = config.providers[0]!;
   if (primaryProvider.authMode === "codex_account_gateway") {
@@ -169,9 +162,7 @@ export async function getActionRuntimeConfig(
     execution: config.execution,
     blockingPolicy: { failOnSeverity: config.blockingPolicy.failOnSeverity },
     limits: {
-      inlineMaxComments: effectiveInlineMaxComments(
-        config.limits.inlineMaxComments,
-      ),
+      inlineMaxComments: config.limits.inlineMaxComments,
       targetTokensPerBatch: config.limits.targetTokensPerBatch,
     },
     runtimeEnv,
@@ -179,24 +170,6 @@ export async function getActionRuntimeConfig(
       ? { conflictReview: conflictReviewRuntimeConfig }
       : {}),
   };
-}
-
-function buildDefaultReviewConfiguration(
-  providerDefaults: GetActionRuntimeConfigDependencies["defaultProvider"],
-): ReviewConfiguration {
-  if (!providerDefaults) {
-    return safeDefaultReviewConfiguration;
-  }
-  const provider = {
-    ...safeDefaultReviewConfiguration.provider,
-    model: providerDefaults.model,
-    reasoningEffort: providerDefaults.reasoningEffort,
-  };
-  return parseReviewConfigurationStrict({
-    ...safeDefaultReviewConfiguration,
-    provider,
-    providers: [provider],
-  });
 }
 
 function assertStandardRuntimeProviderSupport(

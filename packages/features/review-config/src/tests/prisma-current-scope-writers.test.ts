@@ -6,7 +6,7 @@ import {
   PrismaReviewConfigurationRepository,
   PrismaReviewConfigurationTransactionRepository,
 } from "../infrastructure/prisma/prisma-review-configuration-repository";
-import { safeDefaultReviewConfiguration } from "../domain/review-configuration";
+import { workspacePolicyFixture } from "./current-policy-fixture";
 import { PrismaEntitlementRepository } from "../../../entitlements/src/infrastructure/prisma/prisma-entitlement-repository";
 import { freeBetaEntitlement } from "../../../entitlements/src/domain/entitlement";
 
@@ -23,10 +23,27 @@ function harness() {
       return [];
     }),
     reviewConfiguration: {
-      findUnique: vi.fn(async () => {
-        events.push("config-read");
-        return null;
-      }),
+      findUnique: vi.fn(
+        async (input: {
+          where: { workspaceId_targetKey: { targetKey: string } };
+        }) => {
+          events.push("config-read");
+          return input.where.workspaceId_targetKey.targetKey ===
+            "workspace:default"
+            ? {
+                active: true,
+                repositoryId: null,
+                versions: [
+                  {
+                    version: 1,
+                    schemaVersion: 3,
+                    policyJson: JSON.stringify(workspacePolicyFixture),
+                  },
+                ],
+              }
+            : null;
+        },
+      ),
       upsert: vi.fn(async () => {
         events.push("target");
         return { id: "c", workspaceId: "w", active: true };
@@ -102,6 +119,8 @@ describe("production config and entitlement scope writers", () => {
       "exclusive",
       "config-read",
       "config-read",
+      "config-read",
+      "config-read",
       "target",
       "version-read",
       "version-create",
@@ -113,18 +132,17 @@ describe("production config and entitlement scope writers", () => {
       h.client,
     ).saveNextVersion({
       target,
-      config: safeDefaultReviewConfiguration,
+      policy: { schemaVersion: 3, providers: workspacePolicyFixture.providers },
       expectedVersion: null,
     });
     expect(saved.version).toBe(1);
-    expect(saved.config.providers).toEqual(
-      safeDefaultReviewConfiguration.providers,
-    );
+    expect(saved.config.providers).toEqual(workspacePolicyFixture.providers);
     expect(h.events).toEqual([
       "begin",
       "shared",
       "shared",
       "exclusive",
+      "config-read",
       "target",
       "version-read",
       "version-create",
@@ -144,7 +162,7 @@ describe("production config and entitlement scope writers", () => {
     );
     await repository.saveNextVersion({
       target,
-      config: safeDefaultReviewConfiguration,
+      policy: { schemaVersion: 3, providers: workspacePolicyFixture.providers },
     });
     await repository.deleteTarget(target);
     expect(h.events).toEqual([
@@ -152,6 +170,7 @@ describe("production config and entitlement scope writers", () => {
       "shared",
       "exclusive",
       "upstream-row-lock",
+      "config-read",
       "target",
       "version-read",
       "version-create",
@@ -185,7 +204,10 @@ describe("production config and entitlement scope writers", () => {
     await expect(
       new PrismaReviewConfigurationRepository(h.client).saveNextVersion({
         target,
-        config: safeDefaultReviewConfiguration,
+        policy: {
+          schemaVersion: 3,
+          providers: workspacePolicyFixture.providers,
+        },
         expectedVersion: 2,
       }),
     ).rejects.toThrow();
@@ -205,7 +227,7 @@ describe("production config and entitlement scope writers", () => {
     );
     await new PrismaReviewConfigurationRepository(h.client).saveNextVersion({
       target,
-      config: safeDefaultReviewConfiguration,
+      policy: { schemaVersion: 3, providers: workspacePolicyFixture.providers },
     });
     expect(h.tx.$queryRaw).toHaveBeenCalledTimes(3);
     expect(retry.tx.$queryRaw).toHaveBeenCalledTimes(3);
@@ -218,7 +240,10 @@ describe("production config and entitlement scope writers", () => {
     await expect(
       new PrismaReviewConfigurationRepository(h.client).saveNextVersion({
         target,
-        config: safeDefaultReviewConfiguration,
+        policy: {
+          schemaVersion: 3,
+          providers: workspacePolicyFixture.providers,
+        },
       }),
     ).rejects.toThrow("lock failed");
     expect(h.tx.reviewConfiguration.upsert).not.toHaveBeenCalled();

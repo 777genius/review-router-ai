@@ -1,3 +1,4 @@
+import { workspacePolicyFixture } from "../../../../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -92,7 +93,19 @@ describe("dashboard repository search route", () => {
     ]);
     mocks.providerSetupFindMany.mockResolvedValue([]);
     mocks.hostedCodexRepositoryBindingFindMany.mockResolvedValue([]);
-    mocks.reviewConfigurationFindUnique.mockResolvedValue(null);
+    mocks.reviewConfigurationFindUnique.mockResolvedValue({
+      active: true,
+      repositoryId: null,
+      versions: [
+        {
+          id: "workspace-policy-1",
+          version: 1,
+          schemaVersion: 3,
+          policyJson: JSON.stringify(workspacePolicyFixture),
+          providers: [],
+        },
+      ],
+    });
     mocks.reviewConfigurationFindMany.mockResolvedValue([]);
     mocks.listWorkspaceRepositoryHealth.mockResolvedValue([]);
     mocks.deriveDashboardProviderSetupReadiness.mockImplementation(
@@ -520,30 +533,23 @@ function reviewConfigurationVersionRow(input: {
   readonly model: string;
 }) {
   return {
+    id: "repository-policy-1",
     version: 1,
-    schemaVersion: 2,
-    providerKind: input.providerKind,
-    providerAuthMode: input.providerAuthMode,
-    model: input.model,
-    reasoningEffort: "medium",
-    agenticContext: true,
-    fastMode: false,
-    failOnSeverity: "critical",
-    inlineMaxComments: 5,
-    providerLimit: 1,
-    providerMaxParallel: 1,
-    inlineMinAgreement: 1,
-    targetTokensPerBatch: 50000,
-    providers: [
-      {
-        providerKind: input.providerKind,
-        providerAuthMode: input.providerAuthMode,
-        model: input.model,
-        reasoningEffort: "medium",
-        agenticContext: true,
-        fastMode: false,
-        requiredHealthy: true,
-      },
-    ],
+    schemaVersion: 3,
+    policyJson: JSON.stringify({
+      schemaVersion: 3,
+      providers: [
+        {
+          kind: input.providerKind,
+          authMode: input.providerAuthMode,
+          model: input.model,
+          reasoningEffort: "medium",
+          agenticContext: true,
+          fastMode: false,
+          requiredHealthy: true,
+        },
+      ],
+    }),
+    providers: [],
   };
 }

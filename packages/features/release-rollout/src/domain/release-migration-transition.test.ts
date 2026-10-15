@@ -107,9 +107,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(131);
+    expect(full).toHaveLength(132);
     expect(manifest(full)).toBe(
-      "sha256:826c8dd79768289887e3dcde7c632a4fc3bc84527b72e5fef39042bfad324f11",
+      "sha256:13efdc28bd5b1920373a3cfef10785c377cd7b4f2f648a00d3e2817d9f0422c7",
     );
     const old125 = full
       .filter(
@@ -119,7 +119,9 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000128_account_admission_row_lock" &&
           row.migrationName !== "000129_personal_run_snapshot_v2" &&
           row.migrationName !== "000130_personal_canonical_operations" &&
-          row.migrationName !== "000131_personal_canonical_unentered_claim",
+          row.migrationName !== "000131_personal_canonical_unentered_claim" &&
+          row.migrationName !== "000132_review_policy_schema_v3",
+        "000132_review_policy_schema_v3",
       )
       .map((row) =>
         row.migrationName === "000119_review_configuration_gateway_binding"
@@ -141,7 +143,7 @@ describe("canonical release migration transition", () => {
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-24).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-25).map((row) => row.migrationName)).toEqual([
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
@@ -166,6 +168,7 @@ describe("canonical release migration transition", () => {
       "000129_personal_run_snapshot_v2",
       "000130_personal_canonical_operations",
       "000131_personal_canonical_unentered_claim",
+      "000132_review_policy_schema_v3",
     ]);
     const withoutProviderKey = historicalFull.filter(
       (row) =>

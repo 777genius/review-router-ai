@@ -1,4 +1,5 @@
 import type { ProducerReleaseQueryPort } from "../application/ports/producer-release-ports";
+import { parseReviewAgentProfiles } from "../domain/review-agent-profile";
 import {
   ProducerReleaseAttestationStatus,
   type ProducerReleaseAttestationPort,
@@ -81,6 +82,7 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
               configured.contextGatewayEntrypointDigest,
             reviewInvestigationProfile:
               configured.reviewInvestigationProfile ?? null,
+            agentProfiles: configured.agentProfiles ?? null,
             schemaDigest: configured.schemaDigest,
             capabilityProfile: configured.capabilityProfile,
             protocolLimitsProfileId: configured.protocolLimitsProfileId,
@@ -148,7 +150,9 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
     "reviewInvestigationPolicyHash",
   ].sort();
   const actualKeys = Object.keys(value).sort();
+  const currentKeys = [...investigationKeys, "agentProfiles"].sort();
   if (
+    canonicalJson(actualKeys) !== canonicalJson(currentKeys) &&
     canonicalJson(actualKeys) !== canonicalJson(expectedKeys) &&
     canonicalJson(actualKeys) !== canonicalJson(legacyKeys) &&
     canonicalJson(actualKeys) !== canonicalJson(investigationKeys)
@@ -175,6 +179,10 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
   }
   return {
     producerReleaseId: requiredString(value.producerReleaseId),
+    agentProfiles:
+      value.agentProfiles == null
+        ? null
+        : parseReviewAgentProfiles(value.agentProfiles),
     distributionKind: parseDistributionKind(value.distributionKind),
     actionCommitSha: requiredString(value.actionCommitSha),
     runtimeCommitSha: requiredString(value.runtimeCommitSha),
@@ -266,6 +274,7 @@ function configuredReleaseKey(
   configured: TrustedProducerReleaseAttestation,
 ): string {
   return canonicalJson({
+    agentProfiles: configured.agentProfiles ?? null,
     distributionKind: configured.distributionKind,
     actionCommitSha: configured.actionCommitSha,
     runtimeCommitSha: configured.runtimeCommitSha,

@@ -57,6 +57,17 @@ describe("review Action v2 release manifests", () => {
     expect(parseHandoffManifest(expectedHandoff)).toEqual(handoff);
 
     const release = buildReleaseManifest({
+      agentProfiles: [
+        {
+          profileRef: "fixture-codex",
+          agentKind: "codex",
+          binarySha256: "a".repeat(64),
+          packageVersion: "0.147.0",
+          modelTransports: ["account_gateway"],
+          contextGateway: true,
+          cancellation: true,
+        },
+      ],
       handoffManifest: handoff,
       handoffManifestDigest: sha256Digest(expectedHandoff),
       actionCommitSha: "c".repeat(40),
@@ -158,6 +169,17 @@ describe("review Action v2 release manifests", () => {
   it("binds the authenticated v4 investigation profile into manifest v3", () => {
     const handoff = parseHandoffManifest(fixture("expected-handoff.json"));
     const release = buildReleaseManifest({
+      agentProfiles: [
+        {
+          profileRef: "fixture-codex",
+          agentKind: "codex",
+          binarySha256: "a".repeat(64),
+          packageVersion: "0.147.0",
+          modelTransports: ["account_gateway"],
+          contextGateway: true,
+          cancellation: true,
+        },
+      ],
       handoffManifest: handoff,
       handoffManifestDigest: sha256Digest(canonicalJson(handoff)),
       actionCommitSha: "d".repeat(40),
@@ -180,6 +202,9 @@ describe("review Action v2 release manifests", () => {
     });
     expect(parseReleaseManifest(canonicalJson(release))).toEqual(release);
     expect(buildReleaseRegistrationCandidateFields(release)).toMatchObject({
+      agentProfiles: [
+        { profileRef: "fixture-codex", binarySha256: "a".repeat(64) },
+      ],
       contextGatewayPolicyVersion: "context-gateway-v4",
       reviewInvestigationProfile: {
         capability: REVIEW_INVESTIGATION_RELEASE_CAPABILITY,
@@ -240,6 +265,17 @@ describe("review Action v2 release manifests", () => {
     const handoff = parseHandoffManifest(fixture("expected-handoff.json"));
     expect(() =>
       buildReleaseManifest({
+        agentProfiles: [
+          {
+            profileRef: "fixture-codex",
+            agentKind: "codex",
+            binarySha256: "a".repeat(64),
+            packageVersion: "0.147.0",
+            modelTransports: ["account_gateway"],
+            contextGateway: true,
+            cancellation: true,
+          },
+        ],
         handoffManifest: handoff,
         handoffManifestDigest: sha256Digest(canonicalJson(handoff)),
         actionCommitSha: "d".repeat(40),
@@ -280,6 +316,17 @@ describe("review Action v2 release manifests", () => {
     const handoff = parseHandoffManifest(fixture("expected-handoff.json"));
     expect(() =>
       buildReleaseManifest({
+        agentProfiles: [
+          {
+            profileRef: "fixture-codex",
+            agentKind: "codex",
+            binarySha256: "a".repeat(64),
+            packageVersion: "0.147.0",
+            modelTransports: ["account_gateway"],
+            contextGateway: true,
+            cancellation: true,
+          },
+        ],
         handoffManifest: handoff,
         handoffManifestDigest: sha256Digest(canonicalJson(handoff)),
         actionCommitSha: handoff.expectedPublicActionBaseCommit,

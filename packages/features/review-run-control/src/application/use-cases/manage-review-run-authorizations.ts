@@ -210,6 +210,7 @@ export class ManageReviewRunAuthorizations {
       );
       const captured = await this.dependencies.runtimeSnapshots.capture({
         identity: verifiedIdentity,
+        producerRelease: eligibility.release,
         deadline:
           gatewayMaxExpiresAt > now ? gatewayMaxExpiresAt : maxExpiresAt,
       });

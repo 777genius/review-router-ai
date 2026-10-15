@@ -499,20 +499,20 @@ function pullRequestNumberHintFromClaims(
   return unique[0] ?? null;
 }
 
-function producerActionCommitFromClaims(
+export function producerActionCommitFromClaims(
   claims: GitHubActionsOidcClaims,
 ): string {
   const actionCommitSha = claims.job_workflow_sha?.toLowerCase();
-  const workflowRefCommit = claims.job_workflow_ref
-    ? /^777genius\/review-router\/\.github\/workflows\/reviewrouter-execution-reusable\.yml@([a-f0-9]{40})$/i
+  const workflowRef = claims.job_workflow_ref
+    ? reviewRouterRuntimeWorkflowRefPattern
         .exec(claims.job_workflow_ref)?.[1]
         ?.toLowerCase()
     : undefined;
   if (
     !actionCommitSha ||
     !isCommitSha(actionCommitSha) ||
-    !workflowRefCommit ||
-    workflowRefCommit !== actionCommitSha
+    !workflowRef ||
+    (workflowRef !== "refs/tags/workflow-v1" && workflowRef !== actionCommitSha)
   ) {
     throw routeFailure(
       403,
@@ -1521,3 +1521,4 @@ function isStrictlyLexicographicallySorted(values: readonly string[]): boolean {
 function toSnakeCase(value: string): string {
   return value.replace(/[A-Z]/g, (character) => `_${character.toLowerCase()}`);
 }
+import { reviewRouterRuntimeWorkflowRefPattern } from "@reviewrouter/protocol-review-workflow";

@@ -79,6 +79,7 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
       }
       expect(route.startsWith("POST")).toBe(true);
       expect(parameters).toMatchObject({
+        workflow_id: ".github/workflows/reviewrouter-review.yml",
         ref: "main",
         inputs: {
           review_request_id: "request-1",
@@ -294,7 +295,7 @@ function gatewayWith(
   return new GitHubActionsReviewRequestedDispatchGateway(
     prisma as never,
     { appId: "1", privateKey: "unused-in-test" },
-    ".github/workflows/reviewrouter-codex.yml",
+    undefined,
     { forInstallation: async () => ({ request }) },
   );
 }

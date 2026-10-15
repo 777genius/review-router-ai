@@ -1,3 +1,4 @@
+import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import Fastify from "fastify";
@@ -10,7 +11,6 @@ import {
   parseReviewConfigurationStrict,
   PrismaReviewConfigurationRepository,
   saveReviewConfiguration,
-  safeDefaultReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
   canonicalJson,
@@ -253,8 +253,8 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
           {
             target,
             expectedVersion: null,
-            config: parseReviewConfigurationStrict({
-              ...safeDefaultReviewConfiguration,
+            policy: parseReviewConfigurationStrict({
+              ...workspacePolicyFixture,
               providers: [
                 {
                   kind: "codex",
@@ -343,7 +343,9 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
         now = Date.now();
         const first = await harness.authorize();
         expect(harness.generatedOidcTokenCount).toBe(1);
-        expect((await send(first.authorizationToken)).status).toBe(200);
+        expect(await send(first.authorizationToken)).toMatchObject({
+          status: 200,
+        });
         const initial = await prisma.reviewRunAuthorization.findUniqueOrThrow({
           where: { authorizationId: first.authorizationId },
         });
@@ -425,7 +427,9 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
         expect(observations).toHaveLength(afterRevoke);
         // The exact final millisecond stays live with the ORIGINAL capability.
         now = initial.maxExpiresAt.getTime() - 1;
-        expect((await send(first.authorizationToken)).status).toBe(200);
+        expect(await send(first.authorizationToken)).toMatchObject({
+          status: 200,
+        });
         const beforeDeadline = observations.length;
         for (const offset of [0, 1]) {
           now = initial.maxExpiresAt.getTime() + offset;

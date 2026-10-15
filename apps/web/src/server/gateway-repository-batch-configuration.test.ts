@@ -1,5 +1,6 @@
+import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 // @vitest-environment jsdom
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { createElement, type ReactNode } from "react";
@@ -30,10 +31,11 @@ import {
 } from "@reviewrouter/features-entitlements";
 import { createDashboardRateLimitPolicy } from "./dashboard-rate-limits";
 import {
+  canonicalJson,
+  resolveReviewPolicy,
   findReviewConfiguration,
   clearReviewConfiguration,
   PrismaReviewConfigurationRepository,
-  safeDefaultReviewConfiguration,
   saveReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
@@ -140,14 +142,30 @@ test("gateway batch offers qualified MiMo reasoning and denies unsupported effor
     Parameters<
       typeof createGatewayRepositoryBatchAdapter
     >[0]["configurations"]["saveNextVersionWithOperation"]
-  >(async (input) => ({ config: input.config, version: 2 }));
+  >(async (input) => {
+    const config = resolveReviewPolicy(workspacePolicyFixture, input.policy);
+    return {
+      config,
+      policy: input.policy,
+      version: 2,
+      source: "repository",
+      workspaceVersion: 1,
+      repositoryVersion: 2,
+      effectivePolicyDigest: `sha256:${createHash("sha256").update(canonicalJson(config)).digest("hex")}`,
+    };
+  });
   const unused = async (): Promise<never> => {
     throw new Error("fixture_unexpected_write");
   };
   const configurations = {
     findLatest: async () => ({
-      config: safeDefaultReviewConfiguration,
+      config: workspacePolicyFixture,
+      policy: workspacePolicyFixture,
       version: 1,
+      source: "repository" as const,
+      workspaceVersion: 1,
+      repositoryVersion: 1,
+      effectivePolicyDigest: `sha256:${createHash("sha256").update(canonicalJson(workspacePolicyFixture)).digest("hex")}`,
     }),
     findOperation: async () => null,
     saveNextVersionWithOperation: write,
@@ -553,7 +571,7 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
       });
       const configurations = new PrismaReviewConfigurationRepository(db);
       const workspaceConfig = {
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         blockingPolicy: { failOnSeverity: "major" as const },
         limits: { inlineMaxComments: 17, targetTokensPerBatch: 16000 },
         reviewLanguage: "French",
@@ -561,7 +579,7 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
       await saveReviewConfiguration(
         {
           target: { scope: "workspace", workspaceId },
-          config: workspaceConfig,
+          policy: workspaceConfig,
         },
         { configurations },
       );
@@ -1609,7 +1627,7 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
         const concurrent = await saveReviewConfiguration(
           {
             target: target(ids[1]),
-            config: { ...workspaceConfig, reviewLanguage: "German" },
+            policy: { ...workspaceConfig, reviewLanguage: "German" },
             expectedVersion: null,
           },
           { configurations },
@@ -1640,7 +1658,9 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
         expect(applied?.config.providers).toEqual([
           savedRequests[0]!.selection,
         ]);
-        expect(applied?.config.provider).toEqual(savedRequests[0]!.selection);
+        expect(applied?.config.providers[0]).toEqual(
+          savedRequests[0]!.selection,
+        );
         expect(applied?.config.blockingPolicy).toEqual(
           workspaceConfig.blockingPolicy,
         );
@@ -2049,15 +2069,10 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
                 }
                 throw new Error("fixture_expected_dashboard_refusal");
               }
-              await originalWrite.call(
-                this,
-                enteredFailure === "different_config"
-                  ? {
-                      ...input,
-                      config: { ...input.config, reviewLanguage: "German" },
-                    }
-                  : input,
-              );
+              const submitted = structuredClone(input);
+              if (enteredFailure === "different_config")
+                submitted.policy.reviewLanguage = "German";
+              await originalWrite.call(this, submitted);
               throw new Error("repository_config_mutation_forbidden");
             });
           try {
@@ -2245,7 +2260,10 @@ test.skipIf(process.env.RR_P114_BATCH_TEST !== "1")(
               }),
             ).toMatchObject({
               version: 5,
-              config: casWriter.mock.calls[0]![0].config,
+              config: resolveReviewPolicy(
+                workspaceConfig,
+                casWriter.mock.calls[0]![0].policy,
+              ),
             });
             expect(
               await db.reviewConfigurationVersion.count({

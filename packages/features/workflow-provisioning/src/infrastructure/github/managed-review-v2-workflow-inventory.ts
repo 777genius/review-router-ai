@@ -6,17 +6,19 @@ import {
   codexWorkflowPathForRepository,
   isCodexWorkflowRepositoryIdentityAdmitted,
   isolatedQualityWorkflowPath,
-  readCanonicalCodexRotatingT0WorkflowSourceMetadata,
   readCanonicalIsolatedQualityWorkflowSourceMetadata,
-  scanCodexRotatingAdvisoryWorkflow,
 } from "@reviewrouter/features-codex-oauth-rotating";
 import { isLoopbackHostname } from "@reviewrouter/shared";
 import { REVIEW_ROUTER_ACTION_REPOSITORY } from "@reviewrouter/platform-config";
 import {
   managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
+  reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
-import { renderCanonicalCodexRotatingInteractionWorkflowV3 } from "../../domain/workflow-template";
+import {
+  readReviewRouterCallerSource,
+  renderCanonicalCodexRotatingInteractionWorkflowV3,
+} from "../../domain/workflow-template";
 
 type InstallationTokenResponse = {
   readonly token?: unknown;
@@ -173,6 +175,7 @@ export class ManagedReviewV2WorkflowInventory {
     readonly compatible: boolean;
     readonly inventoryHash: string;
     readonly actionCommitSha: string | null;
+    readonly runtimeRef: string | null;
     readonly workflowSchemaVersion: number | null;
     readonly defaultBranchHeadSha: string;
   }> {
@@ -186,15 +189,17 @@ export class ManagedReviewV2WorkflowInventory {
       githubRepositoryId: input.githubRepositoryId,
     });
     const repo = repoNameFromFullName(input.repositoryFullName);
-    const reviewPath = codexWorkflowPathForRepository({
+    const previousReviewPath = codexWorkflowPathForRepository({
       repositoryId: input.githubRepositoryId,
       repositoryFullName: input.repositoryFullName,
     });
+    const reviewPath =
+      previousReviewPath === isolatedQualityWorkflowPath
+        ? isolatedQualityWorkflowPath
+        : reviewRouterWorkflowContract.callerPath;
     const competingReviewPaths = [
       ".github/workflows/reviewrouter.yml",
-      ...(reviewPath === isolatedQualityWorkflowPath
-        ? [managedCodexWorkflowPath]
-        : []),
+      managedCodexWorkflowPath,
     ];
     const coverage = await this.resolveReviewInventoryCoverage({
       token: token.token,
@@ -231,6 +236,7 @@ export class ManagedReviewV2WorkflowInventory {
           ),
         ]);
         let metadata = null;
+        let runtimeRef: string | null = null;
         if (reviewWorkflow) {
           try {
             metadata =
@@ -238,17 +244,22 @@ export class ManagedReviewV2WorkflowInventory {
                 ? readCanonicalIsolatedQualityWorkflowSourceMetadata(
                     reviewWorkflow,
                   )
-                : readCanonicalCodexRotatingT0WorkflowSourceMetadata(
-                    reviewWorkflow,
-                  );
+                : (() => {
+                    const caller = readReviewRouterCallerSource(reviewWorkflow);
+                    runtimeRef = caller.runtimeRef;
+                    return {
+                      actionRef: `${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@${caller.runtimeRef}`,
+                      apiUrl: caller.controlPlaneUrl,
+                      providerInstanceId: "",
+                      workflowSchemaVersion: reviewRouterWorkflowContract.major,
+                    };
+                  })();
           } catch {
             // Managed T0 inventory only trusts the exact admitted source.
           }
         }
         const scan = reviewWorkflow
-          ? reviewPath === isolatedQualityWorkflowPath && metadata
-            ? { valid: true, errors: [] }
-            : scanCodexRotatingAdvisoryWorkflow(reviewWorkflow)
+          ? { valid: metadata !== null, errors: [] }
           : {
               valid: !reference.isDefault,
               errors: reference.isDefault ? ["review_workflow_missing"] : [],
@@ -262,12 +273,8 @@ export class ManagedReviewV2WorkflowInventory {
             ? !reference.isDefault
             : Boolean(
                 metadata &&
-                /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@[a-f0-9]{40}$/.test(
-                  metadata.actionRef,
-                ) &&
-                reviewWorkflow.includes(
-                  "/.github/workflows/reviewrouter-t0-reusable.yml@",
-                ),
+                (runtimeRef !== null ||
+                  metadata.actionRef.match(/@[a-f0-9]{40}$/)),
               );
         return {
           ref: reference.ref,
@@ -279,6 +286,7 @@ export class ManagedReviewV2WorkflowInventory {
           reviewWorkflowSha256: reviewWorkflow
             ? createHash("sha256").update(reviewWorkflow, "utf8").digest("hex")
             : null,
+          runtimeRef,
           actionRef: metadata?.actionRef ?? null,
           apiUrl: metadata?.apiUrl ?? null,
           actionCommitSha:
@@ -299,12 +307,14 @@ export class ManagedReviewV2WorkflowInventory {
     }
     const reviewActionCommitSha = defaultInventory.actionCommitSha;
     const defaultBindingCompatible = Boolean(
-      defaultInventory.actionRef?.startsWith(
-        `${REVIEW_ROUTER_ACTION_REPOSITORY}@`,
-      ) &&
+      (defaultInventory.runtimeRef !== null ||
+        defaultInventory.actionRef?.startsWith(
+          `${REVIEW_ROUTER_ACTION_REPOSITORY}@`,
+        )) &&
       defaultInventory.apiUrl === this.expectedApiUrl &&
-      defaultInventory.providerInstanceId ===
-        `codex-rotating:${input.githubRepositoryId}` &&
+      (defaultInventory.runtimeRef !== null ||
+        defaultInventory.providerInstanceId ===
+          `codex-rotating:${input.githubRepositoryId}`) &&
       defaultInventory.workflowSchemaVersion !== null,
     );
     const interactionPath = managedInteractionWorkflowPath;
@@ -320,6 +330,7 @@ export class ManagedReviewV2WorkflowInventory {
       interactionWorkflow,
       defaultInventory.actionRef,
       this.expectedApiUrl,
+      defaultInventory.runtimeRef !== null,
     );
     const revalidatedCoverage = await this.resolveReviewInventoryCoverage({
       token: token.token,
@@ -369,6 +380,7 @@ export class ManagedReviewV2WorkflowInventory {
         .update(JSON.stringify(inventory), "utf8")
         .digest("hex"),
       actionCommitSha: reviewActionCommitSha,
+      runtimeRef: defaultInventory.runtimeRef,
       workflowSchemaVersion: defaultInventory.workflowSchemaVersion,
       defaultBranchHeadSha: defaultInventory.headSha,
     };
@@ -833,6 +845,7 @@ function inspectReviewV2InteractionWorkflow(
   workflow: string | null,
   expectedActionRef: string | null,
   expectedApiUrl: string,
+  currentCaller: boolean,
 ) {
   const expectedActionCommitSha =
     expectedActionRef?.match(/@([a-f0-9]{40})$/i)?.[1]?.toLowerCase() ?? null;
@@ -847,7 +860,7 @@ function inspectReviewV2InteractionWorkflow(
   }
 
   const expectedWorkflow =
-    expectedActionRef && expectedActionCommitSha
+    !currentCaller && expectedActionRef && expectedActionCommitSha
       ? renderCanonicalCodexRotatingInteractionWorkflowV3({
           actionRef: expectedActionRef,
           apiUrl: expectedApiUrl,

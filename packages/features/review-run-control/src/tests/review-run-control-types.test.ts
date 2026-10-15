@@ -45,10 +45,28 @@ describe("private runtime snapshot epoch pin", () => {
     },
   };
   const original = {
-    snapshotVersion: 2,
+    snapshotVersion: 3,
     configurationSource: "repository",
     configurationVersion: 1,
-    configurationCanonicalJson: "{}",
+    workspaceConfigurationVersion: 1,
+    repositoryConfigurationVersion: 1,
+    effectivePolicyDigest: `sha256:${"a".repeat(64)}`,
+    agent: {
+      profileRef: "codex-default",
+      agentKind: "codex",
+      binarySha256: "b".repeat(64),
+      packageVersion: "0.147.0",
+      modelTransports: ["account_gateway"],
+      contextGateway: true,
+      cancellation: true,
+    },
+    agentProfileDigest: "c".repeat(64),
+    producer: {
+      producerReleaseId: "producer",
+      actionCommitSha: "d".repeat(40),
+      runtimeCommitSha: "e".repeat(40),
+    },
+    configurationCanonicalJson: canonicalJson({ schemaVersion: 3 }),
     deadline: "2099-01-01T00:00:00.000Z",
     gateway: { ...gateway, expectedAuthorizationEpoch: 7 },
   };
@@ -68,18 +86,10 @@ describe("private runtime snapshot epoch pin", () => {
           },
         }),
       )?.snapshotVersion,
-    ).toBe(2);
+    ).toBe(3);
   });
-  it("rejects malformed, missing and cross-version pins without widening legacy authority", () => {
-    for (const epoch of [
-      undefined,
-      null,
-      "7",
-      0,
-      -1,
-      1.5,
-      Number.MAX_SAFE_INTEGER + 1,
-    ]) {
+  it("rejects malformed and historical format pins without widening legacy authority", () => {
+    for (const epoch of [null, "7", 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       expect(() =>
         parseReviewRunRuntimeSnapshot(
           canonicalJson({
@@ -90,23 +100,22 @@ describe("private runtime snapshot epoch pin", () => {
       ).toThrow("review_run_runtime_snapshot_invalid");
     }
     for (const patch of [
-      { gateway: null },
       { gateway: { ...original.gateway, limits: undefined } },
-      { snapshotVersion: 3 },
+      { snapshotVersion: 2 },
       { snapshotVersion: 1 }, // a v1 row cannot smuggle in the epoch field
     ])
       expect(() =>
         parseReviewRunRuntimeSnapshot(canonicalJson({ ...original, ...patch })),
       ).toThrow();
-    const legacy = parseReviewRunRuntimeSnapshot(
-      canonicalJson({ ...original, snapshotVersion: 1, gateway }),
+    const unpinned = parseReviewRunRuntimeSnapshot(
+      canonicalJson({ ...original, gateway }),
     )!;
-    expect(legacy.snapshotVersion).toBe(1);
-    expect(reviewRunGatewayEpochMatches(legacy, 55)).toBe(true);
-    expect(
-      parseReviewRunRuntimeSnapshot(
-        canonicalJson({ ...original, snapshotVersion: 1, gateway: null }),
-      )?.gateway,
-    ).toBeNull();
+    expect(reviewRunGatewayEpochMatches(unpinned, 55)).toBe(true);
+    for (const snapshotVersion of [1, 2])
+      expect(() =>
+        parseReviewRunRuntimeSnapshot(
+          canonicalJson({ ...original, snapshotVersion, gateway }),
+        ),
+      ).toThrow("review_run_runtime_snapshot_invalid");
   });
 });

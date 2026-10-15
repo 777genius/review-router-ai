@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { canonicalJson } from "@reviewrouter/features-review-config";
 import { describe, expect, it } from "vitest";
 import type {
   ActionConflictReviewDispatchPayload,
@@ -194,8 +196,7 @@ function openRouterRuntimeReviewConfiguration(): RuntimeReviewConfiguration {
     requiredHealthy: true,
   };
   return {
-    schemaVersion: 2,
-    provider,
+    schemaVersion: 3,
     providers: [provider],
     execution: {
       providerLimit: 1,
@@ -204,6 +205,7 @@ function openRouterRuntimeReviewConfiguration(): RuntimeReviewConfiguration {
     },
     blockingPolicy: { failOnSeverity: "critical" },
     limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+    reviewLanguage: null,
     investigationRollout: disabledInvestigationRollout,
   };
 }
@@ -236,6 +238,9 @@ class InMemoryActionRepositories implements ActionControlPlaneRepositoryPort {
       return {
         source: "repository" as const,
         version: this.runtimeConfigVersion,
+        workspaceVersion: 1,
+        repositoryVersion: this.runtimeConfigVersion,
+        effectivePolicyDigest: `sha256:${createHash("sha256").update(canonicalJson(this.runtimeConfig)).digest("hex")}`,
         config: this.runtimeConfig,
       };
     }
@@ -3152,8 +3157,7 @@ describe("API app", () => {
       requiredHealthy: true,
     } as const;
     repositories.runtimeConfig = {
-      schemaVersion: 2,
-      provider: claudeProvider,
+      schemaVersion: 3,
       providers: [claudeProvider],
       execution: {
         providerLimit: 1,
@@ -3162,6 +3166,7 @@ describe("API app", () => {
       },
       blockingPolicy: { failOnSeverity: "critical" },
       limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+      reviewLanguage: null,
       investigationRollout: disabledInvestigationRollout,
     };
     const app = await createApiApp({

@@ -1,3 +1,4 @@
+import { workspacePolicyFixture } from "../../../review-config/src/tests/current-policy-fixture";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { buildProviderRuntimePlan } from "@reviewrouter/features-review-providers";
@@ -8,8 +9,6 @@ import {
   createVersionedProviderSecretNamespace,
   isolatedQualityWorkflowPath,
   workflowDocumentSemanticSha256,
-  readCanonicalCodexRotatingT0WorkflowSourceMetadata,
-  renderCanonicalAccountGatewayWorkflow,
 } from "@reviewrouter/features-codex-oauth-rotating";
 import {
   analyzeConflictReviewWorkflowCapability,
@@ -43,7 +42,7 @@ import {
   scanCodexRotatingAdvisoryWorkflow as scanExportedCodexRotatingAdvisoryWorkflow,
 } from "../index";
 
-it("emits the immutable schema2 keyless dispatched PR caller contract", () => {
+it("emits the stable keyless dispatched ReviewRouter caller contract", () => {
   const sha = "0123456789abcdef0123456789abcdef01234567";
   const file = renderAccountGatewayWorkflow({
     actionRef: `777genius/review-router@${sha}`,
@@ -51,7 +50,7 @@ it("emits the immutable schema2 keyless dispatched PR caller contract", () => {
     githubRepositoryId: "123456",
   });
   const document = parse(file.content);
-  expect(file.path).toBe(".github/workflows/reviewrouter-codex.yml");
+  expect(file.path).toBe(".github/workflows/reviewrouter-review.yml");
   expect(Object.keys(document.on)).toEqual(["workflow_dispatch"]);
   const inputs = document.on.workflow_dispatch.inputs;
   expect(Object.keys(inputs)).toEqual([
@@ -66,26 +65,24 @@ it("emits the immutable schema2 keyless dispatched PR caller contract", () => {
     "${{ format('ReviewRouter review {0}', inputs.review_request_id) }}",
   );
   expect(document.permissions).toEqual({});
-  expect(Object.keys(document.jobs)).toEqual(["codex-review"]);
-  const job = document.jobs["codex-review"];
+  expect(Object.keys(document.jobs)).toEqual(["review"]);
+  const job = document.jobs.review;
   expect(job.if).toBe(
-    "${{ github.event_name == 'workflow_dispatch' && inputs.review_request_id != '' && inputs.pr_number != '' && inputs.review_head_sha != '' }}",
+    "${{ inputs.review_request_id != '' && inputs.pr_number != '' && inputs.review_head_sha != '' }}",
   );
   expect(job.uses).toBe(
-    `777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@${sha}`,
+    "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
   );
   expect(job.permissions).toEqual({
     contents: "read",
     "pull-requests": "read",
     "id-token": "write",
   });
-  expect(job.with).toMatchObject({
-    runtime_ref: sha,
-    api_url: "https://app.reviewrouter.dev",
-    runtime_config_mode: "oidc",
-    provider_instance_id: "codex-rotating:123456",
-    workflow_schema_version: 2,
-    codex_session_mode: "account-gateway",
+  expect(job.with).toEqual({
+    review_request_id: "${{ inputs.review_request_id }}",
+    pr_number: "${{ inputs.pr_number }}",
+    review_head_sha: "${{ inputs.review_head_sha }}",
+    control_plane_url: "https://app.reviewrouter.dev",
   });
   expect(job.with.pr_number).toBe("${{ inputs.pr_number }}");
   expect(job.with.review_head_sha).toBe("${{ inputs.review_head_sha }}");
@@ -95,19 +92,6 @@ it("emits the immutable schema2 keyless dispatched PR caller contract", () => {
     /AUTH_JSON|namespace|lease|writeback|hosted-pool|gateway_binding|gateway_profile/,
   );
 });
-
-it.each(["", "0", "01", "not-a-number"])(
-  "rejects invalid repository identity %s",
-  (githubRepositoryId) => {
-    expect(() =>
-      renderAccountGatewayWorkflow({
-        githubRepositoryId,
-        apiUrl: "https://app.reviewrouter.dev",
-        actionRef: `777genius/review-router@${"a".repeat(40)}`,
-      }),
-    ).toThrow();
-  },
-);
 
 const workflowOptions = {
   actionRef: "777genius/review-router@v1",
@@ -768,7 +752,7 @@ describe("renderReviewRouterWorkflow", () => {
 
   it("includes configured fallback and synthesis providers in runtime prerequisite selection", () => {
     const fallbackRuntime = buildProviderRuntimePlan({
-      schemaVersion: 2,
+      ...workspacePolicyFixture,
       providers: [
         {
           kind: "claude",
@@ -2040,30 +2024,24 @@ function workflowFileContent(
   return file && file.operation !== "delete" ? file.content : "";
 }
 
-it("delegates gateway production rendering to the single canonical domain representation", () => {
+it("keeps compatible producer and execution setting changes out of the caller", () => {
   const options = {
-    actionRef:
-      "777genius/review-router@9d30879b333c6474d104f5911f548419702b758b",
-    apiUrl: "https://aberdeen-say-beverages-testimony.trycloudflare.com",
+    actionRef: `777genius/review-router@${"a".repeat(40)}`,
+    apiUrl: "https://api.reviewrouter.site",
     githubRepositoryId: "1317214237",
     reviewTimeoutMinutes: 15,
   };
-  const file = renderAccountGatewayWorkflow(options);
-  expect(file.content).toBe(renderCanonicalAccountGatewayWorkflow(options));
-  expect(file.content).toContain("review_timeout_minutes: 15");
+  const original = renderAccountGatewayWorkflow(options);
   expect(
-    readCanonicalCodexRotatingT0WorkflowSourceMetadata(file.content),
-  ).toMatchObject({
-    actionRef: options.actionRef,
-    apiUrl: options.apiUrl,
-    providerInstanceId: `codex-rotating:${options.githubRepositoryId}`,
-    workflowSchemaVersion: 2,
-    codexSessionMode: "account-gateway",
-  });
-  expect(scanCodexRotatingAdvisoryWorkflow(file.content)).toEqual({
-    valid: true,
-    errors: [],
-  });
+    renderAccountGatewayWorkflow({
+      ...options,
+      actionRef: `777genius/review-router@${"b".repeat(40)}`,
+      reviewTimeoutMinutes: 60,
+    }),
+  ).toEqual(original);
+  expect(original.content).not.toMatch(
+    /timeout|runtime_ref|provider_instance_id|session_binding|codex/,
+  );
   expect(() =>
     renderAccountGatewayWorkflow({
       ...options,
@@ -2071,20 +2049,3 @@ it("delegates gateway production rendering to the single canonical domain repres
     }),
   ).toThrow("account_gateway_workflow_path_not_supported");
 });
-
-it.each([
-  "777genius/review-router@v1",
-  `attacker/runtime@${"a".repeat(40)}`,
-  `777genius/review-router@${"a".repeat(39)}`,
-])(
-  "preserves immutable canonical gateway action validation for %s",
-  (actionRef) => {
-    expect(() =>
-      renderAccountGatewayWorkflow({
-        actionRef,
-        apiUrl: "https://api.reviewrouter.site",
-        githubRepositoryId: "123456",
-      }),
-    ).toThrow("account_gateway_requires_immutable_action_ref");
-  },
-);

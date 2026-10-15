@@ -1,3 +1,4 @@
+import { parseReviewAgentProfiles } from "@reviewrouter/features-review-run-control";
 import {
   createRepositoryReleaseSelector,
   parseRepositoryReleaseBindings,
@@ -1060,7 +1061,8 @@ async function requireInstalledRelease(
     });
   if (
     !inventory.compatible ||
-    inventory.actionCommitSha !== release.actionCommitSha
+    (inventory.runtimeRef !== reviewRouterWorkflowContract.channel &&
+      inventory.runtimeRef !== release.actionCommitSha)
   ) {
     throw new Error("review_v2_release_workflow_mismatch");
   }
@@ -1244,6 +1246,7 @@ type ReviewV2ReleaseBundleCandidate = Omit<
 >;
 
 const releaseBundleCandidateKeys = Object.freeze([
+  "agentProfiles",
   "producerReleaseId",
   "distributionKind",
   "actionCommitSha",
@@ -1311,6 +1314,7 @@ export function parseReviewV2ReleaseBundleCandidate(
 
   return {
     producerReleaseId: requireString(input, "producerReleaseId"),
+    agentProfiles: parseReviewAgentProfiles(input.agentProfiles),
     distributionKind,
     actionCommitSha: requireString(input, "actionCommitSha"),
     runtimeCommitSha: requireString(input, "runtimeCommitSha"),
@@ -1458,3 +1462,4 @@ if (entrypoint && import.meta.url === pathToFileURL(entrypoint).href) {
     process.exitCode = 1;
   });
 }
+import { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";

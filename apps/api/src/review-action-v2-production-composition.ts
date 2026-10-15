@@ -9,6 +9,7 @@ import {
 import {
   ProductionReviewRunRuntimeSnapshot,
   readServerApprovedReviewRunGatewayPolicy,
+  readServerReviewAgentProfileRef,
 } from "./review-run-runtime-snapshot";
 import { PrismaReviewRunGatewayExecutionBinding } from "./prisma-review-run-gateway-execution-binding";
 import {
@@ -154,6 +155,7 @@ import { reviewActionV2AbsoluteProtocolMaxima } from "./review-action-v2-protoco
 import {
   readGitHubAppPrivateKey,
   resolveReviewRouterPublicApiUrl,
+  resolveReviewRouterCodexRotatingActionRef,
 } from "@reviewrouter/platform-config";
 import {
   acquireCurrentScopeGuards,
@@ -328,6 +330,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
     ),
     input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
     readPersonalAccountSharingEnabled(input.env),
+    readServerReviewAgentProfileRef(input.env.REVIEW_ROUTER_AGENT_PROFILE),
   );
   const repositories = createPrismaReviewRunControlRepositories(
     input.prisma,
@@ -367,6 +370,17 @@ export function composeReviewActionV2ProductionRunControl(input: {
       actionRepositories,
       releaseAttestations: prerequisites.releaseAttestations,
       producerReleases: repositories.producerReleases,
+      selectedProducerActionCommitSha: () => {
+        try {
+          return (
+            resolveReviewRouterCodexRotatingActionRef(input.env).split(
+              "@",
+            )[1] ?? null
+          );
+        } catch {
+          return null;
+        }
+      },
       safety: mutationSafetyResolver,
       workflowInventory,
       dispatchCapability,

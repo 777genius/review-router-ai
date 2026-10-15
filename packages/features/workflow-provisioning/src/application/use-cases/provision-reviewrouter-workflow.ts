@@ -1,6 +1,4 @@
 import {
-  mapConfigToRuntimeEnv,
-  safeDefaultReviewConfiguration,
   resolveReviewConfiguration,
   type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
@@ -12,7 +10,7 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderReviewRouterWorkflowFiles,
   renderAccountGatewayWorkflow,
-  defaultCodexRotatingWorkflowPath,
+  reviewRouterWorkflowContract,
 } from "../../domain/workflow-template";
 import {
   createProvisionWorkflowPlan,
@@ -67,8 +65,7 @@ export async function provisionReviewRouterWorkflow(
   }
   if (
     gatewaySelected &&
-    (saved?.source === "default" ||
-      input.codexSessionMode !== "account-gateway" ||
+    (input.codexSessionMode !== "account-gateway" ||
       input.runtimeConfigMode !== "oidc" ||
       input.staticRuntimeEnv !== undefined ||
       (input.workflowStyle !== undefined &&
@@ -81,7 +78,7 @@ export async function provisionReviewRouterWorkflow(
       input.codexRotatingReviewActionV2Mode !== undefined ||
       input.codexRotatingWorkflowSchemaVersion !== undefined ||
       (input.workflowPath !== undefined &&
-        input.workflowPath !== defaultCodexRotatingWorkflowPath))
+        input.workflowPath !== reviewRouterWorkflowContract.callerPath))
   ) {
     throw new Error("account_gateway_workflow_options_not_supported");
   }
@@ -95,6 +92,9 @@ export async function provisionReviewRouterWorkflow(
   const plan = createProvisionWorkflowPlan(
     gatewayFile ? { ...input, workflowPath: gatewayFile.path } : input,
   );
+  const actionVersion = gatewayFile
+    ? reviewRouterWorkflowContract.channel
+    : plan.actionRef;
   if (plan.codexRotatingProviderInstanceId) {
     renderCanonicalCodexRotatingInteractionWorkflowV3({
       actionRef: plan.actionRef,
@@ -111,7 +111,7 @@ export async function provisionReviewRouterWorkflow(
     branch: plan.setupBranch,
     workflowPath: plan.workflowPath,
     workflowStyle: plan.workflowStyle,
-    actionVersion: plan.actionRef,
+    actionVersion,
   });
 
   if (dependencies.enabled === false) {
@@ -123,7 +123,7 @@ export async function provisionReviewRouterWorkflow(
       branch: attempt.branch,
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
+      actionVersion,
       pullRequestUrl: null,
       errorMessage: "workflow_provisioning_disabled",
     });
@@ -147,10 +147,14 @@ export async function provisionReviewRouterWorkflow(
   }
 
   try {
-    const staticRuntimeEnv = gatewayFile
-      ? {}
-      : (plan.staticRuntimeEnv ??
-        mapConfigToRuntimeEnv(safeDefaultReviewConfiguration));
+    if (
+      !gatewayFile &&
+      plan.runtimeConfigMode === "static" &&
+      plan.staticRuntimeEnv === undefined
+    ) {
+      throw new Error("workflow_static_policy_required");
+    }
+    const staticRuntimeEnv = gatewayFile ? {} : (plan.staticRuntimeEnv ?? {});
     if (!gatewayFile) {
       assertProductionCodexWorkflowProvisioningAllowed({
         codexRotatingProviderInstanceId: plan.codexRotatingProviderInstanceId,
@@ -213,7 +217,7 @@ export async function provisionReviewRouterWorkflow(
       branch: pullRequest.branch,
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
+      actionVersion,
       pullRequestUrl: pullRequest.url,
       pullRequestHeadSha: pullRequest.headSha,
       errorMessage: null,
@@ -230,7 +234,7 @@ export async function provisionReviewRouterWorkflow(
             branch: pullRequest.branch,
             workflowPath: plan.workflowPath,
             workflowStyle: plan.workflowStyle,
-            actionVersion: plan.actionRef,
+            actionVersion,
             pullRequestUrl: pullRequest.url,
             ...(dependencies.auditMetadata ?? {}),
           },
@@ -250,7 +254,7 @@ export async function provisionReviewRouterWorkflow(
       branch: attempt.branch,
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
+      actionVersion,
       pullRequestUrl: null,
       errorMessage: message,
     });
@@ -266,7 +270,7 @@ export async function provisionReviewRouterWorkflow(
             branch: attempt.branch,
             workflowPath: plan.workflowPath,
             workflowStyle: plan.workflowStyle,
-            actionVersion: plan.actionRef,
+            actionVersion,
             errorSummary: message.slice(0, 500),
             ...(dependencies.auditMetadata ?? {}),
           },

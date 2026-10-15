@@ -9,8 +9,13 @@ import {
 } from "@reviewrouter/features-provider-accounts";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
-  parseReviewConfiguration,
+  canonicalJson,
+  parseRepositoryReviewPolicyOverride,
+  parseReviewConfigurationStrict,
+  resolveReviewPolicy,
+  type RepositoryReviewPolicyOverride,
   type ReviewConfiguration,
+  type WorkspaceReviewPolicy,
 } from "../../domain/review-configuration";
 import {
   reviewConfigurationTargetKey,
@@ -23,6 +28,7 @@ import type {
   ReviewConfigurationRepositoryPort,
   ReviewConfigurationOperationInput,
   ReviewConfigurationOperationRepositoryPort,
+  ReviewPolicySaveInput,
 } from "../../application/ports/review-configuration-repository-port";
 import {
   snapshotReviewConfigurationOperation,
@@ -49,24 +55,20 @@ export class PrismaReviewConfigurationRepository
     assertOperatorWorkspaceId(operatorWorkspaceId);
   }
 
-  async findLatest(
-    target: ReviewConfigurationTarget,
-  ): Promise<PersistedReviewConfiguration | null> {
+  findLatest(target: ReviewConfigurationTarget) {
     return findLatestReviewConfiguration(this.prisma, target);
   }
 
-  async findLatestForRepositories(input: {
+  findLatestForRepositories(input: {
     readonly workspaceId: string;
     readonly repositoryIds: readonly string[];
-  }): Promise<readonly RepositoryReviewConfiguration[]> {
+  }) {
     return findLatestReviewConfigurationsForRepositories(this.prisma, input);
   }
 
-  async saveNextVersion(input: {
-    readonly target: ReviewConfigurationTarget;
-    readonly config: ReviewConfiguration;
-    readonly expectedVersion?: number | null;
-  }): Promise<PersistedReviewConfiguration> {
+  async saveNextVersion(
+    input: Parameters<ReviewConfigurationRepositoryPort["saveNextVersion"]>[0],
+  ): Promise<PersistedReviewConfiguration> {
     for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
       try {
         return await this.prisma.$transaction(
@@ -99,7 +101,7 @@ export class PrismaReviewConfigurationRepository
     throw new Error("review_configuration_transaction_retry_exhausted");
   }
 
-  async deleteTarget(target: ReviewConfigurationTarget): Promise<boolean> {
+  deleteTarget(target: ReviewConfigurationTarget) {
     return this.prisma.$transaction((tx) =>
       deleteReviewConfigurationTarget(tx, target),
     );
@@ -117,14 +119,18 @@ export class PrismaReviewConfigurationRepository
       intent.operationId,
     );
     if (!receipt) return null;
-    // Verify the caller's original CAS against the durable complete intent.
-    // Clear retains history, so a null-CAS write may have any result version.
+    const policy =
+      intent.target.scope === "workspace"
+        ? parseStoredPolicy("workspace", receipt.policyJson)
+        : parseStoredPolicy("repository", receipt.policyJson);
+    if (receipt.schemaVersion !== 3 || !policy)
+      throw new Error("review_configuration_receipt_invalid");
     return matchOperationReceipt(
       receipt,
       operationIntentHash({
         target: intent.target,
         expectedVersion: intent.expectedVersion,
-        config: toPersistedConfiguration(receipt).config,
+        policy,
       }),
     );
   }
@@ -152,7 +158,6 @@ export class PrismaReviewConfigurationRepository
           { isolationLevel: "Serializable" },
         );
       } catch (error) {
-        // Resolve races only after rollback, from the original scoped receipt.
         if (
           isPrismaReviewConfigurationWriteConflict(error) ||
           isPrismaReviewConfigurationSerializationConflict(error)
@@ -178,75 +183,6 @@ export class PrismaReviewConfigurationRepository
     }
     throw new Error("review_configuration_transaction_retry_exhausted");
   }
-}
-
-function operationIntentHash(
-  intent: Pick<
-    ReviewConfigurationOperationInput,
-    "target" | "expectedVersion" | "config"
-  >,
-): string {
-  return createHash("sha256")
-    .update(
-      canonicalIntent({
-        target: intent.target,
-        expectedVersion: intent.expectedVersion,
-        config: intent.config,
-      }),
-    )
-    .digest("hex");
-}
-
-function canonicalIntent(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalIntent).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([k, v]) => `${JSON.stringify(k)}:${canonicalIntent(v)}`)
-      .join(",")}}`;
-  }
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined)
-    throw new Error("review_configuration_intent_invalid");
-  return encoded;
-}
-
-async function findOperationReceipt(
-  prisma: ReviewConfigurationPrismaClient,
-  target: ReviewConfigurationTarget,
-  operationId: string,
-) {
-  return prisma.reviewConfigurationVersion.findFirst({
-    where: {
-      operationId,
-      configuration: {
-        workspaceId: target.workspaceId,
-        targetKey: reviewConfigurationTargetKey(target),
-      },
-    },
-    select: { ...versionSelect, operationIntentHash: true },
-  });
-}
-
-function matchOperationReceipt(
-  original: VersionRecord & { readonly operationIntentHash: string | null },
-  intentHash: string,
-): PersistedReviewConfiguration {
-  if (original.operationIntentHash !== intentHash) throw new WriteConflict();
-  return toPersistedConfiguration(original);
-}
-
-/** Acquire at transaction entry, before any earlier advisory/row locks or reads.
- * Multi-target callers predeclare their complete scope plan with the DB helper.
- */
-export async function acquireReviewConfigurationWriteScope(
-  transaction: Prisma.TransactionClient,
-  target: ReviewConfigurationTarget,
-): Promise<void> {
-  await acquireCurrentScopeGuards(transaction, [
-    { ...target, mode: "exclusive" },
-  ]);
 }
 
 export class PrismaReviewConfigurationTransactionRepository
@@ -293,6 +229,15 @@ export class PrismaReviewConfigurationTransactionRepository
   }
 }
 
+export async function acquireReviewConfigurationWriteScope(
+  transaction: Prisma.TransactionClient,
+  target: ReviewConfigurationTarget,
+): Promise<void> {
+  await acquireCurrentScopeGuards(transaction, [
+    { ...target, mode: "exclusive" },
+  ]);
+}
+
 export function isPrismaReviewConfigurationWriteConflict(
   error: unknown,
 ): boolean {
@@ -314,13 +259,10 @@ function hasPrismaErrorCode(error: unknown, code: string): boolean {
   );
 }
 
-function assertOperatorWorkspaceId(
-  operatorWorkspaceId: string | undefined,
-): void {
+function assertOperatorWorkspaceId(value: string | undefined): void {
   if (
-    operatorWorkspaceId !== undefined &&
-    /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/.exec(operatorWorkspaceId)?.[0] !==
-      operatorWorkspaceId
+    value !== undefined &&
+    /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/.exec(value)?.[0] !== value
   ) {
     throw new Error("review_configuration_operator_workspace_id_invalid");
   }
@@ -337,24 +279,18 @@ async function findLatestReviewConfiguration(
   prisma: ReviewConfigurationPrismaClient,
   target: ReviewConfigurationTarget,
 ): Promise<PersistedReviewConfiguration | null> {
-  const record = await prisma.reviewConfiguration.findUnique({
-    where: {
-      workspaceId_targetKey: {
-        workspaceId: target.workspaceId,
-        targetKey: reviewConfigurationTargetKey(target),
-      },
-    },
-    select: {
-      active: true,
-      versions: {
-        orderBy: { version: "desc" },
-        take: 1,
-        select: versionSelect,
-      },
-    },
+  const workspace = await findLatestPolicyVersion(prisma, {
+    workspaceId: target.workspaceId,
+    targetKey: "workspace:default",
   });
-  const version = record?.active ? record.versions[0] : undefined;
-  return version ? toPersistedConfiguration(version) : null;
+  const repository =
+    target.scope === "repository"
+      ? await findLatestPolicyVersion(prisma, {
+          workspaceId: target.workspaceId,
+          targetKey: `repo:${target.repositoryId}`,
+        })
+      : null;
+  return composePersistedConfiguration(workspace, repository);
 }
 
 async function findLatestReviewConfigurationsForRepositories(
@@ -365,10 +301,11 @@ async function findLatestReviewConfigurationsForRepositories(
   },
 ): Promise<readonly RepositoryReviewConfiguration[]> {
   const repositoryIds = [...new Set(input.repositoryIds)];
-  if (repositoryIds.length === 0) {
-    return [];
-  }
-
+  if (repositoryIds.length === 0) return [];
+  const workspace = await findLatestPolicyVersion(prisma, {
+    workspaceId: input.workspaceId,
+    targetKey: "workspace:default",
+  });
   const records = await prisma.reviewConfiguration.findMany({
     where: {
       workspaceId: input.workspaceId,
@@ -385,18 +322,43 @@ async function findLatestReviewConfigurationsForRepositories(
       },
     },
   });
-
-  return records.flatMap((record) => {
-    const version = record.versions[0];
-    return record.repositoryId && version
-      ? [
-          {
-            repositoryId: record.repositoryId,
-            config: toPersistedConfiguration(version),
-          },
-        ]
-      : [];
+  const repositoryByVersion = new Map(
+    records.flatMap((record) =>
+      record.repositoryId && record.versions[0]
+        ? [[record.repositoryId, record.versions[0]] as const]
+        : [],
+    ),
+  );
+  return repositoryIds.flatMap((repositoryId) => {
+    const repository = repositoryByVersion.get(repositoryId) ?? null;
+    if (!repository) return [];
+    const persisted = composePersistedConfiguration(workspace, repository);
+    return persisted ? [{ repositoryId, config: persisted }] : [];
   });
+}
+
+async function findLatestPolicyVersion(
+  prisma: ReviewConfigurationPrismaClient,
+  scope: { readonly workspaceId: string; readonly targetKey: string },
+): Promise<VersionRecord | null> {
+  const configuration = await prisma.reviewConfiguration.findUnique({
+    where: {
+      workspaceId_targetKey: {
+        workspaceId: scope.workspaceId,
+        targetKey: scope.targetKey,
+      },
+    },
+    select: {
+      active: true,
+      repositoryId: true,
+      versions: {
+        orderBy: { version: "desc" },
+        take: 1,
+        select: versionSelect,
+      },
+    },
+  });
+  return configuration?.active ? (configuration.versions[0] ?? null) : null;
 }
 
 async function saveNextReviewConfigurationVersion(
@@ -410,48 +372,91 @@ async function saveNextReviewConfigurationVersion(
   personalAccountsEnabled = false,
   personalWriteActorUserId?: string,
 ): Promise<PersistedReviewConfiguration> {
-  await acquireReviewConfigurationWriteScope(prisma, input.target);
+  const target = snapshotTarget(input.target);
+  await acquireReviewConfigurationWriteScope(prisma, target);
   if (receipt) {
     const original = await findOperationReceipt(
       prisma,
-      input.target,
+      target,
       receipt.operationId,
     );
     if (original)
       return matchOperationReceipt(original, receipt.operationIntentHash);
   }
-  const config = parseReviewConfiguration(input.config);
-  // Member/source/binding locks precede configuration row writes, matching admission.
-  // Both default and repository/batch writers use this same final validator.
+  const policy = parsePolicyForTarget(target, input.policy);
+  const targetKey = reviewConfigurationTargetKey(target);
+  const workspaceRecord =
+    target.scope === "workspace"
+      ? null
+      : await findLatestPolicyVersion(prisma, {
+          workspaceId: target.workspaceId,
+          targetKey: "workspace:default",
+        });
+  const workspacePolicy =
+    target.scope === "workspace"
+      ? (policy as WorkspaceReviewPolicy)
+      : workspaceRecord
+        ? parseStoredPolicy("workspace", workspaceRecord.policyJson)
+        : null;
+  if (!workspacePolicy) throw new Error("review_workspace_policy_required");
+  const repositoryPolicy =
+    target.scope === "repository"
+      ? (policy as RepositoryReviewPolicyOverride)
+      : null;
+  const effective = resolveReviewPolicy(workspacePolicy, repositoryPolicy);
+  if (target.scope === "workspace") {
+    // The exclusive workspace guard also fences repository writers. Validate
+    // sparse descendants together before publishing their inherited policy.
+    const repositories = await prisma.reviewConfiguration.findMany({
+      where: {
+        workspaceId: target.workspaceId,
+        repositoryId: { not: null },
+        active: true,
+      },
+      select: {
+        versions: {
+          orderBy: { version: "desc" },
+          take: 1,
+          select: { policyJson: true },
+        },
+      },
+    });
+    for (const repository of repositories) {
+      const version = repository.versions[0];
+      if (version) {
+        resolveReviewPolicy(
+          workspacePolicy,
+          parseStoredPolicy("repository", version.policyJson),
+        );
+      }
+    }
+  }
   await assertGatewaySelections(
     prisma,
-    input.target.workspaceId,
-    config,
+    target.workspaceId,
+    effective,
     operatorWorkspaceId,
     personalAccountsEnabled,
     personalWriteActorUserId,
   );
-  const targetKey = reviewConfigurationTargetKey(input.target);
+
   const configuration = await prisma.reviewConfiguration.upsert({
     where: {
       workspaceId_targetKey: {
-        workspaceId: input.target.workspaceId,
+        workspaceId: target.workspaceId,
         targetKey,
       },
     },
     update: {
-      repositoryId:
-        input.target.scope === "repository" ? input.target.repositoryId : null,
+      repositoryId: target.scope === "repository" ? target.repositoryId : null,
     },
     create: {
-      workspaceId: input.target.workspaceId,
-      repositoryId:
-        input.target.scope === "repository" ? input.target.repositoryId : null,
+      workspaceId: target.workspaceId,
+      repositoryId: target.scope === "repository" ? target.repositoryId : null,
       targetKey,
     },
     select: { id: true, workspaceId: true, active: true },
   });
-
   const latest = await prisma.reviewConfigurationVersion.findFirst({
     where: { configurationId: configuration.id },
     orderBy: { version: "desc" },
@@ -466,51 +471,33 @@ async function saveNextReviewConfigurationVersion(
   ) {
     throw new WriteConflict();
   }
+
   if (!configuration.active) {
-    // Reactivate only a NEW, CAS-valid, eligible write. Receipt replay returned
-    // above without changing the active override or its retained history.
     await prisma.reviewConfiguration.update({
       where: { id: configuration.id },
       data: { active: true },
     });
   }
-  const nextVersion = (latest?.version ?? 0) + 1;
   const saved = await prisma.reviewConfigurationVersion.create({
     data: {
       configurationId: configuration.id,
       ...receipt,
       workspaceId: configuration.workspaceId,
-      gatewayBindingId: config.provider.gatewayBindingId ?? null,
-      gatewayProfileRef: config.provider.gatewayProfileRef ?? null,
-      version: nextVersion,
-      schemaVersion: config.schemaVersion,
-      providerKind: config.provider.kind,
-      providerAuthMode: config.provider.authMode,
-      model: config.provider.model,
-      reasoningEffort: config.provider.reasoningEffort,
-      agenticContext: config.provider.agenticContext,
-      fastMode: config.provider.fastMode,
-      failOnSeverity: config.blockingPolicy.failOnSeverity,
-      inlineMaxComments: config.limits.inlineMaxComments,
-      providerLimit: config.execution.providerLimit,
-      providerMaxParallel: config.execution.providerMaxParallel,
-      inlineMinAgreement: config.execution.inlineMinAgreement,
-      targetTokensPerBatch: config.limits.targetTokensPerBatch,
-      reviewLanguage: config.reviewLanguage ?? null,
-      investigationRecordingEnabled:
-        config.investigationRollout.recordingEnabled,
-      investigationShadowEnabled: config.investigationRollout.shadowEnabled,
-      investigationContextCriticEnabled:
-        config.investigationRollout.contextCriticEnabled,
-      investigationVerifiedCleanEnabled:
-        config.investigationRollout.verifiedCleanEnabled,
-      investigationCrossRevisionReplayEnabled:
-        config.investigationRollout.crossRevisionReplayEnabled,
-      investigationProductionEffectsEnabled:
-        config.investigationRollout.productionEffectsEnabled,
+      version: (latest?.version ?? 0) + 1,
+      schemaVersion: policy.schemaVersion,
+      policyJson: canonicalJson(policy),
+      operationSnapshotJson: receipt
+        ? canonicalJson({
+            workspaceVersion:
+              target.scope === "workspace"
+                ? (latest?.version ?? 0) + 1
+                : workspaceRecord!.version,
+            config: effective,
+          })
+        : null,
+      ...derivedPolicyProjection(effective),
       providers: {
-        create: config.providers.map((provider, index) => ({
-          // Composite parent relation supplies workspaceId from the version.
+        create: effective.providers.map((provider, index) => ({
           order: index,
           gatewayBindingId: provider.gatewayBindingId ?? null,
           gatewayProfileRef: provider.gatewayProfileRef ?? null,
@@ -526,8 +513,10 @@ async function saveNextReviewConfigurationVersion(
     },
     select: versionSelect,
   });
-
-  return toPersistedConfiguration(saved);
+  return composePersistedConfiguration(
+    target.scope === "workspace" ? saved : workspaceRecord,
+    target.scope === "repository" ? saved : null,
+  )!;
 }
 
 async function deleteReviewConfigurationTarget(
@@ -539,9 +528,6 @@ async function deleteReviewConfigurationTarget(
     workspaceId: target.workspaceId,
     targetKey: reviewConfigurationTargetKey(target),
   };
-  // Clear the active override without destroying committed operation receipts.
-  // History stays scoped to the same parent; a later new write continues its
-  // sequence while CAS sees null for an inactive override.
   const retained = await prisma.reviewConfiguration.updateMany({
     where: {
       ...scope,
@@ -559,164 +545,219 @@ async function deleteReviewConfigurationTarget(
   return retained.count + result.count > 0;
 }
 
-const versionSelect = {
-  id: true,
-  version: true,
-  schemaVersion: true,
-  providerKind: true,
-  providerAuthMode: true,
-  gatewayBindingId: true,
-  gatewayProfileRef: true,
-  model: true,
-  reasoningEffort: true,
-  agenticContext: true,
-  fastMode: true,
-  failOnSeverity: true,
-  inlineMaxComments: true,
-  providerLimit: true,
-  providerMaxParallel: true,
-  inlineMinAgreement: true,
-  targetTokensPerBatch: true,
-  reviewLanguage: true,
-  investigationRecordingEnabled: true,
-  investigationShadowEnabled: true,
-  investigationContextCriticEnabled: true,
-  investigationVerifiedCleanEnabled: true,
-  investigationCrossRevisionReplayEnabled: true,
-  investigationProductionEffectsEnabled: true,
-  providers: {
-    orderBy: { order: "asc" },
-    select: {
-      providerKind: true,
-      providerAuthMode: true,
-      gatewayBindingId: true,
-      gatewayProfileRef: true,
-      model: true,
-      reasoningEffort: true,
-      agenticContext: true,
-      fastMode: true,
-      requiredHealthy: true,
-    },
-  },
-} as const;
+function parsePolicyForTarget(
+  target: ReviewConfigurationTarget,
+  policy: ReviewPolicySaveInput["policy"],
+): WorkspaceReviewPolicy | RepositoryReviewPolicyOverride {
+  return target.scope === "workspace"
+    ? parseReviewConfigurationStrict(policy)
+    : parseRepositoryReviewPolicyOverride(policy);
+}
 
-type VersionRecord = {
-  readonly id: string;
-  readonly version: number;
-  readonly schemaVersion: number;
-  readonly providerKind: string;
-  readonly providerAuthMode: string;
-  readonly gatewayBindingId: string | null;
-  readonly gatewayProfileRef: string | null;
-  readonly model: string;
-  readonly reasoningEffort: string;
-  readonly agenticContext: boolean;
-  readonly fastMode: boolean;
-  readonly failOnSeverity: string;
-  readonly inlineMaxComments: number;
-  readonly providerLimit: number;
-  readonly providerMaxParallel: number;
-  readonly inlineMinAgreement: number;
-  readonly targetTokensPerBatch: number;
-  readonly reviewLanguage: string | null;
-  readonly investigationRecordingEnabled: boolean;
-  readonly investigationShadowEnabled: boolean;
-  readonly investigationContextCriticEnabled: boolean;
-  readonly investigationVerifiedCleanEnabled: boolean;
-  readonly investigationCrossRevisionReplayEnabled: boolean;
-  readonly investigationProductionEffectsEnabled: boolean;
-  readonly providers: readonly {
-    readonly providerKind: string;
-    readonly providerAuthMode: string;
-    readonly gatewayBindingId: string | null;
-    readonly gatewayProfileRef: string | null;
-    readonly model: string;
-    readonly reasoningEffort: string;
-    readonly agenticContext: boolean;
-    readonly fastMode: boolean;
-    readonly requiredHealthy: boolean;
-  }[];
-};
+function parseStoredPolicy(
+  scope: "workspace",
+  policyJson: string | null,
+): WorkspaceReviewPolicy | null;
+function parseStoredPolicy(
+  scope: "repository",
+  policyJson: string | null,
+): RepositoryReviewPolicyOverride | null;
+function parseStoredPolicy(
+  scope: "workspace" | "repository",
+  policyJson: string | null,
+): WorkspaceReviewPolicy | RepositoryReviewPolicyOverride | null {
+  if (!policyJson) return null;
+  try {
+    const parsed = JSON.parse(policyJson);
+    return scope === "workspace"
+      ? parseReviewConfigurationStrict(parsed)
+      : parseRepositoryReviewPolicyOverride(parsed);
+  } catch {
+    return null;
+  }
+}
 
-function toPersistedConfiguration(
-  version: VersionRecord,
+function composePersistedConfiguration(
+  workspace: VersionRecord | null,
+  repository: VersionRecord | null,
+): PersistedReviewConfiguration | null {
+  if (
+    !workspace ||
+    workspace.schemaVersion !== 3 ||
+    (repository && repository.schemaVersion !== 3)
+  )
+    return null;
+  const workspacePolicy = workspace
+    ? parseStoredPolicy("workspace", workspace.policyJson)
+    : null;
+  if (!workspacePolicy || workspacePolicy.schemaVersion !== 3) return null;
+  const repositoryPolicy = repository
+    ? parseStoredPolicy("repository", repository.policyJson)
+    : null;
+  if (repository && !repositoryPolicy) return null;
+  const config = resolveReviewPolicy(workspacePolicy, repositoryPolicy);
+  return persistedPolicyResult(
+    config,
+    repositoryPolicy ?? workspacePolicy,
+    workspace.version,
+    repository?.version ?? null,
+  );
+}
+
+function persistedPolicyResult(
+  config: ReviewConfiguration,
+  policy: WorkspaceReviewPolicy | RepositoryReviewPolicyOverride,
+  workspaceVersion: number,
+  repositoryVersion: number | null,
 ): PersistedReviewConfiguration {
+  const digest = policyDigest(config);
   return {
-    version: version.version,
-    revisionToken: `db:${version.id}`,
-    config: parseReviewConfiguration({
-      schemaVersion: 2,
-      providers: version.providers.length
-        ? version.providers.map((provider) => ({
-            kind: provider.providerKind,
-            authMode: provider.providerAuthMode,
-            ...gatewaySelectionFromRecord(provider),
-            model: provider.model,
-            reasoningEffort: provider.reasoningEffort,
-            agenticContext: provider.agenticContext,
-            fastMode: provider.fastMode,
-            requiredHealthy: provider.requiredHealthy,
-          }))
-        : [
-            {
-              kind: version.providerKind,
-              authMode: version.providerAuthMode,
-              ...gatewaySelectionFromRecord(version),
-              model: version.model,
-              reasoningEffort: version.reasoningEffort,
-              agenticContext: version.agenticContext,
-              fastMode: version.fastMode,
-              requiredHealthy: true,
-            },
-          ],
-      provider: {
-        kind: version.providerKind,
-        authMode: version.providerAuthMode,
-        ...gatewaySelectionFromRecord(version),
-        model: version.model,
-        reasoningEffort: version.reasoningEffort,
-        agenticContext: version.agenticContext,
-        fastMode: version.fastMode,
-        requiredHealthy: true,
-      },
-      execution: {
-        providerLimit: version.providerLimit,
-        providerMaxParallel: version.providerMaxParallel,
-        inlineMinAgreement: version.inlineMinAgreement,
-      },
-      blockingPolicy: { failOnSeverity: version.failOnSeverity },
-      limits: {
-        inlineMaxComments: version.inlineMaxComments,
-        targetTokensPerBatch: version.targetTokensPerBatch,
-      },
-      reviewLanguage: version.reviewLanguage ?? undefined,
-      investigationRollout: {
-        recordingEnabled: version.investigationRecordingEnabled ?? false,
-        shadowEnabled: version.investigationShadowEnabled ?? false,
-        contextCriticEnabled:
-          version.investigationContextCriticEnabled ?? false,
-        verifiedCleanEnabled:
-          version.investigationVerifiedCleanEnabled ?? false,
-        crossRevisionReplayEnabled:
-          version.investigationCrossRevisionReplayEnabled ?? false,
-        productionEffectsEnabled:
-          version.investigationProductionEffectsEnabled ?? false,
-      },
-    }),
+    version: repositoryVersion ?? workspaceVersion,
+    config,
+    policy,
+    source: repositoryVersion === null ? "workspace" : "repository",
+    workspaceVersion,
+    repositoryVersion,
+    effectivePolicyDigest: digest,
+    revisionToken: `policy:${workspaceVersion}:${repositoryVersion ?? 0}:${digest}`,
   };
 }
 
-function gatewaySelectionFromRecord(record: {
-  readonly gatewayBindingId: string | null;
-  readonly gatewayProfileRef: string | null;
-}) {
+function policyDigest(config: ReviewConfiguration): string {
+  return `sha256:${createHash("sha256").update(canonicalJson(config)).digest("hex")}`;
+}
+
+function operationIntentHash(
+  intent: Pick<
+    ReviewConfigurationOperationInput,
+    "target" | "expectedVersion" | "policy"
+  >,
+): string {
+  return createHash("sha256")
+    .update(
+      canonicalJson({
+        target: intent.target,
+        expectedVersion: intent.expectedVersion,
+        policy: intent.policy,
+      }),
+    )
+    .digest("hex");
+}
+
+function matchOperationReceipt(
+  original: VersionRecord & {
+    readonly operationIntentHash: string | null;
+    readonly operationSnapshotJson: string | null;
+  },
+  intentHash: string,
+): PersistedReviewConfiguration {
+  if (original.operationIntentHash !== intentHash) throw new WriteConflict();
+  // A lost ACK resolves to the committed result, independently of later edits,
+  // clear, or revocation. This historical receipt never supplies run authority.
+  try {
+    const snapshot: unknown = JSON.parse(original.operationSnapshotJson ?? "");
+    if (
+      !snapshot ||
+      typeof snapshot !== "object" ||
+      Array.isArray(snapshot) ||
+      Object.keys(snapshot).sort().join(",") !== "config,workspaceVersion" ||
+      !("workspaceVersion" in snapshot) ||
+      !("config" in snapshot) ||
+      typeof snapshot.workspaceVersion !== "number" ||
+      !Number.isSafeInteger(snapshot.workspaceVersion) ||
+      snapshot.workspaceVersion < 1 ||
+      (!original.repositoryId && snapshot.workspaceVersion !== original.version)
+    )
+      throw new Error("invalid_receipt_snapshot");
+    const config = parseReviewConfigurationStrict(snapshot.config);
+    const policy = original.repositoryId
+      ? parseStoredPolicy("repository", original.policyJson)
+      : parseStoredPolicy("workspace", original.policyJson);
+    if (!policy || original.schemaVersion !== 3)
+      throw new Error("invalid_receipt_policy");
+    return persistedPolicyResult(
+      config,
+      policy,
+      snapshot.workspaceVersion,
+      original.repositoryId ? original.version : null,
+    );
+  } catch {
+    throw new Error("review_configuration_receipt_invalid");
+  }
+}
+
+async function findOperationReceipt(
+  prisma: ReviewConfigurationPrismaClient,
+  target: ReviewConfigurationTarget,
+  operationId: string,
+) {
+  const record = await prisma.reviewConfigurationVersion.findFirst({
+    where: {
+      operationId,
+      configuration: {
+        workspaceId: target.workspaceId,
+        targetKey: reviewConfigurationTargetKey(target),
+      },
+    },
+    select: {
+      ...versionSelect,
+      operationIntentHash: true,
+      operationSnapshotJson: true,
+      configuration: { select: { repositoryId: true } },
+    },
+  });
+  return record
+    ? { ...record, repositoryId: record.configuration.repositoryId }
+    : null;
+}
+
+function snapshotTarget(
+  target: ReviewConfigurationTarget,
+): ReviewConfigurationTarget {
+  if (
+    typeof target.workspaceId !== "string" ||
+    !target.workspaceId ||
+    (target.scope === "repository" && !target.repositoryId)
+  ) {
+    throw new Error("review_configuration_target_invalid");
+  }
+  return target.scope === "repository"
+    ? {
+        scope: "repository",
+        workspaceId: target.workspaceId,
+        repositoryId: target.repositoryId,
+      }
+    : { scope: "workspace", workspaceId: target.workspaceId };
+}
+
+function derivedPolicyProjection(config: ReviewConfiguration) {
+  const primary = config.providers[0]!;
   return {
-    ...(record.gatewayBindingId != null
-      ? { gatewayBindingId: record.gatewayBindingId }
-      : {}),
-    ...(record.gatewayProfileRef != null
-      ? { gatewayProfileRef: record.gatewayProfileRef }
-      : {}),
+    gatewayBindingId: primary.gatewayBindingId ?? null,
+    gatewayProfileRef: primary.gatewayProfileRef ?? null,
+    providerKind: primary.kind,
+    providerAuthMode: primary.authMode,
+    model: primary.model,
+    reasoningEffort: primary.reasoningEffort,
+    agenticContext: primary.agenticContext,
+    fastMode: primary.fastMode,
+    failOnSeverity: config.blockingPolicy.failOnSeverity,
+    inlineMaxComments: config.limits.inlineMaxComments,
+    providerLimit: config.execution.providerLimit,
+    providerMaxParallel: config.execution.providerMaxParallel,
+    inlineMinAgreement: config.execution.inlineMinAgreement,
+    targetTokensPerBatch: config.limits.targetTokensPerBatch,
+    reviewLanguage: config.reviewLanguage,
+    investigationRecordingEnabled: config.investigationRollout.recordingEnabled,
+    investigationShadowEnabled: config.investigationRollout.shadowEnabled,
+    investigationContextCriticEnabled:
+      config.investigationRollout.contextCriticEnabled,
+    investigationVerifiedCleanEnabled:
+      config.investigationRollout.verifiedCleanEnabled,
+    investigationCrossRevisionReplayEnabled:
+      config.investigationRollout.crossRevisionReplayEnabled,
+    investigationProductionEffectsEnabled:
+      config.investigationRollout.productionEffectsEnabled,
   };
 }
 
@@ -834,3 +875,29 @@ async function assertGatewaySelections(
       throw new Error("review_configuration_gateway_profile_mismatch");
   }
 }
+
+const versionSelect = {
+  id: true,
+  version: true,
+  schemaVersion: true,
+  policyJson: true,
+  providers: {
+    orderBy: { order: "asc" },
+    select: {
+      gatewayBindingId: true,
+      gatewayProfileRef: true,
+    },
+  },
+} as const;
+
+type VersionRecord = {
+  readonly id: string;
+  readonly repositoryId?: string | null;
+  readonly version: number;
+  readonly schemaVersion: number;
+  readonly policyJson: string | null;
+  readonly providers: readonly {
+    readonly gatewayBindingId: string | null;
+    readonly gatewayProfileRef: string | null;
+  }[];
+};

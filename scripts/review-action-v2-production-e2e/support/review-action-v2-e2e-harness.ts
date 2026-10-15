@@ -1,3 +1,5 @@
+import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture.js";
+import { PrismaReviewConfigurationRepository } from "../../../packages/features/review-config/src/index.js";
 import { Buffer } from "node:buffer";
 import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import {
@@ -104,7 +106,7 @@ const githubRepositoryId = "987654321";
 const githubInstallationId = "123456";
 const sourceRunId = "700001";
 const actionCommitSha = "a".repeat(40);
-const runtimeCommitSha = "b".repeat(40);
+const runtimeCommitSha = actionCommitSha;
 const baseSha = "c".repeat(40);
 const mergeBaseSha = "d".repeat(40);
 const headSha = "e".repeat(40);
@@ -1429,13 +1431,14 @@ export class ReviewActionV2E2EHarness {
       repository: `${owner}/${repo}`,
       repository_id: githubRepositoryId,
       repository_owner: owner,
-      event_name: "pull_request",
-      ref: `refs/pull/${pullRequestNumber}/merge`,
+      event_name: "workflow_dispatch",
+      ref: "refs/heads/main",
       run_id: sourceRunId,
       run_attempt: runAttempt,
-      workflow_ref: `${owner}/${repo}/.github/workflows/reviewrouter.yml@refs/pull/${pullRequestNumber}/merge`,
+      workflow_ref: `${owner}/${repo}/.github/workflows/reviewrouter-review.yml@refs/heads/main`,
       workflow_sha: this.fakeGitHub.revision.headSha,
-      job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionCommitSha}`,
+      job_workflow_ref:
+        "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/tags/workflow-v1",
       job_workflow_sha: actionCommitSha,
       actor: "reviewrouter-e2e",
       jti: `${this.prefix}-oidc-${this.oidcOrdinal}`,
@@ -1625,6 +1628,7 @@ async function seedProductionControlPlane(
       runtimeCommitSha,
       wrapperEntrypointDigest: null,
       runtimeEntrypointDigest: sha256("runtime-entrypoint"),
+      agentProfilesJson: JSON.stringify(approvedAgentProfilesFixture),
       contextGatewayPolicyVersion:
         ids.investigationProfile?.gatewayPolicyVersion ??
         "e2e-gateway-policy-v1",
@@ -1651,6 +1655,11 @@ async function seedProductionControlPlane(
       slug: `${ids.prefix}-workspace`,
       name: "Disposable Review Action v2 E2E",
     },
+  });
+  await new PrismaReviewConfigurationRepository(prisma).saveNextVersion({
+    target: { scope: "workspace", workspaceId: ids.workspaceId },
+    policy: workspacePolicyFixture,
+    expectedVersion: null,
   });
   await prisma.gitHubInstallation.create({
     data: {
@@ -1780,6 +1789,14 @@ function productionEnv(input: {
         runtimeCommitSha,
         wrapperEntrypointDigest: null,
         runtimeEntrypointDigest: sha256("runtime-entrypoint"),
+        agentProfiles: approvedAgentProfilesFixture,
+        reviewInvestigationCapability: input.investigationProfile
+          ? reviewInvestigationCapabilityV1
+          : null,
+        reviewInvestigationCoverageProfileHash:
+          input.investigationProfile?.coverageProfileHash ?? null,
+        reviewInvestigationPolicyHash:
+          input.investigationProfile?.policyHash ?? null,
         contextGatewayPolicyVersion:
           input.investigationProfile?.gatewayPolicyVersion ??
           "e2e-gateway-policy-v1",
@@ -1789,15 +1806,6 @@ function productionEnv(input: {
         capabilityProfile: "exact_revision_v2",
         protocolLimitsProfileId: input.protocolLimitsProfileId,
         operationalSloProfileId: input.operationalSloProfileId,
-        ...(input.investigationProfile
-          ? {
-              reviewInvestigationCapability: reviewInvestigationCapabilityV1,
-              reviewInvestigationCoverageProfileHash:
-                input.investigationProfile.coverageProfileHash,
-              reviewInvestigationPolicyHash:
-                input.investigationProfile.policyHash,
-            }
-          : {}),
       },
     ]),
     [reviewActionV2ProviderVoteLanesEnv]: JSON.stringify([
@@ -2008,3 +2016,15 @@ export function assertDisposableDatabaseUrl(databaseUrl: string): void {
 }
 
 const zeroHash = "0".repeat(64);
+
+const approvedAgentProfilesFixture = [
+  {
+    profileRef: "codex-default",
+    agentKind: "codex",
+    packageVersion: "0.147.0",
+    binarySha256: "c".repeat(64),
+    modelTransports: ["account_gateway", "provider_api"],
+    contextGateway: true,
+    cancellation: true,
+  },
+];

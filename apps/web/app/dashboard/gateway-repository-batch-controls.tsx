@@ -461,11 +461,11 @@ export function GatewayRepositoryBatchContent({
         <p className="mt-1 text-sm leading-6 text-slate-400">
           Replaces the selected repositories’ provider list with one required
           healthy gateway provider and sets execution provider count,
-          parallelism and agreement to 1. The current effective blocking,
-          language, comment/token limits and investigation settings are
-          snapshotted into a full repository override; later workspace default
-          changes do not flow through an existing override. Existing admitted
-          runs keep their pinned configuration.
+          parallelism and agreement to 1. Existing repository overrides for
+          blocking, language, comment/token limits and investigation settings
+          are preserved; fields without an override continue inheriting the
+          workspace policy. Existing admitted runs keep their pinned
+          configuration.
         </p>
       </div>
       <RepositoryActionSelectionChooser disabled={!enabled} />

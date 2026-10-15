@@ -669,14 +669,6 @@ export async function createApiApp(
             createPrismaReviewRunControlRepositories(prisma);
           return {
             repositories: new PrismaActionControlPlaneRepository(prisma),
-            defaultProvider: {
-              model:
-                process.env.REVIEW_ROUTER_DEFAULT_MODEL?.trim() ||
-                "gpt-5.6-sol",
-              reasoningEffort: readDefaultReasoningEffort(
-                process.env.REVIEW_ROUTER_DEFAULT_EFFORT,
-              ),
-            },
             ...(conflictReviewFallbackEnabled
               ? {
                   conflictReviews: new PrismaConflictReviewRepository(prisma),
@@ -1224,23 +1216,6 @@ function readCredentialSha256(
   if (!value) return undefined;
   if (!/^[a-f0-9]{64}$/.test(value)) throw new Error(errorCode);
   return value;
-}
-
-function readDefaultReasoningEffort(
-  value: string | undefined,
-): "low" | "medium" | "high" | "xhigh" | "max" | "ultra" {
-  const normalized = value?.trim() || "xhigh";
-  if (
-    normalized === "low" ||
-    normalized === "medium" ||
-    normalized === "high" ||
-    normalized === "xhigh" ||
-    normalized === "max" ||
-    normalized === "ultra"
-  ) {
-    return normalized;
-  }
-  throw new Error("review_router_default_effort_invalid");
 }
 
 async function readDatabaseServerTime(prisma: PrismaClient): Promise<Date> {

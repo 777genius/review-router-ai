@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// These parser/operator-policy tests must not construct production services.
+vi.mock("./review-action-v2-production-composition.js", () => ({
+  composeReviewActionV2ProductionRunControl: () => {
+    throw new Error("production_composition_not_expected_in_cli_policy_test");
+  },
+}));
 import { InvestigationRolloutProvider } from "@reviewrouter/features-review-investigation-operations";
 import {
   ImmutableRegistryWriteStatus,
@@ -170,6 +177,28 @@ describe("review action v2 operator CLI", () => {
     expect(parseReviewV2ReleaseBundleCandidate(releaseCandidate())).toEqual(
       releaseCandidate(),
     );
+  });
+
+  it("rejects registration without a qualified agent profile", () => {
+    const candidate = releaseCandidate();
+    delete candidate.agentProfiles;
+    expect(() => parseReviewV2ReleaseBundleCandidate(candidate)).toThrow();
+    for (const agentProfiles of [
+      [],
+      [{ agentKind: "codex" }],
+      [
+        {
+          ...(releaseCandidate().agentProfiles as Record<string, unknown>[])[0],
+          binarySha256: "unknown",
+        },
+      ],
+    ])
+      expect(() =>
+        parseReviewV2ReleaseBundleCandidate({
+          ...releaseCandidate(),
+          agentProfiles,
+        }),
+      ).toThrow();
   });
 
   it("rejects flattened raw-manifest investigation fields", () => {
@@ -373,6 +402,17 @@ describe("review action v2 operator CLI", () => {
 
 function releaseCandidate(): Record<string, unknown> {
   return {
+    agentProfiles: [
+      {
+        profileRef: "codex-default",
+        agentKind: "codex",
+        binarySha256: "a".repeat(64),
+        packageVersion: "0.147.0",
+        modelTransports: ["account_gateway", "provider_api"],
+        contextGateway: true,
+        cancellation: true,
+      },
+    ],
     producerReleaseId: "review-action-v2-release",
     distributionKind: "public_reusable",
     actionCommitSha: "1".repeat(40),

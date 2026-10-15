@@ -47,6 +47,7 @@ function fixture() {
     contextGatewayPolicyVersion: null,
     contextGatewayEntrypointDigest: null,
     reviewInvestigationProfile: null,
+    agentProfiles: null,
     schemaDigest: "d".repeat(64),
     capabilityProfile: ReviewCapabilityProfile.ExactRevisionV2,
     protocolLimitsProfileId: baseProfile.protocolLimitsProfileId,

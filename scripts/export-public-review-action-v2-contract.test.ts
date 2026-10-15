@@ -366,6 +366,21 @@ function createRepositories(): Repositories {
 
   initializeRepository(actionRepo, targetBranch);
   write(join(actionRepo, "dist/index.js"), "old bundle\n");
+  write(
+    join(actionRepo, "src/control-plane/review-agent-profiles.json"),
+    JSON.stringify([
+      {
+        profileRef: "fixture-codex",
+        agentKind: "codex",
+        binarySha256: "a".repeat(64),
+        packageVersion: "0.147.0",
+        modelTransports: ["account_gateway"],
+        contextGateway: true,
+        cancellation: true,
+      },
+    ]),
+  );
+  git(actionRepo, ["add", "src/control-plane/review-agent-profiles.json"]);
   git(actionRepo, ["add", "dist/index.js"]);
   git(actionRepo, ["commit", "-m", "test: add existing bundle"]);
   return {
@@ -415,8 +430,8 @@ function writeContextGatewayReleaseMetadata(
 function initializeRepository(repository: string, branch: string): void {
   mkdirSync(repository, { recursive: true });
   git(repository, ["init", "-b", branch]);
-  git(repository, ["config", "user.name", "ReviewRouter Test"]);
-  git(repository, ["config", "user.email", "test@reviewrouter.invalid"]);
+  git(repository, ["config", "user.name", "iliya"]);
+  git(repository, ["config", "user.email", "iliyazelenkog@gmail.com"]);
   write(join(repository, "README.md"), "fixture\n");
   git(repository, ["add", "README.md"]);
   git(repository, ["commit", "-m", "test: initialize"]);
@@ -447,6 +462,16 @@ function head(repository: string): string {
 }
 
 function git(repository: string, args: string[]): string {
+  if (args[0] === "commit") {
+    for (const variable of ["GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"]) {
+      const identity = execFileSync("git", ["var", variable], {
+        cwd: repository,
+        encoding: "utf8",
+      });
+      if (!identity.startsWith("iliya <iliyazelenkog@gmail.com> "))
+        throw new Error(`fixture commit identity invalid: ${variable}`);
+    }
+  }
   return execFileSync("git", args, {
     cwd: repository,
     encoding: "utf8",

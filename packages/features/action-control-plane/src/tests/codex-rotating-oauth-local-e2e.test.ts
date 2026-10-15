@@ -1,3 +1,4 @@
+import { savedWorkspaceRuntimeFixture } from "./runtime-configuration-fixture";
 import { describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import type {
@@ -250,7 +251,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -455,7 +458,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -871,7 +876,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -972,7 +979,9 @@ describe("Codex rotating OAuth local E2E", () => {
           findSelectedRepositoryByGithubId: vi
             .fn()
             .mockResolvedValue(repository),
-          findRuntimeReviewConfiguration: vi.fn(),
+          findRuntimeReviewConfiguration: vi
+            .fn()
+            .mockResolvedValue(savedWorkspaceRuntimeFixture),
           recordHealthReport: vi.fn(),
         },
         codexRotatingOAuth,
@@ -1066,7 +1075,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -1161,7 +1172,9 @@ describe("Codex rotating OAuth local E2E", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,

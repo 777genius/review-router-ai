@@ -1,3 +1,8 @@
+import {
+  workspacePolicyFixture,
+  workspaceProviderFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture";
+import { parseReviewAgentProfiles } from "@reviewrouter/shared";
 import { switchRepositoryConfigurationAuthMode } from "../../../packages/features/workflow-provisioning/src/infrastructure/prisma/prisma-hosted-pool-configuration";
 import { describe, expect, it } from "vitest";
 import { createPrismaClient } from "@reviewrouter/platform-db";
@@ -10,7 +15,6 @@ import {
   PrismaReviewConfigurationRepository,
   PrismaReviewConfigurationTransactionRepository,
   parseReviewConfigurationStrict,
-  safeDefaultReviewConfiguration,
   saveReviewConfiguration,
   saveReviewConfigurationWithOperation,
 } from "@reviewrouter/features-review-config";
@@ -72,6 +76,15 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
             authorized.authorizationId,
           );
         if (!run) throw new Error("personal_fixture_run_missing");
+        const producerRow = await db.producerRelease.findUniqueOrThrow({
+          where: { producerReleaseId: harness.producerReleaseId },
+        });
+        const producerRelease = {
+          ...producerRow,
+          agentProfiles: parseReviewAgentProfiles(
+            JSON.parse(producerRow.agentProfilesJson!),
+          ),
+        };
         const u = `${prefix}-donor`,
           admin = `${prefix}-admin`,
           v = `${prefix}-other`;
@@ -149,7 +162,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         const closedAccounts = new PrismaProviderAccountRepository(db);
         const config = (bindingId: string) =>
           parseReviewConfigurationStrict({
-            ...safeDefaultReviewConfiguration,
+            ...workspacePolicyFixture,
             providers: [
               {
                 kind: "codex",
@@ -170,11 +183,15 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         };
         const save = (bindingId: string, expectedVersion: number | null) =>
           saveReviewConfiguration(
-            { target, config: config(bindingId), expectedVersion },
+            { target, policy: config(bindingId), expectedVersion },
             { configurations },
           );
         const capture = () =>
-          snapshots.capture({ identity: run, deadline: run.maxExpiresAt });
+          snapshots.capture({
+            identity: run,
+            deadline: run.maxExpiresAt,
+            producerRelease,
+          });
         const live = (snapshot: ReviewRunRuntimeSnapshot) =>
           snapshots.isLive({ snapshot, identity: run, now: new Date() });
         const candidate = (
@@ -191,7 +208,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
 
         await expect(
           saveReviewConfiguration(
-            { target, config: config(bx.id), expectedVersion: null },
+            { target, policy: config(bx.id), expectedVersion: null },
             { configurations: closedConfigurations },
           ),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
@@ -215,11 +232,12 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           await closedSnapshots.capture({
             identity: run,
             deadline: run.maxExpiresAt,
+            producerRelease,
           }),
         ).toBeNull();
         const pin = await capture();
-        if (!pin || pin.snapshotVersion !== 2)
-          throw new Error("personal_v2_pin_required");
+        if (!pin || !pin.gateway || pin.snapshotVersion !== 3)
+          throw new Error("personal_current_pin_required");
         expect(pin.gateway).toMatchObject({
           bindingId: bx.id,
           connectionId: source.id,
@@ -235,6 +253,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           await production.runtimeSnapshots.capture({
             identity: run,
             deadline: run.maxExpiresAt,
+            producerRelease,
           }),
         ).toBeNull();
         for (const value of ["1", "true", " 1"]) {
@@ -251,6 +270,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           const captured = await composed.runtimeSnapshots.capture({
             identity: run,
             deadline: run.maxExpiresAt,
+            producerRelease,
           });
           if (value === "1") expect(captured).toEqual(pin);
           else expect(captured).toBeNull();
@@ -258,9 +278,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         const { expectedAuthorizationEpoch: _epoch, ...legacyGateway } =
           pin.gateway;
         expect(_epoch).toBe(7);
-        expect(
-          await live({ ...pin, snapshotVersion: 1, gateway: legacyGateway }),
-        ).toBe(false);
+        expect(await live({ ...pin, gateway: legacyGateway })).toBe(false);
 
         // P uses its stable owner even without an org role. A different P cannot
         // consume the source even if somebody creates a raw cross-P binding.
@@ -280,7 +298,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         await saveReviewConfiguration(
           {
             target: { scope: "workspace", workspaceId: p },
-            config: config(bp.id),
+            policy: config(bp.id),
             expectedVersion: null,
           },
           { configurations },
@@ -294,7 +312,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
               tx,
             ).saveNextVersion({
               target: { scope: "workspace", workspaceId: y.id },
-              config: config(by.id),
+              policy: config(by.id),
               expectedVersion: null,
             }),
           ),
@@ -307,12 +325,12 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
             u,
           ).saveNextVersion({
             target: { scope: "workspace", workspaceId: y.id },
-            config: config(by.id),
+            policy: config(by.id),
             expectedVersion: null,
           }),
         );
         const persisted = await configurations.findLatest(target);
-        expect(persisted?.config.provider.gatewayBindingId).toBe(bx.id);
+        expect(persisted?.config.providers[0]?.gatewayBindingId).toBe(bx.id);
         expect(persisted?.config.providers[0]?.gatewayBindingId).toBe(bx.id);
         await expect(save(by.id, 1)).rejects.toThrow(
           "review_configuration_gateway_binding_unavailable",
@@ -321,7 +339,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           saveReviewConfiguration(
             {
               target,
-              config: parseReviewConfigurationStrict({
+              policy: parseReviewConfigurationStrict({
                 ...config(bx.id),
                 providers: [
                   {
@@ -363,7 +381,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         expect(await live(pin)).toBe(false);
         expect(await matches(pin)).toBe(false);
         const freshPin = await capture();
-        if (!freshPin || freshPin.snapshotVersion !== 2)
+        if (!freshPin || !freshPin.gateway || freshPin.snapshotVersion !== 3)
           throw new Error("fresh_personal_pin_missing");
         expect(freshPin.gateway.expectedAuthorizationEpoch).toBe(8);
         expect(await matches(freshPin)).toBe(true);
@@ -380,7 +398,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           ).rejects.toThrow(/could not obtain lock/);
           expect(
             await snapshots.capture(
-              { identity: run, deadline: run.maxExpiresAt },
+              { identity: run, deadline: run.maxExpiresAt, producerRelease },
               tx,
             ),
           ).toEqual(freshPin);
@@ -463,7 +481,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         );
         const operation = {
           target,
-          config: config(bx2.id),
+          policy: config(bx2.id),
           expectedVersion: 1,
           operationId: `${prefix}-select-bx2`,
         };
@@ -492,12 +510,17 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         await configurations.saveNextVersion({
           target,
           expectedVersion: 2,
-          config: parseReviewConfigurationStrict({
+          policy: parseReviewConfigurationStrict({
             ...config(bx2.id),
+            execution: {
+              ...workspacePolicyFixture.execution,
+              providerLimit: 2,
+              providerMaxParallel: 2,
+            },
             providers: [
               ...config(bx2.id).providers,
               {
-                ...safeDefaultReviewConfiguration.provider,
+                ...workspaceProviderFixture,
                 authMode: "codex_subscription_oauth_rotating",
               },
             ],

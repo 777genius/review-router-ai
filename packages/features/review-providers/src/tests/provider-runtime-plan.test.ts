@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildProviderRuntimePlan, toRuntimeProviderId } from "../index";
 
 const baseInput = {
-  schemaVersion: 2,
+  schemaVersion: 3 as const,
   execution: {
     providerLimit: 1,
     providerMaxParallel: 1,
@@ -42,7 +42,7 @@ describe("provider runtime plan", () => {
       PROVIDER_MAX_PARALLEL: "1",
       INLINE_MIN_AGREEMENT: "1",
     });
-    expect(plan.runtimeEnv.INLINE_MAX_COMMENTS).toBe("50");
+    expect(plan.runtimeEnv.INLINE_MAX_COMMENTS).toBe("5");
     expect(plan.runtimeEnv.INLINE_MIN_SEVERITY).toBe("minor");
     expect(plan.requiredSecretNames).toEqual(["CODEX_AUTH_JSON"]);
     expect(plan.requiredCliTools).toEqual(["codex"]);
@@ -343,7 +343,7 @@ it("plans a gateway model with safe settings only, without fallback or credentia
   expect(plan.requiredSecretNames).toEqual([]);
   expect(plan.requiredCliTools).toEqual(["codex"]);
   expect(plan.runtimeEnv).toEqual({
-    REVIEWROUTER_CONFIG_SCHEMA_VERSION: "2",
+    REVIEWROUTER_CONFIG_SCHEMA_VERSION: "3",
     REVIEW_AUTH_MODE: "codex-account-gateway",
     REVIEW_PROVIDERS: "codex/mimo-v2-pro",
     REQUIRED_HEALTHY_PROVIDERS: "codex/mimo-v2-pro",
@@ -351,7 +351,7 @@ it("plans a gateway model with safe settings only, without fallback or credentia
     PROVIDER_LIMIT: "1",
     PROVIDER_MAX_PARALLEL: "1",
     INLINE_MIN_AGREEMENT: "1",
-    INLINE_MAX_COMMENTS: "50",
+    INLINE_MAX_COMMENTS: "5",
     INLINE_MIN_SEVERITY: "minor",
     TARGET_TOKENS_PER_BATCH: "50000",
     FAIL_ON_SEVERITY: "critical",

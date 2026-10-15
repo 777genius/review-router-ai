@@ -1,3 +1,5 @@
+import { workspacePolicyFixture } from "../../../review-config/src/tests/current-policy-fixture";
+import { savedWorkspaceRuntimeFixture } from "./runtime-configuration-fixture";
 import { describe, expect, it, vi } from "vitest";
 import {
   InMemoryCodexRotatingOAuthRepository,
@@ -455,7 +457,9 @@ describe("Codex rotating OAuth action control plane", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -986,7 +990,9 @@ describe("Codex rotating OAuth action control plane", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -1062,7 +1068,9 @@ describe("Codex rotating OAuth action control plane", () => {
       },
       repositories: {
         findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth,
@@ -1514,7 +1522,9 @@ describe("Codex rotating OAuth action control plane", () => {
         findSelectedRepositoryByGithubId: vi
           .fn()
           .mockResolvedValue(isolatedRepository),
-        findRuntimeReviewConfiguration: vi.fn(),
+        findRuntimeReviewConfiguration: vi
+          .fn()
+          .mockResolvedValue(savedWorkspaceRuntimeFixture),
         recordHealthReport: vi.fn(),
       },
       codexRotatingOAuth: new InMemoryCodexRotatingOAuthRepository([
@@ -1658,12 +1668,16 @@ describe("Codex rotating OAuth action control plane", () => {
         findRuntimeReviewConfiguration: vi.fn().mockResolvedValue({
           source: "repository",
           version: 17,
+          workspaceVersion: 1,
+          repositoryVersion: 17,
+          effectivePolicyDigest: "sha256:" + "a".repeat(64),
           config: parseReviewConfiguration({
-            schemaVersion: 2,
+            ...workspacePolicyFixture,
             providers: [
               {
                 kind: "codex",
                 authMode: "codex_subscription_oauth_rotating",
+                requiredHealthy: true,
                 model: "gpt-5.5",
                 reasoningEffort: "high",
                 agenticContext: true,
@@ -1695,6 +1709,7 @@ describe("Codex rotating OAuth action control plane", () => {
               },
             ],
             execution: {
+              providerLimit: 4,
               providerMaxParallel: 4,
               inlineMinAgreement: 2,
             },
@@ -2490,7 +2505,9 @@ function buildRotatingDependencies(
     },
     repositories: {
       findSelectedRepositoryByGithubId: vi.fn().mockResolvedValue(repository),
-      findRuntimeReviewConfiguration: vi.fn(),
+      findRuntimeReviewConfiguration: vi
+        .fn()
+        .mockResolvedValue(savedWorkspaceRuntimeFixture),
       recordHealthReport: vi.fn(),
     },
     codexRotatingOAuth,

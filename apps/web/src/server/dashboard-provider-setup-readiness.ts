@@ -74,7 +74,7 @@ export function buildConfiguredProviderSetupByRepositoryId(input: {
   readonly providerSetup: readonly DashboardProviderSetupReadinessRecord[];
   readonly repositories: readonly DashboardProviderSetupRepositoryRecord[];
   readonly repositoryConfigs: readonly DashboardProviderSetupRepositoryConfigRecord[];
-  readonly activeConfig: ReviewConfiguration;
+  readonly activeConfig: ReviewConfiguration | null;
 }): ReadonlyMap<string, { readonly updatedAt: Date }> {
   return new Map(
     [...buildEffectiveProviderSetupStateByRepositoryId(input)].flatMap(
@@ -90,7 +90,7 @@ export function buildEffectiveProviderSetupStateByRepositoryId(input: {
   readonly providerSetup: readonly DashboardProviderSetupReadinessRecord[];
   readonly repositories: readonly DashboardProviderSetupRepositoryRecord[];
   readonly repositoryConfigs: readonly DashboardProviderSetupRepositoryConfigRecord[];
-  readonly activeConfig: ReviewConfiguration;
+  readonly activeConfig: ReviewConfiguration | null;
 }): ReadonlyMap<string, DashboardEffectiveProviderSetupState> {
   const effectiveProviderSetupByRepositoryId = new Map<
     string,
@@ -117,6 +117,13 @@ export function buildEffectiveProviderSetupStateByRepositoryId(input: {
   for (const repository of input.repositories) {
     const effectiveConfig =
       repositoryConfigById.get(repository.id)?.config ?? input.activeConfig;
+    if (!effectiveConfig) {
+      effectiveProviderSetupByRepositoryId.set(repository.id, {
+        state: "missing",
+        updatedAt: new Date(0),
+      });
+      continue;
+    }
     const repositoryProviderSetup =
       providerSetupByRepositoryId.get(repository.id) ?? [];
     const expectedProviderKeys = providerKeysForConfig(effectiveConfig);
@@ -192,7 +199,7 @@ export function buildProviderSetupMismatchRepositoryIds(input: {
   readonly providerSetup: readonly DashboardProviderSetupReadinessRecord[];
   readonly repositories: readonly DashboardProviderSetupRepositoryRecord[];
   readonly repositoryConfigs: readonly DashboardProviderSetupRepositoryConfigRecord[];
-  readonly activeConfig: ReviewConfiguration;
+  readonly activeConfig: ReviewConfiguration | null;
 }): ReadonlySet<string> {
   const repositoryConfigById = new Map(
     input.repositoryConfigs.map(

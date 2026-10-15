@@ -1,4 +1,8 @@
 import {
+  reviewPolicyFixture,
+  fixtureProviderSettings,
+} from "./review-policy-fixture.js";
+import {
   defaultActionOidcAudience,
   githubActionsOidcIssuer,
   JoseActionSessionTokenService,
@@ -10,7 +14,6 @@ import {
 import {
   clearReviewConfiguration,
   PrismaReviewConfigurationRepository,
-  safeDefaultReviewConfiguration,
   saveReviewConfiguration,
 } from "../../../packages/features/review-config/src/index.ts";
 import { createPrismaClient } from "../../../packages/platform/db/src/index.ts";
@@ -99,7 +102,7 @@ try {
 
   const configurations = new PrismaReviewConfigurationRepository(prisma);
   const workspaceProvider = {
-    ...safeDefaultReviewConfiguration.provider,
+    ...fixtureProviderSettings,
     kind: "openrouter" as const,
     authMode: "openrouter_api_key" as const,
     model: "poolside/laguna-m.1:free",
@@ -107,7 +110,7 @@ try {
   };
   const repositoryProviders = [
     {
-      ...safeDefaultReviewConfiguration.provider,
+      ...fixtureProviderSettings,
       kind: "openrouter" as const,
       authMode: "openrouter_api_key" as const,
       model: "openai/gpt-5.3-codex",
@@ -126,10 +129,8 @@ try {
   const workspaceConfig = await saveReviewConfiguration(
     {
       target: { scope: "workspace", workspaceId: workspace.id },
-      config: {
-        ...safeDefaultReviewConfiguration,
-        provider: workspaceProvider,
-        providers: [workspaceProvider],
+      policy: {
+        ...reviewPolicyFixture([workspaceProvider]),
         blockingPolicy: { failOnSeverity: "critical" },
       },
     },
@@ -142,9 +143,8 @@ try {
         workspaceId: workspace.id,
         repositoryId: repository.id,
       },
-      config: {
-        ...safeDefaultReviewConfiguration,
-        provider: repositoryProviders[0]!,
+      policy: {
+        schemaVersion: 3,
         providers: repositoryProviders,
         execution: {
           providerLimit: 2,

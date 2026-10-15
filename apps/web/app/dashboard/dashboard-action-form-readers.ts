@@ -1,7 +1,10 @@
+import { repositoryPolicyFormFields } from "./review-policy-form-contract";
 import type { ProviderSecretScope } from "@reviewrouter/features-provider-setup";
 import type { ReviewRouterDiscussionMode } from "@reviewrouter/features-workflow-provisioning";
 import {
   parseReviewConfigurationStrict,
+  parseRepositoryReviewPolicyOverride,
+  type RepositoryReviewPolicyOverride,
   reviewProviderConfigurationSchema,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
@@ -36,7 +39,7 @@ export function readReviewConfigurationForm(
       reasoningEffort: readFormString(
         formData,
         `providerReasoningEffort.${index}`,
-      ) as ReviewConfiguration["provider"]["reasoningEffort"],
+      ) as ReviewConfiguration["providers"][number]["reasoningEffort"],
       agenticContext: readFormBoolean(
         formData,
         `providerAgenticContext.${index}`,
@@ -58,9 +61,8 @@ export function readReviewConfigurationForm(
   });
 
   return parseReviewConfigurationStrict({
-    schemaVersion: 2,
+    schemaVersion: 3,
     providers,
-    provider: providers[0]!,
     execution: {
       providerLimit: providers.length,
       providerMaxParallel: readFormNumber(formData, "providerMaxParallel"),
@@ -76,8 +78,7 @@ export function readReviewConfigurationForm(
       inlineMaxComments: readFormNumber(formData, "inlineMaxComments"),
       targetTokensPerBatch: readFormNumber(formData, "targetTokensPerBatch"),
     },
-    reviewLanguage:
-      readOptionalFormString(formData, "reviewLanguage") ?? undefined,
+    reviewLanguage: readOptionalFormString(formData, "reviewLanguage") ?? null,
     investigationRollout: {
       recordingEnabled:
         readOptionalFormBoolean(
@@ -318,6 +319,8 @@ function readProviderAuthMode(
   if (!authMode.success) {
     throw new Error(`invalid_form_value:${key}`);
   }
+  if (authMode.data === "codex_subscription_oauth")
+    throw new Error("review_auth_mode_requires_reconnect");
   return authMode.data;
 }
 
@@ -349,4 +352,41 @@ function readOptionalFormBoolean(
   if (value === "true") return true;
   if (value === "false") return false;
   throw new Error(`invalid_form_boolean:${key}`);
+}
+
+export function readRepositoryReviewPolicyForm(
+  formData: FormData,
+): RepositoryReviewPolicyOverride {
+  const fields = repositoryPolicyFormFields.filter((field) => {
+    const mode = readFormString(formData, `policyMode.${field.join(".")}`);
+    if (mode !== "inherit" && mode !== "override")
+      throw new Error("review_policy_override_mode_invalid");
+    return mode === "override";
+  });
+  if (fields.length === 0)
+    return parseRepositoryReviewPolicyOverride({ schemaVersion: 3 });
+  const full = readReviewConfigurationForm(formData) as unknown as Record<
+    string,
+    unknown
+  >;
+  const policy: Record<string, unknown> = { schemaVersion: 3 };
+  for (const field of fields) {
+    const [root, leaf] = field;
+    if (leaf === undefined) policy[root] = full[root];
+    else {
+      const target = (policy[root] ??= {}) as Record<string, unknown>;
+      target[leaf] = (full[root] as Record<string, unknown>)[leaf];
+    }
+  }
+  return parseRepositoryReviewPolicyOverride(policy);
+}
+
+export function readReviewPolicyExpectedVersion(
+  formData: FormData,
+): number | null {
+  const value = readFormString(formData, "policyExpectedVersion");
+  if (value === "none") return null;
+  if (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value)))
+    throw new Error("review_policy_expected_version_invalid");
+  return Number(value);
 }

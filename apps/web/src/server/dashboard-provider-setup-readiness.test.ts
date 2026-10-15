@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   parseReviewConfiguration,
-  safeDefaultReviewConfiguration,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
@@ -19,10 +18,69 @@ import {
   workflowSetupAlreadyCurrent,
 } from "./repository-search";
 
+const workspacePolicy = parseReviewConfiguration({
+  schemaVersion: 3,
+  providers: [
+    {
+      kind: "codex",
+      authMode: "codex_subscription_oauth_rotating",
+      model: "gpt-5.5",
+      reasoningEffort: "medium",
+      agenticContext: true,
+      fastMode: false,
+      requiredHealthy: false,
+    },
+  ],
+  execution: {
+    providerLimit: 1,
+    providerMaxParallel: 1,
+    inlineMinAgreement: 1,
+  },
+  blockingPolicy: { failOnSeverity: "critical" },
+  limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  reviewLanguage: null,
+  investigationRollout: {
+    recordingEnabled: false,
+    shadowEnabled: false,
+    contextCriticEnabled: false,
+    verifiedCleanEnabled: false,
+    crossRevisionReplayEnabled: false,
+    productionEffectsEnabled: false,
+  },
+});
+
 describe("dashboard provider setup readiness", () => {
+  it("requires a saved policy even when old provider setup rows are configured", () => {
+    const input = {
+      providerSetup: [
+        providerSetup({
+          authMode: "codex_subscription_oauth_rotating",
+          updatedAt: new Date("2026-01-01T00:00:00Z"),
+        }),
+      ],
+      repositories: [{ id: "repo_1" }],
+      repositoryConfigs: [],
+      activeConfig: null,
+    };
+    expect(buildConfiguredProviderSetupByRepositoryId(input).size).toBe(0);
+    expect(
+      buildEffectiveProviderSetupStateByRepositoryId(input).get("repo_1")
+        ?.state,
+    ).toBe("missing");
+    expect(
+      repositoryHealthStatusWithProviderSetupReadiness({
+        repositoryId: "repo_1",
+        healthStatus: "healthy",
+        effectiveProviderSetupStateByRepositoryId:
+          buildEffectiveProviderSetupStateByRepositoryId(input),
+        providerSetupMismatchRepositoryIds: new Set(),
+      }),
+    ).toBe("provider_needs_setup");
+  });
+
   it("uses the selected live Gateway binding and catalog without legacy secret setup, preserving health failures", () => {
     const config = parseReviewConfiguration({
-      ...safeDefaultReviewConfiguration,
+      ...workspacePolicy,
       providers: [
         {
           kind: "codex",
@@ -163,7 +221,7 @@ describe("dashboard provider setup readiness", () => {
       ],
       repositories: [{ id: "repo_1" }],
       repositoryConfigs: [],
-      activeConfig: safeDefaultReviewConfiguration,
+      activeConfig: workspacePolicy,
     });
 
     expect(configured.has("repo_1")).toBe(false);
@@ -184,7 +242,7 @@ describe("dashboard provider setup readiness", () => {
       ],
       repositories: [{ id: "repo_1" }],
       repositoryConfigs: [],
-      activeConfig: safeDefaultReviewConfiguration,
+      activeConfig: workspacePolicy,
     });
 
     expect(configured.get("repo_1")?.updatedAt).toEqual(configuredAt);
@@ -302,7 +360,7 @@ describe("dashboard provider setup readiness", () => {
           config: { config: openRouterConfig },
         },
       ],
-      activeConfig: safeDefaultReviewConfiguration,
+      activeConfig: workspacePolicy,
     });
 
     expect(configured.get("repo_1")?.updatedAt).toEqual(
@@ -322,7 +380,7 @@ describe("dashboard provider setup readiness", () => {
         providerSetup: providerSetupRows,
         repositories: [{ id: "repo_1" }],
         repositoryConfigs: [],
-        activeConfig: safeDefaultReviewConfiguration,
+        activeConfig: workspacePolicy,
       });
 
     expect(
@@ -335,7 +393,7 @@ describe("dashboard provider setup readiness", () => {
             providerSetup: providerSetupRows,
             repositories: [{ id: "repo_1" }],
             repositoryConfigs: [],
-            activeConfig: safeDefaultReviewConfiguration,
+            activeConfig: workspacePolicy,
           }),
       }),
     ).toBe("provider_needs_setup");
@@ -354,7 +412,7 @@ describe("dashboard provider setup readiness", () => {
         providerSetup: providerSetupRows,
         repositories: [{ id: "repo_1" }],
         repositoryConfigs: [],
-        activeConfig: safeDefaultReviewConfiguration,
+        activeConfig: workspacePolicy,
       });
 
     expect(
@@ -367,7 +425,7 @@ describe("dashboard provider setup readiness", () => {
             providerSetup: providerSetupRows,
             repositories: [{ id: "repo_1" }],
             repositoryConfigs: [],
-            activeConfig: safeDefaultReviewConfiguration,
+            activeConfig: workspacePolicy,
           }),
       }),
     ).toBe("provider_needs_setup");
@@ -379,7 +437,7 @@ describe("dashboard provider setup readiness", () => {
         providerSetup: [],
         repositories: [{ id: "repo_1" }],
         repositoryConfigs: [],
-        activeConfig: safeDefaultReviewConfiguration,
+        activeConfig: workspacePolicy,
       });
 
     expect(effectiveProviderSetupStateByRepositoryId.get("repo_1")).toEqual({
@@ -422,7 +480,7 @@ describe("dashboard provider setup readiness", () => {
                 config: { config: openRouterConfig },
               },
             ],
-            activeConfig: safeDefaultReviewConfiguration,
+            activeConfig: workspacePolicy,
           }),
         providerSetupMismatchRepositoryIds:
           buildProviderSetupMismatchRepositoryIds({
@@ -434,7 +492,7 @@ describe("dashboard provider setup readiness", () => {
                 config: { config: openRouterConfig },
               },
             ],
-            activeConfig: safeDefaultReviewConfiguration,
+            activeConfig: workspacePolicy,
           }),
       }),
     ).toBe("provider_needs_setup");
@@ -471,7 +529,7 @@ describe("dashboard provider setup readiness", () => {
                 config: { config: openRouterConfig },
               },
             ],
-            activeConfig: safeDefaultReviewConfiguration,
+            activeConfig: workspacePolicy,
           }),
         providerSetupMismatchRepositoryIds:
           buildProviderSetupMismatchRepositoryIds({
@@ -483,7 +541,7 @@ describe("dashboard provider setup readiness", () => {
                 config: { config: openRouterConfig },
               },
             ],
-            activeConfig: safeDefaultReviewConfiguration,
+            activeConfig: workspacePolicy,
           }),
       }),
     ).toBe("healthy");
@@ -494,7 +552,7 @@ describe("dashboard provider setup readiness", () => {
         providerSetup: [],
         repositories: [{ id: "repo_1" }],
         repositoryConfigs: [],
-        activeConfig: safeDefaultReviewConfiguration,
+        activeConfig: workspacePolicy,
       });
 
     expect(
@@ -538,7 +596,8 @@ function reviewConfigFor(
   authMode: "codex_subscription_oauth_rotating" | "openrouter_api_key",
 ): ReviewConfiguration {
   return parseReviewConfiguration({
-    schemaVersion: 2,
+    ...workspacePolicy,
+    schemaVersion: 3,
     providers: [
       {
         kind,
@@ -550,6 +609,7 @@ function reviewConfigFor(
       },
     ],
     execution: {
+      providerLimit: 1,
       providerMaxParallel: 1,
       inlineMinAgreement: 1,
     },
@@ -560,7 +620,8 @@ function reviewConfigFor(
 
 function multiProviderReviewConfig(): ReviewConfiguration {
   return parseReviewConfiguration({
-    schemaVersion: 2,
+    ...workspacePolicy,
+    schemaVersion: 3,
     providers: [
       {
         kind: "openrouter",
@@ -582,6 +643,7 @@ function multiProviderReviewConfig(): ReviewConfiguration {
       },
     ],
     execution: {
+      providerLimit: 2,
       providerMaxParallel: 2,
       inlineMinAgreement: 1,
     },

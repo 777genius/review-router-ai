@@ -275,6 +275,22 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Current policy/profile extension over the unchanged published personal131 catalog.
+  const policyMigration = catalog.find(
+    (row) => row.migrationName === "000132_review_policy_schema_v3",
+  );
+  if (policyMigration) {
+    if (
+      policyMigration.checksum !==
+        "ac0abf93d6088957825731f178903709d2b8535a7e9894eb2236449396711f21" ||
+      manifest(catalog) !==
+        "sha256:13efdc28bd5b1920373a3cfef10785c377cd7b4f2f648a00d3e2817d9f0422c7"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== policyMigration),
+    );
+  }
   // Positive local non-entry release is admitted only as exact checkout131.
   // Recurse through the unchanged pinned canonical130 contract.
   const unenteredClaimMigration = catalog.find(

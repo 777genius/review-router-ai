@@ -1,3 +1,9 @@
+import { createHash } from "node:crypto";
+import { canonicalJson } from "../domain/review-configuration";
+import {
+  workspacePolicyFixture,
+  workspaceProviderFixture,
+} from "./current-policy-fixture";
 import { readFile, readdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
@@ -8,7 +14,6 @@ import {
   PrismaReviewConfigurationRepository,
   PrismaReviewConfigurationTransactionRepository,
   resolveReviewConfiguration,
-  safeDefaultReviewConfiguration,
   saveReviewConfiguration,
   saveReviewConfigurationWithOperation,
   findReviewConfigurationOperation,
@@ -95,10 +100,8 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        expect(names).toHaveLength(121);
-        expect(names.at(-1)).toBe(
-          "000122_review_configuration_operation_receipt",
-        );
+        expect(names).toHaveLength(132);
+        expect(names.at(-1)).toBe("000132_review_policy_schema_v3");
         let legacyBefore: unknown;
         for (const name of names) {
           if (name === "000119_review_configuration_gateway_binding") {
@@ -124,12 +127,6 @@ describe.skipIf(!enabled)(
                    (SELECT to_jsonb(p) FROM "ReviewConfigurationVersionProvider" p
                     WHERE p."id" = 'c2b-legacy-provider') AS p`)
             ).rows;
-          }
-          if (name.startsWith("000087")) {
-            // Existing release role owns the boundary in this guarded fresh DB.
-            await sql.query(
-              'ALTER SCHEMA public OWNER TO reviewrouter_release_schema_owner; ALTER TABLE public."CodexOAuthSecretNamespace" OWNER TO reviewrouter_release_schema_owner;',
-            );
           }
           // Match the existing account PG convention: psql runs statements singly,
           // including historical CONCURRENTLY and enum migrations outside implicit transactions.
@@ -176,7 +173,7 @@ describe.skipIf(!enabled)(
         }
         const legacyAfter = await sql.query(`
         SELECT (SELECT to_jsonb(v) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
-                  - 'operationId' - 'operationIntentHash'
+                  - 'operationId' - 'operationIntentHash' - 'policyJson' - 'operationSnapshotJson'
                 FROM "ReviewConfigurationVersion" v WHERE v."id" = 'c2b-legacy-version') AS v,
                (SELECT to_jsonb(p) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
                 FROM "ReviewConfigurationVersionProvider" p WHERE p."id" = 'c2b-legacy-provider') AS p`);
@@ -223,25 +220,22 @@ describe.skipIf(!enabled)(
           repositoryId: "c2b-repo",
         } as const;
         const deps = { configurations: configs };
-        // A gateway opt-in must preserve clearing a legacy repository override.
-        await configs.saveNextVersion({
-          target: repository,
-          config: safeDefaultReviewConfiguration,
-          expectedVersion: null,
-        });
-        expect(await configs.deleteTarget(repository)).toBe(true);
-        expect(await configs.findLatest(repository)).toBeNull();
+        // Historical rows remain evidence, never an executable policy/default.
+        expect(await configs.findLatest(workspace)).toBeNull();
         expect(
           (
-            await resolveReviewConfiguration(
-              { scope: "workspace", workspaceId: "c2b-x" },
-              deps,
-            )
-          ).config,
-        ).toEqual(safeDefaultReviewConfiguration);
+            await prisma.reviewConfigurationVersion.findUniqueOrThrow({
+              where: { id: "c2b-legacy-version" },
+            })
+          ).policyJson,
+        ).toBeNull();
         expect(
-          (await resolveReviewConfiguration(repository, deps)).source,
-        ).toBe("workspace");
+          await resolveReviewConfiguration(
+            { scope: "workspace", workspaceId: "c2b-x" },
+            deps,
+          ),
+        ).toBeNull();
+        expect(await resolveReviewConfiguration(repository, deps)).toBeNull();
 
         async function binding(
           id: string,
@@ -289,39 +283,39 @@ describe.skipIf(!enabled)(
         });
         const configFor = (selected: unknown) =>
           parseReviewConfigurationStrict({
-            schemaVersion: 2,
+            ...workspacePolicyFixture,
             providers: [selected],
-            blockingPolicy: {},
-            limits: {},
           });
         const config = parseReviewConfigurationStrict({
-          schemaVersion: 2,
+          ...workspacePolicyFixture,
           providers: [
             provider(),
             provider("c2b-second", "profile-openrouter", "openai/gpt-5.6-sol"),
           ],
-          execution: { providerMaxParallel: 2 },
-          blockingPolicy: {},
-          limits: {},
+          execution: {
+            providerLimit: 2,
+            providerMaxParallel: 2,
+            inlineMinAgreement: 1,
+          },
         });
         const savedDefault = await saveReviewConfiguration(
-          { target: workspace, config, expectedVersion: 1 },
+          { target: workspace, policy: config, expectedVersion: 1 },
           deps,
         );
         expect(savedDefault.version).toBe(2);
         expect(savedDefault.config).toEqual(config);
         expect(
-          (await resolveReviewConfiguration(repository, deps)).config,
+          (await resolveReviewConfiguration(repository, deps))!.config,
         ).toEqual(config);
         const override = configFor(
           provider("c2b-second", "profile-openrouter", "openai/gpt-5.6-sol"),
         );
         const saved = await saveReviewConfiguration(
-          { target: repository, config: override, expectedVersion: null },
+          { target: repository, policy: override, expectedVersion: null },
           deps,
         );
         expect(
-          (await resolveReviewConfiguration(repository, deps)).source,
+          (await resolveReviewConfiguration(repository, deps))!.source,
         ).toBe("repository");
         expect((await configs.findLatest(repository))?.config).toEqual(
           override,
@@ -349,6 +343,9 @@ describe.skipIf(!enabled)(
         expect(runtimeConfig).toEqual({
           source: "repository",
           version: saved.version,
+          workspaceVersion: 2,
+          repositoryVersion: saved.version,
+          effectivePolicyDigest: `sha256:${createHash("sha256").update(canonicalJson(override)).digest("hex")}`,
           config: override,
         });
 
@@ -403,14 +400,14 @@ describe.skipIf(!enabled)(
         expect((await fresh.findLatest(workspace))?.config).toEqual(config);
         const next = await fresh.saveNextVersion({
           target: repository,
-          config,
+          policy: config,
           expectedVersion: 1,
         });
         expect(next.version).toBe(2);
         await expect(
           fresh.saveNextVersion({
             target: repository,
-            config: override,
+            policy: override,
             expectedVersion: 1,
           }),
         ).rejects.toMatchObject({
@@ -508,7 +505,7 @@ describe.skipIf(!enabled)(
           await expect(
             fresh.saveNextVersion({
               target: repository,
-              config: configFor(selected),
+              policy: configFor(selected),
               expectedVersion: 2,
             }),
           ).rejects.toThrow(message);
@@ -543,7 +540,7 @@ describe.skipIf(!enabled)(
         "fenceAckOperationId" = 'c2b-revoke-intent', "fenceAckPolicyRevision" = 2 WHERE "id" = 'c2b-revoked'`);
         const afterAck = await fresh.saveNextVersion({
           target: repository,
-          config: configFor(provider("c2b-revoked")),
+          policy: configFor(provider("c2b-revoked")),
           expectedVersion: 2,
         });
         expect(afterAck.version).toBe(3); // ACK2 clears retained intent without inventing ACK3.
@@ -556,7 +553,7 @@ describe.skipIf(!enabled)(
         await expect(
           fresh.saveNextVersion({
             target: repository,
-            config: configFor(provider("c2b-revoked")),
+            policy: configFor(provider("c2b-revoked")),
             expectedVersion: 3,
           }),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
@@ -573,7 +570,7 @@ describe.skipIf(!enabled)(
           await expect(
             fresh.saveNextVersion({
               target: repository,
-              config: configFor(provider()),
+              policy: configFor(provider()),
               expectedVersion: 3,
             }),
           ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
@@ -594,15 +591,6 @@ describe.skipIf(!enabled)(
         ).toBe(3);
 
         await refetched.user.create({ data: { id: "c2b-user" } });
-        // These are DB fixtures only; they cannot become C2b personal/sharing selection.
-        await binding("c2b-user-owned", "c2b-w", "profile-mimo", "c2b-user");
-        await expect(
-          fresh.saveNextVersion({
-            target: repository,
-            config: configFor(provider("c2b-user-owned")),
-            expectedVersion: 3,
-          }),
-        ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
         await refetched.workspace.create({
           data: {
             id: "c2b-personal",
@@ -611,11 +599,20 @@ describe.skipIf(!enabled)(
             personalOwnerUserId: "c2b-user",
           },
         });
+        // These are DB fixtures only; they cannot become C2b personal/sharing selection.
+        await binding("c2b-user-owned", "c2b-w", "profile-mimo", "c2b-user");
+        await expect(
+          fresh.saveNextVersion({
+            target: repository,
+            policy: configFor(provider("c2b-user-owned")),
+            expectedVersion: 3,
+          }),
+        ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
         await binding("c2b-personal-binding", "c2b-personal");
         await expect(
           fresh.saveNextVersion({
             target: { scope: "workspace", workspaceId: "c2b-personal" },
-            config: configFor(provider("c2b-personal-binding")),
+            policy: configFor(provider("c2b-personal-binding")),
             expectedVersion: null,
           }),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
@@ -648,7 +645,7 @@ describe.skipIf(!enabled)(
         };
         const operation = {
           target: receiptTarget,
-          config: override,
+          policy: override,
           expectedVersion: null,
           operationId: "c2b-stable-batch",
         };
@@ -735,21 +732,21 @@ describe.skipIf(!enabled)(
           { ...operation, expectedVersion: 1 },
           {
             ...operation,
-            config: parseReviewConfigurationStrict({
+            policy: parseReviewConfigurationStrict({
               ...override,
               limits: { ...override.limits, inlineMaxComments: 7 },
             }),
           },
           {
             ...operation,
-            config: parseReviewConfigurationStrict({
+            policy: parseReviewConfigurationStrict({
               ...override,
               reviewLanguage: "French",
             }),
           },
           {
             ...operation,
-            config: parseReviewConfigurationStrict({
+            policy: parseReviewConfigurationStrict({
               ...override,
               investigationRollout: {
                 ...override.investigationRollout,
@@ -757,7 +754,7 @@ describe.skipIf(!enabled)(
               },
             }),
           },
-          { ...operation, config },
+          { ...operation, policy: config },
         ]) {
           await expect(
             saveReviewConfigurationWithOperation(changed, receiptDeps),
@@ -779,12 +776,12 @@ describe.skipIf(!enabled)(
         });
         await fresh.saveNextVersion({
           target: receiptTarget,
-          config: override,
+          policy: override,
           expectedVersion: 1,
         });
         const advanced = await fresh.saveNextVersion({
           target: receiptTarget,
-          config: parseReviewConfigurationStrict({
+          policy: parseReviewConfigurationStrict({
             ...override,
             reviewLanguage: "German",
           }),
@@ -829,21 +826,31 @@ describe.skipIf(!enabled)(
         const raceRepo = new PrismaReviewConfigurationRepository(raceClient);
         type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
         type MutableOperationInput = Omit<
-          Mutable<ReviewConfigurationOperationInput>,
+          Mutable<
+            Extract<
+              ReviewConfigurationOperationInput,
+              { target: { scope: "repository" } }
+            >
+          >,
           "target"
         > & {
-          target: Mutable<ReviewConfigurationOperationInput["target"]>;
+          target: Mutable<
+            Extract<
+              ReviewConfigurationOperationInput["target"],
+              { scope: "repository" }
+            >
+          >;
         };
         const submitted: MutableOperationInput = {
           target: { ...receiptTarget },
-          config: parseReviewConfigurationStrict(override),
+          policy: parseReviewConfigurationStrict(override),
           expectedVersion: 3,
           operationId: "c2b-concurrent-batch",
         };
         const directSubmitted: MutableOperationInput = {
           ...submitted,
           target: { ...receiptTarget },
-          config: parseReviewConfigurationStrict(override),
+          policy: parseReviewConfigurationStrict(override),
         };
         try {
           await sql.query("BEGIN");
@@ -875,7 +882,7 @@ describe.skipIf(!enabled)(
               .toBe(2);
             for (const mutable of [submitted, directSubmitted]) {
               mutable.target.workspaceId = "c2b-x";
-              mutable.config.limits.inlineMaxComments = 7;
+              mutable.policy.limits!.inlineMaxComments = 7;
               mutable.expectedVersion = 99;
               mutable.operationId = "c2b-mutated-batch";
             }
@@ -991,7 +998,7 @@ describe.skipIf(!enabled)(
         };
         const lostResponseOperation = {
           target: clearedTarget,
-          config: override,
+          policy: override,
           expectedVersion: null,
           operationId: "c2b-cleared-original",
         };
@@ -1024,9 +1031,20 @@ describe.skipIf(!enabled)(
         };
         expect(
           await runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget),
-        ).toEqual({ source: "repository", version: 1, config: override });
+        ).toEqual({
+          source: "repository",
+          version: 1,
+          workspaceVersion: 2,
+          repositoryVersion: 1,
+          effectivePolicyDigest: `sha256:${createHash("sha256").update(canonicalJson(override)).digest("hex")}`,
+          config: override,
+        });
         const expectCleared = async (expectedHistory = originalHistory) => {
-          expect(await fresh.findLatest(clearedTarget)).toBeNull();
+          expect(await fresh.findLatest(clearedTarget)).toMatchObject({
+            source: "workspace",
+            version: 2,
+            config,
+          });
           expect(
             await fresh.findLatestForRepositories({
               workspaceId: "c2b-w",
@@ -1040,16 +1058,26 @@ describe.skipIf(!enabled)(
           // strict admission reads using the existing transaction port.
           expect(
             await runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget),
-          ).toEqual({ source: "workspace", version: 2, config });
+          ).toEqual({
+            source: "workspace",
+            version: 2,
+            workspaceVersion: 2,
+            repositoryVersion: null,
+            effectivePolicyDigest: `sha256:${createHash("sha256").update(canonicalJson(config)).digest("hex")}`,
+            config,
+          });
           expect(
             await refetched!.$transaction((tx) =>
-              runtimeConfigs.findRuntimeReviewConfiguration(
-                runtimeTarget,
-                tx,
-                true,
-              ),
+              runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget, tx),
             ),
-          ).toEqual({ source: "workspace", version: 2, config });
+          ).toEqual({
+            source: "workspace",
+            version: 2,
+            workspaceVersion: 2,
+            repositoryVersion: null,
+            effectivePolicyDigest: `sha256:${createHash("sha256").update(canonicalJson(config)).digest("hex")}`,
+            config,
+          });
           expect(
             await refetched!.reviewConfiguration.findUniqueOrThrow({
               where: {
@@ -1082,7 +1110,7 @@ describe.skipIf(!enabled)(
           saveReviewConfigurationWithOperation(
             {
               ...lostResponseOperation,
-              config,
+              policy: config,
             },
             receiptDeps,
           ),
@@ -1096,7 +1124,7 @@ describe.skipIf(!enabled)(
               new PrismaReviewConfigurationTransactionRepository(tx);
             expect(
               await transactionConfigs.findLatest(clearedTarget),
-            ).toBeNull();
+            ).toMatchObject({ source: "workspace", version: 2, config });
             return transactionConfigs.deleteTarget(clearedTarget);
           }),
         ).toBe(false);
@@ -1105,7 +1133,7 @@ describe.skipIf(!enabled)(
         await expect(
           fresh.saveNextVersion({
             target: clearedTarget,
-            config: override,
+            policy: override,
             expectedVersion: 1,
           }),
         ).rejects.toMatchObject({
@@ -1115,7 +1143,7 @@ describe.skipIf(!enabled)(
         const newOperation = {
           ...lostResponseOperation,
           operationId: "c2b-cleared-new",
-          config: parseReviewConfigurationStrict({
+          policy: parseReviewConfigurationStrict({
             ...override,
             reviewLanguage: "French",
             limits: { ...override.limits, inlineMaxComments: 7 },
@@ -1131,8 +1159,10 @@ describe.skipIf(!enabled)(
           receiptDeps,
         );
         expect(reactivated.version).toBe(2);
-        expect(reactivated.config).toEqual(newOperation.config);
-        expect(reactivated.revisionToken).toMatch(/^db:/);
+        expect(reactivated.config).toEqual(newOperation.policy);
+        expect(reactivated.revisionToken).toMatch(
+          /^policy:2:2:sha256:[a-f0-9]{64}$/,
+        );
         expect(reactivated.revisionToken).not.toBe(
           lostResponseReceipt.revisionToken,
         );
@@ -1218,7 +1248,7 @@ describe.skipIf(!enabled)(
         await expectCleared(reactivatedHistory);
         const ordinaryAfterClear = await fresh.saveNextVersion({
           target: clearedTarget,
-          config: override,
+          policy: override,
           expectedVersion: null,
         });
         expect(ordinaryAfterClear.version).toBe(3);
@@ -1289,7 +1319,11 @@ describe.skipIf(!enabled)(
             receiptDeps,
           ),
         ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
-        expect(await fresh.findLatest(clearedTarget)).toBeNull();
+        expect(await fresh.findLatest(clearedTarget)).toMatchObject({
+          source: "workspace",
+          version: scoped.version,
+          config: scoped.config,
+        });
         expect(
           await findReviewConfigurationOperation(
             {
@@ -1364,29 +1398,21 @@ describe.skipIf(!enabled)(
             ),
           ).rejects.toMatchObject({ code });
         }
-        // With both overrides cleared, CI returns null to its existing default
-        // selection path. Replaying either stable receipt must keep that state.
+        // With workspace policy cleared, execution remains unconfigured.
+        // Replaying a receipt must not recreate execution policy.
         expect(await fresh.deleteTarget(workspace)).toBe(true);
         const expectDefault = async () => {
           expect(await fresh.findLatest(workspace)).toBeNull();
           expect(await fresh.findLatest(clearedTarget)).toBeNull();
           expect(
             await resolveReviewConfiguration(clearedTarget, receiptDeps),
-          ).toMatchObject({
-            source: "default",
-            version: 1,
-            config: safeDefaultReviewConfiguration,
-          });
+          ).toBeNull();
           expect(
             await runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget),
           ).toBeNull();
           expect(
             await refetched!.$transaction((tx) =>
-              runtimeConfigs.findRuntimeReviewConfiguration(
-                runtimeTarget,
-                tx,
-                true,
-              ),
+              runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget, tx),
             ),
           ).toBeNull();
         };
@@ -1515,10 +1541,10 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
         });
         const config = (bindingId: string) =>
           parseReviewConfigurationStrict({
-            ...safeDefaultReviewConfiguration,
+            ...workspacePolicyFixture,
             providers: [
               {
-                ...safeDefaultReviewConfiguration.provider,
+                ...workspaceProviderFixture,
                 authMode: "codex_account_gateway",
                 model: "mimo-v2-pro",
                 gatewayProfileRef: "mimo-responses-v1",
@@ -1537,7 +1563,7 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
         const save = (actor?: string) =>
           repo(actor).saveNextVersion({
             target,
-            config: config(binding.id),
+            policy: config(binding.id),
             expectedVersion: null,
           });
         for (const actor of [undefined, member, outsider]) {
@@ -1561,7 +1587,7 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
             (
               await current.saveNextVersion({
                 target,
-                config: config(binding.id),
+                policy: config(binding.id),
                 expectedVersion: 1,
               })
             ).version,
@@ -1579,7 +1605,7 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
           target: repository,
           operationId: `${prefix}-config-operation`,
           expectedVersion: null,
-          config: config(binding.id),
+          policy: config(binding.id),
         };
         await expect(
           repo().saveNextVersionWithOperation(operation),
@@ -1598,7 +1624,7 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
         await expect(
           repo(admin).saveNextVersion({
             target,
-            config: config(binding.id),
+            policy: config(binding.id),
             expectedVersion: 2,
           }),
         ).rejects.toThrow("review_configuration_personal_actor_forbidden");
@@ -1611,7 +1637,7 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
               outsider,
             ).saveNextVersion({
               target,
-              config: config(binding.id),
+              policy: config(binding.id),
               expectedVersion: 2,
             }),
           ),
@@ -1625,7 +1651,7 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
         await expect(
           repo(admin).saveNextVersion({
             target: pTarget,
-            config: config(ownP.id),
+            policy: config(ownP.id),
             expectedVersion: null,
           }),
         ).rejects.toThrow("review_configuration_personal_actor_forbidden");
@@ -1633,7 +1659,7 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
           (
             await repo(donor).saveNextVersion({
               target: pTarget,
-              config: config(ownP.id),
+              policy: config(ownP.id),
               expectedVersion: null,
             })
           ).version,
@@ -1643,26 +1669,31 @@ describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
           (
             await repo().saveNextVersion({
               target,
-              config: config(orgBinding.id),
+              policy: config(orgBinding.id),
               expectedVersion: 2,
             })
           ).version,
         ).toBe(3);
         const mixed = parseReviewConfigurationStrict({
           ...config(orgBinding.id),
+          execution: {
+            ...workspacePolicyFixture.execution,
+            providerLimit: 2,
+            providerMaxParallel: 2,
+          },
           providers: [
             ...config(orgBinding.id).providers,
             ...config(binding.id).providers,
           ],
         });
         await expect(
-          repo().saveNextVersion({ target, config: mixed, expectedVersion: 3 }),
+          repo().saveNextVersion({ target, policy: mixed, expectedVersion: 3 }),
         ).rejects.toThrow("review_configuration_personal_actor_forbidden");
         expect(
           (
             await repo(donor).saveNextVersion({
               target,
-              config: mixed,
+              policy: mixed,
               expectedVersion: 3,
             })
           ).version,

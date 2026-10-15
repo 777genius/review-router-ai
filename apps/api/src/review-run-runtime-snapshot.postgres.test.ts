@@ -1,3 +1,4 @@
+import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createApiApp } from "./app";
 import { describe, expect, it } from "vitest";
 import { once } from "node:events";
@@ -27,12 +28,12 @@ import {
   parseReviewConfigurationStrict,
   PrismaReviewConfigurationRepository,
   saveReviewConfiguration,
-  safeDefaultReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
   ManageReviewRunAuthorizations,
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
+  parseReviewAgentProfiles,
   ReviewRunAuthorizationState,
   ReviewRunAuthorizationUseCaseStatus,
   ReviewMutationLaneKind,
@@ -676,7 +677,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         repositoryId: repositoryConnectionId,
       };
       const config = parseReviewConfigurationStrict({
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicyFixture,
         providers: [
           {
             kind: "codex",
@@ -691,11 +692,10 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         ],
       });
       await saveReviewConfiguration(
-        { target, config, expectedVersion: null },
+        { target, policy: config, expectedVersion: null },
         { configurations },
       );
-      // The legacy reader deduplicates these rows; first admission must reject
-      // them through the shared strict parser before creating any authorization.
+      // Reject malformed current policy before creating any authorization.
       const providerRow =
         await prisma.reviewConfigurationVersionProvider.findFirstOrThrow({
           where: {
@@ -714,6 +714,20 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           order: providerRow.order + 1,
         },
       });
+      await prisma.reviewConfigurationVersion.update({
+        where: { id: providerRow.configurationVersionId },
+        data: {
+          policyJson: canonicalJson({
+            ...config,
+            providers: [...config.providers, config.providers[0]!],
+            execution: {
+              providerLimit: 2,
+              providerMaxParallel: 2,
+              inlineMinAgreement: 1,
+            },
+          }),
+        },
+      });
       await expect(harness.authorize()).rejects.toThrow();
       expect(
         await prisma.reviewRunAuthorization.count({
@@ -723,6 +737,19 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       await prisma.reviewConfigurationVersionProvider.delete({
         where: { id: duplicate.id },
       });
+      await prisma.reviewConfigurationVersion.update({
+        where: { id: providerRow.configurationVersionId },
+        data: { policyJson: canonicalJson(config) },
+      });
+      const producerRow = await prisma.producerRelease.findUniqueOrThrow({
+        where: { producerReleaseId: harness.producerReleaseId },
+      });
+      const snapshotProducer = {
+        ...producerRow,
+        agentProfiles: parseReviewAgentProfiles(
+          JSON.parse(producerRow.agentProfilesJson!),
+        ),
+      };
       const contenders = await Promise.allSettled([
         harness.authorize(),
         harness.authorize(),
@@ -813,6 +840,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         await new ProductionReviewRunRuntimeSnapshot(prisma).capture({
           identity: gatewayRun,
           deadline: gatewayRun.maxExpiresAt,
+          producerRelease: snapshotProducer,
         }),
       ).toBeNull();
       const attachments = new PrismaReviewRunGatewayExecutionBinding(
@@ -840,7 +868,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       // Direct SQL bypasses the TS parser and proves both independent DB gates.
       const v2Snapshot = canonicalJson({
         ...pin,
-        snapshotVersion: 2,
+        snapshotVersion: 3,
         gateway: { ...pin.gateway, expectedAuthorizationEpoch: 55 },
       });
       async function withPrivateSnapshot(
@@ -909,14 +937,14 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       ]) {
         const invalid = canonicalJson({
           ...pin,
-          snapshotVersion: 2,
+          snapshotVersion: 3,
           gateway: { ...pin.gateway, expectedAuthorizationEpoch: epoch },
         });
         await expect(
           withPrivateSnapshot(invalid, async () => {}),
         ).rejects.toThrow();
       }
-      for (const snapshotVersion of [0, 3, "2"]) {
+      for (const snapshotVersion of [0, 4, "3"]) {
         await expect(
           withPrivateSnapshot(
             canonicalJson({ ...pin, snapshotVersion }),
@@ -937,7 +965,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         attachPrivate(
           canonicalJson({
             ...pin,
-            snapshotVersion: 2,
+            snapshotVersion: 3,
             gateway: {
               ...pin.gateway,
               expectedAuthorizationEpoch: 55,
@@ -1863,7 +1891,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         ],
       });
       await saveReviewConfiguration(
-        { target, config: changed, expectedVersion: 1 },
+        { target, policy: changed, expectedVersion: 1 },
         { configurations },
       );
       expect(recheckRuntimeConfig).toBeDefined();
@@ -2074,7 +2102,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         capture: async (captureInput) => {
           const captured = await snapshotSource.capture(captureInput);
           await saveReviewConfiguration(
-            { target, config, expectedVersion: 2 },
+            { target, policy: config, expectedVersion: 2 },
             { configurations },
           );
           return captured;
@@ -2154,7 +2182,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       // Current configuration now points to a different live account, but replay,
       // renewal and token resolution must still honor the original revocation.
       await saveReviewConfiguration(
-        { target, config: changed, expectedVersion: 3 },
+        { target, policy: changed, expectedVersion: 3 },
         { configurations },
       );
       expect(
@@ -2162,6 +2190,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           await snapshotSource.capture({
             identity: original,
             deadline: original.maxExpiresAt,
+            producerRelease: snapshotProducer,
           })
         )?.gateway?.bindingId,
       ).toBe(replacementBinding.id);
@@ -2253,7 +2282,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       // Separate ordinary-TTL fixture in this same PG lifecycle case: real
       // configuration capture, admission, renewal, restore and SQL/outbox reads.
       await saveReviewConfiguration(
-        { target, config: safeDefaultReviewConfiguration, expectedVersion: 4 },
+        { target, policy: workspacePolicyFixture, expectedVersion: 4 },
         { configurations },
       );
       const ordinaryAdmission =
@@ -2424,7 +2453,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       {
         const mismatchCanonical = canonicalJson({
           ...pin,
-          snapshotVersion: 2,
+          snapshotVersion: 3,
           gateway: { ...pin.gateway, expectedAuthorizationEpoch: 54 },
         });
         let mismatchAttachments = 0;

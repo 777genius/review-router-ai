@@ -96,6 +96,7 @@ export function checkReleaseManifest(input) {
     runtimeEntrypointPath: verifiedAction.runtimeEntrypointPath,
     runtimeEntrypointDigest: verifiedAction.runtimeEntrypointDigest,
     contextGatewayReleaseMetadata: verifiedAction.contextGatewayReleaseMetadata,
+    agentProfiles: verifiedAction.agentProfiles,
   });
   if (canonicalJson(expectedRelease) !== manifestBytes) {
     throw new Error(

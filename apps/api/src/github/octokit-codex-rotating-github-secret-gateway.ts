@@ -1,4 +1,8 @@
-import { ManagedReviewV2WorkflowInventory } from "@reviewrouter/features-workflow-provisioning";
+import {
+  ManagedReviewV2WorkflowInventory,
+  readReviewRouterCallerSource,
+} from "@reviewrouter/features-workflow-provisioning";
+import { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";
 import { App } from "@octokit/app";
 import { request as githubRequest } from "@octokit/request";
 import { createHash } from "node:crypto";
@@ -595,6 +599,35 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly workflowPath: string;
     readonly workflowSha: string;
   }): Promise<{ readonly compatible: boolean }> {
+    if (input.workflowPath === reviewRouterWorkflowContract.callerPath) {
+      let source: string | null;
+      try {
+        const token = await this.mintRepositoryToken({
+          githubInstallationId: input.githubInstallationId,
+          githubRepositoryId: input.githubRepositoryId,
+          permissions: { contents: "read" },
+        });
+        source = await this.readWorkflowAtRef({
+          token: token.token,
+          owner: input.owner,
+          repo: repoNameFromFullName(input.repositoryFullName),
+          path: reviewRouterWorkflowContract.callerPath,
+          ref: input.workflowSha,
+          missingAllowed: true,
+        });
+      } catch {
+        throw new Error("managed_workflow_source_temporarily_unavailable");
+      }
+      if (!source) return { compatible: false };
+      try {
+        const caller = readReviewRouterCallerSource(source);
+        // Source proves the installation ABI, never the executed release.
+        // Signed executable SHA and registry state are checked by admission.
+        return { compatible: caller.controlPlaneUrl === this.expectedApiUrl };
+      } catch {
+        return { compatible: false };
+      }
+    }
     const isolatedQualitySource =
       input.githubRepositoryId === isolatedQualityWorkflowRepositoryId &&
       input.repositoryFullName === isolatedQualityWorkflowRepository &&

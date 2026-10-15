@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
+  renderReviewRouterCaller,
+  reviewRouterWorkflowContract,
+} from "@reviewrouter/protocol-review-workflow";
+import {
   allocateVersionedProviderSecretNamespace,
   assertActiveVersionedSecretWorkflowAttestation,
   CodexRotatingReviewActionV2Mode,
@@ -49,6 +53,60 @@ vi.mock("@octokit/request", () => ({
 }));
 
 describe("OctokitCodexRotatingGitHubSecretGateway", () => {
+  it.each([
+    ["canonical channel", renderReviewRouterCaller(), true],
+    [
+      "extra permission",
+      renderReviewRouterCaller().replace("contents: read", "contents: write"),
+      false,
+    ],
+    [
+      "foreign runtime",
+      renderReviewRouterCaller().replace(
+        "777genius/review-router/",
+        "other/runtime/",
+      ),
+      false,
+    ],
+    [
+      "different control plane",
+      renderReviewRouterCaller({ controlPlaneUrl: "https://other.example" }),
+      false,
+    ],
+  ])(
+    "checks the neutral caller at the signed source SHA: %s",
+    async (_name, source, compatible) => {
+      mocks.auth.mockResolvedValueOnce({
+        token: "fixture-read",
+        expiresAt: "2026-10-14T20:00:00.000Z",
+        permissions: { contents: "read" },
+      });
+      mocks.request.mockResolvedValueOnce(fileContent(source));
+      const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+        appId: "123",
+        privateKey: "fixture-key",
+        trustedActionRefs: [],
+      });
+      await expect(
+        gateway.verifyManagedV2SessionBootstrapSource({
+          githubInstallationId: "129500385",
+          githubRepositoryId: "123456",
+          repositoryFullName: "777genius/example",
+          owner: "777genius",
+          workflowPath: reviewRouterWorkflowContract.callerPath,
+          workflowSha: "b".repeat(40),
+        }),
+      ).resolves.toEqual({ compatible });
+      expect(mocks.request).toHaveBeenCalledTimes(1);
+      expect(mocks.request).toHaveBeenCalledWith(
+        "GET /repos/{owner}/{repo}/contents/{path}",
+        expect.objectContaining({
+          path: reviewRouterWorkflowContract.callerPath,
+          ref: "b".repeat(40),
+        }),
+      );
+    },
+  );
   beforeEach(() => {
     mocks.auth.mockReset();
     mocks.request.mockReset();
@@ -736,12 +794,9 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
 
   it("accepts only an immutable T0 workflow inventory without legacy writers", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
     });
     mockManagedWorkflowInventory({ reviewWorkflow: workflow });
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
@@ -854,15 +909,11 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     expect(contentPaths).toContain(".github/workflows/reviewrouter-codex.yml");
   });
 
-  it("reports canonical client-triggered T0 workflow schema v2", async () => {
+  it("reports the current caller ABI independently of producer versions", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      workflowSchemaVersion: 2,
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
     });
     mockManagedWorkflowInventory({ reviewWorkflow: workflow });
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
@@ -880,7 +931,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     ).resolves.toMatchObject({
       compatible: true,
       actionCommitSha: actionSha,
-      workflowSchemaVersion: 2,
+      workflowSchemaVersion: 1,
     });
   });
 
@@ -1033,12 +1084,9 @@ ${renderInteractionWorkflow({
 
   it("rejects a T0 workflow bound to an unexpected API endpoint", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://attacker.example",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://attacker.example",
     });
     mockManagedWorkflowInventory({ reviewWorkflow: workflow });
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
@@ -1128,13 +1176,10 @@ ${renderInteractionWorkflow({
 
   it("rejects a default workflow bound to a different Action repository", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `attacker/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
-    });
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
+    }).replace("777genius/review-router/", "attacker/review-router/");
     mockManagedWorkflowInventory({ reviewWorkflow: workflow });
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
@@ -1150,7 +1195,7 @@ ${renderInteractionWorkflow({
       }),
     ).resolves.toMatchObject({
       compatible: false,
-      actionCommitSha: actionSha,
+      actionCommitSha: null,
     });
   });
 
@@ -1201,12 +1246,9 @@ ${renderInteractionWorkflow({
 
   it("rejects a stale legacy writer on an active non-default PR base branch", async () => {
     const actionSha = "a".repeat(40);
-    const t0Workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const t0Workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
     });
     const legacyWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
@@ -1246,12 +1288,9 @@ ${renderInteractionWorkflow({
 
   it("accepts an active PR base branch pinned to the selected T0 runtime", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1366,12 +1405,9 @@ ${renderInteractionWorkflow({
 
   it("does not treat a test merge built from an old base tip as current authority", async () => {
     const actionSha = "a".repeat(40);
-    const t0Workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const t0Workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
     });
     const legacyWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
@@ -1411,12 +1447,9 @@ ${renderInteractionWorkflow({
 
   it("ignores a stale merge ref after GitHub proves the PR is conflicted", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1564,14 +1597,11 @@ ${renderInteractionWorkflow({
     ).rejects.toThrow("codex_rotating_workflow_inventory_coverage_moved");
   });
 
-  it("accepts an interaction workflow pinned to the same immutable T0 runtime", async () => {
+  it("rejects an obsolete interaction writer even when its producer pin matches", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1590,7 +1620,7 @@ ${renderInteractionWorkflow({
         owner: "777genius",
       }),
     ).resolves.toMatchObject({
-      compatible: true,
+      compatible: false,
       actionCommitSha: actionSha,
     });
   });
@@ -1598,12 +1628,9 @@ ${renderInteractionWorkflow({
   it("treats a prior V2 interaction workflow as stale inventory", async () => {
     const actionSha = "a".repeat(40);
     const actionRef = `777genius/review-router@${actionSha}`;
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1630,12 +1657,9 @@ ${renderInteractionWorkflow({
 
   it("rejects an interaction workflow pinned to a different runtime", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1658,12 +1682,9 @@ ${renderInteractionWorkflow({
 
   it("rejects extra interaction workflow steps even when the runtime pin matches", async () => {
     const actionSha = "a".repeat(40);
-    const workflow = renderCodexRotatingAdvisoryWorkflow({
-      actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
-      providerInstanceId: "codex-rotating:123456",
-      refreshScheduleCron: null,
-      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
     });
     const interactionWorkflow = `${renderT0InteractionWorkflow(actionSha)}
       - name: Exfiltrate session
@@ -2313,8 +2334,7 @@ function mockManagedWorkflowInventory(input: {
         if (!reference) throw { status: 404 };
         const path = String(request.path);
         if (
-          path ===
-          (input.reviewPath ?? ".github/workflows/reviewrouter-codex.yml")
+          path === (input.reviewPath ?? reviewRouterWorkflowContract.callerPath)
         ) {
           if (!reference.reviewWorkflow) throw { status: 404 };
           return fileContent(reference.reviewWorkflow);

@@ -8,9 +8,11 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readReviewConfigurationForm } from "./dashboard-action-form-readers";
 import {
-  safeDefaultReviewConfiguration,
+  readReviewConfigurationForm,
+  readRepositoryReviewPolicyForm,
+} from "./dashboard-action-form-readers";
+import {
   type ReviewConfiguration,
   type ReviewProviderConfiguration,
 } from "@reviewrouter/features-review-config";
@@ -48,6 +50,37 @@ vi.mock("./actions", () => ({
   saveRepositoryReviewConfigClientAction: vi.fn(),
   saveWorkspaceReviewConfigClientAction: vi.fn(),
 }));
+
+const workspacePolicy: ReviewConfiguration = {
+  schemaVersion: 3,
+  providers: [
+    {
+      kind: "codex",
+      authMode: "codex_subscription_oauth_rotating",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      agenticContext: true,
+      fastMode: false,
+      requiredHealthy: true,
+    },
+  ],
+  execution: {
+    providerLimit: 1,
+    providerMaxParallel: 1,
+    inlineMinAgreement: 1,
+  },
+  blockingPolicy: { failOnSeverity: "critical" },
+  limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  reviewLanguage: null,
+  investigationRollout: {
+    recordingEnabled: false,
+    shadowEnabled: false,
+    contextCriticEnabled: false,
+    verifiedCleanEnabled: false,
+    crossRevisionReplayEnabled: false,
+    productionEffectsEnabled: false,
+  },
+};
 
 const modelOptions = [
   {
@@ -150,6 +183,46 @@ function choose(label: string, option: RegExp): void {
 }
 
 describe("ReviewConfigForm", () => {
+  it("keeps explicit zero and false overrides and removes them when reset to inherit", () => {
+    const { container } = render(
+      <ReviewConfigForm
+        action={vi.fn()}
+        config={{
+          ...workspacePolicy,
+          limits: { ...workspacePolicy.limits, inlineMaxComments: 0 },
+        }}
+        repositoryPolicy={{
+          schemaVersion: 3,
+          limits: { inlineMaxComments: 0 },
+          investigationRollout: { productionEffectsEnabled: false },
+        }}
+        hiddenFields={[]}
+        modelOptions={modelOptions}
+        mutationsEnabled={true}
+        submitLabel="Save"
+      />,
+    );
+    const form = container.querySelector("form")!;
+    const zeroMode = form.querySelector<HTMLSelectElement>(
+      '[name="policyMode.limits.inlineMaxComments"]',
+    )!;
+    const falseMode = form.querySelector<HTMLSelectElement>(
+      '[name="policyMode.investigationRollout.productionEffectsEnabled"]',
+    )!;
+    expect(zeroMode.value).toBe("override");
+    expect(falseMode.value).toBe("override");
+    expect(readRepositoryReviewPolicyForm(new FormData(form))).toEqual({
+      schemaVersion: 3,
+      limits: { inlineMaxComments: 0 },
+      investigationRollout: { productionEffectsEnabled: false },
+    });
+    fireEvent.change(zeroMode, { target: { value: "inherit" } });
+    fireEvent.change(falseMode, { target: { value: "inherit" } });
+    expect(readRepositoryReviewPolicyForm(new FormData(form))).toEqual({
+      schemaVersion: 3,
+    });
+  });
+
   it("offers qualified MiMo Gateway reasoning with High default and explicit invalid-value repair", () => {
     const page = {
       ...gatewayPage,
@@ -169,14 +242,15 @@ describe("ReviewConfigForm", () => {
       submitLabel: "Save",
     };
     const first = render(
-      <ReviewConfigForm {...props} config={safeDefaultReviewConfiguration} />,
+      <ReviewConfigForm {...props} config={workspacePolicy} />,
     );
     choose("Provider auth", /Account Gateway/);
     choose("Account", /Workspace mimo/);
     choose("Model", /^mimo-v2.6-pro$/);
     const form = document.querySelector("form")!;
     expect(
-      readReviewConfigurationForm(new FormData(form)).provider.reasoningEffort,
+      readReviewConfigurationForm(new FormData(form)).providers[0]!
+        .reasoningEffort,
     ).toBe("high");
     fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
     expect(screen.getAllByRole("option")).toHaveLength(3);
@@ -188,7 +262,7 @@ describe("ReviewConfigForm", () => {
       screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
     ).toBe(false);
     const saved = {
-      ...readReviewConfigurationForm(new FormData(form)).provider,
+      ...readReviewConfigurationForm(new FormData(form)).providers[0]!,
       reasoningEffort: "xhigh",
     } satisfies ReviewProviderConfiguration;
     first.unmount();
@@ -196,15 +270,15 @@ describe("ReviewConfigForm", () => {
       <ReviewConfigForm
         {...props}
         config={{
-          ...safeDefaultReviewConfiguration,
-          provider: saved,
+          ...workspacePolicy,
+
           providers: [saved],
         }}
       />,
     );
     const repairedForm = document.querySelector("form")!;
     expect(
-      readReviewConfigurationForm(new FormData(repairedForm)).provider
+      readReviewConfigurationForm(new FormData(repairedForm)).providers[0]!
         .reasoningEffort,
     ).toBe("xhigh");
     expect(
@@ -215,7 +289,7 @@ describe("ReviewConfigForm", () => {
     expect(pageText()).toContain("The saved value has not been changed");
     choose("Reasoning effort", /High/);
     expect(
-      readReviewConfigurationForm(new FormData(repairedForm)).provider
+      readReviewConfigurationForm(new FormData(repairedForm)).providers[0]!
         .reasoningEffort,
     ).toBe("high");
     expect(
@@ -231,7 +305,7 @@ describe("ReviewConfigForm", () => {
     choose("Account", /Workspace mimo/);
     choose("Model", /^mimo-v2.6-pro$/);
     expect(
-      readReviewConfigurationForm(new FormData(repairedForm)).provider
+      readReviewConfigurationForm(new FormData(repairedForm)).providers[0]!
         .reasoningEffort,
     ).toBe("low");
   });
@@ -240,7 +314,7 @@ describe("ReviewConfigForm", () => {
     "blocks unsupported saved gateway combinations until explicit %s repair",
     async (repair) => {
       const provider = {
-        ...safeDefaultReviewConfiguration.provider,
+        ...workspacePolicy.providers[0]!,
         kind: "codex",
         authMode: "codex_account_gateway",
         gatewayBindingId: "binding-mimo",
@@ -253,7 +327,7 @@ describe("ReviewConfigForm", () => {
         repair === "remove-gateway"
           ? { ...provider, model: "openai/gpt-5.6-sol", requiredHealthy: false }
           : {
-              ...openRouterReviewConfiguration().provider,
+              ...openRouterReviewConfiguration().providers[0]!,
               model: "anthropic/claude-sonnet-4.5",
             };
       const action = vi.fn();
@@ -261,9 +335,9 @@ describe("ReviewConfigForm", () => {
         <ReviewConfigForm
           action={action}
           config={{
-            ...safeDefaultReviewConfiguration,
-            provider,
+            ...workspacePolicy,
             providers: [provider, extra],
+            execution: { ...workspacePolicy.execution, providerLimit: 2 },
           }}
           gatewayAccounts={{ status: "ok", value: gatewayPage }}
           modelOptions={modelOptions}
@@ -292,9 +366,9 @@ describe("ReviewConfigForm", () => {
           screen.getByRole("option", { name: /OpenRouter API key/i }),
         );
         expect(payload().providers[1]).toEqual(extra);
-        expect(payload().provider.authMode).toBe("openrouter_api_key");
-        expect(payload().provider.gatewayBindingId).toBeUndefined();
-        expect(payload().provider.gatewayProfileRef).toBeUndefined();
+        expect(payload().providers[0]!.authMode).toBe("openrouter_api_key");
+        expect(payload().providers[0]!.gatewayBindingId).toBeUndefined();
+        expect(payload().providers[0]!.gatewayProfileRef).toBeUndefined();
         expect(add.hasAttribute("disabled")).toBe(false);
         fireEvent.click(add);
         expect(new FormData(form).get("providerCount")).toBe("3");
@@ -348,15 +422,16 @@ describe("ReviewConfigForm", () => {
       if (scope === "workspace")
         render(
           <WorkspaceReviewConfigForm
+            expectedVersion={1}
             {...common}
-            config={safeDefaultReviewConfiguration}
+            config={workspacePolicy}
           />,
         );
       else {
         render(
           <RepositoryPolicyEditor
             {...common}
-            effectiveConfig={safeDefaultReviewConfiguration}
+            effectiveConfig={workspacePolicy}
             repositoryConfig={null}
             repository={{
               id: "repo_1",
@@ -394,7 +469,7 @@ describe("ReviewConfigForm", () => {
       expect(payload.get("workspaceId")).toBe("workspace_1");
       if (scope === "repository")
         expect(payload.get("repositoryId")).toBe("repo_1");
-      expect(readReviewConfigurationForm(payload).provider).toMatchObject({
+      expect(readReviewConfigurationForm(payload).providers[0]!).toMatchObject({
         authMode: "codex_account_gateway",
         gatewayBindingId: "binding-codex",
         gatewayProfileRef: "profile-codex",
@@ -420,7 +495,7 @@ describe("ReviewConfigForm", () => {
     "pagination",
   ])("preserves selection and blocks save after %s refresh", (condition) => {
     const provider = {
-      ...safeDefaultReviewConfiguration.provider,
+      ...workspacePolicy.providers[0]!,
       kind: "codex",
       authMode: "codex_account_gateway",
       gatewayBindingId: "binding-mimo",
@@ -430,8 +505,7 @@ describe("ReviewConfigForm", () => {
     const props = {
       action: vi.fn(),
       config: {
-        ...safeDefaultReviewConfiguration,
-        provider,
+        ...workspacePolicy,
         providers: [provider],
       },
       modelOptions,
@@ -480,9 +554,9 @@ describe("ReviewConfigForm", () => {
       screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
     ).toBe(true);
     const form = document.querySelector("form")!;
-    expect(readReviewConfigurationForm(new FormData(form)).provider).toEqual(
-      provider,
-    );
+    expect(
+      readReviewConfigurationForm(new FormData(form)).providers[0]!,
+    ).toEqual(provider);
     fireEvent.submit(form);
     expect(props.action).not.toHaveBeenCalled();
     expect(pageText()).toContain(
@@ -514,8 +588,7 @@ describe("ReviewConfigForm", () => {
     } satisfies ReviewProviderConfiguration;
     renderReviewConfigForm({
       config: {
-        ...safeDefaultReviewConfiguration,
-        provider,
+        ...workspacePolicy,
         providers: [provider],
       },
       repositoryFullName: "test/disposable-gateway",
@@ -529,11 +602,12 @@ describe("ReviewConfigForm", () => {
     expect(form).not.toBeNull();
     const serialized = readReviewConfigurationForm(new FormData(form!));
     const normalized = { ...provider, model: provider.model.trim() };
-    expect(serialized.provider).toEqual(normalized);
+    expect(serialized.providers[0]!).toEqual(normalized);
     expect(serialized.providers).toEqual([normalized]);
     choose("Model", /^mimo-v2-pro$/);
     expect(
-      readReviewConfigurationForm(new FormData(form!)).provider.reasoningEffort,
+      readReviewConfigurationForm(new FormData(form!)).providers[0]!
+        .reasoningEffort,
     ).toBe("ultra");
 
     fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
@@ -559,8 +633,7 @@ describe("ReviewConfigForm", () => {
     } satisfies ReviewProviderConfiguration;
     renderReviewConfigForm({
       config: {
-        ...safeDefaultReviewConfiguration,
-        provider,
+        ...workspacePolicy,
         providers: [provider],
       },
       repositoryFullName: "test/disposable-gateway",
@@ -572,7 +645,7 @@ describe("ReviewConfigForm", () => {
     const form = document.querySelector("form");
     expect(form).not.toBeNull();
     expect(
-      readReviewConfigurationForm(new FormData(form!)).provider,
+      readReviewConfigurationForm(new FormData(form!)).providers[0]!,
     ).toMatchObject({
       authMode: "codex_account_gateway",
       gatewayBindingId: "binding-mimo",
@@ -584,7 +657,8 @@ describe("ReviewConfigForm", () => {
     fireEvent.click(
       screen.getByRole("option", { name: /OpenRouter API key/i }),
     );
-    const switched = readReviewConfigurationForm(new FormData(form!)).provider;
+    const switched = readReviewConfigurationForm(new FormData(form!))
+      .providers[0]!;
     expect(switched.authMode).toBe("openrouter_api_key");
     expect(switched.gatewayBindingId).toBeUndefined();
     expect(switched.gatewayProfileRef).toBeUndefined();
@@ -593,7 +667,7 @@ describe("ReviewConfigForm", () => {
   it("preserves configured investigation rollout values in dashboard submissions", () => {
     renderReviewConfigForm({
       config: {
-        ...safeDefaultReviewConfiguration,
+        ...workspacePolicy,
         investigationRollout: {
           recordingEnabled: true,
           shadowEnabled: true,
@@ -1215,6 +1289,7 @@ describe("ReviewConfigForm", () => {
 
     renderRepositoryPolicyOverrideDetails({
       repositoryConfig: {
+        policy: { schemaVersion: 3 },
         version: 6,
         config: duplicateOpenRouterReviewConfiguration(),
       },
@@ -1289,7 +1364,7 @@ function renderReviewConfigForm(input?: {
   render(
     <ReviewConfigForm
       action={() => undefined}
-      config={input?.config ?? safeDefaultReviewConfiguration}
+      config={input?.config ?? workspacePolicy}
       modelOptions={modelOptions}
       gatewayAccounts={{ status: "ok", value: gatewayPage }}
       codexRotatingOAuthEnabled={input?.codexRotatingOAuthEnabled ?? true}
@@ -1305,6 +1380,7 @@ function renderReviewConfigForm(input?: {
 
 function renderRepositoryPolicyOverrideDetails(input?: {
   readonly repositoryConfig?: {
+    readonly policy: { readonly schemaVersion: 3 };
     readonly version: number;
     readonly config: ReviewConfiguration;
   } | null;
@@ -1342,8 +1418,8 @@ function openRouterReviewConfiguration(): ReviewConfiguration {
   };
 
   return {
-    ...safeDefaultReviewConfiguration,
-    provider: openRouterProvider,
+    ...workspacePolicy,
+
     providers: [openRouterProvider],
   };
 }
@@ -1365,9 +1441,10 @@ function duplicateOpenRouterReviewConfiguration(): ReviewConfiguration {
   };
 
   return {
-    ...safeDefaultReviewConfiguration,
-    provider: firstOpenRouterProvider,
+    ...workspacePolicy,
+
     providers: [firstOpenRouterProvider, secondOpenRouterProvider],
+    execution: { ...workspacePolicy.execution, providerLimit: 2 },
   };
 }
 
@@ -1396,15 +1473,15 @@ function legacyCodexMultiProviderReviewConfiguration(): ReviewConfiguration {
   };
 
   return {
-    ...safeDefaultReviewConfiguration,
-    provider: codexProvider,
+    ...workspacePolicy,
+
     providers: [
       codexProvider,
       firstOpenRouterProvider,
       secondOpenRouterProvider,
     ],
     execution: {
-      ...safeDefaultReviewConfiguration.execution,
+      ...workspacePolicy.execution,
       providerLimit: 3,
       providerMaxParallel: 2,
     },
@@ -1428,8 +1505,8 @@ function codexReviewConfiguration(
   };
 
   return {
-    ...safeDefaultReviewConfiguration,
-    provider: codexProvider,
+    ...workspacePolicy,
+
     providers: [codexProvider],
   };
 }
@@ -1446,8 +1523,8 @@ function claudeReviewConfiguration(): ReviewConfiguration {
   };
 
   return {
-    ...safeDefaultReviewConfiguration,
-    provider: claudeProvider,
+    ...workspacePolicy,
+
     providers: [claudeProvider],
   };
 }

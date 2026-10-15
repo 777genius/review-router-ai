@@ -10,6 +10,8 @@ export const HANDOFF_MANIFEST_FILE = "handoff-manifest.json";
 export const PUBLIC_GENERATED_DIRECTORY =
   "src/control-plane/generated/review-action-v2";
 export const PUBLIC_RUNTIME_BUNDLE = "dist/index.js";
+export const PUBLIC_REVIEW_AGENT_PROFILES =
+  "src/control-plane/review-agent-profiles.json";
 export const PUBLIC_CONTEXT_GATEWAY_BUNDLE = "dist/context-gateway.js";
 export const PUBLIC_CONTEXT_GATEWAY_RELEASE_METADATA =
   "dist/context-gateway.release.json";
@@ -376,6 +378,7 @@ export function buildReleaseManifest(input) {
   ) {
     return Object.freeze({
       ...base,
+      agentProfiles: readAgentProfileMetadata(input.agentProfiles),
       supportedContextGatewayPolicyVersions:
         contextGateway.supportedContextGatewayPolicyVersions,
       reviewInvestigationCapability:
@@ -427,6 +430,7 @@ export function parseReleaseManifest(raw) {
       "schemaDigest",
       ...(investigation
         ? [
+            "agentProfiles",
             "reviewInvestigationCapability",
             "reviewInvestigationCoverageProfileHash",
             "reviewInvestigationPolicyHash",
@@ -553,6 +557,7 @@ export function parseReleaseManifest(raw) {
   }
   return Object.freeze({
     ...base,
+    agentProfiles: readAgentProfileMetadata(value.agentProfiles),
     supportedContextGatewayPolicyVersions,
     reviewInvestigationCapability: value.reviewInvestigationCapability,
     reviewInvestigationCoverageProfileHash,
@@ -564,6 +569,7 @@ export function buildReleaseRegistrationCandidateFields(input) {
   const manifest = parseReleaseManifest(canonicalJson(input));
   return Object.freeze({
     distributionKind: "public_reusable",
+    agentProfiles: manifest.agentProfiles ?? null,
     actionCommitSha: manifest.actionCommitSha,
     runtimeCommitSha: manifest.runtimeCommitSha,
     wrapperEntrypointDigest: null,
@@ -866,4 +872,17 @@ function isPlainObject(value) {
     !Array.isArray(value) &&
     Object.getPrototypeOf(value) === Object.prototype
   );
+}
+
+/** Opaque canonical profile payload; the registration codec validates capabilities. */
+export function readAgentProfileMetadata(value) {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > 16 ||
+    Buffer.byteLength(canonicalJson(value)) > 16384
+  ) {
+    throw new Error("agentProfiles must contain bounded producer metadata");
+  }
+  return Object.freeze(JSON.parse(canonicalJson(value)));
 }

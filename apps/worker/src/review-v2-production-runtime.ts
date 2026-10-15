@@ -5,7 +5,6 @@ import { App } from "@octokit/app";
 import {
   HmacActionLedgerKey,
   PrismaActionControlPlaneRepository,
-  managedCodexWorkflowPath,
 } from "@reviewrouter/features-action-control-plane";
 import {
   ReviewCoverageState,
@@ -106,7 +105,10 @@ import {
   JoseRotatingCapabilityCodec,
   type ConfiguredCapabilityVerificationKey,
 } from "@reviewrouter/platform-signed-capabilities";
-import type { SystemClock } from "@reviewrouter/shared";
+import {
+  reviewRouterWorkflowPath,
+  type SystemClock,
+} from "@reviewrouter/shared";
 import {
   DeterministicReviewPublicationRequestFactory,
   ReviewCompletionExecutionContextAdapter,
@@ -441,7 +443,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     input.prisma,
     { appId: input.githubAppId, privateKey: input.githubPrivateKey },
     input.env.REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PATH?.trim() ||
-      managedCodexWorkflowPath,
+      reviewRouterWorkflowPath,
   );
   const intentClaimDurationMs = positiveInteger(
     input.env.REVIEW_ROUTER_REVIEW_V2_INTENT_CLAIM_MS,

@@ -1,8 +1,8 @@
+import { createHash } from "node:crypto";
+import { canonicalJson } from "@reviewrouter/features-review-config";
+import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import type { Prisma } from "@prisma/client";
-import {
-  ReviewConfigurationWriteConflictError,
-  safeDefaultReviewConfiguration,
-} from "@reviewrouter/features-review-config";
+import { ReviewConfigurationWriteConflictError } from "@reviewrouter/features-review-config";
 import { describe, expect, it } from "vitest";
 import { PrismaReviewConfigurationOperatorMutation } from "./prisma-review-configuration-operator-mutation.js";
 
@@ -25,6 +25,7 @@ type VersionRow = {
   gatewayProfileRef: string | null;
   version: number;
   schemaVersion: number;
+  policyJson: string;
   providerKind: string;
   providerAuthMode: string;
   model: string;
@@ -106,7 +107,11 @@ function createPrismaStub() {
       const workspace = committed.configurations.get(
         configurationKey("workspace_1", "workspace:default"),
       )!;
-      workspace.versions[0] = { ...workspace.versions[0]!, id };
+      workspace.versions[0] = {
+        ...workspace.versions[0]!,
+        id,
+        version: workspace.versions[0]!.version + 1,
+      };
     },
     clearRepositoryOverride() {
       committed.configurations.get(repositoryKey)!.active = false;
@@ -284,28 +289,30 @@ function versionRow(
   version: number,
   effort: "high" | "xhigh",
 ): VersionRow {
-  const provider = safeDefaultReviewConfiguration.provider;
+  const provider = workspacePolicyFixture.providers[0]!;
   return {
     id,
     workspaceId: "workspace_1",
     gatewayBindingId: null,
     gatewayProfileRef: null,
     version,
-    schemaVersion: 2,
+    schemaVersion: 3,
+    policyJson: canonicalJson({
+      ...workspacePolicyFixture,
+      providers: [{ ...provider, reasoningEffort: effort }],
+    }),
     providerKind: provider.kind,
     providerAuthMode: provider.authMode,
     model: provider.model,
     reasoningEffort: effort,
     agenticContext: provider.agenticContext,
     fastMode: provider.fastMode,
-    failOnSeverity:
-      safeDefaultReviewConfiguration.blockingPolicy.failOnSeverity,
-    inlineMaxComments: safeDefaultReviewConfiguration.limits.inlineMaxComments,
+    failOnSeverity: workspacePolicyFixture.blockingPolicy.failOnSeverity,
+    inlineMaxComments: workspacePolicyFixture.limits.inlineMaxComments,
     providerLimit: 1,
     providerMaxParallel: 1,
     inlineMinAgreement: 1,
-    targetTokensPerBatch:
-      safeDefaultReviewConfiguration.limits.targetTokensPerBatch,
+    targetTokensPerBatch: workspacePolicyFixture.limits.targetTokensPerBatch,
     reviewLanguage: null,
     investigationRecordingEnabled: false,
     investigationShadowEnabled: false,
@@ -331,7 +338,7 @@ function versionRow(
 
 function mutationInput() {
   const provider = {
-    ...safeDefaultReviewConfiguration.provider,
+    ...workspacePolicyFixture.providers[0]!,
     reasoningEffort: "high" as const,
   };
   return {
@@ -340,10 +347,11 @@ function mutationInput() {
       workspaceId: "workspace_1",
       repositoryId: "repo_1",
     },
-    expectedRevisionToken: "db:workspace_v1",
-    config: {
-      ...safeDefaultReviewConfiguration,
-      provider,
+    expectedRevisionToken: `policy:1:0:sha256:${createHash("sha256")
+      .update(versionRow("workspace_v1", 1, "xhigh").policyJson)
+      .digest("hex")}`,
+    policy: {
+      ...workspacePolicyFixture,
       providers: [provider],
       investigationRollout: {
         recordingEnabled: true,
@@ -379,7 +387,7 @@ describe("Prisma review configuration operator mutation", () => {
 
     expect(result).toMatchObject({
       version: 1,
-      config: { provider: { reasoningEffort: "high" } },
+      config: { providers: [{ reasoningEffort: "high" }] },
     });
     expect(
       stub.state().configurations.get(repositoryKey)?.versions,
@@ -413,7 +421,9 @@ describe("Prisma review configuration operator mutation", () => {
       repositoryId: "repo_1",
       active: true,
     });
-    expect(result.revisionToken).toBe(`db:${override.versions[0]!.id}`);
+    expect(result.revisionToken).toBe(
+      `policy:1:1:${result.effectivePolicyDigest}`,
+    );
     await expect(mutation.commit(mutationInput())).rejects.toBeInstanceOf(
       ReviewConfigurationWriteConflictError,
     );

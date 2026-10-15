@@ -3,9 +3,12 @@ import {
   codexModelSupportsReasoningEffort,
   isCodexBackedProvider,
 } from "@reviewrouter/features-review-providers";
-import type {
-  ReviewConfiguration,
-  ReviewInvestigationRolloutConfiguration,
+import {
+  parseRepositoryReviewPolicyOverride,
+  type RepositoryReviewPolicyOverride,
+  type ReviewPolicyDocument,
+  type ReviewConfiguration,
+  type ReviewInvestigationRolloutConfiguration,
 } from "../../domain/review-configuration";
 import { ReviewReasoningEffort } from "../../domain/review-reasoning-effort";
 import {
@@ -36,6 +39,7 @@ export enum ReviewConfigurationOperatorErrorCode {
   ReviewProviderNotFound = "review_provider_not_found",
   UnsupportedReasoningEffort = "unsupported_reasoning_effort",
   ConfigurationChanged = "configuration_changed",
+  ConfigurationMissing = "configuration_missing",
   InvalidInvestigationRollout = "invalid_investigation_rollout",
 }
 
@@ -113,6 +117,10 @@ export async function getOperatorReviewConfiguration(
   const repository = await resolveRepository(input, dependencies.repositories);
   const target = repositoryTarget(repository);
   const resolved = await resolveReviewConfiguration(target, dependencies);
+  if (!resolved)
+    throw new ReviewConfigurationOperatorError(
+      ReviewConfigurationOperatorErrorCode.ConfigurationMissing,
+    );
 
   await dependencies.audit.record({
     workspaceId: repository.workspaceId,
@@ -150,8 +158,14 @@ export async function setOperatorReviewReasoningEffort(
   const repository = await resolveRepository(input, dependencies.repositories);
   const target = repositoryTarget(repository);
   const previous = await resolveReviewConfiguration(target, dependencies);
+  if (!previous)
+    throw new ReviewConfigurationOperatorError(
+      ReviewConfigurationOperatorErrorCode.ConfigurationMissing,
+    );
   const updatedConfig = withReasoningEffort(previous.config, input.effort);
-  const currentProvider = previous.config.providers.find(isCodexBackedProvider);
+  const currentProvider = existingRepositoryOverrides(previous).providers?.find(
+    isCodexBackedProvider,
+  );
   const alreadyExplicitAndEqual =
     previous.source === "repository" &&
     currentProvider?.reasoningEffort === input.effort;
@@ -180,7 +194,10 @@ export async function setOperatorReviewReasoningEffort(
       : await dependencies.mutations.commit({
           target,
           expectedRevisionToken: previous.revisionToken,
-          config: updatedConfig,
+          policy: {
+            ...existingRepositoryOverrides(previous),
+            providers: updatedConfig.providers,
+          },
           auditEvent,
         });
   } catch (error) {
@@ -233,6 +250,10 @@ export async function setOperatorReviewInvestigationRollout(
   const repository = await resolveRepository(input, dependencies.repositories);
   const target = repositoryTarget(repository);
   const previous = await resolveReviewConfiguration(target, dependencies);
+  if (!previous)
+    throw new ReviewConfigurationOperatorError(
+      ReviewConfigurationOperatorErrorCode.ConfigurationMissing,
+    );
   const previousRepositoryVersion =
     previous.source === "repository" ? previous.version : null;
   if (previousRepositoryVersion !== input.expectedCurrentVersion) {
@@ -269,8 +290,8 @@ export async function setOperatorReviewInvestigationRollout(
     saved = await dependencies.mutations.commit({
       target,
       expectedRevisionToken: previous.revisionToken,
-      config: {
-        ...previous.config,
+      policy: {
+        ...existingRepositoryOverrides(previous),
         investigationRollout: { ...input.investigationRollout },
       },
       auditEvent,
@@ -414,6 +435,15 @@ function repositoryTarget(repository: ReviewConfigurationOperatorRepository) {
   };
 }
 
+function existingRepositoryOverrides(previous: {
+  readonly source: "workspace" | "repository";
+  readonly policy: ReviewPolicyDocument;
+}): RepositoryReviewPolicyOverride {
+  return previous.source === "repository"
+    ? parseRepositoryReviewPolicyOverride(previous.policy)
+    : { schemaVersion: 3 };
+}
+
 function withReasoningEffort(
   config: ReviewConfiguration,
   effort: ReviewReasoningEffort,
@@ -438,7 +468,6 @@ function withReasoningEffort(
   return {
     ...config,
     providers,
-    provider: providerIndex === 0 ? providers[0]! : config.provider,
   };
 }
 

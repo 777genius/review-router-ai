@@ -1,3 +1,4 @@
+import { managedCodexWorkflowPath } from "@reviewrouter/shared";
 import {
   assertCanonicalCodexRotatingProviderId,
   type CodexRotatingProviderState,
@@ -196,7 +197,7 @@ export class InMemoryCodexRotatingOAuthRepository
       repositoryFullName: input.repository.fullName,
       githubRepositoryId: input.repository.githubRepositoryId,
       actionRef: `${input.repository.owner}/review-router@${input.workflowSha}`,
-      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowPath: managedCodexWorkflowPath,
       workflowSchemaVersion: input.workflowSchemaVersion,
     };
     return binding;
