@@ -50,16 +50,36 @@ export class OpenContextGatewaySession {
       return result(OpenContextGatewaySessionStatus.Denied, null);
     }
     const nowMs = this.dependencies.clock.nowMs();
+    if (
+      facts.sessionExpiresAtLimitMs !== undefined &&
+      (!Number.isSafeInteger(facts.sessionExpiresAtLimitMs) ||
+        facts.sessionExpiresAtLimitMs <= nowMs)
+    ) {
+      return result(OpenContextGatewaySessionStatus.Denied, null);
+    }
+    const { sessionLifetimeMs, sessionExpiresAtLimitMs, ...sessionFacts } =
+      facts;
     const session = activateGatewaySession(
       openGatewaySession({
         sessionId: this.dependencies.identities.nextGatewaySessionId(),
-        ...facts,
+        ...sessionFacts,
         openedAtMs: nowMs,
-        expiresAtMs: nowMs + facts.sessionLifetimeMs,
+        expiresAtMs: Math.min(
+          nowMs + sessionLifetimeMs,
+          sessionExpiresAtLimitMs ?? Number.MAX_SAFE_INTEGER,
+        ),
       }),
       nowMs,
     );
-    const persisted = await this.dependencies.store.openSession(session);
+    const persisted = await this.dependencies.store.openSession(
+      session,
+      facts.sessionExpiresAtLimitMs === undefined
+        ? undefined
+        : {
+            sessionLifetimeMs: facts.sessionLifetimeMs,
+            expiresAtLimitMs: facts.sessionExpiresAtLimitMs,
+          },
+    );
     switch (persisted.status) {
       case ContextAttestationPersistenceStatus.Created:
         return result(OpenContextGatewaySessionStatus.Opened, persisted.value);

@@ -520,7 +520,7 @@ async function openGateway(
     },
     store: d.store,
     identities: contextIdentities(d),
-    clock: { nowMs: () => d.now().getTime() },
+    clock: { nowMs: () => now.getTime() },
   });
   const outcome = await open.execute({
     attemptId: request.attemptId,
@@ -2265,6 +2265,10 @@ async function resolveOpeningFacts(input: {
     confinementProofHash,
     eventChainSeedHash: "0".repeat(64),
     sessionLifetimeMs: d.config.sessionLifetimeMs,
+    sessionExpiresAtLimitMs: Math.min(
+      authorization.expiresAt.getTime(),
+      snapshot.execution.executionDeadlineAt.getTime(),
+    ),
   });
 }
 
