@@ -1349,6 +1349,77 @@ export function createDisabledPersonalAccountsAdapter(input: {
     expectedGatewayRevision: c.revision.refine((v) => v > 0),
   });
   return {
+    async list(raw: { limit?: number; afterSourceId?: string } = {}) {
+      const page = z
+        .strictObject({
+          limit: z.number().int().min(1).max(100).default(25),
+          afterSourceId: c.reference.optional(),
+        })
+        .parse(raw);
+      const actorUserId = await input.authorizeUser();
+      const rows = await input.store.listOwnedSources({
+        actorUserId,
+        limit: page.limit + 1,
+        ...(page.afterSourceId === undefined
+          ? {}
+          : { afterSourceId: page.afterSourceId }),
+      });
+      if ((await input.authorizeUser()) !== actorUserId)
+        throw new ProviderAccountError("connection_unavailable");
+      const sources = rows.slice(0, page.limit).map((source) => ({
+        sourceId: source.id,
+        label: source.displayName,
+        profileId: source.profileRef,
+        state: source.state,
+        metadataRevision: source.metadataRevision,
+        sourceOperationPending: source.sourceOperationPending,
+      }));
+      return {
+        sources,
+        nextCursor:
+          rows.length > page.limit ? (sources.at(-1)?.sourceId ?? null) : null,
+      };
+    },
+    async revoke(
+      raw: z.input<typeof selection> & {
+        bindingId: string;
+        expectedBindingRevision: number;
+      },
+    ) {
+      const safe = selection
+        .extend({
+          bindingId: c.reference,
+          expectedBindingRevision: mirrorRevision,
+        })
+        .parse(raw);
+      const actorUserId = await input.authorizeUser();
+      // This seam is source-owner only, regardless of an actor's local admin
+      // rights. Local denial must work without a Gateway read or target role.
+      await input.store.findOwnedSource(actorUserId, safe.sourceId);
+      const personalWorkspaceId =
+        await input.store.resolvePersonalWorkspace(actorUserId);
+      if ((await input.authorizeUser()) !== actorUserId)
+        throw new ProviderAccountError("connection_unavailable");
+      const result = await input.store.revoke({
+        ...safe,
+        action: "revoke",
+        actorUserId,
+        personalWorkspaceId,
+        clientOperationId: safe.nonce,
+      });
+      if ((await input.authorizeUser()) !== actorUserId)
+        throw new ProviderAccountError("connection_unavailable");
+      const binding = result.binding;
+      const acknowledged =
+        binding?.state === "revoked" &&
+        binding.pendingFence === null &&
+        binding.fenceAck?.operationId === result.id &&
+        binding.fenceAck.policyRevision === binding.policyRevision;
+      return {
+        operation: view(result),
+        remoteFenceDelivery: acknowledged ? "remote_applied" : "remote_pending",
+      };
+    },
     async connect(
       raw: { nonce: string; profileId: string; label: string },
       credential?: string,

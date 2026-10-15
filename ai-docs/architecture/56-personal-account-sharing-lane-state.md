@@ -1,5 +1,86 @@
 # H personal sharing: состояние отдельной полосы
 
+## Current implementation checkpoint: 2026-10-15
+
+Status: **FOUNDATION_MERGED / INTERNAL_CATALOG_AND_REVOKE_PENDING / PUBLIC_H_OFF**.
+This section supersedes the historical implementation status below. Planning
+review receipts remain historical evidence, not runtime acceptance.
+
+- Source audited at `main` `429d8aac524a69e085c9c2ca16729bff1e1dd51e`.
+  [PR 514](https://github.com/777genius/review-router-ai/pull/514) published the
+  accepted H plan;
+  [PR 515](https://github.com/777genius/review-router-ai/pull/515) delivered C2a
+  stable User/personal-workspace identity and migration 000123;
+  [PR 516](https://github.com/777genius/review-router-ai/pull/516) integrated C1
+  consumer control;
+  [PR 518](https://github.com/777genius/review-router-ai/pull/518) delivered
+  disabled C2b personal operations, migration 000124, terminal personal binding
+  lifetimes and eligibility retirement;
+  [PR 566](https://github.com/777genius/review-router-ai/pull/566) added owner
+  deletion guards. These foundations are reused.
+- Installed Gateway SDK source pin is now
+  `28d6da0539fc7b879e3c2b9a955b7ef91ba4ecd1`, as recorded by the current vendor
+  artifact and README. The older 0d12/c086 receipts below describe historical
+  inputs. No new SDK or native implementation is required for the next slice.
+- The internal personal adapter currently exposes connect, operation readback,
+  OAuth completion and attach. The store already implements terminal revoke and
+  coordinated eligibility retirement. The prepared bounded checkpoint adds an
+  owner-filtered paged catalog and explicit source-owner revoke to that disabled
+  adapter, with honest pending-fence status and safe DTOs.
+- Public personal use remains denied by current account-use ownership policy and
+  Accounts bootstrap. C3 is incomplete: snapshot parsing and SQL 000120/000121
+  still accept version 1 only. The accepted v2 epoch pin and compatible new
+  migration must be implemented before personal configuration/run consumption.
+  Remaining work then includes canonical management propagation (C4), existing
+  Accounts/Models UX (C5), and assembled qualification plus H activation (C6).
+  No public H, runtime qualification or production deployment is accepted here.
+- Fresh isolated workstream `review-router/personal-sharing-20261015` was prepared
+  from verified complete Git bundle at exact 429d8aac, preserving the old H
+  controller and outputs. Current worker policy is MiMo `mimo-v2.6-pro`, thinking
+  enabled, default tier. The configured old MiMo route remains pinned to its
+  historical source and was not reset.
+- Job `mimo-rr-personal-sharing-20261015-catalog-revoke-w1` failed before provider
+  launch on the 5 GiB scratch floor; supported stop and `failed_no_output` custody
+  retained attempt `877349e8-f3e7-4c53-995a-d22fc7da4ed6`. W2 creation was denied
+  before a manifest/workspace existed. Successor W3 reached the executor but its
+  provider allocation again failed the scratch floor at 06:36 UTC, with clean
+  workspace and no authored changes. There is no model-produced H patch from
+  these attempts. Both now have supported `failed_no_output` custody and
+  technical review markers; no authored code was approved. W4 creation was
+  denied before any manifest/model launch: admission reports two unreadable
+  native authority roots (`hosted_research_launch_denied` for W1/W3), despite
+  the trusted initial-root operator context. No new Create is allowed until
+  the supported admission audit is clean.
+- Approved cleanup reclaimed 1,043,111,936 bytes of completed Action dependency
+  caches and 902,094,848 bytes in two unused reproducible source snapshots.
+  The independent canonical source, verified complete bundle, failed-job
+  workspaces, state, receipts and auth were preserved. Last measured scratch
+  availability after cleanup was 6,930,599,936 bytes; capacity is no longer the
+  observed admission blocker.
+- Following explicit Root direction, the local orchestrator implemented the
+  bounded disabled catalog / source-owner revoke checkpoint while MiMo remains
+  unavailable. This is local implementation provenance, not hosted completion.
+  An independent local source reviewer found a missing pre-commit session
+  recheck; it was fixed with a regression that asserts no binding, receipt or
+  fence mutation after a session switch. Corrected source review is approved;
+  hosted focused command checks now pass: provider source/test types, selected
+  Accounts types, and the real controlled SDK/HTTP + PostgreSQL 17.10 boundary
+  (one substantive case, 1.09 s) after all 128 current migrations. The fixture
+  retains immutable synthetic receipts and respects current deletion guards.
+  Exact-head CI remains required before component acceptance.
+- Parallel local C3 snapshot-v2/epoch/SQL compatibility and C5 gated Accounts /
+  Models UX work use separate external worktrees. Public personal use remains
+  disabled until the complete authorization, fencing and qualification batch.
+  MiMo workers resume only after an external runtime fix; do not bypass its
+  protected authority inspection guard or create another workstream.
+- Next: focused hosted command checks, reviewed component PR/current-head CI,
+  then continue C3–C6 including understandable frontend and real end-to-end
+  qualification. No first-checkpoint/full-H completion equivalence is claimed.
+  Norm53 remains unchanged at SHA256
+  `66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0`.
+
+## Historical 2026-10-06 planning and delivery receipts
+
 Task `review-router-account-gateway-v1-h-planner-v1`, 2026-10-06. **REVIEWED_PLAN / TWO_DISTINCT_FRESH_ROUNDS_COMPLETE / PUBLICATION_ONLY_ADAPTATION**. R1 единственный P1 исправлен, R2 APPROVE exacte51 без замечаний; MAIN fully read520 technical lines. Production implementation не начата; MAIN final publication integration read COMPLETE; две consistency правки внесены. Текущий D/E/F/G/E2E не блокируется H; Norm53 sole current contract.
 
 - Owned NEW files: `56-personal-account-organization-sharing-plan.md` и этот compact state. Только эти два untracked docs изменены; index/production/Norm53/другие документы не менялись. Source-only; no commits/PR/dependencies/tests/build/runtime/browser/provider/DB/fixtures/deploy/credentials/agent launches. Trusted orchestrator commits later.

@@ -22,6 +22,7 @@ import {
   assertExpectedRevision,
   assertOpaqueReference,
   assertExecutable,
+  type ConnectionState,
 } from "../../domain/provider-account";
 import {
   mapBinding,
@@ -92,6 +93,39 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
       });
       return workspace.id;
     });
+  }
+  async listOwnedSources(
+    input: Parameters<PersonalAccountOperationStore["listOwnedSources"]>[0],
+  ) {
+    // Capture primitive inputs before awaiting. This query never provisions P or
+    // materializes pending connects, and display is never execution authority.
+    const { actorUserId, limit, afterSourceId } = input;
+    assertOpaqueReference(actorUserId);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 101)
+      throw new ProviderAccountError("invalid_input");
+    if (afterSourceId !== undefined) assertOpaqueReference(afterSourceId);
+    const rows = await this.prisma.providerAccountConnection.findMany({
+      where: {
+        ownerUserId: actorUserId,
+        ownerWorkspaceId: null,
+        ...(afterSourceId === undefined ? {} : { id: { gt: afterSourceId } }),
+      },
+      orderBy: { id: "asc" },
+      take: limit,
+      select: {
+        id: true,
+        displayName: true,
+        profileRef: true,
+        state: true,
+        metadataRevision: true,
+        pendingSourceOperationId: true,
+      },
+    });
+    return rows.map(({ pendingSourceOperationId, ...source }) => ({
+      ...source,
+      state: source.state as ConnectionState,
+      sourceOperationPending: pendingSourceOperationId !== null,
+    }));
   }
   async findOwnedSource(actorUserId: string, sourceId: string) {
     assertOpaqueReference(actorUserId);
