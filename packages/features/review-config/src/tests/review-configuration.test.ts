@@ -480,6 +480,7 @@ describe("review configuration", () => {
       ): Promise<T>;
       reviewConfiguration: {
         upsert(): Promise<ConfigurationRow>;
+        findMany(): Promise<{ versions: { policyJson: string }[] }[]>;
         findUnique(): Promise<{ active: boolean; versions: VersionRow[] }>;
         update(input: {
           where: { id: string };
@@ -502,6 +503,7 @@ describe("review configuration", () => {
       active: true,
     };
     const versions: VersionRow[] = [];
+    const descendants: { versions: { policyJson: string }[] }[] = [];
     let transactionAttempts = 0;
     const prisma: PrismaStub = {
       $transaction: async <T>(
@@ -522,6 +524,7 @@ describe("review configuration", () => {
         });
       },
       reviewConfiguration: {
+        findMany: async () => descendants,
         upsert: async () => ({ ...configuration }),
         findUnique: async () => ({
           active: configuration.active,
@@ -641,6 +644,31 @@ describe("review configuration", () => {
     );
     expect(versions[0]?.investigationProductionEffectsEnabled).toBe(true);
     expect(transactionAttempts).toBe(2);
+    descendants.push({
+      versions: [
+        {
+          policyJson: JSON.stringify({
+            schemaVersion: 3,
+            execution: { providerLimit: 2 },
+          }),
+        },
+      ],
+    });
+    await expect(
+      repository.saveNextVersion({
+        target: { scope: "workspace", workspaceId: "workspace_1" },
+        expectedVersion: 1,
+        policy: workspacePolicyFixture,
+      }),
+    ).rejects.toThrow("review execution limits do not match providers");
+    expect(versions).toHaveLength(1);
+    const compatible = await repository.saveNextVersion({
+      target: { scope: "workspace", workspaceId: "workspace_1" },
+      expectedVersion: 1,
+      policy: { ...config, reviewLanguage: "ru" },
+    });
+    expect(compatible.version).toBe(2);
+    expect(compatible.config.reviewLanguage).toBe("ru");
   });
 
   it("requires workspace policy and resolves explicit repository overrides", async () => {

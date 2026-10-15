@@ -425,6 +425,33 @@ async function saveNextReviewConfigurationVersion(
       ? (policy as RepositoryReviewPolicyOverride)
       : null;
   const effective = resolveReviewPolicy(workspacePolicy, repositoryPolicy);
+  if (target.scope === "workspace") {
+    // The exclusive workspace guard also fences repository writers. Validate
+    // sparse descendants together before publishing their inherited policy.
+    const repositories = await prisma.reviewConfiguration.findMany({
+      where: {
+        workspaceId: target.workspaceId,
+        repositoryId: { not: null },
+        active: true,
+      },
+      select: {
+        versions: {
+          orderBy: { version: "desc" },
+          take: 1,
+          select: { policyJson: true },
+        },
+      },
+    });
+    for (const repository of repositories) {
+      const version = repository.versions[0];
+      if (version) {
+        resolveReviewPolicy(
+          workspacePolicy,
+          parseStoredPolicy("repository", version.policyJson),
+        );
+      }
+    }
+  }
   await assertGatewaySelections(
     prisma,
     target.workspaceId,
