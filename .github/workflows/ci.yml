@@ -54,17 +54,17 @@ env:
   REVIEW_ROUTER_PUBLIC_API_URL: https://api.reviewrouter.test
   REVIEW_ROUTER_ACTION_REF: 777genius/review-router@main
   REVIEW_ROUTER_ACTION_VERSION: main
-  REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: 777genius/review-router@66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
+  REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: 777genius/review-router@9428b431a4b6a3bb6dcdd789cde0cd67ed59dacb
   REVIEW_ROUTER_CODEX_ROTATING_ALLOWED_ACTION_REFS: ""
   # Public test fixture only; production uses one secret-manager value shared
   # by every database writer.
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
-  REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
-  REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
-  REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
+  REVIEW_ROUTER_PAIRED_ACTION_REF: 9428b431a4b6a3bb6dcdd789cde0cd67ed59dacb
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.176
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 9428b431a4b6a3bb6dcdd789cde0cd67ed59dacb
+  REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 421d75c8f08b2e5e35305febaf5dd2a786bb822ca64e42810a7cfda23ba206fc
   REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: "0"
   REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING: "0"
   REVIEW_ROUTER_PG_DUMP: /usr/lib/postgresql/17/bin/pg_dump
@@ -1126,6 +1126,21 @@ jobs:
         env:
           REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
         run: pnpm review-investigation:paired-e2e
+
+      - name: Captured personal agent authority to actual paired Action parser
+        env:
+          PGPASSWORD: postgres
+          REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
+          RR_H_PERSONAL_CONSUMPTION_PG_TEST: "1"
+          RR_C2C_PG_TEST: "1"
+          RR_C2C_MIGRATED_DISPOSABLE_DATABASE: "1"
+          RR_C2C_PG_TEST_URL: postgresql://postgres@127.0.0.1:5433/rr_gateway_test_c2c_agent_profile_ci
+        run: |
+          set -euo pipefail
+          createdb -h 127.0.0.1 -p 5433 -U postgres rr_gateway_test_c2c_agent_profile_ci
+          DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5433/rr_gateway_test_c2c_agent_profile_ci \
+            pnpm --filter @reviewrouter/platform-db db:migrate:deploy
+          pnpm exec vitest run apps/api/src/personal-runtime-snapshot.postgres.test.ts
 
       - name: Record paired Action release gate
         shell: bash

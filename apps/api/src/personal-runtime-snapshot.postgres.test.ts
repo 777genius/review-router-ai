@@ -1,5 +1,6 @@
 import { switchRepositoryConfigurationAuthMode } from "../../../packages/features/workflow-provisioning/src/infrastructure/prisma/prisma-hosted-pool-configuration";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { createPrismaClient } from "@reviewrouter/platform-db";
 import {
@@ -18,14 +19,25 @@ import {
 import {
   canonicalJson,
   createProducerRelease,
+  parseReviewAgentProfiles,
+  ReviewRunAuthorizationTokenResolutionStatus,
   type ReviewAgentProfile,
   type ReviewRunAuthorizationCandidate,
   type ReviewRunRuntimeSnapshot,
 } from "@reviewrouter/features-review-run-control";
+import {
+  canonicalCodexRotatingProviderId,
+  CodexRotatingT0WorkflowSchemaVersion,
+} from "@reviewrouter/features-codex-oauth-rotating";
 import { PrismaProducerReleaseRepository } from "../../../packages/features/review-run-control/src/infrastructure/prisma/prisma-producer-release-repository";
 import { createReviewActionV2E2EHarness } from "../../../scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness";
 import { composeReviewActionV2ProductionRunControl } from "./review-action-v2-production-composition";
 import { ProductionReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
+import { createReviewRunGatewayCheckout } from "./review-run-gateway-checkout";
+import {
+  assertActualPairedActionSource,
+  parseActualPairedRuntimeConfig,
+} from "./paired-agent-profile-contract.test-support";
 
 function disposableDatabase() {
   // Reuse the existing migrated C2c fixture cluster. No ambient DATABASE_URL,
@@ -313,6 +325,181 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           agentProfileDigest: agentDigest(approvedAgent),
         });
         expect(agentPin.gateway.expectedAuthorizationEpoch).toBe(7);
+        const pairedActionRoot = process.env.REVIEW_ROUTER_ACTION_SOURCE_DIR;
+        if (pairedActionRoot) {
+          assertActualPairedActionSource(pairedActionRoot);
+          const actionSha = execFileSync(
+            "git",
+            ["-C", pairedActionRoot, "rev-parse", "HEAD"],
+            { encoding: "utf8" },
+          ).trim();
+          const actionFile = (path: string) =>
+            execFileSync(
+              "git",
+              ["-C", pairedActionRoot, "show", `${actionSha}:${path}`],
+              { maxBuffer: 16 * 1024 * 1024 },
+            );
+          expect(
+            execFileSync(
+              "git",
+              [
+                "-C",
+                pairedActionRoot,
+                "ls-tree",
+                actionSha,
+                "--",
+                "dist/index.js",
+              ],
+              { encoding: "utf8" },
+            ),
+          ).toMatch(/^100644 blob [a-f0-9]{40}\t/);
+          const roster = parseReviewAgentProfiles(
+            JSON.parse(
+              actionFile(
+                "src/control-plane/review-agent-profiles.json",
+              ).toString("utf8"),
+            ),
+          );
+          const actualAgent = roster.find(
+            (agent) => agent.profileRef === "codex-default",
+          );
+          if (
+            !actualAgent ||
+            !actualAgent.modelTransports.includes("account_gateway")
+          )
+            throw new Error("actual_paired_gateway_profile_missing");
+          const pairedRelease = createProducerRelease(
+            {
+              ...legacyProducer,
+              producerReleaseId: `${prefix}-actual-paired-producer`,
+              actionCommitSha: actionSha,
+              runtimeCommitSha: actionSha,
+              runtimeEntrypointDigest: createHash("sha256")
+                .update(actionFile("dist/index.js"))
+                .digest("hex"),
+              // This narrow fixture does not attest investigation/context artifacts.
+              contextGatewayPolicyVersion: null,
+              contextGatewayEntrypointDigest: null,
+              reviewInvestigationProfile: null,
+              agentProfiles: roster,
+            },
+            new Date(),
+          );
+          expect(
+            (await producers.registerProducerRelease(pairedRelease)).status,
+          ).toBe("created");
+          const pairedSnapshots = new ProductionReviewRunRuntimeSnapshot(
+            db,
+            { profiles: [{ profileRef: profile, limits }] },
+            undefined,
+            true,
+            actualAgent.profileRef,
+          );
+          const pairedPin = await pairedSnapshots.capture({
+            identity: run,
+            deadline: run.maxExpiresAt,
+            producerRelease: pairedRelease,
+          });
+          if (
+            !pairedPin ||
+            pairedPin.snapshotVersion !== 2 ||
+            !pairedPin.agentAuthority
+          )
+            throw new Error("actual_paired_personal_v2_missing");
+          expect(pairedPin.gateway.expectedAuthorizationEpoch).toBe(7);
+          expect(pairedPin.agentAuthority.agent).toEqual(actualAgent);
+          const pairedAuth = {
+            ...run,
+            producerReleaseId: pairedRelease.producerReleaseId,
+            runtimeSnapshotCanonicalJson: canonicalJson(pairedPin),
+          };
+          const current = () =>
+            pairedSnapshots.isLive({
+              snapshot: pairedPin,
+              producerReleaseId: pairedAuth.producerReleaseId,
+              identity: pairedAuth,
+              now: new Date(),
+            });
+          let confirmations = 0;
+          const checkout = createReviewRunGatewayCheckout({
+            authorizations: {
+              resolveReviewRunAuthorizationToken: async () => ({
+                status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+                authorization: pairedAuth,
+              }),
+            },
+            bindings: {
+              read: async (owner) => {
+                expect(owner.runtimeSnapshotCanonicalJson).toBe(
+                  pairedAuth.runtimeSnapshotCanonicalJson,
+                );
+                return (await current())
+                  ? { status: "live", binding: null }
+                  : { status: "denied" };
+              },
+              attach: async () => ({ status: "denied" }),
+            },
+            resolveRepository: async () => ({
+              githubInstallationId: "123456",
+              githubRepositoryId: "987654321",
+              repositoryFullName: "fixture/paired-agent-profile",
+            }),
+            confirmAuthority: async () => {
+              confirmations++;
+              return current();
+            },
+            issuer: {
+              issueContentsReadToken: async () => ({
+                token: "synthetic-scm-read-token",
+                expiresAt: run.maxExpiresAt,
+                permissions: { contents: "read", pullRequests: "read" },
+              }),
+            },
+            maxInFlight: 1,
+            timeoutMs: 1000,
+          });
+          const exported = await checkout.issue(
+            "synthetic-run-token",
+            new AbortController().signal,
+            {
+              providerInstanceId: canonicalCodexRotatingProviderId("987654321"),
+              workflowSchemaVersion:
+                CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2,
+            },
+          );
+          expect(confirmations).toBe(2);
+          const parsed = await parseActualPairedRuntimeConfig(
+            exported.runtimeConfig,
+            pairedActionRoot,
+          );
+          expect(parsed.runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON).toBe(
+            canonicalJson(actualAgent),
+          );
+          expect(parsed.runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_DIGEST).toBe(
+            agentDigest(actualAgent),
+          );
+          const runtimeEnv = { ...exported.runtimeConfig.runtimeEnv };
+          delete runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON;
+          delete runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_DIGEST;
+          await expect(
+            parseActualPairedRuntimeConfig(
+              { ...exported.runtimeConfig, runtimeEnv },
+              pairedActionRoot,
+            ),
+          ).rejects.toThrow();
+          await expect(
+            parseActualPairedRuntimeConfig(
+              {
+                ...exported.runtimeConfig,
+                runtimeEnv: {
+                  ...exported.runtimeConfig.runtimeEnv,
+                  REVIEW_ROUTER_AGENT_PROFILE_DIGEST: "0".repeat(64),
+                },
+              },
+              pairedActionRoot,
+            ),
+          ).rejects.toThrow();
+        }
         const agentLive = (
           snapshot: ReviewRunRuntimeSnapshot,
           producerReleaseId = agentRelease.producerReleaseId,
