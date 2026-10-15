@@ -136,3 +136,22 @@ describe("current policy overrides", () => {
     ).toThrow();
   });
 });
+
+it("preserves the Gateway request ceiling independently of the selected model", () => {
+  const config = parseReviewConfiguration({
+    ...baseInput,
+    providers: [
+      {
+        kind: "codex",
+        authMode: "codex_account_gateway",
+        model: "mimo-v2.6-pro",
+        reasoningEffort: "high",
+        agenticContext: true,
+        fastMode: false,
+        gatewayBindingId: "binding",
+        gatewayProfileRef: "responses",
+      },
+    ],
+  });
+  expect(mapConfigToRuntimeEnv(config).RUN_TIMEOUT_SECONDS).toBe("3600");
+});

@@ -317,6 +317,7 @@ async function findLatestReviewConfigurationsForRepositories(
   );
   return repositoryIds.flatMap((repositoryId) => {
     const repository = repositoryByVersion.get(repositoryId) ?? null;
+    if (!repository) return [];
     const persisted = composePersistedConfiguration(workspace, repository);
     return persisted ? [{ repositoryId, config: persisted }] : [];
   });

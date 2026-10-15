@@ -1,8 +1,8 @@
+import { workspacePolicyFixture } from "./current-policy-fixture";
 import { describe, expect, it, vi } from "vitest";
 import {
   findRepositoryReviewConfigurations,
   PrismaReviewConfigurationRepository,
-  safeDefaultReviewConfiguration,
   type PersistedReviewConfiguration,
   type ReviewConfigurationBatchReaderPort,
 } from "../index";
@@ -12,7 +12,12 @@ describe("findRepositoryReviewConfigurations", () => {
     const saved = {
       version: 4,
       revisionToken: "db:version_4",
-      config: safeDefaultReviewConfiguration,
+      config: workspacePolicyFixture,
+      policy: { schemaVersion: 3 },
+      source: "repository",
+      workspaceVersion: 1,
+      repositoryVersion: 4,
+      effectivePolicyDigest: "a".repeat(64),
     } satisfies PersistedReviewConfiguration;
     const findLatestForRepositories = vi.fn(
       async (): ReturnType<
@@ -54,7 +59,7 @@ describe("findRepositoryReviewConfigurations", () => {
 });
 
 describe("PrismaReviewConfigurationRepository batch reads", () => {
-  it("loads latest revisions and provider rows for all unique IDs in one query", async () => {
+  it("loads latest revisions and provider rows for all unique IDs with one workspace read and one bounded repository query", async () => {
     const findMany = vi.fn(async () => [
       {
         repositoryId: "repository_2",
@@ -76,8 +81,19 @@ describe("PrismaReviewConfigurationRepository batch reads", () => {
       },
       { repositoryId: "repository_missing", versions: [] },
     ]);
+    const findUnique = vi.fn(async () => ({
+      active: true,
+      repositoryId: null,
+      versions: [
+        {
+          version: 1,
+          schemaVersion: 3,
+          policyJson: JSON.stringify(workspacePolicyFixture),
+        },
+      ],
+    }));
     const repository = new PrismaReviewConfigurationRepository({
-      reviewConfiguration: { findMany },
+      reviewConfiguration: { findMany, findUnique },
     } as never);
 
     await expect(
@@ -90,7 +106,7 @@ describe("PrismaReviewConfigurationRepository batch reads", () => {
         repositoryId: "repository_2",
         config: expect.objectContaining({
           version: 7,
-          revisionToken: "db:version_7",
+          revisionToken: expect.stringMatching(/^policy:1:7:/),
           config: expect.objectContaining({
             providers: [
               expect.objectContaining({ model: "gpt-5.6-sol" }),
@@ -102,6 +118,7 @@ describe("PrismaReviewConfigurationRepository batch reads", () => {
         }),
       }),
     ]);
+    expect(findUnique).toHaveBeenCalledOnce();
     expect(findMany).toHaveBeenCalledOnce();
     expect(findMany).toHaveBeenCalledWith({
       where: {
@@ -125,6 +142,39 @@ describe("PrismaReviewConfigurationRepository batch reads", () => {
           }),
         }),
       },
+    });
+  });
+
+  it("keeps database reads bounded for 1000 repositories without creating overrides", async () => {
+    const findUnique = vi.fn(async () => ({
+      active: true,
+      repositoryId: null,
+      versions: [
+        {
+          version: 1,
+          schemaVersion: 3,
+          policyJson: JSON.stringify(workspacePolicyFixture),
+        },
+      ],
+    }));
+    const findMany = vi.fn(async (_input: unknown) => []);
+    const repository = new PrismaReviewConfigurationRepository({
+      reviewConfiguration: { findUnique, findMany },
+    } as never);
+    const repositoryIds = Array.from(
+      { length: 1000 },
+      (_, index) => `repository_${index}`,
+    );
+    await expect(
+      repository.findLatestForRepositories({
+        workspaceId: "workspace_1",
+        repositoryIds,
+      }),
+    ).resolves.toEqual([]);
+    expect(findUnique).toHaveBeenCalledOnce();
+    expect(findMany).toHaveBeenCalledOnce();
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { repositoryId: { in: repositoryIds } },
     });
   });
 
@@ -169,7 +219,22 @@ function versionRow(input: {
   return {
     id: input.id,
     version: input.version,
-    schemaVersion: 2,
+    schemaVersion: 3,
+    policyJson: JSON.stringify({
+      schemaVersion: 3,
+      providers: input.providers.map(
+        ({ providerKind: kind, providerAuthMode: authMode, ...provider }) => ({
+          kind,
+          authMode,
+          ...provider,
+        }),
+      ),
+      execution: {
+        providerLimit: input.providers.length,
+        providerMaxParallel: input.providers.length,
+        inlineMinAgreement: 1,
+      },
+    }),
     providerKind: input.providers[0]!.providerKind,
     providerAuthMode: input.providers[0]!.providerAuthMode,
     model: input.providers[0]!.model,
