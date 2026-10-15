@@ -13,6 +13,7 @@
   "dependencies": {
     "@reviewrouter/features-codex-oauth-rotating": "workspace:*",
     "@reviewrouter/features-review-providers": "workspace:*",
+    "@reviewrouter/shared": "workspace:*",
     "zod": "^4.4.2"
   },
   "scripts": {

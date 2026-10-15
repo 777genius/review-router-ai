@@ -798,6 +798,9 @@ importers:
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../review-providers
+      '@reviewrouter/shared':
+        specifier: workspace:*
+        version: link:../../shared
       zod:
         specifier: ^4.4.2
         version: 4.4.2
