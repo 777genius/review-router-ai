@@ -407,6 +407,12 @@ export function dashboardErrorText(error: string): string {
       return "Another setup or sync operation is already running. Try again shortly.";
     case "rate_limited":
       return "Too many dashboard requests for this resource. Wait a bit before retrying.";
+    case "review_policy_resave_required":
+      return "Saved review policy uses a retired or unreadable format and reviews are stopped. Review and save the policy explicitly, or remove the repository override to inherit workspace settings.";
+    case "review_workspace_policy_required":
+      return "Save workspace review settings before enabling reviews.";
+    case "workflow_delete_untrusted":
+      return "A ReviewRouter workflow belongs to another active mode (GitHub Secrets/Hosted Pool) or was edited; it is not removed automatically. Disconnect that mode or remove the file, then retry.";
     case "invalid_form":
       return "The submitted form is invalid. Refresh the dashboard and try again.";
     case "dashboard_action_failed":

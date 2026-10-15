@@ -119,6 +119,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     input: {
       readonly identity: VerifiedScmRunIdentity;
       readonly deadline: Date;
+      readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
       readonly producerRelease: Parameters<
         ReviewRunRuntimeSnapshotPort["capture"]
       >[0]["producerRelease"];
@@ -127,6 +128,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
   ): Promise<ReviewRunRuntimeSnapshot | null> {
     // Retain primitives across all reads; never retain the caller's nested identity.
     const identity = { ...input.identity };
+    const modelTransport = input.modelTransport;
     const deadline = new Date(input.deadline).toISOString();
     const producer = {
       producerReleaseId: input.producerRelease.producerReleaseId,
@@ -137,13 +139,27 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     const agentProfiles = parseReviewAgentProfiles(
       input.producerRelease.agentProfiles,
     );
-    const current = await this.repositories.findRuntimeReviewConfiguration(
-      {
-        workspaceId: identity.workspaceId,
-        repositoryId: identity.repositoryConnectionId,
-      },
-      reader,
-    );
+    let current: Awaited<
+      ReturnType<
+        PrismaActionControlPlaneRepository["findRuntimeReviewConfiguration"]
+      >
+    >;
+    try {
+      current = await this.repositories.findRuntimeReviewConfiguration(
+        {
+          workspaceId: identity.workspaceId,
+          repositoryId: identity.repositoryConnectionId,
+        },
+        reader,
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "review_policy_resave_required"
+      )
+        return null;
+      throw error;
+    }
     if (!current || current.workspaceVersion === null) return null;
     let configuration: ReviewConfiguration;
     try {
@@ -163,18 +179,14 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       agent = selectReviewAgentProfile(
         agentProfiles,
         this.agentProfileRef,
-        selected ? "account_gateway" : "provider_api",
+        modelTransport,
       );
       const transports = configuration.providers.map((provider) =>
         provider.authMode === "codex_account_gateway"
           ? ("account_gateway" as const)
           : ("provider_api" as const),
       );
-      if (
-        transports.some(
-          (transport) => !agent.modelTransports.includes(transport),
-        )
-      )
+      if (transports.some((transport) => transport !== modelTransport))
         return null;
     } catch {
       return null;
@@ -385,6 +397,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       const current = await this.capture(
         {
           identity: candidate,
+          modelTransport: original.gateway ? "account_gateway" : "provider_api",
           deadline: candidate.maxExpiresAt,
           producerRelease: {
             ...producer,

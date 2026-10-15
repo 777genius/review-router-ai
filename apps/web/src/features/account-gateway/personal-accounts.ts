@@ -108,9 +108,12 @@ export type PersonalAccountsBootstrap = {
 export function personalAccountOriginText(account: {
   label: string;
   origin?: "organization" | "personal" | "operator";
+  isOwnedByViewer?: boolean;
 }): string | null {
   return account.origin === "personal"
-    ? "Shared personal account"
+    ? account.isOwnedByViewer === true
+      ? "Your personal account"
+      : "Shared personal account"
     : account.origin === "organization"
       ? "Organization account"
       : account.origin === "operator"

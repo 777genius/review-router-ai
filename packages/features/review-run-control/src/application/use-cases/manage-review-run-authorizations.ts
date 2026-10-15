@@ -2,6 +2,7 @@ import { parseReviewRunRuntimeSnapshot } from "../../domain/review-run-runtime-s
 import type { ReviewRunRuntimeSnapshotPort } from "../ports/review-run-runtime-snapshot-port";
 import { tokenClaimsMatchAuthorization } from "./token-claims-match-authorization";
 import type { ProducerRelease } from "../../domain/producer-release";
+import type { ReviewAgentProfile } from "../../domain/review-agent-profile";
 import type {
   ReviewRunAuthorization,
   ReviewRunRevision,
@@ -151,6 +152,7 @@ export class ManageReviewRunAuthorizations {
 
   async authorizeReviewRun(input: {
     readonly verifiedIdentity: VerifiedScmRunIdentity;
+    readonly modelTransport?: ReviewAgentProfile["modelTransports"][number];
     readonly producerReleaseId: string;
     readonly expectedBaseProducerRelease?: ProducerRelease;
     readonly protocolOfferHash: string;
@@ -162,6 +164,8 @@ export class ManageReviewRunAuthorizations {
     readonly authorizationTtlMs: number;
     readonly maxAuthorizationLifetimeMs: number;
   }): Promise<ReviewRunAuthorizationUseCaseResult> {
+    if (this.dependencies.runtimeSnapshots && !input.modelTransport)
+      return denied(ReviewRunAuthorizationDenialReason.AdmissionFactsChanged);
     assertPositiveInteger(input.authorizationTtlMs, "authorization_ttl_ms");
     assertPositiveInteger(
       input.maxAuthorizationLifetimeMs,
@@ -210,6 +214,7 @@ export class ManageReviewRunAuthorizations {
       );
       const captured = await this.dependencies.runtimeSnapshots.capture({
         identity: verifiedIdentity,
+        modelTransport: input.modelTransport!,
         producerRelease: eligibility.release,
         deadline:
           gatewayMaxExpiresAt > now ? gatewayMaxExpiresAt : maxExpiresAt,

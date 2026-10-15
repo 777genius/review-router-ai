@@ -1,5 +1,7 @@
 "use server";
 
+import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
+
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import { resolveReviewPolicy } from "@reviewrouter/features-review-config";
 
@@ -1578,21 +1580,19 @@ async function confirmSetupPullRequestMergedMutation(
         )
       : null;
     const setupPullRequestStatus = setupPullRequestInspection?.status ?? null;
-    // Migrated PRs have no immutable head binding. They must independently
-    // verify the installed workflow before using the fenced recovery path.
+    // Missing or changed PR heads cannot establish the original artifact.
+    // Recover only through independent installed-workflow verification and CAS.
     const historicalMergedSetupPullRequest =
       setupPullRequestInspection?.merged === true &&
-      setupProvisioning?.pullRequestHeadSha === null;
+      (setupProvisioning?.pullRequestHeadSha === null ||
+        (setupPullRequestStatus === "merged" &&
+          setupProvisioning?.pullRequestHeadSha !==
+            setupPullRequestInspection.headSha));
     const setupPullRequestMerged =
       setupPullRequestStatus === "merged" &&
-      setupProvisioning?.pullRequestHeadSha != null;
-    if (
-      setupPullRequestMerged &&
-      (!setupProvisioning?.pullRequestHeadSha ||
-        setupProvisioning.pullRequestHeadSha !==
-          setupPullRequestInspection?.headSha)
-    )
-      throw new Error("workflow_provisioning_match_not_found");
+      setupProvisioning?.pullRequestHeadSha != null &&
+      setupProvisioning.pullRequestHeadSha ===
+        setupPullRequestInspection?.headSha;
     const setupBaseBranch = historicalMergedSetupPullRequest
       ? repository.defaultBranch
       : (setupPullRequestInspection?.baseBranch ??
@@ -2990,11 +2990,17 @@ async function saveRepositoryReviewConfigMutation(
       prisma,
       process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
     );
+    const heads = await readReviewPolicyHeadVersions(prisma, workspaceId);
     const workspace = await configurations.findLatest({
       scope: "workspace",
       workspaceId,
     });
-    if (!workspace) throw new Error("review_workspace_policy_required");
+    if (!workspace)
+      throw new Error(
+        heads.get("workspace:default") != null
+          ? "review_policy_resave_required"
+          : "review_workspace_policy_required",
+      );
     const policy = readRepositoryReviewPolicyForm(formData);
     const config = resolveReviewPolicy(workspace.config, policy);
     assertCodexProductionReviewConfigAllowed(config);
@@ -3118,7 +3124,12 @@ async function clearRepositoryReviewConfigMutation(
     });
 
     const cleared = await clearReviewConfiguration(
-      { scope: "repository", workspaceId, repositoryId },
+      {
+        scope: "repository",
+        workspaceId,
+        repositoryId,
+        expectedVersion: readReviewPolicyExpectedVersion(formData),
+      },
       {
         configurations: new PrismaReviewConfigurationRepository(prisma),
       },
@@ -3788,6 +3799,11 @@ async function loadResolvedReviewRuntime(input: {
   readonly repositoryId: string;
 }): Promise<ResolvedReviewRuntimeEnv> {
   const configurations = new PrismaReviewConfigurationRepository(input.prisma);
+  const heads = await readReviewPolicyHeadVersions(
+    input.prisma,
+    input.workspaceId,
+    [input.repositoryId],
+  );
   const runtime = await resolveReviewRuntimeEnv(
     {
       scope: "repository",
@@ -3795,7 +3811,16 @@ async function loadResolvedReviewRuntime(input: {
       repositoryId: input.repositoryId,
     },
     { configurations },
-  );
+  ).catch((error: unknown) => {
+    if (
+      error instanceof Error &&
+      error.message === "review_workspace_policy_required" &&
+      heads.get("workspace:default") != null
+    ) {
+      throw new Error("review_policy_resave_required");
+    }
+    throw error;
+  });
   return runtime;
 }
 

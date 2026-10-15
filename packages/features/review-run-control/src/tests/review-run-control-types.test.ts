@@ -102,6 +102,7 @@ describe("private runtime snapshot epoch pin", () => {
     for (const patch of [
       { gateway: { ...original.gateway, limits: undefined } },
       { snapshotVersion: 2 },
+      { snapshotVersion: "3" },
       { snapshotVersion: 1 }, // a v1 row cannot smuggle in the epoch field
     ])
       expect(() =>

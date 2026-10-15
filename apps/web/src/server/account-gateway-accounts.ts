@@ -63,6 +63,8 @@ export type AccountProfileView = {
 };
 export type AccountView = {
   origin?: "organization" | "personal" | "operator";
+  // Display-only identity fact; never permission to manage a shared source.
+  isOwnedByViewer?: boolean;
   canManage?: boolean;
   connectionId: string;
   label: string;

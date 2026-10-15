@@ -9,6 +9,30 @@ import {
 } from "./dashboard-action-form-readers";
 
 describe("dashboard action form readers", () => {
+  it("does not validate unused provider drafts when saving sparse inherited providers", () => {
+    const form = new FormData();
+    for (const field of repositoryPolicyFormFields)
+      form.set(`policyMode.${field.join(".")}`, "inherit");
+    form.set("policyMode.limits.inlineMaxComments", "override");
+    form.set("inlineMaxComments", "0");
+    form.set(
+      "policyMode.investigationRollout.productionEffectsEnabled",
+      "override",
+    );
+    form.set("investigationRollout.productionEffectsEnabled", "false");
+    form.set("providerCount", "1");
+    form.set("providerAuthMode.0", "invalid-unused-provider");
+    expect(readRepositoryReviewPolicyForm(form)).toEqual({
+      schemaVersion: 3,
+      limits: { inlineMaxComments: 0 },
+      investigationRollout: { productionEffectsEnabled: false },
+    });
+    form.set("policyMode.providers", "override");
+    expect(() => readRepositoryReviewPolicyForm(form)).toThrow(
+      "invalid_form_value:providerAuthMode.0",
+    );
+  });
+
   it("requires an explicit CAS version or create-only intent", () => {
     const form = new FormData();
     expect(() => readReviewPolicyExpectedVersion(form)).toThrow();

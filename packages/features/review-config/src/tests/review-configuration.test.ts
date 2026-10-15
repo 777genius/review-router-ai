@@ -805,8 +805,19 @@ describe("review configuration", () => {
       source: "repository",
       config: { providers: [{ model: "gpt-5.4-mini" }] },
     });
+    const history = new Map(configurations.versions);
+    const current = await configurations.findLatest(repositoryTarget);
     await expect(
-      clearReviewConfiguration(repositoryTarget, { configurations }),
+      clearReviewConfiguration(
+        { ...repositoryTarget, expectedVersion: current!.version + 1 },
+        { configurations },
+      ),
+    ).rejects.toMatchObject({ code: "review_configuration_write_conflict" });
+    await expect(
+      clearReviewConfiguration(
+        { ...repositoryTarget, expectedVersion: current!.version },
+        { configurations },
+      ),
     ).resolves.toBe(true);
     await expect(
       resolveReviewConfiguration(repositoryTarget, { configurations }),
@@ -817,6 +828,7 @@ describe("review configuration", () => {
     await expect(
       clearReviewConfiguration(repositoryTarget, { configurations }),
     ).resolves.toBe(false);
+    expect(configurations.versions).toEqual(history);
   });
 });
 

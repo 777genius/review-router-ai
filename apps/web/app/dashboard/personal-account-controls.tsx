@@ -32,6 +32,12 @@ const keys = {
 };
 const noncePattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+type PairContext = { sourceId: string; workspaceId: string };
+function workspaceKey(): string {
+  return typeof window === "undefined"
+    ? ""
+    : (new URL(window.location.href).searchParams.get("workspace") ?? "");
+}
 function errorText(status: string) {
   return status === "conflict"
     ? "This selection changed. Refresh and confirm a new selection."
@@ -90,6 +96,11 @@ function PersonalControls({
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [message, setMessage] = useState("");
+  const [pairs, setPairs] = useState<
+    Record<string, PairContext & { viewKey: string }>
+  >({});
+  const currentWorkspace = workspaceKey();
+  useEffect(() => setPairs({}), [currentWorkspace]);
   const storageKey = `rr-personal-account-operations:${bootstrap.scope}`;
   const mutation = useMutation({
     mutationKey: ["personal-accounts", bootstrap.scope, "mutation"] as const,
@@ -181,6 +192,7 @@ function PersonalControls({
   }
   async function run(
     call: (nonce: string) => ReturnType<PersonalAccountsApi["attach"]>,
+    pair: PairContext,
   ) {
     let nonce: string;
     try {
@@ -191,6 +203,12 @@ function PersonalControls({
       );
       return;
     }
+    // Keep only opaque intent references in this mounted view, never labels in
+    // session storage. Names are resolved through current authorized queries.
+    setPairs((prior) => ({
+      ...prior,
+      [nonce]: { ...pair, viewKey: currentWorkspace },
+    }));
     let result: PersonalAccountsResult<PersonalMutationReceipt>;
     try {
       result = await call(nonce);
@@ -232,18 +250,20 @@ function PersonalControls({
           const predecessor = target.predecessors?.find(
             (row) => row.sourceId === source.sourceId,
           );
-          await run((nonce) =>
-            mutation.mutateAsync({
-              kind: "attach",
-              intent: {
-                nonce,
-                sourceId: source.sourceId,
-                targetWorkspaceId: target.workspaceId,
-                expectedSourceMetadataRevision: source.metadataRevision,
-                predecessorBindingId: predecessor?.bindingId ?? null,
-                expectedPredecessorRevision: predecessor?.revision ?? null,
-              },
-            }),
+          await run(
+            (nonce) =>
+              mutation.mutateAsync({
+                kind: "attach",
+                intent: {
+                  nonce,
+                  sourceId: source.sourceId,
+                  targetWorkspaceId: target.workspaceId,
+                  expectedSourceMetadataRevision: source.metadataRevision,
+                  predecessorBindingId: predecessor?.bindingId ?? null,
+                  expectedPredecessorRevision: predecessor?.revision ?? null,
+                },
+              }),
+            { sourceId: source.sourceId, workspaceId: target.workspaceId },
           );
         }
       await refresh(selected.map((source) => source.sourceId));
@@ -257,18 +277,20 @@ function PersonalControls({
     busyRef.current = true;
     setBusy(true);
     try {
-      await run((nonce) =>
-        mutation.mutateAsync({
-          kind: "revoke",
-          intent: {
-            nonce,
-            sourceId: source.sourceId,
-            targetWorkspaceId: grant.targetWorkspaceId,
-            expectedSourceMetadataRevision: source.metadataRevision,
-            bindingId: grant.bindingId,
-            expectedBindingRevision: grant.revision,
-          },
-        }),
+      await run(
+        (nonce) =>
+          mutation.mutateAsync({
+            kind: "revoke",
+            intent: {
+              nonce,
+              sourceId: source.sourceId,
+              targetWorkspaceId: grant.targetWorkspaceId,
+              expectedSourceMetadataRevision: source.metadataRevision,
+              bindingId: grant.bindingId,
+              expectedBindingRevision: grant.revision,
+            },
+          }),
+        { sourceId: source.sourceId, workspaceId: grant.targetWorkspaceId },
       );
       await refresh([source.sourceId]);
     } finally {
@@ -296,20 +318,17 @@ function PersonalControls({
       aria-labelledby="personal-accounts-title"
     >
       <div>
-        <h3
-          id="personal-accounts-title"
-          className="text-lg font-semibold text-cyan-50"
-        >
-          My personal accounts
-        </h3>
+        <h4 id="personal-accounts-title" className="font-medium text-cyan-50">
+          Share with organizations
+        </h4>
         <p className="mt-2 text-sm text-slate-400">
-          Choose your accounts to share with organizations you administer. Each
-          organization uses the same connection, name, authentication and
-          account capacity. Sharing does not add capacity.
+          Select your accounts, then choose the organizations that can use them.
+          After sharing, choose the account in that organization's Models
+          settings to use it for reviews.
         </p>
         <p className="mt-2 text-sm text-slate-400">
-          Organization accounts remain separate. Removing one organization's
-          access preserves your personal use and other organizations' access.
+          Removing one organization's access keeps your personal account and its
+          other uses. Accounts owned by an organization remain separate.
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
@@ -461,6 +480,12 @@ function PersonalControls({
               scope={bootstrap.scope}
               nonce={nonce}
               api={api}
+              sources={sourceFailure || sources.isError ? [] : sourceRows}
+              pair={
+                pairs[nonce]?.viewKey === currentWorkspace
+                  ? pairs[nonce]
+                  : undefined
+              }
               dismiss={() => {
                 try {
                   const next = nonces.filter((value) => value !== nonce);
@@ -549,9 +574,9 @@ function ShareDialog({
             Share with organizations
           </Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-slate-400">
-            Select organizations where you are an owner or admin. Your canonical
-            account name will be visible there. Each account and organization is
-            processed separately.
+            Select organizations where you are an owner or admin. Your account
+            name will be visible there. Each account and organization is
+            processed separately; check each result below.
           </Dialog.Description>
           <div className="my-4 max-h-72 space-y-3 overflow-y-auto">
             {organizations.isPending ? (
@@ -671,10 +696,12 @@ function OwnGrants({
         Organization access to {source.label}
       </h4>
       <p className="text-sm text-slate-400">
-        You can revoke your own shared connection even after leaving an
-        organization. Its name is hidden when you no longer have access.
-        Existing saved settings keep the revoked connection unavailable until an
-        explicit new selection.
+        Removing access here affects only that organization, not your personal
+        account or other organizations. You can remove access even after
+        leaving; its name is hidden when you no longer have access. Existing
+        saved settings keep the revoked connection unavailable until an explicit
+        new selection. Sharing again requires choosing the available account
+        again in Models and saving.
       </p>
       {grants.isPending ? <p role="status">Loading access...</p> : null}
       {failure ? <p role="status">{errorText(failure.status)}</p> : null}
@@ -728,11 +755,15 @@ function OperationStatus({
   scope,
   nonce,
   api,
+  sources,
+  pair,
   dismiss,
 }: {
   scope: string;
   nonce: string;
   api: PersonalAccountsApi;
+  sources: readonly PersonalSource[];
+  pair: PairContext | undefined;
   dismiss(): void;
 }) {
   const operation = useQuery({
@@ -742,6 +773,76 @@ function OperationStatus({
     retry: false,
   });
   const result = operation.data;
+  const useIntentPair =
+    result?.status !== "denied" &&
+    (result?.status !== "ok" || !result.value.operation.bindingId);
+  const source = sources.find(
+    (row) =>
+      result?.status !== "denied" &&
+      row.sourceId ===
+        (result?.status === "ok"
+          ? (result.value.operation.sourceId ?? pair?.sourceId)
+          : pair?.sourceId),
+  );
+  const pendingOrganizations = useInfiniteQuery({
+    queryKey: keys.organizations(scope, source ? [source.sourceId] : []),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.listEligibleOrganizations({
+        sourceIds: [source!.sourceId],
+        ...(pageParam ? { afterWorkspaceId: pageParam } : {}),
+        limit: 25,
+      }),
+    getNextPageParam: (page) =>
+      page.status === "ok" ? page.value.nextCursor : null,
+    enabled: Boolean(source && pair && useIntentPair),
+    staleTime: 15000,
+    retry: false,
+  });
+  const pendingOrganization =
+    !useIntentPair ||
+    pendingOrganizations.isError ||
+    pendingOrganizations.isFetching ||
+    pendingOrganizations.data?.pages.some((page) => page.status !== "ok")
+      ? undefined
+      : pendingOrganizations.data?.pages
+          .flatMap((page) =>
+            page.status === "ok" ? page.value.organizations : [],
+          )
+          .find((row) => row.workspaceId === pair?.workspaceId);
+  // Reuse authorized grant pages; do not persist display names or guess an
+  // organization from an opaque binding. Off-page or hidden names stay hidden.
+  const grants = useInfiniteQuery({
+    queryKey: keys.grants(scope, source?.sourceId ?? ""),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.listOwnGrants({
+        sourceId: source!.sourceId,
+        ...(pageParam ? { afterBindingId: pageParam } : {}),
+        limit: 25,
+      }),
+    getNextPageParam: (page) =>
+      page.status === "ok" ? page.value.nextCursor : null,
+    enabled: Boolean(
+      source && result?.status === "ok" && result.value.operation.bindingId,
+    ),
+    staleTime: 15000,
+    retry: false,
+  });
+  const grantsUnavailable =
+    grants.isError ||
+    grants.isFetching ||
+    grants.data?.pages.some((page) => page.status !== "ok");
+  const grant = grantsUnavailable
+    ? undefined
+    : grants.data?.pages
+        .flatMap((page) => (page.status === "ok" ? page.value.grants : []))
+        .find(
+          (row) =>
+            result?.status === "ok" &&
+            row.sourceId === source?.sourceId &&
+            row.bindingId === result.value.operation.bindingId,
+        );
   const resolved =
     result?.status === "ok" &&
     (result.value.remoteFenceDelivery === "remote_applied" ||
@@ -750,6 +851,14 @@ function OperationStatus({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 py-2">
       <p className="text-sm text-slate-300">
+        {source ? (
+          <span className="block font-medium">
+            {source.label} ·{" "}
+            {grant?.organizationLabel ??
+              pendingOrganization?.label ??
+              "Organization unavailable"}
+          </span>
+        ) : null}
         Request {nonce.slice(0, 8)}:{" "}
         {result?.status === "ok"
           ? receiptText(result.value)
@@ -761,8 +870,22 @@ function OperationStatus({
         <Button
           variant="outline"
           size="sm"
-          disabled={operation.isFetching}
-          onClick={() => void operation.refetch()}
+          disabled={
+            operation.isFetching ||
+            grants.isFetching ||
+            pendingOrganizations.isFetching
+          }
+          onClick={() => {
+            void operation.refetch();
+            if (
+              source &&
+              result?.status === "ok" &&
+              result.value.operation.bindingId
+            )
+              void grants.refetch();
+            else if (source && pair && result?.status !== "denied")
+              void pendingOrganizations.refetch();
+          }}
         >
           Check status
         </Button>

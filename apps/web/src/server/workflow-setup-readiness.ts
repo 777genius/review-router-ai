@@ -92,11 +92,29 @@ export async function isWorkflowSetupAlreadyCurrent(
       expectedContentValidator: (workflow) =>
         areWorkflowDocumentsSemanticallyEqual(workflow, expected.content),
     });
-    return (
-      check.status === "present" &&
-      check.expectedActionRefFound &&
-      check.expectedContentMarkersFound === true
+    if (
+      check.status !== "present" ||
+      !check.expectedActionRefFound ||
+      check.expectedContentMarkersFound !== true
+    )
+      return false;
+    const competingChecks = await Promise.all(
+      [
+        defaultWorkflowPath,
+        defaultCodexRotatingWorkflowPath,
+        defaultInteractionWorkflowPath,
+      ].map((workflowPath) =>
+        dependencies.workflowProbe.probeWorkflow({
+          githubInstallationId: input.githubInstallationId,
+          owner: input.owner,
+          name: input.name,
+          defaultBranch: input.defaultBranch,
+          workflowPath,
+          expectedActionRef: input.actionRef,
+        }),
+      ),
     );
+    return competingChecks.every((competing) => competing.status === "missing");
   }
 
   const codexWorkflowPath = input.codexRotatingProviderInstanceId

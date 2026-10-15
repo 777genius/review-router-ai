@@ -1234,6 +1234,16 @@ function getCodexRotatingWorkflowDeletionMarkerGroups(
     : selected;
 }
 
+export function getObsoleteGatewayCallerDeletionMarkerGroups(): readonly (readonly string[])[] {
+  return [
+    [
+      "name: ReviewRouter Codex\n",
+      "/.github/workflows/reviewrouter-t0-reusable.yml@",
+      "codex_session_mode: account-gateway",
+    ],
+  ];
+}
+
 export function getLegacyReviewRouterWorkflowDeletionMarkerGroups(): readonly (readonly string[])[] {
   return [
     ["name: ReviewRouter", reusableReviewWorkflowPath],

@@ -188,6 +188,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           );
         const capture = () =>
           snapshots.capture({
+            modelTransport: "account_gateway",
             identity: run,
             deadline: run.maxExpiresAt,
             producerRelease,
@@ -230,6 +231,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         await save(bx.id, null);
         expect(
           await closedSnapshots.capture({
+            modelTransport: "account_gateway",
             identity: run,
             deadline: run.maxExpiresAt,
             producerRelease,
@@ -251,6 +253,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         // Only the exact trusted server value enables consumption; no truthy coercion.
         expect(
           await production.runtimeSnapshots.capture({
+            modelTransport: "account_gateway",
             identity: run,
             deadline: run.maxExpiresAt,
             producerRelease,
@@ -268,6 +271,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
             },
           });
           const captured = await composed.runtimeSnapshots.capture({
+            modelTransport: "account_gateway",
             identity: run,
             deadline: run.maxExpiresAt,
             producerRelease,
@@ -398,7 +402,12 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           ).rejects.toThrow(/could not obtain lock/);
           expect(
             await snapshots.capture(
-              { identity: run, deadline: run.maxExpiresAt, producerRelease },
+              {
+                identity: run,
+                deadline: run.maxExpiresAt,
+                producerRelease,
+                modelTransport: "account_gateway",
+              },
               tx,
             ),
           ).toEqual(freshPin);

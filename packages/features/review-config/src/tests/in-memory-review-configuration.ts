@@ -19,16 +19,21 @@ export class InMemoryReviewConfigurationRepository
     ReviewConfigurationBatchReaderPort
 {
   readonly versions = new Map<string, PersistedReviewConfiguration[]>();
+  readonly inactiveTargets = new Set<string>();
   saveCount = 0;
   conflictNextSave = false;
 
   async findLatest(
     target: Parameters<ReviewConfigurationRepositoryPort["findLatest"]>[0],
   ) {
-    const own =
-      this.versions.get(reviewConfigurationTargetKey(target))?.at(-1) ?? null;
+    const key = reviewConfigurationTargetKey(target);
+    const own = this.inactiveTargets.has(key)
+      ? null
+      : (this.versions.get(key)?.at(-1) ?? null);
     if (target.scope === "workspace") return own;
-    const workspace = this.versions.get("workspace:default")?.at(-1);
+    const workspace = this.inactiveTargets.has("workspace:default")
+      ? undefined
+      : this.versions.get("workspace:default")?.at(-1);
     if (!workspace) return null;
     const policy = own?.policy ?? { schemaVersion: 3 as const };
     const config = resolveReviewPolicy(workspace.config, policy);
@@ -49,6 +54,7 @@ export class InMemoryReviewConfigurationRepository
     readonly repositoryIds: readonly string[];
   }) {
     return [...new Set(input.repositoryIds)].flatMap((repositoryId) => {
+      if (this.inactiveTargets.has(`repo:${repositoryId}`)) return [];
       const config = this.versions
         .get(
           reviewConfigurationTargetKey({
@@ -73,7 +79,9 @@ export class InMemoryReviewConfigurationRepository
     const records = this.versions.get(key) ?? [];
     if (
       input.expectedVersion !== undefined &&
-      (records.at(-1)?.version ?? null) !== input.expectedVersion
+      (this.inactiveTargets.has(key)
+        ? null
+        : (records.at(-1)?.version ?? null)) !== input.expectedVersion
     ) {
       throw new ReviewConfigurationWriteConflictError();
     }
@@ -81,7 +89,9 @@ export class InMemoryReviewConfigurationRepository
       input.target.scope === "workspace"
         ? parseReviewConfigurationStrict(input.policy)
         : parseRepositoryReviewPolicyOverride(input.policy);
-    const workspace = this.versions.get("workspace:default")?.at(-1);
+    const workspace = this.inactiveTargets.has("workspace:default")
+      ? undefined
+      : this.versions.get("workspace:default")?.at(-1);
     const config =
       input.target.scope === "workspace"
         ? parseReviewConfigurationStrict(policy)
@@ -102,13 +112,23 @@ export class InMemoryReviewConfigurationRepository
         .digest("hex"),
     } satisfies PersistedReviewConfiguration;
     this.versions.set(key, [...records, persisted]);
+    this.inactiveTargets.delete(key);
     this.saveCount += 1;
     return persisted;
   }
 
   async deleteTarget(
     target: Parameters<ReviewConfigurationRepositoryPort["deleteTarget"]>[0],
+    expectedVersion?: number | null,
   ) {
-    return this.versions.delete(reviewConfigurationTargetKey(target));
+    const key = reviewConfigurationTargetKey(target);
+    const current = this.inactiveTargets.has(key)
+      ? null
+      : (this.versions.get(key)?.at(-1)?.version ?? null);
+    if (expectedVersion !== undefined && current !== expectedVersion)
+      throw new ReviewConfigurationWriteConflictError();
+    if (current === null) return false;
+    this.inactiveTargets.add(key);
+    return true;
   }
 }

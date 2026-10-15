@@ -199,6 +199,7 @@ describe.skipIf(process.env.RR_H_MODEL_ACCOUNT_OPTIONS_PG_TEST !== "1")(
         if (first.status !== "ok") throw new Error("models_first_page_failed");
         expect(first.value.accounts[0]).toMatchObject({
           origin: "personal",
+          isOwnedByViewer: false,
           canManage: false,
           connectionId: bx.id,
           gatewayRevision: 41,
@@ -207,6 +208,16 @@ describe.skipIf(process.env.RR_H_MODEL_ACCOUNT_OPTIONS_PG_TEST !== "1")(
         });
         expect(first.value.nextCursor).toBe(bx.id);
         expect(gets).toEqual([personal.gatewayAccountRef]);
+        userId = u;
+        const ownedShared = await api.get(bx.id);
+        expect(
+          ownedShared.status === "ok" && ownedShared.value.account,
+        ).toMatchObject({
+          isOwnedByViewer: true,
+          connectionId: bx.id,
+          canManage: false,
+        });
+        userId = member;
         const exactOffPage = await api.get(bd.id);
         expect(
           exactOffPage.status === "ok" &&
@@ -258,6 +269,7 @@ describe.skipIf(process.env.RR_H_MODEL_ACCOUNT_OPTIONS_PG_TEST !== "1")(
         const ownP = await api.get(bp.id);
         expect(ownP.status === "ok" && ownP.value.account).toMatchObject({
           origin: "personal",
+          isOwnedByViewer: true,
           connectionId: personal.id,
           canManage: true,
         });

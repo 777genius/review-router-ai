@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   readRepositoryReviewPolicyForm: vi.fn(),
   saveReviewConfiguration: vi.fn(),
   assertReviewConfigSaveAllowed: vi.fn(),
+  assertWorkflowSetupPrAllowed: vi.fn(),
   isWorkflowSetupAlreadyCurrent: vi.fn(),
   resolveReviewRuntimeEnv: vi.fn(),
   provisionGatewayReviewV2Repository: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("./dashboard-action-form-readers", async (importOriginal) => ({
 vi.mock("../../src/server/dashboard-rate-limits", () => ({
   createDashboardRateLimitPolicy: () => ({
     assertReviewConfigSaveAllowed: mocks.assertReviewConfigSaveAllowed,
+    assertWorkflowSetupPrAllowed: mocks.assertWorkflowSetupPrAllowed,
   }),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -94,6 +96,7 @@ import {
 
 import {
   confirmSetupPullRequestMergedClientAction,
+  createSetupPullRequestClientAction,
   saveRepositoryReviewConfigClientAction,
   saveWorkspaceReviewConfigClientAction,
 } from "./actions";
@@ -101,6 +104,16 @@ import {
 const { isWorkflowSetupAlreadyCurrent } = await vi.importActual<
   typeof import("../../src/server/workflow-setup-readiness")
 >("../../src/server/workflow-setup-readiness");
+
+function workspacePolicyHeadsFixture() {
+  return {
+    findMany: vi.fn(async ({ where }: { where: { workspaceId: string } }) =>
+      where.workspaceId === "workspace_1"
+        ? [{ targetKey: "workspace:default", versions: [{ version: 1 }] }]
+        : [],
+    ),
+  };
+}
 
 function reusableWorkflowResponse(mimo = false) {
   return {
@@ -210,6 +223,49 @@ describe("dashboard setup PR recovery", () => {
 
   afterEach(() => vi.unstubAllEnvs());
 
+  it.each([
+    [false, "review_workspace_policy_required"],
+    [true, "review_policy_resave_required"],
+  ] as const)(
+    "reports %s workspace presence correctly when a repository policy head remains",
+    async (workspacePresent, expectedCode) => {
+      mocks.getPrisma.mockReturnValue({
+        repositoryConnection: {
+          findUnique: vi.fn(async () => ({
+            id: "repository_1",
+            workspaceId: "workspace_1",
+            provider: "github",
+            githubRepositoryId: 456n,
+            owner: "acme",
+            name: "widget",
+            fullName: "acme/widget",
+            defaultBranch: "main",
+            visibility: "private",
+            installation: { id: "installation_1", githubInstallationId: 123n },
+          })),
+        },
+        reviewConfiguration: {
+          findMany: vi.fn(async () => [
+            { targetKey: "repo:repository_1", versions: [{ version: 7 }] },
+            ...(workspacePresent
+              ? [{ targetKey: "workspace:default", versions: [{ version: 1 }] }]
+              : []),
+          ]),
+        },
+      });
+      mocks.resolveReviewRuntimeEnv.mockRejectedValueOnce(
+        new Error("review_workspace_policy_required"),
+      );
+      const form = new FormData();
+      form.set("workspaceId", "workspace_1");
+      form.set("repositoryId", "repository_1");
+      const result = await createSetupPullRequestClientAction(form);
+      expect(result.params.error).toBe(expectedCode);
+      expect(mocks.resolveReviewRuntimeEnv).toHaveBeenCalledOnce();
+      expect(mocks.createGitHubAppInstallationOctokit).not.toHaveBeenCalled();
+    },
+  );
+
   it("saves a workspace MiMo review configuration without an operator grant", async () => {
     const provider = {
       kind: "codex-mimo",
@@ -277,6 +333,7 @@ describe("dashboard setup PR recovery", () => {
     };
     mocks.getPrisma.mockReturnValue({
       reviewConfiguration: {
+        ...workspacePolicyHeadsFixture(),
         findUnique: vi.fn(async () => ({
           active: true,
           repositoryId: null,
@@ -401,6 +458,7 @@ describe("dashboard setup PR recovery", () => {
       },
     };
     mocks.getPrisma.mockReturnValue({
+      reviewConfiguration: workspacePolicyHeadsFixture(),
       repositoryConnection: {
         findUnique: repositoryFindUnique,
         findFirst: transactionClient.repositoryConnection.findFirst,
@@ -525,6 +583,7 @@ describe("dashboard setup PR recovery", () => {
       };
       mocks.getPrisma.mockReturnValue({
         ...state.prisma,
+        reviewConfiguration: workspacePolicyHeadsFixture(),
         repositoryConnection: {
           ...state.repositoryConnection,
           findUnique: vi.fn(async () => repository),
@@ -585,6 +644,7 @@ describe("dashboard setup PR recovery", () => {
     "unmerged_wrong_base",
     "stored_head_wrong_base",
     "head_mismatch",
+    "head_mismatch_tampered",
     "wrong_workspace",
     "missing_installation",
     "transfer_during_probe",
@@ -605,12 +665,11 @@ describe("dashboard setup PR recovery", () => {
     async (scenario) => {
       const historical = {
         ...initialCandidate,
-        pullRequestHeadSha:
-          scenario === "head_mismatch"
-            ? "c".repeat(40)
-            : scenario === "stored_head_wrong_base"
-              ? "b".repeat(40)
-              : null,
+        pullRequestHeadSha: scenario.startsWith("head_mismatch")
+          ? "c".repeat(40)
+          : scenario === "stored_head_wrong_base"
+            ? "b".repeat(40)
+            : null,
         workflowPath:
           scenario === "artifact_path"
             ? ".github/workflows/other.yml"
@@ -644,6 +703,7 @@ describe("dashboard setup PR recovery", () => {
       };
       mocks.getPrisma.mockReturnValue({
         ...state.prisma,
+        reviewConfiguration: workspacePolicyHeadsFixture(),
         repositoryConnection: {
           ...state.repositoryConnection,
           findUnique: vi.fn(async () => repository),
@@ -679,7 +739,9 @@ describe("dashboard setup PR recovery", () => {
               data: {
                 merged: scenario !== "unmerged_wrong_base",
                 state: scenario === "unmerged_wrong_base" ? "open" : "closed",
-                base: { ref: scenario === "head_mismatch" ? "main" : "master" },
+                base: {
+                  ref: scenario.startsWith("head_mismatch") ? "main" : "master",
+                },
                 head: { ref: historical.branch, sha: "b".repeat(40) },
               },
             };
@@ -691,7 +753,9 @@ describe("dashboard setup PR recovery", () => {
             if (parameters?.ref === "main" && scenario === "workflow_absent")
               throw Object.assign(new Error("missing"), { status: 404 });
             const ref =
-              parameters?.ref === "main" && scenario === "workflow_wrong_ref"
+              parameters?.ref === "main" &&
+              (scenario === "workflow_wrong_ref" ||
+                scenario === "head_mismatch_tampered")
                 ? `777genius/review-router@${"d".repeat(40)}`
                 : resolveReviewRouterActionRef();
             return {
@@ -731,7 +795,7 @@ describe("dashboard setup PR recovery", () => {
       );
       form.set("repositoryId", "repository_1");
       const result = await confirmSetupPullRequestMergedClientAction(form);
-      if (scenario === "verified") {
+      if (scenario === "verified" || scenario === "head_mismatch") {
         expect({ params: result.params, events }).toMatchObject({
           params: { notice: "setup_pr_merged" },
           events: ["inspect_pr", "workflow:main", "activation"],
@@ -768,25 +832,20 @@ describe("dashboard setup PR recovery", () => {
           expect(state.current()).toEqual(expectedCurrent);
           if (
             scenario === "workflow_absent" ||
-            scenario === "workflow_wrong_ref"
+            scenario === "workflow_wrong_ref" ||
+            scenario === "head_mismatch_tampered"
           )
             expect(result.params.error).toBe("setup_pr_not_merged");
-          if (
-            scenario.includes("_during_") ||
-            scenario.startsWith("artifact_") ||
-            scenario === "head_mismatch"
-          )
+          if (scenario.includes("_during_") || scenario.startsWith("artifact_"))
             expect(result.params.error).toBe("github_operation_failed");
           expect(events).toEqual(
             scenario === "wrong_workspace" ||
               scenario === "missing_installation"
               ? []
-              : scenario === "head_mismatch"
-                ? ["inspect_pr"]
-                : scenario === "activation_failed" ||
-                    scenario.endsWith("_during_activation")
-                  ? ["inspect_pr", "workflow:main", "activation"]
-                  : ["inspect_pr", "workflow:main"],
+              : scenario === "activation_failed" ||
+                  scenario.endsWith("_during_activation")
+                ? ["inspect_pr", "workflow:main", "activation"]
+                : ["inspect_pr", "workflow:main"],
           );
         }
         if (

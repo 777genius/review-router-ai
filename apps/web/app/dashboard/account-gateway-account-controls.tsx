@@ -170,6 +170,8 @@ function Controls({
   const [ready, setReady] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [retirement, setRetirement] = useState<AccountView | null>(null);
+  const retirementCancelRef = useRef<HTMLButtonElement>(null);
   const [completionHandoff, setCompletionHandoff] = useState<string | null>(
     null,
   );
@@ -582,14 +584,16 @@ function Controls({
                     (personal && account.state === "disabled") ||
                     account.state === "tombstoned"
                   }
-                  onClick={() =>
-                    void submit({
-                      kind: "disable",
-                      connectionId: account.connectionId,
-                      gatewayRevision: account.gatewayRevision,
-                      mirrorRevision: account.mirrorRevision,
-                    })
-                  }
+                  onClick={() => {
+                    if (personal) setRetirement(account);
+                    else
+                      void submit({
+                        kind: "disable",
+                        connectionId: account.connectionId,
+                        gatewayRevision: account.gatewayRevision,
+                        mirrorRevision: account.mirrorRevision,
+                      });
+                  }}
                 >
                   {personal ? "Retire personal account" : "Disable"}
                 </Button>
@@ -657,6 +661,50 @@ function Controls({
           </div>
         </div>
       )}
+      <Dialog.Root
+        open={Boolean(retirement)}
+        onOpenChange={(open) => {
+          if (!open && !busy) setRetirement(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Backdrop />
+          <Dialog.Popup initialFocus={retirementCancelRef}>
+            <Dialog.Title>Retire personal account?</Dialog.Title>
+            <Dialog.Description>
+              Retiring {retirement?.label} permanently removes its use in all
+              organizations and your personal workspace. This cannot be undone.
+              To use it again, you will need to connect a new account.
+            </Dialog.Description>
+            <div className="mt-4 flex gap-2">
+              <Button
+                ref={retirementCancelRef}
+                variant="outline"
+                disabled={busy}
+                onClick={() => setRetirement(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={disabled || !retirement}
+                onClick={() => {
+                  if (!retirement) return;
+                  const account = retirement;
+                  setRetirement(null);
+                  void submit({
+                    kind: "disable",
+                    connectionId: account.connectionId,
+                    gatewayRevision: account.gatewayRevision,
+                    mirrorRevision: account.mirrorRevision,
+                  });
+                }}
+              >
+                Confirm retirement
+              </Button>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
       {nonces.length ? (
         <div className="space-y-2 border-t border-cyan-200/10 pt-4">
           <h4 className="text-sm font-semibold text-cyan-50">

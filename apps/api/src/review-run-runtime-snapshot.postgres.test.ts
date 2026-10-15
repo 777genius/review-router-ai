@@ -35,10 +35,13 @@ import {
   parseReviewRunRuntimeSnapshot,
   parseReviewAgentProfiles,
   ReviewRunAuthorizationState,
+  ReviewRunAuthorizationDenialReason,
+  ReviewTrustDomain,
   ReviewRunAuthorizationUseCaseStatus,
   ReviewMutationLaneKind,
   ReviewMutationMode,
   type ReviewRunAuthorization,
+  type VerifiedScmRunIdentity,
   type ReviewRunRuntimeSnapshotPort,
 } from "@reviewrouter/features-review-run-control";
 import {
@@ -61,6 +64,25 @@ import {
   ProductionReviewRunRuntimeSnapshot,
   reviewRunGatewayPreparationIdentity,
 } from "./review-run-runtime-snapshot";
+
+function snapshotIdentity(
+  harness: Awaited<ReturnType<typeof createReviewActionV2E2EHarness>>,
+): VerifiedScmRunIdentity {
+  return {
+    workspaceId: harness.workspaceId,
+    repositoryConnectionId: harness.repositoryConnectionId,
+    scmRepositoryIdentityId: harness.scmRepositoryIdentityId,
+    pullRequestNumber: 1,
+    sourceRunId: "signed-transport-test",
+    sourceRunAttempt: "1",
+    headSha: "a".repeat(40),
+    baseSha: "b".repeat(40),
+    mergeBaseSha: "b".repeat(40),
+    reviewRevisionHash: "d".repeat(64),
+    workflowIdentityHash: "c".repeat(64),
+    trustDomain: ReviewTrustDomain.TrustedManaged,
+  };
+}
 
 // Pure loopback HTTP; no PostgreSQL, authority admission or provider traffic.
 // RED before the fix: the third incomplete upload reaches preParsing rather
@@ -305,6 +327,100 @@ function disposableDatabase(): string {
 // must never reach CI, and unknown caller authority fields must not mint.
 // This is real RR PostgreSQL + synthetic OIDC/SCM + controlled Gateway HTTP, no inference.
 describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
+  it("binds runtime capture to signed transport and keeps legacy release profiles closed", async () => {
+    const databaseUrl = disposableDatabase();
+    await resetReviewActionV2E2EDatabase(databaseUrl);
+    const harness = await createReviewActionV2E2EHarness(databaseUrl, {
+      modelTransport: "account_gateway",
+    });
+    try {
+      // Real JWKS-signed runtime.yml + rotating policy must fail before any row.
+      await expect(harness.authorize()).rejects.toMatchObject({
+        statusCode: 412,
+        issues: ["admission_facts_changed"],
+      });
+      const { prisma } = harness;
+      expect(await prisma.reviewRunAuthorization.count()).toBe(0);
+      const producer = await prisma.producerRelease.findUniqueOrThrow({
+        where: { producerReleaseId: harness.producerReleaseId },
+      });
+      if (typeof producer.agentProfilesJson !== "string")
+        throw new Error("signed_transport_producer_profiles_missing");
+      const profiles = parseReviewAgentProfiles(
+        JSON.parse(producer.agentProfilesJson),
+      );
+      const snapshot = new ProductionReviewRunRuntimeSnapshot(prisma);
+      const identity = snapshotIdentity(harness);
+      const input = {
+        identity,
+        deadline: new Date(Date.now() + 60_000),
+        producerRelease: { ...producer, agentProfiles: profiles },
+        modelTransport: "provider_api" as const,
+      };
+      expect(await snapshot.capture(input)).toMatchObject({ gateway: null });
+      expect(
+        await snapshot.capture({ ...input, modelTransport: "account_gateway" }),
+      ).toBeNull();
+      expect(
+        await snapshot.capture({
+          ...input,
+          producerRelease: {
+            ...producer,
+            agentProfiles: profiles.map((profile) => ({
+              ...profile,
+              modelTransports: ["account_gateway"],
+            })),
+          },
+        }),
+      ).toBeNull();
+      expect(
+        await snapshot.capture({
+          ...input,
+          producerRelease: { ...producer, agentProfiles: null },
+        }),
+      ).toBeNull();
+      // Even a dual-transport release cannot authorize a mixed policy.
+      const mixedPolicy = parseReviewConfigurationStrict({
+        ...workspacePolicyFixture,
+        providers: [
+          ...workspacePolicyFixture.providers,
+          {
+            kind: "codex",
+            authMode: "codex_account_gateway",
+            model: "mimo-v2-pro",
+            reasoningEffort: "high",
+            fastMode: false,
+            agenticContext: true,
+            gatewayBindingId: "transport-test-binding",
+            gatewayProfileRef: "mimo-responses-v1",
+          },
+        ],
+        execution: {
+          providerLimit: 2,
+          providerMaxParallel: 2,
+          inlineMinAgreement: 1,
+        },
+      });
+      await prisma.reviewConfigurationVersion.updateMany({
+        where: { workspaceId: harness.workspaceId },
+        data: { policyJson: canonicalJson(mixedPolicy) },
+      });
+      for (const modelTransport of [
+        "provider_api",
+        "account_gateway",
+      ] as const) {
+        expect(await snapshot.capture({ ...input, modelTransport })).toBeNull();
+      }
+      // A retained legacy head is not absence and cannot fall back to defaults.
+      await prisma.reviewConfigurationVersion.updateMany({
+        where: { workspaceId: harness.workspaceId },
+        data: { policyJson: JSON.stringify({ schemaVersion: 2 }) },
+      });
+      expect(await snapshot.capture(input)).toBeNull();
+    } finally {
+      await harness.close();
+    }
+  });
   // SELECT-only reproduces the production failure. The existing table owner
   // projects UPDATE(id) only; immutable guards still deny changed C1 authority.
   it("locks account admission with non-mutating API column privileges", async () => {
@@ -630,6 +746,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         holdScm = undefined;
         await hold?.();
       },
+      modelTransport: "account_gateway",
       environmentOverrides: {
         REVIEW_ROUTER_REVIEW_V2_MAX_AUTHORIZATION_LIFETIME_MS: "900000",
         REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
@@ -744,12 +861,27 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       const producerRow = await prisma.producerRelease.findUniqueOrThrow({
         where: { producerReleaseId: harness.producerReleaseId },
       });
+      if (typeof producerRow.agentProfilesJson !== "string")
+        throw new Error("c2c_producer_profiles_missing");
       const snapshotProducer = {
         ...producerRow,
         agentProfiles: parseReviewAgentProfiles(
-          JSON.parse(producerRow.agentProfilesJson!),
+          JSON.parse(producerRow.agentProfilesJson),
         ),
       };
+      if (typeof connection.profileRef !== "string")
+        throw new Error("c2c_gateway_profile_missing");
+      const gatewaySnapshot = new ProductionReviewRunRuntimeSnapshot(prisma, {
+        profiles: [{ profileRef: connection.profileRef, limits }],
+      });
+      expect(
+        await gatewaySnapshot.capture({
+          identity: snapshotIdentity(harness),
+          producerRelease: snapshotProducer,
+          deadline: new Date(Date.now() + 60_000),
+          modelTransport: "provider_api",
+        }),
+      ).toBeNull();
       const contenders = await Promise.allSettled([
         harness.authorize(),
         harness.authorize(),
@@ -836,8 +968,24 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         );
       if (!gatewayRun || !pin.gateway)
         throw new Error("c2c_gateway_original_missing");
+      // Snapshot-enabled admission cannot infer transport from mutable policy.
+      expect(
+        await gatewayProduction.runControl.authorizations.authorizeReviewRun({
+          verifiedIdentity: gatewayRun,
+          producerReleaseId: gatewayRun.producerReleaseId,
+          protocolOfferHash: gatewayRun.protocolOfferHash,
+          oidcReplayKeyHash: gatewayRun.oidcReplayKeyHash,
+          providerVoteLanes: gatewayRun.providerVoteLanes,
+          authorizationTtlMs: 60_000,
+          maxAuthorizationLifetimeMs: 3_600_000,
+        }),
+      ).toEqual({
+        status: ReviewRunAuthorizationUseCaseStatus.Denied,
+        reason: ReviewRunAuthorizationDenialReason.AdmissionFactsChanged,
+      });
       expect(
         await new ProductionReviewRunRuntimeSnapshot(prisma).capture({
+          modelTransport: "account_gateway",
           identity: gatewayRun,
           deadline: gatewayRun.maxExpiresAt,
           producerRelease: snapshotProducer,
@@ -919,15 +1067,19 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           );
         });
       await attachPrivate(v2Snapshot, selected);
-      // Existing nonpersonal v1 accepts the selected epoch rather than a new pin.
-      await attachPrivate(row.runtimeSnapshotCanonicalJson!, selected);
+      // SQL132 preserves nonpersonal v3 pins without an expected epoch. The
+      // existing selected execution still binds operation, account and deadline.
+      const unpinnedSnapshot = canonicalJson({
+        ...pin,
+        gateway: { ...pin.gateway, expectedAuthorizationEpoch: undefined },
+      });
+      await attachPrivate(unpinnedSnapshot, selected);
       for (const epoch of [0, 54, 56]) {
         await expect(
           attachPrivate(v2Snapshot, { ...selected, authorizationEpoch: epoch }),
         ).rejects.toThrow();
       }
       for (const epoch of [
-        undefined,
         null,
         "55",
         0,
@@ -944,7 +1096,9 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           withPrivateSnapshot(invalid, async () => {}),
         ).rejects.toThrow();
       }
-      for (const snapshotVersion of [0, 4, "3"]) {
+      // SQL132 checks stored version text; the runtime codec separately requires
+      // a numeric version. This SQL test does not claim to be a wire parser.
+      for (const snapshotVersion of [0, 4]) {
         await expect(
           withPrivateSnapshot(
             canonicalJson({ ...pin, snapshotVersion }),
@@ -1474,6 +1628,8 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
             configVersion: 1,
             runtimeEnv: {
               ...mapConfigToRuntimeEnv(config),
+              REVIEW_ROUTER_AGENT_PROFILE_JSON: canonicalJson(pin.agent),
+              REVIEW_ROUTER_AGENT_PROFILE_DIGEST: pin.agentProfileDigest,
               REVIEW_ROUTER_LIFECYCLE_OBSERVATION_AUTHORS: JSON.stringify([
                 "review-router-ai[bot]",
                 "github-actions[bot]",
@@ -1918,6 +2074,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         );
       if (!original) throw new Error("c2c_original_missing");
       const input = (authorization: ReviewRunAuthorization) => ({
+        modelTransport: "account_gateway" as const,
         verifiedIdentity: authorization,
         producerReleaseId: authorization.producerReleaseId,
         protocolOfferHash: authorization.protocolOfferHash,
@@ -2188,6 +2345,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       expect(
         (
           await snapshotSource.capture({
+            modelTransport: "account_gateway",
             identity: original,
             deadline: original.maxExpiresAt,
             producerRelease: snapshotProducer,
@@ -2288,6 +2446,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       const ordinaryAdmission =
         await production.runControl.authorizations.authorizeReviewRun({
           ...input(original),
+          modelTransport: "provider_api",
           verifiedIdentity: {
             ...original,
             sourceRunId: `${original.sourceRunId}-ordinary`,
@@ -2416,6 +2575,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         const restored =
           await production.runControl.authorizations.authorizeReviewRun({
             ...input(ordinary),
+            modelTransport: "provider_api",
             oidcReplayKeyHash,
           });
         if (!("authorization" in restored))

@@ -43,21 +43,38 @@ export function PersonalAccountsPanel({
     );
   }, [client, bootstrap.scope]);
   return (
-    <>
+    <section
+      className="space-y-6"
+      aria-labelledby="personal-accounts-panel-title"
+    >
+      <div>
+        <h3
+          id="personal-accounts-panel-title"
+          className="text-lg font-semibold text-cyan-50"
+        >
+          My personal accounts
+        </h3>
+        <p className="mt-2 text-sm text-slate-400">
+          Connect an account once, then share it with organizations you
+          administer. Every use keeps the same account, name, sign-in and review
+          capacity. Sharing does not create another account or add capacity.
+        </p>
+      </div>
       <section
-        className="space-y-4 border-b border-cyan-200/10 pb-6"
+        className="space-y-4"
         aria-labelledby="personal-connections-title"
       >
         <div>
-          <h3
+          <h4
             id="personal-connections-title"
-            className="text-lg font-semibold text-cyan-50"
+            className="font-medium text-cyan-50"
           >
-            My personal connections
-          </h3>
+            Connect and manage
+          </h4>
           <p className="mt-2 text-sm text-slate-400">
-            Connect once, then choose the organizations that can use the account
-            below. Names, credentials and capacity stay shared across all uses.
+            Rename your account or update a supported API key here. To remove
+            access from just one organization, use sharing below. Retiring an
+            account removes every use, including your personal workspace.
           </p>
         </div>
         <AccountGatewayControls
@@ -74,6 +91,6 @@ export function PersonalAccountsPanel({
         api={api}
         queryClient={client}
       />
-    </>
+    </section>
   );
 }

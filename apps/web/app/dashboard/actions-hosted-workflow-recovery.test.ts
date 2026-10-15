@@ -314,7 +314,8 @@ function fixture(
       mode === "rotating_hosted" ||
       scenario.startsWith("stored_") ||
       scenario.includes("stored_head")
-        ? scenario === "stored_head_mismatch"
+        ? scenario === "stored_head_mismatch" ||
+          scenario.startsWith("changed_head")
           ? "c".repeat(40)
           : "b".repeat(40)
         : null,
@@ -516,6 +517,8 @@ function fixture(
       "REVIEW_ROUTER_CODEX_ROTATING_ALLOWED_ACTION_REFS",
       `777genius/review-router@${"c".repeat(40)}`,
     );
+  if (scenario === "changed_head_tampered")
+    source = source.replace("id-token: write", "id-token: read");
   const blobSha = createHash("sha1")
     .update(`blob ${Buffer.byteLength(source)}\0`)
     .update(source)
@@ -924,6 +927,33 @@ function fixture(
     hostedCodexRepositoryBinding,
     hostedCodexPool: { findFirst: vi.fn(async () => ({ id: "pool-1" })) },
     reviewConfiguration: {
+      findMany: vi.fn(
+        async ({
+          where,
+        }: {
+          where: { workspaceId: string; OR: readonly { targetKey: string }[] };
+        }) => {
+          if (where.workspaceId !== "workspace_1") return [];
+          const requestedTargets = new Set(
+            where.OR.map((target) => target.targetKey),
+          );
+          return [
+            ...(requestedTargets.has("workspace:default")
+              ? [{ targetKey: "workspace:default", versions: [{ version: 1 }] }]
+              : []),
+            ...(configuration.active &&
+            configurationVersion &&
+            requestedTargets.has(configuration.targetKey)
+              ? [
+                  {
+                    targetKey: configuration.targetKey,
+                    versions: [{ version: configurationVersion.version }],
+                  },
+                ]
+              : []),
+          ];
+        },
+      ),
       findUnique: vi.fn(
         async ({
           where,
@@ -1786,6 +1816,64 @@ describe("hosted setup recovery composition", () => {
       expect(mocks.createOctokit).toHaveBeenCalledWith("123");
     },
   );
+  describe.each(["gateway", "stored_active", "rotating_hosted"] as const)(
+    "recovers changed merged PR heads only with canonical installed %s artifacts",
+    (mode) => {
+      it("refuses a changed head merged into the wrong base", async () => {
+        const f = fixture("master", "changed_head_valid", mode);
+        const result = await confirmSetupPullRequestMergedClientAction(f.form);
+        expect(result.params.error).toBe("setup_pr_wrong_base_branch");
+        expect(f.events).toEqual(["inspect_pr"]);
+        expect(mocks.gatewayProvisioning).not.toHaveBeenCalled();
+        expect(mocks.ledgerActivate).not.toHaveBeenCalled();
+        expect(f.configWrites).not.toHaveBeenCalled();
+        expect(f.updateBinding).not.toHaveBeenCalled();
+        expect(f.state.current()).toMatchObject({ status: "failed" });
+      });
+      it.each([
+        "changed_head_valid",
+        "changed_head_tampered",
+        "changed_head_attempt_during_probe",
+      ])("%s", async (scenario) => {
+        const f = fixture("main", scenario, mode);
+        const result = await confirmSetupPullRequestMergedClientAction(f.form);
+        expect(f.historical.pullRequestHeadSha).toBe("c".repeat(40));
+        if (scenario === "changed_head_valid") {
+          expect(result.params, f.events.join(", ")).toHaveProperty(
+            "notice",
+            "setup_pr_merged",
+          );
+          expect(f.state.current()).toMatchObject({
+            status: "configured",
+            attemptId: f.historical.attemptId,
+            revision: f.historical.revision + 1,
+            pullRequestHeadSha: f.historical.pullRequestHeadSha,
+          });
+          expect(mocks.audit).toHaveBeenCalledWith(
+            expect.objectContaining({
+              metadata: expect.objectContaining({ source: "workflow" }),
+            }),
+            expect.anything(),
+          );
+        } else {
+          expect(result.params).toHaveProperty("error");
+          expect(f.state.current()).toEqual(f.expectedCurrent());
+          expect(
+            f.state.workflowProvisioning.updateMany,
+          ).not.toHaveBeenCalled();
+          expect(mocks.gatewayProvisioning).not.toHaveBeenCalled();
+          expect(mocks.ledgerActivate).not.toHaveBeenCalled();
+          expect(f.configWrites).not.toHaveBeenCalled();
+          expect(f.updateBinding).not.toHaveBeenCalled();
+        }
+        expect(f.state.workflowProvisioning.create).not.toHaveBeenCalled();
+        expect(f.events).toContain(
+          `workflow:${f.historical.workflowPath}:${commitSha}`,
+        );
+      });
+    },
+  );
+
   it.each([
     "workflow_absent",
     "invalid_workflow",
@@ -1827,7 +1915,6 @@ describe("hosted setup recovery composition", () => {
     "binding_revised_during_probe",
     "binding_state_during_probe",
     "binding_draining_during_probe",
-    "stored_head_mismatch",
     "stored_attempt_during_probe",
     "stored_revision_during_probe",
   ])("refuses %s with zero activation or status effects", async (scenario) => {

@@ -107,5 +107,10 @@ export interface ReviewConfigurationRepositoryPort {
     readonly expectedVersion?: number | null;
   }): Promise<PersistedReviewConfiguration>;
 
-  deleteTarget(target: ReviewConfigurationTarget): Promise<boolean>;
+  /** Deactivate without deleting history. Optional CAS uses the active raw head,
+   * including retired formats; null expects no active version. */
+  deleteTarget(
+    target: ReviewConfigurationTarget,
+    expectedVersion?: number | null,
+  ): Promise<boolean>;
 }

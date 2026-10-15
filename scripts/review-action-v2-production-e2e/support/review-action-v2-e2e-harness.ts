@@ -154,6 +154,8 @@ export type ReviewActionV2E2EInvestigationProfile = Readonly<{
 }>;
 
 export type ReviewActionV2E2EHarnessOptions = Readonly<{
+  /** Signed workflow identity; independent of the configured policy. */
+  modelTransport?: "account_gateway" | "provider_api";
   /** Shorten only the synthetic mint, without changing server run authority. */
   oidcLifetimeSeconds?: number;
   investigationProfile?: ReviewActionV2E2EInvestigationProfile;
@@ -182,6 +184,7 @@ export class ReviewActionV2E2EHarness {
   private readonly originalFetch: typeof globalThis.fetch;
   private oidcOrdinal = 0;
   private readonly oidcLifetimeSeconds: number;
+  private readonly modelTransport: "account_gateway" | "provider_api";
 
   private constructor(input: {
     readonly prisma: PrismaClient;
@@ -198,6 +201,7 @@ export class ReviewActionV2E2EHarness {
     readonly worker: ReturnType<typeof createReviewV2WorkerFeature>;
     readonly originalFetch: typeof globalThis.fetch;
     readonly oidcLifetimeSeconds: number;
+    readonly modelTransport: "account_gateway" | "provider_api";
   }) {
     this.prisma = input.prisma;
     this.fakeGitHub = input.fakeGitHub;
@@ -213,6 +217,7 @@ export class ReviewActionV2E2EHarness {
     this.worker = input.worker;
     this.originalFetch = input.originalFetch;
     this.oidcLifetimeSeconds = input.oidcLifetimeSeconds;
+    this.modelTransport = input.modelTransport;
   }
 
   static async create(
@@ -361,6 +366,7 @@ export class ReviewActionV2E2EHarness {
         worker,
         originalFetch,
         oidcLifetimeSeconds,
+        modelTransport: options.modelTransport ?? "provider_api",
       });
     } catch (error) {
       globalThis.fetch = originalFetch;
@@ -1435,10 +1441,12 @@ export class ReviewActionV2E2EHarness {
       ref: "refs/heads/main",
       run_id: sourceRunId,
       run_attempt: runAttempt,
-      workflow_ref: `${owner}/${repo}/.github/workflows/reviewrouter-review.yml@refs/heads/main`,
+      workflow_ref: `${owner}/${repo}/.github/workflows/${this.modelTransport === "account_gateway" ? "reviewrouter-review.yml" : "reviewrouter-codex.yml"}@refs/heads/main`,
       workflow_sha: this.fakeGitHub.revision.headSha,
       job_workflow_ref:
-        "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/tags/workflow-v1",
+        this.modelTransport === "account_gateway"
+          ? "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/tags/workflow-v1"
+          : `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionCommitSha}`,
       job_workflow_sha: actionCommitSha,
       actor: "reviewrouter-e2e",
       jti: `${this.prefix}-oidc-${this.oidcOrdinal}`,

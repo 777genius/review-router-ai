@@ -10,6 +10,12 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderReviewRouterWorkflowFiles,
   renderAccountGatewayWorkflow,
+  defaultWorkflowPath,
+  defaultCodexRotatingWorkflowPath,
+  defaultInteractionWorkflowPath,
+  getObsoleteGatewayCallerDeletionMarkerGroups,
+  getLegacyReviewRouterWorkflowDeletionMarkerGroups,
+  getLegacyReviewRouterInteractionWorkflowDeletionMarkerGroups,
   reviewRouterWorkflowContract,
 } from "../../domain/workflow-template";
 import {
@@ -163,7 +169,25 @@ export async function provisionReviewRouterWorkflow(
     }
 
     const workflowFiles = gatewayFile
-      ? [gatewayFile]
+      ? [
+          {
+            path: defaultCodexRotatingWorkflowPath,
+            operation: "delete" as const,
+            markerGroups: getObsoleteGatewayCallerDeletionMarkerGroups(),
+          },
+          {
+            path: defaultWorkflowPath,
+            operation: "delete" as const,
+            markerGroups: getLegacyReviewRouterWorkflowDeletionMarkerGroups(),
+          },
+          {
+            path: defaultInteractionWorkflowPath,
+            operation: "delete" as const,
+            markerGroups:
+              getLegacyReviewRouterInteractionWorkflowDeletionMarkerGroups(),
+          },
+          gatewayFile,
+        ]
       : renderReviewRouterWorkflowFiles({
           actionRef: plan.actionRef,
           apiUrl: plan.apiUrl,
@@ -206,6 +230,7 @@ export async function provisionReviewRouterWorkflow(
         repo: plan.name,
         baseBranch: plan.defaultBranch,
         setupBranch: attempt.branch,
+        ...(gatewayFile ? { setupMode: "gateway" as const } : {}),
         workflowFiles,
       });
 
@@ -303,6 +328,9 @@ function assertProductionCodexWorkflowProvisioningAllowed(input: {
 
 function safeWorkflowProvisioningErrorSummary(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
+  if (message.startsWith("workflow_delete_untrusted:")) {
+    return "workflow_delete_untrusted";
+  }
   if (
     [
       "invalid_workflow_action_ref",

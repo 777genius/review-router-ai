@@ -8,7 +8,8 @@ import {
   type GitHubActionsOidcTokenVerifierPort,
   type HostedReviewPreleaseGatePort,
 } from "@reviewrouter/features-action-control-plane";
-import type { Clock } from "@reviewrouter/shared";
+import type { Clock, ReviewAgentProfile } from "@reviewrouter/shared";
+import { codexWorkflowPathForRepository } from "@reviewrouter/features-codex-oauth-rotating";
 import {
   type RegisterReviewRunControlV2RoutesDependencies,
   ReviewActionV2RouteFailure,
@@ -73,6 +74,7 @@ export type ReviewActionV2ResolvedRevision = {
   readonly trustDomain: ReviewTrustDomain;
   readonly producerReleaseId: string;
   readonly producerActionCommitSha: string;
+  readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
   readonly providerVoteLanes: readonly ProviderVoteLane[];
 };
 
@@ -323,9 +325,8 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
       const pullRequestNumberHint =
         requestedIntent?.pullRequestNumber ??
         pullRequestNumberHintFromClaims(input.claims);
-      const producerActionCommitSha = producerActionCommitFromClaims(
-        input.claims,
-      );
+      const { actionCommitSha: producerActionCommitSha, modelTransport } =
+        producerExecutionFromClaims(input.claims);
       const revision = await dependencies.revisionResolver.resolve({
         workspaceId: input.repository.workspaceId,
         repositoryConnectionId: input.repository.repositoryId,
@@ -416,6 +417,7 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
           trustDomain: ReviewTrustDomain.TrustedManaged,
           producerReleaseId: attestation.release.producerReleaseId,
           producerActionCommitSha,
+          modelTransport,
           providerVoteLanes: dependencies.providerVoteLanes.map((lane) => ({
             ...lane,
           })),
@@ -499,28 +501,44 @@ function pullRequestNumberHintFromClaims(
   return unique[0] ?? null;
 }
 
-export function producerActionCommitFromClaims(
-  claims: GitHubActionsOidcClaims,
-): string {
+export function producerExecutionFromClaims(claims: GitHubActionsOidcClaims): {
+  readonly actionCommitSha: string;
+  readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
+} {
   const actionCommitSha = claims.job_workflow_sha?.toLowerCase();
   const workflowRef = claims.job_workflow_ref
     ? reviewRouterRuntimeWorkflowRefPattern
         .exec(claims.job_workflow_ref)?.[1]
         ?.toLowerCase()
     : undefined;
-  if (
-    !actionCommitSha ||
-    !isCommitSha(actionCommitSha) ||
-    !workflowRef ||
-    (workflowRef !== "refs/tags/workflow-v1" && workflowRef !== actionCommitSha)
-  ) {
-    throw routeFailure(
-      403,
-      ReviewActionV2ProtocolErrorCode.Forbidden,
-      "producer_release_workflow_not_immutable",
-    );
+  if (actionCommitSha && isCommitSha(actionCommitSha)) {
+    if (
+      workflowRef &&
+      (workflowRef === "refs/tags/workflow-v1" ||
+        workflowRef === actionCommitSha)
+    ) {
+      return { actionCommitSha, modelTransport: "account_gateway" };
+    }
+    const secretExecution =
+      /^777genius\/review-router\/\.github\/workflows\/reviewrouter-execution-reusable\.yml@([a-f0-9]{40})$/i.exec(
+        claims.job_workflow_ref ?? "",
+      );
+    const callerPath = codexWorkflowPathForRepository({
+      repositoryId: claims.repository_id,
+      repositoryFullName: claims.repository,
+    });
+    if (
+      secretExecution?.[1]?.toLowerCase() === actionCommitSha &&
+      claims.workflow_ref.startsWith(`${claims.repository}/${callerPath}@`)
+    ) {
+      return { actionCommitSha, modelTransport: "provider_api" };
+    }
   }
-  return actionCommitSha;
+  throw routeFailure(
+    403,
+    ReviewActionV2ProtocolErrorCode.Forbidden,
+    "producer_release_workflow_not_immutable",
+  );
 }
 
 function revisionResolutionFailure(
@@ -705,6 +723,7 @@ async function authorizeReviewRun(
   ]);
   const outcome = await dependencies.authorizations.authorizeReviewRun({
     verifiedIdentity: resolved.identity,
+    modelTransport: resolved.facts.modelTransport,
     producerReleaseId: resolved.facts.producerReleaseId,
     ...(selectedRelease &&
     selectedRelease.producerReleaseId !== attestedBaseRelease.producerReleaseId
