@@ -166,7 +166,7 @@ Acceptance:
 
 Предыдущие drafts/review reports сохранены в tmp/provider-neutral-plan-20261014 как recovery evidence. Эта редакция не выдаётся за independently reviewed implementation: корректность будет доказана перечисленными focused checks при реализации.
 
-Private snapshot generation уточнён при интеграции main: published migration 000129 уже заняла v2 для inert personal epoch pin. Полный policy/profile snapshot использует v3, не переопределяет опубликованный формат; единственная новая policy migration перенумерована в 000130. Исторические v1/v2 остаются audit evidence. Захваченный expectedAuthorizationEpoch сохраняется и проверяется в API и SQL; personal capture остаётся выключенным. Публичный workflow-v1 не меняется.
+Private snapshot generation уточнён при интеграции main: published migration 000129 уже заняла v2 для inert personal epoch pin. Полный policy/profile snapshot использует v3, не переопределяет опубликованный формат; единственная новая policy migration перенумерована в 000132. Исторические v1/v2 остаются audit evidence. Захваченный expectedAuthorizationEpoch сохраняется и проверяется в API и SQL; personal capture сохраняет существующий точный private sharing flag и обязательный epoch; default остаётся выключенным. Публичный workflow-v1 не меняется.
 
 ## Уточнение владельца: сохранение дополнительных режимов (2026-10-15)
 

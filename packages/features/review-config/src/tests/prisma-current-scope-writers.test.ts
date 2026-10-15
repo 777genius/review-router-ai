@@ -120,9 +120,9 @@ describe("production config and entitlement scope writers", () => {
       "config-read",
       "config-read",
       "config-read",
+      "config-read",
       "target",
       "version-read",
-      "config-read",
       "version-create",
     ]);
   });
@@ -142,9 +142,9 @@ describe("production config and entitlement scope writers", () => {
       "shared",
       "shared",
       "exclusive",
+      "config-read",
       "target",
       "version-read",
-      "config-read",
       "version-create",
       "commit",
     ]);
@@ -170,9 +170,9 @@ describe("production config and entitlement scope writers", () => {
       "shared",
       "exclusive",
       "upstream-row-lock",
+      "config-read",
       "target",
       "version-read",
-      "config-read",
       "version-create",
       "delete",
     ]);

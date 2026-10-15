@@ -1,5 +1,6 @@
 "use server";
 
+import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import { resolveReviewPolicy } from "@reviewrouter/features-review-config";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -2896,6 +2897,8 @@ async function saveWorkspaceReviewConfigMutation(
         configurations: new PrismaReviewConfigurationRepository(
           prisma,
           process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+          readPersonalAccountSharingEnabled(process.env),
+          actor.userId,
         ),
       },
     );
@@ -3028,6 +3031,8 @@ async function saveRepositoryReviewConfigMutation(
         configurations: new PrismaReviewConfigurationRepository(
           prisma,
           process.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+          readPersonalAccountSharingEnabled(process.env),
+          actor.userId,
         ),
       },
     );
@@ -3220,6 +3225,17 @@ async function retryOutboxEventMutation(
 }
 
 async function loadGatewayReviewProfiles(workspaceId: string) {
+  const { productionPersonalAccounts } =
+    await import("../../src/server/personal-account-composition");
+  const personal = await productionPersonalAccounts();
+  if (personal) {
+    const allowed = await personal
+      .workspaceAccess(workspaceId)
+      .catch(() => null);
+    if (allowed) {
+      return personal.reviewProfiles(workspaceId);
+    }
+  }
   const { loadAccountsBootstrap } =
     await import("../../src/server/account-gateway-accounts");
   const { page } = await loadAccountsBootstrap(workspaceId);

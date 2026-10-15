@@ -22,6 +22,7 @@ import {
   assertExpectedRevision,
   assertOpaqueReference,
   assertExecutable,
+  isPersistedRevision,
   type ConnectionState,
 } from "../../domain/provider-account";
 import {
@@ -51,6 +52,7 @@ function toIntent(row: OperationRow): PersonalAccountIntent {
   return snapshotPersonalIntent({
     ...row,
     expectedGatewayRevision: Number(row.expectedGatewayRevision),
+    expectedAuthorizationEpoch: Number(row.expectedAuthorizationEpoch),
   } as PersonalAccountIntent);
 }
 function operationData(input: PersonalAccountIntent) {
@@ -65,6 +67,15 @@ function operationData(input: PersonalAccountIntent) {
         : BigInt(intent.expectedGatewayRevision),
   };
 }
+
+export type RecipientPersonalBindingDetach = {
+  readonly bindingId: string;
+  readonly workspaceId: string;
+  readonly revision: number;
+  readonly state: "revoked";
+  readonly localAuthorization: "local_denied";
+  readonly remoteFenceDelivery: "remote_pending" | "remote_applied";
+};
 
 /** Internal composition only. No public personal write/use entry is enabled. */
 export class PrismaPersonalAccountOperations implements PersonalAccountOperationStore {
@@ -526,6 +537,99 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
       });
       return this.result(tx, applied);
     });
+  }
+  /** Recipient authority is scoped to one immutable personal binding, never
+   * canonical management. No donor P/source handle, nonce or Gateway GET needed.
+   * A replay of the current/preceding CAS reads its exact existing fence only.
+   */
+  async detachRecipientBinding(request: {
+    readonly actorUserId: string;
+    readonly workspaceId: string;
+    readonly bindingId: string;
+    readonly expectedBindingRevision: number;
+  }): Promise<RecipientPersonalBindingDetach> {
+    const input = {
+      actorUserId: request.actorUserId,
+      workspaceId: request.workspaceId,
+      bindingId: request.bindingId,
+      expectedBindingRevision: request.expectedBindingRevision,
+    };
+    for (const ref of [input.actorUserId, input.workspaceId, input.bindingId])
+      assertOpaqueReference(ref);
+    if (!isPersistedRevision(input.expectedBindingRevision))
+      throw new ProviderAccountError("invalid_input");
+    try {
+      return await this.prisma.$transaction(
+        async (tx): Promise<RecipientPersonalBindingDetach> => {
+          // Parent workspace authority first avoids inversion with deletion writers;
+          // actor Member -> Source -> Binding matches coordinated role-loss writers.
+          const scopes = await tx.$queryRaw<{ id: string }[]>`
+          SELECT "id" FROM "Workspace" WHERE "id" = ${input.workspaceId}
+            AND "personalOwnerUserId" IS NULL AND "deletionState" = 'active' FOR SHARE`;
+          if (scopes.length !== 1)
+            throw new ProviderAccountError("workspace_forbidden");
+          await this.lockMember(tx, input.workspaceId, input.actorUserId);
+          const selected = await tx.workspaceAccountBinding.findUnique({
+            where: {
+              id_workspaceId: {
+                id: input.bindingId,
+                workspaceId: input.workspaceId,
+              },
+            },
+            select: { connectionId: true },
+          });
+          if (!selected) throw new ProviderAccountError("binding_unavailable");
+          const sources = await tx.$queryRaw<{ id: string }[]>`
+          SELECT "id" FROM "ProviderAccountConnection" WHERE "id" = ${selected.connectionId}
+            AND "ownerUserId" IS NOT NULL AND "ownerWorkspaceId" IS NULL FOR UPDATE`;
+          if (sources.length !== 1)
+            throw new ProviderAccountError("connection_unavailable");
+          await tx.$queryRaw`SELECT "id" FROM "WorkspaceAccountBinding"
+          WHERE "id" = ${input.bindingId} AND "workspaceId" = ${input.workspaceId}
+            AND "connectionId" = ${selected.connectionId} FOR UPDATE`;
+          let binding = await tx.workspaceAccountBinding.findUnique({
+            where: {
+              id_workspaceId: {
+                id: input.bindingId,
+                workspaceId: input.workspaceId,
+              },
+            },
+          });
+          if (!binding || binding.connectionId !== selected.connectionId)
+            throw new ProviderAccountError("binding_unavailable");
+          if (binding.state === "active") {
+            if (binding.revision !== input.expectedBindingRevision)
+              throw new ProviderAccountError("revision_conflict");
+            await this.retire(tx, binding, randomUUID());
+            binding = await tx.workspaceAccountBinding.findUniqueOrThrow({
+              where: { id: input.bindingId },
+            });
+          } else if (
+            input.expectedBindingRevision !== binding.revision &&
+            input.expectedBindingRevision !== binding.revision - 1
+          ) {
+            throw new ProviderAccountError("revision_conflict");
+          }
+          if (binding.state !== "revoked")
+            throw new ProviderAccountError("binding_unavailable");
+          return {
+            bindingId: binding.id,
+            workspaceId: binding.workspaceId,
+            revision: binding.revision,
+            state: "revoked",
+            localAuthorization: "local_denied",
+            remoteFenceDelivery:
+              binding.pendingFenceOperationId === null &&
+              binding.fenceAckOperationId !== null &&
+              binding.fenceAckPolicyRevision === binding.policyRevision
+                ? "remote_applied"
+                : "remote_pending",
+          };
+        },
+      );
+    } catch (error) {
+      return rethrowProductStorageError(error);
+    }
   }
   private async retire(
     tx: Tx,

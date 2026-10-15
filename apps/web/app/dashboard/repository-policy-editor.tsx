@@ -47,6 +47,8 @@ import type {
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
 import { getReadyGatewayAccounts } from "../../src/server/dashboard-provider-setup-readiness";
+import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
+import { useGatewayModelAccounts } from "./gateway-model-account-options";
 import {
   defaultGatewayMiMoReasoningEffort,
   gatewayModelSupportsReasoningEffort,
@@ -1162,9 +1164,19 @@ export function ReviewConfigForm({
     Math.min(config.execution.inlineMinAgreement, initialProviders.length),
   );
   // Safe display choices from authorized RSC first paint, never binding authority.
+  const gatewayOptions = useGatewayModelAccounts(
+    gatewayAccounts,
+    providers
+      .filter((provider) => provider.authMode === "codex_account_gateway")
+      .map((provider) => provider.gatewayBindingId ?? ""),
+  );
   const gatewayPage =
-    gatewayAccounts?.status === "ok" ? gatewayAccounts.value : null;
-  const eligibleGatewayAccounts = getReadyGatewayAccounts(gatewayAccounts);
+    gatewayOptions.accounts?.status === "ok"
+      ? gatewayOptions.accounts.value
+      : null;
+  const eligibleGatewayAccounts = getReadyGatewayAccounts(
+    gatewayOptions.accounts,
+  );
   const gatewayAvailabilityMessage = !gatewayPage
     ? gatewayAccounts?.status === "denied"
       ? "Workspace admin access is required to choose accounts."
@@ -1585,7 +1597,12 @@ export function ReviewConfigForm({
                           options={eligibleGatewayAccounts.map((account) => ({
                             value: account.binding!.id,
                             label: account.label,
-                            description: account.profileLabel,
+                            description: [
+                              account.profileLabel,
+                              personalAccountOriginText(account),
+                            ]
+                              .filter(Boolean)
+                              .join(" · "),
                           }))}
                           onValueChange={(value) => {
                             const account = eligibleGatewayAccounts.find(
@@ -1768,10 +1785,44 @@ export function ReviewConfigForm({
                       {gatewayAvailabilityMessage ? (
                         <p>{gatewayAvailabilityMessage}</p>
                       ) : null}
-                      {gatewayPage?.nextCursor ? (
+                      {gatewayOptions.canLoadMore ? (
+                        <button
+                          type="button"
+                          className="text-cyan-200 underline underline-offset-4 disabled:opacity-50"
+                          disabled={gatewayOptions.loading}
+                          onClick={gatewayOptions.loadMore}
+                        >
+                          Load more accounts
+                        </button>
+                      ) : gatewayPage?.nextCursor ? (
                         <p>
                           Showing the first page of accounts. Additional
                           accounts are not available in this selection.
+                        </p>
+                      ) : null}
+                      {gatewayOptions.pageError ? (
+                        <p role="status">
+                          More accounts could not be loaded. Your saved
+                          selection has not been changed.
+                        </p>
+                      ) : null}
+                      {gatewayOptions.canRefresh ? (
+                        <button
+                          type="button"
+                          className="ml-3 text-cyan-200 underline underline-offset-4 disabled:opacity-50"
+                          disabled={gatewayOptions.loading}
+                          onClick={gatewayOptions.refresh}
+                        >
+                          Refresh account options
+                        </button>
+                      ) : null}
+                      {personalAccountOriginText(
+                        gatewayAccount ?? { label: "" },
+                      ) === "Shared personal account" ? (
+                        <p>
+                          This personal connection shares its authentication and
+                          capacity with its other authorized uses. Manage the
+                          source in personal Accounts.
                         </p>
                       ) : null}
                       {!gatewayModels.includes(provider.model.trim()) ? (

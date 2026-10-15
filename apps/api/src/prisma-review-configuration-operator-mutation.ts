@@ -16,6 +16,7 @@ export class PrismaReviewConfigurationOperatorMutation implements ReviewConfigur
   constructor(
     private readonly prisma: PrismaClient,
     private readonly operatorWorkspaceId?: string,
+    private readonly personalAccountsEnabled = false,
   ) {}
 
   async commit(
@@ -33,6 +34,7 @@ export class PrismaReviewConfigurationOperatorMutation implements ReviewConfigur
               new PrismaReviewConfigurationTransactionRepository(
                 transaction,
                 this.operatorWorkspaceId,
+                this.personalAccountsEnabled,
               );
             const current = await resolveReviewConfiguration(input.target, {
               configurations,

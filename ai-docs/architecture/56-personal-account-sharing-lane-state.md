@@ -82,13 +82,120 @@ review receipts remain historical evidence, not runtime acceptance.
   disabled until the complete authorization, fencing and qualification batch.
   MiMo workers resume only after an external runtime fix; do not bypass its
   protected authority inspection guard or create another workstream.
-- Next: publish the reviewed inert C3 foundation and gated C5 UI components,
-  complete C3 consumption/C4/server composition, and qualify the full readable
-  frontend flow with real end-to-end evidence. Only Root may coordinate the H
-  production cutover, preserving its current Action171/15-row deployment state.
-  No first-checkpoint/full-H completion equivalence is claimed.
+- C3a private snapshot-v2/epoch compatibility merged in PR586, merge
+  `3da915b31647e1fa21eedce3de8b7ff6c33fad00`. Public consumption is still gated.
+- C4 canonical rename/reconnect/retire, late-session rechecks and exact recipient
+  detach are locally authored and independently reviewed. HOST provider types,
+  four substantive canonical/recipient PostgreSQL cases and the controlled
+  SDK/HTTP session-switch fixture pass. SQL130/classifier compatibility has
+  focused fixture evidence; the schema and SDK pins remain bounded by the plan.
+- C5 PR587 retains the gated own catalog, multiselect sharing and exact Models
+  selection. Its initial CI passed quality, DB, source, E2E and OCI checks, but
+  failed formatting in one test; the whitespace-only correction is retained.
+  The same PR is temporarily closed while reviewed child PRs assemble on its
+  head branch. It will reopen for the final exact-main required gate; component
+  evidence does not stand for combined-tree CI.
+- Actual qualification handles: C4 format `94775` and final focused checks
+  `13502` completed successfully; wiring/Models managed job
+  `18c7b3c0020742a09d4ac0faea2eefea` completed successfully; Action171 public
+  projection/parser managed job `eda5dd90e2b72b5ee636135f6a439200` was running at
+  this recorded checkpoint. Handles and terminal receipts live under the owned
+  `tmp/personal-sharing-h-20261015` evidence directory, not in production state.
+- Remaining: complete trusted server/UI composition, qualify assembled source
+  and the actual Action171 boundary, then perform normal-session personal
+  enrollment and multi-organization live E2E including tools, nonempty final
+  output and approved-head App publication. A protected dedicated WEB control
+  grant is being prepared separately; only Root executes the coherent rollout.
+  No live or full-H acceptance is claimed by these component checks.
   Norm53 remains unchanged at SHA256
   `66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0`.
+
+## 2026-10-15 assembled source qualification
+
+Reviewed children 589 (relay local authority), 590 (canonical operations and exact
+recipient detach), 591 (personal consumption and saving-actor locks) and 592
+(finite server adapters) are merged into the retained PR587 head branch. PR587
+is temporarily closed during assembly; its final reopened exact-main CI remains
+mandatory. These child receipts are component evidence, not combined-tree CI.
+
+Actual HOST handles: corrected WEB types and 23 focused facade/recipient cases
+`43036` completed successfully; dedicated production-factory/action cases
+`69879` and `90675` completed successfully; new production test typecheck
+`54410` completed successfully. Actual Action171 public projection/parser job
+`fff0d78e77c8b3778469510e4cfd9c12` passed. Production-wiring job `55a0f9087aadaf6490da85f8278574d1` passed workflow types
+and 17 policy cases. API type recheck `b30d63771665ccb63d786e60916ace93` passed
+after its already reviewed relay prerequisite was copied. Batch saving-actor
+regression/types handle `83305` was running at this source checkpoint. No full
+HOST build is running; the final official image gate follows source assembly.
+
+Next concrete delivery is the trusted production composition child, followed by
+the already qualified UI integration child and final exact-main build/CI. The
+new dedicated WEB credential is staged by Root, not active. Root alone applies
+the coherent image/feature rollout and normal-session live E2E. Full H acceptance,
+actual multi-organization UI use and tools/final/App publication remain pending.
+
+## Final source assembly before protected-main gate
+
+The authoritative assembly is the external `personal-sharing-h-server-adapters-20261015`
+worktree on `feat/personal-sharing-h-ui-integration-20261015`; the older f538
+composition worktree is retained scratch only. Children 589–593 are integrated
+into the retained PR587 branch, with independent source review and exact focused
+HOST evidence. Its final UI composition shares the canonical/sharing cache,
+provides paged exact Models selection and recipient-local detach, and preserves
+organization/operator management separately.
+
+Final HOST handle `96574` passed all 66 changed JavaScript/TypeScript files with
+zero lint errors/warnings/ignored files, selected WEB types and six canonical
+adapter cases. Actual Prettier3.8.3 checks/idempotence passed. The earlier child
+CI lint and stale generated-bundle failures remain retained; they are corrected
+here rather than relabeled successful. Job `24636899bc0a566c1ec83715daa03591`
+passed review-config types and the real parameterized actor-lock PG case in
+4.372 seconds. Bundle-only Node24 job `3bc8f5499c022fa4b5e554b3898ce2e7`
+passed exact build/equivalence with 446 guarded inputs. The committed generated
+conflict bundle is 516498 bytes, SHA256
+`e38e58548031b6d52b012198240d4cfee159a76efab4bf17130263017c1a2ff8`.
+Runtime Prisma remains absent from that CLI bundle.
+
+The final CI pair pins existing immutable Action171 `66ac53a5…` and its official
+`dist/index.js` digest `2a65907a…`; the actual Action171 public parser proof passed.
+No new Action protocol/version is introduced. Next is reopening the same PR587
+for exact protected-main checks, then the official release/image. Public H is
+still default disabled in source; Root alone applies compatible129/130 migrations,
+the staged dedicated WEB grant and API/WEB exact flag `1` in one coherent batch.
+The final live acceptance matrix under the owned H evidence directory remains
+mandatory. No source/UI check claims normal-session personal enrollment, live
+multi-organization use, tools/final/App publication or full H completion.
+
+## Final exact-head review corrections
+
+PR587 EFD passed all applicable exact-head CI checks in run `38715603599`; its
+PR-only full rehearsal was the expected skip. Before merge, four actual review
+findings were corrected together: one stale Models row no longer denies other
+authorized rows, profile validation reads the qualified catalog directly, the
+first pending exact selection remains visible, and eligibility caches refresh
+after sharing changes. HOST handle `42848` proved precise OLD RED failures and
+NEW 19/19 targeted cases, WEB types, ten-file lint and Prettier3.8.3.
+
+The post-claim session barrier also now distinguishes a positively unentered
+authorization failure from an uncertain ingress effect. New migration
+`000131_personal_canonical_unentered_claim` has SHA256
+`342221539d29efff72a110415311e43556e7b83dddaddf763610d9bc734c8ef3`.
+Only its winning exact monotonic claim token can restore the same original
+rename to reserved, or reconnect/retire to fencing, before ingress was invoked.
+Source pending state and all binding fences remain intact. Unknown, terminal
+and stale claims cannot rewind; a concurrent unknown readback remains denied.
+Frozen129/130 bytes are unchanged. HOST handle `1379` proved the precise old130
+SQL guard failure, then four real-PG cases on131, provider source/test types, six
+canonical WEB cases, five-file lint and formatting. Independent source reviews
+cover the Models, UI, canonical and finite131 inventory deltas separately.
+
+The inherited conflict rename-pathspec finding is unchanged from main and was
+explicitly deferred in its thread; no fix or new conflict behavior is claimed.
+The corrected combined head requires fresh exact CI before merge, then exact
+main full rehearsal and the normal SaaS171 image release. Root alone applies
+migrations129–131, the staged dedicated WEB grant, image and API/WEB flag, then
+performs normal-session personal multi-organization UI and real tools/final/App
+acceptance. Public H and full H completion remain pending those live results.
 
 ## Historical 2026-10-06 planning and delivery receipts
 

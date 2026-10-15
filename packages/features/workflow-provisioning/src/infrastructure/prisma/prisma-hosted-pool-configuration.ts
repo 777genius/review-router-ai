@@ -1,3 +1,4 @@
+import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import {
   acquireReviewConfigurationWriteScope,
   findReviewConfiguration,
@@ -17,6 +18,8 @@ export async function switchRepositoryConfigurationAuthMode(input: {
 }): Promise<boolean> {
   const configurations = new PrismaReviewConfigurationTransactionRepository(
     input.transaction,
+    undefined,
+    readPersonalAccountSharingEnabled(process.env),
   );
   const repositoryTarget = {
     scope: "repository" as const,

@@ -31,8 +31,12 @@ import {
   listGatewayAccounts,
   readGatewayOperation,
   submitGatewayApiKey,
+  mutateGatewayAccount,
 } from "./account-gateway-account-actions";
-import { AccountGatewayControls } from "./account-gateway-account-controls";
+import {
+  AccountGatewayControls,
+  type AccountGatewayManagementApi,
+} from "./account-gateway-account-controls";
 
 // Mock only the server boundary. React Query, its caches, and shared dialog/select
 // primitives are real; this suite starts no service and sends no OAuth request.
@@ -133,10 +137,16 @@ function assertNoCallback() {
   ) as HTMLInputElement | null;
   if (field) expect(field.value).toBe("");
 }
-async function mount() {
+async function mount(
+  props: {
+    api?: AccountGatewayManagementApi;
+    managementScope?: "workspace" | "personal";
+  } = {},
+) {
   const view = render(
     <AccountGatewayControls
       bootstrap={{ context, page: { status: "ok", value: page } }}
+      {...props}
     />,
   );
   await waitFor(() =>
@@ -254,6 +264,420 @@ beforeEach(() => {
     },
   }));
 });
+
+function personalApi() {
+  return {
+    listGatewayAccounts: vi
+      .fn<typeof listGatewayAccounts>()
+      .mockImplementation(async () => ({ status: "ok", value: page })),
+    mutateGatewayAccount: vi
+      .fn<typeof mutateGatewayAccount>()
+      .mockImplementation(async (_scope, intent) =>
+        safeOperation(intent.nonce, "applied"),
+      ),
+    submitGatewayApiKey: vi
+      .fn<typeof submitGatewayApiKey>()
+      .mockImplementation(async (_scope, intent) =>
+        safeOperation(intent.nonce, "applied"),
+      ),
+    readGatewayOperation: vi
+      .fn<typeof readGatewayOperation>()
+      .mockImplementation(async (_scope, nonce) =>
+        safeOperation(nonce, "applied"),
+      ),
+    beginGatewayOAuth: vi
+      .fn<typeof beginGatewayOAuth>()
+      .mockImplementation(async (_scope, intent) => ({
+        status: "ok",
+        value: {
+          operation: {
+            nonce: intent.nonce,
+            state: "pending",
+            cleanup: "unresolved",
+          },
+          authorizationURL: capability,
+        },
+      })),
+    completeGatewayOAuth: vi
+      .fn<typeof completeGatewayOAuth>()
+      .mockImplementation(async (_scope, intent) =>
+        safeOperation(intent.nonce, "applied"),
+      ),
+  };
+}
+
+test("personal scope reuses canonical controls through injected actions and never offers workspace use management", async () => {
+  page.accounts = [
+    {
+      ...row("active"),
+      connectionId: "own-source",
+      label: "Personal MiMo",
+      profileId: "mimo",
+      profileLabel: "MiMo",
+      authKind: "api_key",
+      binding: {
+        id: "personal-use",
+        revision: 2,
+        state: "active",
+        fencePending: false,
+      },
+    },
+  ];
+  page.canGrantOperatorUse = true;
+  const api = personalApi();
+  await mount({ api, managementScope: "personal" });
+  for (const name of [
+    "Select workspace binding",
+    "Create workspace binding",
+    "Detach workspace use",
+    "Disable",
+  ])
+    expect(screen.queryByRole("button", { name })).toBeNull();
+  expect(screen.queryByLabelText("Workspace ID")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Rename account" }));
+  let dialog = await screen.findByRole("dialog");
+  fireEvent.change(within(dialog).getByLabelText("Account label"), {
+    target: { value: "Shared canonical name" },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Submit" }));
+  await waitFor(() =>
+    expect(api.mutateGatewayAccount).toHaveBeenCalledWith(context, {
+      kind: "rename",
+      nonce: expect.any(String),
+      connectionId: "own-source",
+      gatewayRevision: 1,
+      mirrorRevision: 1,
+      label: "Shared canonical name",
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Reconnect API key",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Reconnect API key" }));
+  dialog = await screen.findByRole("dialog");
+  const key = "synthetic-personal-reconnect-key";
+  fireEvent.change(within(dialog).getByLabelText("API key"), {
+    target: { value: key },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Submit" }));
+  await waitFor(() =>
+    expect(api.submitGatewayApiKey).toHaveBeenCalledWith(
+      context,
+      {
+        kind: "reconnect",
+        nonce: expect.any(String),
+        connectionId: "own-source",
+        gatewayRevision: 1,
+        mirrorRevision: 1,
+      },
+      key,
+    ),
+  );
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Retire personal account",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Retire personal account" }),
+  );
+  await waitFor(() =>
+    expect(api.mutateGatewayAccount).toHaveBeenCalledWith(context, {
+      kind: "disable",
+      nonce: expect.any(String),
+      connectionId: "own-source",
+      gatewayRevision: 1,
+      mirrorRevision: 1,
+    }),
+  );
+  expect(mutateGatewayAccount).not.toHaveBeenCalled();
+  expect(submitGatewayApiKey).not.toHaveBeenCalled();
+  expect(bindGatewayAccount).not.toHaveBeenCalled();
+  expect([...clients].map(caches).join("\n")).not.toContain(key);
+  expect(JSON.stringify(storageWrites.mock.calls)).not.toContain(key);
+});
+
+test("personal OAuth injection preserves the existing one-off handoff and completion custody", async () => {
+  const api = personalApi();
+  api.readGatewayOperation.mockImplementation(async (_scope, nonce) =>
+    safeOperation(nonce),
+  );
+  await mount({ api, managementScope: "personal" });
+  await startEnrollment();
+  await waitFor(() => expect(api.beginGatewayOAuth).toHaveBeenCalledTimes(1));
+  const nonce = api.beginGatewayOAuth.mock.calls[0]![1].nonce;
+  const dialog = await screen.findByRole("dialog", {
+    name: "Complete Codex authorization",
+  });
+  fireEvent.change(
+    within(dialog).getByLabelText("Authorization result address"),
+    { target: { value: callbackURL } },
+  );
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Complete authorization" }),
+  );
+  await waitFor(() =>
+    expect(api.completeGatewayOAuth).toHaveBeenCalledWith(context, {
+      nonce,
+      callbackURL,
+    }),
+  );
+  expect(beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(completeGatewayOAuth).not.toHaveBeenCalled();
+  expect(api.beginGatewayOAuth).toHaveBeenCalledTimes(1);
+  assertNoCapability();
+  assertNoCallback();
+});
+test.each(["applied", "lost_ack"] as const)(
+  "personal key continuation keeps original nonce and discards deferred ready reads (%s)",
+  async (outcome) => {
+    const personalStorage = "rr-c3-account-operations:personal:workspace-user";
+    sessionStorage.setItem(personalStorage, JSON.stringify([savedNonce]));
+    const resume = {
+      kind: "reconnect" as const,
+      connectionId: "own-source",
+      profileId: "mimo",
+      gatewayRevision: 17,
+      mirrorRevision: 4,
+    };
+    const ready: AccountsResult<AccountOperationView> = {
+      status: "ok",
+      value: {
+        nonce: savedNonce,
+        state: "pending",
+        cleanup: "unresolved",
+        resume,
+      },
+    };
+    const api = personalApi();
+    api.readGatewayOperation.mockResolvedValue(ready);
+    await mount({ api, managementScope: "personal" });
+    await screen.findByRole("button", { name: "Continue key update" });
+    expect(
+      screen.queryByRole("button", { name: "Resume Codex authorization" }),
+    ).toBeNull();
+    const client = [...clients][0]!;
+    const queryKey = [
+      "gateway-accounts",
+      "personal:workspace-user",
+      "operation",
+      savedNonce,
+    ] as const;
+    let releaseOld!: (value: AccountsResult<AccountOperationView>) => void;
+    const oldRead = new Promise<AccountsResult<AccountOperationView>>(
+      (resolve) => {
+        releaseOld = resolve;
+      },
+    );
+    api.readGatewayOperation.mockImplementationOnce(() => oldRead);
+    let oldFetch!: Promise<void>;
+    act(() => {
+      oldFetch = client.refetchQueries({ queryKey, exact: true });
+    });
+    await waitFor(() =>
+      expect(api.readGatewayOperation).toHaveBeenCalledTimes(2),
+    );
+
+    let resolveEntry!: (value: AccountsResult<AccountOperationView>) => void;
+    let rejectEntry!: (reason: Error) => void;
+    const entry = new Promise<AccountsResult<AccountOperationView>>(
+      (resolve, reject) => {
+        resolveEntry = resolve;
+        rejectEntry = reject;
+      },
+    );
+    api.submitGatewayApiKey.mockImplementation(async () => {
+      // The DOM must release the credential before either cancellation or API awaits.
+      expect(field.value).toBe("");
+      return entry;
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue key update" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Continue key update",
+    });
+    const field = within(dialog).getByLabelText("API key") as HTMLInputElement;
+    const secret = "synthetic-original-nonce-continuation-key";
+    fireEvent.change(field, { target: { value: secret } });
+    const form = field.closest("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    expect(field.value).toBe("");
+    await waitFor(() =>
+      expect(api.submitGatewayApiKey).toHaveBeenCalledTimes(1),
+    );
+    expect(api.submitGatewayApiKey).toHaveBeenCalledWith(
+      context,
+      { ...resume, nonce: savedNonce },
+      secret,
+    );
+    expect(JSON.parse(sessionStorage.getItem(personalStorage)!)).toEqual([
+      savedNonce,
+    ]);
+
+    let releaseDuring!: (value: AccountsResult<AccountOperationView>) => void;
+    const duringRead = new Promise<AccountsResult<AccountOperationView>>(
+      (resolve) => {
+        releaseDuring = resolve;
+      },
+    );
+    api.readGatewayOperation.mockImplementationOnce(() => duringRead);
+    let duringFetch!: Promise<void>;
+    act(() => {
+      duringFetch = client.refetchQueries({ queryKey, exact: true });
+    });
+    await waitFor(() =>
+      expect(api.readGatewayOperation).toHaveBeenCalledTimes(3),
+    );
+    await act(async () => {
+      if (outcome === "applied")
+        resolveEntry(safeOperation(savedNonce, "applied"));
+      else rejectEntry(new Error("synthetic_lost_ack"));
+    });
+    const expectedState = outcome === "applied" ? "applied" : "unknown";
+    await waitFor(() =>
+      expect(client.getQueryData(queryKey)).toMatchObject({
+        status: "ok",
+        value: { nonce: savedNonce, state: expectedState },
+      }),
+    );
+    await act(async () => {
+      releaseOld(ready);
+      releaseDuring(ready);
+      await Promise.all([oldFetch, duringFetch]);
+    });
+    expect(client.getQueryData(queryKey)).toMatchObject({
+      status: "ok",
+      value: { state: expectedState },
+    });
+    expect(
+      screen.queryByRole("button", { name: "Continue key update" }),
+    ).toBeNull();
+    // Even a later stale ready response cannot re-enter this nonce in the same owner component.
+    await act(async () => {
+      await client.refetchQueries({ queryKey, exact: true });
+    });
+    expect(
+      screen.queryByRole("button", { name: "Continue key update" }),
+    ).toBeNull();
+    expect(api.submitGatewayApiKey).toHaveBeenCalledTimes(1);
+    expect(submitGatewayApiKey).not.toHaveBeenCalled();
+    const retained = [
+      ...cacheSnapshots,
+      ...[...clients].map(caches),
+      JSON.stringify(storageWrites.mock.calls),
+      JSON.stringify({ ...sessionStorage, ...browserLocalStorage }),
+      document.body.innerHTML,
+    ].join("\n");
+    expect(retained).not.toContain(secret);
+  },
+);
+
+test("late fence permits key reentry only after an explicit fresh ready check on the original nonce", async () => {
+  const personalStorage = "rr-c3-account-operations:personal:workspace-user";
+  sessionStorage.setItem(personalStorage, JSON.stringify([savedNonce]));
+  const resume = {
+    kind: "reconnect" as const,
+    connectionId: "own-source",
+    profileId: "mimo",
+    gatewayRevision: 17,
+    mirrorRevision: 4,
+  };
+  const ready: AccountsResult<AccountOperationView> = {
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      resume,
+    },
+  };
+  const api = personalApi();
+  let lateFence = false;
+  api.readGatewayOperation.mockImplementation(async () =>
+    lateFence ? safeOperation(savedNonce) : ready,
+  );
+  api.submitGatewayApiKey.mockImplementation(async () =>
+    lateFence
+      ? safeOperation(savedNonce)
+      : safeOperation(savedNonce, "applied"),
+  );
+  await mount({ api, managementScope: "personal" });
+  await screen.findByRole("button", { name: "Continue key update" });
+  lateFence = true; // Role-loss fence appears after the original ready response.
+  async function enter(key: string) {
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue key update" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Continue key update",
+    });
+    fireEvent.change(within(dialog).getByLabelText("API key"), {
+      target: { value: key },
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Continue update" }),
+    );
+  }
+  await enter("synthetic-before-late-fence-key");
+  await waitFor(() => expect(api.submitGatewayApiKey).toHaveBeenCalledTimes(1));
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Check status",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  await waitFor(() =>
+    expect(api.readGatewayOperation).toHaveBeenCalledTimes(2),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Continue key update" }),
+  ).toBeNull();
+  lateFence = false; // Exact fence ACK has now made the original operation ready again.
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Check status",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  await screen.findByRole("button", { name: "Continue key update" });
+  await enter("synthetic-after-ack-key");
+  await waitFor(() => expect(api.submitGatewayApiKey).toHaveBeenCalledTimes(2));
+  expect(api.submitGatewayApiKey.mock.calls.map((call) => call[1])).toEqual([
+    { ...resume, nonce: savedNonce },
+    { ...resume, nonce: savedNonce },
+  ]);
+  expect(JSON.parse(sessionStorage.getItem(personalStorage)!)).toEqual([
+    savedNonce,
+  ]);
+  const retained = [
+    ...cacheSnapshots,
+    ...[...clients].map(caches),
+    JSON.stringify(storageWrites.mock.calls),
+  ].join("\n");
+  expect(retained).not.toContain("synthetic-before-late-fence-key");
+  expect(retained).not.toContain("synthetic-after-ack-key");
+});
+
 afterEach(() => {
   cleanup();
   for (const client of clients) client.clear();

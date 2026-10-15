@@ -119,3 +119,112 @@ test("both persisted versions are validated independently", () => {
     1,
   );
 });
+
+// Personal grants require fresh repository facts, including stable owner/target
+// and safe source epoch. An operator designation cannot create personal use.
+test("personal use is closed by default and requires the exact live donor/target", () => {
+  const source: ProviderAccountConnection = {
+    ...connection,
+    owner: { kind: "user", userId: "donor-u" },
+    authorizationEpochMirror: 7,
+    pendingSourceOperationId: null,
+  };
+  const selected = {
+    binding: { ...binding, state: "active" as const },
+    connection: source,
+  };
+  const facts = {
+    workspaceId: "workspace-x",
+    personalOwnerUserId: null,
+    donorUserId: "donor-u",
+    donorRole: "admin" as const,
+  };
+  const denied = (error: unknown) =>
+    error instanceof ProviderAccountError &&
+    error.code === "connection_unavailable";
+  assert.throws(
+    () => selectBinding("workspace-x", "binding-x", selected),
+    denied,
+  );
+  assert.throws(
+    () => selectBinding("workspace-x", "binding-x", selected, "workspace-x"),
+    denied,
+  );
+  assert.equal(
+    selectBinding("workspace-x", "binding-x", {
+      ...selected,
+      personalUse: facts,
+    }).expectedAuthorizationEpoch,
+    7,
+  );
+  for (const personalUse of [
+    { ...facts, workspaceId: "workspace-y" },
+    { ...facts, donorUserId: "donor-v" },
+    { ...facts, donorRole: "member" as const },
+    { ...facts, donorRole: null },
+    { ...facts, personalOwnerUserId: "donor-v" },
+  ])
+    assert.throws(
+      () =>
+        selectBinding("workspace-x", "binding-x", {
+          ...selected,
+          personalUse,
+        }),
+      denied,
+    );
+  // P ownership is stable User identity, independent of organization membership.
+  assert.equal(
+    selectBinding("workspace-x", "binding-x", {
+      ...selected,
+      personalUse: {
+        ...facts,
+        personalOwnerUserId: "donor-u",
+        donorRole: null,
+      },
+    }).expectedAuthorizationEpoch,
+    7,
+  );
+  const { authorizationEpochMirror: _epoch, ...withoutEpoch } = source;
+  assert.equal(_epoch, 7);
+  assert.throws(
+    () =>
+      selectBinding("workspace-x", "binding-x", {
+        ...selected,
+        personalUse: facts,
+        connection: withoutEpoch,
+      }),
+    denied,
+  );
+  for (const authorizationEpochMirror of [
+    null,
+    0,
+    -1,
+    1.5,
+    NaN,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    assert.throws(
+      () =>
+        selectBinding("workspace-x", "binding-x", {
+          ...selected,
+          personalUse: facts,
+          connection: { ...source, authorizationEpochMirror },
+        }),
+      denied,
+    );
+  }
+  for (const patch of [
+    { state: "pending" as const },
+    { pendingSourceOperationId: "pending-op" },
+  ]) {
+    assert.throws(
+      () =>
+        selectBinding("workspace-x", "binding-x", {
+          ...selected,
+          personalUse: facts,
+          connection: { ...source, ...patch },
+        }),
+      denied,
+    );
+  }
+});

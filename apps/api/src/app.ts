@@ -1,3 +1,4 @@
+import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import { registerReviewRunGatewayCheckoutRoute } from "./review-run-gateway-checkout.js";
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { registerReviewRunGatewayRelayRoutes } from "./review-run-gateway-relay.js";
@@ -500,10 +501,12 @@ export async function createApiApp(
           configurations: new PrismaReviewConfigurationRepository(
             prisma,
             reviewActionV2Env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+            readPersonalAccountSharingEnabled(reviewActionV2Env),
           ),
           mutations: new PrismaReviewConfigurationOperatorMutation(
             prisma,
             reviewActionV2Env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+            readPersonalAccountSharingEnabled(reviewActionV2Env),
           ),
           rateLimits: new ReviewConfigurationOperatorRateLimit(
             new PrismaRateLimitStore(prisma),

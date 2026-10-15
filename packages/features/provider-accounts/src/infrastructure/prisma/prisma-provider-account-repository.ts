@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import type { WorkspaceBindingFenceRepositoryPort } from "../../application/ports/workspace-binding-fence-port";
 import type {
@@ -16,6 +16,7 @@ import {
   type ScopedBindingFence,
   type BindingScope,
   type BindingState,
+  type BindingSelection,
 } from "../../domain/provider-account";
 import {
   mapBinding,
@@ -33,6 +34,8 @@ export class PrismaProviderAccountRepository
   constructor(
     prisma: PrismaClient,
     private readonly operatorWorkspaceId?: string,
+    // Trusted server composition only. Public H stays closed unless explicitly wired.
+    private readonly personalAccountsEnabled = false,
   ) {
     if (operatorWorkspaceId !== undefined)
       assertOpaqueReference(operatorWorkspaceId);
@@ -166,20 +169,13 @@ export class PrismaProviderAccountRepository
     },
     reader: Pick<PrismaClient, "workspaceAccountBinding"> = this.prisma,
   ) {
-    const input = {
-      workspaceId: request.workspaceId,
-      bindingId: request.bindingId,
-    };
-    const row = await reader.workspaceAccountBinding.findUnique({
-      where: {
-        id_workspaceId: { id: input.bindingId, workspaceId: input.workspaceId },
-      },
-      include: { connection: true },
-    });
-    return row
-      ? { binding: mapBinding(row), connection: mapConnection(row.connection) }
-      : null;
+    return readProviderAccountBinding(
+      reader,
+      request,
+      this.personalAccountsEnabled,
+    );
   }
+
   async compareAndSetBinding(
     request: BindingScope & {
       readonly expectedRevision: number;
@@ -440,4 +436,106 @@ export class PrismaProviderAccountRepository
     });
     return changed.count === 1;
   }
+}
+
+/** One exact-ID reader for interactive selection, config writes and system admission.
+ * The optional personal facts are produced here, never accepted from request data.
+ */
+export async function readProviderAccountBinding(
+  reader: Pick<PrismaClient, "workspaceAccountBinding">,
+  request: { readonly workspaceId: string; readonly bindingId: string },
+  personalAccountsEnabled = false,
+): Promise<BindingSelection | null> {
+  const input = {
+    workspaceId: request.workspaceId,
+    bindingId: request.bindingId,
+  };
+  const row = await reader.workspaceAccountBinding.findUnique({
+    where: {
+      id_workspaceId: { id: input.bindingId, workspaceId: input.workspaceId },
+    },
+    include: {
+      workspace: { select: { personalOwnerUserId: true, deletionState: true } },
+      connection: {
+        include: {
+          ownerWorkspace: { select: { personalOwnerUserId: true } },
+          ownerUser: {
+            select: {
+              id: true,
+              memberships: {
+                where: { workspaceId: input.workspaceId },
+                select: { role: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (
+    !row ||
+    row.workspace.deletionState !== "active" ||
+    row.connection.ownerWorkspace?.personalOwnerUserId != null
+  )
+    return null;
+  const donor = row.connection.ownerUser;
+  return {
+    binding: mapBinding(row),
+    connection: mapConnection(row.connection),
+    ...(personalAccountsEnabled && donor
+      ? {
+          personalUse: {
+            workspaceId: input.workspaceId,
+            personalOwnerUserId: row.workspace.personalOwnerUserId,
+            donorUserId: donor.id,
+            donorRole: donor.memberships[0]?.role ?? null,
+          },
+        }
+      : {}),
+  };
+}
+
+/** Locks for the final consistent write/admission read. Member -> Source -> Binding
+ * matches the coordinated eligibility writer. All multi-selection IDs are sorted.
+ * The preliminary owner read cannot grant use; the caller rereads policy under locks.
+ */
+export async function lockProviderAccountBindingUses(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  bindingIds: readonly string[],
+  personalAccountsEnabled = false,
+): Promise<void> {
+  const ids = [...new Set(bindingIds)].sort();
+  if (!ids.length) return;
+  if (ids.length > 128) throw new ProviderAccountError("invalid_input");
+  assertOpaqueReference(workspaceId);
+  for (const id of ids) assertOpaqueReference(id);
+  const rows = await tx.workspaceAccountBinding.findMany({
+    where: { workspaceId, id: { in: ids } },
+    select: {
+      connectionId: true,
+      connection: { select: { ownerUserId: true } },
+    },
+  });
+  const donors = [
+    ...new Set(
+      rows.flatMap((row) =>
+        row.connection.ownerUserId ? [row.connection.ownerUserId] : [],
+      ),
+    ),
+  ].sort();
+  if (personalAccountsEnabled && donors.length) {
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id" FROM "WorkspaceMember" WHERE "workspaceId" = ${workspaceId}
+        AND "userId" IN (${Prisma.join(donors)}) ORDER BY "id" FOR SHARE`);
+  }
+  const sources = [...new Set(rows.map((row) => row.connectionId))].sort();
+  if (sources.length) {
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id" FROM "ProviderAccountConnection" WHERE "id" IN (${Prisma.join(sources)})
+      ORDER BY "id" FOR UPDATE`);
+  }
+  await tx.$queryRaw(Prisma.sql`
+    SELECT "id" FROM "WorkspaceAccountBinding" WHERE "workspaceId" = ${workspaceId}
+      AND "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`);
 }
