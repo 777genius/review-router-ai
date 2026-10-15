@@ -110,6 +110,30 @@ review receipts remain historical evidence, not runtime acceptance.
   Norm53 remains unchanged at SHA256
   `66a2393e7a55f76df1a78281af44379d0b455a0770d82f34e587dcca284157b0`.
 
+## 2026-10-15 assembled source qualification
+
+Reviewed children 589 (relay local authority), 590 (canonical operations and exact
+recipient detach), 591 (personal consumption and saving-actor locks) and 592
+(finite server adapters) are merged into the retained PR587 head branch. PR587
+is temporarily closed during assembly; its final reopened exact-main CI remains
+mandatory. These child receipts are component evidence, not combined-tree CI.
+
+Actual HOST handles: corrected WEB types and 23 focused facade/recipient cases
+`43036` completed successfully; dedicated production-factory/action cases
+`69879` and `90675` completed successfully; new production test typecheck
+`54410` completed successfully. Actual Action171 public projection/parser job
+`fff0d78e77c8b3778469510e4cfd9c12` passed. Production-wiring job `55a0f9087aadaf6490da85f8278574d1` passed workflow types
+and 17 policy cases. API type recheck `b30d63771665ccb63d786e60916ace93` passed
+after its already reviewed relay prerequisite was copied. Batch saving-actor
+regression/types handle `83305` was running at this source checkpoint. No full
+HOST build is running; the final official image gate follows source assembly.
+
+Next concrete delivery is the trusted production composition child, followed by
+the already qualified UI integration child and final exact-main build/CI. The
+new dedicated WEB credential is staged by Root, not active. Root alone applies
+the coherent image/feature rollout and normal-session live E2E. Full H acceptance,
+actual multi-organization UI use and tools/final/App publication remain pending.
+
 ## Historical 2026-10-06 planning and delivery receipts
 
 Task `review-router-account-gateway-v1-h-planner-v1`, 2026-10-06. **REVIEWED_PLAN / TWO_DISTINCT_FRESH_ROUNDS_COMPLETE / PUBLICATION_ONLY_ADAPTATION**. R1 единственный P1 исправлен, R2 APPROVE exacte51 без замечаний; MAIN fully read520 technical lines. Production implementation не начата; MAIN final publication integration read COMPLETE; две consistency правки внесены. Текущий D/E/F/G/E2E не блокируется H; Norm53 sole current contract.

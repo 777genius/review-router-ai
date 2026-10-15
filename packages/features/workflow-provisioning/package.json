@@ -21,6 +21,7 @@
     "@reviewrouter/features-audit-log": "workspace:*",
     "@reviewrouter/features-codex-oauth-rotating": "workspace:*",
     "@reviewrouter/features-review-config": "workspace:*",
+    "@reviewrouter/features-provider-accounts": "workspace:*",
     "@reviewrouter/features-review-providers": "workspace:*",
     "@reviewrouter/protocol-review-workflow": "workspace:*",
     "@reviewrouter/shared": "workspace:*"

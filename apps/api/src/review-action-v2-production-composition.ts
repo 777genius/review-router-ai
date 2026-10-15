@@ -1,3 +1,4 @@
+import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 import {
@@ -326,6 +327,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
       input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY,
     ),
     input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
+    readPersonalAccountSharingEnabled(input.env),
   );
   const repositories = createPrismaReviewRunControlRepositories(
     input.prisma,
