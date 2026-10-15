@@ -3,6 +3,7 @@ import {
   canonicalJson,
   parseReviewRunGatewayExecutionBinding,
   parseReviewRunRuntimeSnapshot,
+  reviewRunGatewayEpochMatches,
   reviewRunGatewayOwnedIdentity,
   type ReviewRunGatewayExecutionAttachment,
   type ReviewRunGatewayExecutionBinding,
@@ -45,10 +46,12 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
     );
     const original = snapshot?.gateway;
     if (
+      !snapshot ||
       !original?.limits ||
       binding.operationId !== original.operationId ||
       binding.accountRef !== original.permittedAccountRef ||
-      binding.deadline !== snapshot?.deadline
+      binding.deadline !== snapshot?.deadline ||
+      !reviewRunGatewayEpochMatches(snapshot, binding.authorizationEpoch)
     )
       return { status: "denied" };
     return this.prisma.$transaction(
@@ -137,7 +140,8 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
       binding &&
       (binding.operationId !== original.operationId ||
         binding.accountRef !== original.permittedAccountRef ||
-        binding.deadline !== snapshot.deadline)
+        binding.deadline !== snapshot.deadline ||
+        !reviewRunGatewayEpochMatches(snapshot, binding.authorizationEpoch))
     )
       return null;
     // Use fresh DB wall time after every awaited read, rather than transaction-start time.
