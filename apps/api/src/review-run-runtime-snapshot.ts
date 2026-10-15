@@ -6,6 +6,7 @@ import { PrismaActionControlPlaneRepository } from "@reviewrouter/features-actio
 import {
   PrismaProviderAccountRepository,
   selectBinding,
+  lockProviderAccountBindingUses,
   ProviderAccountError,
   assertOpaqueReference,
 } from "@reviewrouter/features-provider-accounts";
@@ -74,6 +75,8 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     private readonly prisma: PrismaClient,
     policy?: ServerApprovedReviewRunGatewayPolicy,
     private readonly operatorWorkspaceId?: string,
+    // Trusted backend composition only; never a caller/config/OIDC permission.
+    private readonly personalAccountsEnabled = false,
   ) {
     if (operatorWorkspaceId !== undefined)
       assertOpaqueReference(operatorWorkspaceId);
@@ -97,6 +100,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     this.accounts = new PrismaProviderAccountRepository(
       prisma,
       operatorWorkspaceId,
+      personalAccountsEnabled,
     );
   }
 
@@ -133,7 +137,9 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     // profiles need a qualified shared allowance contract, not fresh invocations.
     if (selectedProviders.length > 1) return null;
     const selected = selectedProviders[0];
-    let gateway: ReviewRunGatewaySelection | null = null;
+    let gateway:
+      | (ReviewRunGatewaySelection & { expectedAuthorizationEpoch?: number })
+      | null = null;
     if (selected?.provider.authMode === "codex_account_gateway") {
       const limits = this.approvedLimits.get(
         selected.provider.gatewayProfileRef,
@@ -167,6 +173,9 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         policyRevision: binding.policyRevision,
         permittedAccountRef: binding.gatewayAccountRef,
         profileRef: selected.provider.gatewayProfileRef,
+        ...(binding.expectedAuthorizationEpoch !== undefined
+          ? { expectedAuthorizationEpoch: binding.expectedAuthorizationEpoch }
+          : {}),
         ...reviewRunGatewayPreparationIdentity(identity),
         limits: { ...limits },
       };
@@ -174,7 +183,8 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     try {
       return parseReviewRunRuntimeSnapshot(
         canonicalJson({
-          snapshotVersion: 1,
+          snapshotVersion:
+            gateway?.expectedAuthorizationEpoch !== undefined ? 2 : 1,
           configurationSource: current?.source ?? "default",
           configurationVersion: current?.version ?? 1,
           configurationCanonicalJson: canonicalJson(configuration),
@@ -220,8 +230,8 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       provider.gatewayProfileRef !== original.profileRef
     )
       return false;
-    // Original C1 authority only; no current configuration or budget recalculation.
-    // Gateway independently enforces its actual epoch/fence at prepare/dispatch.
+    // Keep the original binding lifetime and epoch. A fresh BX2/config/epoch
+    // never repairs an old run; Gateway also enforces its actual authority.
     try {
       const live = selectBinding(
         identity.workspaceId,
@@ -243,6 +253,11 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         live.policySubject === original.policySubject &&
         live.gatewayAccountRef === original.permittedAccountRef &&
         live.profileRef === original.profileRef &&
+        (live.expectedAuthorizationEpoch === undefined
+          ? snapshot.snapshotVersion === 1
+          : snapshot.snapshotVersion === 2 &&
+            live.expectedAuthorizationEpoch ===
+              snapshot.gateway.expectedAuthorizationEpoch) &&
         stable.invocationId === original.invocationId &&
         stable.attemptId === original.attemptId &&
         stable.operationId === original.operationId
@@ -251,6 +266,21 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       if (error instanceof ProviderAccountError) return false;
       throw error;
     }
+  }
+
+  /** Admission and saved-execution reads use the same lock order and private gate. */
+  async lockGatewaySelection(
+    transaction: Prisma.TransactionClient,
+    workspaceId: string,
+    snapshot: ReviewRunRuntimeSnapshot,
+  ): Promise<void> {
+    if (snapshot.gateway)
+      await lockProviderAccountBindingUses(
+        transaction,
+        workspaceId,
+        [snapshot.gateway.bindingId],
+        this.personalAccountsEnabled,
+      );
   }
 
   /** Called inside the EXISTING serializable row+outbox admission transaction.
@@ -270,18 +300,13 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     const owned = await transaction.$queryRaw<readonly { id: string }[]>`
       SELECT "id" FROM "Workspace" WHERE "id" = ${workspaceId} FOR UPDATE`;
     if (owned.length !== 1) return false;
+    if (original.gateway) {
+      await this.lockGatewaySelection(transaction, workspaceId, original);
+    }
     await transaction.$queryRaw`
       SELECT "id" FROM "ReviewConfiguration"
       WHERE "workspaceId" = ${workspaceId} AND "targetKey" IN (${targetKey}, 'workspace:default')
       ORDER BY "id" FOR UPDATE`;
-    if (original.gateway) {
-      await transaction.$queryRaw`
-        SELECT "id" FROM "ProviderAccountConnection"
-        WHERE "id" = ${original.gateway.connectionId} FOR UPDATE`;
-      await transaction.$queryRaw`
-        SELECT "id" FROM "WorkspaceAccountBinding"
-        WHERE "id" = ${original.gateway.bindingId} AND "workspaceId" = ${workspaceId} FOR UPDATE`;
-    }
     try {
       const current = await this.capture(
         {

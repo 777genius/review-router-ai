@@ -94,14 +94,12 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
     );
     const original = snapshot?.gateway;
     if (!snapshot || !original?.limits) return null;
-    // Same connection-before-binding order as C1. Revocation/synchronization
-    // cannot commit between this live read and attachment on the locked row.
-    await tx.$queryRaw`
-      SELECT "id" FROM "ProviderAccountConnection"
-      WHERE "id" = ${original.connectionId} FOR UPDATE`;
-    await tx.$queryRaw`
-      SELECT "id" FROM "WorkspaceAccountBinding"
-      WHERE "id" = ${original.bindingId} AND "workspaceId" = ${owner.identity.workspaceId} FOR UPDATE`;
+    // Live donor authority precedes source/binding locks, as at admission/save.
+    await this.snapshots.lockGatewaySelection(
+      tx,
+      owner.identity.workspaceId,
+      snapshot,
+    );
     const privateRows = await tx.$queryRaw<
       readonly { gatewayExecutionCanonicalJson: string | null }[]
     >`

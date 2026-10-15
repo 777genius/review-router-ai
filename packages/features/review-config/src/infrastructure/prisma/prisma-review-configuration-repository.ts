@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import {
+  readProviderAccountBinding,
+  lockProviderAccountBindingUses,
+  selectBinding,
+  ProviderAccountError,
+  assertOpaqueReference,
+} from "@reviewrouter/features-provider-accounts";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   parseReviewConfiguration,
   type ReviewConfiguration,
@@ -35,6 +42,9 @@ export class PrismaReviewConfigurationRepository
   constructor(
     private readonly prisma: PrismaClient,
     private readonly operatorWorkspaceId?: string,
+    // Trusted backend composition, never a config or batch request field.
+    private readonly personalAccountsEnabled = false,
+    private readonly personalWriteActorUserId?: string,
   ) {
     assertOperatorWorkspaceId(operatorWorkspaceId);
   }
@@ -65,6 +75,9 @@ export class PrismaReviewConfigurationRepository
               tx,
               input,
               this.operatorWorkspaceId,
+              undefined,
+              this.personalAccountsEnabled,
+              this.personalWriteActorUserId,
             ),
           { isolationLevel: "Serializable" },
         );
@@ -133,6 +146,8 @@ export class PrismaReviewConfigurationRepository
               intent,
               this.operatorWorkspaceId,
               receipt,
+              this.personalAccountsEnabled,
+              this.personalWriteActorUserId,
             ),
           { isolationLevel: "Serializable" },
         );
@@ -242,6 +257,9 @@ export class PrismaReviewConfigurationTransactionRepository
   constructor(
     private readonly prisma: Prisma.TransactionClient,
     private readonly operatorWorkspaceId?: string,
+    // Trusted backend composition, never a config or batch request field.
+    private readonly personalAccountsEnabled = false,
+    private readonly personalWriteActorUserId?: string,
   ) {
     assertOperatorWorkspaceId(operatorWorkspaceId);
   }
@@ -264,6 +282,9 @@ export class PrismaReviewConfigurationTransactionRepository
       this.prisma,
       input,
       this.operatorWorkspaceId,
+      undefined,
+      this.personalAccountsEnabled,
+      this.personalWriteActorUserId,
     );
   }
 
@@ -386,6 +407,8 @@ async function saveNextReviewConfigurationVersion(
     readonly operationId: string;
     readonly operationIntentHash: string;
   },
+  personalAccountsEnabled = false,
+  personalWriteActorUserId?: string,
 ): Promise<PersistedReviewConfiguration> {
   await acquireReviewConfigurationWriteScope(prisma, input.target);
   if (receipt) {
@@ -398,6 +421,16 @@ async function saveNextReviewConfigurationVersion(
       return matchOperationReceipt(original, receipt.operationIntentHash);
   }
   const config = parseReviewConfiguration(input.config);
+  // Member/source/binding locks precede configuration row writes, matching admission.
+  // Both default and repository/batch writers use this same final validator.
+  await assertGatewaySelections(
+    prisma,
+    input.target.workspaceId,
+    config,
+    operatorWorkspaceId,
+    personalAccountsEnabled,
+    personalWriteActorUserId,
+  );
   const targetKey = reviewConfigurationTargetKey(input.target);
   const configuration = await prisma.reviewConfiguration.upsert({
     where: {
@@ -433,14 +466,6 @@ async function saveNextReviewConfigurationVersion(
   ) {
     throw new WriteConflict();
   }
-  // Selection only. The safe product mirror cannot authorize execution;
-  // next relay admission must independently read live gateway/kernel authority.
-  await assertGatewaySelections(
-    prisma,
-    configuration.workspaceId,
-    config,
-    operatorWorkspaceId,
-  );
   if (!configuration.active) {
     // Reactivate only a NEW, CAS-valid, eligible write. Receipt replay returned
     // above without changing the active override or its retained history.
@@ -695,49 +720,115 @@ function gatewaySelectionFromRecord(record: {
   };
 }
 
+/** Capture and lock the saving actor together with all selected donors before
+ * any Source/Binding lock. This preserves C2's sorted Member -> Source order.
+ * Readonly receipt replay returns before this fresh-write authorization check.
+ */
+async function lockPersonalWriteActor(
+  prisma: Prisma.TransactionClient,
+  workspaceId: string,
+  bindingIds: readonly string[],
+  actorUserId: string | undefined,
+): Promise<ReadonlySet<string>> {
+  if (!bindingIds.length) return new Set<string>();
+  const rows = await prisma.workspaceAccountBinding.findMany({
+    where: {
+      workspaceId,
+      id: { in: [...new Set(bindingIds)] },
+      connection: { ownerUserId: { not: null } },
+    },
+    select: { id: true, connection: { select: { ownerUserId: true } } },
+  });
+  if (!rows.length) return new Set<string>();
+  if (actorUserId === undefined)
+    throw new Error("review_configuration_personal_actor_forbidden");
+  assertOpaqueReference(actorUserId);
+  const scope = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { personalOwnerUserId: true, deletionState: true },
+  });
+  if (!scope || scope.deletionState !== "active")
+    throw new Error("review_configuration_personal_actor_forbidden");
+  const users = [
+    ...new Set([
+      actorUserId,
+      ...rows.flatMap((row) =>
+        row.connection.ownerUserId ? [row.connection.ownerUserId] : [],
+      ),
+    ]),
+  ];
+  const members = await prisma.$queryRaw<
+    { userId: string | null; role: string }[]
+  >(Prisma.sql`
+    SELECT "userId", "role" FROM "WorkspaceMember" WHERE "workspaceId" = ${workspaceId}
+      AND "userId" IN (${Prisma.join(users)}) ORDER BY "id" FOR SHARE`);
+  if (
+    scope.personalOwnerUserId !== null
+      ? scope.personalOwnerUserId !== actorUserId
+      : !members.some(
+          (row) =>
+            row.userId === actorUserId &&
+            (row.role === "owner" || row.role === "admin"),
+        )
+  )
+    throw new Error("review_configuration_personal_actor_forbidden");
+  return new Set(rows.map((row) => row.id));
+}
+
 async function assertGatewaySelections(
   prisma: Prisma.TransactionClient,
   workspaceId: string,
   config: ReviewConfiguration,
   operatorWorkspaceId?: string,
+  personalAccountsEnabled = false,
+  personalWriteActorUserId?: string,
 ): Promise<void> {
-  for (const provider of config.providers) {
-    if (provider.authMode !== "codex_account_gateway") continue;
-    const binding = await prisma.workspaceAccountBinding.findUnique({
-      where: { id_workspaceId: { id: provider.gatewayBindingId, workspaceId } },
-      select: {
-        state: true,
-        pendingFenceOperationId: true,
-        pendingFencePolicySubject: true,
-        pendingFencePolicyRevision: true,
-        connection: {
-          select: {
-            ownerWorkspaceId: true,
-            ownerUserId: true,
-            state: true,
-            profileRef: true,
-            ownerWorkspace: { select: { personalOwnerUserId: true } },
-          },
-        },
-      },
-    });
+  const providers = config.providers.filter(
+    (provider) => provider.authMode === "codex_account_gateway",
+  );
+  const bindingIds = providers.map((provider) => provider.gatewayBindingId!);
+  const personalBindings = personalAccountsEnabled
+    ? await lockPersonalWriteActor(
+        prisma,
+        workspaceId,
+        bindingIds,
+        personalWriteActorUserId,
+      )
+    : new Set<string>();
+  await lockProviderAccountBindingUses(
+    prisma,
+    workspaceId,
+    bindingIds,
+    personalAccountsEnabled,
+  );
+  for (const provider of providers) {
+    const bindingId = provider.gatewayBindingId!;
+    const selection = await readProviderAccountBinding(
+      prisma,
+      { workspaceId, bindingId },
+      personalAccountsEnabled,
+    );
+    let selected: ReturnType<typeof selectBinding>;
+    try {
+      selected = selectBinding(
+        workspaceId,
+        bindingId,
+        selection,
+        operatorWorkspaceId,
+      );
+    } catch (error) {
+      if (error instanceof ProviderAccountError)
+        throw new Error("review_configuration_gateway_binding_unavailable");
+      throw error;
+    }
+    // A row absent from the preliminary immutable-owner read cannot acquire
+    // personal write authority by appearing during a later awaited read.
     if (
-      !binding ||
-      binding.state !== "active" ||
-      binding.pendingFenceOperationId !== null ||
-      binding.pendingFencePolicySubject !== null ||
-      binding.pendingFencePolicyRevision !== null ||
-      (binding.connection.ownerWorkspaceId !== workspaceId &&
-        (operatorWorkspaceId === undefined ||
-          binding.connection.ownerWorkspaceId !== operatorWorkspaceId)) ||
-      binding.connection.ownerUserId !== null ||
-      binding.connection.ownerWorkspace?.personalOwnerUserId !== null ||
-      binding.connection.state !== "active"
-    ) {
-      throw new Error("review_configuration_gateway_binding_unavailable");
-    }
-    if (binding.connection.profileRef !== provider.gatewayProfileRef) {
+      selection?.connection.owner.kind === "user" &&
+      !personalBindings.has(bindingId)
+    )
+      throw new Error("review_configuration_personal_actor_forbidden");
+    if (selected.profileRef !== provider.gatewayProfileRef)
       throw new Error("review_configuration_gateway_profile_mismatch");
-    }
   }
 }
