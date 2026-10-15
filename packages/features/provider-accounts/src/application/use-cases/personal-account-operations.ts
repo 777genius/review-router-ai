@@ -1,3 +1,7 @@
+import {
+  snapshotCanonicalIntent,
+  type PersonalCanonicalIntent,
+} from "../../domain/personal-canonical-operation";
 import { createHash } from "node:crypto";
 import {
   ProviderAccountError,
@@ -8,42 +12,50 @@ import {
 import type { PersonalAccountOperationStore } from "../ports/provider-account-repository-port";
 import type { PersonalAccountGatewayPort } from "../ports/provider-account-synchronization-port";
 
-export type PersonalAccountIntent = {
-  readonly actorUserId: string;
-  readonly clientOperationId: string;
-  readonly personalWorkspaceId: string;
-} & (
-  | {
-      readonly action: "connect";
-      readonly proposedSourceId: string;
-      readonly profileId: string;
-      readonly displayName: string;
-      readonly ingress: "api-key-create" | "oauth-begin";
-    }
-  | {
-      readonly action: "attach";
-      readonly sourceId: string;
-      readonly targetWorkspaceId: string;
-      readonly expectedSourceMetadataRevision: number;
-      readonly expectedGatewayRevision: number;
-      readonly predecessorBindingId: string | null;
-      readonly expectedPredecessorRevision: number | null;
-    }
-  | {
-      readonly action: "revoke";
-      readonly sourceId: string;
-      readonly targetWorkspaceId: string;
-      readonly expectedSourceMetadataRevision: number;
-      readonly expectedGatewayRevision: number;
-      readonly bindingId: string;
-      readonly expectedBindingRevision: number;
-    }
-);
+export type PersonalAccountIntent =
+  | PersonalCanonicalIntent
+  | ({
+      readonly actorUserId: string;
+      readonly clientOperationId: string;
+      readonly personalWorkspaceId: string;
+    } & (
+      | {
+          readonly action: "connect";
+          readonly proposedSourceId: string;
+          readonly profileId: string;
+          readonly displayName: string;
+          readonly ingress: "api-key-create" | "oauth-begin";
+        }
+      | {
+          readonly action: "attach";
+          readonly sourceId: string;
+          readonly targetWorkspaceId: string;
+          readonly expectedSourceMetadataRevision: number;
+          readonly expectedGatewayRevision: number;
+          readonly predecessorBindingId: string | null;
+          readonly expectedPredecessorRevision: number | null;
+        }
+      | {
+          readonly action: "revoke";
+          readonly sourceId: string;
+          readonly targetWorkspaceId: string;
+          readonly expectedSourceMetadataRevision: number;
+          readonly expectedGatewayRevision: number;
+          readonly bindingId: string;
+          readonly expectedBindingRevision: number;
+        }
+    ));
 
 /** Detached positive allowlist. Neither credentials nor their fingerprints enter this tuple. */
 export function snapshotPersonalIntent(
   input: PersonalAccountIntent,
 ): PersonalAccountIntent {
+  if (
+    input.action === "rename" ||
+    input.action === "reconnect" ||
+    input.action === "retire"
+  )
+    return snapshotCanonicalIntent(input);
   const base = {
     actorUserId: input.actorUserId,
     clientOperationId: input.clientOperationId,
@@ -74,6 +86,9 @@ export function snapshotPersonalIntent(
       ingress: input.ingress,
     });
   }
+  // Keep this legacy binding projection explicitly limited to target-scoped intents.
+  if (input.action !== "attach" && input.action !== "revoke")
+    throw new ProviderAccountError("invalid_input");
   assertOpaqueReference(input.sourceId);
   assertOpaqueReference(input.targetWorkspaceId);
   assertExpectedRevision(input.expectedSourceMetadataRevision);
@@ -140,6 +155,8 @@ export function personalIntentDigest(input: PersonalAccountIntent): string {
 type PersonalDependencies = {
   store: PersonalAccountOperationStore;
   gateway: PersonalAccountGatewayPort;
+  /** Trusted interactive composition; system callers may omit session authority. */
+  authorizeOwner?: (actorUserId: string) => Promise<void>;
 };
 /** Submitted is a committed, one-winner claim. The losing invocation only reads back. */
 export async function connectPersonalAccount(
@@ -149,12 +166,18 @@ export async function connectPersonalAccount(
 ) {
   const intent = snapshotPersonalIntent(input) as typeof input;
   const { actorUserId, clientOperationId } = intent;
-  const { store } = dependencies;
+  const { store, authorizeOwner } = dependencies;
+  await authorizeOwner?.(actorUserId);
   await store.reserveConnect(intent);
-  if (await store.claimConnect(actorUserId, clientOperationId)) {
+  await authorizeOwner?.(actorUserId);
+  const claimed = await store.claimConnect(actorUserId, clientOperationId);
+  // A lost session after claim consumes this winner without ever replaying ingress.
+  await authorizeOwner?.(actorUserId);
+  if (claimed) {
     try {
       await ingress();
     } catch {
+      await authorizeOwner?.(actorUserId);
       await store.noteConnectPhase(actorUserId, clientOperationId, "unknown");
     }
   }
@@ -169,8 +192,10 @@ export async function readPersonalAccountOperation(
   clientOperationId: string,
   dependencies: PersonalDependencies,
 ) {
-  const { store, gateway } = dependencies;
+  const { store, gateway, authorizeOwner } = dependencies;
+  await authorizeOwner?.(actorUserId);
   const original = await store.readOperation(actorUserId, clientOperationId);
+  await authorizeOwner?.(actorUserId);
   if (
     original.intent.action !== "connect" ||
     ["reserved", "applied", "rejected"].includes(original.phase)
@@ -179,6 +204,7 @@ export async function readPersonalAccountOperation(
   // No ingress, even if operation readback returns 404 or not_dispatched.
   try {
     const operation = await gateway.operation(original.id);
+    await authorizeOwner?.(actorUserId);
     if (operation.operationId !== original.id)
       throw new ProviderAccountError("connection_unavailable");
     if (operation.state === "rejected") {
@@ -193,6 +219,7 @@ export async function readPersonalAccountOperation(
         result.accountRef,
         profileId,
       );
+      await authorizeOwner?.(actorUserId);
       if (
         account.accountRef !== result.accountRef ||
         account.profileId !== profileId ||
@@ -202,16 +229,23 @@ export async function readPersonalAccountOperation(
         account.state !== "active"
       )
         throw new ProviderAccountError("connection_unavailable");
-      return await store.finalizeConnect(
+      const finalized = await store.finalizeConnect(
         actorUserId,
         clientOperationId,
         account,
       );
+      await authorizeOwner?.(actorUserId);
+      return finalized;
     }
   } catch {
+    // Session denial must escape rather than turning into a stale-owner write.
+    await authorizeOwner?.(actorUserId);
     await store.noteConnectPhase(actorUserId, clientOperationId, "unknown");
   }
-  return store.readOperation(actorUserId, clientOperationId);
+  await authorizeOwner?.(actorUserId);
+  const current = await store.readOperation(actorUserId, clientOperationId);
+  await authorizeOwner?.(actorUserId);
+  return current;
 }
 export async function attachPersonalAccount(
   input: PersonalAccountIntent & { action: "attach" },
@@ -221,9 +255,11 @@ export async function attachPersonalAccount(
     action: "attach";
   };
   const { actorUserId, clientOperationId } = intent;
-  const { store, gateway } = dependencies;
+  const { store, gateway, authorizeOwner } = dependencies;
+  await authorizeOwner?.(actorUserId);
   try {
     const original = await store.readOperation(actorUserId, clientOperationId);
+    await authorizeOwner?.(actorUserId);
     if (personalIntentDigest(original.intent) !== personalIntentDigest(intent))
       throw new ProviderAccountError("operation_conflict");
     return original;
@@ -231,17 +267,22 @@ export async function attachPersonalAccount(
     if (!(error instanceof ProviderAccountError) || error.code !== "not_found")
       throw error;
   }
+  await authorizeOwner?.(actorUserId);
   const source = await store.findOwnedSource(actorUserId, intent.sourceId);
+  await authorizeOwner?.(actorUserId);
   const account = await gateway.get(
     actorUserId,
     source.gatewayAccountRef,
     source.profileRef!,
   );
+  await authorizeOwner?.(actorUserId);
   if (
     account.metadataRevision !== intent.expectedGatewayRevision ||
     account.authorizationEpoch !== source.authorizationEpochMirror ||
     account.state !== "active"
   )
     throw new ProviderAccountError("connection_unavailable");
-  return store.attach(intent);
+  const attached = await store.attach(intent);
+  await authorizeOwner?.(actorUserId);
+  return attached;
 }
