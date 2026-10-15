@@ -1,15 +1,40 @@
 import { canonicalJson } from "./review-run-control-types";
 
 /** Private admission data. Never included in public authorization claims/facts. */
-export type ReviewRunRuntimeSnapshot = {
-  readonly snapshotVersion: 1;
+type RuntimeSnapshotConfiguration = {
   readonly configurationSource: "default" | "workspace" | "repository";
   readonly configurationVersion: number;
   /** Opaque normalized safe configuration; production uses the shared strict parser. */
   readonly configurationCanonicalJson: string;
   readonly deadline: string;
-  readonly gateway: ReviewRunGatewaySelection | null;
 };
+
+/** V2 is an inert private format until personal live-policy/capture is qualified. */
+export type ReviewRunRuntimeSnapshot = RuntimeSnapshotConfiguration &
+  (
+    | {
+        readonly snapshotVersion: 1;
+        readonly gateway: ReviewRunGatewaySelection | null;
+      }
+    | {
+        readonly snapshotVersion: 2;
+        readonly gateway: ReviewRunGatewaySelection & {
+          readonly expectedAuthorizationEpoch: number;
+          readonly limits: ReviewRunGatewayLimits;
+        };
+      }
+  );
+
+/** A selected execution must retain the original account epoch on v2 recovery too. */
+export function reviewRunGatewayEpochMatches(
+  snapshot: ReviewRunRuntimeSnapshot,
+  selectedEpoch: number,
+): boolean {
+  return (
+    snapshot.snapshotVersion === 1 ||
+    snapshot.gateway.expectedAuthorizationEpoch === selectedEpoch
+  );
+}
 
 /** Pure finite allowance data, independent of SDK/HTTP validation. */
 export type ReviewRunGatewayLimits = {
@@ -82,7 +107,7 @@ export function parseReviewRunRuntimeSnapshot(
     fail();
   const { configurationSource, configurationVersion, deadline } = parsed;
   if (
-    parsed.snapshotVersion !== 1 ||
+    (parsed.snapshotVersion !== 1 && parsed.snapshotVersion !== 2) ||
     (configurationSource !== "default" &&
       configurationSource !== "workspace" &&
       configurationSource !== "repository") ||
@@ -104,9 +129,12 @@ export function parseReviewRunRuntimeSnapshot(
     canonicalJson(configuration) !== configurationCanonicalJson
   )
     fail();
-  let gateway: ReviewRunGatewaySelection | null = null;
+  let gateway:
+    | (ReviewRunGatewaySelection & { expectedAuthorizationEpoch?: number })
+    | null = null;
   if (parsed.gateway === null) {
-    // Legacy provider configuration has no gateway selection.
+    // V2 always names one exact account epoch; no implicit/null personal pin.
+    if (parsed.snapshotVersion === 2) fail();
   } else {
     const row = parsed.gateway;
     if (
@@ -123,7 +151,8 @@ export function parseReviewRunRuntimeSnapshot(
         "invocationId",
         "attemptId",
         "operationId",
-        ...("limits" in row ? ["limits"] : []),
+        ...("limits" in row || parsed.snapshotVersion === 2 ? ["limits"] : []),
+        ...(parsed.snapshotVersion === 2 ? ["expectedAuthorizationEpoch"] : []),
       ])
     )
       fail();
@@ -149,8 +178,18 @@ export function parseReviewRunRuntimeSnapshot(
       !revision(row.policyRevision)
     )
       fail();
+    if (
+      parsed.snapshotVersion === 2 &&
+      (typeof row.expectedAuthorizationEpoch !== "number" ||
+        !Number.isSafeInteger(row.expectedAuthorizationEpoch) ||
+        row.expectedAuthorizationEpoch < 1)
+    )
+      fail();
     // Fields were bounded/checked above; construct a detached primitive projection.
     gateway = {
+      ...(parsed.snapshotVersion === 2
+        ? { expectedAuthorizationEpoch: Number(row.expectedAuthorizationEpoch) }
+        : {}),
       providerIndex: row.providerIndex,
       bindingId: String(row.bindingId),
       connectionId: String(row.connectionId),
@@ -168,14 +207,30 @@ export function parseReviewRunRuntimeSnapshot(
     };
   }
   if (canonicalJson(parsed) !== value) fail();
-  return {
-    snapshotVersion: 1,
+  const configurationFields: RuntimeSnapshotConfiguration = {
     configurationSource,
     configurationVersion,
     configurationCanonicalJson,
     deadline,
-    gateway,
   };
+  if (parsed.snapshotVersion === 2) {
+    if (
+      !gateway ||
+      gateway.expectedAuthorizationEpoch === undefined ||
+      !gateway.limits
+    )
+      fail();
+    return {
+      ...configurationFields,
+      snapshotVersion: 2,
+      gateway: {
+        ...gateway,
+        expectedAuthorizationEpoch: gateway.expectedAuthorizationEpoch,
+        limits: gateway.limits,
+      },
+    };
+  }
+  return { ...configurationFields, snapshotVersion: 1, gateway };
 }
 
 function record(value: unknown): value is Record<string, unknown> {

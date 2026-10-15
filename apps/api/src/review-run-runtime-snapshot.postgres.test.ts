@@ -835,6 +835,128 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         authorizationEpoch: 55,
         deadline: pin.deadline,
       };
+      // Inert C3 storage contract: no production v2 writer/personal use enabled.
+      // Clone only this test's existing admitted row inside rolled-back transactions.
+      // Direct SQL bypasses the TS parser and proves both independent DB gates.
+      const v2Snapshot = canonicalJson({
+        ...pin,
+        snapshotVersion: 2,
+        gateway: { ...pin.gateway, expectedAuthorizationEpoch: 55 },
+      });
+      async function withPrivateSnapshot(
+        canonical: string,
+        inspect: (
+          tx: Prisma.TransactionClient,
+          authorizationId: string,
+        ) => Promise<void>,
+      ) {
+        const rollback = new Error("c3_private_snapshot_fixture_rollback");
+        try {
+          await prisma.$transaction(async (tx) => {
+            const suffix = randomUUID();
+            const authorizationId = `c3-snapshot-${suffix}`;
+            await tx.reviewRunAuthorization.create({
+              data: {
+                ...row,
+                authorizationId,
+                sourceRunId: `${row.sourceRunId}-${suffix}`,
+                oidcReplayKeyHash: `c3-replay-${suffix}`,
+                providerVoteLanes:
+                  row.providerVoteLanes as Prisma.InputJsonValue,
+                runtimeSnapshotCanonicalJson: canonical,
+                gatewayExecutionCanonicalJson: null,
+              },
+            });
+            await inspect(tx, authorizationId);
+            throw rollback;
+          });
+        } catch (error) {
+          if (error !== rollback) throw error;
+        }
+      }
+      const attachPrivate = async (
+        canonical: string,
+        execution: typeof selected,
+      ) =>
+        withPrivateSnapshot(canonical, async (tx, authorizationId) => {
+          await tx.$executeRaw`UPDATE "ReviewRunAuthorization"
+          SET "gatewayExecutionCanonicalJson" = ${canonicalJson(execution)}
+          WHERE "authorizationId" = ${authorizationId}`;
+          const stored = await tx.reviewRunAuthorization.findUniqueOrThrow({
+            where: { authorizationId },
+          });
+          expect(stored.runtimeSnapshotCanonicalJson).toBe(canonical);
+          expect(stored.gatewayExecutionCanonicalJson).toBe(
+            canonicalJson(execution),
+          );
+        });
+      await attachPrivate(v2Snapshot, selected);
+      // Existing nonpersonal v1 accepts the selected epoch rather than a new pin.
+      await attachPrivate(row.runtimeSnapshotCanonicalJson!, selected);
+      for (const epoch of [0, 54, 56]) {
+        await expect(
+          attachPrivate(v2Snapshot, { ...selected, authorizationEpoch: epoch }),
+        ).rejects.toThrow();
+      }
+      for (const epoch of [
+        undefined,
+        null,
+        "55",
+        0,
+        -1,
+        1.5,
+        Number.MAX_SAFE_INTEGER + 1,
+      ]) {
+        const invalid = canonicalJson({
+          ...pin,
+          snapshotVersion: 2,
+          gateway: { ...pin.gateway, expectedAuthorizationEpoch: epoch },
+        });
+        await expect(
+          withPrivateSnapshot(invalid, async () => {}),
+        ).rejects.toThrow();
+      }
+      for (const snapshotVersion of [0, 3, "2"]) {
+        await expect(
+          withPrivateSnapshot(
+            canonicalJson({ ...pin, snapshotVersion }),
+            async () => {},
+          ),
+        ).rejects.toThrow();
+      }
+      // V2 is still subject to all original operation/account/deadline/cap guards.
+      for (const patch of [
+        { operationId: "other-operation" },
+        { accountRef: "other-account" },
+        { deadline: new Date(Date.parse(pin.deadline) - 1000).toISOString() },
+      ])
+        await expect(
+          attachPrivate(v2Snapshot, { ...selected, ...patch }),
+        ).rejects.toThrow();
+      await expect(
+        attachPrivate(
+          canonicalJson({
+            ...pin,
+            snapshotVersion: 2,
+            gateway: {
+              ...pin.gateway,
+              expectedAuthorizationEpoch: 55,
+              limits: { ...limits, tokens: 0 },
+            },
+          }),
+          selected,
+        ),
+      ).rejects.toThrow();
+      await withPrivateSnapshot(v2Snapshot, async (tx, authorizationId) => {
+        await expect(
+          tx.reviewRunAuthorization.update({
+            where: { authorizationId },
+            data: {
+              runtimeSnapshotCanonicalJson: row.runtimeSnapshotCanonicalJson,
+            },
+          }),
+        ).rejects.toThrow();
+      });
       const requests: {
         requestRef: string;
         admission: Gateway.Admission;
@@ -2295,6 +2417,62 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         authorizationVersion: 1,
       });
       expect(ordinaryCreation.occurredAt).toEqual(ordinary.createdAt);
+
+      // RED: a valid acquired execution at a different epoch was abandoned
+      // before retaining its cleanup client. Use the existing real SDK/HTTP
+      // server; authority doubles isolate this transport-lifecycle boundary.
+      {
+        const mismatchCanonical = canonicalJson({
+          ...pin,
+          snapshotVersion: 2,
+          gateway: { ...pin.gateway, expectedAuthorizationEpoch: 54 },
+        });
+        let mismatchAttachments = 0;
+        const beforeMismatchIntents = intents.length;
+        const beforeMismatchRequests = requests.length;
+        const beforeMismatchCloses = closes.length;
+        const cleanupOnly = createReviewRunGatewayPreparation({
+          authorizationId: gatewayRun.authorizationId,
+          identity: gatewayRun,
+          runAccess: {
+            origin,
+            runControlBearer: runControlToken,
+            timeoutMs: 5000,
+          },
+          authorizations: {
+            findReviewRunAuthorizationById: async () => ({
+              ...gatewayRun,
+              runtimeSnapshotCanonicalJson: mismatchCanonical,
+            }),
+          },
+          snapshots: { capture: async () => null, isLive: async () => true },
+          bindings: {
+            read: async () => ({ status: "live", binding: null }),
+            attach: async () => {
+              mismatchAttachments++;
+              return { status: "denied" };
+            },
+          },
+        });
+        expect(await cleanupOnly.prepare()).toEqual({ status: "denied" });
+        expect(intents).toHaveLength(beforeMismatchIntents + 1);
+        expect(mismatchAttachments).toBe(0);
+        await expect(
+          cleanupOnly.request("mismatch-request", new Uint8Array()),
+        ).rejects.toThrow();
+        expect(requests).toHaveLength(beforeMismatchRequests);
+        expect(await cleanupOnly.prepare()).toEqual({ status: "denied" });
+        expect(await cleanupOnly.recoverSameOperation()).toEqual({
+          status: "denied",
+        });
+        expect(intents).toHaveLength(beforeMismatchIntents + 1);
+        expect(await cleanupOnly.close("cancelled")).toMatchObject({
+          state: "applied",
+        });
+        // The server accepts only its exact selected execution path and bearer.
+        expect(closes).toHaveLength(beforeMismatchCloses + 1);
+        expect(closes.at(-1)?.reason).toBe("cancelled");
+      }
 
       // A Berlin session must not shift a UTC epoch through either the raw
       // installation clock or the timestamp column's GREATEST assignment.
