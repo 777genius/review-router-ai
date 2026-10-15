@@ -97,7 +97,7 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        expect(names).toHaveLength(129);
+        expect(names).toHaveLength(130);
         expect(names.at(-1)).toBe("000130_review_policy_schema_v3");
         let legacyBefore: unknown;
         for (const name of names) {

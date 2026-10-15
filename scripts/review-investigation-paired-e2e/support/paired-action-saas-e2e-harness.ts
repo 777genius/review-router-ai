@@ -34,6 +34,10 @@ import {
   reviewActionV2CanonicalizerDigest,
   reviewActionV2PublishedSchemaDigest,
 } from "../../../packages/protocol-review-action-v2/src/index.js";
+import {
+  PrismaReviewConfigurationRepository,
+  saveReviewConfiguration,
+} from "../../../packages/features/review-config/src/index.js";
 import { createApiApp } from "../../../apps/api/src/app.js";
 import {
   composeReviewActionV2ProductionRoutes,
@@ -77,6 +81,19 @@ const pullRequestNumber = 73;
 const githubRepositoryId = "9988776655";
 const githubInstallationId = "887766";
 const sourceRunId = "770001";
+// This isolated investigation runner uses a scripted provider, not the released CLI installer.
+// Its explicit fixture producer profile never registers or qualifies a live producer.
+const pairedAgentProfiles = [
+  {
+    profileRef: "codex-default",
+    agentKind: "codex",
+    binarySha256: sha256("paired-scripted-agent"),
+    packageVersion: "0.147.0",
+    modelTransports: ["provider_api"],
+    contextGateway: true,
+    cancellation: true,
+  },
+];
 const providerVoteIdentityHash = sha256("paired-action-saas-provider-vote");
 const capabilityKeyId = "paired-action-saas-capability-key";
 const contextReplayKeyId = "paired-action-saas-context-replay-key";
@@ -536,17 +553,17 @@ export class PairedActionSaasE2EHarness {
     const expiresAt = issuedAt + 10 * 60;
     this.oidcOrdinal += 1;
     const token = await new SignJWT({
-      sub: `repo:${owner}/${repo}:pull_request`,
+      sub: `repo:${owner}/${repo}:ref:refs/heads/main`,
       repository: `${owner}/${repo}`,
       repository_id: githubRepositoryId,
       repository_owner: owner,
-      event_name: "pull_request",
-      ref: `refs/pull/${pullRequestNumber}/merge`,
+      event_name: "workflow_dispatch",
+      ref: "refs/heads/main",
       run_id: this.fakeGitHub.sourceRunId,
       run_attempt: "1",
-      workflow_ref: `${owner}/${repo}/.github/workflows/reviewrouter.yml@refs/pull/${pullRequestNumber}/merge`,
+      workflow_ref: `${owner}/${repo}/.github/workflows/reviewrouter-review.yml@refs/heads/main`,
       workflow_sha: this.repository.headSha,
-      job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${this.actionRef}`,
+      job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-runtime.yml@${this.actionRef}`,
       job_workflow_sha: this.actionRef,
       actor: "reviewrouter-paired-e2e",
       jti: `paired-action-saas-${this.oidcOrdinal}-${randomUUID()}`,
@@ -774,6 +791,7 @@ async function seedControlPlane(
     data: {
       producerReleaseId: input.producerReleaseId,
       distributionKind: "public_reusable",
+      agentProfilesJson: JSON.stringify(pairedAgentProfiles),
       actionCommitSha: input.release.actionCommitSha,
       runtimeCommitSha: input.release.runtimeCommitSha,
       wrapperEntrypointDigest: null,
@@ -848,6 +866,42 @@ async function seedControlPlane(
       boundAt: now,
     },
   });
+  await saveReviewConfiguration(
+    {
+      target: { scope: "workspace", workspaceId: input.workspaceId },
+      policy: {
+        schemaVersion: 3,
+        providers: [
+          {
+            kind: "codex",
+            authMode: "codex_openai_api_key",
+            model: "gpt-5.3-codex",
+            reasoningEffort: "high",
+            agenticContext: true,
+            fastMode: false,
+            requiredHealthy: false,
+          },
+        ],
+        execution: {
+          providerLimit: 1,
+          providerMaxParallel: 1,
+          inlineMinAgreement: 1,
+        },
+        blockingPolicy: { failOnSeverity: "major" },
+        limits: { inlineMaxComments: 5, targetTokensPerBatch: 12000 },
+        reviewLanguage: null,
+        investigationRollout: {
+          recordingEnabled: true,
+          shadowEnabled: true,
+          contextCriticEnabled: true,
+          verifiedCleanEnabled: true,
+          crossRevisionReplayEnabled: true,
+          productionEffectsEnabled: true,
+        },
+      },
+    },
+    { configurations: new PrismaReviewConfigurationRepository(prisma) },
+  );
   await prisma.reviewMutationAuthority.create({
     data: {
       scmRepositoryIdentityId: input.scmRepositoryIdentityId,
@@ -925,6 +979,7 @@ function productionEnvironment(input: {
       {
         producerReleaseId: input.producerReleaseId,
         distributionKind: "public_reusable",
+        agentProfiles: pairedAgentProfiles,
         actionCommitSha: input.release.actionCommitSha,
         runtimeCommitSha: input.release.runtimeCommitSha,
         wrapperEntrypointDigest: null,

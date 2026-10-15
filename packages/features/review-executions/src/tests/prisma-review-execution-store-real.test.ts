@@ -1437,6 +1437,8 @@ async function createHarness(
     },
   });
   await prisma.producerRelease.create({
+    // SQL130 metadata is absent from this intentionally historical SQL079 database.
+    omit: { agentProfilesJson: true },
     data: {
       producerReleaseId,
       distributionKind: "hosted_composite",

@@ -216,8 +216,17 @@ const syntheticConfigurationVersion = {
 } as const;
 // Validate the fixture against the same stock configuration schema used by
 // hosted admission before any disposable database setup or barrier assertion.
-parseReviewConfiguration({
-  schemaVersion: 2,
+const syntheticPolicy = parseReviewConfiguration({
+  schemaVersion: 3,
+  reviewLanguage: null,
+  investigationRollout: {
+    recordingEnabled: false,
+    shadowEnabled: false,
+    contextCriticEnabled: false,
+    verifiedCleanEnabled: false,
+    crossRevisionReplayEnabled: false,
+    productionEffectsEnabled: false,
+  },
   providers: [
     {
       kind: syntheticConfigurationVersion.providerKind,
@@ -525,6 +534,20 @@ beforeAll(async () => {
   await intent("external-old-review-request", newHead, "review-alias-run");
   await db.reviewConfiguration.create({
     data: {
+      id: "hs-workspace-config",
+      workspaceId: "hs-workspace",
+      repositoryId: null,
+      targetKey: "workspace:default",
+      versions: {
+        create: {
+          ...syntheticConfigurationVersion,
+          policyJson: JSON.stringify(syntheticPolicy),
+        },
+      },
+    },
+  });
+  await db.reviewConfiguration.create({
+    data: {
       id: "hs-config",
       workspaceId: "hs-workspace",
       repositoryId: "hs-repo",
@@ -532,6 +555,7 @@ beforeAll(async () => {
       versions: {
         create: {
           ...syntheticConfigurationVersion,
+          policyJson: JSON.stringify({ schemaVersion: 3 }),
         },
       },
     },
