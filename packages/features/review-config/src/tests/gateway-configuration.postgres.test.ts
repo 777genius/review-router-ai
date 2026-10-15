@@ -125,12 +125,6 @@ describe.skipIf(!enabled)(
                     WHERE p."id" = 'c2b-legacy-provider') AS p`)
             ).rows;
           }
-          if (name.startsWith("000087")) {
-            // Existing release role owns the boundary in this guarded fresh DB.
-            await sql.query(
-              'ALTER SCHEMA public OWNER TO reviewrouter_release_schema_owner; ALTER TABLE public."CodexOAuthSecretNamespace" OWNER TO reviewrouter_release_schema_owner;',
-            );
-          }
           // Match the existing account PG convention: psql runs statements singly,
           // including historical CONCURRENTLY and enum migrations outside implicit transactions.
           const applied = spawnSync(
