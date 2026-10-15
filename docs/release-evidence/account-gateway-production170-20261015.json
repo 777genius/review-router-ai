@@ -169,16 +169,75 @@
     }
   ],
   "remainingAndScope": {
-    "padelCanonicalCodexUseGrant": "PENDING_SPECIFIC_BROWSER_CONFIRMATION",
+    "padelCanonicalCodexUseGrant": "APPLIED_EXPLICITLY_CONFIRMED_BINDING_REVISION_1",
     "canonicalCodexAccount": "ACTIVE under its original operator workspace; fresh reauthorization, not claim transfer.",
     "memoryQualification": "STOPPED_BY_OWNER_UNQUALIFIED",
     "personalMultiOrganizationSharing": "DEFERRED_H",
     "productionDeletion": "NOT_RUN_NOT_REQUIRED",
-    "providerProofReuse": "Earlier D-long MiMo, E OpenRouter, F Codex and joined G remain accepted within their original pinned scopes; this run does not relabel them current170."
+    "providerProofReuse": "Earlier D-long MiMo, E OpenRouter, F Codex and joined G remain accepted within their original pinned scopes; this run does not relabel them current170.",
+    "historicalPadelConfirmationPendingAtInitialRecord": true,
+    "ownerDirectedFinishScope": "Implementation and accepted production review plus confirmed canonical Padel use are delivered. Owner-stopped RAM remains unqualified and H sharing deferred; no unrestricted whole-Norm53 qualification claim."
   },
   "independentTerminalAcceptance": {
     "path": "tmp/normal170-production/independent-evidence/terminal-acceptance.actual.public.json",
     "sha256": "7a8dfe99c303374807b526113dc0ade053e9c8cd878c7c9a539fac2ead97bac8",
     "classification": "ACCEPT_COMPLETED_REVIEW_MAJOR_GATE_BLOCKED"
+  },
+  "confirmedPadelUse": {
+    "specificHumanConfirmationReceived": true,
+    "normalUiGrantSubmissions": 1,
+    "normalUiResult": "Use granted at binding revision 1.",
+    "padelUiAccountState": "ACTIVE",
+    "padelUiBindingState": "WORKSPACE BINDING READY",
+    "sameCanonicalConnection": true,
+    "proof": {
+      "kind": "padel_explicit_canonical_codex_use_grant",
+      "padelUse": {
+        "state": "active",
+        "revision": 1,
+        "bindingId": "cmv91lfx6000207nvuuys9x6v",
+        "workspaceId": "cmp6uhxh4000i30l17qas7qyf",
+        "connectionId": "agc_f8c3b910b90c3908b5da87e91de5b9ded3ebe6061a8707ae62f050b623f7",
+        "pendingFence": false,
+        "policyRevision": 1
+      },
+      "observedAt": "2026-10-15T06:33:40.755476+02:00",
+      "canonicalAccount": {
+        "state": "active",
+        "profileRef": "openai-codex-oauth-responses-v1",
+        "connectionId": "agc_f8c3b910b90c3908b5da87e91de5b9ded3ebe6061a8707ae62f050b623f7",
+        "ownerWorkspaceId": "cmoss4xkf000228sbtcmpdjb5",
+        "gatewayAccountRef": "8be745af-d76f-454b-bd12-edcb39cda001",
+        "displayNameMatches": true
+      },
+      "activePadelUseCount": 1,
+      "actorAdminInBothVerified": true,
+      "canonicalConnectionCount": 1,
+      "databaseIdentityVerified": true
+    },
+    "primaryReceiptSha256": "21e013ddbc0eb575a10097a01bb4833e1da4ed7d94fc37e46997d0929ab041fa",
+    "providerRoutingChanged": false,
+    "newOAuthLogin": false,
+    "newProviderCanary": false,
+    "oldDuplicateAccountActivatedOrTransferred": false,
+    "uiProvenanceBadge": "NOT_PRESENT; current UI shows the shared canonical label and readiness, without a shared-account or owner badge.",
+    "retainedEvidence": {
+      "sqlCommandFile": "docs/release-evidence/padel-canonical-use-20261015.readonly.sql",
+      "sqlResultFile": "docs/release-evidence/padel-canonical-use-20261015.actual.public.json",
+      "execution": {
+        "transport": "Strict-host-key SSH to the verified production host; guarded read-only PostgreSQL session",
+        "command": "sudo -n -u reviewrouter_pg /usr/lib/postgresql/17/bin/psql -X -qAt -v ON_ERROR_STOP=1 -h /var/lib/review-router-postgres/socket -p 5434 -U reviewrouter_pg -d review_router_dimy < padel-canonical-use-20261015.readonly.sql",
+        "sessionId": 3813,
+        "exitCode": 0
+      },
+      "uiAction": {
+        "command": "Accounts > canonical Codex main Account > Manage operator grant; target Padel workspace stable ID, expected revision0, state active; click Apply once after explicit user confirmation",
+        "result": "Use granted at binding revision 1.",
+        "subsequentRead": "Padel Accounts: ACTIVE / WORKSPACE BINDING READY",
+        "browserTaskId": "2dca076d-b9eb-45a9-b6c6-dbab60d66f29",
+        "ownerTarget": "075983A2EA00655AB30DAAB91DC38C57",
+        "padelTarget": "32E8390EFF81B6CBD4E5A2C7B7F7C484"
+      }
+    }
   }
 }

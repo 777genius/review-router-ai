@@ -1098,3 +1098,28 @@ owner-stopped/unqualified; H personal sharing is deferred; production deletion
 is NOT_RUN. Whole-plan completion remains withheld for the pending Padel use
 result and final joined delivery record. No additional RAM, restore, provider or
 long-run probe was required for this evidence join.
+
+### Confirmed Padel canonical Codex use - 2026-10-15
+
+The earlier pending-confirmation state above is historical. After the user's
+specific confirmation, one normal UI grant succeeded at binding revision1.
+Fresh Padel Accounts shows the canonical Codex account ACTIVE / WORKSPACE
+BINDING READY. A scoped read-only SQL proof verifies exactly one canonical
+connection under its original operator owner and exactly one active Padel
+binding to that same connection, policy/binding revision1 with no pending fence.
+The [finite receipt](../../docs/release-evidence/account-gateway-production170-20261015.json)
+retains this proof and its digest. No second OAuth enrollment, account copy,
+principal transfer, provider canary or default provider change was performed.
+
+This is the existing S operator-use mechanism, not the deferred H personal
+multi-organization sharing feature. Authorization, metadata and account-global
+capacity belong to the one canonical account; per-workspace bindings remain
+separate. The deployed UI currently shows the common label and readiness but
+has no explicit shared-account/owner badge. That display limitation does not
+create separate accounts or permissions. The original duplicate quarantined
+Padel enrollment remains denied and was not silently activated.
+
+Production170 review/publication and the requested canonical Padel use are now
+delivered. Prior D/E/F/G and retention/lifecycle evidence keep their original
+scopes; RAM remains owner-stopped/unqualified, H deferred, and unrestricted
+whole-Norm53/D-final memory qualification is not asserted.
