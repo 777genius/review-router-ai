@@ -1227,7 +1227,7 @@ async function createSetupPullRequestMutation(
     );
     if (
       accountGateway &&
-      (resolvedRuntime.source !== "repository" ||
+      (resolvedRuntime.source === "default" ||
         workflowStyle === "explicit" ||
         discussionMode === "suggest")
     ) {
@@ -1645,7 +1645,7 @@ async function confirmSetupPullRequestMergedMutation(
     const accountGateway = isAccountGatewayConfiguration(
       resolvedRuntime.config,
     );
-    if (accountGateway && resolvedRuntime.source !== "repository") {
+    if (accountGateway && resolvedRuntime.source === "default") {
       throw new Error("account_gateway_saved_config_required");
     }
     const gatewayActionRef = accountGateway

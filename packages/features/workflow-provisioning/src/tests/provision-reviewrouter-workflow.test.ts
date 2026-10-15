@@ -145,34 +145,39 @@ function savedConfigurations(
     },
   };
 }
-it("provisions only the keyless caller from server-loaded saved repository config", async () => {
-  const setupGateway = new CapturingSetupGateway();
-  await provisionRepositoryReviewRouterWorkflow(gatewayInput, {
-    targets: new StaticWorkflowProvisioningTarget(activeTarget),
-    setupGateway,
-    provisioning: new CapturingProvisioningRepository(),
-    configurations: savedConfigurations(),
-    trustedGithubRepositoryId: "123456",
-  });
-  const files = setupGateway.input!.workflowFiles;
-  expect(files).toHaveLength(1);
-  expect(files[0]!.path).toBe(".github/workflows/reviewrouter-codex.yml");
-  const file = files[0]!;
-  const job = parse("content" in file ? file.content : "").jobs["codex-review"];
-  expect(job.with).toMatchObject({
-    codex_session_mode: "account-gateway",
-    workflow_schema_version: 2,
-    provider_instance_id: "codex-rotating:123456",
-    runtime_config_mode: "oidc",
-  });
-  expect(job.uses).toBe(
-    gatewayInput.actionRef.replace(
-      "@",
-      "/.github/workflows/reviewrouter-t0-reusable.yml@",
-    ),
-  );
-  expect(job.secrets).toBeUndefined();
-});
+it.each(["repository", "workspace"])(
+  "provisions only the keyless caller from server-loaded saved %s config",
+  async (selection) => {
+    const setupGateway = new CapturingSetupGateway();
+    await provisionRepositoryReviewRouterWorkflow(gatewayInput, {
+      targets: new StaticWorkflowProvisioningTarget(activeTarget),
+      setupGateway,
+      provisioning: new CapturingProvisioningRepository(),
+      configurations: savedConfigurations(selection),
+      trustedGithubRepositoryId: "123456",
+    });
+    const files = setupGateway.input!.workflowFiles;
+    expect(files).toHaveLength(1);
+    expect(files[0]!.path).toBe(".github/workflows/reviewrouter-codex.yml");
+    const file = files[0]!;
+    const job = parse("content" in file ? file.content : "").jobs[
+      "codex-review"
+    ];
+    expect(job.with).toMatchObject({
+      codex_session_mode: "account-gateway",
+      workflow_schema_version: 2,
+      provider_instance_id: "codex-rotating:123456",
+      runtime_config_mode: "oidc",
+    });
+    expect(job.uses).toBe(
+      gatewayInput.actionRef.replace(
+        "@",
+        "/.github/workflows/reviewrouter-t0-reusable.yml@",
+      ),
+    );
+    expect(job.secrets).toBeUndefined();
+  },
+);
 it.each([
   ["missing-mode", { codexSessionMode: undefined }],
   ["wrong-mode", { codexSessionMode: "oauth" }],
@@ -209,7 +214,7 @@ it.each([
     expect(provisioning.attempts).toBe(0);
   },
 );
-it.each(["missing", "workspace", "mixed"])(
+it.each(["missing", "mixed"])(
   "denies %s saved gateway selection before setup",
   async (selection) => {
     const setupGateway = new CapturingSetupGateway();
