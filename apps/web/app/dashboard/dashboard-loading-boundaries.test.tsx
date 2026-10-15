@@ -24,12 +24,25 @@ const fixtures = vi.hoisted(() => {
     ]),
     entitlement: vi.fn(async () => ({ flags: { hosted_codex_pool: true } })),
     health: vi.fn(async () => []),
-    config: vi.fn(async () => null),
+    config: vi.fn(
+      async (): Promise<{ readonly version: number } | null> => null,
+    ),
+    policyHeads: vi.fn(
+      async (): Promise<
+        readonly {
+          readonly targetKey: string;
+          readonly versions: readonly { readonly version: number }[];
+        }[]
+      > => [],
+    ),
     batchConfig: vi.fn(
       async (input: { readonly repositoryIds: readonly string[] }) =>
         input.repositoryIds.map((repositoryId) => ({
           repositoryId,
-          config: null,
+          config: null as {
+            readonly version: number;
+            readonly repositoryVersion: number | null;
+          } | null,
         })),
     ),
     outbox: vi.fn(async () => []),
@@ -89,6 +102,7 @@ vi.mock("./actions", () => ({}));
 vi.mock("../../src/server/prisma", () => ({
   getPrisma: () => ({
     providerSetupState: { findMany: fixtures.spies.providerSetup },
+    reviewConfiguration: { findMany: fixtures.spies.policyHeads },
     workspace: {
       findMany: fixtures.spies.summaries,
       findUnique: fixtures.spies.audit,
@@ -224,7 +238,7 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.restoreAllMocks());
 
 describe("dashboard server loading boundaries", () => {
-  it("starts workspace-only reads while the repository list is pending", async () => {
+  it("starts unrelated workspace reads while policy reads wait for scoped metadata", async () => {
     let resolveRepositories!: (
       value: Awaited<ReturnType<typeof spies.repositories>>,
     ) => void;
@@ -260,7 +274,8 @@ describe("dashboard server loading boundaries", () => {
     try {
       expect(spies.repositories).toHaveBeenCalledOnce();
       expect(spies.health).toHaveBeenCalledOnce();
-      expect(spies.config).toHaveBeenCalledOnce();
+      expect(spies.config).not.toHaveBeenCalled();
+      expect(spies.policyHeads).not.toHaveBeenCalled();
       expect(spies.ruleset).toHaveBeenCalledOnce();
       await vi.waitFor(() =>
         expect(spies.organizationRequest).toHaveBeenCalledOnce(),
@@ -282,6 +297,85 @@ describe("dashboard server loading boundaries", () => {
       ]);
       await loading;
     }
+  });
+
+  it("captures only visible active target revisions before reading opaque policies", async () => {
+    let resolveHeads!: (
+      value: Awaited<ReturnType<typeof spies.policyHeads>>,
+    ) => void;
+    spies.policyHeads.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHeads = resolve;
+        }),
+    );
+    const loading = loadDashboardSectionData(
+      { ...workspace, hasWorkspaceWideAccess: false },
+      "policy",
+      access,
+    );
+    await vi.waitFor(() => expect(spies.policyHeads).toHaveBeenCalledOnce());
+    expect(spies.config).not.toHaveBeenCalled();
+    expect(spies.batchConfig).not.toHaveBeenCalled();
+    expect(spies.policyHeads).toHaveBeenCalledExactlyOnceWith({
+      where: {
+        workspaceId: "workspace-a",
+        active: true,
+        OR: [
+          { targetKey: "workspace:default", repositoryId: null },
+          { targetKey: "repo:repo-a", repositoryId: "repo-a" },
+        ],
+      },
+      select: {
+        targetKey: true,
+        versions: {
+          orderBy: { version: "desc" },
+          take: 1,
+          select: { version: true },
+        },
+      },
+    });
+    resolveHeads([
+      { targetKey: "workspace:default", versions: [{ version: 3 }] },
+      { targetKey: "repo:repo-a", versions: [{ version: 11 }] },
+    ]);
+    const data = await loading;
+    expect(data.reviewConfig).toBeNull();
+    expect(data.reviewConfigExpectedVersion).toBe(3);
+    expect(data.repositoryConfigs).toEqual([
+      { repositoryId: "repo-a", config: null, expectedVersion: 11 },
+    ]);
+  });
+
+  it("keeps the parsed policy revision when a writer advances after metadata capture", async () => {
+    spies.policyHeads.mockResolvedValueOnce([
+      { targetKey: "workspace:default", versions: [{ version: 3 }] },
+      { targetKey: "repo:repo-a", versions: [{ version: 11 }] },
+    ]);
+    spies.config.mockResolvedValueOnce({ version: 4 });
+    spies.batchConfig.mockResolvedValueOnce([
+      {
+        repositoryId: "repo-a",
+        config: { version: 12, repositoryVersion: 12 },
+      },
+    ]);
+    const data = await loadDashboardSectionData(
+      { ...workspace, hasWorkspaceWideAccess: false },
+      "policy",
+      access,
+    );
+    expect(data.reviewConfigExpectedVersion).toBe(4);
+    expect(data.repositoryConfigs[0]?.expectedVersion).toBe(12);
+  });
+
+  it("sends null CAS for inactive or new targets without borrowing the workspace revision", async () => {
+    // The metadata query excludes inactive configurations, even with retained versions.
+    spies.policyHeads.mockResolvedValueOnce([]);
+    const data = await loadDashboardSectionData(workspace, "policy", access);
+    expect(data.reviewConfigExpectedVersion).toBeNull();
+    expect(
+      data.repositoryConfigs.every((item) => item.expectedVersion === null),
+    ).toBe(true);
   });
 
   it("observes early read failures while repositories are pending", async () => {

@@ -362,9 +362,11 @@ type DashboardWorkspaceData = {
   gatewayReadiness: ReadonlyMap<string, GatewayReviewV2RepositoryReadiness>;
   entitlement: ReturnType<typeof freeBetaEntitlement>;
   reviewConfig: Awaited<ReturnType<typeof findReviewConfiguration>>;
+  reviewConfigExpectedVersion: number | null;
   repositoryConfigs: readonly {
     readonly repositoryId: string;
     readonly config: Awaited<ReturnType<typeof findReviewConfiguration>>;
+    readonly expectedVersion: number | null;
   }[];
   outboxFailures: Awaited<ReturnType<typeof listWorkspaceOutboxFailures>>;
   supportDiagnostics: Awaited<
@@ -427,12 +429,6 @@ export async function loadDashboardSectionData(
           { repositories: healthStore },
         )
       : Promise.resolve([]),
-    needsConfig
-      ? findReviewConfiguration(
-          { scope: "workspace", workspaceId: workspace.id },
-          { configurations: reviewConfigStore },
-        )
-      : Promise.resolve(null),
     section === "repositories" && hasWorkspaceWideAccess
       ? orgRulesetStore.findByWorkspaceId(workspace.id)
       : Promise.resolve(null),
@@ -474,6 +470,37 @@ export async function loadDashboardSectionData(
   );
   const entitlement = storedEntitlement ?? freeBetaEntitlement(workspace.id);
   const repositoryIds = visibleRepositories.map((repository) => repository.id);
+  // Capture CAS metadata before parsing policy. An opaque head is still an
+  // existing target; a later metadata read must not authorize a stale draft.
+  const policyHeads = needsConfig
+    ? await prisma.reviewConfiguration.findMany({
+        where: {
+          workspaceId: workspace.id,
+          active: true,
+          OR: [
+            { targetKey: "workspace:default", repositoryId: null },
+            ...repositoryIds.map((repositoryId) => ({
+              targetKey: `repo:${repositoryId}`,
+              repositoryId,
+            })),
+          ],
+        },
+        select: {
+          targetKey: true,
+          versions: {
+            orderBy: { version: "desc" },
+            take: 1,
+            select: { version: true },
+          },
+        },
+      })
+    : [];
+  const policyHeadVersions = new Map(
+    policyHeads.map((head) => [
+      head.targetKey,
+      head.versions[0]?.version ?? null,
+    ]),
+  );
   const visibleRepositoryOwners = new Set(
     visibleRepositories.map((repository) => repository.owner.toLowerCase()),
   );
@@ -510,8 +537,9 @@ export async function loadDashboardSectionData(
         )
     : Promise.resolve([]);
   const [
-    [workspaceHealth, reviewConfig, orgRuleset, workspaceWideInstallations],
+    [workspaceHealth, orgRuleset, workspaceWideInstallations],
     [
+      reviewConfig,
       hostedPool,
       repositoryConfigs,
       outboxFailures,
@@ -522,6 +550,12 @@ export async function loadDashboardSectionData(
   ] = await Promise.all([
     independentReadsPromise,
     Promise.all([
+      needsConfig
+        ? findReviewConfiguration(
+            { scope: "workspace", workspaceId: workspace.id },
+            { configurations: reviewConfigStore },
+          )
+        : Promise.resolve(null),
       loadHostedPoolDashboardView({
         workspaceId: workspace.id,
         repositories: needsReadiness
@@ -698,7 +732,25 @@ export async function loadDashboardSectionData(
     entitlement,
     health,
     reviewConfig,
-    repositoryConfigs,
+    // Parsed values keep their captured revision even if another writer advances
+    // the head. Metadata is only a fallback for an opaque or absent policy.
+    reviewConfigExpectedVersion:
+      reviewConfig?.version ??
+      policyHeadVersions.get("workspace:default") ??
+      null,
+    repositoryConfigs: repositoryIds.map((repositoryId) => {
+      const config =
+        repositoryConfigs.find((item) => item.repositoryId === repositoryId)
+          ?.config ?? null;
+      return {
+        repositoryId,
+        config,
+        expectedVersion:
+          config?.repositoryVersion ??
+          policyHeadVersions.get(`repo:${repositoryId}`) ??
+          null,
+      };
+    }),
     outboxFailures,
     supportDiagnostics,
     orgRuleset,
@@ -1778,7 +1830,7 @@ function WorkspaceCard({
         {draft ? (
           <WorkspaceReviewConfigForm
             workspaceId={workspace.id}
-            expectedVersion={null}
+            expectedVersion={data.reviewConfigExpectedVersion}
             config={draft}
             modelOptions={modelOptions}
             gatewayAccounts={gatewayAccounts}
@@ -2026,7 +2078,7 @@ function WorkspaceCard({
                 </div>
                 <WorkspaceReviewConfigForm
                   workspaceId={workspace.id}
-                  expectedVersion={data.reviewConfig?.version ?? null}
+                  expectedVersion={data.reviewConfigExpectedVersion}
                   config={activeConfig}
                   modelOptions={modelOptions}
                   gatewayAccounts={gatewayAccounts}
@@ -2094,10 +2146,10 @@ function WorkspaceCard({
                 </summary>
                 <div className="mt-4 grid gap-3">
                   {repositories.map((repository) => {
-                    const repositoryConfig =
-                      repositoryConfigs.find(
-                        (item) => item.repositoryId === repository.id,
-                      )?.config ?? null;
+                    const repositoryPolicy = repositoryConfigs.find(
+                      (item) => item.repositoryId === repository.id,
+                    );
+                    const repositoryConfig = repositoryPolicy?.config ?? null;
                     const effectiveConfig =
                       repositoryConfig?.config ?? activeConfig;
                     const configVersion =
@@ -2116,6 +2168,9 @@ function WorkspaceCard({
                         repositoryConfig={repositoryConfig}
                         effectiveConfig={effectiveConfig}
                         configVersion={configVersion}
+                        expectedVersion={
+                          repositoryPolicy?.expectedVersion ?? null
+                        }
                         modelOptions={modelOptions}
                         gatewayAccounts={gatewayAccounts}
                         codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
@@ -2874,7 +2929,9 @@ function RepositoryTable({
           repositoryId: repository.id,
           fullName: repository.fullName,
           expectedVersion:
-            repositoryConfigById.get(repository.id)?.version ?? null,
+            repositoryConfigs.find(
+              (item) => item.repositoryId === repository.id,
+            )?.expectedVersion ?? null,
           eligible:
             repository.provider === "github" &&
             repository.selected &&
@@ -3088,6 +3145,11 @@ function RepositoryTable({
                         workspaceId={workspace.id}
                         repository={repository}
                         repositoryConfig={repositoryConfig}
+                        expectedVersion={
+                          repositoryConfigs.find(
+                            (item) => item.repositoryId === repository.id,
+                          )?.expectedVersion ?? null
+                        }
                         effectiveConfig={effectiveConfig}
                         modelOptions={modelOptions}
                         gatewayAccounts={gatewayAccounts}

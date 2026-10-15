@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   readReviewConfigurationForm,
   readRepositoryReviewPolicyForm,
+  readReviewPolicyExpectedVersion,
 } from "./dashboard-action-form-readers";
 import {
   type ReviewConfiguration,
@@ -479,6 +480,170 @@ describe("ReviewConfigForm", () => {
       expect(checkProviderRepositorySecretClientAction).toHaveBeenCalledTimes(
         legacySecretChecks,
       );
+    },
+  );
+
+  it.each([
+    ["workspace", 3],
+    ["policy", 11],
+    ["repositories", 11],
+    ["workspace", null],
+    ["policy", null],
+    ["repositories", null],
+  ] as const)(
+    "submits %s policy with its exact opaque-head or new-target CAS %s",
+    async (surface, expectedVersion) => {
+      const config: ReviewConfiguration = {
+        ...workspacePolicy,
+        providers: [
+          {
+            ...workspacePolicy.providers[0]!,
+            kind: "codex",
+            authMode: "codex_account_gateway",
+            gatewayBindingId: "binding-codex",
+            gatewayProfileRef: "profile-codex",
+            model: "gpt-6.1-sol",
+          },
+        ],
+      };
+      const save =
+        surface === "workspace"
+          ? saveWorkspaceReviewConfigClientAction
+          : saveRepositoryReviewConfigClientAction;
+      vi.mocked(save).mockResolvedValue({
+        params: { notice: "review_config_saved" },
+      });
+      const common = {
+        workspaceId: "workspace_1",
+        modelOptions,
+        expectedVersion,
+        gatewayAccounts: { status: "ok", value: gatewayPage } as const,
+        mutationsEnabled: true,
+      };
+      const repository = {
+        id: "repo_1",
+        fullName: "test/disposable",
+        selected: true,
+        archived: false,
+      };
+      if (surface === "workspace") {
+        render(<WorkspaceReviewConfigForm {...common} config={config} />);
+      } else if (surface === "policy") {
+        render(
+          <RepositoryPolicyOverrideDetails
+            {...common}
+            repository={repository}
+            repositoryConfig={null}
+            effectiveConfig={config}
+            configVersion={99}
+          />,
+        );
+        fireEvent.click(
+          screen.getByRole("button", { name: /test\/disposable/ }),
+        );
+      } else {
+        render(
+          <RepositoryPolicyEditor
+            {...common}
+            repository={repository}
+            repositoryConfig={null}
+            effectiveConfig={config}
+          />,
+        );
+        fireEvent.click(screen.getByRole("button", { name: /Edit settings/ }));
+      }
+      if (surface !== "workspace") {
+        fireEvent.change(
+          document.querySelector('select[name="policyMode.providers"]')!,
+          {
+            target: { value: "override" },
+          },
+        );
+      }
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: /Save workspace default|Save override|Save repo settings/,
+        }),
+      );
+      await waitFor(() => expect(save).toHaveBeenCalledOnce());
+      const submitted = vi.mocked(save).mock.calls[0]![0];
+      expect(readReviewPolicyExpectedVersion(submitted)).toBe(expectedVersion);
+      expect(submitted.get("workspaceId")).toBe("workspace_1");
+      if (surface === "workspace") {
+        expect(readReviewConfigurationForm(submitted)).toEqual(config);
+      } else {
+        expect(submitted.get("repositoryId")).toBe("repo_1");
+        expect(readRepositoryReviewPolicyForm(submitted)).toEqual({
+          schemaVersion: 3,
+          providers: config.providers,
+        });
+      }
+    },
+  );
+
+  it.each([
+    ["policy", null],
+    ["repositories", null],
+    ["policy", 11],
+    ["repositories", 11],
+  ] as const)(
+    "uses exact target CAS in %s when its displayed config inherits workspace v3 (%s)",
+    async (surface, expectedVersion) => {
+      const config = openRouterReviewConfiguration();
+      vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
+        status: "available_repository",
+      });
+      vi.mocked(saveRepositoryReviewConfigClientAction).mockResolvedValue({
+        params: { notice: "repository_review_config_saved" },
+      });
+      const common = {
+        workspaceId: "workspace_1",
+        modelOptions,
+        expectedVersion,
+        repository: {
+          id: "repo_1",
+          fullName: "test/disposable",
+          selected: true,
+          archived: false,
+        },
+        repositoryConfig: {
+          version: 3,
+          policy: { schemaVersion: 3 as const },
+          config,
+        },
+        effectiveConfig: config,
+        mutationsEnabled: true,
+      };
+      if (surface === "policy") {
+        render(
+          <RepositoryPolicyOverrideDetails {...common} configVersion={3} />,
+        );
+        fireEvent.click(
+          screen.getByRole("button", { name: /test\/disposable/ }),
+        );
+      } else {
+        render(<RepositoryPolicyEditor {...common} />);
+        fireEvent.click(screen.getByRole("button", { name: /Edit settings/ }));
+      }
+      // Saving all Inherit appends a sparse policy without calling destructive clear.
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: /Update override|Update repo settings/,
+        }),
+      );
+      await waitFor(() =>
+        expect(saveRepositoryReviewConfigClientAction).toHaveBeenCalledOnce(),
+      );
+      const submitted = vi.mocked(saveRepositoryReviewConfigClientAction).mock
+        .calls[0]![0];
+      expect(readReviewPolicyExpectedVersion(submitted)).toBe(expectedVersion);
+      expect(submitted.get("policyExpectedVersion")).toBe(
+        expectedVersion === null ? "none" : "11",
+      );
+      expect(readRepositoryReviewPolicyForm(submitted)).toEqual({
+        schemaVersion: 3,
+      });
+      expect(clearRepositoryReviewConfigClientAction).not.toHaveBeenCalled();
     },
   );
 

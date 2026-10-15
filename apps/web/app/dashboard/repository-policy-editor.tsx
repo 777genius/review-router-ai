@@ -609,6 +609,7 @@ export function RepositoryPolicyOverrideDetails({
   workspaceId,
   repository,
   repositoryConfig,
+  expectedVersion,
   effectiveConfig,
   configVersion,
   modelOptions,
@@ -621,6 +622,7 @@ export function RepositoryPolicyOverrideDetails({
   readonly workspaceId: string;
   readonly repository: RepositoryPolicyEditorRepository;
   readonly repositoryConfig: RepositoryPolicyEditorConfig;
+  readonly expectedVersion?: number | null;
   readonly effectiveConfig: ReviewConfiguration;
   readonly configVersion: number;
   readonly modelOptions: readonly ReviewModelOption[];
@@ -710,9 +712,7 @@ export function RepositoryPolicyOverrideDetails({
                 { name: "repositoryId", value: repository.id },
                 {
                   name: "policyExpectedVersion",
-                  value: repositoryConfig
-                    ? String(repositoryConfig.version)
-                    : "none",
+                  value: String(expectedVersion ?? "none"),
                 },
               ]}
               mutationsEnabled={canEdit}
@@ -758,6 +758,7 @@ export function RepositoryPolicyEditor({
   workspaceId,
   repository,
   repositoryConfig,
+  expectedVersion,
   effectiveConfig,
   modelOptions,
   gatewayAccounts,
@@ -770,6 +771,7 @@ export function RepositoryPolicyEditor({
   readonly workspaceId: string;
   readonly repository: RepositoryPolicyEditorRepository;
   readonly repositoryConfig: RepositoryPolicyEditorConfig;
+  readonly expectedVersion?: number | null;
   readonly effectiveConfig: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
@@ -849,6 +851,7 @@ export function RepositoryPolicyEditor({
           <ReviewConfigForm
             action={saveRepositorySettings}
             config={effectiveConfig}
+            repositoryPolicy={repositoryConfig?.policy ?? { schemaVersion: 3 }}
             modelOptions={modelOptions}
             gatewayAccounts={gatewayAccounts}
             codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
@@ -856,6 +859,10 @@ export function RepositoryPolicyEditor({
             hiddenFields={[
               { name: "workspaceId", value: workspaceId },
               { name: "repositoryId", value: repository.id },
+              {
+                name: "policyExpectedVersion",
+                value: String(expectedVersion ?? "none"),
+              },
             ]}
             mutationsEnabled={canEdit}
             submitLabel={
