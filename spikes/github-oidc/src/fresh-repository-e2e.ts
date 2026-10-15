@@ -1,4 +1,8 @@
 import {
+  reviewPolicyFixture,
+  fixtureProviderSettings,
+} from "./review-policy-fixture.js";
+import {
   execFileSync,
   spawnSync,
   type SpawnSyncReturns,
@@ -23,7 +27,6 @@ import {
 import {
   PrismaReviewConfigurationRepository,
   resolveReviewRuntimeEnv,
-  safeDefaultReviewConfiguration,
   saveReviewConfiguration,
 } from "../../../packages/features/review-config/src/index.ts";
 import { createGitHubApp, findInstallationForRepo } from "./github-app.js";
@@ -375,6 +378,26 @@ async function saveRequestedReviewConfiguration(input: {
   }
 
   const configurations = new PrismaReviewConfigurationRepository(input.prisma);
+  const workspaceTarget = {
+    scope: "workspace" as const,
+    workspaceId: input.workspaceId,
+  };
+  if (!(await configurations.findLatest(workspaceTarget))) {
+    await saveReviewConfiguration(
+      {
+        target: workspaceTarget,
+        policy: reviewPolicyFixture([
+          {
+            ...fixtureProviderSettings,
+            kind: "openrouter",
+            authMode: "openrouter_api_key",
+            model: openRouterModel,
+          },
+        ]),
+      },
+      { configurations },
+    );
+  }
   await saveReviewConfiguration(
     {
       target: {
@@ -382,14 +405,21 @@ async function saveRequestedReviewConfiguration(input: {
         workspaceId: input.workspaceId,
         repositoryId: input.repositoryId,
       },
-      config: {
-        ...safeDefaultReviewConfiguration,
-        provider: {
-          ...safeDefaultReviewConfiguration.provider,
-          kind: "openrouter",
-          authMode: "openrouter_api_key",
-          model: openRouterModel,
+      policy: {
+        schemaVersion: 3,
+        execution: {
+          providerLimit: 1,
+          providerMaxParallel: 1,
+          inlineMinAgreement: 1,
         },
+        providers: [
+          {
+            ...fixtureProviderSettings,
+            kind: "openrouter",
+            authMode: "openrouter_api_key",
+            model: openRouterModel,
+          },
+        ],
       },
     },
     { configurations },

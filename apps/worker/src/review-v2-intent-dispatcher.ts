@@ -27,7 +27,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
   constructor(
     private readonly prisma: PrismaClient,
     credentials: { readonly appId: string; readonly privateKey: string },
-    private readonly workflowPath = reviewRouterWorkflowPath,
+    private readonly workflowPath: string = reviewRouterWorkflowPath,
     installations?: InstallationClientPort,
   ) {
     const app = installations ? null : new App(credentials);

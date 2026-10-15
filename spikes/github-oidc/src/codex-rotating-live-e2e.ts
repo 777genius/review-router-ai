@@ -837,7 +837,7 @@ async function activateVersionedSetupNamespace(input: {
     repositoryId: attestation.repositoryId,
     repositoryFullName: observedRepository.fullName,
     workflowPath:
-      attestation.workflowPath as ".github/workflows/reviewrouter-codex.yml",
+      attestation.workflowPath as ".github/workflows/reviewrouter-review.yml",
     workflowSourceCommitSha: attestation.workflowSourceCommitSha,
     workflowSourceBlobSha: attestation.workflowSourceBlobSha,
     workflowSourceSha256: attestation.workflowSourceSha256,
