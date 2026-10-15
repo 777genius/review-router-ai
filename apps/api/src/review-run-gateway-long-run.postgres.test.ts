@@ -1,3 +1,4 @@
+import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import Fastify from "fastify";
@@ -10,7 +11,6 @@ import {
   parseReviewConfigurationStrict,
   PrismaReviewConfigurationRepository,
   saveReviewConfiguration,
-  safeDefaultReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
   canonicalJson,
@@ -253,8 +253,8 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
           {
             target,
             expectedVersion: null,
-            config: parseReviewConfigurationStrict({
-              ...safeDefaultReviewConfiguration,
+            policy: parseReviewConfigurationStrict({
+              ...workspacePolicyFixture,
               providers: [
                 {
                   kind: "codex",

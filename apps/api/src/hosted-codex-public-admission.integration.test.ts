@@ -1,9 +1,12 @@
+import {
+  workspacePolicyFixture,
+  workspaceProviderFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import type { GitHubActionsOidcClaims } from "@reviewrouter/features-action-control-plane";
 import { PrismaActionControlPlaneRepository } from "@reviewrouter/features-action-control-plane";
-import { safeDefaultReviewConfiguration } from "@reviewrouter/features-review-config";
 import { canonicalJson } from "@reviewrouter/features-review-run-control";
 import { hostedPoolWorkflowSchemaVersion } from "@reviewrouter/features-workflow-provisioning";
 import { PrismaHostedCodexGrantAdmission } from "./prisma-hosted-codex-grant-admission.js";
@@ -40,11 +43,14 @@ function fixture(visibility: string, observed: Record<string, unknown> = {}) {
     "findRuntimeReviewConfiguration",
   ).mockResolvedValue({
     version: 1,
+    workspaceVersion: 1,
+    repositoryVersion: 1,
+    effectivePolicyDigest: "sha256:" + "a".repeat(64),
     config: {
-      ...safeDefaultReviewConfiguration,
+      ...workspacePolicyFixture,
       providers: [
         {
-          ...safeDefaultReviewConfiguration.providers[0]!,
+          ...workspaceProviderFixture,
           kind: "codex",
           authMode: "codex_subscription_oauth_hosted_pool",
           model: "gpt-5.5",

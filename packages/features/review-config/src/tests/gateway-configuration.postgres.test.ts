@@ -97,10 +97,8 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        expect(names).toHaveLength(121);
-        expect(names.at(-1)).toBe(
-          "000122_review_configuration_operation_receipt",
-        );
+        expect(names).toHaveLength(129);
+        expect(names.at(-1)).toBe("000129_review_policy_schema_v3");
         let legacyBefore: unknown;
         for (const name of names) {
           if (name === "000119_review_configuration_gateway_binding") {
@@ -178,7 +176,7 @@ describe.skipIf(!enabled)(
         }
         const legacyAfter = await sql.query(`
         SELECT (SELECT to_jsonb(v) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
-                  - 'operationId' - 'operationIntentHash'
+                  - 'operationId' - 'operationIntentHash' - 'policyJson'
                 FROM "ReviewConfigurationVersion" v WHERE v."id" = 'c2b-legacy-version') AS v,
                (SELECT to_jsonb(p) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
                 FROM "ReviewConfigurationVersionProvider" p WHERE p."id" = 'c2b-legacy-provider') AS p`);
@@ -225,11 +223,20 @@ describe.skipIf(!enabled)(
           repositoryId: "c2b-repo",
         } as const;
         const deps = { configurations: configs };
-        // Explicit workspace policy is required before repository writes.
+        // Historical rows remain evidence, never an executable policy/default.
+        expect(await configs.findLatest(workspace)).toBeNull();
+        expect(
+          (
+            await prisma.reviewConfigurationVersion.findUniqueOrThrow({
+              where: { id: "c2b-legacy-version" },
+            })
+          ).policyJson,
+        ).toBeNull();
+        // Supersede the retained historical revision through the current writer.
         await configs.saveNextVersion({
           target: workspace,
           policy: workspacePolicyFixture,
-          expectedVersion: null,
+          expectedVersion: 1,
         });
         // Clearing a repository override preserves the workspace policy.
         await configs.saveNextVersion({
