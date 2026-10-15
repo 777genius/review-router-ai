@@ -744,7 +744,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
       `${kind}-${randomUUID()}`,
     sessionSecretKey: contextCrypto.sessionSecretKey,
     config: {
-      sessionLifetimeMs: 20 * 60 * 1_000,
+      sessionLifetimeMs: productionTiming.maxAuthorizationLifetimeMs,
       reuseTtlMs: productionTiming.evidenceReuseTtlMs,
       replayProofLifetimeMs: 10 * 60 * 1_000,
       replayCapabilityLifetimeMs: 10 * 60 * 1_000,

@@ -104,6 +104,178 @@ const sourceRevision = revision("a", "b", "c", "source-revision");
 const targetRevision = revision("a", "b", "d", "target-revision");
 
 describe("Review Action v2 context attestation composition", () => {
+  it.each([
+    ["authorization", 4, 6],
+    ["execution", 6, 4],
+  ] as const)(
+    "seals after 36 minutes within the original %s deadline and denies after it",
+    async (deadlineKind, authorizationHours, executionHours) => {
+      let currentNow = now;
+      const fixture = await createFixture({
+        now: () => currentNow,
+        sessionLifetimeMs: 6 * 60 * 60 * 1_000,
+        gatewayPolicyVersion: "context-gateway-v4",
+        release: { contextGatewayPolicyVersion: "context-gateway-v4" },
+      });
+      Object.assign(fixture.authorization(), {
+        expiresAt: new Date(now.getTime() + authorizationHours * 3_600_000),
+      });
+      Object.assign(fixture.snapshot().execution, {
+        executionDeadlineAt: new Date(
+          now.getTime() + executionHours * 3_600_000,
+        ),
+      });
+      const opened = await fixture.routes.openGateway!.execute(
+        fixture.openRequest,
+      );
+      expect(opened.result.status).toBe(
+        ReviewContextGatewayOpenResultStatus.Opened,
+      );
+      const hardDeadline = new Date(now.getTime() + 4 * 3_600_000);
+      expect(opened.result.expiresAt).toBe(hardDeadline.toISOString());
+      const sealCapability = required(opened.result.sealCapability);
+      await expect(
+        fixture.capabilities.verifyContextGatewaySeal(sealCapability, now),
+      ).resolves.toMatchObject({ expiresAt: hardDeadline });
+      const originalLease = await fixture.capabilities.verifyLease(
+        fixture.openRequest.leaseCapability,
+        now,
+      );
+      const renewLeaseCapability = async () => {
+        Object.assign(fixture.lease, {
+          renewedAt: currentNow,
+          expiresAt: new Date(currentNow.getTime() + 600_000),
+          resultReportUntil: new Date(currentNow.getTime() + 1_200_000),
+        });
+        return fixture.capabilities.issueLease(
+          fixture.lease,
+          originalLease.scopeHash,
+          currentNow,
+        );
+      };
+      const sessionId = required(opened.result.sessionId);
+      const manifest = sourceV4Manifest({
+        sessionId,
+        sessionSecret: Buffer.from(
+          required(opened.result.gatewaySessionSecret),
+          "base64url",
+        ),
+        eventChainSeedHash: required(opened.result.eventChainSeedHash),
+      });
+      currentNow = new Date(now.getTime() + 36 * 60_000);
+      const request = await sealRequest({
+        fixture,
+        sessionId,
+        sealCapability,
+        leaseCapability: await renewLeaseCapability(),
+        transcriptCanonicalJson: canonicalContextGatewayV4Manifest(manifest),
+        replayMaterialCanonicalJson: stableJson({
+          materialVersion: 1,
+          sourceDependencies: [],
+        }),
+      });
+      await expect(
+        fixture.routes.sealGateway!.execute(request),
+      ).resolves.toMatchObject({
+        result: { status: ReviewContextGatewaySealResultStatus.Accepted },
+      });
+      currentNow = new Date(hardDeadline.getTime() + 1_000);
+      await expect(
+        fixture.routes.sealGateway!.execute(
+          await withBodyHash(
+            ReviewActionV2OperationId.ReviewContextGatewaySeal,
+            { ...request, leaseCapability: await renewLeaseCapability() },
+          ),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: deadlineKind === "authorization" ? 410 : 401,
+        issues: [
+          deadlineKind === "authorization"
+            ? "authorization_inactive"
+            : "context_seal_capability_invalid",
+        ],
+      });
+    },
+  );
+
+  it("restores the original bounded session on a delayed exact open replay", async () => {
+    let currentNow = now;
+    const fixture = await createFixture({
+      now: () => currentNow,
+      sessionLifetimeMs: 6 * 60 * 60 * 1_000,
+    });
+    const hardDeadline = new Date(now.getTime() + 4 * 3_600_000);
+    Object.assign(fixture.authorization(), { expiresAt: hardDeadline });
+    Object.assign(fixture.snapshot().execution, {
+      executionDeadlineAt: new Date(now.getTime() + 6 * 3_600_000),
+    });
+    const opened = await fixture.routes.openGateway!.execute(
+      fixture.openRequest,
+    );
+    expect(opened.result.status).toBe(
+      ReviewContextGatewayOpenResultStatus.Opened,
+    );
+    const sessionId = required(opened.result.sessionId);
+    const originalSession =
+      await fixture.dependencies.store.findSession(sessionId);
+
+    currentNow = new Date(now.getTime() + 1_000);
+    const replayed = await fixture.routes.openGateway!.execute(
+      fixture.openRequest,
+    );
+    expect(replayed.result).toMatchObject({
+      status: ReviewContextGatewayOpenResultStatus.Idempotent,
+      sessionId,
+      expiresAt: hardDeadline.toISOString(),
+      gatewaySessionSecret: opened.result.gatewaySessionSecret,
+      eventChainSeedHash: opened.result.eventChainSeedHash,
+    });
+    expect(await fixture.dependencies.store.findSession(sessionId)).toEqual(
+      originalSession,
+    );
+
+    Object.assign(fixture.dependencies.config, {
+      sessionLifetimeMs: 3 * 3_600_000,
+    });
+    await expect(
+      fixture.routes.openGateway!.execute(fixture.openRequest),
+    ).resolves.toMatchObject({
+      result: {
+        status: ReviewContextGatewayOpenResultStatus.Conflict,
+        sessionId: null,
+      },
+    });
+    Object.assign(fixture.dependencies.config, {
+      sessionLifetimeMs: 6 * 3_600_000,
+    });
+    Object.assign(fixture.authorization(), {
+      expiresAt: new Date(now.getTime() + 3 * 3_600_000),
+    });
+    await expect(
+      fixture.routes.openGateway!.execute(fixture.openRequest),
+    ).resolves.toMatchObject({
+      result: {
+        status: ReviewContextGatewayOpenResultStatus.Conflict,
+        sessionId: null,
+      },
+    });
+    Object.assign(fixture.authorization(), { expiresAt: hardDeadline });
+    await expect(
+      fixture.routes.openGateway!.execute(
+        await withBodyHash(ReviewActionV2OperationId.ReviewContextGatewayOpen, {
+          ...fixture.openRequest,
+          checkoutTreeOid: targetTree,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 412,
+      issues: ["context_checkout_tree_mismatch"],
+    });
+    expect(await fixture.dependencies.store.findSession(sessionId)).toEqual(
+      originalSession,
+    );
+  });
+
   it("terminalizes a failed gateway seal idempotently", async () => {
     const fixture = await createFixture();
     const opened = await fixture.routes.openGateway!.execute(
@@ -931,6 +1103,7 @@ describe("Review Action v2 context attestation composition", () => {
 async function createFixture(
   options: {
     now?: () => Date;
+    sessionLifetimeMs?: number;
     gatewayPolicyVersion?: string;
     executionProfile?: ProviderExecutionProfile;
     release?: {
@@ -1076,7 +1249,7 @@ async function createFixture(
     })(),
     sessionSecretKey: Buffer.from("abcdef0123456789abcdef0123456789"),
     config: {
-      sessionLifetimeMs: 60_000,
+      sessionLifetimeMs: options.sessionLifetimeMs ?? 60_000,
       reuseTtlMs: 3_600_000,
       replayProofLifetimeMs: 60_000,
       replayCapabilityLifetimeMs: 60_000,
@@ -1497,6 +1670,7 @@ async function sealRequest(input: {
   fixture: Awaited<ReturnType<typeof createFixture>>;
   sessionId: string;
   sealCapability: string;
+  leaseCapability?: string;
   transcriptCanonicalJson: string;
   replayMaterialCanonicalJson: string;
   actualModel?: string;
@@ -1507,7 +1681,8 @@ async function sealRequest(input: {
   return withBodyHash(ReviewActionV2OperationId.ReviewContextGatewaySeal, {
     ...envelope("gateway-seal"),
     authorizationToken: "authorization-token",
-    leaseCapability: input.fixture.openRequest.leaseCapability,
+    leaseCapability:
+      input.leaseCapability ?? input.fixture.openRequest.leaseCapability,
     idempotencyKey: "gateway-seal",
     requestBodyHash: sha("placeholder"),
     sessionId: input.sessionId,
@@ -1735,6 +1910,7 @@ function snapshot(
       generation: 1n,
       version: 1n,
       authorizationId: auth.authorizationId,
+      executionDeadlineAt: new Date(auth.expiresAt),
       compatibilityKey: "compatibility-v1",
       planHash: sha("plan"),
       revision: facts,
