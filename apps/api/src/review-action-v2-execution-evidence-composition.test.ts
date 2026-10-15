@@ -1662,34 +1662,49 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(issuePublicationPermit).not.toHaveBeenCalled();
   });
 
-  it("does not issue a publication permit when the revision becomes unavailable after finalization", async () => {
-    const fixture = await finalizationFixture(new Date(now.getTime() + 60_000));
-    const capabilities = capabilityAdapter();
-    const issuePublicationPermit = vi.spyOn(
-      capabilities,
-      "issuePublicationPermit",
-    );
-    const currentRevision = vi
-      .fn()
-      .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Current)
-      .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Unavailable);
+  it.each([
+    CurrentReviewExecutionRevisionStatus.Unavailable,
+    CurrentReviewExecutionRevisionStatus.Stale,
+  ])(
+    "does not issue a publication permit when the revision becomes %s after finalization",
+    async (revisionStatus) => {
+      const fixture = await finalizationFixture(
+        new Date(now.getTime() + 60_000),
+      );
+      const capabilities = capabilityAdapter();
+      const issuePublicationPermit = vi.spyOn(
+        capabilities,
+        "issuePublicationPermit",
+      );
+      const currentRevision = vi
+        .fn()
+        .mockResolvedValueOnce(CurrentReviewExecutionRevisionStatus.Current)
+        .mockResolvedValueOnce(revisionStatus);
 
-    await expect(
-      createReviewActionV2ExecutionHandlers(
-        executionDependencies({
-          capabilities,
-          finalize: fixture.finalize,
-          finalizationFacts: fixture.finalizationFacts,
-          currentRevision,
-        }),
-      ).finalize.execute(fixture.request),
-    ).rejects.toMatchObject({
-      statusCode: 503,
-      issues: ["execution_revision_unavailable"],
-    });
-    expect(fixture.finalize).toHaveBeenCalledTimes(1);
-    expect(issuePublicationPermit).not.toHaveBeenCalled();
-  });
+      await expect(
+        createReviewActionV2ExecutionHandlers(
+          executionDependencies({
+            capabilities,
+            finalize: fixture.finalize,
+            finalizationFacts: fixture.finalizationFacts,
+            currentRevision,
+          }),
+        ).finalize.execute(fixture.request),
+      ).rejects.toMatchObject({
+        statusCode:
+          revisionStatus === CurrentReviewExecutionRevisionStatus.Stale
+            ? 412
+            : 503,
+        issues: [
+          revisionStatus === CurrentReviewExecutionRevisionStatus.Stale
+            ? "execution_revision_stale"
+            : "execution_revision_unavailable",
+        ],
+      });
+      expect(fixture.finalize).toHaveBeenCalledTimes(1);
+      expect(issuePublicationPermit).not.toHaveBeenCalled();
+    },
+  );
 
   it("fails finalization before projection work when context policy is stale", async () => {
     const fixture = await finalizationFixture(new Date(now.getTime() + 60_000));

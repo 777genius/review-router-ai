@@ -1213,7 +1213,11 @@ export function composeReviewActionV2ProductionRoutes(input: {
         },
         authorizations: runControl.authorizations,
         queries: repositories.authorizations,
-        checkAuthority: async (authorization) => {
+        checkAuthority: async (authorization, freshness) => {
+          if (freshness === "local")
+            return currentRevision.hasCurrentLocalScope(
+              authorizationScope(authorization),
+            );
           const revision = await currentRevision.resolve(
             authorizationScope(authorization),
           );
@@ -1710,7 +1714,7 @@ class ProductionCurrentReviewRevisionAdapter implements CurrentReviewRevisionPor
     }>,
   ) {}
 
-  async resolve(scope: ReviewExecutionScope) {
+  private async resolveLocalScope(scope: ReviewExecutionScope) {
     const identity =
       await this.dependencies.identities.findScmRepositoryIdentityById(
         scope.scmRepositoryIdentityId,
@@ -1720,7 +1724,7 @@ class ProductionCurrentReviewRevisionAdapter implements CurrentReviewRevisionPor
       identity.currentWorkspaceId !== scope.workspaceId ||
       identity.currentRepositoryConnectionId !== scope.repositoryConnectionId
     ) {
-      return { status: CurrentReviewRevisionStatus.Unavailable } as const;
+      return null;
     }
     const repository =
       await this.dependencies.actionRepositories.findSelectedRepositoryByGithubId(
@@ -1730,7 +1734,7 @@ class ProductionCurrentReviewRevisionAdapter implements CurrentReviewRevisionPor
       !repository ||
       repository.repositoryId !== scope.repositoryConnectionId
     ) {
-      return { status: CurrentReviewRevisionStatus.Unavailable } as const;
+      return null;
     }
     const source =
       await this.dependencies.prisma.reviewRunAuthorization.findFirst({
@@ -1744,8 +1748,19 @@ class ProductionCurrentReviewRevisionAdapter implements CurrentReviewRevisionPor
         select: { sourceRunId: true },
       });
     if (!source) {
-      return { status: CurrentReviewRevisionStatus.Unavailable } as const;
+      return null;
     }
+    return repository;
+  }
+
+  async hasCurrentLocalScope(scope: ReviewExecutionScope): Promise<boolean> {
+    return (await this.resolveLocalScope(scope)) !== null;
+  }
+
+  async resolve(scope: ReviewExecutionScope) {
+    const repository = await this.resolveLocalScope(scope);
+    if (!repository)
+      return { status: CurrentReviewRevisionStatus.Unavailable } as const;
     const repositoryName = splitRepositoryName(repository.fullName);
     const resolved = await this.dependencies.revisionResolver.resolve({
       workspaceId: scope.workspaceId,
