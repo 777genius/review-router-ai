@@ -513,7 +513,11 @@ test("explicit revoke reports local denial and remote pending; fresh grant prese
 test("personal selection requires stable actor and live role, with P owner isolation", async () => {
   const f = fixture();
   await bind(f);
-  f.setConnection({ ...connection, owner: { kind: "user", userId: "donor-u" }, authorizationEpochMirror: 7 });
+  f.setConnection({
+    ...connection,
+    owner: { kind: "user", userId: "donor-u" },
+    authorizationEpochMirror: 7,
+  });
   let personalOwnerUserId: string | null = null;
   const dependencies = {
     ...f.dependencies,
@@ -522,31 +526,78 @@ test("personal selection requires stable actor and live role, with P owner isola
       ...f.dependencies.accounts,
       async findBinding(input: { workspaceId: string; bindingId: string }) {
         const selected = await f.dependencies.accounts.findBinding(input);
-        return selected ? { ...selected, personalUse: {
-          workspaceId: scope.workspaceId, donorUserId: "donor-u", donorRole: "admin" as const,
-          personalOwnerUserId,
-        } } : null;
+        return selected
+          ? {
+              ...selected,
+              personalUse: {
+                workspaceId: scope.workspaceId,
+                donorUserId: "donor-u",
+                donorRole: "admin" as const,
+                personalOwnerUserId,
+              },
+            }
+          : null;
       },
     },
   };
-  const read = (reader: { userId?: string; githubUserId: string; githubLogin: string } = actor) =>
-    resolveWorkspaceAccountBinding({ workspaceId: scope.workspaceId, bindingId: "binding-test", actor: reader }, dependencies);
+  const read = (
+    reader: {
+      userId?: string;
+      githubUserId: string;
+      githubLogin: string;
+    } = actor,
+  ) =>
+    resolveWorkspaceAccountBinding(
+      {
+        workspaceId: scope.workspaceId,
+        bindingId: "binding-test",
+        actor: reader,
+      },
+      dependencies,
+    );
   f.setRole("member");
   assert.equal((await read()).expectedAuthorizationEpoch, 7);
   f.setRole(null);
   await assert.rejects(read(), denied("workspace_forbidden"));
-  await assert.rejects(read({ githubUserId: actor.githubUserId, githubLogin: actor.githubLogin }), denied("workspace_forbidden"));
+  await assert.rejects(
+    read({ githubUserId: actor.githubUserId, githubLogin: actor.githubLogin }),
+    denied("workspace_forbidden"),
+  );
   f.setRole("admin");
   personalOwnerUserId = "donor-u";
   await assert.rejects(read(), denied("workspace_forbidden"));
-  f.setConnection({ ...connection, owner: { kind: "user", userId: actor.userId }, authorizationEpochMirror: 7 });
+  f.setConnection({
+    ...connection,
+    owner: { kind: "user", userId: actor.userId },
+    authorizationEpochMirror: 7,
+  });
   personalOwnerUserId = actor.userId;
   // Replace the immutable source facts only in this independent in-memory fixture.
-  const ownP = { ...dependencies, accounts: { ...dependencies.accounts,
-    async findBinding(input: { workspaceId: string; bindingId: string }) {
-      const selected = await dependencies.accounts.findBinding(input);
-      return selected ? { ...selected, personalUse: { ...selected.personalUse, donorUserId: actor.userId } } : null;
+  const ownP = {
+    ...dependencies,
+    accounts: {
+      ...dependencies.accounts,
+      async findBinding(input: { workspaceId: string; bindingId: string }) {
+        const selected = await dependencies.accounts.findBinding(input);
+        return selected
+          ? {
+              ...selected,
+              personalUse: {
+                ...selected.personalUse,
+                donorUserId: actor.userId,
+              },
+            }
+          : null;
+      },
     },
-  } };
-  assert.equal((await resolveWorkspaceAccountBinding({ workspaceId: scope.workspaceId, bindingId: "binding-test", actor }, ownP)).expectedAuthorizationEpoch, 7);
+  };
+  assert.equal(
+    (
+      await resolveWorkspaceAccountBinding(
+        { workspaceId: scope.workspaceId, bindingId: "binding-test", actor },
+        ownP,
+      )
+    ).expectedAuthorizationEpoch,
+    7,
+  );
 });

@@ -134,6 +134,38 @@ new dedicated WEB credential is staged by Root, not active. Root alone applies
 the coherent image/feature rollout and normal-session live E2E. Full H acceptance,
 actual multi-organization UI use and tools/final/App publication remain pending.
 
+## Final source assembly before protected-main gate
+
+The authoritative assembly is the external `personal-sharing-h-server-adapters-20261015`
+worktree on `feat/personal-sharing-h-ui-integration-20261015`; the older f538
+composition worktree is retained scratch only. Children 589–593 are integrated
+into the retained PR587 branch, with independent source review and exact focused
+HOST evidence. Its final UI composition shares the canonical/sharing cache,
+provides paged exact Models selection and recipient-local detach, and preserves
+organization/operator management separately.
+
+Final HOST handle `96574` passed all 66 changed JavaScript/TypeScript files with
+zero lint errors/warnings/ignored files, selected WEB types and six canonical
+adapter cases. Actual Prettier3.8.3 checks/idempotence passed. The earlier child
+CI lint and stale generated-bundle failures remain retained; they are corrected
+here rather than relabeled successful. Job `24636899bc0a566c1ec83715daa03591`
+passed review-config types and the real parameterized actor-lock PG case in
+4.372 seconds. Bundle-only Node24 job `3bc8f5499c022fa4b5e554b3898ce2e7`
+passed exact build/equivalence with 446 guarded inputs. The committed generated
+conflict bundle is 516498 bytes, SHA256
+`e38e58548031b6d52b012198240d4cfee159a76efab4bf17130263017c1a2ff8`.
+Runtime Prisma remains absent from that CLI bundle.
+
+The final CI pair pins existing immutable Action171 `66ac53a5…` and its official
+`dist/index.js` digest `2a65907a…`; the actual Action171 public parser proof passed.
+No new Action protocol/version is introduced. Next is reopening the same PR587
+for exact protected-main checks, then the official release/image. Public H is
+still default disabled in source; Root alone applies compatible129/130 migrations,
+the staged dedicated WEB grant and API/WEB exact flag `1` in one coherent batch.
+The final live acceptance matrix under the owned H evidence directory remains
+mandatory. No source/UI check claims normal-session personal enrollment, live
+multi-organization use, tools/final/App publication or full H completion.
+
 ## Historical 2026-10-06 planning and delivery receipts
 
 Task `review-router-account-gateway-v1-h-planner-v1`, 2026-10-06. **REVIEWED_PLAN / TWO_DISTINCT_FRESH_ROUNDS_COMPLETE / PUBLICATION_ONLY_ADAPTATION**. R1 единственный P1 исправлен, R2 APPROVE exacte51 без замечаний; MAIN fully read520 technical lines. Production implementation не начата; MAIN final publication integration read COMPLETE; две consistency правки внесены. Текущий D/E/F/G/E2E не блокируется H; Norm53 sole current contract.

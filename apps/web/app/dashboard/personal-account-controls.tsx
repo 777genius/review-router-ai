@@ -58,11 +58,13 @@ function receiptText(receipt: PersonalMutationReceipt) {
 export function PersonalAccountControls({
   bootstrap,
   api,
+  queryClient,
 }: {
   bootstrap?: PersonalAccountsBootstrap;
   api?: PersonalAccountsApi;
+  queryClient?: QueryClient;
 }) {
-  const [client] = useState(() => new QueryClient());
+  const [client] = useState(() => queryClient ?? new QueryClient());
   if (!bootstrap?.enabled || !api) return null;
   return (
     <QueryClientProvider client={client}>

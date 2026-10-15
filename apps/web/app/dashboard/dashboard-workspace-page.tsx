@@ -1,5 +1,11 @@
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
+import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
+import { productionPersonalAccounts } from "../../src/server/personal-account-composition";
+import {
+  listPersonalModelAccounts,
+  getPersonalModelAccount,
+} from "./personal-account-actions";
 import { GatewayRepositoryBatchRefreshBoundary } from "./gateway-repository-batch-controls";
 import {
   saveGatewayRepositoryBatch,
@@ -1344,6 +1350,20 @@ async function DashboardSectionContent({
           reason: "local_admin_override" as const,
         }
       : undefined;
+  const wantsAccounts = [
+    "repositories",
+    "policy",
+    "diagnostics",
+    "setup",
+  ].includes(selectedSection);
+  const personal = wantsAccounts
+    ? await productionPersonalAccounts().catch(() => null)
+    : null;
+  const personalAccess = personal
+    ? await personal
+        .workspaceAccess(selectedWorkspace.workspace.id)
+        .catch(() => null)
+    : null;
   const [data, modelOptions, accountsBootstrap] = await Promise.all([
     loadDashboardSectionData(
       selectedWorkspace,
@@ -1358,10 +1378,17 @@ async function DashboardSectionContent({
     selectedSection === "repositories" ||
     selectedSection === "policy" ||
     selectedSection === "diagnostics"
-      ? loadAccountsBootstrap(selectedWorkspace.workspace.id)
+      ? personal && personalAccess
+        ? personal
+            .models(selectedWorkspace.workspace.id)
+            .then(async (api) => ({
+              page: await api.list({ limit: 25 }),
+            }))
+            .catch(() => ({ page: { status: "unavailable" as const } }))
+        : loadAccountsBootstrap(selectedWorkspace.workspace.id)
       : Promise.resolve(null),
   ]);
-  return (
+  const content = (
     <WorkspaceCard
       data={data}
       mutationsEnabled={mutationStatus.enabled}
@@ -1374,6 +1401,27 @@ async function DashboardSectionContent({
       gatewayAccounts={accountsBootstrap?.page}
       claudeCodeProviderEnabled={isClaudeCodeProviderEnabled()}
     />
+  );
+  return personal && personalAccess ? (
+    <GatewayModelAccountsProvider
+      scope={`${personal.scope}:workspace:${selectedWorkspace.workspace.id}`}
+      api={{
+        list: listPersonalModelAccounts.bind(
+          null,
+          personal.scope,
+          selectedWorkspace.workspace.id,
+        ),
+        get: getPersonalModelAccount.bind(
+          null,
+          personal.scope,
+          selectedWorkspace.workspace.id,
+        ),
+      }}
+    >
+      {content}
+    </GatewayModelAccountsProvider>
+  ) : (
+    content
   );
 }
 

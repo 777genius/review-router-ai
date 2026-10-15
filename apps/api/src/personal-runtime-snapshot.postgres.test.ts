@@ -257,6 +257,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         }
         const { expectedAuthorizationEpoch: _epoch, ...legacyGateway } =
           pin.gateway;
+        expect(_epoch).toBe(7);
         expect(
           await live({ ...pin, snapshotVersion: 1, gateway: legacyGateway }),
         ).toBe(false);

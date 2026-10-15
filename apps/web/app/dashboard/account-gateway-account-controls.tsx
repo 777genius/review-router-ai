@@ -37,6 +37,25 @@ import {
   submitGatewayApiKey,
 } from "./account-gateway-account-actions";
 
+export type AccountGatewayManagementApi = Pick<
+  typeof defaultManagementApi,
+  | "listGatewayAccounts"
+  | "mutateGatewayAccount"
+  | "submitGatewayApiKey"
+  | "readGatewayOperation"
+  | "beginGatewayOAuth"
+  | "completeGatewayOAuth"
+>;
+const defaultManagementApi = {
+  listGatewayAccounts,
+  mutateGatewayAccount,
+  submitGatewayApiKey,
+  readGatewayOperation,
+  beginGatewayOAuth,
+  completeGatewayOAuth,
+};
+type ManagementScope = "workspace" | "personal";
+
 // Small safe keys: scoped stable user/workspace locator; no signature or secret.
 const pageKey = (scope: string, cursor: string | null) =>
   ["gateway-accounts", scope, "page", cursor] as const;
@@ -59,9 +78,14 @@ type OAuthFormIntent =
   | Omit<AccountOAuthReconnectIntent, "nonce">;
 const inputClass =
   "min-h-11 rounded-lg border border-cyan-200/20 bg-slate-950 px-3 text-cyan-50";
-function statusText(status: AccountsResult<unknown>["status"]) {
+function statusText(
+  status: AccountsResult<unknown>["status"],
+  managementScope: ManagementScope = "workspace",
+) {
   return status === "denied"
-    ? "You need workspace owner or admin access."
+    ? managementScope === "personal"
+      ? "Sign in as the owner of this personal account."
+      : "You need workspace owner or admin access."
     : status === "conflict"
       ? "The account changed. Refresh Accounts before trying again."
       : status === "invalid"
@@ -98,20 +122,47 @@ function validAuthorizationURL(value: string | undefined): value is string {
 
 export function AccountGatewayControls({
   bootstrap,
+  api = defaultManagementApi,
+  managementScope = "workspace",
+  queryClient,
+  refreshRelated,
 }: {
   bootstrap: AccountsBootstrap;
+  api?: AccountGatewayManagementApi;
+  managementScope?: ManagementScope;
+  queryClient?: QueryClient;
+  refreshRelated?: () => Promise<void>;
 }) {
-  const [client] = useState(() => new QueryClient());
+  const [client] = useState(() => queryClient ?? new QueryClient());
+  if (managementScope === "personal" && api === defaultManagementApi)
+    return <p role="status">Personal account management is unavailable.</p>;
   return (
     <QueryClientProvider client={client}>
-      <Controls bootstrap={bootstrap} />
+      <Controls
+        bootstrap={bootstrap}
+        api={api}
+        managementScope={managementScope}
+        refreshRelated={refreshRelated}
+      />
     </QueryClientProvider>
   );
 }
 
-function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
+function Controls({
+  bootstrap,
+  api,
+  managementScope,
+  refreshRelated,
+}: {
+  bootstrap: AccountsBootstrap;
+  api: AccountGatewayManagementApi;
+  managementScope: ManagementScope;
+  refreshRelated: (() => Promise<void>) | undefined;
+}) {
   const { context } = bootstrap;
-  const scope = context.split(".")[0] ?? "";
+  const contextScope = context.split(".")[0] ?? "";
+  const personal = managementScope === "personal";
+  const scope = personal ? `personal:${contextScope}` : contextScope;
   const storageKey = `rr-c3-account-operations:${scope}`;
   const client = useQueryClient();
   const [cursor, setCursor] = useState<string | null>(null);
@@ -126,7 +177,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
   const submitting = useRef(false);
   const page = useQuery({
     queryKey: pageKey(scope, cursor),
-    queryFn: () => listGatewayAccounts(context, cursor),
+    queryFn: () => api.listGatewayAccounts(context, cursor),
     initialData: cursor === null ? bootstrap.page : undefined,
     enabled: Boolean(context),
     staleTime: 15000,
@@ -152,7 +203,8 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
           client.invalidateQueries({ queryKey: query.queryKey, exact: true }),
         ),
     );
-  }, [client, scope]);
+    await refreshRelated?.();
+  }, [client, scope, refreshRelated]);
   const offerCompletionHandoff = useCallback((nonce: string) => {
     if (completionHandoffRef.current) return;
     completionHandoffRef.current = nonce;
@@ -203,11 +255,13 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
     setMessage(
       result.status === "ok"
         ? result.value.state === "applied"
-          ? "The connection request finished. Workspace use may still require selecting an account."
+          ? personal
+            ? "The personal account request finished. Sharing and model selection remain separate actions."
+            : "The connection request finished. Workspace use may still require selecting an account."
           : result.value.state === "rejected"
             ? "The connection request was declined."
             : "We could not confirm this connection request. Check its status later; it will not be submitted twice."
-        : statusText(result.status),
+        : statusText(result.status, managementScope),
     );
     await refresh();
   }
@@ -242,7 +296,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
     try {
       // Direct ingress: neither the Begin response nor its temporary URL enters
       // a query/mutation cache, component state, storage or a readback request.
-      const fresh = await beginGatewayOAuth(context, { ...intent, nonce });
+      const fresh = await api.beginGatewayOAuth(context, { ...intent, nonce });
       const safe: AccountsResult<AccountOperationView> =
         fresh.status === "ok"
           ? fresh.value.operation.nonce === nonce
@@ -291,7 +345,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
   const metadataMutation = useMutation({
     mutationKey: ["gateway-accounts", scope, "metadata"] as const,
     mutationFn: (intent: AccountIntent) =>
-      mutateGatewayAccount(context, intent),
+      api.mutateGatewayAccount(context, intent),
     retry: false,
     gcTime: 0,
   });
@@ -310,7 +364,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
       const result =
         credential === undefined
           ? await metadataMutation.mutateAsync(request)
-          : await submitGatewayApiKey(context, request, credential);
+          : await api.submitGatewayApiKey(context, request, credential);
       await accept(nonce, result);
     } catch {
       await accept(nonce, {
@@ -370,6 +424,16 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
     data?.status !== "ok";
   return (
     <div className="space-y-4">
+      {personal ? (
+        <p className="text-sm text-slate-400">
+          These connections belong to you. Their names are visible to
+          organizations where you share them. Renaming changes the same account
+          everywhere; reconnecting updates its authentication and invalidates
+          old review access. Retiring an account permanently removes all its
+          uses, including your personal workspace. To use it afterward, connect
+          a new account.
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-3">
         {data?.status === "ok" &&
         data.value.profiles.some((p) => p.authKind === "api_key") ? (
@@ -379,6 +443,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
               (p) => p.authKind === "api_key",
             )}
             disabled={disabled}
+            managementScope={managementScope}
             submit={submit}
           />
         ) : null}
@@ -388,6 +453,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
             accounts={data.value.accounts}
             profiles={data.value.profiles.filter((p) => p.authKind === "oauth")}
             disabled={disabled}
+            managementScope={managementScope}
             begin={beginOAuth}
           />
         ) : null}
@@ -407,13 +473,15 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
       ) : null}
       {data?.status !== "ok" ? (
         <p role="status" className="text-sm text-slate-400">
-          {statusText(data?.status ?? "unavailable")}
+          {statusText(data?.status ?? "unavailable", managementScope)}
         </p>
       ) : (
         <div className="divide-y divide-cyan-200/10">
           {!data.value.accounts.length ? (
             <p className="py-4 text-sm text-slate-400">
-              No workspace accounts on this page.
+              {personal
+                ? "No personal accounts on this page."
+                : "No workspace accounts on this page."}
             </p>
           ) : null}
           {data.value.accounts.map((account) => (
@@ -467,6 +535,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                   mode="rename"
                   profiles={data.value.profiles}
                   disabled={disabled || account.canManage !== true}
+                  managementScope={managementScope}
                   submit={submit}
                 />
                 {account.authKind === "api_key" &&
@@ -479,9 +548,11 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                     disabled={
                       disabled ||
                       account.canManage !== true ||
+                      (personal && account.state === "disabled") ||
                       account.state === "tombstoned"
                     }
                     submit={submit}
+                    managementScope={managementScope}
                   />
                 ) : null}
                 {account.authKind === "oauth" &&
@@ -495,9 +566,11 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                     disabled={
                       disabled ||
                       account.canManage !== true ||
+                      (personal && account.state === "disabled") ||
                       account.state === "tombstoned"
                     }
                     begin={beginOAuth}
+                    managementScope={managementScope}
                   />
                 ) : null}
                 <Button
@@ -506,6 +579,7 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                   disabled={
                     disabled ||
                     account.canManage !== true ||
+                    (personal && account.state === "disabled") ||
                     account.state === "tombstoned"
                   }
                   onClick={() =>
@@ -517,25 +591,27 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                     })
                   }
                 >
-                  Disable
+                  {personal ? "Retire personal account" : "Disable"}
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={
-                    disabled ||
-                    account.state !== "active" ||
-                    Boolean(account.binding?.fencePending) ||
-                    (account.canManage !== true &&
-                      account.binding?.state !== "active")
-                  }
-                  onClick={() => bindingMutation.mutate(account)}
-                >
-                  {account.binding?.state === "active"
-                    ? "Select workspace binding"
-                    : "Create workspace binding"}
-                </Button>
-                {account.binding?.state === "active" ? (
+                {!personal ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      disabled ||
+                      account.state !== "active" ||
+                      Boolean(account.binding?.fencePending) ||
+                      (account.canManage !== true &&
+                        account.binding?.state !== "active")
+                    }
+                    onClick={() => bindingMutation.mutate(account)}
+                  >
+                    {account.binding?.state === "active"
+                      ? "Select workspace binding"
+                      : "Create workspace binding"}
+                  </Button>
+                ) : null}
+                {!personal && account.binding?.state === "active" ? (
                   <Button
                     variant="outline"
                     size="sm"
@@ -545,7 +621,8 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                     Detach workspace use
                   </Button>
                 ) : null}
-                {data.value.canGrantOperatorUse &&
+                {!personal &&
+                data.value.canGrantOperatorUse &&
                 account.canManage === true ? (
                   <OperatorGrantForm
                     context={context}
@@ -605,6 +682,8 @@ function Controls({ bootstrap }: { bootstrap: AccountsBootstrap }) {
                 data?.status === "ok" &&
                 data.value.profiles.some((p) => p.authKind === "oauth")
               }
+              api={api}
+              managementScope={managementScope}
             />
           ))}
         </div>
@@ -734,12 +813,14 @@ function OAuthForm({
   profiles,
   disabled,
   begin,
+  managementScope = "workspace",
 }: {
   account?: AccountView;
   accounts?: AccountView[];
   profiles: AccountProfileView[];
   disabled: boolean;
   begin(intent: OAuthFormIntent): Promise<void>;
+  managementScope?: ManagementScope;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -760,6 +841,9 @@ function OAuthForm({
             Enrollment stays pending until confirmed; an unresolved result
             requires status readback. Reconnect preserves the logical account
             until the newly authorized account is verified.
+            {managementScope === "personal"
+              ? " This is your canonical personal connection. Its name is visible where you explicitly share it; authentication is shared by all authorized uses."
+              : ""}
           </Dialog.Description>
           <form
             className="mt-4 grid gap-4"
@@ -835,6 +919,8 @@ function OperationReadback({
   oauthEnabled,
   autoOpenCompletion,
   consumeCompletionHandoff,
+  api,
+  managementScope,
 }: {
   context: string;
   scope: string;
@@ -845,14 +931,23 @@ function OperationReadback({
   oauthEnabled: boolean;
   autoOpenCompletion: boolean;
   consumeCompletionHandoff(): void;
+  api: AccountGatewayManagementApi;
+  managementScope: ManagementScope;
 }) {
   const client = useQueryClient();
   const [pollUntil] = useState(() => Date.now() + 60000);
   const [completionOffered, setCompletionOffered] = useState(false);
   const [completionSpent, setCompletionSpent] = useState(false);
+  const [keyContinuationSpent, setKeyContinuationSpent] = useState(false);
+  const keyContinuationEntered = useRef(false);
+  const keyContinuationInFlight = useRef(false);
+  const keyContinuationGeneration = useRef(0);
+  const keyStatusCheckInFlight = useRef(false);
+  const originalKeyResume = useRef<AccountOperationView["resume"]>(undefined);
+  const [keyContinuationBusy, setKeyContinuationBusy] = useState(false);
   const operation = useQuery({
     queryKey: operationKey(scope, nonce),
-    queryFn: () => readGatewayOperation(context, nonce),
+    queryFn: () => api.readGatewayOperation(context, nonce),
     staleTime: 3000,
     retry: false,
     refetchOnWindowFocus: false,
@@ -868,6 +963,86 @@ function OperationReadback({
   useEffect(() => {
     if (state === "applied") void refresh();
   }, [state, refresh]); // refresh exact account pages after promotion
+  const keyResume =
+    managementScope === "personal" && data?.status === "ok"
+      ? data.value.resume
+      : undefined;
+  async function continueKeyUpdate(credential: string) {
+    if (keyContinuationEntered.current || !keyResume || state !== "pending")
+      return;
+    const selectedResume = { ...keyResume };
+    keyContinuationEntered.current = true;
+    keyContinuationInFlight.current = true;
+    keyContinuationGeneration.current++;
+    originalKeyResume.current = selectedResume;
+    setKeyContinuationBusy(true);
+    setKeyContinuationSpent(true);
+    const queryKey = operationKey(scope, nonce);
+    let result: AccountsResult<AccountOperationView> = {
+      status: "ok",
+      value: { nonce, state: "unknown", cleanup: "unresolved" },
+    };
+    try {
+      try {
+        // Cancel the old ready read before entry; no secret is a query/mutation variable.
+        await client.cancelQueries({ queryKey, exact: true });
+        const returned = await api.submitGatewayApiKey(
+          context,
+          { ...selectedResume, nonce },
+          credential,
+        );
+        if (returned.status === "ok" && returned.value.nonce === nonce)
+          result = returned;
+      } catch {
+        // Any uncertain submission is readback-only under this original nonce.
+      }
+      // A ready read may have started during the direct request. Cancel it before publish.
+      await client.cancelQueries({ queryKey, exact: true });
+      client.setQueryData(queryKey, result);
+      await refresh();
+    } finally {
+      keyContinuationInFlight.current = false;
+      setKeyContinuationBusy(false);
+    }
+  }
+  async function checkStatus() {
+    if (keyStatusCheckInFlight.current) return;
+    keyStatusCheckInFlight.current = true;
+    // Only a user check begun after request completion may accept a new ready proof.
+    const mayRearm =
+      managementScope === "personal" &&
+      keyContinuationEntered.current &&
+      !keyContinuationInFlight.current;
+    const generation = keyContinuationGeneration.current;
+    try {
+      const checked = await operation.refetch();
+      const fresh = checked.data;
+      const resume = fresh?.status === "ok" ? fresh.value.resume : undefined;
+      const original = originalKeyResume.current;
+      if (
+        mayRearm &&
+        !checked.isError &&
+        !checked.isFetching &&
+        !keyContinuationInFlight.current &&
+        generation === keyContinuationGeneration.current &&
+        fresh?.status === "ok" &&
+        fresh.value.nonce === nonce &&
+        fresh.value.state === "pending" &&
+        resume &&
+        original &&
+        resume.kind === original.kind &&
+        resume.connectionId === original.connectionId &&
+        resume.profileId === original.profileId &&
+        resume.gatewayRevision === original.gatewayRevision &&
+        resume.mirrorRevision === original.mirrorRevision
+      ) {
+        keyContinuationEntered.current = false;
+        setKeyContinuationSpent(false);
+      }
+    } finally {
+      keyStatusCheckInFlight.current = false;
+    }
+  }
   const terminal = state === "applied" || state === "rejected";
   return (
     <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
@@ -880,14 +1055,20 @@ function OperationReadback({
       <Button
         variant="outline"
         size="sm"
-        disabled={operation.isFetching}
-        onClick={() => void operation.refetch()}
+        disabled={operation.isFetching || keyContinuationBusy}
+        onClick={() => void checkStatus()}
       >
         Check status
       </Button>
+      {state === "pending" && keyResume && !keyContinuationSpent ? (
+        <KeyUpdateContinuation submit={continueKeyUpdate} />
+      ) : null}
       {state === "pending" &&
+      !keyResume &&
       (oauthEnabled || autoOpenCompletion || completionOffered) ? (
         <OAuthCompletionForm
+          completeOAuth={api.completeGatewayOAuth}
+          managementScope={managementScope}
           context={context}
           nonce={nonce}
           autoOpen={autoOpenCompletion}
@@ -913,6 +1094,68 @@ function OperationReadback({
   );
 }
 
+function KeyUpdateContinuation({
+  submit,
+}: {
+  submit(credential: string): Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const entered = useRef(false);
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger render={<Button variant="outline" size="sm" />}>
+        Continue key update
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Backdrop />
+        <Dialog.Popup>
+          <Dialog.Title className="text-lg font-semibold">
+            Continue key update
+          </Dialog.Title>
+          <Dialog.Description className="mt-2 text-sm text-slate-400">
+            Old review access is blocked. Enter the new key to continue this
+            original account update.
+          </Dialog.Description>
+          <form
+            className="mt-4 grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (entered.current) return;
+              entered.current = true;
+              const form = event.currentTarget;
+              const values = new FormData(form);
+              const credential = String(values.get("credential") ?? "");
+              form.reset();
+              values.delete("credential");
+              setOpen(false);
+              void submit(credential);
+            }}
+          >
+            <label className="grid gap-2 text-sm">
+              API key
+              <input
+                className={inputClass}
+                name="credential"
+                type="password"
+                required
+                maxLength={16384}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <div className="flex gap-3">
+              <Button type="submit">Continue update</Button>
+              <Dialog.Close render={<Button type="button" variant="outline" />}>
+                Cancel
+              </Dialog.Close>
+            </div>
+          </form>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 function OAuthCompletionForm({
   context,
   nonce,
@@ -922,6 +1165,8 @@ function OAuthCompletionForm({
   spend,
   restorePreEntry,
   accept,
+  completeOAuth,
+  managementScope,
 }: {
   context: string;
   nonce: string;
@@ -931,6 +1176,8 @@ function OAuthCompletionForm({
   spend(): void;
   restorePreEntry(): void;
   accept(result: AccountsResult<AccountOperationView>): Promise<void>;
+  completeOAuth: AccountGatewayManagementApi["completeGatewayOAuth"];
+  managementScope: ManagementScope;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -949,7 +1196,7 @@ function OAuthCompletionForm({
     setMessage("");
     try {
       // A one-off server action is the only destination for the transient URL.
-      const result = await completeGatewayOAuth(context, {
+      const result = await completeOAuth(context, {
         nonce,
         callbackURL,
       });
@@ -957,7 +1204,7 @@ function OAuthCompletionForm({
         // The server returns ok/unknown after sensitive ingress has entered.
         if (result.status === "invalid" || result.status === "denied")
           restorePreEntry();
-        setMessage(statusText(result.status));
+        setMessage(statusText(result.status, managementScope));
         return;
       }
       setOpen(false);
@@ -1037,12 +1284,14 @@ function AccountForm({
   profiles,
   disabled,
   submit,
+  managementScope = "workspace",
 }: {
   account?: AccountView;
   accounts?: AccountView[];
   mode?: "connect" | "rename" | "reconnect";
   profiles: AccountProfileView[];
   disabled: boolean;
+  managementScope?: ManagementScope;
   submit(
     intent: Omit<AccountIntent, "nonce">,
     credential?: string,
@@ -1099,6 +1348,11 @@ function AccountForm({
             {mode === "rename"
               ? "Update the friendly account label."
               : "Connect your provider account with an API key. The key is saved securely and cannot be viewed here."}
+            {managementScope === "personal"
+              ? mode === "reconnect"
+                ? " This updates your same personal connection for all its authorized uses. Old review access will be invalidated."
+                : " The canonical name is visible in every organization where you explicitly share this account."
+              : ""}
           </Dialog.Description>
           <form
             className="mt-4 grid gap-4"

@@ -185,6 +185,7 @@ test("personal use is closed by default and requires the exact live donor/target
     7,
   );
   const { authorizationEpochMirror: _epoch, ...withoutEpoch } = source;
+  assert.equal(_epoch, 7);
   assert.throws(
     () =>
       selectBinding("workspace-x", "binding-x", {

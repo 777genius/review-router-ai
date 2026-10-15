@@ -161,9 +161,9 @@ test("gateway batch offers qualified MiMo reasoning and denies unsupported effor
     githubUserId: "123",
     githubLogin: "fixture",
   }));
-  const configurationsForActor = vi.fn(
-    (_actor: Awaited<ReturnType<typeof authorize>>) => configurations,
-  );
+  const configurationsForActor = vi.fn<
+    (actor: Awaited<ReturnType<typeof authorize>>) => typeof configurations
+  >(() => configurations);
   const adapter = createGatewayRepositoryBatchAdapter({
     configurations,
     configurationsForActor,
