@@ -326,7 +326,11 @@ function fixture(
         ? ("explicit" as const)
         : ("reusable" as const),
     actionVersion:
-      scenario === "artifact_version" ? "obsolete" : actualActionRef,
+      scenario === "artifact_version"
+        ? "obsolete"
+        : gateway
+          ? "workflow-v1"
+          : actualActionRef,
     ...(scenario === "no_history" ? { pullRequestUrl: null } : {}),
   };
   const state = createProvisioningPrisma(
@@ -711,6 +715,8 @@ function fixture(
     },
   });
   configurationVersion.policyJson = workspacePolicyJson;
+  if (gateway && scenario === "inherited_workspace")
+    configurationVersion = null;
   const configuration = {
     id: "configuration-1",
     workspaceId: "workspace_1",
@@ -1237,6 +1243,8 @@ describe("hosted setup recovery composition", () => {
 
   it.each([
     "exact",
+    "inherited_workspace",
+    "producer_updated",
     "rotating_provider",
     "active_binding",
     "head_moved",
@@ -1246,6 +1254,13 @@ describe("hosted setup recovery composition", () => {
     "confirms the saved keyless caller with source fences: %s",
     async (scenario) => {
       const f = fixture("main", scenario, "gateway");
+      if (scenario === "producer_updated") {
+        vi.stubEnv(
+          "REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF",
+          `777genius/review-router@${"f".repeat(40)}`,
+        );
+        vi.stubEnv("REVIEW_ROUTER_AGENT_PROFILE", "qualified-next");
+      }
       const sourceChanged = [
         "head_moved",
         "caller_removed",
@@ -1323,7 +1338,7 @@ describe("hosted setup recovery composition", () => {
         expect(f.state.current()).toMatchObject({
           status: "configured",
           workflowPath,
-          actionVersion: actionRef,
+          actionVersion: "workflow-v1",
         });
         expect(f.events).toContain(`workflow:${workflowPath}:${commitSha}`);
       }
@@ -1338,14 +1353,17 @@ describe("hosted setup recovery composition", () => {
       expect(f.configWrites).not.toHaveBeenCalled();
       expect(f.updateBinding).not.toHaveBeenCalled();
       expect(f.binding()).toEqual(f.initialBinding);
-      expect(f.configuration()).toMatchObject({
-        providerAuthMode: "codex_account_gateway",
-        gatewayBindingId: "binding-account-v",
-        gatewayProfileRef: "default",
-        model: "gpt-6.1-sol",
-        reasoningEffort: "high",
-        fastMode: false,
-      });
+      if (scenario === "inherited_workspace")
+        expect(f.configuration()).toBeNull();
+      else
+        expect(f.configuration()).toMatchObject({
+          providerAuthMode: "codex_account_gateway",
+          gatewayBindingId: "binding-account-v",
+          gatewayProfileRef: "default",
+          model: "gpt-6.1-sol",
+          reasoningEffort: "high",
+          fastMode: false,
+        });
     },
   );
 

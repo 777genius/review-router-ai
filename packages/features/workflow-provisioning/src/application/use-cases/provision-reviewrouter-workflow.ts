@@ -10,6 +10,7 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderReviewRouterWorkflowFiles,
   renderAccountGatewayWorkflow,
+  reviewRouterWorkflowContract,
   defaultCodexRotatingWorkflowPath,
 } from "../../domain/workflow-template";
 import {
@@ -92,6 +93,9 @@ export async function provisionReviewRouterWorkflow(
   const plan = createProvisionWorkflowPlan(
     gatewayFile ? { ...input, workflowPath: gatewayFile.path } : input,
   );
+  const actionVersion = gatewayFile
+    ? reviewRouterWorkflowContract.channel
+    : plan.actionRef;
   if (plan.codexRotatingProviderInstanceId) {
     renderCanonicalCodexRotatingInteractionWorkflowV3({
       actionRef: plan.actionRef,
@@ -108,7 +112,7 @@ export async function provisionReviewRouterWorkflow(
     branch: plan.setupBranch,
     workflowPath: plan.workflowPath,
     workflowStyle: plan.workflowStyle,
-    actionVersion: plan.actionRef,
+    actionVersion,
   });
 
   if (dependencies.enabled === false) {
@@ -120,7 +124,7 @@ export async function provisionReviewRouterWorkflow(
       branch: attempt.branch,
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
+      actionVersion,
       pullRequestUrl: null,
       errorMessage: "workflow_provisioning_disabled",
     });
@@ -214,7 +218,7 @@ export async function provisionReviewRouterWorkflow(
       branch: pullRequest.branch,
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
+      actionVersion,
       pullRequestUrl: pullRequest.url,
       pullRequestHeadSha: pullRequest.headSha,
       errorMessage: null,
@@ -231,7 +235,7 @@ export async function provisionReviewRouterWorkflow(
             branch: pullRequest.branch,
             workflowPath: plan.workflowPath,
             workflowStyle: plan.workflowStyle,
-            actionVersion: plan.actionRef,
+            actionVersion,
             pullRequestUrl: pullRequest.url,
             ...(dependencies.auditMetadata ?? {}),
           },
@@ -251,7 +255,7 @@ export async function provisionReviewRouterWorkflow(
       branch: attempt.branch,
       workflowPath: plan.workflowPath,
       workflowStyle: plan.workflowStyle,
-      actionVersion: plan.actionRef,
+      actionVersion,
       pullRequestUrl: null,
       errorMessage: message,
     });
@@ -267,7 +271,7 @@ export async function provisionReviewRouterWorkflow(
             branch: attempt.branch,
             workflowPath: plan.workflowPath,
             workflowStyle: plan.workflowStyle,
-            actionVersion: plan.actionRef,
+            actionVersion,
             errorSummary: message.slice(0, 500),
             ...(dependencies.auditMetadata ?? {}),
           },

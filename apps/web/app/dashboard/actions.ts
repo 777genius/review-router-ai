@@ -92,6 +92,7 @@ import {
   type ReviewRouterWorkflowStyle,
   isAccountGatewayConfiguration,
   validateAccountGatewayActionRef,
+  reviewRouterWorkflowContract,
 } from "@reviewrouter/features-workflow-provisioning";
 import {
   confirmCodexRotatingSetupReadiness,
@@ -1649,9 +1650,6 @@ async function confirmSetupPullRequestMergedMutation(
     const accountGateway = isAccountGatewayConfiguration(
       resolvedRuntime.config,
     );
-    if (accountGateway && resolvedRuntime.source !== "repository") {
-      throw new Error("account_gateway_saved_config_required");
-    }
     const gatewayActionRef = accountGateway
       ? validateAccountGatewayActionRef(
           process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF,
@@ -2004,7 +2002,9 @@ async function confirmSetupPullRequestMergedMutation(
       workflowStyle: codexWorkflow
         ? ("reusable" as const)
         : genericWorkflowStyle!,
-      actionVersion: verifiedWorkflowActionRef,
+      actionVersion: accountGateway
+        ? reviewRouterWorkflowContract.channel
+        : verifiedWorkflowActionRef,
     };
     const assertCurrentSetup = async (artifact: {
       readonly workflowPath: string;

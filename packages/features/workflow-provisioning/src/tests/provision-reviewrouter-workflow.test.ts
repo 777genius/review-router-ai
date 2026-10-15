@@ -222,15 +222,17 @@ it.each([
   "uses the canonical managed channel independently of old actionRef=%s",
   async (actionRef) => {
     const setupGateway = new CapturingSetupGateway();
+    const provisioning = new CapturingProvisioningRepository();
     await provisionReviewRouterWorkflow(
       { ...gatewayInput, actionRef },
       {
         setupGateway,
-        provisioning: new CapturingProvisioningRepository(),
+        provisioning,
         configurations: savedConfigurations(),
         trustedGithubRepositoryId: "123456",
       },
     );
+    expect(provisioning.opened?.actionVersion).toBe("workflow-v1");
     const file = setupGateway.input!.workflowFiles[0]!;
     expect(parse("content" in file ? file.content : "").jobs.review.uses).toBe(
       "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
