@@ -1,4 +1,4 @@
-import { reviewRouterWorkflowPath } from "../packages/shared/src/scm/review-workflow";
+import { managedCodexWorkflowPath } from "../packages/shared/src/scm/review-workflow";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -70,7 +70,7 @@ const attestationFor = (
 ) =>
   createVersionedSecretWorkflowSourceAttestation({
     repositoryId: "900007",
-    workflowPath: reviewRouterWorkflowPath,
+    workflowPath: managedCodexWorkflowPath,
     workflowSourceCommitSha: marker.repeat(40),
     workflowSourceBlobSha: marker.repeat(40),
     workflowSourceSha256: marker.repeat(64),
@@ -399,7 +399,7 @@ try {
     namespaceId: initialDispatch.namespaceId,
     namespaceEpoch: initialDispatch.namespaceEpoch,
     secretName: initialDispatch.secretName,
-    workflowPath: reviewRouterWorkflowPath,
+    workflowPath: managedCodexWorkflowPath,
     workflowSourceCommitSha: "1".repeat(40),
     workflowSourceBlobSha: "1".repeat(40),
     workflowSourceSha256: "1".repeat(64),
@@ -918,7 +918,7 @@ try {
     namespaceId: replacement.namespaceId,
     namespaceEpoch: replacement.namespaceEpoch,
     secretName: replacement.secretName,
-    workflowPath: reviewRouterWorkflowPath,
+    workflowPath: managedCodexWorkflowPath,
     workflowSourceCommitSha: "4".repeat(40),
     workflowSourceBlobSha: "4".repeat(40),
     workflowSourceSha256: "4".repeat(64),
@@ -943,7 +943,7 @@ try {
       expectedGenerationHash: "h".repeat(43),
       repositoryId: "900007",
       repositoryFullName,
-      workflowPath: reviewRouterWorkflowPath,
+      workflowPath: managedCodexWorkflowPath,
       namespace: recoveredNamespace,
     },
     {
