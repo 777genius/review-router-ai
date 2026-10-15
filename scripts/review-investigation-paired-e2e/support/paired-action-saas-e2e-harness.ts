@@ -875,8 +875,8 @@ async function seedControlPlane(
           {
             kind: "codex",
             authMode: "codex_openai_api_key",
-            model: "gpt-5.3-codex",
-            reasoningEffort: "high",
+            model: "gpt-paired-e2e",
+            reasoningEffort: "xhigh",
             agenticContext: true,
             fastMode: false,
             requiredHealthy: false,
