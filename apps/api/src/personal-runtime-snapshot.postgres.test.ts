@@ -1,0 +1,470 @@
+import { describe, expect, it } from "vitest";
+import { createPrismaClient } from "@reviewrouter/platform-db";
+import {
+  PrismaProviderAccountRepository,
+  selectBinding,
+} from "@reviewrouter/features-provider-accounts";
+import { PrismaPersonalAccountOperations } from "../../../packages/features/provider-accounts/src/infrastructure/prisma/prisma-personal-account-operations";
+import {
+  PrismaReviewConfigurationRepository,
+  PrismaReviewConfigurationTransactionRepository,
+  parseReviewConfigurationStrict,
+  safeDefaultReviewConfiguration,
+  saveReviewConfiguration,
+  saveReviewConfigurationWithOperation,
+} from "@reviewrouter/features-review-config";
+import {
+  canonicalJson,
+  type ReviewRunAuthorizationCandidate,
+  type ReviewRunRuntimeSnapshot,
+} from "@reviewrouter/features-review-run-control";
+import { createReviewActionV2E2EHarness } from "../../../scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness";
+import { composeReviewActionV2ProductionRunControl } from "./review-action-v2-production-composition";
+import { ProductionReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
+
+function disposableDatabase() {
+  // Reuse the existing migrated C2c fixture cluster. No ambient DATABASE_URL,
+  // provider/SCM network, shared production schema or destructive reset.
+  const raw = process.env.RR_C2C_PG_TEST_URL ?? "";
+  const url = new URL(raw);
+  if (
+    process.env.RR_C2C_MIGRATED_DISPOSABLE_DATABASE !== "1" ||
+    !["postgres:", "postgresql:"].includes(url.protocol) ||
+    !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
+    !/^rr_gateway_test_c2c_[a-z0-9_]+$/.test(url.pathname.slice(1)) ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    throw new Error(
+      "personal_consumption_migrated_disposable_loopback_required",
+    );
+  return raw;
+}
+
+// This catches a positive personal policy bypass, stale epoch/role reads, config
+// writes that skip the policy, and adopting BX2 for an old selection. SQL129's
+// existing harness independently tests stored snapshot/selected epoch equality.
+describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
+  "H disabled personal consumption foundation",
+  () => {
+    it("pins exact source epoch, validates all config writers, and never revives BX", async () => {
+      const databaseUrl = disposableDatabase();
+      const harness = await createReviewActionV2E2EHarness(databaseUrl);
+      const observer = createPrismaClient({ databaseUrl, poolMax: 4 });
+      const {
+        prisma: db,
+        workspaceId: x,
+        repositoryConnectionId: repositoryId,
+        prefix,
+      } = harness;
+      try {
+        // Obtain a real server-verified run identity from the existing synthetic
+        // OIDC/SCM harness before installing a gateway config. No fake user actor.
+        const authorized = await harness.authorize();
+        const production = composeReviewActionV2ProductionRunControl({
+          prisma: db,
+          env: harness.env,
+        });
+        const run =
+          await production.repositories.authorizations.findReviewRunAuthorizationById(
+            authorized.authorizationId,
+          );
+        if (!run) throw new Error("personal_fixture_run_missing");
+        const u = `${prefix}-donor`,
+          admin = `${prefix}-admin`,
+          v = `${prefix}-other`;
+        await db.user.createMany({
+          data: [{ id: u }, { id: admin }, { id: v }],
+        });
+        const store = new PrismaPersonalAccountOperations(db);
+        const p = await store.resolvePersonalWorkspace(u);
+        const otherP = await store.resolvePersonalWorkspace(v);
+        const y = await db.workspace.create({
+          data: { slug: `${prefix}-y`, name: "Synthetic Y" },
+        });
+        const membership = await db.workspaceMember.create({
+          data: { workspaceId: x, userId: u, role: "admin" },
+        });
+        await db.workspaceMember.createMany({
+          data: [
+            { workspaceId: x, userId: admin, role: "owner" },
+            { workspaceId: y.id, userId: u, role: "admin" },
+          ],
+        });
+        const source = await db.providerAccountConnection.create({
+          data: {
+            ownerUserId: u,
+            gatewayAccountRef: `${prefix}-account`,
+            profileRef: "mimo-responses-v1",
+            displayName: "Shared personal source",
+            state: "active",
+            authorizationEpochMirror: 7n,
+          },
+        });
+        const makeBinding = (workspaceId: string) =>
+          db.workspaceAccountBinding.create({
+            data: {
+              workspaceId,
+              connectionId: source.id,
+              state: "active",
+            },
+          });
+        const bx = await makeBinding(x),
+          bp = await makeBinding(p),
+          by = await makeBinding(y.id);
+        const foreignP = await makeBinding(otherP);
+        const profile = source.profileRef!;
+        const limits = {
+          requests: 2,
+          concurrency: 1,
+          requestBytes: 4096,
+          outputBytes: 4096,
+          tokens: 128,
+        };
+        const snapshots = new ProductionReviewRunRuntimeSnapshot(
+          db,
+          { profiles: [{ profileRef: profile, limits }] },
+          undefined,
+          true,
+        );
+        const closedSnapshots = new ProductionReviewRunRuntimeSnapshot(db, {
+          profiles: [{ profileRef: profile, limits }],
+        });
+        const configurations = new PrismaReviewConfigurationRepository(
+          db,
+          undefined,
+          true,
+          u,
+        );
+        const closedConfigurations = new PrismaReviewConfigurationRepository(
+          db,
+        );
+        const accounts = new PrismaProviderAccountRepository(
+          db,
+          undefined,
+          true,
+        );
+        const closedAccounts = new PrismaProviderAccountRepository(db);
+        const config = (bindingId: string) =>
+          parseReviewConfigurationStrict({
+            ...safeDefaultReviewConfiguration,
+            providers: [
+              {
+                kind: "codex",
+                authMode: "codex_account_gateway",
+                model: "mimo-v2-pro",
+                reasoningEffort: "high",
+                fastMode: false,
+                agenticContext: true,
+                gatewayBindingId: bindingId,
+                gatewayProfileRef: profile,
+              },
+            ],
+          });
+        const target = {
+          scope: "repository" as const,
+          workspaceId: x,
+          repositoryId,
+        };
+        const save = (bindingId: string, expectedVersion: number | null) =>
+          saveReviewConfiguration(
+            { target, config: config(bindingId), expectedVersion },
+            { configurations },
+          );
+        const capture = () =>
+          snapshots.capture({ identity: run, deadline: run.maxExpiresAt });
+        const live = (snapshot: ReviewRunRuntimeSnapshot) =>
+          snapshots.isLive({ snapshot, identity: run, now: new Date() });
+        const candidate = (
+          snapshot: ReviewRunRuntimeSnapshot,
+        ): ReviewRunAuthorizationCandidate => ({
+          ...run,
+          runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+        });
+        const matches = (snapshot: ReviewRunRuntimeSnapshot) =>
+          db.$transaction(
+            (tx) => snapshots.matchesAdmission(tx, candidate(snapshot)),
+            { isolationLevel: "Serializable" },
+          );
+
+        await expect(
+          saveReviewConfiguration(
+            { target, config: config(bx.id), expectedVersion: null },
+            { configurations: closedConfigurations },
+          ),
+        ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
+        expect(
+          await db.reviewConfiguration.findUnique({
+            where: {
+              workspaceId_targetKey: {
+                workspaceId: x,
+                targetKey: `repo:${repositoryId}`,
+              },
+            },
+          }),
+        ).toBeNull();
+        await expect(
+          closedAccounts
+            .findBinding({ workspaceId: x, bindingId: bx.id })
+            .then((selection) => selectBinding(x, bx.id, selection)),
+        ).rejects.toMatchObject({ code: "connection_unavailable" });
+        await save(bx.id, null);
+        expect(
+          await closedSnapshots.capture({
+            identity: run,
+            deadline: run.maxExpiresAt,
+          }),
+        ).toBeNull();
+        const pin = await capture();
+        if (!pin || pin.snapshotVersion !== 2)
+          throw new Error("personal_v2_pin_required");
+        expect(pin.gateway).toMatchObject({
+          bindingId: bx.id,
+          connectionId: source.id,
+          expectedAuthorizationEpoch: 7,
+          permittedAccountRef: source.gatewayAccountRef,
+          limits,
+        });
+        expect(await matches(pin)).toBe(true);
+        expect(await live(pin)).toBe(true);
+        const { expectedAuthorizationEpoch: _epoch, ...legacyGateway } =
+          pin.gateway;
+        expect(
+          await live({ ...pin, snapshotVersion: 1, gateway: legacyGateway }),
+        ).toBe(false);
+
+        // P uses its stable owner even without an org role. A different P cannot
+        // consume the source even if somebody creates a raw cross-P binding.
+        const ownPersonal = await accounts.findBinding({
+          workspaceId: p,
+          bindingId: bp.id,
+        });
+        expect(
+          selectBinding(p, bp.id, ownPersonal).expectedAuthorizationEpoch,
+        ).toBe(7);
+        expect(() => selectBinding(otherP, foreignP.id, ownPersonal)).toThrow();
+        await expect(
+          accounts
+            .findBinding({ workspaceId: otherP, bindingId: foreignP.id })
+            .then((selection) => selectBinding(otherP, foreignP.id, selection)),
+        ).rejects.toMatchObject({ code: "connection_unavailable" });
+        await saveReviewConfiguration(
+          {
+            target: { scope: "workspace", workspaceId: p },
+            config: config(bp.id),
+            expectedVersion: null,
+          },
+          { configurations },
+        );
+
+        // The transaction repository is used by batch/default composition too;
+        // its default remains closed and it never trusts picker-page visibility.
+        await expect(
+          db.$transaction((tx) =>
+            new PrismaReviewConfigurationTransactionRepository(
+              tx,
+            ).saveNextVersion({
+              target: { scope: "workspace", workspaceId: y.id },
+              config: config(by.id),
+              expectedVersion: null,
+            }),
+          ),
+        ).rejects.toThrow("review_configuration_gateway_binding_unavailable");
+        await db.$transaction((tx) =>
+          new PrismaReviewConfigurationTransactionRepository(
+            tx,
+            undefined,
+            true,
+            u,
+          ).saveNextVersion({
+            target: { scope: "workspace", workspaceId: y.id },
+            config: config(by.id),
+            expectedVersion: null,
+          }),
+        );
+        const persisted = await configurations.findLatest(target);
+        expect(persisted?.config.provider.gatewayBindingId).toBe(bx.id);
+        expect(persisted?.config.providers[0]?.gatewayBindingId).toBe(bx.id);
+        await expect(save(by.id, 1)).rejects.toThrow(
+          "review_configuration_gateway_binding_unavailable",
+        );
+        await expect(
+          saveReviewConfiguration(
+            {
+              target,
+              config: parseReviewConfigurationStrict({
+                ...config(bx.id),
+                providers: [
+                  {
+                    ...config(bx.id).providers[0],
+                    gatewayProfileRef: "wrong-profile",
+                  },
+                ],
+              }),
+              expectedVersion: 1,
+            },
+            { configurations },
+          ),
+        ).rejects.toThrow("review_configuration_gateway_profile_mismatch");
+
+        // A rename changes presentation only. Epoch changes and pending state
+        // deny the original pin, including at final locked admission.
+        await db.providerAccountConnection.update({
+          where: { id: source.id },
+          data: { displayName: "Renamed", metadataRevision: { increment: 1 } },
+        });
+        expect(await live(pin)).toBe(true);
+        await db.providerAccountConnection.update({
+          where: { id: source.id },
+          data: { state: "pending", metadataRevision: { increment: 1 } },
+        });
+        expect(await capture()).toBeNull();
+        expect(await live(pin)).toBe(false);
+        await expect(save(bx.id, 1)).rejects.toThrow(
+          "review_configuration_gateway_binding_unavailable",
+        );
+        await db.providerAccountConnection.update({
+          where: { id: source.id },
+          data: {
+            state: "active",
+            authorizationEpochMirror: 8n,
+            metadataRevision: { increment: 1 },
+          },
+        });
+        expect(await live(pin)).toBe(false);
+        expect(await matches(pin)).toBe(false);
+        const freshPin = await capture();
+        if (!freshPin || freshPin.snapshotVersion !== 2)
+          throw new Error("fresh_personal_pin_missing");
+        expect(freshPin.gateway.expectedAuthorizationEpoch).toBe(8);
+        expect(await matches(freshPin)).toBe(true);
+
+        // The final admission lock really covers the donor, not just the source.
+        // NOWAIT from another connection detects a missing Member lock immediately.
+        await db.$transaction(async (tx) => {
+          await snapshots.lockGatewaySelection(tx, x, freshPin);
+          await expect(
+            observer.$transaction(
+              (other) => other.$queryRaw`
+            SELECT "id" FROM "WorkspaceMember" WHERE "id" = ${membership.id} FOR UPDATE NOWAIT`,
+            ),
+          ).rejects.toThrow(/could not obtain lock/);
+          expect(
+            await snapshots.capture(
+              { identity: run, deadline: run.maxExpiresAt },
+              tx,
+            ),
+          ).toEqual(freshPin);
+        });
+
+        // Real coordinated writer: an eligible owner->admin change is harmless;
+        // removal retires only BX, while P/Y and independent org sources survive.
+        await store.changeEligibility({
+          actorUserId: admin,
+          workspaceId: x,
+          memberId: membership.id,
+          userId: u,
+          expectedRole: "admin",
+          nextRole: "owner",
+        });
+        await store.changeEligibility({
+          actorUserId: admin,
+          workspaceId: x,
+          memberId: membership.id,
+          userId: u,
+          expectedRole: "owner",
+          nextRole: "admin",
+        });
+        expect(await live(freshPin)).toBe(true);
+        const unrelated = await db.providerAccountConnection.create({
+          data: {
+            ownerWorkspaceId: x,
+            gatewayAccountRef: `${prefix}-org-account`,
+            profileRef: profile,
+            displayName: "Independent organization",
+            state: "active",
+          },
+        });
+        const orgBinding = await db.workspaceAccountBinding.create({
+          data: { workspaceId: x, connectionId: unrelated.id, state: "active" },
+        });
+        await store.changeEligibility({
+          actorUserId: admin,
+          workspaceId: x,
+          memberId: membership.id,
+          userId: u,
+          expectedRole: "admin",
+          nextRole: null,
+        });
+        expect(await live(freshPin)).toBe(false);
+        expect(await capture()).toBeNull();
+        await expect(save(bx.id, 1)).rejects.toThrow(
+          "review_configuration_personal_actor_forbidden",
+        );
+        for (const [workspaceId, bindingId] of [
+          [p, bp.id],
+          [y.id, by.id],
+          [x, orgBinding.id],
+        ]) {
+          const selected = selectBinding(
+            workspaceId!,
+            bindingId!,
+            await accounts.findBinding({
+              workspaceId: workspaceId!,
+              bindingId: bindingId!,
+            }),
+          );
+          expect(selected.bindingId).toBe(bindingId);
+        }
+        const retired = await db.workspaceAccountBinding.findUniqueOrThrow({
+          where: { id: bx.id },
+        });
+        expect(retired.state).toBe("revoked");
+        expect(retired.pendingFenceOperationId).not.toBeNull();
+        await db.workspaceMember.create({
+          data: { workspaceId: x, userId: u, role: "admin" },
+        });
+        // A fresh ID cannot be adopted by an old config or saved run. Test data
+        // creates BX2 directly; explicit attach/ACK lifecycle belongs to C2's suite.
+        const bx2 = await makeBinding(x);
+        expect(await capture()).toBeNull();
+        expect(await live(freshPin)).toBe(false);
+        await expect(save(bx.id, 1)).rejects.toThrow(
+          "review_configuration_gateway_binding_unavailable",
+        );
+        const operation = {
+          target,
+          config: config(bx2.id),
+          expectedVersion: 1,
+          operationId: `${prefix}-select-bx2`,
+        };
+        expect(
+          (
+            await saveReviewConfigurationWithOperation(operation, {
+              configurations,
+            })
+          ).version,
+        ).toBe(2);
+        expect(
+          (
+            await saveReviewConfigurationWithOperation(operation, {
+              configurations,
+            })
+          ).version,
+        ).toBe(2);
+        const bx2Pin = await capture();
+        expect(bx2Pin?.gateway?.bindingId).toBe(bx2.id);
+        expect(await live(freshPin)).toBe(false);
+        await expect(save(bx2.id, 1)).rejects.toThrow(
+          "review_configuration_write_conflict",
+        );
+      } finally {
+        // Retained source/grant/config evidence lives until this disposable
+        // cluster is removed by the qualifier, not through weakened SQL guards.
+        await observer.$disconnect();
+        await harness.close();
+      }
+    }, 120_000);
+  },
+);

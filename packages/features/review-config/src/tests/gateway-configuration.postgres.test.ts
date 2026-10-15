@@ -1433,3 +1433,243 @@ describe.skipIf(!enabled)(
     }, 240_000);
   },
 );
+
+// Reuse the owned, already migrated C2c fixture. No schema reset/provider ingress.
+describe.skipIf(process.env.RR_H_CONFIG_WRITE_AUTHORITY_PG_TEST !== "1")(
+  "personal config writes require actual locked saving actor",
+  () => {
+    it("denies support-only actors for H, preserves org writes, and holds the live admin through commit", async () => {
+      const raw = process.env.RR_C2C_PG_TEST_URL ?? "";
+      const url = new URL(raw);
+      if (
+        process.env.RR_C2C_MIGRATED_DISPOSABLE_DATABASE !== "1" ||
+        !["postgres:", "postgresql:"].includes(url.protocol) ||
+        !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
+        !/^rr_gateway_test_c2c_[a-z0-9_]+$/.test(url.pathname.slice(1)) ||
+        url.password ||
+        url.search ||
+        url.hash
+      )
+        throw new Error("personal_config_owned_disposable_required");
+      const [
+        { createReviewActionV2E2EHarness },
+        { PrismaPersonalAccountOperations },
+      ] = await Promise.all([
+        import("../../../../../scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness"),
+        import("@reviewrouter/features-provider-accounts/synchronization"),
+      ]);
+      const harness = await createReviewActionV2E2EHarness(raw);
+      const {
+        prisma: db,
+        prefix,
+        workspaceId,
+        repositoryConnectionId,
+      } = harness;
+      try {
+        const donor = `${prefix}-config-donor`,
+          admin = `${prefix}-config-admin`,
+          member = `${prefix}-config-member`,
+          outsider = `${prefix}-config-support`;
+        await db.user.createMany({
+          data: [donor, admin, member, outsider].map((id) => ({ id })),
+        });
+        await db.workspaceMember.createMany({
+          data: [
+            { workspaceId, userId: donor, role: "admin" },
+            { workspaceId, userId: admin, role: "admin" },
+            { workspaceId, userId: member, role: "member" },
+          ],
+        });
+        const personal = new PrismaPersonalAccountOperations(db);
+        const p = await personal.resolvePersonalWorkspace(donor);
+        await db.workspaceMember.create({
+          data: { workspaceId: p, userId: admin, role: "admin" },
+        });
+        const source = await db.providerAccountConnection.create({
+          data: {
+            ownerUserId: donor,
+            gatewayAccountRef: `${prefix}-config-personal`,
+            profileRef: "mimo-responses-v1",
+            displayName: "Shared personal",
+            state: "active",
+            authorizationEpochMirror: 7n,
+          },
+        });
+        const binding = await db.workspaceAccountBinding.create({
+          data: { workspaceId, connectionId: source.id, state: "active" },
+        });
+        const ownP = await db.workspaceAccountBinding.create({
+          data: { workspaceId: p, connectionId: source.id, state: "active" },
+        });
+        const org = await db.providerAccountConnection.create({
+          data: {
+            ownerWorkspaceId: workspaceId,
+            gatewayAccountRef: `${prefix}-config-org`,
+            profileRef: "mimo-responses-v1",
+            displayName: "Organization",
+            state: "active",
+          },
+        });
+        const orgBinding = await db.workspaceAccountBinding.create({
+          data: { workspaceId, connectionId: org.id, state: "active" },
+        });
+        const config = (bindingId: string) =>
+          parseReviewConfigurationStrict({
+            ...safeDefaultReviewConfiguration,
+            providers: [
+              {
+                ...safeDefaultReviewConfiguration.provider,
+                authMode: "codex_account_gateway",
+                model: "mimo-v2-pro",
+                gatewayProfileRef: "mimo-responses-v1",
+                gatewayBindingId: bindingId,
+              },
+            ],
+          });
+        const target = { scope: "workspace" as const, workspaceId };
+        const repository = {
+          scope: "repository" as const,
+          workspaceId,
+          repositoryId: repositoryConnectionId,
+        };
+        const repo = (actor?: string) =>
+          new PrismaReviewConfigurationRepository(db, undefined, true, actor);
+        const save = (actor?: string) =>
+          repo(actor).saveNextVersion({
+            target,
+            config: config(binding.id),
+            expectedVersion: null,
+          });
+        for (const actor of [undefined, member, outsider]) {
+          await expect(save(actor)).rejects.toThrow(
+            "review_configuration_personal_actor_forbidden",
+          );
+          expect(await repo().findLatest(target)).toBeNull();
+        }
+        expect((await save(admin)).version).toBe(1);
+        const actorRow = await db.workspaceMember.findUniqueOrThrow({
+          where: { workspaceId_userId: { workspaceId, userId: admin } },
+        });
+        await db.$transaction(async (tx) => {
+          const current = new PrismaReviewConfigurationTransactionRepository(
+            tx,
+            undefined,
+            true,
+            admin,
+          );
+          expect(
+            (
+              await current.saveNextVersion({
+                target,
+                config: config(binding.id),
+                expectedVersion: 1,
+              })
+            ).version,
+          ).toBe(2);
+          // The actual row lock must survive validation and the configuration write.
+          await expect(
+            db.$transaction(
+              (other) => other.$queryRaw`
+            SELECT "id" FROM "WorkspaceMember" WHERE "id" = ${actorRow.id} FOR UPDATE NOWAIT`,
+            ),
+          ).rejects.toThrow(/could not obtain lock/);
+        });
+        // Durable operation and transaction writers use the same saving-actor gate.
+        const operation = {
+          target: repository,
+          operationId: `${prefix}-config-operation`,
+          expectedVersion: null,
+          config: config(binding.id),
+        };
+        await expect(
+          repo().saveNextVersionWithOperation(operation),
+        ).rejects.toThrow("review_configuration_personal_actor_forbidden");
+        expect(
+          (await repo(admin).saveNextVersionWithOperation(operation)).version,
+        ).toBe(1);
+        await personal.changeEligibility({
+          actorUserId: donor,
+          workspaceId,
+          memberId: actorRow.id,
+          userId: admin,
+          expectedRole: "admin",
+          nextRole: "member",
+        });
+        await expect(
+          repo(admin).saveNextVersion({
+            target,
+            config: config(binding.id),
+            expectedVersion: 2,
+          }),
+        ).rejects.toThrow("review_configuration_personal_actor_forbidden");
+        await expect(
+          db.$transaction((tx) =>
+            new PrismaReviewConfigurationTransactionRepository(
+              tx,
+              undefined,
+              true,
+              outsider,
+            ).saveNextVersion({
+              target,
+              config: config(binding.id),
+              expectedVersion: 2,
+            }),
+          ),
+        ).rejects.toThrow("review_configuration_personal_actor_forbidden");
+        expect((await repo().findLatest(target))?.version).toBe(2);
+        // Original committed receipts remain readonly; role loss never creates a new save.
+        expect(
+          (await repo(admin).saveNextVersionWithOperation(operation)).version,
+        ).toBe(1);
+        const pTarget = { scope: "workspace" as const, workspaceId: p };
+        await expect(
+          repo(admin).saveNextVersion({
+            target: pTarget,
+            config: config(ownP.id),
+            expectedVersion: null,
+          }),
+        ).rejects.toThrow("review_configuration_personal_actor_forbidden");
+        expect(
+          (
+            await repo(donor).saveNextVersion({
+              target: pTarget,
+              config: config(ownP.id),
+              expectedVersion: null,
+            })
+          ).version,
+        ).toBe(1);
+        // Legacy organization selection keeps its existing authorization composition.
+        expect(
+          (
+            await repo().saveNextVersion({
+              target,
+              config: config(orgBinding.id),
+              expectedVersion: 2,
+            })
+          ).version,
+        ).toBe(3);
+        const mixed = parseReviewConfigurationStrict({
+          ...config(orgBinding.id),
+          providers: [
+            ...config(orgBinding.id).providers,
+            ...config(binding.id).providers,
+          ],
+        });
+        await expect(
+          repo().saveNextVersion({ target, config: mixed, expectedVersion: 3 }),
+        ).rejects.toThrow("review_configuration_personal_actor_forbidden");
+        expect(
+          (
+            await repo(donor).saveNextVersion({
+              target,
+              config: mixed,
+              expectedVersion: 3,
+            })
+          ).version,
+        ).toBe(4);
+      } finally {
+        await harness.close();
+      }
+    }, 120_000);
+  },
+);
