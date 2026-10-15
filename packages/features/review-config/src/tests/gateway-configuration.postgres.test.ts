@@ -170,7 +170,7 @@ describe.skipIf(!enabled)(
         }
         const legacyAfter = await sql.query(`
         SELECT (SELECT to_jsonb(v) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
-                  - 'operationId' - 'operationIntentHash' - 'policyJson'
+                  - 'operationId' - 'operationIntentHash' - 'policyJson' - 'operationSnapshotJson'
                 FROM "ReviewConfigurationVersion" v WHERE v."id" = 'c2b-legacy-version') AS v,
                (SELECT to_jsonb(p) - 'workspaceId' - 'gatewayBindingId' - 'gatewayProfileRef'
                 FROM "ReviewConfigurationVersionProvider" p WHERE p."id" = 'c2b-legacy-provider') AS p`);
@@ -1157,7 +1157,9 @@ describe.skipIf(!enabled)(
         );
         expect(reactivated.version).toBe(2);
         expect(reactivated.config).toEqual(newOperation.policy);
-        expect(reactivated.revisionToken).toMatch(/^db:/);
+        expect(reactivated.revisionToken).toMatch(
+          /^policy:2:2:sha256:[a-f0-9]{64}$/,
+        );
         expect(reactivated.revisionToken).not.toBe(
           lostResponseReceipt.revisionToken,
         );

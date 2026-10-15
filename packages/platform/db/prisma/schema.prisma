@@ -503,6 +503,7 @@ model ReviewConfigurationVersion {
   configurationId                         String
   operationId                             String?
   operationIntentHash                     String?
+  operationSnapshotJson                   String?
   workspaceId                             String
   gatewayBindingId                        String?
   gatewayProfileRef                       String?

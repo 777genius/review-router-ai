@@ -1345,7 +1345,7 @@ describe("disposable dual-version rehearsal", () => {
     );
     expect(migrationNames).toHaveLength(129);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:4e38b924c2acb0b28dc2714ff70c7ac5f4c9cf8baaac9cd3235e13b0b1f435ba",
+      "sha256:8ca7ec5d7cdfb4c688c4d290d2538254c7a4af37a5dbb697459419646b95d4e8",
     );
     expect(historicalCheckout).toHaveLength(124);
     expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(

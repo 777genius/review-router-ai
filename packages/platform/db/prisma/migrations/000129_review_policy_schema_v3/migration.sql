@@ -16,3 +16,7 @@ ADD CONSTRAINT "ReviewRunAuthorization_runtime_snapshot_bound"
     (octet_length("runtimeSnapshotCanonicalJson") BETWEEN 2 AND 32768 AND
      jsonb_typeof("runtimeSnapshotCanonicalJson"::jsonb) = 'object' AND
      "runtimeSnapshotCanonicalJson"::jsonb ->> 'snapshotVersion' IN ('1', '2')) IS TRUE);
+
+-- A write receipt captures its effective result, while policyJson remains a
+-- sparse override. Later inheritance edits or clearing do not rewrite receipts.
+ALTER TABLE "ReviewConfigurationVersion" ADD COLUMN "operationSnapshotJson" TEXT;
