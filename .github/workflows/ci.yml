@@ -1096,8 +1096,12 @@ jobs:
       - name: Verify hosted pool Action tag, commit, and bundle tuple
         env:
           REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: 777genius/review-router@${{ env.REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA }}
-          REVIEW_ROUTER_HOSTED_POOL_ACTION_CHECKOUT: ${{ github.workspace }}/.paired/review-router-action
-        run: pnpm hosted-pool:action-release:verify
+          REVIEW_ROUTER_HOSTED_POOL_ACTION_CHECKOUT: ${{ runner.temp }}/reviewrouter-hosted-action-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          # The published pool baseline and the candidate paired runtime have distinct immutable refs.
+          git -C .paired/review-router-action worktree add --detach "$REVIEW_ROUTER_HOSTED_POOL_ACTION_CHECKOUT" "$REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA"
+          pnpm hosted-pool:action-release:verify
+          git -C .paired/review-router-action worktree remove "$REVIEW_ROUTER_HOSTED_POOL_ACTION_CHECKOUT"
 
       - name: Install paired Review Action dependencies
         run: npm ci --ignore-scripts --prefix .paired/review-router-action
