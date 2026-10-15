@@ -251,7 +251,7 @@ const { isWorkflowSetupAlreadyCurrent: checkWorkflowReadiness } =
 
 const actionRef = `777genius/review-router@${"a".repeat(40)}`;
 const commitSha = "d".repeat(40);
-const workflowPath = ".github/workflows/reviewrouter-review.yml";
+const workflowPath = ".github/workflows/reviewrouter-codex.yml";
 
 function matches(
   actual: Record<string, unknown>,
@@ -285,6 +285,9 @@ function fixture(
   mode?: "stored_active" | "rotating_hosted" | "generic" | "gateway",
 ) {
   const gateway = mode === "gateway";
+  const workflowPath = gateway
+    ? ".github/workflows/reviewrouter-review.yml"
+    : ".github/workflows/reviewrouter-codex.yml";
   const rotating =
     scenario.startsWith("rotating_") || mode === "rotating_hosted";
   const activeStored =
@@ -856,7 +859,7 @@ function fixture(
     ),
     setupNamespaceStatus: "active",
     setupNamespacePermanentlyRetired: false,
-    setupNamespaceWorkflowPath: ".github/workflows/reviewrouter-review.yml",
+    setupNamespaceWorkflowPath: ".github/workflows/reviewrouter-codex.yml",
     setupNamespaceWorkflowSourceCommitSha: commitSha,
     setupNamespaceWorkflowSourceBlobSha: blobSha,
     setupNamespaceWorkflowSourceSha256: createHash("sha256")
@@ -877,7 +880,7 @@ function fixture(
     ),
     namespaceStatus: "active",
     namespacePermanentlyRetired: false,
-    namespaceWorkflowPath: ".github/workflows/reviewrouter-review.yml",
+    namespaceWorkflowPath: ".github/workflows/reviewrouter-codex.yml",
     namespaceWorkflowSourceCommitSha: commitSha,
     namespaceWorkflowSourceBlobSha: blobSha,
     namespaceWorkflowSourceSha256: createHash("sha256")
@@ -1254,6 +1257,7 @@ describe("hosted setup recovery composition", () => {
     "confirms the saved keyless caller with source fences: %s",
     async (scenario) => {
       const f = fixture("main", scenario, "gateway");
+      const workflowPath = ".github/workflows/reviewrouter-review.yml";
       if (scenario === "producer_updated") {
         vi.stubEnv(
           "REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF",

@@ -34,7 +34,7 @@ const namespace = allocateVersionedProviderSecretNamespace({
 });
 const evidence = {
   repositoryId: "123456",
-  workflowPath: ".github/workflows/reviewrouter-review.yml",
+  workflowPath: ".github/workflows/reviewrouter-codex.yml",
   workflowSourceCommitSha: "a".repeat(40),
   workflowSourceBlobSha: "b".repeat(40),
   workflowSourceSha256: "c".repeat(64),

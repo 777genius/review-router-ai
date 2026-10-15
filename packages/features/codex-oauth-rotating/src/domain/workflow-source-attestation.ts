@@ -1,4 +1,4 @@
-import { reviewRouterWorkflowPath } from "@reviewrouter/shared";
+import { managedCodexWorkflowPath } from "@reviewrouter/shared";
 import { createHash } from "node:crypto";
 import {
   CodexRotatingT0WorkflowSchemaVersion,
@@ -156,7 +156,7 @@ export function codexWorkflowPathForRepository(input: {
 }): string {
   return input.repositoryId === isolatedQualityWorkflowRepositoryId
     ? isolatedQualityWorkflowPath
-    : reviewRouterWorkflowPath;
+    : managedCodexWorkflowPath;
 }
 
 export type VersionedSecretWorkflowSourceAttestation = Readonly<{

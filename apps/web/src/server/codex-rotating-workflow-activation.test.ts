@@ -28,9 +28,9 @@ vi.mock("@reviewrouter/features-workflow-provisioning", () => ({
   codexWorkflowPathForRepository: (input: { repositoryId: string }) =>
     input.repositoryId === "isolated"
       ? ".github/workflows/reviewrouter-quality-stand.yml"
-      : ".github/workflows/reviewrouter-review.yml",
+      : ".github/workflows/reviewrouter-codex.yml",
   isCodexWorkflowRepositoryIdentityAdmitted: () => true,
-  defaultCodexRotatingWorkflowPath: ".github/workflows/reviewrouter-review.yml",
+  defaultCodexRotatingWorkflowPath: ".github/workflows/reviewrouter-codex.yml",
   isolatedQualityWorkflowPath:
     ".github/workflows/reviewrouter-quality-stand.yml",
   readCanonicalCodexRotatingT0WorkflowSourceMetadata: mocks.readMetadata,
@@ -85,7 +85,7 @@ describe("activateConfirmedCodexNamespaceAfterWorkflowMerge", () => {
     mocks.semanticSha.mockReturnValue("b".repeat(64));
     mocks.createAttestation.mockReturnValue({
       repositoryId: "1228051727",
-      workflowPath: ".github/workflows/reviewrouter-review.yml",
+      workflowPath: ".github/workflows/reviewrouter-codex.yml",
       workflowSourceCommitSha: firstHead,
       workflowSourceBlobSha: blobSha,
       workflowSourceSha256: "c".repeat(64),
@@ -197,7 +197,7 @@ describe("activateConfirmedCodexNamespaceAfterWorkflowMerge", () => {
     });
     mocks.createAttestation.mockReturnValueOnce({
       repositoryId: "1228051727",
-      workflowPath: ".github/workflows/reviewrouter-review.yml",
+      workflowPath: ".github/workflows/reviewrouter-codex.yml",
       workflowSourceCommitSha: unrelatedHead,
       workflowSourceBlobSha: blobSha,
       workflowSourceSha256: "c".repeat(64),
@@ -242,7 +242,7 @@ describe("activateConfirmedCodexNamespaceAfterWorkflowMerge", () => {
       new Error("codex_rotating_workflow_source_attestation_missing"),
     );
     findAttestation.mockResolvedValueOnce({
-      workflowPath: ".github/workflows/reviewrouter-review.yml",
+      workflowPath: ".github/workflows/reviewrouter-codex.yml",
       workflowSourceCommitSha: firstHead,
       workflowSourceBlobSha: blobSha,
       workflowSourceSha256: "c".repeat(64),
@@ -269,7 +269,7 @@ describe("activateConfirmedCodexNamespaceAfterWorkflowMerge", () => {
     });
     mocks.createAttestation.mockReturnValueOnce({
       repositoryId: "1228051727",
-      workflowPath: ".github/workflows/reviewrouter-review.yml",
+      workflowPath: ".github/workflows/reviewrouter-codex.yml",
       workflowSourceCommitSha: firstHead,
       workflowSourceBlobSha: "e".repeat(40),
       workflowSourceSha256: "f".repeat(64),
@@ -360,7 +360,7 @@ describe("activateConfirmedCodexNamespaceAfterWorkflowMerge", () => {
     });
     const { input, findAttestation, request } = fixture();
     findAttestation.mockResolvedValueOnce({
-      workflowPath: ".github/workflows/reviewrouter-review.yml",
+      workflowPath: ".github/workflows/reviewrouter-codex.yml",
       workflowSourceCommitSha: "d".repeat(40),
       workflowSourceBlobSha: previousBlobSha,
       workflowSourceSha256: previousSourceSha256,
@@ -597,7 +597,7 @@ function fixture(
     latestGenerationHash: "9".repeat(64),
   });
   const findAttestation = vi.fn().mockResolvedValue({
-    workflowPath: ".github/workflows/reviewrouter-review.yml",
+    workflowPath: ".github/workflows/reviewrouter-codex.yml",
     workflowSourceCommitSha: firstHead,
     workflowSourceBlobSha: blobSha,
     workflowSourceSha256: "c".repeat(64),

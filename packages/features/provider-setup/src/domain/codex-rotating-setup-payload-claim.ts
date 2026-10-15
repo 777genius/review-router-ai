@@ -1,4 +1,4 @@
-import { reviewRouterWorkflowPath } from "@reviewrouter/shared";
+import { managedCodexWorkflowPath } from "@reviewrouter/shared";
 import { z } from "zod";
 import {
   codexWorkflowPathForRepository,
@@ -260,7 +260,7 @@ export const codexRotatingActivationSchema = z
     namespaceEpoch: z.string().regex(/^[0-9]+$/),
     secretName: z.string().regex(versionedProviderSecretNamePattern),
     workflowPath: z.union([
-      z.literal(reviewRouterWorkflowPath),
+      z.literal(managedCodexWorkflowPath),
       z.literal(".github/workflows/reviewrouter-quality-stand.yml"),
     ]),
     workflowSourceCommitSha: z.string().regex(/^[a-f0-9]{40}$/),

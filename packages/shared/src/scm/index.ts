@@ -69,4 +69,7 @@ export function ciProviderToScmProvider(provider: CiProvider): ScmProvider {
   }
 }
 
-export { reviewRouterWorkflowPath } from "./review-workflow";
+export {
+  reviewRouterWorkflowPath,
+  managedCodexWorkflowPath,
+} from "./review-workflow";

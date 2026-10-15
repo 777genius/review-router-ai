@@ -147,7 +147,7 @@ describe("persisted workflow schema admission", () => {
           namespaceEpoch: namespace.epoch,
           secretName: namespace.name,
           status: "active",
-          workflowPath: ".github/workflows/reviewrouter-review.yml",
+          workflowPath: ".github/workflows/reviewrouter-codex.yml",
           workflowSourceCommitSha: "a".repeat(40),
           workflowSourceBlobSha: "b".repeat(40),
           workflowSourceSha256: "c".repeat(64),
@@ -1608,7 +1608,7 @@ describe("PrismaCodexRotatingOAuthRepository", () => {
       });
       const attestation = createVersionedSecretWorkflowSourceAttestation({
         repositoryId: "123456",
-        workflowPath: ".github/workflows/reviewrouter-review.yml",
+        workflowPath: ".github/workflows/reviewrouter-codex.yml",
         workflowSourceCommitSha: "a".repeat(40),
         workflowSourceBlobSha: "b".repeat(40),
         workflowSourceSha256: "c".repeat(64),

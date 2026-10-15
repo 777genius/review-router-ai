@@ -120,7 +120,7 @@ function createFixture(finalHead = commitSha, source = workflow) {
     .mockResolvedValueOnce({
       data: {
         type: "file",
-        path: ".github/workflows/reviewrouter-review.yml",
+        path: ".github/workflows/reviewrouter-codex.yml",
         encoding: "base64",
         content: Buffer.from(source).toString("base64"),
         sha: blobSha,

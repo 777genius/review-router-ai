@@ -131,6 +131,7 @@ describe("ReviewRunControlLegacyMutationAdmission", () => {
   });
 
   it.each([
+    ["workflow_dispatch", ".github/workflows/reviewrouter-codex.yml"] as const,
     ["workflow_dispatch", ".github/workflows/reviewrouter-review.yml"] as const,
     ["pull_request", ".github/workflows/reviewrouter-review.yml"] as const,
     [
@@ -167,7 +168,6 @@ describe("ReviewRunControlLegacyMutationAdmission", () => {
 
   it.each([
     ["workflow_dispatch", ".github/workflows/untrusted.yml"] as const,
-    ["workflow_dispatch", ".github/workflows/reviewrouter-codex.yml"] as const,
     ["issue_comment", ".github/workflows/reviewrouter-review.yml"] as const,
     ["pull_request", ".github/workflows/untrusted.yml"] as const,
     [

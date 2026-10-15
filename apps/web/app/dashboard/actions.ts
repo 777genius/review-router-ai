@@ -1316,7 +1316,7 @@ async function createSetupPullRequestMutation(
         ? false
         : isConflictReviewFallbackAllowedForRepository(repository.fullName);
     const workflowPath = accountGateway
-      ? defaultCodexRotatingWorkflowPath
+      ? reviewRouterWorkflowContract.callerPath
       : codexRotatingProviderInstanceId
         ? codexWorkflowPathForRepository({
             repositoryId: githubRepository.githubRepositoryId.toString(),
@@ -1667,10 +1667,10 @@ async function confirmSetupPullRequestMergedMutation(
     const rotatingWorkflowExpected = resolvedRuntime.config.providers.some(
       (provider) => provider.authMode === "codex_subscription_oauth_rotating",
     );
-    const selectedCodexWorkflowPath =
-      !accountGateway &&
-      (setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
-        (!setupProvisioning?.workflowPath && rotatingWorkflowExpected))
+    const selectedCodexWorkflowPath = accountGateway
+      ? reviewRouterWorkflowContract.callerPath
+      : setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
+          (!setupProvisioning?.workflowPath && rotatingWorkflowExpected)
         ? codexWorkflowPathForRepository({
             repositoryId: githubRepository.githubRepositoryId.toString(),
             repositoryFullName: repository.fullName,
@@ -1996,7 +1996,7 @@ async function confirmSetupPullRequestMergedMutation(
       throw new Error("workflow_provisioning_match_not_found");
     let verifiedWorkflowArtifact = {
       workflowPath: accountGateway
-        ? defaultCodexRotatingWorkflowPath
+        ? reviewRouterWorkflowContract.callerPath
         : codexWorkflow
           ? selectedCodexWorkflowPath
           : defaultWorkflowPath,

@@ -1286,7 +1286,7 @@ exit 17
       run_id: "9001",
       run_attempt: "1",
       workflow_ref:
-        "777genius/agent-teams-ai/.github/workflows/reviewrouter-review.yml@refs/heads/main",
+        "777genius/agent-teams-ai/.github/workflows/reviewrouter-codex.yml@refs/heads/main",
       workflow_sha: "0123456789abcdef0123456789abcdef01234567",
       actor: "belief",
       runner_environment: "github-hosted" as const,
@@ -1303,7 +1303,7 @@ exit 17
         repository_owner: "777genius",
         repository_owner_id: "123",
         job_workflow_ref:
-          "777genius/agent-teams-ai/.github/workflows/reviewrouter-review.yml@refs/heads/main",
+          "777genius/agent-teams-ai/.github/workflows/reviewrouter-codex.yml@refs/heads/main",
         job_workflow_sha: "0123456789abcdef0123456789abcdef01234567",
       }).repository_visibility,
     ).toBe("private");
@@ -1323,7 +1323,7 @@ exit 17
           repositoryFullName: "777genius/agent-teams-ai",
           githubRepositoryId: "123456",
           actionRef: "777genius/review-router@main",
-          workflowPath: ".github/workflows/reviewrouter-review.yml",
+          workflowPath: ".github/workflows/reviewrouter-codex.yml",
           workflowSchemaVersion: 1,
         },
         requestedProviderInstanceId: "codex-rotating:123456",
@@ -1347,7 +1347,7 @@ exit 17
           githubRepositoryId: "123456",
           actionRef:
             "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-          workflowPath: ".github/workflows/reviewrouter-review.yml",
+          workflowPath: ".github/workflows/reviewrouter-codex.yml",
           workflowSchemaVersion: 1,
         },
         requestedProviderInstanceId: "codex-rotating:123456",
@@ -1371,7 +1371,7 @@ exit 17
           githubRepositoryId: "123456",
           actionRef:
             "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-          workflowPath: ".github/workflows/reviewrouter-review.yml",
+          workflowPath: ".github/workflows/reviewrouter-codex.yml",
           workflowSchemaVersion: 1,
         },
         requestedProviderInstanceId: "codex-rotating:123456",
@@ -1394,7 +1394,7 @@ exit 17
           githubRepositoryId: "123456",
           actionRef:
             "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-          workflowPath: ".github/workflows/reviewrouter-review.yml",
+          workflowPath: ".github/workflows/reviewrouter-codex.yml",
           workflowSchemaVersion: 1,
         },
         requestedProviderInstanceId: "codex-rotating:123456",
@@ -1417,7 +1417,7 @@ exit 17
           githubRepositoryId: "123456",
           actionRef:
             "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-          workflowPath: ".github/workflows/reviewrouter-review.yml",
+          workflowPath: ".github/workflows/reviewrouter-codex.yml",
           workflowSchemaVersion: 1,
         },
         requestedProviderInstanceId: "codex-rotating:123456",

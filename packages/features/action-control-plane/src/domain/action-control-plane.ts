@@ -15,6 +15,7 @@ import {
   safeConflictReviewDispatchId,
   safeGitHubBranchName,
   reviewRouterWorkflowPath,
+  managedCodexWorkflowPath,
 } from "@reviewrouter/shared";
 import {
   managedInteractionWorkflowPath,
@@ -61,8 +62,9 @@ export function isManagedV2SessionBootstrapSource(input: {
     repositoryFullName: input.repositoryFullName ?? "",
   });
   if (
-    input.workflowPath === reviewRouterWorkflowPath &&
-    repositoryReviewWorkflowPath === reviewRouterWorkflowPath &&
+    (input.workflowPath === reviewRouterWorkflowPath ||
+      input.workflowPath === managedCodexWorkflowPath) &&
+    repositoryReviewWorkflowPath === managedCodexWorkflowPath &&
     (input.eventName === "workflow_dispatch" ||
       input.eventName === "schedule" ||
       input.eventName === "pull_request" ||
@@ -72,7 +74,7 @@ export function isManagedV2SessionBootstrapSource(input: {
   }
   if (
     input.workflowPath === repositoryReviewWorkflowPath &&
-    input.workflowPath !== reviewRouterWorkflowPath &&
+    input.workflowPath !== managedCodexWorkflowPath &&
     input.eventName === "workflow_dispatch"
   ) {
     return true;

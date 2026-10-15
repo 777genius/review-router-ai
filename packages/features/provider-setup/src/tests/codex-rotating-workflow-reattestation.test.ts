@@ -23,7 +23,7 @@ const target = {
   expectedGenerationHash: "9".repeat(64),
   repositoryId: "1228051727",
   repositoryFullName: "777genius/review-router-saas-e2e",
-  workflowPath: ".github/workflows/reviewrouter-review.yml",
+  workflowPath: ".github/workflows/reviewrouter-codex.yml",
   namespace,
 } as const;
 

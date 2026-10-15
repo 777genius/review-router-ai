@@ -2006,7 +2006,7 @@ describe("action control plane", () => {
         repositories,
         sessions: new StaticSessionTokenService({
           ...sessionClaims,
-          workflowPath: ".github/workflows/reviewrouter-review.yml",
+          workflowPath: ".github/workflows/reviewrouter-codex.yml",
         }),
         clock,
       },
@@ -2461,7 +2461,7 @@ describe("action control plane", () => {
         repositories,
         sessions: new StaticSessionTokenService({
           ...sessionClaims,
-          workflowPath: ".github/workflows/reviewrouter-review.yml",
+          workflowPath: ".github/workflows/reviewrouter-codex.yml",
         }),
         clock,
       },

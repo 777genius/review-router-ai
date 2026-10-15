@@ -1,4 +1,4 @@
-import { reviewRouterWorkflowPath } from "@reviewrouter/shared";
+import { managedCodexWorkflowPath } from "@reviewrouter/shared";
 import {
   assertSameVersionedProviderSecretNamespace,
   codexWorkflowPathForRepository,
@@ -90,7 +90,7 @@ export function assertCodexRotatingWorkflowReplacementTransition(input: {
     }) ||
     replacement.workflowPath !== isolatedQualityWorkflowPath ||
     (current.workflowPath !== isolatedQualityWorkflowPath &&
-      current.workflowPath !== reviewRouterWorkflowPath) ||
+      current.workflowPath !== managedCodexWorkflowPath) ||
     replacement.workflowPath !==
       codexWorkflowPathForRepository({
         repositoryId: current.repositoryId,
