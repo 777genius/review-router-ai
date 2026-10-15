@@ -5,7 +5,10 @@ import {
   reviewConfigurationTargetKey,
   resolveReviewConfiguration,
   ReviewConfigurationWriteConflictError,
-  safeDefaultReviewConfiguration,
+  parseReviewConfigurationStrict,
+  parseRepositoryReviewPolicyOverride,
+  resolveReviewPolicy,
+  canonicalJson,
   type OperatorReviewConfigurationDependencies,
   type PersistedReviewConfiguration,
   type ReviewInvestigationRolloutConfiguration,
@@ -14,6 +17,39 @@ import {
 } from "@reviewrouter/features-review-config";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerOperatorReviewConfigRoutes } from "./operator-review-config-routes.js";
+
+const workspacePolicy = parseReviewConfigurationStrict({
+  schemaVersion: 3,
+  providers: [
+    {
+      kind: "codex",
+      authMode: "codex_subscription_oauth_rotating",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh",
+      agenticContext: true,
+      fastMode: false,
+      requiredHealthy: true,
+    },
+  ],
+  execution: {
+    providerLimit: 1,
+    providerMaxParallel: 1,
+    inlineMinAgreement: 1,
+  },
+  blockingPolicy: { failOnSeverity: "critical" },
+  limits: { inlineMaxComments: 5, targetTokensPerBatch: 50000 },
+  reviewLanguage: null,
+  investigationRollout: {
+    recordingEnabled: true,
+    shadowEnabled: true,
+    contextCriticEnabled: true,
+    verifiedCleanEnabled: true,
+    crossRevisionReplayEnabled: false,
+    productionEffectsEnabled: true,
+  },
+});
+const digest = (config: unknown) =>
+  createHash("sha256").update(canonicalJson(config)).digest("hex");
 
 const credential = "route-operator-credential-with-32-characters";
 const disabledRollout = {
@@ -40,10 +76,34 @@ const fullRollout = {
 
 function createHarness() {
   const versions = new Map<string, PersistedReviewConfiguration[]>();
+  versions.set("workspace:default", [
+    {
+      version: 1,
+      config: workspacePolicy,
+      policy: workspacePolicy,
+      source: "workspace",
+      workspaceVersion: 1,
+      repositoryVersion: null,
+      effectivePolicyDigest: digest(workspacePolicy),
+    },
+  ]);
   const auditEvents: ReviewConfigurationOperatorAuditEvent[] = [];
   const configurations: ReviewConfigurationRepositoryPort = {
     async findLatest(target) {
-      return versions.get(reviewConfigurationTargetKey(target))?.at(-1) ?? null;
+      const own =
+        versions.get(reviewConfigurationTargetKey(target))?.at(-1) ?? null;
+      if (target.scope === "workspace") return own;
+      const workspace = versions.get("workspace:default")?.at(-1);
+      if (!workspace) return null;
+      const config = resolveReviewPolicy(workspace.config, own?.policy ?? null);
+      return {
+        ...(own ?? workspace),
+        config,
+        source: own ? ("repository" as const) : ("workspace" as const),
+        workspaceVersion: workspace.version,
+        repositoryVersion: own?.version ?? null,
+        effectivePolicyDigest: digest(config),
+      };
     },
     async saveNextVersion(input) {
       const key = reviewConfigurationTargetKey(input.target);
@@ -54,10 +114,28 @@ function createHarness() {
       ) {
         throw new ReviewConfigurationWriteConflictError();
       }
+      const policy =
+        input.target.scope === "workspace"
+          ? parseReviewConfigurationStrict(input.policy)
+          : parseRepositoryReviewPolicyOverride(input.policy);
+      const workspace = versions.get("workspace:default")?.at(-1);
+      const config =
+        input.target.scope === "workspace"
+          ? parseReviewConfigurationStrict(policy)
+          : resolveReviewPolicy(workspace!.config, policy);
       const persisted = {
         version: (records.at(-1)?.version ?? 0) + 1,
-        config: input.config,
-      };
+        config,
+        policy,
+        source: input.target.scope,
+        workspaceVersion:
+          input.target.scope === "workspace"
+            ? records.length + 1
+            : workspace!.version,
+        repositoryVersion:
+          input.target.scope === "repository" ? records.length + 1 : null,
+        effectivePolicyDigest: digest(config),
+      } satisfies PersistedReviewConfiguration;
       versions.set(key, [...records, persisted]);
       return persisted;
     },
@@ -70,14 +148,13 @@ function createHarness() {
       const current = await resolveReviewConfiguration(input.target, {
         configurations,
       });
-      if (current.revisionToken !== input.expectedRevisionToken) {
+      if (!current || current.revisionToken !== input.expectedRevisionToken) {
         throw new ReviewConfigurationWriteConflictError();
       }
       const saved = await configurations.saveNextVersion({
         target: input.target,
-        config: input.config,
-        expectedVersion:
-          current.source === "repository" ? current.version : null,
+        policy: input.policy,
+        expectedVersion: current.repositoryVersion,
       });
       auditEvents.push({
         ...input.auditEvent,
@@ -141,6 +218,26 @@ async function createApp() {
 }
 
 describe("operator review config routes", () => {
+  it("returns conflict for missing workspace policy without writing", async () => {
+    const harness = createHarness();
+    harness.versions.clear();
+    const app = Fastify({ logger: false });
+    apps.push(app);
+    await registerOperatorReviewConfigRoutes(app, harness.dependencies);
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/api/operator/v1/review-config",
+      headers: { authorization: `Bearer ${credential}` },
+      payload: { repository: "777genius/example", effort: "high" },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({
+      error: { code: "configuration_missing" },
+    });
+    expect(harness.versions.size).toBe(0);
+    expect(harness.auditEvents).toEqual([]);
+  });
+
   it("requires a valid bearer credential", async () => {
     const app = await createApp();
 
@@ -193,14 +290,13 @@ describe("operator review config routes", () => {
     apps.push(app);
     const harness = createHarness();
     const provider = {
-      ...safeDefaultReviewConfiguration.provider,
+      ...workspacePolicy.providers[0]!,
       model: "gpt-5.5",
     };
     await harness.dependencies.configurations.saveNextVersion({
       target: { scope: "workspace", workspaceId: "workspace_1" },
-      config: {
-        ...safeDefaultReviewConfiguration,
-        provider,
+      policy: {
+        ...workspacePolicy,
         providers: [provider],
       },
     });
@@ -250,7 +346,10 @@ describe("operator review config routes", () => {
       repositoryVersion: 1,
       investigationRollout: fullRollout,
     });
-    const saved = [...harness.versions.values()].flat().at(-1)?.config;
+    const saved = [...harness.versions.entries()]
+      .filter(([key]) => key.startsWith("repo:"))
+      .flatMap(([, versions]) => versions)
+      .at(-1)?.config;
     expect(saved?.providers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ model: "gpt-5.6-sol" }),
@@ -325,7 +424,11 @@ describe("operator review config routes", () => {
     expect(stale.json()).toEqual({
       error: { code: "configuration_changed" },
     });
-    expect([...harness.versions.values()].flat()).toHaveLength(1);
+    expect(
+      [...harness.versions.entries()]
+        .filter(([key]) => key.startsWith("repo:"))
+        .flatMap(([, versions]) => versions),
+    ).toHaveLength(1);
     expect(harness.auditEvents).toHaveLength(1);
   });
 
@@ -352,7 +455,9 @@ describe("operator review config routes", () => {
       previousInvestigationRollout: shadowRollout,
       investigationRollout: disabledRollout,
     });
-    const history = [...harness.versions.values()].flat();
+    const history = [...harness.versions.entries()]
+      .filter(([key]) => key.startsWith("repo:"))
+      .flatMap(([, versions]) => versions);
     expect(history).toHaveLength(2);
     expect(history[0]?.config.investigationRollout).toEqual(shadowRollout);
     expect(history[1]?.config.investigationRollout).toEqual(disabledRollout);

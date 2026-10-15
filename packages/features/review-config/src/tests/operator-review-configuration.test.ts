@@ -5,8 +5,6 @@ import {
 } from "./current-policy-fixture";
 import {
   parseReviewConfigurationStrict,
-  parseRepositoryReviewPolicyOverride,
-  resolveReviewPolicy,
   canonicalJson,
 } from "../domain/review-configuration";
 import { createHash } from "node:crypto";
@@ -21,11 +19,8 @@ import {
   reviewConfigurationTargetKey,
   setOperatorReviewReasoningEffort,
   type OperatorReviewConfigurationDependencies,
-  type PersistedReviewConfiguration,
   type ReviewConfigurationOperatorAuditEvent,
   type ReviewConfigurationOperatorRepository,
-  type ReviewConfigurationBatchReaderPort,
-  type ReviewConfigurationRepositoryPort,
   ReviewConfigurationWriteConflictError,
   resolveReviewConfiguration,
 } from "../index";

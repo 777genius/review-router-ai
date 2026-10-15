@@ -157,7 +157,10 @@ describe("PrismaReviewConfigurationRepository batch reads", () => {
         },
       ],
     }));
-    const findMany = vi.fn(async (_input: unknown) => []);
+    const findMany = vi.fn(async (input: unknown) => {
+      expect(input).toBeDefined();
+      return [];
+    });
     const repository = new PrismaReviewConfigurationRepository({
       reviewConfiguration: { findUnique, findMany },
     } as never);

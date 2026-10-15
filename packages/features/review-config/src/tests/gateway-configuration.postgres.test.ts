@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { canonicalJson } from "../domain/review-configuration";
 import { workspacePolicyFixture } from "./current-policy-fixture";
 import { readFile, readdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
@@ -355,6 +357,9 @@ describe.skipIf(!enabled)(
         expect(runtimeConfig).toEqual({
           source: "repository",
           version: saved.version,
+          workspaceVersion: 2,
+          repositoryVersion: saved.version,
+          effectivePolicyDigest: `sha256:${createHash("sha256").update(canonicalJson(override)).digest("hex")}`,
           config: override,
         });
 
@@ -1040,7 +1045,14 @@ describe.skipIf(!enabled)(
         };
         expect(
           await runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget),
-        ).toEqual({ source: "repository", version: 1, config: override });
+        ).toEqual({
+          source: "repository",
+          version: 1,
+          workspaceVersion: 2,
+          repositoryVersion: 1,
+          effectivePolicyDigest: `sha256:${createHash("sha256").update(canonicalJson(override)).digest("hex")}`,
+          config: override,
+        });
         const expectCleared = async (expectedHistory = originalHistory) => {
           expect(await fresh.findLatest(clearedTarget)).toBeNull();
           expect(
@@ -1056,12 +1068,26 @@ describe.skipIf(!enabled)(
           // strict admission reads using the existing transaction port.
           expect(
             await runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget),
-          ).toEqual({ source: "workspace", version: 2, config });
+          ).toEqual({
+            source: "workspace",
+            version: 2,
+            workspaceVersion: 2,
+            repositoryVersion: null,
+            effectivePolicyDigest: `sha256:${createHash("sha256").update(canonicalJson(config)).digest("hex")}`,
+            config,
+          });
           expect(
             await refetched!.$transaction((tx) =>
               runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget, tx),
             ),
-          ).toEqual({ source: "workspace", version: 2, config });
+          ).toEqual({
+            source: "workspace",
+            version: 2,
+            workspaceVersion: 2,
+            repositoryVersion: null,
+            effectivePolicyDigest: `sha256:${createHash("sha256").update(canonicalJson(config)).digest("hex")}`,
+            config,
+          });
           expect(
             await refetched!.reviewConfiguration.findUniqueOrThrow({
               where: {
@@ -1376,19 +1402,15 @@ describe.skipIf(!enabled)(
             ),
           ).rejects.toMatchObject({ code });
         }
-        // With both overrides cleared, CI returns null to its existing default
-        // selection path. Replaying either stable receipt must keep that state.
+        // With workspace policy cleared, execution remains unconfigured.
+        // Replaying a receipt must not recreate execution policy.
         expect(await fresh.deleteTarget(workspace)).toBe(true);
         const expectDefault = async () => {
           expect(await fresh.findLatest(workspace)).toBeNull();
           expect(await fresh.findLatest(clearedTarget)).toBeNull();
           expect(
             await resolveReviewConfiguration(clearedTarget, receiptDeps),
-          ).toMatchObject({
-            source: "default",
-            version: 1,
-            config: workspacePolicyFixture,
-          });
+          ).toBeNull();
           expect(
             await runtimeConfigs.findRuntimeReviewConfiguration(runtimeTarget),
           ).toBeNull();

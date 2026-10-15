@@ -33,6 +33,7 @@ const providerKeyMigrationName = "000110_provider_api_key_workspace_management";
 const reconnectMigrationName = "000125_hosted_codex_device_reconnect";
 const mimoAuthMigrationName = "000126_review_configuration_mimo_auth_kind";
 const accountAdmissionMigrationName = "000128_account_admission_row_lock";
+const policyMigrationName = "000129_review_policy_schema_v3";
 const ownerDeletionMigrationName = "000127_owner_workspace_deletion";
 const historicalMigration119Checksum =
   "2c0dde1720111063059d5226c6011c15389b6877a6a1f924177a24a36aa81a70";
@@ -54,7 +55,8 @@ const canonicalPrismaMigrationNames =
       name !== reconnectMigrationName &&
       name !== mimoAuthMigrationName &&
       name !== accountAdmissionMigrationName &&
-      name !== ownerDeletionMigrationName,
+      name !== ownerDeletionMigrationName &&
+      name !== policyMigrationName,
   );
 
 // Node 24 can require these ESM files directly. This keeps copied fixtures
@@ -404,11 +406,11 @@ const canonicalPrefix = (count: number) =>
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
   it("admits exact owner deletion plus C1 additions and preserves the old C1 checkout", () => {
     const full = readRenderManagedCheckoutInventory();
-    expect(full).toHaveLength(128);
+    expect(full).toHaveLength(129);
     expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
     expect(
       partitionRenderSchemaHandoffCheckout(
-        full.filter((row) => row.migrationName !== ownerDeletionMigrationName),
+        full.filter((row) => row.migrationName !== policyMigrationName),
       ),
     ).toEqual(catalog);
     for (const changed of [
@@ -434,7 +436,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     const current = readRenderManagedCheckoutInventory().filter(
       (row) =>
         row.migrationName !== accountAdmissionMigrationName &&
-        row.migrationName !== ownerDeletionMigrationName,
+        row.migrationName !== ownerDeletionMigrationName &&
+        row.migrationName !== policyMigrationName,
     );
     const old125 = current
       .filter((row) => row.migrationName !== mimoAuthMigrationName)
@@ -1408,6 +1411,7 @@ describe("complete filesystem checkout inventory", () => {
         recursive: true,
       });
       rmSync(join(migrations, ownerDeletionMigrationName), { recursive: true });
+      rmSync(join(migrations, policyMigrationName), { recursive: true });
       for (const name of canonicalPrismaMigrationNames.slice(count))
         rmSync(join(migrations, name), { recursive: true });
       if (canonicalPrefix(count).includes(migration119.migrationName))
@@ -1433,7 +1437,9 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(128);
+    expect(inventory).toHaveLength(129);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, policyMigrationName), { recursive: true });
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, ownerDeletionMigrationName), {
       recursive: true,
@@ -1736,9 +1742,8 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      // Removing only owner deletion restores the exact admitted C1 checkout.
-      if (name === ownerDeletionMigrationName)
-        expect(fixture.read()).toEqual(catalog);
+      // Removing only the current tail restores the exact admitted checkout128.
+      if (name === policyMigrationName) expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
       writeFileSync(sql, bytes);

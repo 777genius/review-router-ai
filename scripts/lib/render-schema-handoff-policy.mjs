@@ -275,6 +275,22 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Current policy storage extends the exact pre-launch checkout only.
+  const policyMigration = catalog.find(
+    (row) => row.migrationName === "000129_review_policy_schema_v3",
+  );
+  if (policyMigration) {
+    if (
+      policyMigration.checksum !==
+        "b30521564c9242be28cadbda3ec62f30723ba9bf78b578d014cb320f8b2bdf4d" ||
+      manifest(catalog) !==
+        "sha256:41a65c538872f960e35ae34b217f340f449371500bcf4bc6633b182e1adca91a"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== policyMigration),
+    );
+  }
   // Owner deletion is admitted only in the exact complete checkout128.
   // Remove only its pinned row, then reuse the unchanged128/126 projections.
   const ownerDeletionMigration = catalog.find(

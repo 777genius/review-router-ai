@@ -11,13 +11,9 @@ import {
   parseReviewConfiguration,
   parseReviewConfigurationStrict,
   PrismaReviewConfigurationRepository,
-  reviewConfigurationTargetKey,
   resolveReviewConfiguration,
   resolveReviewRuntimeEnv,
   saveReviewConfiguration,
-  type PersistedReviewConfiguration,
-  type ReviewConfigurationBatchReaderPort,
-  type ReviewConfigurationRepositoryPort,
 } from "../index";
 
 const enabledInvestigationRollout = {
@@ -36,15 +32,6 @@ const disabledInvestigationRollout = {
   verifiedCleanEnabled: false,
   crossRevisionReplayEnabled: false,
   productionEffectsEnabled: false,
-} as const;
-
-const defaultInvestigationRuntimeEnv = {
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: "1",
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: "1",
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED: "1",
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED: "1",
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED: "0",
-  REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: "1",
 } as const;
 
 const disabledInvestigationRuntimeEnv = {
