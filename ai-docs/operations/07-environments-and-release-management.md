@@ -55,7 +55,24 @@ as issued and generate fresh evidence for future releases.
 main     - live Action channel, default for hosted beta setup PRs
 v1       - stable moving major channel, conservative customer option
 v1.0.x   - immutable exact release tag, conservative pinned customer option
+workflow-v1 - compatible neutral Gateway caller ABI, independent of product semver
 ```
+
+The neutral Gateway caller uses
+`777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1`.
+Compatible agent, model and runtime updates keep its inputs and permissions
+unchanged. The release workflow moves this channel alongside the product tags;
+the signed actual executable SHA must still be approved in the producer registry.
+For subsequent compatible releases, register the verified exact producer through
+the existing registration flow **before** publishing the moving channel. Keep the
+previous approved producer available for already admitted runs. A channel tag is
+never execution authority by itself.
+
+The first pre-launch publication introduces an unused channel: keep known
+installations stopped until the paired API/schema, producer registration and new
+caller are ready. GitHub Secrets and Hosted Pool keep their existing entrypoints.
+Breaking caller inputs or permissions require a new workflow ABI major; changing
+the public repository or reusable workflow path requires an installation update.
 
 Rules:
 
