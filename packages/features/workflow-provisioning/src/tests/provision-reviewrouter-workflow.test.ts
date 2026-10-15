@@ -293,6 +293,11 @@ it.each(["missing", "mixed"])(
     if (selection === "mixed")
       configurations.findLatest = async () => ({
         version: 1,
+        source: "repository",
+        workspaceVersion: 1,
+        repositoryVersion: 1,
+        effectivePolicyDigest: "a".repeat(64),
+        policy: { schemaVersion: 3 },
         config: parseReviewConfigurationStrict({
           ...savedGatewayConfig,
           providers: [

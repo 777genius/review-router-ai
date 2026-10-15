@@ -1,3 +1,4 @@
+import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { randomBytes } from "node:crypto";
 import type {
   Prisma,
@@ -40,7 +41,7 @@ vi.mock("@reviewrouter/platform-db", async (importOriginal) => ({
 
 const audience = "synthetic-action-session-audience";
 const repositoryFullName = "fixture-owner/disposable-session-fixture";
-const workflowPath = ".github/workflows/reviewrouter-codex.yml";
+const workflowPath = ".github/workflows/reviewrouter-review.yml";
 const workflowSha = "a".repeat(40);
 const sessionSecret = "synthetic-unit-session-signer-".repeat(2);
 const apps: FastifyInstance[] = [];
@@ -530,9 +531,26 @@ function queryFixture() {
     configurationId: "config-1",
     operationId: null,
     operationIntentHash: null,
+    operationSnapshotJson: null,
+    policyJson: JSON.stringify({
+      ...workspacePolicyFixture,
+      providers: [
+        {
+          kind: "codex",
+          authMode: "codex_account_gateway",
+          gatewayBindingId: "binding-safe",
+          gatewayProfileRef: "profile-mimo",
+          model: "mimo-v2-pro",
+          reasoningEffort: "high",
+          agenticContext: false,
+          fastMode: false,
+        },
+      ],
+      limits: { ...workspacePolicyFixture.limits, inlineMaxComments: 50 },
+    }),
     workspaceId: "workspace-1",
     version: 7,
-    schemaVersion: 2,
+    schemaVersion: 3,
     providerKind: "codex",
     providerAuthMode: "codex_account_gateway",
     gatewayBindingId: "binding-safe",
@@ -572,6 +590,8 @@ function queryFixture() {
     async (_args: Prisma.ReviewConfigurationFindUniqueArgs) => {
       void _args;
       return {
+        active: true,
+        repositoryId: null,
         versions: [{ ...version, providers: [] }],
       };
     },
