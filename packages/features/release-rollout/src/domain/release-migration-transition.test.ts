@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout128 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout129 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,16 +107,17 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(128);
+    expect(full).toHaveLength(129);
     expect(manifest(full)).toBe(
-      "sha256:573ad770b1198ff48207d023af722679f7eb4e67c9603c883a179692251d5c37",
+      "sha256:2fd29821cfe790f0ca50da68071727874b9220f58e69cc72456790ede02a9a7f",
     );
     const old125 = full
       .filter(
         (row) =>
           row.migrationName !== "000126_review_configuration_mimo_auth_kind" &&
           row.migrationName !== "000127_owner_workspace_deletion" &&
-          row.migrationName !== "000128_account_admission_row_lock",
+          row.migrationName !== "000128_account_admission_row_lock" &&
+          row.migrationName !== "000129_review_policy_schema_v3",
       )
       .map((row) =>
         row.migrationName === "000119_review_configuration_gateway_binding"
@@ -138,7 +139,7 @@ describe("canonical release migration transition", () => {
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-21).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-22).map((row) => row.migrationName)).toEqual([
       "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
@@ -160,6 +161,7 @@ describe("canonical release migration transition", () => {
       "000126_review_configuration_mimo_auth_kind",
       "000127_owner_workspace_deletion",
       "000128_account_admission_row_lock",
+      "000129_review_policy_schema_v3",
     ]);
     const withoutProviderKey = historicalFull.filter(
       (row) =>

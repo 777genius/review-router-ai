@@ -1551,6 +1551,7 @@ const producerRelease = {
   contextGatewayPolicyVersion: null,
   contextGatewayEntrypointDigest: null,
   reviewInvestigationProfile: null,
+  agentProfiles: null,
   schemaDigest: reviewActionV2PublishedSchemaDigest,
   capabilityProfile: ReviewCapabilityProfile.ExactRevisionV2,
   protocolLimitsProfileId: authorization.protocolLimitsProfileId,

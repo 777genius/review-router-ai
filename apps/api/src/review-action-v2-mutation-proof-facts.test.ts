@@ -179,6 +179,7 @@ const configuredRelease: ProducerRelease = {
   contextGatewayPolicyVersion: "review-context-gateway.v1",
   contextGatewayEntrypointDigest: "3".repeat(64),
   reviewInvestigationProfile: null,
+  agentProfiles: null,
   schemaDigest: "4".repeat(64),
   capabilityProfile: ReviewCapabilityProfile.ExactRevisionV2,
   protocolLimitsProfileId: "limits-v2",
@@ -289,6 +290,7 @@ function createFacts(
         compatible: input.inventoryCompatible ?? true,
         inventoryHash: "a".repeat(64),
         actionCommitSha: "c".repeat(40),
+        runtimeRef: null,
         defaultBranchHeadSha: "d".repeat(40),
         workflowSchemaVersion:
           input.workflowSchemaVersion ??

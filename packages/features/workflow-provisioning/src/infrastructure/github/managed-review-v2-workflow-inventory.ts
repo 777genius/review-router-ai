@@ -330,6 +330,7 @@ export class ManagedReviewV2WorkflowInventory {
       interactionWorkflow,
       defaultInventory.actionRef,
       this.expectedApiUrl,
+      defaultInventory.runtimeRef !== null,
     );
     const revalidatedCoverage = await this.resolveReviewInventoryCoverage({
       token: token.token,
@@ -844,6 +845,7 @@ function inspectReviewV2InteractionWorkflow(
   workflow: string | null,
   expectedActionRef: string | null,
   expectedApiUrl: string,
+  currentCaller: boolean,
 ) {
   const expectedActionCommitSha =
     expectedActionRef?.match(/@([a-f0-9]{40})$/i)?.[1]?.toLowerCase() ?? null;
@@ -858,7 +860,7 @@ function inspectReviewV2InteractionWorkflow(
   }
 
   const expectedWorkflow =
-    expectedActionRef && expectedActionCommitSha
+    !currentCaller && expectedActionRef && expectedActionCommitSha
       ? renderCanonicalCodexRotatingInteractionWorkflowV3({
           actionRef: expectedActionRef,
           apiUrl: expectedApiUrl,
