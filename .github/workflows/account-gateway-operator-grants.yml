@@ -65,6 +65,18 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      policy_postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: fixture_owner
+          POSTGRES_DB: rr_gateway_test_c2b_policy_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: [5433:5432]
+        options: >-
+          --health-cmd "pg_isready -U fixture_owner -d rr_gateway_test_c2b_policy_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5432/rr_gateway_test_s_ci
       RR_S_OPERATOR_GRANTS_PG_TEST_URL: postgresql://fixture_owner@127.0.0.1:5432/rr_gateway_test_s_ci
@@ -91,7 +103,5 @@ jobs:
         env:
           RR_REVIEW_CONFIG_GATEWAY_PG_TEST: "1"
           RR_REVIEW_CONFIG_GATEWAY_DISPOSABLE_CLUSTER: "1"
-          RR_REVIEW_CONFIG_GATEWAY_PG_TEST_URL: postgresql://fixture_owner@127.0.0.1:5432/rr_gateway_test_c2b_policy_ci
-        run: |
-          psql postgresql://fixture_owner@127.0.0.1:5432/postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE rr_gateway_test_c2b_policy_ci'
-          pnpm exec vitest run packages/features/review-config/src/tests/gateway-configuration.postgres.test.ts
+          RR_REVIEW_CONFIG_GATEWAY_PG_TEST_URL: postgresql://fixture_owner@127.0.0.1:5433/rr_gateway_test_c2b_policy_ci
+        run: pnpm exec vitest run packages/features/review-config/src/tests/gateway-configuration.postgres.test.ts
