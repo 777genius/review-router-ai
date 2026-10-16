@@ -1274,6 +1274,55 @@ describe("hosted setup recovery composition", () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
+  it.each([false, true])(
+    "reports a missing Gateway caller with actual merged=%s",
+    async (merged) => {
+      const f = fixture("main", "exact", "gateway");
+      const transport = f.request.getMockImplementation()!;
+      f.request.mockImplementation(async (route, parameters) => {
+        if (route === "GET /repos/{owner}/{repo}/pulls/{pull_number}") {
+          return {
+            data: {
+              merged,
+              state: merged ? "closed" : "open",
+              base: { ref: "main" },
+              head: { ref: f.historical.branch, sha: "b".repeat(40) },
+            },
+          };
+        }
+        // An open PR also requires the inspector to verify its setup branch.
+        // The shared fixture otherwise accepts only the pinned default ref.
+        if (
+          route === "GET /repos/{owner}/{repo}/git/ref/{ref}" &&
+          parameters?.ref === `heads/${f.historical.branch}`
+        )
+          return { data: { object: { sha: "b".repeat(40) } } };
+        if (route === "GET /repos/{owner}/{repo}/contents/{path}")
+          throw Object.assign(new Error("missing caller"), { status: 404 });
+        return transport(route, parameters);
+      });
+      const result = await confirmSetupPullRequestMergedClientAction(f.form);
+      expect(result.params.error).toBe(
+        merged ? "github_operation_not_found" : "setup_pr_not_merged",
+      );
+      expect(f.request).toHaveBeenCalledWith(
+        "GET /repos/{owner}/{repo}/contents/{path}",
+        expect.objectContaining({
+          path: ".github/workflows/reviewrouter-review.yml",
+          ref: commitSha,
+        }),
+      );
+      if (!merged)
+        expect(f.request).toHaveBeenCalledWith(
+          "GET /repos/{owner}/{repo}/git/ref/{ref}",
+          expect.objectContaining({ ref: `heads/${f.historical.branch}` }),
+        );
+      expect(mocks.gatewayProvisioning).not.toHaveBeenCalled();
+      expect(f.state.workflowProvisioning.updateMany).not.toHaveBeenCalled();
+      expect(f.state.current()).toEqual(f.historical);
+    },
+  );
+
   it.each([
     "exact",
     "inherited_workspace",

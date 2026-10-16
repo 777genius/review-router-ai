@@ -43,7 +43,12 @@ export const reviewRouterRuntimeWorkflowRefPattern = new RegExp(
   "i",
 );
 
-/** Only installation choices belong here; agent/provider policy stays server-owned. */
+/**
+ * Only installation choices belong here; agent/provider policy stays server-owned.
+ * Installed callers are verified against this template. Within workflow-v1,
+ * preserve its document semantics or accept the previous template explicitly;
+ * otherwise introduce a new workflow ABI major and an installation update.
+ */
 export function renderReviewRouterCaller(
   options: {
     readonly controlPlaneUrl?: string;
