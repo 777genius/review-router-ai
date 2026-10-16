@@ -266,6 +266,96 @@ describe("dashboard setup PR recovery", () => {
     },
   );
 
+  // RED if inherited Gateway is refused before setup, unsupported workflow
+  // options pass through, or setup reaches GitHub before actor authorization.
+  it.each(["allowed", "explicit", "suggest", "unauthorized"] as const)(
+    "handles inherited workspace Gateway setup: %s",
+    async (scenario) => {
+      mocks.getPrisma.mockReturnValue({
+        repositoryConnection: {
+          findUnique: vi.fn(async () => ({
+            workspaceId: "workspace_1",
+            provider: "github",
+            githubRepositoryId: 456n,
+            owner: "acme",
+            name: "widget",
+            fullName: "acme/widget",
+            defaultBranch: "main",
+            visibility: "private",
+            installation: { id: "installation_1", githubInstallationId: 123n },
+          })),
+        },
+        reviewConfiguration: workspacePolicyHeadsFixture(),
+      });
+      mocks.resolveReviewRuntimeEnv.mockResolvedValue({
+        source: "workspace",
+        config: parseReviewConfiguration({
+          ...workspacePolicyFixture,
+          providers: [
+            {
+              kind: "codex",
+              authMode: "codex_account_gateway",
+              gatewayBindingId: "binding_1",
+              gatewayProfileRef: "default",
+              model: "gpt-5.5",
+            },
+          ],
+        }),
+      });
+      vi.stubEnv(
+        "REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF",
+        `777genius/review-router@${"a".repeat(40)}`,
+      );
+      mocks.isWorkflowSetupAlreadyCurrent.mockResolvedValue(true);
+      if (scenario === "unauthorized") {
+        mocks.assertDashboardRepositoryMutationAllowed.mockRejectedValueOnce(
+          new Error("repository_mutation_forbidden"),
+        );
+      }
+      const form = new FormData();
+      form.set("workspaceId", "workspace_1");
+      form.set("repositoryId", "repository_1");
+      form.set(
+        "workflowStyle",
+        scenario === "explicit" ? "explicit" : "reusable",
+      );
+      form.set(
+        "reviewDiscussionMode",
+        scenario === "suggest" ? "suggest" : "off",
+      );
+
+      const result = await createSetupPullRequestClientAction(form);
+
+      if (scenario === "allowed") {
+        expect(result.params).toMatchObject({
+          notice: "workflow_already_current",
+        });
+        expect(mocks.isWorkflowSetupAlreadyCurrent).toHaveBeenCalledWith(
+          expect.objectContaining({ codexSessionMode: "account-gateway" }),
+          expect.anything(),
+        );
+        expect(mocks.assertWorkspaceFeatureEntitlement).toHaveBeenCalledWith(
+          expect.objectContaining({
+            feature: "workflow_provisioning",
+            actor: "user:maintainer",
+          }),
+          expect.anything(),
+        );
+      } else {
+        expect(result.params.error).toBe(
+          scenario === "unauthorized"
+            ? "repository_mutation_forbidden"
+            : "account_gateway_workflow_options_not_supported",
+        );
+        expect(mocks.createGitHubAppInstallationOctokit).not.toHaveBeenCalled();
+        expect(mocks.isWorkflowSetupAlreadyCurrent).not.toHaveBeenCalled();
+        if (scenario === "unauthorized") {
+          expect(mocks.resolveReviewRuntimeEnv).not.toHaveBeenCalled();
+        }
+      }
+    },
+  );
+
   it("saves a workspace MiMo review configuration without an operator grant", async () => {
     const provider = {
       kind: "codex-mimo",

@@ -358,6 +358,29 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         modelTransport: "provider_api" as const,
       };
       expect(await snapshot.capture(input)).toMatchObject({ gateway: null });
+      // RED: selecting Claude for Gateway used to deny Secrets or audit Claude
+      // while the Secret-backed runtime independently installed Codex.
+      const claude = {
+        ...profiles[0]!,
+        profileRef: "approved-claude",
+        agentKind: "claude" as const,
+      };
+      const claudeGatewaySnapshot = new ProductionReviewRunRuntimeSnapshot(
+        prisma,
+        undefined,
+        undefined,
+        false,
+        claude.profileRef,
+      );
+      expect(
+        await claudeGatewaySnapshot.capture({
+          ...input,
+          producerRelease: {
+            ...producer,
+            agentProfiles: [...profiles, claude],
+          },
+        }),
+      ).toMatchObject({ gateway: null, agent: profiles[0]! });
       expect(
         await snapshot.capture({ ...input, modelTransport: "account_gateway" }),
       ).toBeNull();

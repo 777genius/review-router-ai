@@ -19,6 +19,7 @@ import {
   parseReviewRunRuntimeSnapshot,
   parseReviewAgentProfiles,
   selectReviewAgentProfile,
+  selectProviderApiReviewAgentProfile,
   type ReviewRunAuthorizationCandidate,
   type ReviewRunGatewaySelection,
   type ReviewRunGatewayLimits,
@@ -176,11 +177,14 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     const selected = selectedProviders[0];
     let agent: ReviewAgentProfile;
     try {
-      agent = selectReviewAgentProfile(
-        agentProfiles,
-        this.agentProfileRef,
-        modelTransport,
-      );
+      agent =
+        modelTransport === "provider_api"
+          ? selectProviderApiReviewAgentProfile(agentProfiles)
+          : selectReviewAgentProfile(
+              agentProfiles,
+              this.agentProfileRef,
+              modelTransport,
+            );
       const transports = configuration.providers.map((provider) =>
         provider.authMode === "codex_account_gateway"
           ? ("account_gateway" as const)

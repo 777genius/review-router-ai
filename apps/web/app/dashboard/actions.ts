@@ -1235,9 +1235,7 @@ async function createSetupPullRequestMutation(
     );
     if (
       accountGateway &&
-      (resolvedRuntime.source !== "repository" ||
-        workflowStyle === "explicit" ||
-        discussionMode === "suggest")
+      (workflowStyle === "explicit" || discussionMode === "suggest")
     ) {
       throw new Error("account_gateway_workflow_options_not_supported");
     }

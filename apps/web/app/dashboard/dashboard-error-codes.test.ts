@@ -54,6 +54,8 @@ describe("safeDashboardErrorCode", () => {
       safeDashboardErrorCode(new Error("codex_legacy_auth_requires_reconnect")),
     ).toBe("codex_legacy_auth_requires_reconnect");
     for (const code of [
+      "account_gateway_workflow_options_not_supported",
+      "gateway_review_reasoning_effort_unsupported",
       "codex_rotating_workflow_reattestation_stale",
       "codex_rotating_workflow_reattestation_invalid",
       "codex_rotating_workflow_reattestation_forbidden",
