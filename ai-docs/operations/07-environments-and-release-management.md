@@ -186,6 +186,35 @@ For a new public/stable runtime release:
 8. Verify generated/setup PRs use their intended channel or exact pin
 ```
 
+### Compatible Action-only hotfix on the installed private image
+
+The accepted Action173/174 producer overlays on unchanged SaaS171 establish this
+bounded alternative for compatible public runtime fixes. It does not publish a
+same-version private release: for an Action180 hotfix on private179, private `v1`
+and the private exact tag remain179. Consumers checking out both repositories by
+one exact `runtime_ref` cannot use the unpaired180 tag.
+
+Use this seam only when private code, image and database remain unchanged and the
+installed backend accepts the unchanged workflow ABI, schema/canonicalizer,
+capability/policy and immutable agent/runtime/protocol profiles. Any incompatibility
+or required private change uses the normal paired Release Order above.
+
+1. Accept the exact public commit, independent review, required CI, official exact
+   release and canonical manifest/checker. Verify compatibility against the actual
+   installed private source and retain its signed image/publication acceptance.
+2. Through the existing reviewed producer-overlay operator, append only the actual
+   approved producer to all role registries; retain every old row and profile.
+   Preserve the private image, database, credentials, flags and admission limits.
+3. Align the WEB Gateway Action ref and complete public seed/installer tuple with
+   the rotating Action ref. Preserve overlap order and retain the previous primary
+   for admitted runs; do not relabel the signed private release descriptor.
+4. Verify backend health, unchanged image/configuration and exact registry/ref
+   readback before the existing workflow ABI check and previous-SHA CAS promotion
+   of `workflow-v1`. Record this as Action-only adoption, not a paired private release.
+
+No review, CI, artifact-signature or runtime-admission gate is waived; no new
+release automation or mutable-tag execution authority is introduced.
+
 Why the Action repo goes first:
 
 - control plane release workflow checks that the matching Action tag already exists.
