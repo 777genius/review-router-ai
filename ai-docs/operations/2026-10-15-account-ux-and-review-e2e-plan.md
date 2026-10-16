@@ -1,6 +1,6 @@
 # План: управление аккаунтами и оставшийся review E2E
 
-Дата: 2026-10-15. Статус: **Accounts UX реализован в кандидате PR598; qualification и доставка отслеживаются отдельно. Browser177 и два новых review остаются pending**.
+Дата: 2026-10-15; обновление исполнения: 2026-10-16. Статус: **PR598 доставлен на177, недеструктивный browser UX и clean review приняты. Seeded review и TEST-canary требуют исправлений178; фактический остаток — в §7.** Таблицы ранних checkpoints ниже сохраняют исторический контекст.
 
 Цель: понятное управление одним аккаунтом в личном пространстве и организациях, корректный общий summary renderer и два содержательных обычных MiMo review после согласованной доставки177. Не менять account authority, provider filters, историю операций или правила безопасности ради успешного теста.
 
@@ -88,3 +88,14 @@
 - UX source audit на SaaS93392: `tmp/personal-sharing-h-20261015/ux-followup-review/review.md`, SHA256 `bb90b42d3fb417c4497b78e22b8c1f4a741d7ca2c838418410205cc9bf8946d1`; это source audit, не usability test.
 - H positive176 receipt SHA256 `7c8744583711c7588b58e0415c062d1032eb8529abb18b0bb99c7c18f9598363`; original176 `919a99cf…`; supported restore15 `49793f2b…`; additional-two-PR preparationr2 `c70b33f8…`. Полные files/hashes остаются в соответствующих ignored `tmp/` evidence directories основного checkout, не в production state.
 - Исторически создание плана не меняло runtime. Последующая реализация включена в PR598; source acceptance, hosted qualification, публикация и production acceptance — отдельные факты, а не следствие наличия этого документа.
+
+## 7. Фактическое исполнение и согласованная партия178
+
+- Private177 установлен: source `cd4384f13eaca66f42fd6890c7a4deaa296a28d6`, image `sha256:5bb6306956489c59cc71fade15542e7314869f478e1642cca512152b96043ff8`; публичный канал явно переведён на producer `175e3a1f86712373226e767561c3cd0d32066228`. Это состоявшаяся доставка177, не178.
+- Browser177: Accounts → Models → обратно, ownership/shared context, Cancel retirement/detach приняты без отправки операций. В фоновой вкладке React откладывал завершение рендера; foreground устранил задержку без source/CSP-изменений. Контролируемые lifecycle fixtures не заменяются этими Cancel-проверками.
+- Clean PR1073 принят владельцем живого E2E (retained receipt `6b8fe5…`). Старый seeded unknown `00f68…` и capacity-partial run `388248…` сохранены как отдельные незавершённые исходы; они не засчитываются за новый успешный seeded review.
+- TEST setup прошёл обычный UI-путь: prep PR15 → исходный App PR16 с удалением старого caller → merge без правок → успешное подтверждение после одного безопасного transient retry. TEST run `38825176939/a1` затем завершился `required_review_coverage_incomplete`: старая дискуссия об удалённом caller была ошибочно включена в обязательное покрытие текущего diff. Исходный partial, App neutral и история не переписываются.
+- Для178 нужны два подтверждённых исправления: Gateway различает временную concurrency-занятость и постоянную quota, возвращая retry-after только при `not_dispatched`; Action сохраняет off-diff историю видимой как uncertain/manual attention, без auto-resolve и без All Clear, но не считает её пропуском обязательного текущего покрытия. In-scope/capped/failed coverage остаётся строгой.
+- Текущая production relay policy имеет `waitBudgetMs=1000`, `maxWaits=1`. При той же согласованной активации178 предусмотрен только bounded delta `waitBudgetMs=120000`, `maxWaits=128`: существующая очередь, без повышения native concurrency/quota и без изменения credentials, request timeout или остальных policy-полей. Пока это согласованный delta, не выполненная запись.
+- Одна когерентная доставка178 включает квалифицированные source/artifact пары, Gateway fix и этот relay delta. После фактической активации выполняются только недостающие seeded review и обычный TEST-canary. Не нужны RAM/новая test matrix, удаление истории, новая инфраструктура или дублирующий provider submit.
+- Exact source/head/run/account/closure receipts итоговой178 будут добавлены после выполнения. **178 ещё не считается установленной или прошедшей E2E.**
