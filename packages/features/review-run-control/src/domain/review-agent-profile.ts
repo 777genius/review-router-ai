@@ -28,3 +28,16 @@ export function selectReviewAgentProfile(
     invalid("review_agent_profile_unavailable");
   return selected;
 }
+
+/** Matches the Secret-backed runtime's bundled Codex selection contract. */
+export function selectProviderApiReviewAgentProfile(
+  profiles: unknown,
+): ReviewAgentProfile {
+  const candidates = parseReviewAgentProfiles(profiles).filter(
+    (profile) =>
+      profile.agentKind === "codex" &&
+      profile.modelTransports.includes("provider_api"),
+  );
+  if (candidates.length !== 1) invalid("review_agent_profile_unavailable");
+  return candidates[0]!;
+}

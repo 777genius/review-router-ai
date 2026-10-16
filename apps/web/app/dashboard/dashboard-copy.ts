@@ -433,6 +433,10 @@ export function dashboardErrorText(error: string): string {
       return "GitHub is temporarily unavailable for this action. Retry after GitHub recovers.";
     case "hosted_account_subject_already_enrolled":
       return "This ChatGPT is already on the list, or it was removed and cannot be added again.";
+    case "account_gateway_workflow_options_not_supported":
+      return "Gateway setup requires the reusable workflow style and review discussions turned off. Update these options and try again.";
+    case "gateway_review_reasoning_effort_unsupported":
+      return "The selected Gateway model does not support this reasoning effort. Choose a supported reasoning effort in review settings and save again.";
     case "gateway_review_v2_inventory_retry":
       return "GitHub is still calculating pull request mergeability, or branches changed during the workflow check. Wait a minute, then click “I merged it” again to check the setup.";
     case "gateway_review_v2_workflow_incompatible":

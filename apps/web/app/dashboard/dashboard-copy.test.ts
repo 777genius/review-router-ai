@@ -54,3 +54,13 @@ it.each([
   expect(copy).not.toContain("GitHub operation failed");
   expect(copy).not.toMatch(/rerun|restart|replay/i);
 });
+
+it.each([
+  ["account_gateway_workflow_options_not_supported", "reusable workflow style"],
+  [
+    "gateway_review_reasoning_effort_unsupported",
+    "Choose a supported reasoning effort",
+  ],
+])("explains the configuration correction for %s", (issue, guidance) => {
+  expect(dashboardErrorText(issue)).toContain(guidance);
+});

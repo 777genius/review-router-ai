@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseReviewAgentProfiles,
   selectReviewAgentProfile,
+  selectProviderApiReviewAgentProfile,
 } from "../domain/review-agent-profile";
 const profile = {
   profileRef: "approved-codex",
@@ -42,6 +43,49 @@ describe("approved producer agent profiles", () => {
         "account_gateway",
       ).agentKind,
     ).toBe("claude");
+  });
+  it("keeps the unique Secrets Codex independent of the explicit Gateway agent", () => {
+    const codex = {
+      ...profile,
+      modelTransports: ["provider_api", "account_gateway"],
+    };
+    const claude = {
+      ...codex,
+      profileRef: "approved-claude",
+      agentKind: "claude",
+    };
+    const profiles = [
+      { ...profile, profileRef: "gateway-only-codex" },
+      claude,
+      codex,
+    ];
+    expect(
+      selectReviewAgentProfile(profiles, claude.profileRef, "account_gateway"),
+    ).toEqual(claude);
+    expect(selectProviderApiReviewAgentProfile(profiles)).toEqual(codex);
+  });
+  it("rejects missing or ambiguous Secrets Codex profiles without fallback", () => {
+    const codex = { ...profile, modelTransports: ["provider_api"] };
+    const claude = {
+      ...codex,
+      profileRef: "approved-claude",
+      agentKind: "claude",
+    };
+    for (const profiles of [
+      [claude],
+      [profile, claude],
+      [codex, { ...codex, profileRef: "second-codex" }, claude],
+    ])
+      expect(() => selectProviderApiReviewAgentProfile(profiles)).toThrow(
+        "review_agent_profile_unavailable",
+      );
+    // A valid matching row never bypasses validation of the approved bundle.
+    expect(() =>
+      selectProviderApiReviewAgentProfile([
+        codex,
+        { ...claude, cancellation: false },
+      ]),
+    ).toThrow();
   });
   it("rejects unknown profiles and unsupported transports without fallback", () => {
     expect(() =>

@@ -183,9 +183,12 @@ cover actual allowed/denied fork/events and attempt/head mismatch, tool env scru
 One run capability has approved server deadline distinct from OIDC mint expiry; no caller extension. Test valid long run after OIDC mint expiry,
 then denied postdeadline/revoke. Existing RR finality/head/publication idempotency remains mandatory, App bot authors every advisory/inline
 comment.
-Use current App-first client-triggered T0 schema v2: `.github/workflows/reviewrouter-codex.yml`, immutable
-`reviewrouter-t0-reusable.yml`, repository-scoped `provider_instance_id` and OIDC `id-token: write`. New gateway auth mode
-injects no upstream credential. No legacy direct workflow or review publication through `github.token`; coordinate generated workflow/control plane.
+Account Gateway uses the App-first neutral `.github/workflows/reviewrouter-review.yml` caller with
+`777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1`, inputs `review_request_id`, `pr_number`,
+`review_head_sha` and OIDC `id-token: write`; upstream Gateway credentials never enter CI. Follow the canonical workflow template and
+[release/channel process](../operations/07-environments-and-release-management.md#channels); compatible Gateway updates preserve this ABI.
+GitHub Secrets and Hosted Pool retain their approved existing entrypoints and exact runtime/Action pins with App-first/OIDC authorization;
+this channel does not make every auth mode auto-update. No legacy direct workflow or review publication through `github.token`.
 Use our Accounts connect/rename/reconnect/disable UI and Models/repository batch controls. Server authorization/first paint; shared Radix
 primitives, React Query only for useful safe cached interactions. Credentials use one-off server ingress, never query/mutation cache/local
 storage/readback.
