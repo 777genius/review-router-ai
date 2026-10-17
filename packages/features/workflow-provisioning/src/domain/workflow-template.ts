@@ -9,6 +9,7 @@ import {
   reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
 import {
+  areManagedWorkflowDocumentsAttested,
   areWorkflowDocumentsSemanticallyEqual,
   readCanonicalWorkflowDocument,
   codexRotatingMaxChangedLinesVariableName,
@@ -29,6 +30,7 @@ import {
 } from "@reviewrouter/features-codex-oauth-rotating";
 
 export {
+  areManagedWorkflowDocumentsAttested,
   areWorkflowDocumentsSemanticallyEqual,
   renderCodexRotatingAdvisoryWorkflow,
   scanCodexRotatingAdvisoryWorkflow,

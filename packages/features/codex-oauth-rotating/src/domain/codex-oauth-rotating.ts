@@ -3203,6 +3203,47 @@ export function areWorkflowDocumentsSemanticallyEqual(
   }
 }
 
+/**
+ * Managed-workflow attestation must survive repository Node tooling bumps:
+ * `node-version` selects the runner toolchain and is not part of the attested
+ * execution contract (pinned action revisions, steps, permissions, env), while
+ * a mismatch there must never invalidate an otherwise trusted bootstrap.
+ */
+export function areManagedWorkflowDocumentsAttested(
+  actual: string,
+  expected: string,
+): boolean {
+  try {
+    return (
+      JSON.stringify(
+        attestableWorkflowDocument(readCanonicalWorkflowDocument(actual)),
+      ) ===
+      JSON.stringify(
+        attestableWorkflowDocument(readCanonicalWorkflowDocument(expected)),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+function attestableWorkflowDocument(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(attestableWorkflowDocument);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        key === "node-version" || key === "node-version-file"
+          ? "<node-toolchain>"
+          : attestableWorkflowDocument(entry),
+      ]),
+    );
+  }
+  return value;
+}
+
 export function workflowDocumentSemanticSha256(source: string): string {
   return createHash("sha256")
     .update(JSON.stringify(readCanonicalWorkflowDocument(source)), "utf8")

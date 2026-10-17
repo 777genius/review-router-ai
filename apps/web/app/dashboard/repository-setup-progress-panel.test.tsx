@@ -140,6 +140,49 @@ describe("RepositorySetupProgressPanel", () => {
     ).toHaveProperty("disabled", true);
   });
 
+  it("hides the AI suggested replies option on gateway setup actions", () => {
+    render(
+      <RepositorySetupProgressPanel
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="777genius/example"
+        selected
+        archived={false}
+        initialSetupStatus="not_configured"
+        initialSetupPullRequestUrl={null}
+        workflowCurrent={false}
+        mutationsEnabled
+        initialStep={1}
+        expectedProviderAuthModes={["codex_account_gateway"]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Create setup PR/i }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Enable AI suggested replies")).toBeNull();
+  });
+
+  it("keeps the AI suggested replies option on legacy setup actions", () => {
+    render(
+      <RepositorySetupProgressPanel
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="777genius/example"
+        selected
+        archived={false}
+        initialSetupStatus="not_configured"
+        initialSetupPullRequestUrl={null}
+        workflowCurrent={false}
+        mutationsEnabled
+        initialStep={1}
+        expectedProviderAuthModes={["codex_subscription_oauth_rotating"]}
+      />,
+    );
+
+    expect(screen.getByText("Enable AI suggested replies")).toBeTruthy();
+  });
+
   it("keeps the real provider dialog open when confirmation advances progress", async () => {
     vi.stubGlobal(
       "fetch",
@@ -514,6 +557,48 @@ describe("RepositorySetupProgressPanel", () => {
 
     expect(
       await screen.findByText("Setup PR branch was deleted. Recreate it."),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Recreate setup PR/i }),
+    ).toBeTruthy();
+  });
+
+  it("turns a merged setup PR with foreign workflow bytes into a recovery step", async () => {
+    vi.mocked(confirmSetupPullRequestMergedClientAction).mockResolvedValueOnce({
+      params: {
+        error: "setup_pr_workflow_mismatch",
+        workspace: "workspace_1",
+        section: "repositories",
+      },
+    });
+
+    render(
+      <RepositorySetupProgressPanel
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="777genius/example"
+        selected
+        archived={false}
+        initialSetupStatus="setup_pr_open"
+        initialSetupPullRequestUrl="https://github.com/777genius/example/pull/1"
+        workflowCurrent={false}
+        mutationsEnabled
+        initialStep={2}
+        enableReviewAction={<button type="button">Enable review</button>}
+      />,
+    );
+
+    const mergeForm = screen
+      .getByRole("button", { name: "I merged it" })
+      .closest("form");
+    expect(mergeForm).toBeTruthy();
+
+    mergeForm!.requestSubmit();
+
+    expect(
+      await screen.findByText(
+        "Merged setup PR does not contain the expected workflow. Recreate it and merge without edits.",
+      ),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /Recreate setup PR/i }),

@@ -2318,9 +2318,14 @@ function WorkspaceCard({
                                 : ""}
                             </p>
                             {event.safeLastErrorSummary ? (
-                              <p className="mt-1 text-xs leading-5 text-slate-400">
-                                {event.safeLastErrorSummary}
-                              </p>
+                              <details className="mt-1">
+                                <summary className="cursor-pointer text-xs font-semibold text-slate-300">
+                                  {outboxFailureHeadline(event.lastErrorCode)}
+                                </summary>
+                                <p className="mt-1 text-xs leading-5 text-slate-400">
+                                  {event.safeLastErrorSummary}
+                                </p>
+                              </details>
                             ) : null}
                             <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-slate-500">
                               Updated {event.updatedAt.toISOString()}
@@ -3855,6 +3860,19 @@ function OrgRulesetAdvancedCard({
       </div>
     </details>
   );
+}
+
+function outboxFailureHeadline(lastErrorCode: string | null): string {
+  switch (lastErrorCode) {
+    case "handler_error":
+      return "Background processing failed — open for the captured error.";
+    case "unsupported_event_version":
+      return "No handler is registered for this event version.";
+    case "processing_stale":
+      return "A previous processing attempt timed out and was requeued.";
+    default:
+      return "Technical details";
+  }
 }
 
 function SupportMetric({

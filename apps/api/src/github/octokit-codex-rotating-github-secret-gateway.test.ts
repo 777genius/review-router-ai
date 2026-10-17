@@ -988,6 +988,91 @@ ${renderInteractionWorkflow({
     },
   );
 
+  it("attests the interaction workflow despite repository node-version tooling drift", async () => {
+    const actionRef = `777genius/review-router@${"a".repeat(40)}`;
+    const codexWorkflow = renderCodexRotatingAdvisoryWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.site",
+      providerInstanceId: "codex-rotating:123456",
+      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    });
+    const interactionWorkflow =
+      renderCanonicalCodexRotatingInteractionWorkflowV2({
+        actionRef,
+        apiUrl: "https://api.reviewrouter.site",
+        runtimeConfigMode: "oidc",
+      }).replace('node-version: "24"', 'node-version: "26.11.1"');
+    mocks.auth.mockResolvedValueOnce({
+      token: "ghs_contents_read_token",
+      expiresAt: "2026-05-25T12:15:00.000Z",
+      permissions: { contents: "read" },
+    });
+    mocks.request
+      .mockResolvedValueOnce(fileContent(codexWorkflow))
+      .mockResolvedValueOnce(fileContent(interactionWorkflow));
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+      trustedActionRefs: [actionRef],
+    });
+
+    await expect(
+      gateway.verifyManagedV2SessionBootstrapSource({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        repositoryFullName: "777genius/example",
+        owner: "777genius",
+        workflowPath: ".github/workflows/reviewrouter-interaction.yml",
+        workflowSha: "b".repeat(40),
+      }),
+    ).resolves.toEqual({ compatible: true });
+  });
+
+  it("still rejects interaction workflow tampering beyond node-version drift", async () => {
+    const actionRef = `777genius/review-router@${"a".repeat(40)}`;
+    const codexWorkflow = renderCodexRotatingAdvisoryWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.site",
+      providerInstanceId: "codex-rotating:123456",
+      reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
+    });
+    const interactionWorkflow =
+      renderCanonicalCodexRotatingInteractionWorkflowV2({
+        actionRef,
+        apiUrl: "https://api.reviewrouter.site",
+        runtimeConfigMode: "oidc",
+      })
+        .replace('node-version: "24"', 'node-version: "26.11.1"')
+        .replace(
+          'REVIEW_ROUTER_MODE: "interaction"',
+          'REVIEW_ROUTER_MODE: "interaction-tampered"',
+        );
+    mocks.auth.mockResolvedValueOnce({
+      token: "ghs_contents_read_token",
+      expiresAt: "2026-05-25T12:15:00.000Z",
+      permissions: { contents: "read" },
+    });
+    mocks.request
+      .mockResolvedValueOnce(fileContent(codexWorkflow))
+      .mockResolvedValueOnce(fileContent(interactionWorkflow));
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+      trustedActionRefs: [actionRef],
+    });
+
+    await expect(
+      gateway.verifyManagedV2SessionBootstrapSource({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        repositoryFullName: "777genius/example",
+        owner: "777genius",
+        workflowPath: ".github/workflows/reviewrouter-interaction.yml",
+        workflowSha: "b".repeat(40),
+      }),
+    ).resolves.toEqual({ compatible: false });
+  });
+
   it("rejects non-canonical or unregistered managed workflow source", async () => {
     const actionRef = `777genius/review-router@${"a".repeat(40)}`;
     const workflow = `${renderCodexRotatingAdvisoryWorkflow({

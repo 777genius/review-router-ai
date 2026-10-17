@@ -33,7 +33,8 @@ type SetupToast = {
 type SetupIssue =
   | "setup_pr_closed"
   | "setup_pr_branch_deleted"
-  | "setup_pr_wrong_base_branch";
+  | "setup_pr_wrong_base_branch"
+  | "setup_pr_workflow_mismatch";
 
 export function RepositorySetupProgressPanel({
   workspaceId,
@@ -433,6 +434,7 @@ function buildSetupSteps({
         workflowCurrent={workflowCurrent}
         workflowRefresh={workflowRefresh}
         mutationsEnabled={mutationsEnabled}
+        gatewayWorkflow={gatewayProviderSetup}
         onComplete={onSetupComplete}
       />
     ) : null;
@@ -727,7 +729,9 @@ function dashboardErrorText(error: string): string {
     case "setup_pr_branch_deleted":
       return "The saved setup PR branch was deleted, so GitHub cannot merge that PR anymore. Recreate the setup PR to continue.";
     case "setup_pr_wrong_base_branch":
-      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into dev, develop, or the repository default branch.";
+      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into the repository default branch.";
+    case "setup_pr_workflow_mismatch":
+      return "The merged setup PR does not contain the expected ReviewRouter workflow. Recreate the setup PR and merge it without edits, then check again.";
     case "dashboard_action_failed":
       return "The dashboard action failed. Retry once, then inspect server logs if it repeats.";
     case "github_operation_forbidden":
@@ -752,7 +756,8 @@ function normalizeSetupIssue(
 ): SetupIssue | null {
   return value === "setup_pr_closed" ||
     value === "setup_pr_branch_deleted" ||
-    value === "setup_pr_wrong_base_branch"
+    value === "setup_pr_wrong_base_branch" ||
+    value === "setup_pr_workflow_mismatch"
     ? value
     : null;
 }
@@ -765,5 +770,7 @@ function setupIssueHelperText(issue: SetupIssue): string {
       return "Setup PR branch was deleted. Recreate it.";
     case "setup_pr_wrong_base_branch":
       return "Setup PR was merged outside the allowed setup branches. Recreate it.";
+    case "setup_pr_workflow_mismatch":
+      return "Merged setup PR does not contain the expected workflow. Recreate it and merge without edits.";
   }
 }

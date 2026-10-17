@@ -306,7 +306,8 @@ export function isSetupRecoveryIssue(
   return (
     value === "setup_pr_closed" ||
     value === "setup_pr_branch_deleted" ||
-    value === "setup_pr_wrong_base_branch"
+    value === "setup_pr_wrong_base_branch" ||
+    value === "setup_pr_workflow_mismatch"
   );
 }
 
@@ -451,6 +452,22 @@ export function dashboardErrorText(error: string): string {
       return "Gateway authorization prerequisites are incomplete. Ask your workspace administrator to check the repository enrollment and safe server error code.";
     case "gateway_review_v2_safety_blocked":
       return "Workspace safety policy or an emergency stop blocks Gateway reviews. Ask your workspace administrator to review that restriction before checking setup again.";
+    case "gateway_review_v2_runtime_not_ready":
+      return "The Gateway review runtime is not ready on the server. Ask your workspace administrator to check the worker and runtime registration, then check the merged setup again.";
+    case "gateway_review_v2_release_registry_missing":
+      return "The Gateway release registry is not configured on the server. Ask your workspace administrator to register the review runtime release, then check the merged setup again.";
+    case "gateway_review_v2_policy_conflict":
+      return "The repository policy conflicts with the Gateway enrollment state. Ask your workspace administrator to review the saved policy and retry.";
+    case "gateway_review_v2_authority_conflict":
+      return "Another Gateway enrollment update is in progress for this repository. Wait a minute, then check the merged setup again.";
+    case "gateway_review_v2_authority_invalid":
+      return "The Gateway enrollment record is out of date. Refresh the dashboard and check the merged setup again.";
+    case "gateway_repository_identity_missing":
+      return "The repository identity is not registered with the Gateway yet. Sync the installation, then check the merged setup again.";
+    case "gateway_repository_binding_conflict":
+      return "This repository is already bound to a different Gateway enrollment. Ask your workspace administrator to reconcile the binding, then retry.";
+    case "mutation_authority_unavailable":
+      return "The service that applies this change is temporarily unavailable. Wait a minute, then retry.";
     case "github_operation_failed":
       return "GitHub operation failed. Check audit events or server logs for the safe error code.";
     case "repository_not_selected":
@@ -466,7 +483,9 @@ export function dashboardErrorText(error: string): string {
     case "setup_pr_branch_deleted":
       return "The saved setup PR branch was deleted, so GitHub cannot merge that PR anymore. Recreate the setup PR to continue.";
     case "setup_pr_wrong_base_branch":
-      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into dev, develop, or the repository default branch.";
+      return "The saved setup PR was merged outside the allowed setup branches. Recreate the setup PR, then merge it into the repository default branch.";
+    case "setup_pr_workflow_mismatch":
+      return "The merged setup PR does not contain the expected ReviewRouter workflow. Recreate the setup PR and merge it without edits, then check again.";
     case "repository_not_visible_to_github_app":
       return "The GitHub App installation cannot read this repository. Update App repository access or sync repositories, then try again.";
     case "provider_secret_not_found":

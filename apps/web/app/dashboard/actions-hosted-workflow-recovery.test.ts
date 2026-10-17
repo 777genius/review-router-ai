@@ -1904,6 +1904,27 @@ describe("hosted setup recovery composition", () => {
             }),
             expect.anything(),
           );
+        } else if (scenario === "changed_head_tampered" && mode === "gateway") {
+          // The gateway caller merged foreign bytes under a changed head: a
+          // permanent mismatch that recovers by recreation instead of retrying
+          // an endless not-merged wait. Tampered artifacts still never activate.
+          expect(result.params).toHaveProperty(
+            "error",
+            "setup_pr_workflow_mismatch",
+          );
+          expect(f.state.current()).toEqual({
+            ...f.historical,
+            status: "failed",
+            errorMessage: "setup_pr_workflow_mismatch",
+            revision: f.historical.revision + 1,
+          });
+          expect(f.state.workflowProvisioning.updateMany).toHaveBeenCalledTimes(
+            1,
+          );
+          expect(mocks.gatewayProvisioning).not.toHaveBeenCalled();
+          expect(mocks.ledgerActivate).not.toHaveBeenCalled();
+          expect(f.configWrites).not.toHaveBeenCalled();
+          expect(f.updateBinding).not.toHaveBeenCalled();
         } else {
           expect(result.params).toHaveProperty("error");
           expect(f.state.current()).toEqual(f.expectedCurrent());

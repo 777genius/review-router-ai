@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import {
   assertCanonicalCodexRotatingProviderId,
   canonicalCodexRotatingProviderId,
+  areManagedWorkflowDocumentsAttested,
   areWorkflowDocumentsSemanticallyEqual,
   readCanonicalCodexRotatingT0WorkflowSourceMetadata,
   readCanonicalIsolatedQualityWorkflowSourceMetadata,
@@ -732,7 +733,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
       compatible:
         claimedWorkflow !== null &&
         expectedInteractionWorkflows.some((expectedInteractionWorkflow) =>
-          areWorkflowDocumentsSemanticallyEqual(
+          areManagedWorkflowDocumentsAttested(
             claimedWorkflow,
             expectedInteractionWorkflow,
           ),

@@ -917,13 +917,24 @@ describe("dashboard setup PR recovery", () => {
             errorMessage: "setup_pr_wrong_base_branch",
             revision: historical.revision + 1,
           });
+        } else if (scenario === "head_mismatch_tampered") {
+          // A merged PR whose head is not the recorded artifact merged foreign
+          // bytes: a permanent mismatch that recovers by recreation instead of
+          // retrying an endless not-merged wait.
+          expect(result.params.error).toBe("setup_pr_workflow_mismatch");
+          expect(events).toEqual(["inspect_pr", "workflow:main"]);
+          expect(state.current()).toEqual({
+            ...historical,
+            status: "failed",
+            errorMessage: "setup_pr_workflow_mismatch",
+            revision: historical.revision + 1,
+          });
         } else {
           expect(state.workflowProvisioning.updateMany).not.toHaveBeenCalled();
           expect(state.current()).toEqual(expectedCurrent);
           if (
             scenario === "workflow_absent" ||
-            scenario === "workflow_wrong_ref" ||
-            scenario === "head_mismatch_tampered"
+            scenario === "workflow_wrong_ref"
           )
             expect(result.params.error).toBe("setup_pr_not_merged");
           if (scenario.includes("_during_") || scenario.startsWith("artifact_"))
