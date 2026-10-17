@@ -262,7 +262,9 @@ describe("ReviewConfigForm", () => {
     expect(
       form.querySelector('select[name="policyMode.limits.inlineMaxComments"]'),
     ).not.toBeNull();
-    expect(form.querySelector('select[name="policyMode.providers"]')).toBeNull();
+    expect(
+      form.querySelector('select[name="policyMode.providers"]'),
+    ).toBeNull();
     expect(providersMode()).toBe("inherit");
     expect(readRepositoryReviewPolicyForm(new FormData(form))).toEqual({
       schemaVersion: 3,
@@ -270,7 +272,9 @@ describe("ReviewConfigForm", () => {
     });
 
     addOverrideField("Providers");
-    expect(form.querySelector('select[name="policyMode.providers"]')).not.toBeNull();
+    expect(
+      form.querySelector('select[name="policyMode.providers"]'),
+    ).not.toBeNull();
     expect(readRepositoryReviewPolicyForm(new FormData(form))).toEqual({
       schemaVersion: 3,
       limits: { inlineMaxComments: workspacePolicy.limits.inlineMaxComments },
@@ -422,9 +426,7 @@ describe("ReviewConfigForm", () => {
             name: "Where to store account authentication?",
           })[0]!,
         );
-        fireEvent.click(
-          screen.getByRole("option", { name: /GitHub Actions/ }),
-        );
+        fireEvent.click(screen.getByRole("option", { name: /GitHub Actions/ }));
         expect(payload().providers[1]).toEqual(extra);
         expect(payload().providers[0]!.authMode).toBe("claude_code_oauth");
         expect(payload().providers[0]!.gatewayBindingId).toBeUndefined();
@@ -514,9 +516,9 @@ describe("ReviewConfigForm", () => {
         checkProviderRepositorySecretClientAction,
       ).mock.calls.length;
       choose(
-      "Where to store account authentication?",
-      /ReviewRouter account pool/,
-    );
+        "Where to store account authentication?",
+        /ReviewRouter account pool/,
+      );
       const submit = screen.getByRole("button", {
         name: /Save workspace default|Save repo settings/,
       });
@@ -556,7 +558,14 @@ describe("ReviewConfigForm", () => {
   // after entering the account pool, so the form could not be saved at once.
   it("auto-selects a sole gateway account and model when entering the account pool", () => {
     const page: AccountsPage = {
-      profiles: [{ id: "profile-mimo", label: "MiMo", protocol: "openai-responses", models: ["mimo-v2.6-pro"] }],
+      profiles: [
+        {
+          id: "profile-mimo",
+          label: "MiMo",
+          protocol: "openai-responses",
+          models: ["mimo-v2.6-pro"],
+        },
+      ],
       accounts: [gatewayPage.accounts[0]!],
       nextCursor: null,
     };
@@ -1213,11 +1222,9 @@ describe("ReviewConfigForm", () => {
       config: { ...workspacePolicy, providers: [provider] },
     });
     expect(
-      screen
-        .getByRole("combobox", {
-          name: "Where to store account authentication?",
-        })
-        .textContent,
+      screen.getByRole("combobox", {
+        name: "Where to store account authentication?",
+      }).textContent,
     ).toContain("ReviewRouter account pool (encrypted)");
     expect(
       screen.queryByRole("combobox", { name: "Provider auth" }),
@@ -1261,11 +1268,9 @@ describe("ReviewConfigForm", () => {
       screen.queryByRole("combobox", { name: "Provider auth" }),
     ).toBeNull();
     expect(
-      screen
-        .getByRole("combobox", {
-          name: "Where to store account authentication?",
-        })
-        .textContent,
+      screen.getByRole("combobox", {
+        name: "Where to store account authentication?",
+      }).textContent,
     ).toContain("ReviewRouter account pool (encrypted)");
   });
 

@@ -545,7 +545,9 @@ describe("ProviderSecretSetupChooser", () => {
     expect(
       screen.queryByTestId("provider-choice-codex-oauth-rotating"),
     ).toBeNull();
-    expect(screen.getByTestId("provider-choice-claude-code-oauth")).toBeTruthy();
+    expect(
+      screen.getByTestId("provider-choice-claude-code-oauth"),
+    ).toBeTruthy();
     expect(pageText()).toContain("Use your Claude Code subscription");
 
     cleanup();
@@ -554,7 +556,9 @@ describe("ProviderSecretSetupChooser", () => {
       claudeCodeProviderEnabled: false,
     });
 
-    expect(screen.getByTestId("provider-choice-mimo-token-plan-api-key")).toBeTruthy();
+    expect(
+      screen.getByTestId("provider-choice-mimo-token-plan-api-key"),
+    ).toBeTruthy();
     expect(pageText()).toContain("Use the MiMo Token Plan public engine");
   });
 
@@ -612,8 +616,12 @@ describe("ProviderSecretSetupChooser", () => {
     expect(
       screen.queryByTestId("provider-choice-codex-oauth-rotating"),
     ).toBeNull();
-    expect(screen.getByTestId("provider-choice-claude-code-oauth")).toBeTruthy();
-    expect(screen.getByTestId("provider-choice-openrouter-api-key")).toBeTruthy();
+    expect(
+      screen.getByTestId("provider-choice-claude-code-oauth"),
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("provider-choice-openrouter-api-key"),
+    ).toBeTruthy();
     expect(pageText()).toContain("Use your Claude Code subscription");
     expect(pageText()).not.toContain(
       "Rotating Codex OAuth is not enabled for this ReviewRouter deployment.",

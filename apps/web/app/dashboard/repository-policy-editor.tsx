@@ -160,7 +160,9 @@ const authStorageOptions = [
 type AuthStorageChoice = (typeof authStorageOptions)[number]["value"];
 
 function authStorageForAuthMode(authMode: ProviderAuthMode): AuthStorageChoice {
-  return authMode === "codex_account_gateway" ? "account_pool" : "github_actions";
+  return authMode === "codex_account_gateway"
+    ? "account_pool"
+    : "github_actions";
 }
 
 function buildProviderAuthOptions(input: {

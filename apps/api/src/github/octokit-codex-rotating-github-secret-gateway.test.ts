@@ -996,13 +996,12 @@ ${renderInteractionWorkflow({
       providerInstanceId: "codex-rotating:123456",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     });
-    const interactionWorkflow = renderCanonicalCodexRotatingInteractionWorkflowV2(
-      {
+    const interactionWorkflow =
+      renderCanonicalCodexRotatingInteractionWorkflowV2({
         actionRef,
         apiUrl: "https://api.reviewrouter.site",
         runtimeConfigMode: "oidc",
-      },
-    ).replace('node-version: "24"', 'node-version: "26.11.1"');
+      }).replace('node-version: "24"', 'node-version: "26.11.1"');
     mocks.auth.mockResolvedValueOnce({
       token: "ghs_contents_read_token",
       expiresAt: "2026-05-25T12:15:00.000Z",
@@ -1037,18 +1036,17 @@ ${renderInteractionWorkflow({
       providerInstanceId: "codex-rotating:123456",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     });
-    const interactionWorkflow = renderCanonicalCodexRotatingInteractionWorkflowV2(
-      {
+    const interactionWorkflow =
+      renderCanonicalCodexRotatingInteractionWorkflowV2({
         actionRef,
         apiUrl: "https://api.reviewrouter.site",
         runtimeConfigMode: "oidc",
-      },
-    )
-      .replace('node-version: "24"', 'node-version: "26.11.1"')
-      .replace(
-        'REVIEW_ROUTER_MODE: "interaction"',
-        'REVIEW_ROUTER_MODE: "interaction-tampered"',
-      );
+      })
+        .replace('node-version: "24"', 'node-version: "26.11.1"')
+        .replace(
+          'REVIEW_ROUTER_MODE: "interaction"',
+          'REVIEW_ROUTER_MODE: "interaction-tampered"',
+        );
     mocks.auth.mockResolvedValueOnce({
       token: "ghs_contents_read_token",
       expiresAt: "2026-05-25T12:15:00.000Z",
