@@ -539,6 +539,25 @@ describe("ProviderSecretSetupChooser", () => {
     );
   });
 
+  it("hides the Codex rotating tab and selects the next provider when rotating is disabled", () => {
+    renderProviderSecretSetupChooser({ codexRotatingOAuthEnabled: false });
+
+    expect(
+      screen.queryByTestId("provider-choice-codex-oauth-rotating"),
+    ).toBeNull();
+    expect(screen.getByTestId("provider-choice-claude-code-oauth")).toBeTruthy();
+    expect(pageText()).toContain("Use your Claude Code subscription");
+
+    cleanup();
+    renderProviderSecretSetupChooser({
+      codexRotatingOAuthEnabled: false,
+      claudeCodeProviderEnabled: false,
+    });
+
+    expect(screen.getByTestId("provider-choice-mimo-token-plan-api-key")).toBeTruthy();
+    expect(pageText()).toContain("Use the MiMo Token Plan public engine");
+  });
+
   it("shows one production Codex setup and hides legacy Codex credential modes", () => {
     renderProviderSecretSetupChooser();
 
@@ -582,6 +601,23 @@ describe("ProviderSecretSetupChooser", () => {
     expect(
       screen.queryByTestId("provider-choice-openrouter-api-key"),
     ).toBeNull();
+  });
+
+  it("falls back to enabled providers when pre-workflow rotating is unavailable", () => {
+    renderProviderSecretSetupChooser({
+      rotatingPreparationOnly: true,
+      codexRotatingOAuthEnabled: false,
+    });
+
+    expect(
+      screen.queryByTestId("provider-choice-codex-oauth-rotating"),
+    ).toBeNull();
+    expect(screen.getByTestId("provider-choice-claude-code-oauth")).toBeTruthy();
+    expect(screen.getByTestId("provider-choice-openrouter-api-key")).toBeTruthy();
+    expect(pageText()).toContain("Use your Claude Code subscription");
+    expect(pageText()).not.toContain(
+      "Rotating Codex OAuth is not enabled for this ReviewRouter deployment.",
+    );
   });
 
   it("mints rotating setup commands on demand when dashboard guidance has no serialized command", async () => {

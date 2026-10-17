@@ -25,7 +25,8 @@ export type WorkflowProvisioningPullRequestIdentity =
 type Failure =
   | "setup_pr_closed"
   | "setup_pr_branch_deleted"
-  | "setup_pr_wrong_base_branch";
+  | "setup_pr_wrong_base_branch"
+  | "setup_pr_workflow_mismatch";
 
 export class PrismaWorkflowProvisioningStatusAuthority {
   constructor(private readonly prisma: PrismaClient) {}

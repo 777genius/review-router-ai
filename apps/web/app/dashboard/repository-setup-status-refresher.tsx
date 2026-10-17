@@ -100,6 +100,7 @@ function isRecoverableSetupPullRequestError(
   return (
     value === "setup_pr_closed" ||
     value === "setup_pr_branch_deleted" ||
-    value === "setup_pr_wrong_base_branch"
+    value === "setup_pr_wrong_base_branch" ||
+    value === "setup_pr_workflow_mismatch"
   );
 }

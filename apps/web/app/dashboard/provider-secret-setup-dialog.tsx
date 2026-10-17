@@ -102,7 +102,7 @@ export function ProviderSecretSetupDialog({
                   Connect model credentials for {repositoryFullName}
                 </DialogTitle>
                 <DialogDescription className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-                  {rotatingPreparationOnly
+                  {rotatingPreparationOnly && codexRotatingOAuthEnabled
                     ? "Prepare the server-authorized rotating Codex credential first. The setup PR will then reference that exact versioned namespace."
                     : "Follow the provider-specific sequence below. Rotating Codex prepares a server-authorized versioned credential before its exact workflow is merged; other provider credentials are connected after the setup PR."}{" "}
                   Secrets are written directly to GitHub Actions, while

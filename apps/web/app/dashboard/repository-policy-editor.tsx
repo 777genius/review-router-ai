@@ -15,6 +15,7 @@ import {
   type FocusEvent,
 } from "react";
 import * as RadixSelect from "@radix-ui/react-select";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   reviewProviderConfigurationSchema,
@@ -140,6 +141,27 @@ const providerAuthOptionCopyByAuthMode = {
   ProviderAuthMode,
   { readonly label: string; readonly description: string }
 >;
+
+const authStorageOptions = [
+  {
+    value: "account_pool",
+    label: "ReviewRouter account pool (encrypted)",
+    description:
+      "Account credentials stay encrypted on the ReviewRouter server.",
+  },
+  {
+    value: "github_actions",
+    label: "GitHub Actions",
+    description:
+      "Account credentials stay in GitHub Actions secrets owned by the repository or organization.",
+  },
+] as const;
+
+type AuthStorageChoice = (typeof authStorageOptions)[number]["value"];
+
+function authStorageForAuthMode(authMode: ProviderAuthMode): AuthStorageChoice {
+  return authMode === "codex_account_gateway" ? "account_pool" : "github_actions";
+}
 
 function buildProviderAuthOptions(input: {
   readonly codexRotatingOAuthEnabled: boolean;
@@ -1328,18 +1350,41 @@ export function ReviewConfigForm({
         account.profileId === provider.gatewayProfileRef,
     );
   }
+  function gatewayModelsForAccount(account: {
+    readonly profileId: string;
+  }): string[] {
+    return (
+      gatewayPage?.profiles.find((profile) => profile.id === account.profileId)
+        ?.models ?? []
+    );
+  }
   function gatewayModelsForProvider(
     provider: ReviewProviderConfiguration,
   ): string[] {
     const account = gatewayAccountForProvider(provider);
-    return account
-      ? (gatewayPage?.profiles.find(
-          (profile) => profile.id === account.profileId,
-        )?.models ?? [])
-      : [];
+    return account ? gatewayModelsForAccount(account) : [];
+  }
+  function soleGatewaySelection(): {
+    gatewayBindingId: string;
+    gatewayProfileRef: string;
+    model: string;
+  } {
+    const soleAccount =
+      eligibleGatewayAccounts.length === 1
+        ? eligibleGatewayAccounts[0]
+        : undefined;
+    const models = soleAccount ? gatewayModelsForAccount(soleAccount) : [];
+    return {
+      gatewayBindingId: soleAccount?.binding?.id ?? "",
+      gatewayProfileRef: soleAccount?.profileId ?? "",
+      model: models.length === 1 ? (models[0] ?? "") : "",
+    };
   }
   const providersInherited =
     repositoryPolicy !== undefined && overrideModes.providers === "inherit";
+  const addableOverrideFields = repositoryPolicyFormFields.filter(
+    (field) => overrideModes[field.join(".")] !== "override",
+  );
   const accountsHref = dashboardSectionHref(
     "setup",
     hiddenFields.find((field) => field.name === "workspaceId")?.value,
@@ -1425,6 +1470,25 @@ export function ReviewConfigForm({
         )
       )
         return current;
+      if (current.length === 0 && eligibleGatewayAccounts.length > 0) {
+        const selection = soleGatewaySelection();
+        return [
+          withGatewayModel(
+            {
+              kind: "codex",
+              authMode: "codex_account_gateway",
+              model: "",
+              reasoningEffort: "high",
+              agenticContext: true,
+              fastMode: false,
+              requiredHealthy: true,
+              gatewayBindingId: selection.gatewayBindingId,
+              gatewayProfileRef: selection.gatewayProfileRef,
+            },
+            selection.model,
+          ),
+        ];
+      }
       const nextProvider: ReviewProviderConfiguration = openRouterDefault
         ? {
             kind: "openrouter",
@@ -1465,16 +1529,23 @@ export function ReviewConfigForm({
     if (authMode === "codex_account_gateway") {
       if (providers.length !== 1 || eligibleGatewayAccounts.length === 0)
         return;
-      // Transitional empty fields cannot be submitted; account/model selection is explicit.
-      updateProvider(index, (provider) => ({
-        ...provider,
-        kind: "codex",
-        authMode,
-        gatewayBindingId: "",
-        gatewayProfileRef: "",
-        model: "",
-        fastMode: false,
-      }));
+      // A single unambiguous account/model is preselected; anything else stays
+      // explicit so transitional empty fields cannot be submitted.
+      updateProvider(index, (provider) => {
+        const selection = soleGatewaySelection();
+        return withGatewayModel(
+          {
+            ...provider,
+            kind: "codex",
+            authMode,
+            gatewayBindingId: selection.gatewayBindingId,
+            gatewayProfileRef: selection.gatewayProfileRef,
+            model: "",
+            fastMode: false,
+          },
+          selection.model,
+        );
+      });
       return;
     }
     const kind = providerKindForAuthMode(authMode);
@@ -1514,26 +1585,57 @@ export function ReviewConfigForm({
     (provider) => provider.authMode === "codex_subscription_oauth_rotating",
   );
 
-  function providerAuthOptionsForProvider(
-    provider: ReviewProviderConfiguration,
-  ): readonly DashboardSelectOption[] {
-    const gatewayDisabledMessage =
+  function authStorageOptionsForProvider(): readonly DashboardSelectOption[] {
+    const poolUnavailable =
+      providers.length > 1 || eligibleGatewayAccounts.length === 0;
+    const poolUnavailableMessage =
       providers.length > 1
         ? gatewaySingleProviderMessage
         : gatewayAvailabilityMessage;
-    const options = [
-      ...providerAuthOptions,
-      {
-        value: "codex_account_gateway",
-        providerAuthMode: "codex_account_gateway" as const,
-        ...providerAuthOptionCopyByAuthMode.codex_account_gateway,
-        disabled: providers.length > 1 || eligibleGatewayAccounts.length === 0,
-        ...(gatewayDisabledMessage
-          ? { description: gatewayDisabledMessage }
-          : {}),
-      },
-    ];
-    return options.map((option) => {
+    return authStorageOptions.map((option) =>
+      option.value === "account_pool" && poolUnavailable
+        ? {
+            ...option,
+            disabled: true,
+            ...(poolUnavailableMessage
+              ? { description: poolUnavailableMessage }
+              : {}),
+          }
+        : option,
+    );
+  }
+
+  function defaultGitHubActionsAuthMode(): ReviewProviderConfiguration["authMode"] {
+    return (
+      providerAuthModeOrder.find(
+        (authMode) =>
+          (authMode !== "codex_subscription_oauth_rotating" ||
+            codexRotatingOAuthEnabled) &&
+          (authMode !== "claude_code_oauth" || claudeCodeProviderEnabled),
+      ) ?? "mimo_token_plan_api_key"
+    );
+  }
+
+  function providerAuthOptionsForProvider(
+    provider: ReviewProviderConfiguration,
+  ): readonly DashboardSelectOption[] {
+    const options = [...providerAuthOptions];
+    // The saved auth mode must stay submittable even when this surface hides it
+    // for new selections (e.g. rotating Codex while the deployment or workspace
+    // scope disables it); otherwise the form silently rewrites the mode.
+    const optionsWithSavedAuthMode = options.some(
+      (option) => option.value === provider.authMode,
+    )
+      ? options
+      : [
+          ...options,
+          {
+            value: provider.authMode,
+            providerAuthMode: provider.authMode,
+            ...providerAuthOptionCopyByAuthMode[provider.authMode],
+          },
+        ];
+    return optionsWithSavedAuthMode.map((option) => {
       if (
         option.providerAuthMode === "codex_subscription_oauth_rotating" &&
         codexRotatingSelected &&
@@ -1579,16 +1681,22 @@ export function ReviewConfigForm({
             </legend>
             {repositoryPolicyFormFields.map((field) => {
               const name = field.join(".");
+              if (overrideModes[name] !== "override") {
+                return (
+                  <input
+                    key={name}
+                    type="hidden"
+                    name={`policyMode.${name}`}
+                    value="inherit"
+                  />
+                );
+              }
               return (
                 <label
                   key={name}
                   className="flex items-center justify-between gap-2 text-xs"
                 >
-                  <span>
-                    {(field.at(-1) ?? "")
-                      .replace(/([A-Z])/g, " $1")
-                      .replace(/^./, (value) => value.toUpperCase())}
-                  </span>
+                  <span>{overrideFieldLabel(field)}</span>
                   <select
                     name={`policyMode.${name}`}
                     value={overrideModes[name]}
@@ -1606,6 +1714,18 @@ export function ReviewConfigForm({
                 </label>
               );
             })}
+            {addableOverrideFields.length > 0 ? (
+              <AddOverrideFieldMenu
+                disabled={!mutationsEnabled}
+                fields={addableOverrideFields}
+                onAdd={(name) =>
+                  setOverrideModes((previous) => ({
+                    ...previous,
+                    [name]: "override",
+                  }))
+                }
+              />
+            ) : null}
           </fieldset>
         )}
         <input type="hidden" name="providerCount" value={providers.length} />
@@ -1674,6 +1794,11 @@ export function ReviewConfigForm({
                     <>
                       <input
                         type="hidden"
+                        name={`providerAuthMode.${index}`}
+                        value="codex_account_gateway"
+                      />
+                      <input
+                        type="hidden"
                         name={`providerGatewayBindingId.${index}`}
                         value={provider.gatewayBindingId}
                       />
@@ -1716,19 +1841,40 @@ export function ReviewConfigForm({
 
                   <div className="grid gap-4 md:grid-cols-2 md:gap-x-8 md:gap-y-5">
                     <DashboardSelectField
-                      name={`providerAuthMode.${index}`}
-                      label="Provider auth"
-                      helpText={fieldHelp.providerAuthMode}
-                      value={provider.authMode}
+                      label="Where to store account authentication?"
+                      helpText="Choose where this provider's account credential is stored."
+                      value={authStorageForAuthMode(provider.authMode)}
                       disabled={providersInherited || !mutationsEnabled}
-                      options={providerAuthOptionsForProvider(provider)}
-                      onValueChange={(value) =>
-                        changeProviderAuth(
-                          index,
-                          value as ReviewProviderConfiguration["authMode"],
-                        )
-                      }
+                      options={authStorageOptionsForProvider()}
+                      onValueChange={(value) => {
+                        if (value === "account_pool") {
+                          changeProviderAuth(index, "codex_account_gateway");
+                        } else if (
+                          provider.authMode === "codex_account_gateway"
+                        ) {
+                          changeProviderAuth(
+                            index,
+                            defaultGitHubActionsAuthMode(),
+                          );
+                        }
+                      }}
                     />
+                    {provider.authMode === "codex_account_gateway" ? null : (
+                      <DashboardSelectField
+                        name={`providerAuthMode.${index}`}
+                        label="Provider auth"
+                        helpText={fieldHelp.providerAuthMode}
+                        value={provider.authMode}
+                        disabled={providersInherited || !mutationsEnabled}
+                        options={providerAuthOptionsForProvider(provider)}
+                        onValueChange={(value) =>
+                          changeProviderAuth(
+                            index,
+                            value as ReviewProviderConfiguration["authMode"],
+                          )
+                        }
+                      />
+                    )}
                     {provider.authMode === "codex_account_gateway" ? (
                       <>
                         <DashboardSelectField
@@ -1763,6 +1909,8 @@ export function ReviewConfigForm({
                               (choice) => choice.binding?.id === value,
                             );
                             if (!account) return;
+                            // A changed account always clears the model so a
+                            // stale model cannot submit with new credentials.
                             updateProvider(index, (current) =>
                               current.authMode === "codex_account_gateway"
                                 ? {
@@ -1800,19 +1948,9 @@ export function ReviewConfigForm({
                           }))}
                           onValueChange={(model) => {
                             if (gatewayModels.includes(model))
-                              updateProvider(index, (current) => ({
-                                ...current,
-                                model,
-                                reasoningEffort:
-                                  isGatewayMiMoModel(model) &&
-                                  !isGatewayMiMoModel(current.model) &&
-                                  !gatewayModelSupportsReasoningEffort(
-                                    model,
-                                    current.reasoningEffort,
-                                  )
-                                    ? defaultGatewayMiMoReasoningEffort
-                                    : current.reasoningEffort,
-                              }));
+                              updateProvider(index, (current) =>
+                                withGatewayModel(current, model),
+                              );
                           }}
                         />
                       </>
@@ -2156,6 +2294,22 @@ function normalizeCodexRotatingProvidersForForm(
   );
 }
 
+function withGatewayModel(
+  provider: ReviewProviderConfiguration,
+  model: string,
+): ReviewProviderConfiguration {
+  return {
+    ...provider,
+    model,
+    reasoningEffort:
+      isGatewayMiMoModel(model) &&
+      !isGatewayMiMoModel(provider.model) &&
+      !gatewayModelSupportsReasoningEffort(model, provider.reasoningEffort)
+        ? defaultGatewayMiMoReasoningEffort
+        : provider.reasoningEffort,
+  };
+}
+
 function resolveProviderAfterAuthChange(input: {
   readonly provider: ReviewProviderConfiguration;
   readonly authMode: Exclude<
@@ -2215,6 +2369,58 @@ function ensureAtLeastOneRequiredProvider(
     ...provider,
     requiredHealthy: index === 0,
   }));
+}
+
+function overrideFieldLabel(field: readonly string[]): string {
+  return (field.at(-1) ?? "")
+    .replace(/([A-Z])/g, " $1")
+    .replace(/^./, (value) => value.toUpperCase());
+}
+
+function AddOverrideFieldMenu({
+  disabled,
+  fields,
+  onAdd,
+}: {
+  readonly disabled: boolean;
+  readonly fields: readonly (readonly string[])[];
+  readonly onAdd: (name: string) => void;
+}): React.ReactElement {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          className="inline-flex min-h-9 w-fit items-center gap-2 rounded-lg border border-cyan-300/35 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          + Add field to override
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="start"
+          sideOffset={8}
+          collisionPadding={12}
+          className="z-[90] max-h-80 min-w-[14rem] overflow-hidden rounded-xl border border-cyan-200/20 bg-[var(--rr-surface-menu)] p-1 text-cyan-50 shadow-[0_20px_70px_rgba(0,0,0,0.62)]"
+        >
+          {fields.map((field) => {
+            const name = field.join(".");
+            return (
+              <DropdownMenu.Item
+                key={name}
+                onSelect={() => onAdd(name)}
+                className="cursor-pointer rounded-lg px-3 py-2 text-sm text-slate-300 outline-none transition data-[highlighted]:bg-cyan-300/[0.08] data-[highlighted]:text-cyan-50"
+              >
+                {overrideFieldLabel(field)}
+              </DropdownMenu.Item>
+            );
+          })}
+          <DropdownMenu.Arrow className="fill-[var(--rr-surface-menu)]" />
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
 }
 
 function DashboardFieldLabel({

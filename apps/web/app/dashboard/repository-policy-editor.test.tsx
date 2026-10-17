@@ -141,6 +141,15 @@ const modelOptions = [
   },
 ];
 
+vi.stubGlobal(
+  "ResizeObserver",
+  class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  },
+);
+
 afterEach(() => {
   vi.clearAllMocks();
   vi.mocked(clearRepositoryReviewConfigClientAction).mockReset();
@@ -234,6 +243,41 @@ describe("ReviewConfigForm", () => {
     });
   });
 
+  it("shows only overridden fields and reveals a field added from the menu", () => {
+    const { container } = render(
+      <ReviewConfigForm
+        action={vi.fn()}
+        config={workspacePolicy}
+        repositoryPolicy={{
+          schemaVersion: 3,
+          limits: { inlineMaxComments: 0 },
+        }}
+        hiddenFields={[]}
+        modelOptions={modelOptions}
+        mutationsEnabled={true}
+        submitLabel="Save"
+      />,
+    );
+    const form = container.querySelector("form")!;
+    expect(
+      form.querySelector('select[name="policyMode.limits.inlineMaxComments"]'),
+    ).not.toBeNull();
+    expect(form.querySelector('select[name="policyMode.providers"]')).toBeNull();
+    expect(providersMode()).toBe("inherit");
+    expect(readRepositoryReviewPolicyForm(new FormData(form))).toEqual({
+      schemaVersion: 3,
+      limits: { inlineMaxComments: workspacePolicy.limits.inlineMaxComments },
+    });
+
+    addOverrideField("Providers");
+    expect(form.querySelector('select[name="policyMode.providers"]')).not.toBeNull();
+    expect(readRepositoryReviewPolicyForm(new FormData(form))).toEqual({
+      schemaVersion: 3,
+      limits: { inlineMaxComments: workspacePolicy.limits.inlineMaxComments },
+      providers: workspacePolicy.providers,
+    });
+  });
+
   it("offers qualified MiMo Gateway reasoning with High default and explicit invalid-value repair", () => {
     const page = {
       ...gatewayPage,
@@ -255,7 +299,10 @@ describe("ReviewConfigForm", () => {
     const first = render(
       <ReviewConfigForm {...props} config={workspacePolicy} />,
     );
-    choose("Provider auth", /Account Gateway/);
+    choose(
+      "Where to store account authentication?",
+      /ReviewRouter account pool/,
+    );
     choose("Account", /Workspace mimo/);
     choose("Model", /^mimo-v2.6-pro$/);
     const form = document.querySelector("form")!;
@@ -371,13 +418,15 @@ describe("ReviewConfigForm", () => {
 
       if (repair === "switch-to-direct") {
         fireEvent.click(
-          screen.getAllByRole("combobox", { name: "Provider auth" })[0]!,
+          screen.getAllByRole("combobox", {
+            name: "Where to store account authentication?",
+          })[0]!,
         );
         fireEvent.click(
-          screen.getByRole("option", { name: /OpenRouter API key/i }),
+          screen.getByRole("option", { name: /GitHub Actions/ }),
         );
         expect(payload().providers[1]).toEqual(extra);
-        expect(payload().providers[0]!.authMode).toBe("openrouter_api_key");
+        expect(payload().providers[0]!.authMode).toBe("claude_code_oauth");
         expect(payload().providers[0]!.gatewayBindingId).toBeUndefined();
         expect(payload().providers[0]!.gatewayProfileRef).toBeUndefined();
         expect(add.hasAttribute("disabled")).toBe(false);
@@ -386,12 +435,16 @@ describe("ReviewConfigForm", () => {
         fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[2]!);
         expect(payload().providers).toHaveLength(2);
         fireEvent.click(
-          screen.getAllByRole("combobox", { name: "Provider auth" })[0]!,
+          screen.getAllByRole("combobox", {
+            name: "Where to store account authentication?",
+          })[0]!,
         );
-        const gateway = screen.getByRole("option", { name: /Account Gateway/ });
-        expect(gateway.getAttribute("aria-disabled")).toBe("true");
-        expect(gateway.textContent).toContain("only one provider");
-        fireEvent.keyDown(gateway, { key: "Escape" });
+        const pool = screen.getByRole("option", {
+          name: /ReviewRouter account pool/,
+        });
+        expect(pool.getAttribute("aria-disabled")).toBe("true");
+        expect(pool.textContent).toContain("only one provider");
+        fireEvent.keyDown(pool, { key: "Escape" });
       } else {
         fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[1]!);
         expect(payload().providers).toEqual([provider]);
@@ -455,15 +508,15 @@ describe("ReviewConfigForm", () => {
         fireEvent.click(screen.getByRole("button", { name: /Edit settings/ }));
       }
       if (scope === "repository") {
-        fireEvent.change(
-          document.querySelector('select[name="policyMode.providers"]')!,
-          { target: { value: "override" } },
-        );
+        addOverrideField("Providers");
       }
       const legacySecretChecks = vi.mocked(
         checkProviderRepositorySecretClientAction,
       ).mock.calls.length;
-      choose("Provider auth", /Account Gateway/);
+      choose(
+      "Where to store account authentication?",
+      /ReviewRouter account pool/,
+    );
       const submit = screen.getByRole("button", {
         name: /Save workspace default|Save repo settings/,
       });
@@ -498,6 +551,44 @@ describe("ReviewConfigForm", () => {
       );
     },
   );
+
+  // Regression: a sole ready account/model left two empty mandatory pickers
+  // after entering the account pool, so the form could not be saved at once.
+  it("auto-selects a sole gateway account and model when entering the account pool", () => {
+    const page: AccountsPage = {
+      profiles: [{ id: "profile-mimo", label: "MiMo", protocol: "openai-responses", models: ["mimo-v2.6-pro"] }],
+      accounts: [gatewayPage.accounts[0]!],
+      nextCursor: null,
+    };
+    render(
+      <ReviewConfigForm
+        action={vi.fn()}
+        config={workspacePolicy}
+        modelOptions={modelOptions}
+        gatewayAccounts={{ status: "ok", value: page }}
+        hiddenFields={[]}
+        mutationsEnabled={true}
+        submitLabel="Save"
+      />,
+    );
+    choose(
+      "Where to store account authentication?",
+      /ReviewRouter account pool/,
+    );
+    expect(
+      readReviewConfigurationForm(new FormData(document.querySelector("form")!))
+        .providers[0]!,
+    ).toMatchObject({
+      authMode: "codex_account_gateway",
+      gatewayBindingId: "binding-mimo",
+      gatewayProfileRef: "profile-mimo",
+      model: "mimo-v2.6-pro",
+      reasoningEffort: "high",
+    });
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+    ).toBe(false);
+  });
 
   it.each([
     ["workspace", 3],
@@ -569,12 +660,7 @@ describe("ReviewConfigForm", () => {
         fireEvent.click(screen.getByRole("button", { name: /Edit settings/ }));
       }
       if (surface !== "workspace") {
-        fireEvent.change(
-          document.querySelector('select[name="policyMode.providers"]')!,
-          {
-            target: { value: "override" },
-          },
-        );
+        addOverrideField("Providers");
       }
       fireEvent.click(
         screen.getByRole("button", {
@@ -698,7 +784,9 @@ describe("ReviewConfigForm", () => {
     ).toBe(false);
     expect(
       screen
-        .getByRole("combobox", { name: "Provider auth" })
+        .getByRole("combobox", {
+          name: "Where to store account authentication?",
+        })
         .hasAttribute("disabled"),
     ).toBe(true);
     expect(pageText()).toContain("Will use workspace defaults after save");
@@ -849,13 +937,7 @@ describe("ReviewConfigForm", () => {
       { target: { value: "inherit" } },
     );
     rerender(<RepositoryPolicyEditor {...props} />);
-    expect(
-      (
-        document.querySelector(
-          'select[name="policyMode.providers"]',
-        ) as HTMLSelectElement
-      ).value,
-    ).toBe("inherit");
+    expect(providersMode()).toBe("inherit");
     rerender(
       <RepositoryPolicyEditor
         {...props}
@@ -863,13 +945,7 @@ describe("ReviewConfigForm", () => {
         repositoryConfig={{ ...props.repositoryConfig, version: 2 }}
       />,
     );
-    expect(
-      (
-        document.querySelector(
-          'select[name="policyMode.providers"]',
-        ) as HTMLSelectElement
-      ).value,
-    ).toBe("override");
+    expect(providersMode()).toBe("override");
   });
 
   // Regression: refreshed choices must not replace a saved tuple or admit stale selections.
@@ -967,10 +1043,14 @@ describe("ReviewConfigForm", () => {
     if (condition === "pagination")
       expect(pageText()).toContain("Additional accounts are not available");
     if (condition === "denied" || condition === "unavailable") {
-      fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
+      fireEvent.click(
+        screen.getByRole("combobox", {
+          name: "Where to store account authentication?",
+        }),
+      );
       expect(
         screen
-          .getByRole("option", { name: /Account Gateway/ })
+          .getByRole("option", { name: /ReviewRouter account pool/ })
           .getAttribute("aria-disabled"),
       ).toBe("true");
     }
@@ -1103,6 +1183,12 @@ describe("ReviewConfigForm", () => {
     });
     expect(checkProviderRepositorySecretClientAction).not.toHaveBeenCalled();
     expect(pageText()).toContain("Credentials stay on the server");
+    fireEvent.click(
+      screen.getByRole("combobox", {
+        name: "Where to store account authentication?",
+      }),
+    );
+    fireEvent.click(screen.getByRole("option", { name: /GitHub Actions/ }));
     fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
     fireEvent.click(
       screen.getByRole("option", { name: /OpenRouter API key/i }),
@@ -1112,6 +1198,75 @@ describe("ReviewConfigForm", () => {
     expect(switched.authMode).toBe("openrouter_api_key");
     expect(switched.gatewayBindingId).toBeUndefined();
     expect(switched.gatewayProfileRef).toBeUndefined();
+  });
+
+  it("shows the account pool as the account authentication storage for gateway providers", () => {
+    const provider = {
+      ...workspacePolicy.providers[0]!,
+      kind: "codex" as const,
+      authMode: "codex_account_gateway" as const,
+      gatewayBindingId: "binding-mimo",
+      gatewayProfileRef: "profile-mimo",
+      model: "mimo-v2-pro",
+    };
+    renderReviewConfigForm({
+      config: { ...workspacePolicy, providers: [provider] },
+    });
+    expect(
+      screen
+        .getByRole("combobox", {
+          name: "Where to store account authentication?",
+        })
+        .textContent,
+    ).toContain("ReviewRouter account pool (encrypted)");
+    expect(
+      screen.queryByRole("combobox", { name: "Provider auth" }),
+    ).toBeNull();
+    expect(
+      new FormData(document.querySelector("form")!).get("providerAuthMode.0"),
+    ).toBe("codex_account_gateway");
+  });
+
+  it("offers account pool first in the storage choice and switches a secret provider to it", () => {
+    renderReviewConfigForm({
+      config: {
+        ...workspacePolicy,
+        providers: [
+          {
+            ...workspacePolicy.providers[0]!,
+            authMode: "mimo_token_plan_api_key",
+            gatewayBindingId: undefined,
+            gatewayProfileRef: undefined,
+          },
+        ],
+      },
+    });
+    const storage = screen.getByRole("combobox", {
+      name: "Where to store account authentication?",
+    });
+    expect(storage.textContent).toContain("GitHub Actions");
+    fireEvent.click(storage);
+    const optionLabels = screen
+      .getAllByRole("option")
+      .map((option) => option.textContent ?? "");
+    expect(optionLabels[0]).toContain("ReviewRouter account pool (encrypted)");
+    expect(optionLabels[1]).toContain("GitHub Actions");
+    fireEvent.click(
+      screen.getByRole("option", { name: /ReviewRouter account pool/ }),
+    );
+    expect(
+      new FormData(document.querySelector("form")!).get("providerAuthMode.0"),
+    ).toBe("codex_account_gateway");
+    expect(
+      screen.queryByRole("combobox", { name: "Provider auth" }),
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("combobox", {
+          name: "Where to store account authentication?",
+        })
+        .textContent,
+    ).toContain("ReviewRouter account pool (encrypted)");
   });
 
   it("preserves configured investigation rollout values in dashboard submissions", () => {
@@ -1368,6 +1523,21 @@ describe("ReviewConfigForm", () => {
     );
     expect(pageText()).not.toContain("REVIEWROUTER_CODEX_AUTH_JSON");
     expect(pageText()).not.toContain("gh secret set");
+  });
+
+  it("submits the saved rotating Codex auth mode when rotating is disabled for this surface", () => {
+    renderReviewConfigForm({
+      config: workspacePolicy,
+      codexRotatingOAuthEnabled: false,
+    });
+
+    const form = document.querySelector("form")!;
+    expect(
+      readReviewConfigurationForm(new FormData(form)).providers[0]!.authMode,
+    ).toBe("codex_subscription_oauth_rotating");
+    expect(
+      screen.getByRole("combobox", { name: "Provider auth" }).textContent,
+    ).toContain("Codex OAuth with refresh");
   });
 
   it.each(["codex_subscription_oauth", "codex_openai_api_key"] as const)(
@@ -1812,6 +1982,24 @@ describe("ReviewConfigForm", () => {
     ).toBeTruthy();
   });
 });
+
+function addOverrideField(label: string | RegExp): void {
+  fireEvent.pointerDown(
+    screen.getByRole("button", { name: "+ Add field to override" }),
+  );
+  fireEvent.click(screen.getByRole("menuitem", { name: label }));
+}
+
+function providersMode(): string | undefined {
+  return (
+    document.querySelector<HTMLSelectElement>(
+      'select[name="policyMode.providers"]',
+    )?.value ??
+    document.querySelector<HTMLInputElement>(
+      'input[name="policyMode.providers"]',
+    )?.value
+  );
+}
 
 function renderReviewConfigForm(input?: {
   readonly config?: ReviewConfiguration;

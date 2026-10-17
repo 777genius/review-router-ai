@@ -109,8 +109,14 @@ export function ProviderSecretSetupChooser({
   claudeCodeProviderEnabled = true,
   rotatingPreparationOnly = false,
 }: ProviderSecretSetupChooserProps): React.ReactElement {
+  const rotatingPreparationActive =
+    rotatingPreparationOnly && codexRotatingOAuthEnabled;
   const [providerChoice, setProviderChoice] = useState<ProviderChoice>(
-    "codex_oauth_rotating",
+    rotatingPreparationActive || codexRotatingOAuthEnabled
+      ? "codex_oauth_rotating"
+      : claudeCodeProviderEnabled
+        ? "claude_code_oauth"
+        : "mimo_token_plan_api_key",
   );
   const organizationSecretUnavailableForRepository =
     Boolean(organizationLogin) &&
@@ -256,11 +262,18 @@ export function ProviderSecretSetupChooser({
     () =>
       providerChoices.filter(
         (choice) =>
-          (!rotatingPreparationOnly ||
+          (!rotatingPreparationActive ||
             choice.value === "codex_oauth_rotating") &&
+          (choice.value !== "codex_oauth_rotating" ||
+            rotatingPreparationActive ||
+            codexRotatingOAuthEnabled) &&
           (choice.value !== "claude_code_oauth" || claudeCodeProviderEnabled),
       ),
-    [claudeCodeProviderEnabled, rotatingPreparationOnly],
+    [
+      claudeCodeProviderEnabled,
+      codexRotatingOAuthEnabled,
+      rotatingPreparationActive,
+    ],
   );
 
   const providerDetails = useMemo(() => {

@@ -75,6 +75,7 @@ export function RepositoryLiveSearch({
   const [pendingRepositoryId, setPendingRepositoryId] = useState<string | null>(
     null,
   );
+  const [visibleLimit, setVisibleLimit] = useState(rowLimit);
   const normalizedQuery = query.trim();
   const matchingIds = useMemo(
     () => filterLocalSearch(searchIndex, normalizedQuery, activeFilter),
@@ -82,7 +83,7 @@ export function RepositoryLiveSearch({
   );
   const visibleIds = selectVisibleRepositoryIds(
     matchingIds,
-    rowLimit,
+    visibleLimit,
     selectedRepositoryId,
   );
   const richRows = Children.toArray(children);
@@ -142,6 +143,10 @@ export function RepositoryLiveSearch({
   useEffect(() => {
     setPendingRepositoryId(null);
   }, [selectedRepositoryFullName, workspaceKey]);
+
+  useEffect(() => {
+    setVisibleLimit(rowLimit);
+  }, [activeFilter, normalizedQuery, rowLimit]);
 
   const searchControls = (
     <section
@@ -334,6 +339,19 @@ export function RepositoryLiveSearch({
             </div>
           ) : null;
         })}
+        {matchingIds.length > visibleIds.length ? (
+          <div className="border-t border-cyan-200/10 px-4 py-4 sm:px-5 lg:px-6">
+            <button
+              type="button"
+              data-repository-load-more
+              onClick={() => setVisibleLimit((limit) => limit + rowLimit)}
+              className="w-full rounded-xl border border-cyan-300/35 px-4 py-2.5 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/[0.08]"
+            >
+              Show {Math.min(rowLimit, matchingIds.length - visibleIds.length)}{" "}
+              more
+            </button>
+          </div>
+        ) : null}
       </div>
     </>
   );

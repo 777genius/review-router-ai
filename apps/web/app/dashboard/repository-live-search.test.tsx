@@ -231,6 +231,29 @@ describe("RepositoryLiveSearch", () => {
     expect(routerMock.replace).not.toHaveBeenCalled();
   });
 
+  it("reveals all matching rows on demand and hides the load-more control", () => {
+    renderFixture();
+    expect(rowIds()).toHaveLength(24);
+    expect(
+      screen.getByText(
+        "Showing 24 of 40. Search or filter to find a repository.",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show 16 more" }));
+    expect(rowIds()).toHaveLength(40);
+    expect(screen.queryByRole("button", { name: /Show \d+ more/ })).toBeNull();
+  });
+
+  it("returns to the first page when the search query changes", () => {
+    renderFixture();
+    fireEvent.click(screen.getByRole("button", { name: "Show 16 more" }));
+    expect(rowIds()).toHaveLength(40);
+    search("project-40");
+    search("");
+    expect(rowIds()).toHaveLength(24);
+    expect(screen.getByRole("button", { name: "Show 16 more" })).toBeTruthy();
+  });
+
   it("resets controls when workspace key changes", () => {
     const view = render(<Fixture workspaceKey="workspace_1" />);
     search("project-40");

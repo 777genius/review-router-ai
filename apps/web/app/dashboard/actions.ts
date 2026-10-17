@@ -1982,12 +1982,21 @@ async function confirmSetupPullRequestMergedMutation(
     if (!workflowReady) {
       if (
         setupPullRequestStatus === "closed" ||
-        setupPullRequestStatus === "branch_deleted"
+        setupPullRequestStatus === "branch_deleted" ||
+        // A merged PR whose head differs from the recorded artifact merged
+        // bytes the setup never generated. Waiting cannot make it verify, so
+        // route straight to recovery instead of an endless not-merged retry.
+        (setupPullRequestStatus === "merged" &&
+          setupProvisioning?.pullRequestHeadSha != null &&
+          setupProvisioning.pullRequestHeadSha !==
+            setupPullRequestInspection?.headSha)
       ) {
         const reason =
           setupPullRequestStatus === "closed"
             ? "setup_pr_closed"
-            : "setup_pr_branch_deleted";
+            : setupPullRequestStatus === "branch_deleted"
+              ? "setup_pr_branch_deleted"
+              : "setup_pr_workflow_mismatch";
         await markRepositoryWorkflowSetupNeedsAttention({
           prisma,
           repositoryId,
@@ -4221,7 +4230,8 @@ async function markRepositoryWorkflowSetupNeedsAttention(input: {
   readonly reason:
     | "setup_pr_closed"
     | "setup_pr_branch_deleted"
-    | "setup_pr_wrong_base_branch";
+    | "setup_pr_wrong_base_branch"
+    | "setup_pr_workflow_mismatch";
 }): Promise<void> {
   await new PrismaWorkflowProvisioningStatusAuthority(
     input.prisma,
