@@ -2,6 +2,7 @@ import { App } from "@octokit/app";
 import { request as githubRequest } from "@octokit/request";
 import { createHash } from "node:crypto";
 import {
+  areManagedWorkflowDocumentsAttested,
   areWorkflowDocumentsSemanticallyEqual,
   codexWorkflowPathForRepository,
   isCodexWorkflowRepositoryIdentityAdmitted,
@@ -869,7 +870,7 @@ function inspectReviewV2InteractionWorkflow(
       : null;
   const errors =
     expectedWorkflow &&
-    areWorkflowDocumentsSemanticallyEqual(workflow, expectedWorkflow)
+    areManagedWorkflowDocumentsAttested(workflow, expectedWorkflow)
       ? []
       : ["interaction_workflow_source_mismatch"];
   return {

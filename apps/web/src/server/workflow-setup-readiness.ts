@@ -1,6 +1,7 @@
 import type { RepositoryWorkflowProbePort } from "@reviewrouter/features-repo-health";
 import type { ProviderKind } from "@reviewrouter/features-review-providers";
 import {
+  areManagedWorkflowDocumentsAttested,
   areWorkflowDocumentsSemanticallyEqual,
   assertSameVersionedProviderSecretNamespace,
   type CodexRotatingReviewActionV2Mode,
@@ -231,7 +232,7 @@ export async function isWorkflowSetupAlreadyCurrent(
       workflowPath: defaultInteractionWorkflowPath,
       expectedActionRef: input.actionRef,
       expectedContentValidator: (workflow: string) =>
-        areWorkflowDocumentsSemanticallyEqual(
+        areManagedWorkflowDocumentsAttested(
           workflow,
           expectedInteractionWorkflow,
         ),
