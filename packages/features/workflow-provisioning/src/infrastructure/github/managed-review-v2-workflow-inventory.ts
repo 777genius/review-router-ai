@@ -3,7 +3,6 @@ import { request as githubRequest } from "@octokit/request";
 import { createHash } from "node:crypto";
 import {
   areManagedWorkflowDocumentsAttested,
-  areWorkflowDocumentsSemanticallyEqual,
   codexWorkflowPathForRepository,
   isCodexWorkflowRepositoryIdentityAdmitted,
   isolatedQualityWorkflowPath,
