@@ -262,7 +262,9 @@ export function RepositorySetupProgressPanel({
   // `errorMessage` but are not recovery issues, so without this the card shows a
   // neutral "add the workflow by PR" hint on a repository that cannot proceed.
   const setupIssueGuidance =
+    displayStep === 1 &&
     setupIssue === null &&
+    normalizeSetupIssue(initialSetupIssue) === null &&
     typeof initialSetupIssue === "string" &&
     initialSetupIssue.length > 0
       ? sharedDashboardErrorText(initialSetupIssue)
