@@ -1717,7 +1717,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000129_personal_run_snapshot_v2" &&
                 name !== "000130_personal_canonical_operations" &&
                 name !== "000131_personal_canonical_unentered_claim" &&
-                name !== "000132_review_policy_schema_v3",
+                name !== "000132_review_policy_schema_v3" &&
+                name !== "000133_allow_first_time_scm_identity_bind",
               "000102_sdk_growth_current_authority",
             ),
           ),

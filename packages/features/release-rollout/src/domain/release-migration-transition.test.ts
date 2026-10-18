@@ -107,9 +107,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(132);
+    expect(full).toHaveLength(133);
     expect(manifest(full)).toBe(
-      "sha256:13efdc28bd5b1920373a3cfef10785c377cd7b4f2f648a00d3e2817d9f0422c7",
+      "sha256:d98f4dc72d5f785eb0d64e79cc7192d0b5f32d37f279be436f197de811c2ee17",
     );
     const old125 = full
       .filter(
@@ -120,7 +120,8 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000129_personal_run_snapshot_v2" &&
           row.migrationName !== "000130_personal_canonical_operations" &&
           row.migrationName !== "000131_personal_canonical_unentered_claim" &&
-          row.migrationName !== "000132_review_policy_schema_v3",
+          row.migrationName !== "000132_review_policy_schema_v3" &&
+          row.migrationName !== "000133_allow_first_time_scm_identity_bind",
         "000132_review_policy_schema_v3",
       )
       .map((row) =>
@@ -144,7 +145,6 @@ describe("canonical release migration transition", () => {
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
     expect(full.slice(-25).map((row) => row.migrationName)).toEqual([
-      "000109_sdk_growth_verifier_assignment_lock",
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
@@ -169,6 +169,7 @@ describe("canonical release migration transition", () => {
       "000130_personal_canonical_operations",
       "000131_personal_canonical_unentered_claim",
       "000132_review_policy_schema_v3",
+      "000133_allow_first_time_scm_identity_bind",
     ]);
     const withoutProviderKey = historicalFull.filter(
       (row) =>
