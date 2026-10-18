@@ -42,6 +42,7 @@ const checkoutOnlyMigrations = Object.freeze([
   "000130_personal_canonical_operations",
   "000131_personal_canonical_unentered_claim",
   "000132_review_policy_schema_v3",
+  "000133_allow_first_time_scm_identity_bind",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
@@ -58,7 +59,7 @@ export function readRenderHistorical96CheckoutInventory() {
     ![
       96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
       111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
-      126, 127, 128, 129, 130, 131,
+      126, 127, 128, 129, 130, 131, 132,
     ].includes(
       checkout.filter(
         (row) =>
