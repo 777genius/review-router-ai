@@ -579,7 +579,9 @@ export function dashboardErrorText(error: string): string {
     case "memory_safety_blocked":
       return "Memory policy blocked this change. Refresh and try again with a safer distilled memory.";
     default:
-      return "GitHub operation failed. Check audit events or server logs for the safe error code.";
+      return error
+        ? `GitHub operation failed (code: ${error}). Ask your workspace administrator to look up this code in Diagnostics audit events.`
+        : "GitHub operation failed. Check audit events or server logs for the safe error code.";
   }
 }
 

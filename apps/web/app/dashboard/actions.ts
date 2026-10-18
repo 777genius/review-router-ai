@@ -1177,6 +1177,10 @@ async function createSetupPullRequestMutation(
   const workflowStyle = readWorkflowStyle(formData);
   const discussionMode = readReviewDiscussionMode(formData);
   let params: Record<string, string>;
+  let auditSubject: {
+    readonly actor: string;
+    readonly repository: string;
+  } | null = null;
 
   try {
     const repository = await prisma.repositoryConnection.findUnique({
@@ -1221,6 +1225,7 @@ async function createSetupPullRequestMutation(
       actor: actor.actor,
       feature: "workflow_provisioning",
     });
+    auditSubject = { actor: actor.actor, repository: repository.fullName };
     await createDashboardRateLimitPolicy(prisma).assertWorkflowSetupPrAllowed({
       workspaceId,
       repositoryId,
@@ -1466,8 +1471,29 @@ async function createSetupPullRequestMutation(
       };
     }
   } catch (error) {
+    const errorCode = safeDashboardErrorCode(error);
+    if (auditSubject) {
+      try {
+        await recordAuditEvent(
+          {
+            workspaceId,
+            actor: auditSubject.actor,
+            action: "workflow.setup_pr_failed",
+            targetType: "repository",
+            targetId: repositoryId,
+            metadata: {
+              repository: auditSubject.repository,
+              errorCode,
+            },
+          },
+          { auditLog: new PrismaAuditLogRepository(prisma) },
+        );
+      } catch {
+        // A failed diagnostics write must not replace the user's own error.
+      }
+    }
     params = {
-      error: safeDashboardErrorCode(error),
+      error: errorCode,
       workspace: workspaceId,
       section: "repositories",
     };
