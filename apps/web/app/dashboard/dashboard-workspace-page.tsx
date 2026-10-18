@@ -1735,7 +1735,7 @@ function dashboardRepositoryAccessEmptyCopy(
   };
 }
 
-function WorkspaceCard({
+export function WorkspaceCard({
   data,
   mutationsEnabled,
   selectedSection,
@@ -1777,6 +1777,60 @@ function WorkspaceCard({
     memoryPolicySimulation,
     hostedPool,
   } = data;
+  // Setup intentionally does not request policy. Its absent projection says
+  // nothing about saved policy and must never enter the policy creation flow.
+  if (selectedSection === "setup")
+    return (
+      <div
+        id="dashboard-section-content"
+        className="min-w-0 space-y-5 scroll-mt-28"
+      >
+        <DashboardInstallRequestToast
+          request={buildPendingOrganizationInstallRequest(params)}
+        />
+        <DashboardActionToast
+          params={params}
+          selectedSection={selectedSection}
+        />
+        <DashboardSectionHeader selectedSection="setup" />
+        <a
+          className="inline-block text-sm text-cyan-200 underline"
+          href={dashboardSectionHref("policy", workspaceKey)}
+        >
+          Choose accounts for reviews in Models
+        </a>
+        <AccountGatewayAccountsSection
+          workspaceId={workspace.id}
+          workspaceName={workspace.name}
+        />
+
+        {hasWorkspaceWideAccess ? (
+          <HostedPoolSettingsPanel
+            workspaceId={workspace.id}
+            view={hostedPool}
+            mutationsEnabled={mutationsEnabled}
+            actions={{
+              importAccount: importHostedPoolAccountClientAction,
+              startDeviceLogin: startHostedPoolDeviceLoginClientAction,
+              pollDeviceLogin: pollHostedPoolDeviceLoginClientAction,
+              setAccountState: setHostedPoolAccountStateClientAction,
+              removeAccount: removeHostedPoolAccountClientAction,
+              setRepositorySource: setHostedRepositorySessionSourceClientAction,
+            }}
+          />
+        ) : (
+          <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+            <h3 className="text-sm font-semibold text-cyan-50">
+              ChatGPT accounts for reviews
+            </h3>
+            <p className="mt-3 text-sm leading-6 text-slate-400">
+              Only workspace owners and admins can connect ChatGPT sessions.
+              GitHub and GitLab repository connections are on Repositories.
+            </p>
+          </section>
+        )}
+      </div>
+    );
   const activeConfig = data.reviewConfig?.config;
   if (!activeConfig) {
     const draft = hasWorkspaceWideAccess
@@ -1810,7 +1864,10 @@ function WorkspaceCard({
           <p>Save workspace review settings before enabling reviews.</p>
         )}
         {hasWorkspaceWideAccess ? (
-          <AccountGatewayAccountsSection workspaceId={workspace.id} />
+          <AccountGatewayAccountsSection
+            workspaceId={workspace.id}
+            workspaceName={workspace.name}
+          />
         ) : (
           <p>A workspace owner or admin needs to complete review setup.</p>
         )}
@@ -2019,39 +2076,6 @@ function WorkspaceCard({
             mode={selectedMemoryMode}
             modeLinks={dashboardMemoryModeLinks(workspaceKey)}
           />
-        ) : null}
-
-        {selectedSection === "setup" ? (
-          <AccountGatewayAccountsSection workspaceId={workspace.id} />
-        ) : null}
-
-        {selectedSection === "setup" ? (
-          hasWorkspaceWideAccess ? (
-            <HostedPoolSettingsPanel
-              workspaceId={workspace.id}
-              view={hostedPool}
-              mutationsEnabled={mutationsEnabled}
-              actions={{
-                importAccount: importHostedPoolAccountClientAction,
-                startDeviceLogin: startHostedPoolDeviceLoginClientAction,
-                pollDeviceLogin: pollHostedPoolDeviceLoginClientAction,
-                setAccountState: setHostedPoolAccountStateClientAction,
-                removeAccount: removeHostedPoolAccountClientAction,
-                setRepositorySource:
-                  setHostedRepositorySessionSourceClientAction,
-              }}
-            />
-          ) : (
-            <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-              <h3 className="text-sm font-semibold text-cyan-50">
-                ChatGPT accounts for reviews
-              </h3>
-              <p className="mt-3 text-sm leading-6 text-slate-400">
-                Only workspace owners and admins can connect ChatGPT sessions.
-                GitHub and GitLab repository connections are on Repositories.
-              </p>
-            </section>
-          )
         ) : null}
 
         {selectedSection === "policy" ? (
@@ -2402,23 +2426,23 @@ function WorkspaceCard({
   );
 }
 
-function DashboardSectionHeader({
-  selectedSection,
-  repositoryCount,
-  workspaceHealth,
-  activeConfig,
-}: {
-  readonly selectedSection: DashboardSection;
-  readonly repositoryCount: number;
-  readonly workspaceHealth: WorkspaceHealthSummary;
-  readonly activeConfig: ReviewConfiguration;
-}): React.ReactElement {
+function DashboardSectionHeader(
+  props:
+    | { readonly selectedSection: "setup" }
+    | {
+        readonly selectedSection: Exclude<DashboardSection, "setup">;
+        readonly repositoryCount: number;
+        readonly workspaceHealth: WorkspaceHealthSummary;
+        readonly activeConfig: ReviewConfiguration;
+      },
+): React.ReactElement {
+  const { selectedSection } = props;
   const meta = dashboardSectionMeta[selectedSection];
   const status =
     selectedSection === "repositories"
-      ? `${repositoryCount} synced repositories`
+      ? `${props.repositoryCount} synced repositories`
       : selectedSection === "policy"
-        ? activeConfig.providers
+        ? props.activeConfig.providers
             .map(
               (provider) => `${provider.model} / ${provider.reasoningEffort}`,
             )
@@ -2444,18 +2468,18 @@ function DashboardSectionHeader({
             <div className="mt-4 flex flex-wrap gap-2">
               <ReadinessInlineStat
                 label="Ready"
-                value={workspaceHealth.ready}
+                value={props.workspaceHealth.ready}
                 tone="success"
               />
               <ReadinessInlineStat
                 label="Need setup"
-                value={workspaceHealth.needsSetup}
+                value={props.workspaceHealth.needsSetup}
                 tone="warning"
               />
-              {workspaceHealth.needsAttention > 0 ? (
+              {props.workspaceHealth.needsAttention > 0 ? (
                 <ReadinessInlineStat
                   label="Need attention"
-                  value={workspaceHealth.needsAttention}
+                  value={props.workspaceHealth.needsAttention}
                   tone="danger"
                 />
               ) : null}
@@ -2466,7 +2490,9 @@ function DashboardSectionHeader({
         selectedSection === "setup" ? null : (
           <div className="flex flex-wrap gap-2 xl:justify-end">
             {selectedSection === "diagnostics" ? (
-              <Badge tone={workspaceHealth.tone}>{workspaceHealth.label}</Badge>
+              <Badge tone={props.workspaceHealth.tone}>
+                {props.workspaceHealth.label}
+              </Badge>
             ) : null}
             <Badge tone="neutral" className="max-w-full break-words">
               {status}

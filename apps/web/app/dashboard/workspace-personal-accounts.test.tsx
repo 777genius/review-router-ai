@@ -20,6 +20,7 @@ import { WorkspacePersonalAccounts } from "./workspace-personal-accounts";
 const context = vi.hoisted(() => ({ client: null as QueryClient | null }));
 vi.mock("./gateway-model-account-options", () => ({
   useGatewayModelAccountsQueryClient: () => context.client,
+  useCurrentGatewayModelAccountsCache: () => null,
 }));
 beforeEach(() => {
   context.client = new QueryClient({
@@ -124,6 +125,16 @@ test.each([false, true])(
     expect(screen.queryByRole("button", { name: /Detach/ })).toBeNull();
     expect(screen.queryByText("incoming-masked-binding-handle")).toBeNull();
     expect(screen.queryByText("90")).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Your accounts" }).getAttribute("href"),
+    ).toBe("#your-accounts");
+    expect(
+      [...document.querySelectorAll("a")].some(
+        (link) =>
+          link.href.includes("incoming-masked-binding-handle") ||
+          link.href.includes("old-BX"),
+      ),
+    ).toBe(false);
     expect(f.detach).not.toHaveBeenCalled();
   },
 );

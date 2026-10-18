@@ -1,6 +1,12 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useMemo,
+  type ReactNode,
+} from "react";
 import {
   QueryClient,
   useInfiniteQuery,
@@ -35,6 +41,48 @@ export function useGatewayModelAccountsQueryClient(
 ): QueryClient | null {
   const context = useContext(OptionsContext);
   return context?.scope === scope ? context.client : null;
+}
+
+// Account management, sharing, recipient rows and Models use the actual same
+// scoped client. Cancel older reads before refreshing confirmed availability.
+export function useCurrentGatewayModelAccountsCache() {
+  const context = useContext(OptionsContext);
+  return useMemo(
+    () =>
+      context
+        ? {
+            client: context.client,
+            async refresh() {
+              const queries = context.client
+                .getQueryCache()
+                .getAll()
+                .filter(
+                  (query) =>
+                    (query.queryKey[0] === "account-options" ||
+                      query.queryKey[0] === "account-option") &&
+                    query.queryKey[1] === context.scope,
+                );
+              await Promise.all(
+                queries.map((query) =>
+                  context.client.cancelQueries({
+                    queryKey: query.queryKey,
+                    exact: true,
+                  }),
+                ),
+              );
+              await Promise.all(
+                queries.map((query) =>
+                  context.client.invalidateQueries({
+                    queryKey: query.queryKey,
+                    exact: true,
+                  }),
+                ),
+              );
+            },
+          }
+        : null,
+    [context],
+  );
 }
 
 // Optional composition seam. Without a server-authorized adapter the existing
