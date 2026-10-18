@@ -257,6 +257,17 @@ export function RepositorySetupProgressPanel({
     }
   };
 
+  // Provisioning can fail for reasons outside the setup-PR family (an untrusted
+  // legacy workflow, a rejected provider enrollment). They reach the card as
+  // `errorMessage` but are not recovery issues, so without this the card shows a
+  // neutral "add the workflow by PR" hint on a repository that cannot proceed.
+  const setupIssueGuidance =
+    setupIssue === null &&
+    typeof initialSetupIssue === "string" &&
+    initialSetupIssue.length > 0
+      ? sharedDashboardErrorText(initialSetupIssue)
+      : null;
+
   const steps = buildSetupSteps({
     workspaceId,
     repositoryId,
@@ -265,6 +276,7 @@ export function RepositorySetupProgressPanel({
     setupStatus,
     setupPullRequestUrl,
     setupIssue,
+    setupIssueGuidance,
     workflowCurrent,
     mutationsEnabled,
     currentStep: displayStep,
@@ -377,6 +389,7 @@ function buildSetupSteps({
   setupStatus,
   setupPullRequestUrl,
   setupIssue,
+  setupIssueGuidance,
   workflowCurrent,
   mutationsEnabled,
   currentStep,
@@ -394,6 +407,7 @@ function buildSetupSteps({
   readonly setupStatus: string;
   readonly setupPullRequestUrl: string | null;
   readonly setupIssue: SetupIssue | null;
+  readonly setupIssueGuidance: string | null;
   readonly workflowCurrent: boolean;
   readonly mutationsEnabled: boolean;
   readonly currentStep: SetupStep;
@@ -488,11 +502,13 @@ function buildSetupSteps({
 
   const setupPrHelper = setupIssue
     ? setupIssueHelperText(setupIssue)
-    : currentStep > 1
-      ? "Setup PR exists."
-      : providerSetupBeforeWorkflow
-        ? "Seed the versioned provider namespace, then add its workflow by PR."
-        : "Add the workflow by PR.";
+    : setupIssueGuidance
+      ? setupIssueGuidance
+      : currentStep > 1
+        ? "Setup PR exists."
+        : providerSetupBeforeWorkflow
+          ? "Seed the versioned provider namespace, then add its workflow by PR."
+          : "Add the workflow by PR.";
 
   return [
     {

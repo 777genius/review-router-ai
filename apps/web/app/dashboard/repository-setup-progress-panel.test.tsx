@@ -523,6 +523,28 @@ describe("RepositorySetupProgressPanel", () => {
     ).toBeTruthy();
   });
 
+  it("explains a provisioning failure that is not a setup PR recovery issue", () => {
+    render(
+      <RepositorySetupProgressPanel
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="777genius/example"
+        selected
+        archived={false}
+        initialSetupStatus="needs_attention"
+        initialSetupPullRequestUrl={null}
+        initialSetupIssue="workflow_delete_untrusted"
+        workflowCurrent
+        mutationsEnabled
+        initialStep={1}
+        enableReviewAction={<button type="button">Enable review</button>}
+      />,
+    );
+
+    expect(screen.getByText(/belongs to another active mode/i)).toBeTruthy();
+    expect(screen.queryByText("Recover setup PR")).toBeNull();
+  });
+
   it("turns a deleted setup branch merge check into a recovery step", async () => {
     vi.mocked(confirmSetupPullRequestMergedClientAction).mockResolvedValueOnce({
       params: {
