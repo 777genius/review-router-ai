@@ -6,9 +6,10 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, focusManager } from "@tanstack/react-query";
 import type {
   PersonalAccountsApi,
   PersonalAccountsBootstrap,
@@ -129,6 +130,11 @@ function fixture() {
   return { bootstrap, api };
 }
 
+async function openBulk() {
+  fireEvent.click(screen.getByText("Share several accounts"));
+  await screen.findByRole("button", { name: "Share selected accounts" });
+}
+
 test("public personal controls are inert unless explicitly enabled with an adapter", () => {
   const { bootstrap, api } = fixture();
   render(
@@ -145,6 +151,7 @@ test("public personal controls are inert unless explicitly enabled with an adapt
 test("selects accounts across pages and shares independently with exact predecessor tuples", async () => {
   const { bootstrap, api } = fixture();
   render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
+  await openBulk();
   fireEvent.click(screen.getByLabelText("Select Personal source-0"));
   fireEvent.click(
     screen.getByRole("button", { name: "Load more personal accounts" }),
@@ -204,15 +211,19 @@ test.each([null, "Organization X"])(
     render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Manage sharing for Personal source-0",
+        name: "Workspace access for Personal source-0",
       }),
     );
     expect(
-      await screen.findByText(organizationLabel ?? "Organization unavailable"),
+      await screen.findAllByText(
+        organizationLabel ?? "Organization unavailable",
+      ),
     ).toBeTruthy();
     expect(document.body.textContent).not.toContain("opaque-former-org");
     if (organizationLabel === null)
-      expect(document.body.textContent).not.toContain("Organization X");
+      expect(
+        screen.getByText("Organization unavailable").parentElement?.textContent,
+      ).not.toContain("Organization X");
     fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
     await waitFor(() => expect(api.revoke).toHaveBeenCalledTimes(1));
     expect(api.revoke.mock.calls[0]?.[0]).toEqual({
@@ -226,6 +237,7 @@ test.each([null, "Organization X"])(
     expect(
       await screen.findAllByText(/gateway confirmation pending/),
     ).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(
       await screen.findByText(
         `Personal source-0 · ${organizationLabel ?? "Organization unavailable"}`,
@@ -305,6 +317,7 @@ test("revocation invalidates cached eligible selections in its scope before reus
       queryClient={client}
     />,
   );
+  await openBulk();
   fireEvent.click(screen.getByLabelText("Select Personal source-0"));
   fireEvent.click(
     screen.getByRole("button", { name: "Share selected accounts" }),
@@ -314,7 +327,7 @@ test("revocation invalidates cached eligible selections in its scope before reus
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   fireEvent.click(
     screen.getByRole("button", {
-      name: "Manage sharing for Personal source-0",
+      name: "Workspace access for Personal source-0",
     }),
   );
   fireEvent.click(await screen.findByRole("button", { name: "Revoke access" }));
@@ -331,6 +344,8 @@ test("revocation invalidates cached eligible selections in its scope before reus
   expect(client.getQueryState(otherScope)?.isInvalidated).toBe(false);
   expect(client.getQueryState(operationKey)?.isInvalidated).toBe(false);
   await act(async () => releaseRefetch());
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await waitFor(() =>
     expect(
       (
@@ -368,6 +383,7 @@ test("an uncertain attach preserves one nonce and checks status without repeatin
   const view = render(
     <PersonalAccountControls bootstrap={bootstrap} api={api} />,
   );
+  await openBulk();
   fireEvent.click(screen.getByLabelText("Select Personal source-0"));
   fireEvent.click(
     screen.getByRole("button", { name: "Share selected accounts" }),
@@ -436,6 +452,7 @@ test("a delayed pre-mutation readback cannot overwrite a newer applied receipt",
       }),
   );
   render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
+  await openBulk();
   fireEvent.click(screen.getByLabelText("Select Personal source-0"));
   fireEvent.click(
     screen.getByRole("button", { name: "Share selected accounts" }),
@@ -477,4 +494,453 @@ test("a delayed pre-mutation readback cannot overwrite a newer applied receipt",
     "Request recorded; completion is not confirmed",
   );
   expect(api.attach).toHaveBeenCalledTimes(1);
+});
+
+test("direct access keeps historical lifetimes separate and never substitutes an eligible name for a hidden grant", async () => {
+  const { bootstrap, api } = fixture();
+  api.listSources.mockResolvedValue(bootstrap.page);
+  api.listOwnGrants.mockResolvedValue({
+    status: "ok",
+    value: {
+      grants: [
+        {
+          sourceId: "source-0",
+          bindingId: "previous",
+          targetWorkspaceId: "org-x",
+          organizationLabel: null,
+          revision: 10,
+          state: "revoked",
+          remoteFenceDelivery: "remote_applied",
+          canRevoke: false,
+        },
+        {
+          sourceId: "source-0",
+          bindingId: "replacement",
+          targetWorkspaceId: "org-x",
+          organizationLabel: null,
+          revision: 2,
+          state: "active",
+          remoteFenceDelivery: "not_required",
+          canRevoke: true,
+        },
+      ],
+      nextCursor: null,
+    },
+  });
+  render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Workspace access for Personal source-0",
+    }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Workspace access · Personal source-0",
+  });
+  await screen.findByText("Previous access revoked");
+  expect(within(dialog).getAllByText("Organization unavailable")).toHaveLength(
+    2,
+  );
+  expect(within(dialog).queryByText("Organization X")).toBeNull();
+  expect(
+    within(dialog).getAllByRole("button", { name: "Revoke access" }),
+  ).toHaveLength(1);
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Revoke access" }),
+  );
+  await waitFor(() =>
+    expect(api.revoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bindingId: "replacement",
+        expectedBindingRevision: 2,
+      }),
+    ),
+  );
+});
+
+test("closing, remounting and reopening direct workspace access preserves uncertain original readback without a second attach", async () => {
+  const { bootstrap, api } = fixture();
+  api.listSources.mockResolvedValue(bootstrap.page);
+  api.attach.mockRejectedValue(new Error("uncertain transport"));
+  api.readOperation.mockResolvedValue({ status: "unavailable" });
+  const view = render(
+    <PersonalAccountControls bootstrap={bootstrap} api={api} />,
+  );
+  let trigger = screen.getByRole("button", {
+    name: "Workspace access for Personal source-0",
+  });
+  trigger.focus();
+  fireEvent.click(trigger);
+  const add = await screen.findByRole("button", {
+    name: "Add access to Organization Y",
+  });
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(add);
+  await waitFor(() => expect(api.attach).toHaveBeenCalledTimes(1));
+  const original = api.attach.mock.calls[0]![0];
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+  view.unmount();
+  // Reauthorization can fail after the original request entered. This denied
+  // read must not release its identity, even when eligible targets return.
+  api.readOperation.mockResolvedValue({ status: "denied" });
+  render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
+  trigger = screen.getByRole("button", {
+    name: "Workspace access for Personal source-0",
+  });
+  await waitFor(() =>
+    expect(api.readOperation).toHaveBeenCalledWith(original.nonce),
+  );
+  fireEvent.click(trigger);
+  const reopened = await screen.findByRole("dialog", {
+    name: "Workspace access · Personal source-0",
+  });
+  fireEvent.click(
+    within(reopened).getByRole("button", { name: "Refresh workspace access" }),
+  );
+  await waitFor(() =>
+    expect(api.listEligibleOrganizations.mock.calls.length).toBeGreaterThan(1),
+  );
+  expect(
+    (
+      within(reopened).getByRole("button", {
+        name: "Add access to Organization Y",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  fireEvent.keyDown(reopened, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+  await waitFor(() =>
+    expect(api.readOperation).toHaveBeenCalledWith(original.nonce),
+  );
+  expect(api.attach).toHaveBeenCalledTimes(1);
+  expect(
+    JSON.parse(
+      sessionStorage.getItem("rr-personal-account-operations:user-personal")!,
+    ),
+  ).toEqual([original.nonce]);
+});
+
+// Re-reading a terminal operation must not repeatedly cancel and refetch the
+// other account views. The first pending -> applied read must still refresh.
+test("refreshes related views once when a saved nonce becomes terminal, across repeated reads and focus", async () => {
+  const { bootstrap, api } = fixture();
+  const nonce = "9874b2bc-e987-4456-9212-7f94f58932da";
+  sessionStorage.setItem(
+    "rr-personal-account-operations:user-personal",
+    JSON.stringify([nonce]),
+  );
+  api.listSources.mockResolvedValue(bootstrap.page);
+  const terminal: PersonalMutationReceipt = {
+    operation: {
+      operationId: nonce,
+      phase: "applied",
+      sourceId: "source-0",
+      bindingId: "binding-new",
+      available: true,
+      state: "active",
+    },
+  };
+  api.readOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      operation: {
+        ...terminal.operation,
+        phase: "submitted",
+        bindingId: null,
+        available: false,
+        state: "pending",
+      },
+    },
+  });
+  const client = new QueryClient();
+  clients.add(client);
+  const invalidation = vi.spyOn(client, "invalidateQueries");
+  render(
+    <PersonalAccountControls
+      bootstrap={bootstrap}
+      api={api}
+      queryClient={client}
+    />,
+  );
+  await waitFor(() => expect(api.readOperation).toHaveBeenCalledTimes(1));
+  expect(api.listSources).not.toHaveBeenCalled();
+  const check = () =>
+    screen.getByRole("button", { name: "Check status" }) as HTMLButtonElement;
+  await waitFor(() => expect(check().disabled).toBe(false));
+  api.readOperation.mockResolvedValue({ status: "ok", value: terminal });
+  fireEvent.click(check());
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(check().disabled).toBe(false));
+  fireEvent.click(check());
+  await waitFor(() => expect(api.readOperation).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(check().disabled).toBe(false));
+  try {
+    await act(async () => {
+      focusManager.setFocused(false);
+      await client.invalidateQueries({
+        queryKey: ["personal-accounts", bootstrap.scope, "operation", nonce],
+        exact: true,
+        refetchType: "none",
+      });
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(api.readOperation).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(check().disabled).toBe(false));
+    expect(api.listSources).toHaveBeenCalledTimes(1);
+    expect(
+      invalidation.mock.calls.filter(
+        ([filters]) => filters?.queryKey?.[2] === "sources",
+      ),
+    ).toHaveLength(1);
+    expect(api.attach).not.toHaveBeenCalled();
+    expect(api.revoke).not.toHaveBeenCalled();
+  } finally {
+    focusManager.setFocused(undefined);
+  }
+});
+
+test("serializes saved terminal nonce refreshes and refreshes again for a receipt arriving during reads", async () => {
+  const { bootstrap, api } = fixture();
+  const nonces = [
+    "9874b2bc-e987-4456-9212-7f94f58932da",
+    "198a9f4b-70a8-4e31-9637-5a0e5d420728",
+  ];
+  sessionStorage.setItem(
+    "rr-personal-account-operations:user-personal",
+    JSON.stringify(nonces),
+  );
+  type OperationResult = Awaited<
+    ReturnType<PersonalAccountsApi["readOperation"]>
+  >;
+  type SourcesResult = Awaited<ReturnType<PersonalAccountsApi["listSources"]>>;
+  let finishSecondRead!: (result: OperationResult) => void;
+  let finishFirstRefresh!: (result: SourcesResult) => void;
+  const secondRead = new Promise<OperationResult>((resolve) => {
+    finishSecondRead = resolve;
+  });
+  const firstRefresh = new Promise<SourcesResult>((resolve) => {
+    finishFirstRefresh = resolve;
+  });
+  const receipt = (nonce: string): OperationResult => ({
+    status: "ok",
+    value: {
+      operation: {
+        operationId: nonce,
+        phase: "applied",
+        sourceId: "source-0",
+        bindingId: "binding-new",
+        available: true,
+        state: "active",
+      },
+    },
+  });
+  api.readOperation.mockImplementation((nonce) =>
+    nonce === nonces[0] ? Promise.resolve(receipt(nonce)) : secondRead,
+  );
+  api.listSources.mockImplementationOnce(() => firstRefresh);
+  api.listSources.mockResolvedValue({
+    status: "ok",
+    value: {
+      sources: [{ ...source("source-0"), label: "After second receipt" }],
+      nextCursor: null,
+    },
+  });
+  const client = new QueryClient();
+  clients.add(client);
+  const cancellation = vi.spyOn(client, "cancelQueries");
+  render(
+    <PersonalAccountControls
+      bootstrap={bootstrap}
+      api={api}
+      queryClient={client}
+    />,
+  );
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(1));
+  await act(async () => finishSecondRead(receipt(nonces[1]!)));
+  await waitFor(() =>
+    expect(screen.getAllByRole("button", { name: "Hide result" })).toHaveLength(
+      2,
+    ),
+  );
+  expect(api.listSources).toHaveBeenCalledTimes(1);
+  expect(
+    cancellation.mock.calls.filter(
+      ([filters]) => filters?.queryKey?.[2] === "sources",
+    ),
+  ).toHaveLength(1);
+  await act(async () =>
+    finishFirstRefresh({
+      status: "ok",
+      value: {
+        sources: [{ ...source("source-0"), label: "Before second receipt" }],
+        nextCursor: null,
+      },
+    }),
+  );
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(2));
+  await screen.findByRole("button", {
+    name: "Workspace access for After second receipt",
+  });
+  expect(api.attach).not.toHaveBeenCalled();
+  expect(api.revoke).not.toHaveBeenCalled();
+});
+
+test("drains a saved terminal receipt arriving during mutation refresh before releasing the mutation latch", async () => {
+  const { bootstrap, api } = fixture();
+  const nonce = "9874b2bc-e987-4456-9212-7f94f58932da";
+  const storageKey = "rr-personal-account-operations:user-personal";
+  sessionStorage.setItem(storageKey, JSON.stringify([nonce]));
+  sessionStorage.setItem(
+    `${storageKey}:pairs`,
+    JSON.stringify({
+      [nonce]: {
+        kind: "attach",
+        sourceId: "source-0",
+        workspaceId: "org-x",
+      },
+    }),
+  );
+  const receipt = (
+    operationId: string,
+    sourceId: string,
+    available: boolean,
+  ): PersonalMutationReceipt => ({
+    operation: {
+      operationId,
+      sourceId,
+      phase: available ? "applied" : "submitted",
+      bindingId: available ? `binding-${sourceId}` : null,
+      available,
+      state: available ? "active" : "pending",
+    },
+  });
+  api.readOperation.mockResolvedValue({
+    status: "ok",
+    value: receipt(nonce, "source-0", false),
+  });
+  api.attach.mockImplementation(async (request) => ({
+    status: "ok",
+    value: receipt(request.nonce, request.sourceId, true),
+  }));
+  type SourcesResult = Awaited<ReturnType<PersonalAccountsApi["listSources"]>>;
+  let finishMutationRefresh!: (result: SourcesResult) => void;
+  let finishTail!: (result: SourcesResult) => void;
+  api.listSources
+    .mockImplementationOnce(
+      () =>
+        new Promise<SourcesResult>((resolve) => {
+          finishMutationRefresh = resolve;
+        }),
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise<SourcesResult>((resolve) => {
+          finishTail = resolve;
+        }),
+    );
+  const client = new QueryClient();
+  clients.add(client);
+  render(
+    <PersonalAccountControls
+      bootstrap={bootstrap}
+      api={api}
+      queryClient={client}
+    />,
+  );
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Check status",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Workspace access for Personal source-1",
+    }),
+  );
+  const add = await screen.findByRole("button", {
+    name: "Add access to Organization Y",
+  });
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(add);
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(1));
+  api.readOperation.mockResolvedValue({
+    status: "ok",
+    value: receipt(nonce, "source-0", true),
+  });
+  await act(async () => {
+    await client.refetchQueries({
+      queryKey: ["personal-accounts", bootstrap.scope, "operation", nonce],
+      exact: true,
+    });
+  });
+  await waitFor(() =>
+    expect(screen.getAllByText("Hide result")).toHaveLength(2),
+  );
+  expect(api.readOperation).toHaveBeenCalledWith(nonce);
+  expect(api.listSources).toHaveBeenCalledTimes(1);
+  expect((add as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => finishMutationRefresh(bootstrap.page));
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(2));
+  expect((add as HTMLButtonElement).disabled).toBe(true);
+  await act(async () =>
+    finishTail({
+      status: "ok",
+      value: {
+        sources: [
+          { ...source("source-0"), label: "Old receipt visible" },
+          source("source-1"),
+        ],
+        nextCursor: null,
+      },
+    }),
+  );
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(
+    screen.getByRole("article", { name: "Old receipt visible" }),
+  ).toBeTruthy();
+  expect(api.attach).toHaveBeenCalledTimes(1);
+  expect(api.revoke).not.toHaveBeenCalled();
+  expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toContain(nonce);
+});
+
+test("a terminal receipt from the mutation itself is covered by its availability refresh", async () => {
+  const { bootstrap, api } = fixture();
+  type SourcesResult = Awaited<ReturnType<PersonalAccountsApi["listSources"]>>;
+  let finishRefresh!: (result: SourcesResult) => void;
+  api.listSources.mockImplementationOnce(
+    () =>
+      new Promise<SourcesResult>((resolve) => {
+        finishRefresh = resolve;
+      }),
+  );
+  api.listSources.mockResolvedValue(bootstrap.page);
+  render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Workspace access for Personal source-0",
+    }),
+  );
+  const add = await screen.findByRole("button", {
+    name: "Add access to Organization Y",
+  });
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(add);
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(1));
+  // Ensure the status observer has received the applied cache publication
+  // while the mutation's own availability snapshot is still in flight.
+  await screen.findByText("Hide result");
+  expect((add as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => finishRefresh(bootstrap.page));
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  expect(api.listSources).toHaveBeenCalledTimes(1);
+  expect(api.attach).toHaveBeenCalledTimes(1);
+  expect(api.revoke).not.toHaveBeenCalled();
 });

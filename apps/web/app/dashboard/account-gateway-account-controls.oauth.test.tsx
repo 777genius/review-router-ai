@@ -328,7 +328,7 @@ test("personal scope reuses canonical controls through injected actions and neve
   await mount({ api, managementScope: "personal" });
   for (const name of [
     "Select workspace binding",
-    "Create workspace binding",
+    "Make available in this workspace",
     "Detach workspace use",
     "Disable",
   ])
@@ -1084,12 +1084,15 @@ test("stale pending readback cannot rearm completion after a lost ACK", async ()
   await screen.findByText("Connection 1 · Status unavailable");
   expect(screen.queryByRole("dialog")).toBeNull();
   await act(async () => releaseStatus(safeOperation(nonce, "pending")));
-  await screen.findByText("Connection 1 · Waiting for completion");
-  const resume = screen.getByRole("button", {
-    name: "Resume Codex authorization",
-  }) as HTMLButtonElement;
-  expect(resume.disabled).toBe(true);
-  fireEvent.click(resume);
+  // Completion cancels the older status request before publishing its unknown
+  // acknowledgment. A late pending response cannot rearm or even replace it.
+  expect(screen.getByText("Connection 1 · Status unavailable")).toBeTruthy();
+  expect(
+    screen.queryByText("Connection 1 · Waiting for completion"),
+  ).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Resume Codex authorization" }),
+  ).toBeNull();
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(completeGatewayOAuth).toHaveBeenCalledTimes(1);
   assertNoCallback();
@@ -1314,7 +1317,7 @@ test("OAuth rows hide API-key reconnect and become selectable only after an acti
     screen.getAllByRole("button", { name: "Reconnect API key" }),
   ).toHaveLength(1);
   const pendingBinding = within(oauthRow).getByRole("button", {
-    name: "Create workspace binding",
+    name: "Make available in this workspace",
   }) as HTMLButtonElement;
   expect(pendingBinding.disabled).toBe(true);
   fireEvent.click(pendingBinding);
@@ -1351,13 +1354,13 @@ test("OAuth rows hide API-key reconnect and become selectable only after an acti
     expect(
       (
         screen.getByRole("button", {
-          name: "Create workspace binding",
+          name: "Make available in this workspace",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false),
   );
   fireEvent.click(
-    screen.getByRole("button", { name: "Create workspace binding" }),
+    screen.getByRole("button", { name: "Make available in this workspace" }),
   );
   await waitFor(() => expect(bindGatewayAccount).toHaveBeenCalledTimes(1));
   expect(bindGatewayAccount).toHaveBeenCalledWith(context, {
@@ -1382,7 +1385,7 @@ test("OAuth reconnect reuses the ordinary handoff and original account revisions
     screen.getByRole("button", { name: "Reconnect Codex OAuth" }),
   );
   const dialog = await screen.findByRole("dialog", {
-    name: "Reconnect Codex OAuth",
+    name: "Reconnect Codex OAuth · Workspace Codex",
   });
   expect(within(dialog).queryByLabelText("Account label")).toBeNull();
   fireEvent.click(

@@ -41,7 +41,7 @@ export const dashboardSectionMeta: Record<
     eyebrow: "Workspace credentials",
     title: "Accounts",
     description:
-      "Manage workspace API-key accounts and existing ChatGPT sessions. Credentials are never returned to the browser.",
+      "Connect accounts once and choose where they are available for reviews.",
     navDescription: "Workspace provider accounts",
   },
   policy: {

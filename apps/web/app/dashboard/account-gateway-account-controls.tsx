@@ -1,14 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   QueryClient,
   QueryClientProvider,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import { Badge, Button, Dialog, SelectField } from "@reviewrouter/ui";
+import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
+import { dashboardSectionHref } from "./dashboard-section";
 import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
 import {
   canonicalMimoBaseURL,
@@ -54,6 +63,11 @@ const defaultManagementApi = {
   beginGatewayOAuth,
   completeGatewayOAuth,
 };
+export type AccountRowsRenderer = (
+  accounts: readonly AccountView[],
+  actions: (account: AccountView) => ReactNode,
+) => ReactNode;
+
 type ManagementScope = "workspace" | "personal";
 
 // Small safe keys: scoped stable user/workspace locator; no signature or secret.
@@ -126,14 +140,20 @@ export function AccountGatewayControls({
   managementScope = "workspace",
   queryClient,
   refreshRelated,
+  renderAccounts,
+  workspaceId,
 }: {
   bootstrap: AccountsBootstrap;
   api?: AccountGatewayManagementApi;
   managementScope?: ManagementScope;
   queryClient?: QueryClient;
   refreshRelated?: () => Promise<void>;
+  renderAccounts?: AccountRowsRenderer;
+  workspaceId?: string;
 }) {
-  const [client] = useState(() => queryClient ?? new QueryClient());
+  const optionsCache = useCurrentGatewayModelAccountsCache();
+  const [fallback] = useState(() => new QueryClient());
+  const client = queryClient ?? optionsCache?.client ?? fallback;
   if (managementScope === "personal" && api === defaultManagementApi)
     return <p role="status">Personal account management is unavailable.</p>;
   return (
@@ -143,6 +163,8 @@ export function AccountGatewayControls({
         api={api}
         managementScope={managementScope}
         refreshRelated={refreshRelated}
+        renderAccounts={renderAccounts}
+        workspaceId={workspaceId}
       />
     </QueryClientProvider>
   );
@@ -153,11 +175,15 @@ function Controls({
   api,
   managementScope,
   refreshRelated,
+  renderAccounts,
+  workspaceId,
 }: {
   bootstrap: AccountsBootstrap;
   api: AccountGatewayManagementApi;
   managementScope: ManagementScope;
   refreshRelated: (() => Promise<void>) | undefined;
+  renderAccounts: AccountRowsRenderer | undefined;
+  workspaceId: string | undefined;
 }) {
   const { context } = bootstrap;
   const contextScope = context.split(".")[0] ?? "";
@@ -165,7 +191,7 @@ function Controls({
   const scope = personal ? `personal:${contextScope}` : contextScope;
   const storageKey = `rr-c3-account-operations:${scope}`;
   const client = useQueryClient();
-  const [cursor, setCursor] = useState<string | null>(null);
+  const optionsCache = useCurrentGatewayModelAccountsCache();
   const [nonces, setNonces] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
   const [message, setMessage] = useState("");
@@ -177,10 +203,13 @@ function Controls({
   );
   const completionHandoffRef = useRef<string | null>(null);
   const submitting = useRef(false);
-  const page = useQuery({
-    queryKey: pageKey(scope, cursor),
-    queryFn: () => api.listGatewayAccounts(context, cursor),
-    initialData: cursor === null ? bootstrap.page : undefined,
+  const page = useInfiniteQuery({
+    queryKey: pageKey(scope, null),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => api.listGatewayAccounts(context, pageParam),
+    initialData: { pages: [bootstrap.page], pageParams: [null] },
+    getNextPageParam: (result) =>
+      result.status === "ok" ? result.value.nextCursor : null,
     enabled: Boolean(context),
     staleTime: 15000,
     retry: false,
@@ -206,7 +235,8 @@ function Controls({
         ),
     );
     await refreshRelated?.();
-  }, [client, scope, refreshRelated]);
+    await optionsCache?.refresh();
+  }, [client, scope, refreshRelated, optionsCache]);
   const offerCompletionHandoff = useCallback((nonce: string) => {
     if (completionHandoffRef.current) return;
     completionHandoffRef.current = nonce;
@@ -252,6 +282,10 @@ function Controls({
     nonce: string,
     result: AccountsResult<AccountOperationView>,
   ) {
+    await client.cancelQueries({
+      queryKey: operationKey(scope, nonce),
+      exact: true,
+    });
     client.setQueryData(operationKey(scope, nonce), result);
     if (result.status !== "ok") dismiss(nonce); // Adapter proved no management mutation entered.
     setMessage(
@@ -400,7 +434,31 @@ function Controls({
     onError: () =>
       setMessage("Binding status is unavailable. Refresh Accounts."),
   });
-  const data = page.data;
+  const loaded = page.data.pages.filter((result) => result.status === "ok");
+  const failure = page.data.pages.find((result) => result.status !== "ok");
+  const data = loaded.length
+    ? {
+        status: "ok" as const,
+        value: {
+          ...loaded[0]!.value,
+          accounts: [
+            ...new Map(
+              loaded
+                .flatMap((result) => result.value.accounts)
+                .map((account) => [account.connectionId, account]),
+            ).values(),
+          ],
+          profiles: [
+            ...new Map(
+              loaded
+                .flatMap((result) => result.value.profiles)
+                .map((profile) => [profile.id, profile]),
+            ).values(),
+          ],
+        },
+      }
+    : failure;
+
   const detachMutation = useMutation({
     mutationFn: (account: AccountView) =>
       detachGatewayAccount(context, {
@@ -424,18 +482,118 @@ function Controls({
     detachMutation.isPending ||
     page.isFetching ||
     data?.status !== "ok";
+  function renderActions(account: AccountView) {
+    if (data?.status !== "ok") return null;
+    return (
+      <div className="flex flex-wrap gap-2">
+        <AccountForm
+          account={account}
+          mode="rename"
+          profiles={data.value.profiles}
+          disabled={disabled || account.canManage !== true}
+          managementScope={managementScope}
+          submit={submit}
+        />
+        {account.authKind === "api_key" &&
+        data.value.profiles.find((p) => p.id === account.profileId)
+          ?.canReconnect ? (
+          <AccountForm
+            account={account}
+            mode="reconnect"
+            profiles={data.value.profiles}
+            disabled={
+              disabled ||
+              account.canManage !== true ||
+              (personal && account.state === "disabled") ||
+              account.state === "tombstoned"
+            }
+            submit={submit}
+            managementScope={managementScope}
+          />
+        ) : null}
+        {account.authKind === "oauth" &&
+        data.value.profiles.find((p) => p.id === account.profileId)
+          ?.canReconnect ? (
+          <OAuthForm
+            account={account}
+            profiles={data.value.profiles.filter(
+              (p) => p.id === account.profileId,
+            )}
+            disabled={
+              disabled ||
+              account.canManage !== true ||
+              (personal && account.state === "disabled") ||
+              account.state === "tombstoned"
+            }
+            begin={beginOAuth}
+            managementScope={managementScope}
+          />
+        ) : null}
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={
+            disabled ||
+            account.canManage !== true ||
+            (personal && account.state === "disabled") ||
+            account.state === "tombstoned"
+          }
+          onClick={() => {
+            if (personal) setRetirement(account);
+            else
+              void submit({
+                kind: "disable",
+                connectionId: account.connectionId,
+                gatewayRevision: account.gatewayRevision,
+                mirrorRevision: account.mirrorRevision,
+              });
+          }}
+        >
+          {personal ? "Retire personal account" : "Disable"}
+        </Button>
+        {!personal && account.binding?.state !== "active" ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={
+              disabled ||
+              account.state !== "active" ||
+              Boolean(account.binding?.fencePending) ||
+              account.canManage !== true
+            }
+            onClick={() => bindingMutation.mutate(account)}
+          >
+            Make available in this workspace
+          </Button>
+        ) : null}
+        {!personal && account.binding?.state === "active" ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            onClick={() => detachMutation.mutate(account)}
+          >
+            Detach workspace use
+          </Button>
+        ) : null}
+        {!personal &&
+        data.value.canGrantOperatorUse &&
+        account.canManage === true ? (
+          <details className="text-sm">
+            <summary className="cursor-pointer py-2">Advanced</summary>
+            <OperatorGrantForm
+              context={context}
+              account={account}
+              disabled={disabled}
+              refresh={refresh}
+            />
+          </details>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div className="space-y-4">
-      {personal ? (
-        <p className="text-sm text-slate-400">
-          These connections belong to you. Their names are visible to
-          organizations where you share them. Renaming changes the same account
-          everywhere; reconnecting updates its authentication and invalidates
-          old review access. Retiring an account permanently removes all its
-          uses, including your personal workspace. To use it afterward, connect
-          a new account.
-        </p>
-      ) : null}
       <div className="flex flex-wrap gap-3">
         {data?.status === "ok" &&
         data.value.profiles.some((p) => p.authKind === "api_key") ? (
@@ -473,7 +631,18 @@ function Controls({
           {message}
         </p>
       ) : null}
-      {data?.status !== "ok" ? (
+      {page.isError || failure ? (
+        <p role="status">
+          Connection details could not be refreshed. Workspace access remains
+          separate.
+        </p>
+      ) : null}
+      {renderAccounts ? (
+        renderAccounts(
+          data?.status === "ok" ? data.value.accounts : [],
+          renderActions,
+        )
+      ) : data?.status !== "ok" ? (
         <p role="status" className="text-sm text-slate-400">
           {statusText(data?.status ?? "unavailable", managementScope)}
         </p>
@@ -519,8 +688,8 @@ function Controls({
                 </div>
                 {account.state === "quarantined" ? (
                   <p className="mt-1 text-xs text-slate-400">
-                    Connection could not be confirmed. This account cannot run
-                    reviews until its connection is restored.
+                    Connection could not be confirmed. Use a supported reconnect
+                    action if available, or check the original request below.
                   </p>
                 ) : null}
                 {account.state === "disabled" ||
@@ -531,136 +700,33 @@ function Controls({
                   </p>
                 ) : null}
               </div>
-              <div className="flex flex-wrap gap-2">
-                <AccountForm
-                  account={account}
-                  mode="rename"
-                  profiles={data.value.profiles}
-                  disabled={disabled || account.canManage !== true}
-                  managementScope={managementScope}
-                  submit={submit}
-                />
-                {account.authKind === "api_key" &&
-                data.value.profiles.find((p) => p.id === account.profileId)
-                  ?.canReconnect ? (
-                  <AccountForm
-                    account={account}
-                    mode="reconnect"
-                    profiles={data.value.profiles}
-                    disabled={
-                      disabled ||
-                      account.canManage !== true ||
-                      (personal && account.state === "disabled") ||
-                      account.state === "tombstoned"
-                    }
-                    submit={submit}
-                    managementScope={managementScope}
-                  />
-                ) : null}
-                {account.authKind === "oauth" &&
-                data.value.profiles.find((p) => p.id === account.profileId)
-                  ?.canReconnect ? (
-                  <OAuthForm
-                    account={account}
-                    profiles={data.value.profiles.filter(
-                      (p) => p.id === account.profileId,
-                    )}
-                    disabled={
-                      disabled ||
-                      account.canManage !== true ||
-                      (personal && account.state === "disabled") ||
-                      account.state === "tombstoned"
-                    }
-                    begin={beginOAuth}
-                    managementScope={managementScope}
-                  />
-                ) : null}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={
-                    disabled ||
-                    account.canManage !== true ||
-                    (personal && account.state === "disabled") ||
-                    account.state === "tombstoned"
-                  }
-                  onClick={() => {
-                    if (personal) setRetirement(account);
-                    else
-                      void submit({
-                        kind: "disable",
-                        connectionId: account.connectionId,
-                        gatewayRevision: account.gatewayRevision,
-                        mirrorRevision: account.mirrorRevision,
-                      });
-                  }}
-                >
-                  {personal ? "Retire personal account" : "Disable"}
-                </Button>
-                {!personal ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      disabled ||
-                      account.state !== "active" ||
-                      Boolean(account.binding?.fencePending) ||
-                      (account.canManage !== true &&
-                        account.binding?.state !== "active")
-                    }
-                    onClick={() => bindingMutation.mutate(account)}
-                  >
-                    {account.binding?.state === "active"
-                      ? "Select workspace binding"
-                      : "Create workspace binding"}
-                  </Button>
-                ) : null}
-                {!personal && account.binding?.state === "active" ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={disabled}
-                    onClick={() => detachMutation.mutate(account)}
-                  >
-                    Detach workspace use
-                  </Button>
-                ) : null}
+              <div className="space-y-2">
                 {!personal &&
-                data.value.canGrantOperatorUse &&
-                account.canManage === true ? (
-                  <OperatorGrantForm
-                    context={context}
-                    account={account}
-                    disabled={disabled}
-                    refresh={refresh}
-                  />
+                account.binding?.state === "active" &&
+                !account.binding.fencePending ? (
+                  <a
+                    className="text-sm text-cyan-200 underline"
+                    href={dashboardSectionHref("policy", workspaceId)}
+                  >
+                    Choose for reviews
+                  </a>
                 ) : null}
+                {renderActions(account)}
               </div>
             </div>
           ))}
-          <div className="flex gap-2 pt-3">
-            {cursor ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCursor(null)}
-              >
-                First page
-              </Button>
-            ) : null}
-            {data.value.nextCursor ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page.isFetching}
-                onClick={() => setCursor(data.value.nextCursor)}
-              >
-                Next page
-              </Button>
-            ) : null}
-          </div>
         </div>
       )}
+      {page.hasNextPage ? (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page.isFetching}
+          onClick={() => void page.fetchNextPage()}
+        >
+          Load more connection details
+        </Button>
+      ) : null}
       <Dialog.Root
         open={Boolean(retirement)}
         onOpenChange={(open) => {
@@ -882,7 +948,9 @@ function OAuthForm({
         <Dialog.Backdrop />
         <Dialog.Popup>
           <Dialog.Title className="text-lg font-semibold">
-            {account ? "Reconnect Codex OAuth" : "Connect Codex OAuth"}
+            {account
+              ? `Reconnect Codex OAuth · ${account.label}`
+              : "Connect Codex OAuth"}
           </Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-slate-400">
             Authorize Codex in a new browser tab. No API key is needed.
@@ -1128,6 +1196,10 @@ function OperationReadback({
           spend={() => setCompletionSpent(true)}
           restorePreEntry={() => setCompletionSpent(false)}
           accept={async (result) => {
+            await client.cancelQueries({
+              queryKey: operationKey(scope, nonce),
+              exact: true,
+            });
             client.setQueryData(operationKey(scope, nonce), result);
             await refresh();
           }}
@@ -1391,7 +1463,10 @@ function AccountForm({
       <Dialog.Portal>
         <Dialog.Backdrop />
         <Dialog.Popup>
-          <Dialog.Title className="text-lg font-semibold">{title}</Dialog.Title>
+          <Dialog.Title className="text-lg font-semibold">
+            {title}
+            {account ? ` · ${account.label}` : ""}
+          </Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-slate-400">
             {mode === "rename"
               ? "Update the friendly account label."

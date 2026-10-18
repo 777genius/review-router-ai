@@ -12,6 +12,8 @@ import type {
   AccountsPage,
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
+import { dashboardSectionHref } from "./dashboard-section";
+import { refreshPersonalAccountViews } from "./personal-account-controls";
 import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
 import {
   useGatewayModelAccountsQueryClient,
@@ -29,6 +31,8 @@ type DetachResult = AccountsResult<{
 }>;
 type Props = {
   scope: string;
+  personalScope?: string;
+  workspaceId?: string;
   api?: GatewayModelAccountsApi;
   canDetach: boolean;
   detach(request: DetachRequest): Promise<DetachResult>;
@@ -51,6 +55,8 @@ export function WorkspacePersonalAccounts(props: Props) {
 
 function WorkspacePersonalRows({
   scope,
+  personalScope,
+  workspaceId,
   api,
   canDetach,
   detach,
@@ -175,6 +181,8 @@ function WorkspacePersonalRows({
         client.invalidateQueries({ queryKey: pageKey, exact: true }),
         client.invalidateQueries({ queryKey: detailKey, exact: true }),
       ]);
+      if (personalScope)
+        await refreshPersonalAccountViews(client, personalScope);
     } finally {
       busy.current = false;
       setSubmitting(false);
@@ -195,18 +203,14 @@ function WorkspacePersonalRows({
             : null;
   return (
     <section aria-label="Personal accounts shared with this organization">
-      <h3 className="font-medium text-cyan-50">
-        Personal accounts available to this organization
-      </h3>
+      <h4 className="font-medium text-cyan-50">Shared accounts</h4>
       <p className="mt-1 text-sm text-slate-400">
-        Their owners share the same account, name, sign-in and review capacity
-        with this organization. Choose an account in Models to use it for
-        reviews. Detaching removes only this organization's access; it does not
-        retire the owner's account or affect other organizations.
-      </p>
-      <p className="mt-1 text-sm text-slate-400">
-        The owner manages the account's name, sign-in and retirement in My
-        personal accounts. Here you manage only this organization's access.
+        Removing access here affects only this workspace. Owners manage sign-in
+        and retirement in{" "}
+        <a className="text-cyan-200 underline" href="#your-accounts">
+          Your accounts
+        </a>
+        .
       </p>
       {pages.isPending ? <p role="status">Loading shared accounts...</p> : null}
       {failed ? (
@@ -237,24 +241,34 @@ function WorkspacePersonalRows({
               <Badge tone="neutral">{row.state}</Badge>
             </div>
           </div>
-          {canDetach && row.binding!.state === "active" ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={submitting}
-              onClick={() =>
-                setSelection({
-                  label: row.label,
-                  request: {
-                    bindingId: row.binding!.id,
-                    expectedBindingRevision: row.binding!.revision,
-                  },
-                })
-              }
-            >
-              Detach from this organization
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-3">
+            {row.binding!.state === "active" && !row.binding!.fencePending ? (
+              <a
+                className="text-sm text-cyan-200 underline"
+                href={dashboardSectionHref("policy", workspaceId)}
+              >
+                Choose for reviews
+              </a>
+            ) : null}
+            {canDetach && row.binding!.state === "active" ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={submitting}
+                onClick={() =>
+                  setSelection({
+                    label: row.label,
+                    request: {
+                      bindingId: row.binding!.id,
+                      expectedBindingRevision: row.binding!.revision,
+                    },
+                  })
+                }
+              >
+                Detach from this organization
+              </Button>
+            ) : null}
+          </div>
         </article>
       ))}
       <div className="mt-3 flex flex-wrap gap-2">
@@ -305,7 +319,9 @@ function WorkspacePersonalRows({
         <Dialog.Portal>
           <Dialog.Backdrop />
           <Dialog.Popup>
-            <Dialog.Title>Detach from this organization?</Dialog.Title>
+            <Dialog.Title>
+              Detach {selection?.label} from this organization?
+            </Dialog.Title>
             <Dialog.Description>
               {selection?.label} will stop being available here. The personal
               account and its use in other organizations are unaffected.

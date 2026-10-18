@@ -1,9 +1,11 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { existsSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DashboardWorkspaceLayout,
   listDashboardRepositoryAccess,
   loadDashboardSectionData,
+  WorkspaceCard,
 } from "./dashboard-workspace-page";
 import type { DashboardWorkspaceSummary } from "./dashboard-workspace-navigation";
 
@@ -98,7 +100,25 @@ const fixtures = vi.hoisted(() => {
 });
 const { spies } = fixtures;
 
-vi.mock("./actions", () => ({}));
+vi.mock("./account-gateway-accounts-section", () => ({
+  AccountGatewayAccountsSection: ({
+    workspaceName,
+  }: {
+    workspaceName?: string;
+  }) => <section>Your accounts; Accounts in {workspaceName}</section>,
+}));
+vi.mock("./hosted-pool-settings", () => ({
+  HostedPoolSettingsPanel: () => <section>Hosted pool accounts</section>,
+  RepositorySessionSourceSelector: () => null,
+}));
+vi.mock("./actions", () => ({
+  importHostedPoolAccountClientAction: vi.fn(),
+  startHostedPoolDeviceLoginClientAction: vi.fn(),
+  pollHostedPoolDeviceLoginClientAction: vi.fn(),
+  setHostedPoolAccountStateClientAction: vi.fn(),
+  removeHostedPoolAccountClientAction: vi.fn(),
+  setHostedRepositorySessionSourceClientAction: vi.fn(),
+}));
 vi.mock("../../src/server/prisma", () => ({
   getPrisma: () => ({
     providerSetupState: { findMany: fixtures.spies.providerSetup },
@@ -688,6 +708,42 @@ describe("dashboard server loading boundaries", () => {
       expect(spies.memorySuggestions).not.toHaveBeenCalled();
       expect(spies.memoryPolicy).not.toHaveBeenCalled();
       expect(spies.memorySimulation).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, false])(
+    "renders Accounts without interpreting its unrequested policy as missing (admin %s)",
+    async (hasWorkspaceWideAccess) => {
+      const data = await loadDashboardSectionData(
+        { ...workspace, hasWorkspaceWideAccess },
+        "setup",
+        access,
+      );
+      expect(data.reviewConfig).toBeNull();
+      const html = renderToStaticMarkup(
+        <WorkspaceCard
+          data={data}
+          mutationsEnabled
+          selectedSection="setup"
+          params={{}}
+          repositoryAccess={access}
+          workspaceKey="acme"
+          appInstallUrl={null}
+          modelOptions={[]}
+          claudeCodeProviderEnabled={false}
+        />,
+      );
+      expect(html).toContain("Accounts in acme");
+      expect(html).toContain("Your accounts");
+      expect(html).toContain(">Accounts</h2>");
+      expect(html).toContain("Choose accounts for reviews in Models");
+      expect(html).not.toContain("Save workspace review settings");
+      expect(html).not.toContain("retired format");
+      expect(html.includes("Hosted pool accounts")).toBe(
+        hasWorkspaceWideAccess,
+      );
+      expect(spies.config).not.toHaveBeenCalled();
+      expect(spies.batchConfig).not.toHaveBeenCalled();
     },
   );
 
