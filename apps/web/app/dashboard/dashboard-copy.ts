@@ -579,10 +579,23 @@ export function dashboardErrorText(error: string): string {
     case "memory_safety_blocked":
       return "Memory policy blocked this change. Refresh and try again with a safer distilled memory.";
     default:
-      return error
-        ? `GitHub operation failed (code: ${error}). Ask your workspace administrator to look up this code in Diagnostics audit events.`
-        : "GitHub operation failed. Check audit events or server logs for the safe error code.";
+      return unmappedDashboardErrorText(error);
   }
+}
+
+/**
+ * The single text for "no dedicated guidance exists". Compared against
+ * `dashboardErrorText` to decide whether a code may reach the UI, so the switch
+ * stays the only source of truth about which codes are explained.
+ */
+export function unmappedDashboardErrorText(code: string): string {
+  return code
+    ? `GitHub operation failed (code: ${code}). Ask your workspace administrator to look up this code in Diagnostics audit events.`
+    : "GitHub operation failed. Check audit events or server logs for the safe error code.";
+}
+
+export function hasDedicatedDashboardErrorCopy(code: string): boolean {
+  return dashboardErrorText(code) !== unmappedDashboardErrorText(code);
 }
 
 function isCodexRotatingProviderState(

@@ -1,4 +1,4 @@
-import { dashboardErrorText } from "./dashboard-copy";
+import { hasDedicatedDashboardErrorCopy } from "./dashboard-copy";
 
 export function safeDashboardErrorCode(error: unknown): string {
   const message = error instanceof Error ? error.message : "unknown_error";
@@ -168,24 +168,19 @@ export function safeDashboardErrorCode(error: unknown): string {
   if (githubStatus > 0) {
     return githubDashboardErrorCodeForStatus(githubStatus);
   }
-  if (hasDedicatedDashboardErrorCopy(message)) {
+  if (
+    isSafeDashboardErrorCodeShape(message) &&
+    hasDedicatedDashboardErrorCopy(message)
+  ) {
     return message;
   }
   return "github_operation_failed";
 }
 
-/**
- * Keeps a machine-generated code readable exactly when the dashboard already
- * ships dedicated copy for it, so new reasons cannot fall back to the generic
- * "check the server logs" notice while their explanation exists in the source.
- */
-function hasDedicatedDashboardErrorCopy(message: string): boolean {
-  return (
-    /^[a-z][a-z0-9_]{3,63}$/.test(message) &&
-    message !== "github_operation_failed" &&
-    dashboardErrorText(message) !==
-      dashboardErrorText("github_operation_failed")
-  );
+// Machine-generated codes only: free-form text, paths and tokens must never
+// reach the browser as a "safe" code.
+function isSafeDashboardErrorCodeShape(code: string): boolean {
+  return /^[a-z][a-z0-9_]{3,63}$/.test(code);
 }
 
 function githubDashboardErrorCodeFromMessage(message: string): string | null {
