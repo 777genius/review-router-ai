@@ -115,3 +115,27 @@ describe("policy readiness errors", () => {
     ).toBe("workflow_delete_untrusted");
   });
 });
+
+// A code with shipped guidance must reach that guidance instead of the generic notice.
+describe("codes with dedicated dashboard copy", () => {
+  it.each([
+    "gateway_repository_identity_missing",
+    "gateway_review_v2_provisioning_failed",
+    "gateway_review_v2_dispatch_unavailable",
+    "mutation_authority_unavailable",
+    "dashboard_action_stale",
+  ])("preserves %s", (code) => {
+    expect(safeDashboardErrorCode(new Error(code))).toBe(code);
+  });
+
+  it.each([
+    "no_such_code_at_all",
+    "github_operation_failed",
+    "Prisma client failed on table ReviewExecutionV2",
+    "secret_token_abc123xyz",
+  ])("collapses unrecognized message %s", (message) => {
+    expect(safeDashboardErrorCode(new Error(message))).toBe(
+      "github_operation_failed",
+    );
+  });
+});
