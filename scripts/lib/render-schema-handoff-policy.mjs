@@ -283,9 +283,9 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (identityBindMigration) {
     if (
       identityBindMigration.checksum !==
-        "1760404dbd5501d75016c937a05ba014bc69dcb84c68da357f8a840a6703e025" ||
+        "bd918df942405f36c88dafa7a05c7f383439f913915de5ab3af8214cff7fd5a6" ||
       manifest(catalog) !==
-        "sha256:d98f4dc72d5f785eb0d64e79cc7192d0b5f32d37f279be436f197de811c2ee17"
+        "sha256:e88927dcec3f1ec6fdc966be8d937160f8fccbaf59720b99fdc6386e605d5d5e"
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(

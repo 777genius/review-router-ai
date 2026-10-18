@@ -422,7 +422,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     expect(full.at(-1)).toEqual({
       migrationName: identityBindMigrationName,
       checksum:
-        "1760404dbd5501d75016c937a05ba014bc69dcb84c68da357f8a840a6703e025",
+        "bd918df942405f36c88dafa7a05c7f383439f913915de5ab3af8214cff7fd5a6",
     });
     expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
     for (const changed of [
