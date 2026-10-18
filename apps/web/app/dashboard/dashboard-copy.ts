@@ -413,7 +413,7 @@ export function dashboardErrorText(error: string): string {
     case "review_workspace_policy_required":
       return "Save workspace review settings before enabling reviews.";
     case "workflow_delete_untrusted":
-      return "A ReviewRouter workflow belongs to another active mode (GitHub Secrets/Hosted Pool) or was edited; it is not removed automatically. Disconnect that mode or remove the file, then retry.";
+      return "A ReviewRouter workflow belongs to another active mode (GitHub Secrets/Hosted Pool) or was edited, so it is not removed automatically. Disconnect that mode, or remove the exact file named in the Diagnostics audit event, then retry.";
     case "invalid_form":
       return "The submitted form is invalid. Refresh the dashboard and try again.";
     case "dashboard_action_failed":
@@ -579,8 +579,23 @@ export function dashboardErrorText(error: string): string {
     case "memory_safety_blocked":
       return "Memory policy blocked this change. Refresh and try again with a safer distilled memory.";
     default:
-      return "GitHub operation failed. Check audit events or server logs for the safe error code.";
+      return unmappedDashboardErrorText(error);
   }
+}
+
+/**
+ * The single text for "no dedicated guidance exists". Compared against
+ * `dashboardErrorText` to decide whether a code may reach the UI, so the switch
+ * stays the only source of truth about which codes are explained.
+ */
+export function unmappedDashboardErrorText(code: string): string {
+  return code
+    ? `GitHub operation failed (code: ${code}). Ask your workspace administrator to look up this code in Diagnostics audit events.`
+    : "GitHub operation failed. Check audit events or server logs for the safe error code.";
+}
+
+export function hasDedicatedDashboardErrorCopy(code: string): boolean {
+  return dashboardErrorText(code) !== unmappedDashboardErrorText(code);
 }
 
 function isCodexRotatingProviderState(

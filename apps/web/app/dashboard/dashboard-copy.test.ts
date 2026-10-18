@@ -55,6 +55,13 @@ it.each([
   expect(copy).not.toMatch(/rerun|restart|replay/i);
 });
 
+it("quotes the safe code when a failure has no dedicated copy", () => {
+  const copy = dashboardErrorText("unmapped_probe_code");
+
+  expect(copy).toContain("unmapped_probe_code");
+  expect(copy).toContain("Diagnostics");
+});
+
 it.each([
   ["account_gateway_workflow_options_not_supported", "reusable workflow style"],
   [

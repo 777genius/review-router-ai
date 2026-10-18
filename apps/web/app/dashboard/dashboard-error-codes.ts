@@ -1,3 +1,5 @@
+import { hasDedicatedDashboardErrorCopy } from "./dashboard-copy";
+
 export function safeDashboardErrorCode(error: unknown): string {
   const message = error instanceof Error ? error.message : "unknown_error";
   const summarizedGitHubApiError = githubDashboardErrorCodeFromMessage(message);
@@ -166,7 +168,40 @@ export function safeDashboardErrorCode(error: unknown): string {
   if (githubStatus > 0) {
     return githubDashboardErrorCodeForStatus(githubStatus);
   }
+  if (
+    isSafeDashboardErrorCodeShape(message) &&
+    hasDedicatedDashboardErrorCopy(message)
+  ) {
+    return message;
+  }
   return "github_operation_failed";
+}
+
+// Machine-generated codes only: free-form text, paths and tokens must never
+// reach the browser as a "safe" code.
+function isSafeDashboardErrorCodeShape(code: string): boolean {
+  return /^[a-z][a-z0-9_]{3,63}$/.test(code);
+}
+
+const UNTRUSTED_WORKFLOW_DELETE_PREFIX = "workflow_delete_untrusted:";
+const reviewRouterWorkflowPath =
+  /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._-]{0,78}\.ya?ml$/u;
+
+/**
+ * The recovery advice for `workflow_delete_untrusted` is to remove the file by
+ * hand, which is only actionable when it names the file. The path after the code
+ * is chosen by the provisioning gateway from its own expected file list, so it is
+ * echoed only when it still looks like one plain workflow path.
+ */
+export function dashboardUntrustedWorkflowPathFromError(
+  error: unknown,
+): string | null {
+  const message = error instanceof Error ? error.message : "";
+  if (!message.startsWith(UNTRUSTED_WORKFLOW_DELETE_PREFIX)) {
+    return null;
+  }
+  const path = message.slice(UNTRUSTED_WORKFLOW_DELETE_PREFIX.length);
+  return reviewRouterWorkflowPath.test(path) ? path : null;
 }
 
 function githubDashboardErrorCodeFromMessage(message: string): string | null {
