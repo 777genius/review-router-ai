@@ -158,7 +158,10 @@ import {
   readReviewDiscussionMode,
   readWorkflowStyle,
 } from "./dashboard-action-form-readers";
-import { safeDashboardErrorCode } from "./dashboard-error-codes";
+import {
+  dashboardUntrustedWorkflowPathFromError,
+  safeDashboardErrorCode,
+} from "./dashboard-error-codes";
 import { dashboardPath } from "./dashboard-section";
 import {
   changeHostedPoolAccountState,
@@ -1472,6 +1475,8 @@ async function createSetupPullRequestMutation(
     }
   } catch (error) {
     const errorCode = safeDashboardErrorCode(error);
+    const untrustedWorkflowPath =
+      dashboardUntrustedWorkflowPathFromError(error);
     if (auditSubject) {
       try {
         await recordAuditEvent(
@@ -1484,6 +1489,9 @@ async function createSetupPullRequestMutation(
             metadata: {
               repository: auditSubject.repository,
               errorCode,
+              ...(untrustedWorkflowPath
+                ? { workflowPath: untrustedWorkflowPath }
+                : {}),
             },
           },
           { auditLog: new PrismaAuditLogRepository(prisma) },

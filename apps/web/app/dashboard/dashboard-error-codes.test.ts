@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { safeDashboardErrorCode } from "./dashboard-error-codes";
+import {
+  dashboardUntrustedWorkflowPathFromError,
+  safeDashboardErrorCode,
+} from "./dashboard-error-codes";
 
 describe("safeDashboardErrorCode", () => {
   it.each([
@@ -137,5 +140,44 @@ describe("codes with dedicated dashboard copy", () => {
     expect(safeDashboardErrorCode(new Error(message))).toBe(
       "github_operation_failed",
     );
+  });
+});
+
+// Removing the file by hand is the documented recovery, so the audit trail has to
+// say which file, without letting an arbitrary message path through.
+describe("dashboardUntrustedWorkflowPathFromError", () => {
+  it.each([
+    ".github/workflows/reviewrouter-codex.yml",
+    ".github/workflows/reviewrouter.yml",
+    ".github/workflows/reviewrouter-interaction.yml",
+  ])("keeps the ReviewRouter workflow path %s", (path) => {
+    expect(
+      dashboardUntrustedWorkflowPathFromError(
+        new Error(`workflow_delete_untrusted:${path}`),
+      ),
+    ).toBe(path);
+  });
+
+  it.each([
+    "../../etc/passwd",
+    ".github/workflows/../../secrets.yml",
+    "/etc/passwd",
+    ".github/workflows/x.yml?token=secret",
+    "",
+  ])("drops %s as an untrusted path", (path) => {
+    expect(
+      dashboardUntrustedWorkflowPathFromError(
+        new Error(`workflow_delete_untrusted:${path}`),
+      ),
+    ).toBeNull();
+  });
+
+  it("returns nothing for unrelated errors", () => {
+    expect(
+      dashboardUntrustedWorkflowPathFromError(
+        new Error("setup_pr_branch_deleted"),
+      ),
+    ).toBeNull();
+    expect(dashboardUntrustedWorkflowPathFromError("not-an-error")).toBeNull();
   });
 });

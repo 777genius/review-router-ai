@@ -413,7 +413,7 @@ export function dashboardErrorText(error: string): string {
     case "review_workspace_policy_required":
       return "Save workspace review settings before enabling reviews.";
     case "workflow_delete_untrusted":
-      return "A ReviewRouter workflow belongs to another active mode (GitHub Secrets/Hosted Pool) or was edited; it is not removed automatically. Disconnect that mode or remove the file, then retry.";
+      return "A ReviewRouter workflow belongs to another active mode (GitHub Secrets/Hosted Pool) or was edited, so it is not removed automatically. Disconnect that mode, or remove the exact file named in the Diagnostics audit event, then retry.";
     case "invalid_form":
       return "The submitted form is invalid. Refresh the dashboard and try again.";
     case "dashboard_action_failed":
