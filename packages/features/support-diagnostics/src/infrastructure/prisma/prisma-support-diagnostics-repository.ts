@@ -72,14 +72,10 @@ export class PrismaSupportDiagnosticsRepository implements SupportDiagnosticsRep
       memorySuggestionStatusCounts,
       memoryUsageEventCount,
     ] = await Promise.all([
-      this.prisma.outboxEvent.findMany({
+      this.prisma.outboxEvent.groupBy({
+        by: ["status"],
         where: { workspaceId },
-        orderBy: { occurredAt: "desc" },
-        take: 50,
-        select: {
-          status: true,
-          type: true,
-        },
+        _count: { _all: true },
       }),
       this.prisma.memoryItem.groupBy({
         by: ["status"],
@@ -146,10 +142,7 @@ export class PrismaSupportDiagnosticsRepository implements SupportDiagnosticsRep
       workflowProvisioning: workspace.provisioning.map((item) => ({
         status: item.status,
       })),
-      outbox: outbox.map((event) => ({
-        status: event.status,
-        type: event.type,
-      })),
+      outboxStatusCounts: toCountMap(outbox, "status"),
       memory: {
         itemStatusCounts: toCountMap(memoryItemStatusCounts, "status"),
         itemScopeCounts: toCountMap(memoryItemScopeCounts, "scope"),
