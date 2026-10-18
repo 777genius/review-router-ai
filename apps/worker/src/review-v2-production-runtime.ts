@@ -395,6 +395,8 @@ export function createProductionReviewV2WorkerRuntime(input: {
       releases,
       digest: { digestUtf8: async (value) => sha256(value) },
     });
+  // An empty list means draft review is enabled for every repository; the list
+  // only narrows it when an operator pins specific repositories.
   const draftRepositories = new Set(
     (input.env.REVIEW_ROUTER_REVIEW_V2_DRAFT_REPOSITORIES ?? "")
       .split(",")
@@ -411,6 +413,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     digest: { digestUtf8: async (value: string) => sha256(value) },
     clock: input.clock,
     reviewDrafts: (repositoryFullName: string) =>
+      draftRepositories.size === 0 ||
       draftRepositories.has(repositoryFullName.toLowerCase()),
   } as const;
   const ingressApplication = new ReviewRequestIngressApplicationService(

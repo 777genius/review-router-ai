@@ -1182,6 +1182,7 @@ function createReviewV2IntentWebhookHandler(input: {
     clock: new SystemClock(),
     policy: {
       reviewDrafts: (repositoryFullName) =>
+        draftRepositories.size === 0 ||
         draftRepositories.has(repositoryFullName.toLowerCase()),
     },
   });
