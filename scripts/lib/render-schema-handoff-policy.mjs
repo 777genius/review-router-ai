@@ -275,6 +275,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // First-time SCM identity bind admitted as the current checkout133 extension
+  // over the unchanged published policy132 catalog.
+  const identityBindMigration = catalog.find(
+    (row) => row.migrationName === "000133_allow_first_time_scm_identity_bind",
+  );
+  if (identityBindMigration) {
+    if (
+      identityBindMigration.checksum !==
+        "1760404dbd5501d75016c937a05ba014bc69dcb84c68da357f8a840a6703e025" ||
+      manifest(catalog) !==
+        "sha256:d98f4dc72d5f785eb0d64e79cc7192d0b5f32d37f279be436f197de811c2ee17"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== identityBindMigration),
+    );
+  }
   // Current policy/profile extension over the unchanged published personal131 catalog.
   const policyMigration = catalog.find(
     (row) => row.migrationName === "000132_review_policy_schema_v3",
