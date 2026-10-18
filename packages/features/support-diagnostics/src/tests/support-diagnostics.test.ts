@@ -69,10 +69,7 @@ const supportInput = {
     },
   ],
   workflowProvisioning: [{ status: "setup_pr_open" }, { status: "failed" }],
-  outbox: [
-    { status: "pending", type: "installation.sync_requested" },
-    { status: "dead_letter", type: "installation.sync_requested" },
-  ],
+  outboxStatusCounts: { pending: 1, dead_letter: 1 },
   memory: {
     itemStatusCounts: { active: 2, disabled: 1, expired: 1 },
     itemScopeCounts: { repository: 2, workspace: 1, user_prefs: 1 },
