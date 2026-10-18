@@ -523,6 +523,49 @@ describe("RepositorySetupProgressPanel", () => {
     ).toBeTruthy();
   });
 
+  it("explains a provisioning failure that is not a setup PR recovery issue", () => {
+    render(
+      <RepositorySetupProgressPanel
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="777genius/example"
+        selected
+        archived={false}
+        initialSetupStatus="needs_attention"
+        initialSetupPullRequestUrl={null}
+        initialSetupIssue="workflow_delete_untrusted"
+        workflowCurrent
+        mutationsEnabled
+        initialStep={1}
+        enableReviewAction={<button type="button">Enable review</button>}
+      />,
+    );
+
+    expect(screen.getByText(/belongs to another active mode/i)).toBeTruthy();
+    expect(screen.queryByText("Recover setup PR")).toBeNull();
+  });
+
+  it("does not repeat a stale provisioning reason once the setup step advanced", () => {
+    render(
+      <RepositorySetupProgressPanel
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="777genius/example"
+        selected
+        archived={false}
+        initialSetupStatus="setup_pr_open"
+        initialSetupPullRequestUrl="https://github.com/777genius/example/pull/2"
+        initialSetupIssue="workflow_delete_untrusted"
+        workflowCurrent
+        mutationsEnabled
+        initialStep={2}
+        enableReviewAction={<button type="button">Enable review</button>}
+      />,
+    );
+
+    expect(screen.queryByText(/belongs to another active mode/i)).toBeNull();
+  });
+
   it("turns a deleted setup branch merge check into a recovery step", async () => {
     vi.mocked(confirmSetupPullRequestMergedClientAction).mockResolvedValueOnce({
       params: {
