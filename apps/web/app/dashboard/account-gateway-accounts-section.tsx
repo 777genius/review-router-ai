@@ -141,6 +141,7 @@ export async function AccountGatewayAccountsSection({
         </div>
         {personalService && recipient ? (
           <WorkspacePersonalAccounts
+            workspaceId={workspaceId}
             scope={`${personalService.scope}:workspace:${workspaceId}`}
             api={{
               list: personalActions.listPersonalModelAccounts.bind(
@@ -195,6 +196,7 @@ export async function AccountGatewayAccountsSection({
             <AccountGatewayControls
               key={bootstrap.context || workspaceId}
               bootstrap={bootstrap}
+              workspaceId={workspaceId}
             />
           </section>
         ) : null}

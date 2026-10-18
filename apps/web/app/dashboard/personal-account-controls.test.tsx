@@ -9,7 +9,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, focusManager } from "@tanstack/react-query";
 import type {
   PersonalAccountsApi,
   PersonalAccountsBootstrap,
@@ -620,4 +620,327 @@ test("closing, remounting and reopening direct workspace access preserves uncert
       sessionStorage.getItem("rr-personal-account-operations:user-personal")!,
     ),
   ).toEqual([original.nonce]);
+});
+
+// Re-reading a terminal operation must not repeatedly cancel and refetch the
+// other account views. The first pending -> applied read must still refresh.
+test("refreshes related views once when a saved nonce becomes terminal, across repeated reads and focus", async () => {
+  const { bootstrap, api } = fixture();
+  const nonce = "9874b2bc-e987-4456-9212-7f94f58932da";
+  sessionStorage.setItem(
+    "rr-personal-account-operations:user-personal",
+    JSON.stringify([nonce]),
+  );
+  api.listSources.mockResolvedValue(bootstrap.page);
+  const terminal: PersonalMutationReceipt = {
+    operation: {
+      operationId: nonce,
+      phase: "applied",
+      sourceId: "source-0",
+      bindingId: "binding-new",
+      available: true,
+      state: "active",
+    },
+  };
+  api.readOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      operation: {
+        ...terminal.operation,
+        phase: "submitted",
+        bindingId: null,
+        available: false,
+        state: "pending",
+      },
+    },
+  });
+  const client = new QueryClient();
+  clients.add(client);
+  const invalidation = vi.spyOn(client, "invalidateQueries");
+  render(
+    <PersonalAccountControls
+      bootstrap={bootstrap}
+      api={api}
+      queryClient={client}
+    />,
+  );
+  await waitFor(() => expect(api.readOperation).toHaveBeenCalledTimes(1));
+  expect(api.listSources).not.toHaveBeenCalled();
+  const check = () =>
+    screen.getByRole("button", { name: "Check status" }) as HTMLButtonElement;
+  await waitFor(() => expect(check().disabled).toBe(false));
+  api.readOperation.mockResolvedValue({ status: "ok", value: terminal });
+  fireEvent.click(check());
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(check().disabled).toBe(false));
+  fireEvent.click(check());
+  await waitFor(() => expect(api.readOperation).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(check().disabled).toBe(false));
+  try {
+    await act(async () => {
+      focusManager.setFocused(false);
+      await client.invalidateQueries({
+        queryKey: ["personal-accounts", bootstrap.scope, "operation", nonce],
+        exact: true,
+        refetchType: "none",
+      });
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(api.readOperation).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(check().disabled).toBe(false));
+    expect(api.listSources).toHaveBeenCalledTimes(1);
+    expect(
+      invalidation.mock.calls.filter(
+        ([filters]) => filters?.queryKey?.[2] === "sources",
+      ),
+    ).toHaveLength(1);
+    expect(api.attach).not.toHaveBeenCalled();
+    expect(api.revoke).not.toHaveBeenCalled();
+  } finally {
+    focusManager.setFocused(undefined);
+  }
+});
+
+test("serializes saved terminal nonce refreshes and refreshes again for a receipt arriving during reads", async () => {
+  const { bootstrap, api } = fixture();
+  const nonces = [
+    "9874b2bc-e987-4456-9212-7f94f58932da",
+    "198a9f4b-70a8-4e31-9637-5a0e5d420728",
+  ];
+  sessionStorage.setItem(
+    "rr-personal-account-operations:user-personal",
+    JSON.stringify(nonces),
+  );
+  type OperationResult = Awaited<
+    ReturnType<PersonalAccountsApi["readOperation"]>
+  >;
+  type SourcesResult = Awaited<ReturnType<PersonalAccountsApi["listSources"]>>;
+  let finishSecondRead!: (result: OperationResult) => void;
+  let finishFirstRefresh!: (result: SourcesResult) => void;
+  const secondRead = new Promise<OperationResult>((resolve) => {
+    finishSecondRead = resolve;
+  });
+  const firstRefresh = new Promise<SourcesResult>((resolve) => {
+    finishFirstRefresh = resolve;
+  });
+  const receipt = (nonce: string): OperationResult => ({
+    status: "ok",
+    value: {
+      operation: {
+        operationId: nonce,
+        phase: "applied",
+        sourceId: "source-0",
+        bindingId: "binding-new",
+        available: true,
+        state: "active",
+      },
+    },
+  });
+  api.readOperation.mockImplementation((nonce) =>
+    nonce === nonces[0] ? Promise.resolve(receipt(nonce)) : secondRead,
+  );
+  api.listSources.mockImplementationOnce(() => firstRefresh);
+  api.listSources.mockResolvedValue({
+    status: "ok",
+    value: {
+      sources: [{ ...source("source-0"), label: "After second receipt" }],
+      nextCursor: null,
+    },
+  });
+  const client = new QueryClient();
+  clients.add(client);
+  const cancellation = vi.spyOn(client, "cancelQueries");
+  render(
+    <PersonalAccountControls
+      bootstrap={bootstrap}
+      api={api}
+      queryClient={client}
+    />,
+  );
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(1));
+  await act(async () => finishSecondRead(receipt(nonces[1]!)));
+  await waitFor(() =>
+    expect(screen.getAllByRole("button", { name: "Hide result" })).toHaveLength(
+      2,
+    ),
+  );
+  expect(api.listSources).toHaveBeenCalledTimes(1);
+  expect(
+    cancellation.mock.calls.filter(
+      ([filters]) => filters?.queryKey?.[2] === "sources",
+    ),
+  ).toHaveLength(1);
+  await act(async () =>
+    finishFirstRefresh({
+      status: "ok",
+      value: {
+        sources: [{ ...source("source-0"), label: "Before second receipt" }],
+        nextCursor: null,
+      },
+    }),
+  );
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(2));
+  await screen.findByRole("button", {
+    name: "Workspace access for After second receipt",
+  });
+  expect(api.attach).not.toHaveBeenCalled();
+  expect(api.revoke).not.toHaveBeenCalled();
+});
+
+test("drains a saved terminal receipt arriving during mutation refresh before releasing the mutation latch", async () => {
+  const { bootstrap, api } = fixture();
+  const nonce = "9874b2bc-e987-4456-9212-7f94f58932da";
+  const storageKey = "rr-personal-account-operations:user-personal";
+  sessionStorage.setItem(storageKey, JSON.stringify([nonce]));
+  sessionStorage.setItem(
+    `${storageKey}:pairs`,
+    JSON.stringify({
+      [nonce]: {
+        kind: "attach",
+        sourceId: "source-0",
+        workspaceId: "org-x",
+      },
+    }),
+  );
+  const receipt = (
+    operationId: string,
+    sourceId: string,
+    available: boolean,
+  ): PersonalMutationReceipt => ({
+    operation: {
+      operationId,
+      sourceId,
+      phase: available ? "applied" : "submitted",
+      bindingId: available ? `binding-${sourceId}` : null,
+      available,
+      state: available ? "active" : "pending",
+    },
+  });
+  api.readOperation.mockResolvedValue({
+    status: "ok",
+    value: receipt(nonce, "source-0", false),
+  });
+  api.attach.mockImplementation(async (request) => ({
+    status: "ok",
+    value: receipt(request.nonce, request.sourceId, true),
+  }));
+  type SourcesResult = Awaited<ReturnType<PersonalAccountsApi["listSources"]>>;
+  let finishMutationRefresh!: (result: SourcesResult) => void;
+  let finishTail!: (result: SourcesResult) => void;
+  api.listSources
+    .mockImplementationOnce(
+      () =>
+        new Promise<SourcesResult>((resolve) => {
+          finishMutationRefresh = resolve;
+        }),
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise<SourcesResult>((resolve) => {
+          finishTail = resolve;
+        }),
+    );
+  const client = new QueryClient();
+  clients.add(client);
+  render(
+    <PersonalAccountControls
+      bootstrap={bootstrap}
+      api={api}
+      queryClient={client}
+    />,
+  );
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Check status",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Workspace access for Personal source-1",
+    }),
+  );
+  const add = await screen.findByRole("button", {
+    name: "Add access to Organization Y",
+  });
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(add);
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(1));
+  api.readOperation.mockResolvedValue({
+    status: "ok",
+    value: receipt(nonce, "source-0", true),
+  });
+  await act(async () => {
+    await client.refetchQueries({
+      queryKey: ["personal-accounts", bootstrap.scope, "operation", nonce],
+      exact: true,
+    });
+  });
+  await waitFor(() =>
+    expect(screen.getAllByText("Hide result")).toHaveLength(2),
+  );
+  expect(api.readOperation).toHaveBeenCalledWith(nonce);
+  expect(api.listSources).toHaveBeenCalledTimes(1);
+  expect((add as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => finishMutationRefresh(bootstrap.page));
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(2));
+  expect((add as HTMLButtonElement).disabled).toBe(true);
+  await act(async () =>
+    finishTail({
+      status: "ok",
+      value: {
+        sources: [
+          { ...source("source-0"), label: "Old receipt visible" },
+          source("source-1"),
+        ],
+        nextCursor: null,
+      },
+    }),
+  );
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(
+    screen.getByRole("article", { name: "Old receipt visible" }),
+  ).toBeTruthy();
+  expect(api.attach).toHaveBeenCalledTimes(1);
+  expect(api.revoke).not.toHaveBeenCalled();
+  expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toContain(nonce);
+});
+
+test("a terminal receipt from the mutation itself is covered by its availability refresh", async () => {
+  const { bootstrap, api } = fixture();
+  type SourcesResult = Awaited<ReturnType<PersonalAccountsApi["listSources"]>>;
+  let finishRefresh!: (result: SourcesResult) => void;
+  api.listSources.mockImplementationOnce(
+    () =>
+      new Promise<SourcesResult>((resolve) => {
+        finishRefresh = resolve;
+      }),
+  );
+  api.listSources.mockResolvedValue(bootstrap.page);
+  render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Workspace access for Personal source-0",
+    }),
+  );
+  const add = await screen.findByRole("button", {
+    name: "Add access to Organization Y",
+  });
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(add);
+  await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(1));
+  // Ensure the status observer has received the applied cache publication
+  // while the mutation's own availability snapshot is still in flight.
+  await screen.findByText("Hide result");
+  expect((add as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => finishRefresh(bootstrap.page));
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  expect(api.listSources).toHaveBeenCalledTimes(1);
+  expect(api.attach).toHaveBeenCalledTimes(1);
+  expect(api.revoke).not.toHaveBeenCalled();
 });

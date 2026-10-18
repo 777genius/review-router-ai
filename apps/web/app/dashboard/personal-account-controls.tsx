@@ -141,6 +141,13 @@ function receiptText(receipt: PersonalMutationReceipt) {
     return "Request declined. Refresh before making a new selection.";
   return "Request recorded; completion is not confirmed. Check status.";
 }
+function isTerminalReceipt(receipt: PersonalMutationReceipt) {
+  return (
+    receipt.remoteFenceDelivery === "remote_applied" ||
+    receipt.operation.phase === "rejected" ||
+    receipt.operation.available
+  );
+}
 
 // Deliberately inert unless the server supplies both the accepted H gate and
 // authenticated actions. This component never discovers or enables the feature.
@@ -316,9 +323,65 @@ function PersonalControls({
       return next;
     });
   }, []);
-  const refreshFromRead = useCallback(async () => {
-    if (!busyRef.current) await refresh();
-  }, [refresh]);
+  const readRefresh = useRef<{
+    refresh: typeof refresh;
+    dirty: boolean;
+    promise: Promise<void>;
+  } | null>(null);
+  const busyReadRefresh = useRef<typeof refresh | null>(null);
+  const mutationOwnedReceipts = useRef(new Set<string>());
+  const queueReadRefresh = useCallback((refreshViews: () => Promise<void>) => {
+    if (readRefresh.current?.refresh === refreshViews) {
+      readRefresh.current.dirty = true;
+      return readRefresh.current.promise;
+    }
+    const active = {
+      refresh: refreshViews,
+      dirty: false,
+      promise: Promise.resolve(),
+    };
+    readRefresh.current = active;
+    // Batch simultaneous receipts, then serialize a trailing refresh if a new
+    // terminal receipt arrives after reads started. Never cancel one receipt's
+    // refresh for another, or lose availability confirmed during those reads.
+    active.promise = Promise.resolve().then(async () => {
+      try {
+        do {
+          active.dirty = false;
+          await refreshViews();
+        } while (active.dirty);
+      } finally {
+        if (readRefresh.current === active) readRefresh.current = null;
+      }
+    });
+    return active.promise;
+  }, []);
+  const refreshFromRead = useCallback(
+    (nonce: string) => {
+      if (mutationOwnedReceipts.current.has(nonce)) return Promise.resolve();
+      if (busyRef.current) {
+        busyReadRefresh.current = refresh;
+        return Promise.resolve();
+      }
+      return queueReadRefresh(refresh);
+    },
+    [refresh, queueReadRefresh],
+  );
+  async function finishMutation() {
+    let next: typeof refresh | null = refresh;
+    try {
+      while (next) {
+        // Earlier receipts are covered by these reads. A terminal receipt
+        // arriving during them must keep the latch and request a fresh tail.
+        if (busyReadRefresh.current === next) busyReadRefresh.current = null;
+        await queueReadRefresh(next);
+        next = busyReadRefresh.current;
+      }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
   async function run(
     call: (nonce: string) => ReturnType<PersonalAccountsApi["attach"]>,
     pair: PairContext,
@@ -351,6 +414,11 @@ function PersonalControls({
       queryKey: keys.operation(bootstrap.scope, nonce),
       exact: true,
     });
+    // This receipt is already known before mutation-owned availability reads.
+    // Its status observer must not mistake cache publication for a later read
+    // transition and schedule a duplicate tail refresh.
+    if (result.status === "ok" && isTerminalReceipt(result.value))
+      mutationOwnedReceipts.current.add(nonce);
     client.setQueryData(keys.operation(bootstrap.scope, nonce), result);
     if (result.status === "conflict" || result.status === "invalid") {
       try {
@@ -414,10 +482,8 @@ function PersonalControls({
             },
           );
         }
-      await refresh();
     } finally {
-      busyRef.current = false;
-      setBusy(false);
+      await finishMutation();
     }
   }
   async function revoke(source: PersonalSource, grant: OwnAccountGrant) {
@@ -445,10 +511,8 @@ function PersonalControls({
           bindingId: grant.bindingId,
         },
       );
-      await refresh();
     } finally {
-      busyRef.current = false;
-      setBusy(false);
+      await finishMutation();
     }
   }
   const selectionStale = selected.some(
@@ -1226,22 +1290,12 @@ function OperationStatus({
   sources: readonly PersonalSource[];
   pair: PairContext | undefined;
   dismiss(): void;
-  refresh(): Promise<void>;
+  refresh(nonce: string): Promise<void>;
   markResolved(nonce: string, resolved: boolean): void;
 }) {
   const operation = useQuery({
     queryKey: keys.operation(scope, nonce),
-    queryFn: async () => {
-      const result = await api.readOperation(nonce);
-      if (
-        result.status === "ok" &&
-        (result.value.remoteFenceDelivery === "remote_applied" ||
-          result.value.operation.phase === "rejected" ||
-          result.value.operation.available)
-      )
-        await refresh();
-      return result;
-    },
+    queryFn: () => api.readOperation(nonce),
     staleTime: 3000,
     retry: false,
   });
@@ -1323,16 +1377,20 @@ function OperationStatus({
                   ? pair.bindingId
                   : undefined),
         );
-  const resolved =
-    result?.status === "ok" &&
-    (result.value.remoteFenceDelivery === "remote_applied" ||
-      result.value.operation.phase === "rejected" ||
-      result.value.operation.available);
+  const resolved = result?.status === "ok" && isTerminalReceipt(result.value);
+  const terminalTransitionRefreshed = useRef(false);
   useEffect(() => {
     // A denied/unavailable read is not evidence about the original mutation.
     // Once a terminal receipt was observed, later failed reads cannot undo it.
-    if (resolved) markResolved(nonce, true);
-  }, [nonce, resolved, markResolved]);
+    if (!resolved) return;
+    markResolved(nonce, true);
+    // Focus and manual status reads may return the same immutable terminal
+    // receipt. Notify related caches only once during this nonce's lifecycle.
+    if (!terminalTransitionRefreshed.current) {
+      terminalTransitionRefreshed.current = true;
+      void refresh(nonce);
+    }
+  }, [nonce, resolved, markResolved, refresh]);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 py-2">

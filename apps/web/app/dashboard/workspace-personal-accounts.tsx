@@ -32,6 +32,7 @@ type DetachResult = AccountsResult<{
 type Props = {
   scope: string;
   personalScope?: string;
+  workspaceId?: string;
   api?: GatewayModelAccountsApi;
   canDetach: boolean;
   detach(request: DetachRequest): Promise<DetachResult>;
@@ -55,6 +56,7 @@ export function WorkspacePersonalAccounts(props: Props) {
 function WorkspacePersonalRows({
   scope,
   personalScope,
+  workspaceId,
   api,
   canDetach,
   detach,
@@ -243,14 +245,7 @@ function WorkspacePersonalRows({
             {row.binding!.state === "active" && !row.binding!.fencePending ? (
               <a
                 className="text-sm text-cyan-200 underline"
-                href={dashboardSectionHref(
-                  "policy",
-                  typeof window === "undefined"
-                    ? undefined
-                    : (new URL(window.location.href).searchParams.get(
-                        "workspace",
-                      ) ?? undefined),
-                )}
+                href={dashboardSectionHref("policy", workspaceId)}
               >
                 Choose for reviews
               </a>

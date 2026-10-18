@@ -141,6 +141,7 @@ export function AccountGatewayControls({
   queryClient,
   refreshRelated,
   renderAccounts,
+  workspaceId,
 }: {
   bootstrap: AccountsBootstrap;
   api?: AccountGatewayManagementApi;
@@ -148,6 +149,7 @@ export function AccountGatewayControls({
   queryClient?: QueryClient;
   refreshRelated?: () => Promise<void>;
   renderAccounts?: AccountRowsRenderer;
+  workspaceId?: string;
 }) {
   const optionsCache = useCurrentGatewayModelAccountsCache();
   const [fallback] = useState(() => new QueryClient());
@@ -162,6 +164,7 @@ export function AccountGatewayControls({
         managementScope={managementScope}
         refreshRelated={refreshRelated}
         renderAccounts={renderAccounts}
+        workspaceId={workspaceId}
       />
     </QueryClientProvider>
   );
@@ -173,12 +176,14 @@ function Controls({
   managementScope,
   refreshRelated,
   renderAccounts,
+  workspaceId,
 }: {
   bootstrap: AccountsBootstrap;
   api: AccountGatewayManagementApi;
   managementScope: ManagementScope;
   refreshRelated: (() => Promise<void>) | undefined;
   renderAccounts: AccountRowsRenderer | undefined;
+  workspaceId: string | undefined;
 }) {
   const { context } = bootstrap;
   const contextScope = context.split(".")[0] ?? "";
@@ -701,14 +706,7 @@ function Controls({
                 !account.binding.fencePending ? (
                   <a
                     className="text-sm text-cyan-200 underline"
-                    href={dashboardSectionHref(
-                      "policy",
-                      typeof window === "undefined"
-                        ? undefined
-                        : (new URL(window.location.href).searchParams.get(
-                            "workspace",
-                          ) ?? undefined),
-                    )}
+                    href={dashboardSectionHref("policy", workspaceId)}
                   >
                     Choose for reviews
                   </a>
