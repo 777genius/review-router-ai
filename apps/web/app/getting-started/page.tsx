@@ -464,8 +464,8 @@ function SectionHeading({
 function WorkflowPanel(): React.ReactElement {
   return (
     <div className="overflow-hidden rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.08)]">
-      <div className="overflow-x-auto">
-        <table className="min-w-[760px] w-full border-collapse text-left text-sm">
+      <div className="overflow-x-auto lg:overflow-clip">
+        <table className="rr-sticky-table min-w-[760px] w-full border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-cyan-200/14 bg-cyan-300/[0.035] font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-400">
               <th className="px-4 py-4 font-semibold">File</th>

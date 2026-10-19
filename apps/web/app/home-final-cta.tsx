@@ -31,8 +31,8 @@ export function HomeFinalCta({
           <span className="text-lime-300">stay inside your CI</span>
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-slate-300">
-          Connect your repository, add the workflow, and enable secure access
-          for free. It takes one setup PR.
+          Connect your repo, merge one small workflow, and start using your own
+          AI — free.
         </p>
 
         <HomeCtaCluster
@@ -48,7 +48,7 @@ export function HomeFinalCta({
             aria-hidden="true"
             className="size-4 shrink-0 text-lime-300"
           />
-          Metadata-only access · fair use · cancel by deleting the workflow
+          Pull request info only · fair use · delete the workflow to stop
         </p>
       </div>
     </section>

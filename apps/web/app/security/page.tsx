@@ -486,8 +486,8 @@ function SectionHeading({
 
 function BoundaryTable(): React.ReactElement {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)]">
-      <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)] lg:overflow-clip">
+      <table className="rr-sticky-table w-full min-w-[860px] border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-cyan-200/10 font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-400">
             <th className="px-5 py-4 font-semibold">Layer</th>
@@ -541,8 +541,8 @@ function BoundaryTable(): React.ReactElement {
 
 function PermissionTable(): React.ReactElement {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)]">
-      <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)] lg:overflow-clip">
+      <table className="rr-sticky-table w-full min-w-[920px] border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-cyan-200/10 font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-400">
             <th className="px-5 py-4 font-semibold">Permission</th>
@@ -591,8 +591,8 @@ function PermissionTable(): React.ReactElement {
 
 function WebhookTable(): React.ReactElement {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)]">
-      <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+    <div className="overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)] shadow-[inset_0_1px_0_rgba(103,232,249,0.09)] lg:overflow-clip">
+      <table className="rr-sticky-table w-full min-w-[760px] border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-cyan-200/10 font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-400">
             <th className="px-5 py-4 font-semibold">Event</th>

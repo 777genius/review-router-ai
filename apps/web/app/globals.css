@@ -314,6 +314,84 @@ canvas {
     auto;
 }
 
+.home-boundary-map__grid {
+  background-image:
+    linear-gradient(rgba(103, 232, 249, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(103, 232, 249, 0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse at 50% 18%, #000, transparent 78%);
+}
+
+.home-boundary-map__link {
+  position: relative;
+  width: 1px;
+  height: 2.6rem;
+  margin: 0 auto;
+  background: linear-gradient(
+    180deg,
+    rgba(163, 230, 53, 0.55),
+    rgba(103, 232, 249, 0.35)
+  );
+}
+
+.home-boundary-map__link::after {
+  position: absolute;
+  top: calc(50% - 3.5px);
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  border-radius: 999px;
+  background: #e3ff69;
+  box-shadow: 0 0 14px rgba(227, 255, 105, 0.8);
+  content: "";
+}
+
+@keyframes home-boundary-signal {
+  0% {
+    top: 0;
+    opacity: 0;
+  }
+
+  15% {
+    opacity: 1;
+  }
+
+  85% {
+    opacity: 1;
+  }
+
+  100% {
+    top: calc(100% - 7px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .home-boundary-map__link::after {
+    animation: home-boundary-signal 3.6s ease-in-out infinite;
+  }
+}
+
+:root {
+  --rr-sticky-table-top: 3.625rem;
+}
+
+@media (min-width: 1024px) {
+  .rr-sticky-table thead th {
+    position: sticky;
+    top: var(--rr-sticky-table-top);
+    z-index: 20;
+    background-color: var(--rr-page-bg);
+    background-image: linear-gradient(
+      180deg,
+      rgba(103, 232, 249, 0.06),
+      transparent
+    );
+    box-shadow: inset 0 -1px 0 rgba(103, 232, 249, 0.2);
+  }
+}
+
 @property --node-color {
   syntax: "<color>";
   inherits: true;
@@ -367,6 +445,7 @@ canvas {
       rgba(2, 6, 11, 0.8)
     ),
     radial-gradient(ellipse at 52% 5%, rgba(2, 6, 11, 0.42), transparent 34rem);
+  mask-image: linear-gradient(180deg, #000 0 68%, transparent 100%);
 }
 
 .setup-blueprint__lines {
@@ -375,6 +454,7 @@ canvas {
   z-index: 0;
   width: 100%;
   height: 100%;
+  mask-image: linear-gradient(180deg, #000 0 84%, transparent 100%);
 }
 
 .setup-blueprint__trace {
@@ -382,8 +462,15 @@ canvas {
 }
 
 .setup-blueprint__trace-glow {
-  stroke-dasharray: 210 1160;
   stroke-linecap: round;
+  stroke-opacity: 0.22;
+}
+
+.setup-blueprint__pulse {
+  stroke-linecap: round;
+  stroke-dasharray: 0.12 1.8;
+  stroke-dashoffset: 0.12;
+  opacity: 0;
 }
 
 .setup-blueprint__scan-lines {
@@ -774,20 +861,87 @@ canvas {
   }
 }
 
-@keyframes setup-glow-breathe {
+@keyframes setup-pulse-one {
   0% {
     opacity: 0;
-    stroke-dashoffset: 260;
+    stroke-dashoffset: 0.12;
   }
 
-  12%,
-  72% {
-    opacity: 0.8;
+  2% {
+    opacity: 0;
+  }
+
+  4% {
+    opacity: 0.95;
+  }
+
+  12.5% {
+    opacity: 0.95;
+    stroke-dashoffset: -0.88;
+  }
+
+  16.5% {
+    opacity: 0;
+    stroke-dashoffset: -0.88;
   }
 
   100% {
     opacity: 0;
-    stroke-dashoffset: -1180;
+    stroke-dashoffset: 0.12;
+  }
+}
+
+@keyframes setup-pulse-two {
+  0%,
+  22% {
+    opacity: 0;
+    stroke-dashoffset: 0.12;
+  }
+
+  24% {
+    opacity: 0.95;
+  }
+
+  45.8% {
+    opacity: 0.95;
+    stroke-dashoffset: -0.88;
+  }
+
+  49.8% {
+    opacity: 0;
+    stroke-dashoffset: -0.88;
+  }
+
+  100% {
+    opacity: 0;
+    stroke-dashoffset: 0.12;
+  }
+}
+
+@keyframes setup-pulse-three {
+  0%,
+  55.3% {
+    opacity: 0;
+    stroke-dashoffset: 0.12;
+  }
+
+  57.3% {
+    opacity: 0.95;
+  }
+
+  79.2% {
+    opacity: 0.95;
+    stroke-dashoffset: -0.88;
+  }
+
+  83.2% {
+    opacity: 0;
+    stroke-dashoffset: -0.88;
+  }
+
+  100% {
+    opacity: 0;
+    stroke-dashoffset: 0.12;
   }
 }
 
@@ -883,16 +1037,22 @@ canvas {
   }
 }
 
-@keyframes setup-anchor-ping {
+@keyframes setup-anchor-step {
   0%,
   100% {
     opacity: 0.88;
     transform: scale(1);
   }
 
-  50% {
+  9%,
+  14% {
     opacity: 1;
-    transform: scale(1.32);
+    transform: scale(1.45);
+  }
+
+  22% {
+    opacity: 0.9;
+    transform: scale(1);
   }
 }
 
@@ -905,8 +1065,16 @@ canvas {
     animation: none;
   }
 
-  .setup-blueprint__trace-glow {
-    animation: setup-glow-breathe 4.8s linear infinite;
+  .setup-blueprint__pulse--one {
+    animation: setup-pulse-one 4.8s linear infinite;
+  }
+
+  .setup-blueprint__pulse--two {
+    animation: setup-pulse-two 4.8s linear infinite;
+  }
+
+  .setup-blueprint__pulse--three {
+    animation: setup-pulse-three 4.8s linear infinite;
   }
 
   .setup-blueprint__node {
@@ -999,11 +1167,15 @@ canvas {
   }
 
   .setup-blueprint__anchor {
-    animation: setup-anchor-ping 5s ease-in-out infinite;
+    animation: setup-anchor-step 4.8s ease-in-out infinite;
   }
 
-  .setup-blueprint__anchor--lime {
-    animation-delay: 1.2s;
+  .setup-blueprint__anchor--two {
+    animation-delay: 1.6s;
+  }
+
+  .setup-blueprint__anchor--three {
+    animation-delay: 3.2s;
   }
 }
 
@@ -1609,5 +1781,125 @@ canvas {
       180% 180%,
       auto,
       auto;
+  }
+}
+
+/* Sign-in route schematic */
+.signin-route {
+  display: grid;
+  grid-template-columns: auto minmax(2.5rem, 1fr) auto minmax(2.5rem, 1fr) auto;
+  align-items: center;
+  gap: 0;
+}
+
+.signin-route__node {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+  min-width: 4.1rem;
+}
+
+.signin-route__icon {
+  display: grid;
+  place-items: center;
+  width: 2.9rem;
+  height: 2.9rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgba(103, 232, 249, 0.22);
+  background: rgba(103, 232, 249, 0.06);
+  color: #a5f3fc;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 26px -14px rgba(0, 240, 255, 0.75);
+}
+
+.signin-route__node--accent .signin-route__icon {
+  border-color: rgba(227, 255, 105, 0.35);
+  background: rgba(227, 255, 105, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 30px -12px rgba(227, 255, 105, 0.8);
+}
+
+.signin-route__label {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.signin-route__node--accent .signin-route__label {
+  color: #d9f99d;
+}
+
+.signin-route__line {
+  position: relative;
+  display: block;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(103, 232, 249, 0.45),
+    rgba(103, 232, 249, 0.12)
+  );
+  overflow: visible;
+}
+
+.signin-route__line::before {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-top: 1px solid rgba(103, 232, 249, 0.55);
+  border-right: 1px solid rgba(103, 232, 249, 0.55);
+  transform: rotate(45deg);
+  content: "";
+}
+
+.signin-route__dot {
+  position: absolute;
+  top: calc(50% - 2.5px);
+  left: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #e3ff69;
+  box-shadow: 0 0 12px rgba(227, 255, 105, 0.85);
+  opacity: 0;
+}
+
+.signin-route__dot--delayed {
+  background: #67e8f9;
+  box-shadow: 0 0 12px rgba(103, 232, 249, 0.85);
+}
+
+@keyframes signin-route-signal {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  82% {
+    left: calc(100% - 5px);
+    opacity: 1;
+  }
+  100% {
+    left: calc(100% - 5px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .signin-route__dot {
+    animation: signin-route-signal 2.6s ease-in-out infinite;
+  }
+
+  .signin-route__dot--delayed {
+    animation-delay: 1.3s;
   }
 }

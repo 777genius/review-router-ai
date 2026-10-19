@@ -1,20 +1,23 @@
+"use client";
+
 import { ChevronDown } from "lucide-react";
+import { useId, useState } from "react";
 
 const faqItems = [
   {
-    question: "Does ReviewRouter upload my source code?",
+    question: "Does ReviewRouter see my source code?",
     answer:
-      "No. Reviews run as a compact reusable workflow inside your GitHub Actions, so the model reads the diff in your runner. The control plane orchestrates the run and records metadata about it — your code stays in your CI.",
+      "No. Reviews run inside your GitHub Actions, so the AI reads the diff on your runners. Our dashboard gets the review result and run status — never your files.",
   },
   {
-    question: "What does the GitHub App actually read?",
+    question: "What does the GitHub App read then?",
     answer:
-      "Pull request and workflow metadata: titles, states, check runs, and workflow configuration. It does not read your source tree, and it never receives repository contents.",
+      "Pull request titles, states, check results, and workflow settings. It does not open your source tree or download repository contents.",
   },
   {
-    question: "Which models can I use?",
+    question: "Which AI can I use?",
     answer:
-      "Bring your own: seed Codex OAuth, Claude Code OAuth, or API keys directly into GitHub Actions secrets with one local command. You can also use the encrypted account pool if you would rather keep credentials managed for you.",
+      "Your own Codex or Claude subscription, or an API key for MiMo, OpenRouter, or another compatible provider. Credentials can live in GitHub Actions secrets or in our encrypted account pool — you choose, and you can remove them whenever you want.",
   },
   {
     question: "Is it really free?",
@@ -24,16 +27,19 @@ const faqItems = [
   {
     question: "Can I run everything myself?",
     answer:
-      "Yes. ReviewRouter is open source and the control plane can run in your own environment. Either way, reviews already execute in your CI, so code and execution stay on your side of the boundary.",
+      "Yes. ReviewRouter is open source and the dashboard can run on your own server. Reviews already run in your CI either way, so your code never moves.",
   },
   {
     question: "Where do I get help?",
     answer:
-      "Trusted beta support is available through the support page while ReviewRouter is in beta, and the security page explains the full trust boundary in detail.",
+      "The support page is the fastest route during beta. The security page lists exactly what ReviewRouter can and cannot see.",
   },
 ] as const;
 
 export function HomeFaq(): React.ReactElement {
+  const [openIndex, setOpenIndex] = useState<number | null>(0);
+  const baseId = useId();
+
   return (
     <section
       aria-labelledby="home-faq-title"
@@ -52,23 +58,69 @@ export function HomeFaq(): React.ReactElement {
       </div>
 
       <div className="mt-8 grid gap-3">
-        {faqItems.map((item) => (
-          <details
-            key={item.question}
-            className="home-faq-item group rounded-2xl border border-cyan-200/14 bg-[var(--rr-surface-panel)] px-5 transition hover:border-cyan-200/28 open:border-cyan-200/28"
-          >
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-4 text-left text-base font-semibold text-cyan-50 [&::-webkit-details-marker]:hidden">
-              {item.question}
-              <ChevronDown
-                aria-hidden="true"
-                className="size-5 shrink-0 text-cyan-200 transition-transform duration-200 group-open:rotate-180"
-              />
-            </summary>
-            <p className="pb-5 text-sm leading-6 text-slate-400">
-              {item.answer}
-            </p>
-          </details>
-        ))}
+        {faqItems.map((item, index) => {
+          const open = openIndex === index;
+          const triggerId = `${baseId}-faq-trigger-${index}`;
+          const panelId = `${baseId}-faq-panel-${index}`;
+
+          return (
+            <div
+              key={item.question}
+              className={`home-faq-item rounded-2xl border bg-[var(--rr-surface-panel)] transition-colors duration-300 ${
+                open
+                  ? "border-cyan-200/30"
+                  : "border-cyan-200/14 hover:border-cyan-200/26"
+              }`}
+            >
+              <button
+                id={triggerId}
+                type="button"
+                aria-controls={panelId}
+                aria-expanded={open}
+                onClick={() => setOpenIndex(open ? null : index)}
+                className="group flex w-full cursor-pointer items-center justify-between gap-4 rounded-2xl px-5 py-4 text-left text-base font-semibold text-cyan-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <span
+                    aria-hidden="true"
+                    className={`font-mono text-[0.66rem] font-semibold tracking-[0.16em] transition-colors duration-300 ${
+                      open ? "text-lime-300" : "text-slate-500"
+                    }`}
+                  >
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  {item.question}
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={`grid size-8 shrink-0 place-items-center rounded-full border transition duration-300 ${
+                    open
+                      ? "rotate-180 border-lime-300/40 bg-lime-300/[0.08] text-lime-200"
+                      : "border-cyan-200/15 text-cyan-200 group-hover:border-cyan-200/35"
+                  }`}
+                >
+                  <ChevronDown className="size-4" />
+                </span>
+              </button>
+
+              <div
+                id={panelId}
+                aria-hidden={!open}
+                className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none ${
+                  open
+                    ? "grid-rows-[1fr] opacity-100"
+                    : "grid-rows-[0fr] opacity-0"
+                }`}
+              >
+                <div className="overflow-hidden">
+                  <p className="px-5 pb-5 pl-[3.25rem] text-sm leading-6 text-slate-400">
+                    {item.answer}
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

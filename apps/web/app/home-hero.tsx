@@ -12,7 +12,7 @@ const setupSteps = [
   },
   {
     title: "Merge setup PR",
-    body: "A compact reusable workflow is added through a pull request, so your repository controls what runs in CI.",
+    body: "A small workflow arrives as a pull request. Your team reviews it, merges it, and reviews start running.",
     badge: "STEP 2",
     number: "2",
     className: "setup-blueprint__step--two",
@@ -20,7 +20,7 @@ const setupSteps = [
   },
   {
     title: "Connect provider",
-    body: "Run one local command to seed Codex OAuth, Claude Code OAuth, or API keys directly into GitHub Actions secrets.",
+    body: "Use your own Codex or Claude subscription, or a MiMo / OpenRouter API key. Keys can live in GitHub Actions secrets or our encrypted account pool.",
     badge: "STEP 3",
     number: "3",
     className: "setup-blueprint__step--three",
@@ -31,7 +31,7 @@ const setupSteps = [
 const setupSignals = [
   {
     title: "Data access",
-    body: "Metadata only",
+    body: "Pull request info only",
     className: "setup-blueprint__signal--data",
     icon: Database,
   },
@@ -42,8 +42,8 @@ const setupSignals = [
     icon: ShieldCheck,
   },
   {
-    title: "Secrets synced",
-    body: "Stored in GitHub Actions secrets. Or use the encrypted account pool.",
+    title: "Your keys",
+    body: "Actions secrets or our encrypted pool.",
     className: "setup-blueprint__signal--secrets",
     icon: KeyRound,
   },
@@ -78,8 +78,8 @@ export function HomeHero({
         </h1>
         <span aria-hidden="true" className="setup-blueprint__intro-rule" />
         <p>
-          Connect your repository, add the workflow, and enable secure access
-          for free.
+          Connect your repo, merge one small workflow, and use the AI you
+          already pay for. Free to start.
         </p>
       </div>
 
@@ -311,6 +311,30 @@ function BlueprintLines(): React.ReactElement {
         strokeWidth="2.4"
       />
       <path
+        className="setup-blueprint__pulse setup-blueprint__pulse--one"
+        d="M32 497 199 450"
+        filter="url(#setup-blueprint-glow)"
+        pathLength={1}
+        stroke="#e3ff69"
+        strokeWidth="4"
+      />
+      <path
+        className="setup-blueprint__pulse setup-blueprint__pulse--two"
+        d="M199 450 329 376H652L710 354 840 324"
+        filter="url(#setup-blueprint-glow)"
+        pathLength={1}
+        stroke="#e3ff69"
+        strokeWidth="4"
+      />
+      <path
+        className="setup-blueprint__pulse setup-blueprint__pulse--three"
+        d="M840 324 969 248H1244L1338 210 1465 191"
+        filter="url(#setup-blueprint-glow)"
+        pathLength={1}
+        stroke="#e3ff69"
+        strokeWidth="4"
+      />
+      <path
         d="M199 490V660M840 365V532M1465 235V402"
         stroke="#66dfff"
         strokeOpacity="0.9"
@@ -352,7 +376,7 @@ function BlueprintLines(): React.ReactElement {
       />
 
       <circle
-        className="setup-blueprint__anchor"
+        className="setup-blueprint__anchor setup-blueprint__anchor--one"
         cx="199"
         cy="660"
         r="8"
@@ -360,7 +384,7 @@ function BlueprintLines(): React.ReactElement {
         strokeWidth="3"
       />
       <circle
-        className="setup-blueprint__anchor"
+        className="setup-blueprint__anchor setup-blueprint__anchor--two"
         cx="840"
         cy="532"
         r="8"
@@ -368,7 +392,7 @@ function BlueprintLines(): React.ReactElement {
         strokeWidth="3"
       />
       <circle
-        className="setup-blueprint__anchor setup-blueprint__anchor--lime"
+        className="setup-blueprint__anchor setup-blueprint__anchor--lime setup-blueprint__anchor--three"
         cx="1465"
         cy="402"
         r="8"
