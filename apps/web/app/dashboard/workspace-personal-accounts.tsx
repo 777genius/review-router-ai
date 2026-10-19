@@ -16,7 +16,9 @@ import { Button, Dialog } from "@reviewrouter/ui";
 import { AccountActionsMenu, AccountMenuItem } from "./account-actions-menu";
 import { GitHubAccountAvatar } from "../github-account-avatar";
 import { AccountIdentity } from "./account-identity";
+import { AccountUsageLine } from "./account-usage-line";
 import { useOwnAccountsView } from "./accounts-workspace-tabs";
+import { accountsGridColumns } from "./accounts-grid";
 import { accountsCopy, accountStatus } from "./accounts-copy";
 
 import type {
@@ -128,6 +130,7 @@ function AccountRowMenu({
         context={lifecycleContext}
         workspaceId={workspaceId ?? ""}
         client={client}
+        usage={account.usage}
       />
       {canDetachRow ? (
         <AccountMenuItem>
@@ -331,19 +334,19 @@ function WorkspacePersonalRows({
         </p>
       ) : null}
       <div
-        className="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,.8fr)_auto] gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid"
+        className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
         aria-hidden="true"
       >
         <span>Аккаунт</span>
         <span>Владелец</span>
         <span>Состояние</span>
-        <span className="w-28" />
+        <span />
       </div>
       {(failed ? [] : accounts).map((row) => (
         <article
           key={row.connectionId}
           aria-label={row.label}
-          className="grid min-w-0 items-center gap-3 border-b border-cyan-200/10 py-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,.8fr)_auto]"
+          className={`grid min-w-0 items-center gap-3 border-b border-cyan-200/10 py-4 ${accountsGridColumns}`}
         >
           <div className="min-w-0">
             <AccountIdentity
@@ -351,6 +354,7 @@ function WorkspacePersonalRows({
               profileLabel={row.profileLabel}
               authKind={row.authKind}
             />
+            <AccountUsageLine usage={row.usage} />
           </div>
           <AccountOwner account={row} />
           <p className="text-sm text-slate-300">
@@ -362,7 +366,7 @@ function WorkspacePersonalRows({
                   ? "Не добавлен сюда"
                   : accountStatus(row)}
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {!lifecycleActivities.has(row.connectionId) &&
             row.readiness === "ready" &&
             row.binding?.state === "active" &&
@@ -469,8 +473,8 @@ function WorkspacePersonalRows({
         }}
       >
         <Dialog.Portal>
-          <Dialog.Backdrop className="z-[60]" />
-          <Dialog.Popup className="z-[61] max-h-[calc(100dvh-2rem)] overflow-y-auto">
+          <Dialog.Backdrop />
+          <Dialog.Popup>
             <Dialog.Title>Доступ · {selection?.label}</Dialog.Title>
             <Dialog.Description>
               Доступ действует только для отзывов в этой организации. Личный

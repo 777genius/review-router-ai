@@ -41,7 +41,10 @@ export type PersonalAccessSummary = {
   sourceId: string;
   organizationCount: number;
   hasRestrictedAccess: boolean;
-  organizationLabels: readonly string[];
+  // Up to 4 visible organizations, paired label↔workspaceId in name order.
+  organizations: readonly { workspaceId: string; label: string }[];
+  // The viewer's own personal workspace, identical on every row of one call.
+  personalWorkspaceId: string | null;
   complete: true;
 };
 export type PersonalAccessSummaryPage = {

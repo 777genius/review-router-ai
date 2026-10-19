@@ -26,7 +26,9 @@ import {
   AccountMenuItem,
   useAccountMenuReturnFocus,
 } from "./account-actions-menu";
+import { AccountUsageWarning } from "./account-usage-line";
 import { accountsCopy } from "./accounts-copy";
+import type { AccountUsageView } from "../../src/server/account-usage";
 
 type Action = AccountLifecycleRequest["action"];
 type Journal = {
@@ -235,6 +237,7 @@ export function AccountLifecycleControls({
   client,
   api = defaultApi,
   accessSummary,
+  usage,
 }: {
   account: AccountView;
   context: string;
@@ -244,6 +247,7 @@ export function AccountLifecycleControls({
   accessSummary?:
     | { organizationCount: number; hasRestrictedAccess: boolean }
     | undefined;
+  usage?: AccountUsageView | undefined;
 }) {
   const menuReturnFocus = useAccountMenuReturnFocus();
   const cancel = useRef<HTMLButtonElement>(null);
@@ -678,19 +682,15 @@ export function AccountLifecycleControls({
         }}
       >
         <Dialog.Portal>
-          <Dialog.Backdrop className="z-[60]" />
-          <Dialog.Popup
-            initialFocus={cancel}
-            finalFocus={menuReturnFocus}
-            className="z-[61] max-h-[calc(100dvh-2rem)] overflow-y-auto"
-          >
-            <Dialog.Title className="text-lg font-semibold">
+          <Dialog.Backdrop />
+          <Dialog.Popup initialFocus={cancel} finalFocus={menuReturnFocus}>
+            <Dialog.Title>
               {selection
                 ? actionText(selection.request.action)
                 : "Изменение подключения"}{" "}
               · {selection?.label ?? account.label}
             </Dialog.Title>
-            <Dialog.Description className="mt-2 text-sm text-slate-400">
+            <Dialog.Description>
               {!selection
                 ? "Проверка исходной операции изменения подключения. Новый запрос не создаётся."
                 : selection?.request.action === "delete"
@@ -699,6 +699,17 @@ export function AccountLifecycleControls({
                     ? "Разрешить новые review через то же подключение и сохранённые учётные данные. Действуют только текущие разрешения доступа; отозванные доступы и старые запросы не восстанавливаются."
                     : "Остановить новые review через это подключение во всех workspace. Учётные данные и разрешения сохраняются. Уже отправленный запрос провайдеру может завершиться."}
             </Dialog.Description>
+            {selection?.request.action === "delete" ? (
+              usage ? (
+                <AccountUsageWarning usage={usage} />
+              ) : (
+                <p className="mt-3 text-sm text-amber-200">
+                  Удаление может остановить CI и отзывы. Проверьте секреты
+                  репозиториев и выбор аккаунта в Model везде, где это
+                  подключение используется.
+                </p>
+              )
+            ) : null}
             {selection?.request.action === "delete" && accessSummary ? (
               <p className="mt-3 text-sm">
                 Организаций с видимым доступом:{" "}
@@ -714,7 +725,7 @@ export function AccountLifecycleControls({
                   resultText(journal?.receipt, journal?.request?.action)}
               </p>
             ) : null}
-            <div className="mt-5 flex flex-wrap justify-end gap-3">
+            <Dialog.Footer>
               <Button
                 ref={cancel}
                 variant="outline"
@@ -758,7 +769,7 @@ export function AccountLifecycleControls({
                     : "Подтвердить"}
                 </Button>
               )}
-            </div>
+            </Dialog.Footer>
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>

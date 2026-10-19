@@ -42,6 +42,7 @@ import {
   canonicalMimoBaseURL,
   suggestedAccountLabel,
 } from "../features/account-gateway/connection-options";
+import type { AccountUsageView } from "./account-usage";
 
 // This module is imported at runtime only by RSC/server actions. Client imports are type-only.
 export type AccountsResult<T> =
@@ -49,6 +50,7 @@ export type AccountsResult<T> =
   | {
       status: "denied" | "conflict" | "invalid" | "unavailable";
     };
+
 export type AccountProfileView = {
   id: string;
   label: string;
@@ -108,6 +110,8 @@ export type AccountView = {
     state: "active" | "revoked";
     fencePending: boolean;
   } | null;
+  // Optional display projection; older safe bootstrap consumers may omit it.
+  usage?: AccountUsageView;
 };
 export type AccountsPage = {
   canGrantOperatorUse?: boolean;

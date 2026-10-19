@@ -20,9 +20,10 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Badge, Button, Dialog } from "@reviewrouter/ui";
+import { Badge, Button, Checkbox, Dialog } from "@reviewrouter/ui";
 import { AccountIdentity } from "./account-identity";
 import { AccountActionsMenu } from "./account-actions-menu";
+import { accountsGridColumns } from "./accounts-grid";
 import { accountsCopy, accountStatus } from "./accounts-copy";
 
 import type { AccountView } from "../../src/server/account-gateway-accounts";
@@ -34,6 +35,7 @@ import type {
   PersonalAccountsApi,
   PersonalAccountsBootstrap,
   PersonalAccountsResult,
+  PersonalAccessSummary,
   PersonalAttachRequest,
   PersonalMutationReceipt,
   PersonalRevokeRequest,
@@ -668,13 +670,13 @@ function PersonalControls({
         <p role="status">{errorText(sourceFailure?.status ?? "unavailable")}</p>
       ) : null}
       <div
-        className="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,.8fr)_auto] gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid"
+        className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
         aria-hidden="true"
       >
         <span>Аккаунт</span>
         <span>Где доступен</span>
         <span>Состояние</span>
-        <span className="w-28" />
+        <span />
       </div>
       <div className="divide-y divide-cyan-200/10">
         {!inventory.length && !sourceFailure && !sources.isError ? (
@@ -695,14 +697,12 @@ function PersonalControls({
             <article
               key={id}
               aria-label={label}
-              className="grid min-w-0 items-center gap-3 py-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,.8fr)_auto]"
+              className={`grid min-w-0 items-center gap-3 py-4 ${accountsGridColumns}`}
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-3">
                   {bulk && source ? (
-                    <input
-                      type="checkbox"
-                      className="accent-cyan-300"
+                    <Checkbox
                       aria-label={`Select ${label}`}
                       checked={selected.some((value) => value.sourceId === id)}
                       disabled={sharingDisabled || !canAdd}
@@ -860,35 +860,35 @@ function PersonalControls({
 function AccessSummaryChips({
   summary,
 }: {
-  summary:
-    | {
-        organizationCount: number;
-        hasRestrictedAccess: boolean;
-        organizationLabels: readonly string[];
-        complete: true;
-      }
-    | undefined;
+  summary: PersonalAccessSummary | undefined;
 }) {
-  const labels = (summary?.organizationLabels ?? []).slice(0, 1);
+  const organizations = (summary?.organizations ?? []).slice(0, 1);
   const remaining =
     summary && summary.complete
-      ? Math.max(0, summary.organizationCount - labels.length)
+      ? Math.max(0, summary.organizationCount - organizations.length)
       : 0;
   return (
     <div
       className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-300"
       aria-label="Где доступен"
     >
-      <span className="rounded-full border border-cyan-200/15 bg-cyan-200/[0.055] px-2 py-1">
+      <AccessChip
+        {...(summary?.personalWorkspaceId
+          ? {
+              href: dashboardSectionHref("setup", summary.personalWorkspaceId),
+            }
+          : {})}
+      >
         {accountsCopy.personal}
-      </span>
-      {labels.map((label) => (
-        <span
-          key={label}
-          className="max-w-48 truncate rounded-full border border-cyan-200/15 bg-white/[0.035] px-2 py-1"
+      </AccessChip>
+      {organizations.map((organization) => (
+        <AccessChip
+          key={organization.workspaceId}
+          href={dashboardSectionHref("setup", organization.workspaceId)}
+          title={organization.label}
         >
-          {label}
-        </span>
+          {organization.label}
+        </AccessChip>
       ))}
       {summary && summary.hasRestrictedAccess ? (
         <span className="rounded-full border border-amber-300/20 bg-amber-300/[0.06] px-2 py-1 text-amber-100">
@@ -901,6 +901,32 @@ function AccessSummaryChips({
         </span>
       ) : null}
     </div>
+  );
+}
+
+function AccessChip({
+  href,
+  title,
+  children,
+}: {
+  href?: string | undefined;
+  title?: string | undefined;
+  children: ReactNode;
+}) {
+  const className =
+    "max-w-48 truncate rounded-full border border-cyan-200/15 bg-white/[0.035] px-2 py-1";
+  return href ? (
+    <a
+      href={href}
+      title={title}
+      className={`${className} text-cyan-100 transition-colors hover:border-cyan-200/40 hover:text-cyan-50`}
+    >
+      {children}
+    </a>
+  ) : (
+    <span className={className} title={title}>
+      {children}
+    </span>
   );
 }
 
@@ -969,12 +995,10 @@ function ShareDialog({
         Share selected accounts
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="z-[60]" />
-        <Dialog.Popup className="z-[61] max-h-[calc(100dvh-2rem)] overflow-y-auto">
-          <Dialog.Title className="text-lg font-semibold">
-            Share with organizations
-          </Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-slate-400">
+        <Dialog.Backdrop />
+        <Dialog.Popup>
+          <Dialog.Title>Share with organizations</Dialog.Title>
+          <Dialog.Description>
             Select organizations where you are an owner or admin. Your account
             name will be visible there. Each account and organization is
             processed separately; check each result below.
@@ -994,9 +1018,7 @@ function ShareDialog({
             ) : null}
             {rows.map((row) => (
               <label key={row.workspaceId} className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  className="accent-cyan-300"
+                <Checkbox
                   checked={selected.includes(row.workspaceId)}
                   disabled={submitting}
                   onChange={(event) =>
@@ -1026,7 +1048,7 @@ function ShareDialog({
               Choose at most 100 account and organization pairs per request.
             </p>
           ) : null}
-          <div className="flex justify-end gap-3">
+          <Dialog.Footer>
             <Dialog.Close
               render={<Button variant="ghost" disabled={submitting} />}
             >
@@ -1056,7 +1078,7 @@ function ShareDialog({
               Share {count || "selected"}{" "}
               {count === 1 ? "connection" : "connections"}
             </Button>
-          </div>
+          </Dialog.Footer>
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
@@ -1175,15 +1197,10 @@ function WorkspaceAccess({
         Доступ
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="z-[60]" />
-        <Dialog.Popup
-          initialFocus={closeRef}
-          className="z-[61] w-[min(92vw,44rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto"
-        >
-          <Dialog.Title className="text-lg font-semibold">
-            Доступ · {source.label}
-          </Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-slate-400">
+        <Dialog.Backdrop />
+        <Dialog.Popup initialFocus={closeRef} className="w-[min(92vw,44rem)]">
+          <Dialog.Title>Доступ · {source.label}</Dialog.Title>
+          <Dialog.Description>
             Личный доступ остаётся постоянным. Доступ в организации действует
             только для отзывов и не передаёт владение, учётные данные или
             управление подключением.

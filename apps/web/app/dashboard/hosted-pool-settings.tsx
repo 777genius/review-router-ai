@@ -93,6 +93,9 @@ export function HostedPoolSettingsPanel({
   const hasHealthyAccount =
     healthy > 0 ||
     accounts.some((account) => account.availability.status === "healthy");
+  const poolRepositories = view.repositories.filter(
+    (repository) => repository.source === "hosted_workspace_pool",
+  );
   return (
     <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/60 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -132,6 +135,20 @@ export function HostedPoolSettingsPanel({
               </>
             )}
           </p>
+          {poolRepositories.length ? (
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-400 break-words">
+              Где используется пул:{" "}
+              {poolRepositories
+                .slice(0, 3)
+                .map((repository) => repository.fullName)
+                .join(", ")}
+              {poolRepositories.length > 3
+                ? ` +${poolRepositories.length - 3}`
+                : ""}
+              . Удаление последнего готового аккаунта остановит отзывы в этих
+              репозиториях.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -162,6 +179,7 @@ export function HostedPoolSettingsPanel({
           <HostedPoolAccountCards
             workspaceId={workspaceId}
             accounts={accounts}
+            poolRepositories={poolRepositories}
             setAccountState={actions.setAccountState}
             removeAccount={actions.removeAccount}
             mutationsEnabled={mutationsEnabled}

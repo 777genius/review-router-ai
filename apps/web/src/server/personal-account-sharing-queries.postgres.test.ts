@@ -374,14 +374,19 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
             sourceId: source.id,
             organizationCount: 2,
             hasRestrictedAccess: true,
-            organizationLabels: [x.name, y.name],
+            organizations: [
+              { workspaceId: x.id, label: x.name },
+              { workspaceId: y.id, label: y.name },
+            ],
+            personalWorkspaceId: p,
             complete: true,
           },
           {
             sourceId: extra.id,
             organizationCount: 0,
             hasRestrictedAccess: false,
-            organizationLabels: [],
+            organizations: [],
+            personalWorkspaceId: p,
             complete: true,
           },
         ]);

@@ -9,6 +9,10 @@ import {
 import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import * as c from "@agent-teams/account-gateway/contracts";
+import {
+  readWorkspaceAccountUsage,
+  type AccountUsageView,
+} from "./account-usage";
 import type {
   AccountProfileView,
   AccountsPage,
@@ -334,6 +338,23 @@ export function createAccountsOverview(input: {
               owner.avatarUrl ?? owner.externalIdentities[0]?.avatarUrl ?? null;
           }
           accounts.push(account);
+        }
+        // Usage is display-only and stays outside the row revalidation compare:
+        // it never grants authority and a stale fact is conservative, not fatal.
+        if (accounts.length) {
+          const usage = await readWorkspaceAccountUsage(input.prisma, {
+            workspaceId: who.workspaceId,
+            profiles: input.profiles,
+            rows: accounts.map((account) => ({
+              key: account.connectionId,
+              bindingId: account.binding?.id ?? null,
+              profileId: account.profileId,
+            })),
+          }).catch(() => new Map<string, AccountUsageView>());
+          for (const account of accounts) {
+            const facts = usage.get(account.connectionId);
+            if (facts) account.usage = facts;
+          }
         }
         const current = await input.authorize();
         if (
