@@ -54,8 +54,6 @@ async function main(): Promise<void> {
   let database: Awaited<ReturnType<typeof createDatabaseFixture>> | null = null;
   let gateway: Awaited<ReturnType<typeof startGatewayFixture>> | null = null;
   let app: Awaited<ReturnType<typeof startNextApp>> | null = null;
-  let viewerCookie = "";
-  let otherCookie = "";
   let summary: TestSummary = { passed: 0, failed: 0, skipped: 0, failures: [] };
   let failure: string | null = null;
   try {
@@ -83,8 +81,6 @@ async function main(): Promise<void> {
       app.url,
     );
     const other = await createSessionCookie(otherIdentity(), secrets, app.url);
-    viewerCookie = viewer.header;
-    otherCookie = other.header;
     const descriptor: RuntimeDescriptor = {
       appUrl: app.url,
       gatewayUrl: gateway.url,

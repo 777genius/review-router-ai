@@ -81,7 +81,7 @@ test.describe("Accounts UX reference browser contract", () => {
     await installLoopbackOnlyNetworkGuard(page, violations);
     await useViewerSession(context);
     await openAccounts(page, "rr-e2e-org-alpha");
-    const region = organizationAccountsRegion(page, "RR E2E Org Alpha");
+    const region = organizationAccountsRegion(page);
     await expect(region).toHaveCount(1);
     for (const label of [
       "RR E2E Viewer Primary",

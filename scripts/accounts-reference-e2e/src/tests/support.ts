@@ -120,10 +120,7 @@ export function sourceRow(page: Page, label: string, scope?: Locator): Locator {
   return (scope ?? page).getByRole("article", { name: label, exact: true });
 }
 
-export function organizationAccountsRegion(
-  page: Page,
-  workspaceName: string,
-): Locator {
+export function organizationAccountsRegion(page: Page): Locator {
   return page.getByRole("region", {
     name: "Доступные подключения",
   });
