@@ -1839,17 +1839,23 @@ async function confirmSetupPullRequestMergedMutation(
           return response;
         },
       };
-      await workflowOctokit.request(repositoryRoute, location);
-      await workflowOctokit.request(refRoute, refParameters);
+      await Promise.all([
+        workflowOctokit.request(repositoryRoute, location),
+        workflowOctokit.request(refRoute, refParameters),
+      ]);
       if (accountGateway) {
         assertCurrentGatewaySource = async () => {
-          await workflowOctokit.request(repositoryRoute, location);
-          await workflowOctokit.request(refRoute, refParameters);
-          await workflowOctokit.request(contentRoute, {
-            ...location,
-            path: selectedCodexWorkflowPath,
-            ref: commitSha,
-          });
+          // Independent reads of the same pinned source: verify concurrently so
+          // repeated re-checks cost one round trip instead of three.
+          await Promise.all([
+            workflowOctokit.request(repositoryRoute, location),
+            workflowOctokit.request(refRoute, refParameters),
+            workflowOctokit.request(contentRoute, {
+              ...location,
+              path: selectedCodexWorkflowPath,
+              ref: commitSha,
+            }),
+          ]);
         };
       }
     }

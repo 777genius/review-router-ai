@@ -153,6 +153,21 @@ const REVIEW_INVENTORY_MAX_BRANCHES = 64;
 const REVIEW_INVENTORY_MAX_REFERENCES = 128;
 const REVIEW_INVENTORY_MAX_CONCURRENCY = 4;
 const REVIEW_INVENTORY_COVERAGE_POLICY_VERSION = 3;
+// GitHub computes pull request mergeability lazily: the first detail read
+// returns `mergeable: null` and schedules computation. These delays poll that
+// computation inside the same request so an active repository does not need a
+// human retry. Exhausted polls still fail closed with the same error.
+const REVIEW_INVENTORY_MERGEABILITY_RETRY_DELAYS_MS = [250, 600, 1200] as const;
+// A pull request that moves between the list and detail reads makes the
+// snapshot inconsistent. Re-read the open pull request set instead of failing;
+// the outer two-pass coverage revalidation still fails closed on movement.
+const REVIEW_INVENTORY_COVERAGE_MOVED_RETRY_ATTEMPTS = 2;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 export class ManagedReviewV2WorkflowInventory {
   private readonly expectedApiUrl: string;
@@ -207,6 +222,27 @@ export class ManagedReviewV2WorkflowInventory {
       repo,
       githubRepositoryId: input.githubRepositoryId,
     });
+    // The interaction workflow read is independent from the per-reference
+    // inventory reads; start it now so both run concurrently.
+    const interactionPath = managedInteractionWorkflowPath;
+    const defaultReferenceHeadSha =
+      coverage.references.find((reference) => reference.isDefault)?.headSha ??
+      null;
+    const interactionWorkflowPromise =
+      defaultReferenceHeadSha === null
+        ? Promise.resolve(null)
+        : this.readWorkflowAtRef({
+            token: token.token,
+            owner: input.owner,
+            repo,
+            path: interactionPath,
+            ref: defaultReferenceHeadSha,
+            missingAllowed: true,
+          });
+    // The await happens only after the per-reference scan; keep the promise
+    // handled from now on so a rejection in this window cannot crash the
+    // process as an unhandled rejection before the await sees it.
+    void interactionWorkflowPromise.catch(() => {});
     const referenceInventories = await mapWithConcurrency(
       coverage.references,
       REVIEW_INVENTORY_MAX_CONCURRENCY,
@@ -317,15 +353,7 @@ export class ManagedReviewV2WorkflowInventory {
           `codex-rotating:${input.githubRepositoryId}`) &&
       defaultInventory.workflowSchemaVersion !== null,
     );
-    const interactionPath = managedInteractionWorkflowPath;
-    const interactionWorkflow = await this.readWorkflowAtRef({
-      token: token.token,
-      owner: input.owner,
-      repo,
-      path: interactionPath,
-      ref: defaultInventory.headSha,
-      missingAllowed: true,
-    });
+    const interactionWorkflow = await interactionWorkflowPromise;
     const interaction = inspectReviewV2InteractionWorkflow(
       interactionWorkflow,
       defaultInventory.actionRef,
@@ -392,67 +420,23 @@ export class ManagedReviewV2WorkflowInventory {
     readonly repo: string;
     readonly githubRepositoryId: string;
   }): Promise<ReviewInventoryCoverageSnapshot> {
-    const repositoryResponse = (await this.dependencies.access.request(
+    const repositoryRequest = this.dependencies.access.request(
       "GET /repos/{owner}/{repo}",
       {
         owner: input.owner,
         repo: input.repo,
         headers: { authorization: `Bearer ${input.token}` },
       },
-    )) as RepositoryResponse;
+    ) as Promise<RepositoryResponse>;
+    const [repositoryResponse, pullRequests] = await Promise.all([
+      repositoryRequest,
+      this.resolveOpenPullRequests(input),
+    ]);
     const defaultBranch = decodeRepositoryDefaultBranch(
       repositoryResponse.data,
       input.githubRepositoryId,
       `${input.owner}/${input.repo}`,
     );
-    const pullRequests: ReviewInventoryPullRequestSnapshot[] = [];
-    let paginationComplete = false;
-    for (let page = 1; page <= REVIEW_INVENTORY_MAX_PULL_PAGES + 1; page += 1) {
-      const response = (await this.dependencies.access.request(
-        "GET /repos/{owner}/{repo}/pulls",
-        {
-          owner: input.owner,
-          repo: input.repo,
-          state: "open",
-          per_page: REVIEW_INVENTORY_PULLS_PER_PAGE,
-          page,
-          headers: { authorization: `Bearer ${input.token}` },
-        },
-      )) as PullRequestListResponse;
-      const pagePullRequests = decodeOpenPullRequests(
-        response.data,
-        input.githubRepositoryId,
-      );
-      if (
-        page > REVIEW_INVENTORY_MAX_PULL_PAGES &&
-        pagePullRequests.length > 0
-      ) {
-        throw new Error("codex_rotating_workflow_inventory_pull_cap_exceeded");
-      }
-      pullRequests.push(
-        ...(await mapWithConcurrency(
-          pagePullRequests,
-          REVIEW_INVENTORY_MAX_CONCURRENCY,
-          (pullRequest) =>
-            pullRequest.mergeCommitSha === null
-              ? this.resolvePullRequestMergeability({
-                  token: input.token,
-                  owner: input.owner,
-                  repo: input.repo,
-                  githubRepositoryId: input.githubRepositoryId,
-                  pullRequest,
-                })
-              : Promise.resolve(pullRequest),
-        )),
-      );
-      if (pagePullRequests.length < REVIEW_INVENTORY_PULLS_PER_PAGE) {
-        paginationComplete = true;
-        break;
-      }
-    }
-    if (!paginationComplete) {
-      throw new Error("codex_rotating_workflow_inventory_pull_cap_exceeded");
-    }
     assertUniquePullRequestNumbers(pullRequests);
     pullRequests.sort((left, right) => left.number - right.number);
     const branchRefs = new Set<string>([
@@ -526,27 +510,122 @@ export class ManagedReviewV2WorkflowInventory {
     return { defaultBranch, pullRequests, references };
   }
 
+  private async resolveOpenPullRequests(input: {
+    readonly token: string;
+    readonly owner: string;
+    readonly repo: string;
+    readonly githubRepositoryId: string;
+  }): Promise<ReviewInventoryPullRequestSnapshot[]> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.resolveOpenPullRequestsOnce(input);
+      } catch (error) {
+        if (
+          attempt >= REVIEW_INVENTORY_COVERAGE_MOVED_RETRY_ATTEMPTS ||
+          !(error instanceof Error) ||
+          error.message !== "codex_rotating_workflow_inventory_coverage_moved"
+        ) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  private async resolveOpenPullRequestsOnce(input: {
+    readonly token: string;
+    readonly owner: string;
+    readonly repo: string;
+    readonly githubRepositoryId: string;
+  }): Promise<ReviewInventoryPullRequestSnapshot[]> {
+    const pullRequests: ReviewInventoryPullRequestSnapshot[] = [];
+    let paginationComplete = false;
+    for (let page = 1; page <= REVIEW_INVENTORY_MAX_PULL_PAGES + 1; page += 1) {
+      const response = (await this.dependencies.access.request(
+        "GET /repos/{owner}/{repo}/pulls",
+        {
+          owner: input.owner,
+          repo: input.repo,
+          state: "open",
+          per_page: REVIEW_INVENTORY_PULLS_PER_PAGE,
+          page,
+          headers: { authorization: `Bearer ${input.token}` },
+        },
+      )) as PullRequestListResponse;
+      const pagePullRequests = decodeOpenPullRequests(
+        response.data,
+        input.githubRepositoryId,
+      );
+      if (
+        page > REVIEW_INVENTORY_MAX_PULL_PAGES &&
+        pagePullRequests.length > 0
+      ) {
+        throw new Error("codex_rotating_workflow_inventory_pull_cap_exceeded");
+      }
+      pullRequests.push(
+        ...(
+          await mapWithConcurrency(
+            pagePullRequests,
+            REVIEW_INVENTORY_MAX_CONCURRENCY,
+            async (pullRequest) =>
+              pullRequest.mergeCommitSha === null
+                ? this.resolvePullRequestMergeability({
+                    token: input.token,
+                    owner: input.owner,
+                    repo: input.repo,
+                    githubRepositoryId: input.githubRepositoryId,
+                    pullRequest,
+                  })
+                : pullRequest,
+          )
+        ).filter(
+          (pullRequest): pullRequest is ReviewInventoryPullRequestSnapshot =>
+            pullRequest !== null,
+        ),
+      );
+      if (pagePullRequests.length < REVIEW_INVENTORY_PULLS_PER_PAGE) {
+        paginationComplete = true;
+        break;
+      }
+    }
+    if (!paginationComplete) {
+      throw new Error("codex_rotating_workflow_inventory_pull_cap_exceeded");
+    }
+    return pullRequests;
+  }
+
   private async resolvePullRequestMergeability(input: {
     readonly token: string;
     readonly owner: string;
     readonly repo: string;
     readonly githubRepositoryId: string;
     readonly pullRequest: ReviewInventoryPullRequestSnapshot;
-  }): Promise<ReviewInventoryPullRequestSnapshot> {
-    const response = (await this.dependencies.access.request(
-      "GET /repos/{owner}/{repo}/pulls/{pull_number}",
-      {
-        owner: input.owner,
-        repo: input.repo,
-        pull_number: input.pullRequest.number,
-        headers: { authorization: `Bearer ${input.token}` },
-      },
-    )) as PullRequestResponse;
-    return decodePullRequestMergeability(
-      response.data,
-      input.githubRepositoryId,
-      input.pullRequest,
-    );
+  }): Promise<ReviewInventoryPullRequestSnapshot | null> {
+    for (let attempt = 0; ; attempt += 1) {
+      const response = (await this.dependencies.access.request(
+        "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+        {
+          owner: input.owner,
+          repo: input.repo,
+          pull_number: input.pullRequest.number,
+          headers: { authorization: `Bearer ${input.token}` },
+        },
+      )) as PullRequestResponse;
+      try {
+        return decodePullRequestMergeability(
+          response.data,
+          input.githubRepositoryId,
+          input.pullRequest,
+        );
+      } catch (error) {
+        const mergeabilityStillComputing =
+          error instanceof Error &&
+          error.message ===
+            "codex_rotating_workflow_inventory_mergeability_unavailable" &&
+          attempt < REVIEW_INVENTORY_MERGEABILITY_RETRY_DELAYS_MS.length;
+        if (!mergeabilityStillComputing) throw error;
+        await sleep(REVIEW_INVENTORY_MERGEABILITY_RETRY_DELAYS_MS[attempt]!);
+      }
+    }
   }
 
   private async readBranchHead(input: {
@@ -742,13 +821,15 @@ function decodePullRequestMergeability(
   data: unknown,
   expectedRepositoryId: string,
   expected: ReviewInventoryPullRequestSnapshot,
-): ReviewInventoryPullRequestSnapshot {
+): ReviewInventoryPullRequestSnapshot | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new Error("codex_rotating_pull_request_inventory_invalid_response");
   }
   const pullRequest = data as {
     readonly number?: unknown;
     readonly draft?: unknown;
+    readonly state?: unknown;
+    readonly merged?: unknown;
     readonly mergeable?: unknown;
     readonly merge_commit_sha?: unknown;
     readonly base?: {
@@ -758,10 +839,23 @@ function decodePullRequestMergeability(
     };
     readonly head?: { readonly sha?: unknown };
   };
+  const stableIdentityMatches =
+    pullRequest.number === expected.number &&
+    String(pullRequest.base?.repo?.id ?? "") === expectedRepositoryId;
+  if (pullRequest.merged === true || pullRequest.state === "closed") {
+    // A closed response for some other pull request must never drop the
+    // expected one from the snapshot.
+    if (!stableIdentityMatches) {
+      throw new Error("codex_rotating_workflow_inventory_coverage_moved");
+    }
+    // Merged or closed while the snapshot was being read: the pull request is
+    // no longer part of open coverage and GitHub reports `mergeable: null` for
+    // it forever. Drop it; the revalidated pass agrees on the settled open set.
+    return null;
+  }
   if (
-    pullRequest.number !== expected.number ||
+    !stableIdentityMatches ||
     pullRequest.draft !== expected.draft ||
-    String(pullRequest.base?.repo?.id ?? "") !== expectedRepositoryId ||
     pullRequest.base?.ref !== expected.baseRef ||
     normalizeCommitSha(pullRequest.base?.sha) !== expected.baseSha ||
     normalizeCommitSha(pullRequest.head?.sha) !== expected.headSha
