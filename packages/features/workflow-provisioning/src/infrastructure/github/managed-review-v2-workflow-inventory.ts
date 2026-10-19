@@ -239,6 +239,10 @@ export class ManagedReviewV2WorkflowInventory {
             ref: defaultReferenceHeadSha,
             missingAllowed: true,
           });
+    // The await happens only after the per-reference scan; keep the promise
+    // handled from now on so a rejection in this window cannot crash the
+    // process as an unhandled rejection before the await sees it.
+    void interactionWorkflowPromise.catch(() => {});
     const referenceInventories = await mapWithConcurrency(
       coverage.references,
       REVIEW_INVENTORY_MAX_CONCURRENCY,
@@ -835,16 +839,23 @@ function decodePullRequestMergeability(
     };
     readonly head?: { readonly sha?: unknown };
   };
+  const stableIdentityMatches =
+    pullRequest.number === expected.number &&
+    String(pullRequest.base?.repo?.id ?? "") === expectedRepositoryId;
   if (pullRequest.merged === true || pullRequest.state === "closed") {
+    // A closed response for some other pull request must never drop the
+    // expected one from the snapshot.
+    if (!stableIdentityMatches) {
+      throw new Error("codex_rotating_workflow_inventory_coverage_moved");
+    }
     // Merged or closed while the snapshot was being read: the pull request is
     // no longer part of open coverage and GitHub reports `mergeable: null` for
     // it forever. Drop it; the revalidated pass agrees on the settled open set.
     return null;
   }
   if (
-    pullRequest.number !== expected.number ||
+    !stableIdentityMatches ||
     pullRequest.draft !== expected.draft ||
-    String(pullRequest.base?.repo?.id ?? "") !== expectedRepositoryId ||
     pullRequest.base?.ref !== expected.baseRef ||
     normalizeCommitSha(pullRequest.base?.sha) !== expected.baseSha ||
     normalizeCommitSha(pullRequest.head?.sha) !== expected.headSha

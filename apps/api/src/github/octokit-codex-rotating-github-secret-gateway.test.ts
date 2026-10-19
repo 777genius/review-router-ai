@@ -1677,6 +1677,42 @@ ${renderInteractionWorkflow({
     ).resolves.toMatchObject({ compatible: true });
   });
 
+  it("propagates an interaction workflow read failure without an unhandled rejection", async () => {
+    const actionSha = "a".repeat(40);
+    const workflow = renderReviewRouterCaller({
+      runtimeRef: actionSha,
+      controlPlaneUrl: "https://api.reviewrouter.site",
+    });
+    mockManagedWorkflowInventory({
+      reviewWorkflow: workflow,
+      interactionReadFailure: true,
+      activePullRequests: [
+        {
+          number: 240,
+          baseRef: "dev",
+          baseHeadSha: "d".repeat(40),
+          headSha: "c".repeat(40),
+          mergeCommitSha: null,
+          mergeable: false,
+          reviewWorkflowAtBase: workflow,
+        },
+      ],
+    });
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "private-key",
+    });
+
+    await expect(
+      gateway.inspectReviewV2ManagedWorkflowInventory({
+        githubInstallationId: "129500385",
+        githubRepositoryId: "123456",
+        repositoryFullName: "777genius/example",
+        owner: "777genius",
+      }),
+    ).rejects.toMatchObject({ status: 500 });
+  });
+
   it("recovers when a pull request base moves between list and detail reads", async () => {
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
@@ -2367,6 +2403,7 @@ function mockManagedWorkflowInventory(input: {
   readonly reviewPath?: string;
   readonly competingStandardWorkflow?: string;
   readonly interactionWorkflow?: string;
+  readonly interactionReadFailure?: boolean;
   readonly activePullRequests?: readonly {
     readonly number: number;
     readonly draft?: boolean;
@@ -2428,17 +2465,24 @@ function mockManagedWorkflowInventory(input: {
       legacyWorkflow: pullRequest.legacyWorkflowAtBase,
     })),
   ];
-  const mergeReferences = activePullRequests.flatMap((pullRequest) =>
-    pullRequest.mergeCommitSha
+  // The production code derives merge references from the resolved detail
+  // merge sha (the list sha is null while GitHub is still computing).
+  const mergeReferences = activePullRequests.flatMap((pullRequest) => {
+    const resolvedMergeCommitSha = (
+      "detailMergeCommitSha" in pullRequest
+        ? pullRequest.detailMergeCommitSha
+        : (pullRequest.mergeCommitSha ?? null)
+    )?.toLowerCase();
+    return typeof resolvedMergeCommitSha === "string"
       ? [
           {
-            ref: pullRequest.mergeCommitSha,
+            ref: resolvedMergeCommitSha,
             reviewWorkflow: pullRequest.reviewWorkflowAtMerge,
             legacyWorkflow: pullRequest.legacyWorkflowAtMerge,
           },
         ]
-      : [],
-  );
+      : [];
+  });
   const branchReads = new Map<string, number>();
   const detailReads = new Map<number, number>();
   let pullListReads = 0;
@@ -2511,7 +2555,11 @@ function mockManagedWorkflowInventory(input: {
                 ] ?? null)
               : "mergeable" in pullRequest
                 ? pullRequest.mergeable
-                : false,
+                : pullRequest.mergedInDetail
+                  ? // Real GitHub keeps reporting `mergeable: null` forever for
+                    // merged or closed pull requests.
+                    null
+                  : false,
             merge_commit_sha:
               "detailMergeCommitSha" in pullRequest
                 ? pullRequest.detailMergeCommitSha
@@ -2581,6 +2629,7 @@ function mockManagedWorkflowInventory(input: {
           return fileContent(input.competingStandardWorkflow);
         }
         if (path === ".github/workflows/reviewrouter-interaction.yml") {
+          if (input.interactionReadFailure) throw { status: 500 };
           if (
             !("interactionWorkflow" in reference) ||
             typeof reference.interactionWorkflow !== "string"
