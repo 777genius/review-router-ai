@@ -320,7 +320,7 @@ describe("org ruleset provisioning", () => {
       {
         provisioningId: queued.id,
         actionRef: "777genius/review-router@main",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         runtimeConfigMode: "oidc",
         attemptedAt: requestedAt,
       },
@@ -363,7 +363,7 @@ describe("org ruleset provisioning", () => {
         {
           provisioningId: queued.id,
           actionRef: "777genius/review-router@main",
-          apiUrl: "https://api.reviewrouter.site",
+          apiUrl: "https://api.reviewrouter.org",
           runtimeConfigMode: "static",
           attemptedAt: requestedAt,
         },
@@ -385,7 +385,7 @@ describe("org ruleset provisioning", () => {
       {
         provisioningId: queued.id,
         actionRef: "777genius/review-router@main",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         runtimeConfigMode: "oidc",
         attemptedAt: requestedAt,
       },

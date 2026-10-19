@@ -29,7 +29,7 @@ class OctokitCodexRotatingGitHubSecretGateway extends ExplicitApiUrlOctokitCodex
       readonly expectedApiUrl?: string;
     },
   ) {
-    super({ expectedApiUrl: "https://api.reviewrouter.site", ...options });
+    super({ expectedApiUrl: "https://api.reviewrouter.org", ...options });
   }
 }
 
@@ -229,7 +229,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
         "777genius/review-router@2222222222222222222222222222222222222222";
       const current = renderCodexRotatingAdvisoryWorkflow({
         actionRef,
-        apiUrl: "https://reviewrouter.site",
+        apiUrl: "https://reviewrouter.org",
         providerInstanceId: "codex-rotating:123456",
         reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
         workflowSchemaVersion,
@@ -237,7 +237,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       });
       const next = renderCodexRotatingAdvisoryWorkflow({
         actionRef,
-        apiUrl: "https://reviewrouter.site",
+        apiUrl: "https://reviewrouter.org",
         providerInstanceId: "codex-rotating:123456",
         reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
         workflowSchemaVersion,
@@ -295,7 +295,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       const gateway = new OctokitCodexRotatingGitHubSecretGateway({
         appId: "123",
         privateKey: "private-key",
-        expectedApiUrl: "https://reviewrouter.site",
+        expectedApiUrl: "https://reviewrouter.org",
         trustedActionRefs: [actionRef],
       });
       await expect(
@@ -435,7 +435,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       "777genius/review-router@2222222222222222222222222222222222222222";
     const current = renderCodexRotatingAdvisoryWorkflow({
       actionRef,
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
       workflowSchemaVersion:
@@ -496,7 +496,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
       privateKey: "private-key",
-      expectedApiUrl: "https://reviewrouter.site",
+      expectedApiUrl: "https://reviewrouter.org",
       trustedActionRefs: [actionRef],
     });
 
@@ -725,7 +725,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
     })
       .replaceAll(", converted_to_draft", "")
@@ -757,7 +757,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
       privateKey: "private-key",
-      expectedApiUrl: "https://reviewrouter.site",
+      expectedApiUrl: "https://reviewrouter.org",
     });
 
     await expect(
@@ -796,7 +796,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({ reviewWorkflow: workflow });
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
@@ -832,7 +832,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     });
     const unrelatedCanonicalWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1228051727",
       workflowSchemaVersion: 5,
       activeSecretNamespace,
@@ -873,7 +873,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     const actionSha = "a".repeat(40);
     const standardWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1228051727",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -913,7 +913,7 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({ reviewWorkflow: workflow });
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
@@ -945,14 +945,14 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       const actionRef = `777genius/review-router@${"a".repeat(40)}`;
       const codexWorkflow = renderCodexRotatingAdvisoryWorkflow({
         actionRef,
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         providerInstanceId: "codex-rotating:123456",
         reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
       });
       const interactionWorkflow = `# formatting is not authority
 ${renderInteractionWorkflow({
   actionRef,
-  apiUrl: "https://api.reviewrouter.site",
+  apiUrl: "https://api.reviewrouter.org",
   runtimeConfigMode: "oidc",
 })}`;
       mocks.auth.mockResolvedValueOnce({
@@ -992,14 +992,14 @@ ${renderInteractionWorkflow({
     const actionRef = `777genius/review-router@${"a".repeat(40)}`;
     const codexWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     });
     const interactionWorkflow =
       renderCanonicalCodexRotatingInteractionWorkflowV2({
         actionRef,
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         runtimeConfigMode: "oidc",
       }).replace('node-version: "24"', 'node-version: "26.11.1"');
     mocks.auth.mockResolvedValueOnce({
@@ -1032,14 +1032,14 @@ ${renderInteractionWorkflow({
     const actionRef = `777genius/review-router@${"a".repeat(40)}`;
     const codexWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     });
     const interactionWorkflow =
       renderCanonicalCodexRotatingInteractionWorkflowV2({
         actionRef,
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         runtimeConfigMode: "oidc",
       })
         .replace('node-version: "24"', 'node-version: "26.11.1"')
@@ -1077,7 +1077,7 @@ ${renderInteractionWorkflow({
     const actionRef = `777genius/review-router@${"a".repeat(40)}`;
     const workflow = `${renderCodexRotatingAdvisoryWorkflow({
       actionRef,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     })}
@@ -1114,7 +1114,7 @@ ${renderInteractionWorkflow({
     const actionRef = `777genius/review-router@${"a".repeat(40)}`;
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:1228051727",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     });
@@ -1177,7 +1177,7 @@ ${renderInteractionWorkflow({
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
       privateKey: "private-key",
-      expectedApiUrl: "https://api.reviewrouter.site",
+      expectedApiUrl: "https://api.reviewrouter.org",
     });
 
     await expect(
@@ -1197,7 +1197,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = `${renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1233,7 +1233,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1263,7 +1263,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     }).replace("777genius/review-router/", "attacker/review-router/");
     mockManagedWorkflowInventory({ reviewWorkflow: workflow });
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
@@ -1288,14 +1288,14 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const defaultWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     });
     const mismatchedWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:654321",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1333,11 +1333,11 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const t0Workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     const legacyWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
     });
@@ -1375,7 +1375,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1411,7 +1411,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1448,14 +1448,14 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const t0Workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     });
     const legacyWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
     });
@@ -1492,11 +1492,11 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const t0Workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     const legacyWorkflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
     });
@@ -1534,7 +1534,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1569,7 +1569,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1609,7 +1609,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1646,7 +1646,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1681,7 +1681,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1717,7 +1717,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1753,7 +1753,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1792,7 +1792,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: `777genius/review-router@${actionSha}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: null,
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -1830,7 +1830,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1859,13 +1859,13 @@ ${renderInteractionWorkflow({
     const actionRef = `777genius/review-router@${actionSha}`;
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
       interactionWorkflow: renderCanonicalCodexRotatingInteractionWorkflowV2({
         actionRef,
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         runtimeConfigMode: "oidc",
       }),
     });
@@ -1888,7 +1888,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     mockManagedWorkflowInventory({
       reviewWorkflow: workflow,
@@ -1913,7 +1913,7 @@ ${renderInteractionWorkflow({
     const actionSha = "a".repeat(40);
     const workflow = renderReviewRouterCaller({
       runtimeRef: actionSha,
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
     const interactionWorkflow = `${renderT0InteractionWorkflow(actionSha)}
       - name: Exfiltrate session
@@ -2048,7 +2048,7 @@ ${renderInteractionWorkflow({
   it("rejects rotating workflow source from an unexpected action repository", async () => {
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef: "evil/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
     });
     mocks.auth.mockResolvedValueOnce({
@@ -2092,7 +2092,7 @@ ${renderInteractionWorkflow({
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef:
         "777genius/review-router@2222222222222222222222222222222222222222",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
     });
     mocks.auth.mockResolvedValueOnce({
@@ -2111,7 +2111,7 @@ ${renderInteractionWorkflow({
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
       privateKey: "private-key",
-      expectedApiUrl: "https://reviewrouter.site",
+      expectedApiUrl: "https://reviewrouter.org",
       trustedActionRefs: [
         "777genius/review-router@2222222222222222222222222222222222222222",
       ],
@@ -2148,7 +2148,7 @@ ${renderInteractionWorkflow({
     const workflow = renderCodexRotatingAdvisoryWorkflow({
       actionRef:
         "777genius/review-router@2222222222222222222222222222222222222222",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
       workflowSchemaVersion:
@@ -2185,7 +2185,7 @@ ${renderInteractionWorkflow({
     const gateway = new OctokitCodexRotatingGitHubSecretGateway({
       appId: "123",
       privateKey: "private-key",
-      expectedApiUrl: "https://reviewrouter.site",
+      expectedApiUrl: "https://reviewrouter.org",
       trustedActionRefs: [
         "777genius/review-router@2222222222222222222222222222222222222222",
       ],
@@ -2665,7 +2665,7 @@ function gitBlobSha(source: string): string {
 function renderT0InteractionWorkflow(actionSha: string) {
   return renderCodexRotatingInteractionWorkflow({
     actionRef: `777genius/review-router@${actionSha}`,
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
     runtimeConfigMode: "oidc",
   });
 }

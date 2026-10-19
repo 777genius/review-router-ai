@@ -384,19 +384,19 @@ envVarGroups:
       - key: REVIEW_ROUTER_MAX_REPOSITORIES_PER_SYNC
         value: "250"
       - key: REVIEW_ROUTER_WEB_URL
-        value: https://reviewrouter.site
+        value: https://reviewrouter.org
       - key: REVIEW_ROUTER_API_URL
-        value: https://api.reviewrouter.site
+        value: https://api.reviewrouter.org
       - key: REVIEW_ROUTER_PUBLIC_API_URL
-        value: https://api.reviewrouter.site
+        value: https://api.reviewrouter.org
       - key: REVIEW_ROUTER_PUBLIC_WEB_URL
-        value: https://reviewrouter.site
+        value: https://reviewrouter.org
       - key: REVIEW_ROUTER_HOSTED_WEB_URL
-        value: https://reviewrouter.site
+        value: https://reviewrouter.org
       - key: REVIEW_ROUTER_HOSTED_API_URL
-        value: https://api.reviewrouter.site
+        value: https://api.reviewrouter.org
       - key: NEXTAUTH_URL
-        value: https://reviewrouter.site
+        value: https://reviewrouter.org
       # GitHub App OAuth/client/webhook credentials. Do not commit real values.
       - key: GITHUB_APP_ID
         sync: false
