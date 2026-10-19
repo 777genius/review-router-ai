@@ -41,4 +41,4 @@ jobs:
 `;
 
 export const hostedPoolWorkflowV2GoldenSha256 =
-  "65aed14bd8465a6b7ddb29657277ad30bbd884410ed0b3e80f2a624aec81fb17";
+  "fbac7410228c1115b17e179a44e168c7df00d463dfe5f046cdec12bab81e9704";
