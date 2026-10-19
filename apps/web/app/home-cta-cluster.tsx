@@ -10,6 +10,8 @@ export type HomeCtaClusterProps = {
   githubLabel: string;
   size?: "md" | "lg";
   className?: string;
+  ctaClassName?: string;
+  labelClassName?: string;
 };
 
 export function HomeCtaCluster({
@@ -19,6 +21,8 @@ export function HomeCtaCluster({
   githubLabel,
   size = "lg",
   className = "",
+  ctaClassName = "home-install-cta",
+  labelClassName = "relative z-10 inline-flex items-center gap-2",
 }: HomeCtaClusterProps): React.ReactElement {
   return (
     <div className={`flex flex-wrap items-center gap-3 ${className}`}>
@@ -26,19 +30,19 @@ export function HomeCtaCluster({
         <GitHubAppInstallPermissionDialog
           href={appInstallUrl}
           size={size}
-          className="home-install-cta"
+          className={ctaClassName}
         >
           <SourceProviderLabel
             provider="github"
             label={githubLabel}
-            className="relative z-10 inline-flex items-center gap-2"
+            className={labelClassName}
           />
         </GitHubAppInstallPermissionDialog>
       ) : (
         <LoadingLinkButton
           href={githubHref}
           size={size}
-          className="home-install-cta"
+          className={ctaClassName}
           pendingLabel={
             hasConnectedApp ? "Opening dashboard..." : "Opening setup..."
           }
@@ -46,15 +50,15 @@ export function HomeCtaCluster({
           <SourceProviderLabel
             provider="github"
             label={githubLabel}
-            className="relative z-10 inline-flex items-center gap-2"
+            className={labelClassName}
           />
         </LoadingLinkButton>
       )}
       <GitLabBetaConnectButton
         size={size}
         variant="solid"
-        className="home-install-cta home-install-cta--gitlab"
-        labelClassName="relative z-10 inline-flex items-center gap-2"
+        className={`${ctaClassName} home-install-cta--gitlab`}
+        labelClassName={labelClassName}
       />
     </div>
   );

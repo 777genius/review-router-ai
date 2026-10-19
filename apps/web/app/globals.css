@@ -314,139 +314,1057 @@ canvas {
     auto;
 }
 
-.home-hero__orbs {
+@property --node-color {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #5ddfff;
+}
+
+@property --step-color {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #55dfff;
+}
+
+.setup-blueprint {
+  position: relative;
+  isolation: isolate;
+  height: clamp(660px, 37.12vw, 764px);
+  overflow: hidden;
+  background: transparent;
+}
+
+.setup-blueprint::before,
+.setup-blueprint::after {
   position: absolute;
   inset: 0;
   z-index: -1;
-  overflow: hidden;
   pointer-events: none;
+  content: "";
 }
 
-.home-orb {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(72px);
-}
-
-.home-orb--cyan {
-  top: -9rem;
-  left: -7rem;
-  width: 32rem;
-  height: 22rem;
-  background: radial-gradient(circle, rgba(0, 240, 255, 0.22), transparent 70%);
-}
-
-.home-orb--lime {
-  top: 5rem;
-  right: -9rem;
-  width: 30rem;
-  height: 22rem;
-  background: radial-gradient(
-    circle,
-    rgba(163, 230, 53, 0.16),
-    transparent 70%
-  );
-}
-
-.home-orb--fuchsia {
-  bottom: -11rem;
-  left: 30%;
-  width: 34rem;
-  height: 20rem;
-  background: radial-gradient(
-    circle,
-    rgba(217, 70, 239, 0.14),
-    transparent 70%
-  );
-}
-
-.home-preview__glow {
-  position: absolute;
-  inset: -12% -8%;
-  z-index: -1;
-  border-radius: 3rem;
+.setup-blueprint::before {
   background:
+    linear-gradient(rgba(103, 232, 249, 0.011) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(103, 232, 249, 0.01) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.86) 0%,
+    rgba(0, 0, 0, 0.62) 56%,
+    rgba(0, 0, 0, 0.22) 82%,
+    transparent 100%
+  );
+}
+
+.setup-blueprint::after {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(2, 6, 11, 0.84),
+      transparent 16%,
+      transparent 83%,
+      rgba(2, 6, 11, 0.8)
+    ),
+    radial-gradient(ellipse at 52% 5%, rgba(2, 6, 11, 0.42), transparent 34rem);
+}
+
+.setup-blueprint__lines {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.setup-blueprint__trace {
+  stroke-linecap: round;
+}
+
+.setup-blueprint__trace-glow {
+  stroke-dasharray: 210 1160;
+  stroke-linecap: round;
+}
+
+.setup-blueprint__scan-lines {
+  stroke-dashoffset: 0;
+}
+
+.setup-blueprint__anchor {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.setup-blueprint__mobile-steps {
+  display: none;
+}
+
+.setup-blueprint__intro,
+.setup-blueprint__step,
+.setup-blueprint__node,
+.setup-blueprint__signal,
+.setup-blueprint__cta,
+.setup-blueprint__version {
+  position: absolute;
+  z-index: 2;
+}
+
+.setup-blueprint__cta {
+  right: clamp(6rem, 14.6vw, 18.75rem);
+  bottom: 7.4%;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  align-items: center;
+}
+
+.setup-blueprint__source-cta {
+  min-height: 3.9rem;
+  min-width: clamp(12.5rem, 12vw, 15.5rem);
+  border-radius: 1.15rem;
+  padding-inline: 1.35rem;
+  font-size: clamp(0.88rem, 0.82vw, 1rem);
+  white-space: nowrap;
+}
+
+.setup-blueprint__source-cta-label {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+}
+
+.setup-blueprint__source-cta-label img {
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: 0 0 auto;
+}
+
+.setup-blueprint__intro {
+  top: 9.4%;
+  left: 5%;
+  width: min(48rem, 44%);
+}
+
+.setup-blueprint__eyebrow,
+.setup-blueprint__step-label,
+.setup-blueprint__signal strong {
+  margin: 0;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.setup-blueprint__eyebrow {
+  color: rgba(203, 213, 225, 0.58);
+  font-size: clamp(0.7rem, 0.78vw, 1rem);
+}
+
+.setup-blueprint__eyebrow::after {
+  color: #59dfff;
+  content: "";
+}
+
+.setup-blueprint__intro h1 {
+  margin: 1.15rem 0 0;
+  color: #f2f7ff;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: clamp(2.05rem, 1.78vw, 2.45rem);
+  font-weight: 700;
+  line-height: 0.98;
+  letter-spacing: 0;
+  text-shadow: 0 0 26px rgba(226, 232, 240, 0.08);
+}
+
+.setup-blueprint__intro-rule {
+  display: block;
+  width: clamp(48px, 2.7vw, 58px);
+  height: 2px;
+  margin-top: clamp(1.55rem, 1.7vw, 2rem);
+  background: #64e1ff;
+  box-shadow: 0 0 18px rgba(100, 225, 255, 0.36);
+}
+
+.setup-blueprint__intro p:not(.setup-blueprint__eyebrow) {
+  position: relative;
+  max-width: 24rem;
+  margin: clamp(1rem, 1vw, 1.35rem) 0 0;
+  padding: 0.25rem 1rem 0.25rem 0;
+  background: linear-gradient(
+    90deg,
+    rgba(2, 7, 12, 0.9),
+    rgba(2, 7, 12, 0.68) 72%,
+    transparent
+  );
+  color: rgba(226, 232, 240, 0.82);
+  font-size: clamp(0.86rem, 0.82vw, 1.05rem);
+  font-weight: 500;
+  line-height: 1.7;
+  text-shadow:
+    0 1px 16px rgba(2, 7, 12, 0.95),
+    0 0 4px rgba(2, 7, 12, 0.95);
+}
+
+.setup-blueprint__node {
+  display: grid;
+  width: clamp(92px, 5.8vw, 126px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  place-items: center;
+  border: 2px solid color-mix(in srgb, var(--node-color) 80%, white 6%);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.08) 0 38%, transparent 39%),
     radial-gradient(
-      ellipse at 62% 28%,
-      rgba(0, 240, 255, 0.16),
-      transparent 60%
+      circle,
+      color-mix(in srgb, var(--node-color) 18%, transparent) 0 55%,
+      transparent 70%
+    ),
+    rgba(3, 9, 15, 0.92);
+  box-shadow:
+    0 0 0 7px rgba(2, 6, 23, 0.78),
+    0 0 0 10px color-mix(in srgb, var(--node-color) 22%, transparent),
+    0 0 42px color-mix(in srgb, var(--node-color) 35%, transparent),
+    inset 0 0 26px color-mix(in srgb, var(--node-color) 20%, transparent);
+}
+
+.setup-blueprint__node::before,
+.setup-blueprint__node::after {
+  position: absolute;
+  inset: -18%;
+  border: 1px solid color-mix(in srgb, var(--node-color) 22%, transparent);
+  border-radius: inherit;
+  content: "";
+}
+
+.setup-blueprint__node::after {
+  inset: -30%;
+  border-style: dashed;
+  opacity: 0.36;
+}
+
+.setup-blueprint__node span {
+  color: #f4fbff;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: clamp(3.1rem, 3.3vw, 4.65rem);
+  font-weight: 700;
+  line-height: 1;
+  text-shadow:
+    0 0 22px color-mix(in srgb, var(--node-color) 42%, transparent),
+    0 0 2px #fff;
+}
+
+.setup-blueprint__node--one {
+  --node-color: #5ddfff;
+  top: 58.7%;
+  left: 9.7%;
+}
+
+.setup-blueprint__node--two {
+  --node-color: #5ddfff;
+  top: 42.2%;
+  left: 40.8%;
+}
+
+.setup-blueprint__node--three {
+  --node-color: #5ddfff;
+  top: 25%;
+  left: 71.2%;
+}
+
+.setup-blueprint__step {
+  --step-color: #55dfff;
+  width: min(28rem, 22%);
+  color: rgba(203, 213, 225, 0.78);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+}
+
+.setup-blueprint__step--one {
+  top: 52.7%;
+  left: 14.7%;
+}
+
+.setup-blueprint__step--two {
+  top: 36.8%;
+  left: 45.8%;
+}
+
+.setup-blueprint__step--three {
+  top: 20.2%;
+  left: 75.8%;
+  width: min(30rem, 20%);
+}
+
+.setup-blueprint__step-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.72rem;
+  color: var(--step-color, #55dfff);
+  font-size: clamp(0.76rem, 0.88vw, 1.08rem);
+  line-height: 1;
+  text-shadow: 0 0 18px
+    color-mix(in srgb, var(--step-color, #55dfff) 40%, transparent);
+}
+
+.setup-blueprint__step-label span {
+  display: inline-block;
+  width: clamp(26px, 2vw, 42px);
+  height: 1px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.setup-blueprint__step h2 {
+  margin: 1.25rem 0 0;
+  color: #f1f7ff;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: clamp(1.6rem, 1.64vw, 2.18rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+.setup-blueprint__step p:not(.setup-blueprint__step-label) {
+  margin: 1rem 0 0;
+  color: rgba(203, 213, 225, 0.75);
+  font-size: clamp(0.82rem, 0.86vw, 1.08rem);
+  line-height: 1.58;
+}
+
+.setup-blueprint__signal {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  color: #58ddff;
+}
+
+.setup-blueprint__signal svg {
+  flex: 0 0 auto;
+  filter: drop-shadow(0 0 12px rgba(88, 221, 255, 0.3));
+}
+
+.setup-blueprint__signal span {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.setup-blueprint__signal strong {
+  color: currentColor;
+  font-size: clamp(0.66rem, 0.72vw, 0.9rem);
+  line-height: 1;
+}
+
+.setup-blueprint__signal small {
+  max-width: 14rem;
+  color: rgba(203, 213, 225, 0.72);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: clamp(0.68rem, 0.72vw, 0.92rem);
+  line-height: 1.55;
+}
+
+.setup-blueprint__signal--secrets small {
+  max-width: 18.5rem;
+}
+
+.setup-blueprint__signal--data {
+  bottom: 3.2%;
+  left: 10.7%;
+}
+
+.setup-blueprint__signal--repo {
+  bottom: 15.5%;
+  left: 40.2%;
+}
+
+.setup-blueprint__signal--secrets {
+  right: 14.5%;
+  bottom: 26%;
+  color: #e1ff66;
+}
+
+.setup-blueprint__signal--secrets svg {
+  filter: drop-shadow(0 0 12px rgba(225, 255, 102, 0.34));
+}
+
+.setup-blueprint__version {
+  right: 4.6%;
+  bottom: 6.4%;
+  color: rgba(148, 163, 184, 0.5);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: clamp(0.7rem, 0.7vw, 0.9rem);
+  line-height: 1.35;
+  text-align: right;
+}
+
+[data-theme="light"] .setup-blueprint::after {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(247, 251, 255, 0.72),
+      transparent 18%,
+      transparent 82%,
+      rgba(247, 251, 255, 0.72)
     ),
     radial-gradient(
-      ellipse at 28% 86%,
-      rgba(163, 230, 53, 0.12),
-      transparent 55%
+      ellipse at 52% 5%,
+      rgba(255, 255, 255, 0.7),
+      transparent 34rem
     );
 }
 
-.home-preview__scan {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+[data-theme="light"] .setup-blueprint__eyebrow {
+  color: rgba(71, 85, 105, 0.74);
+}
+
+[data-theme="light"] .setup-blueprint__intro h1,
+[data-theme="light"] .setup-blueprint__step h2 {
+  color: #102033;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+[data-theme="light"] .setup-blueprint__intro p:not(.setup-blueprint__eyebrow) {
   background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(103, 232, 249, 0.07) 48%,
-    rgba(103, 232, 249, 0.15) 50%,
-    transparent 52%
+    90deg,
+    rgba(255, 255, 255, 0.88),
+    rgba(255, 255, 255, 0.68) 72%,
+    transparent
   );
-  background-size: 100% 220%;
-  mix-blend-mode: screen;
+  color: #334155;
+  text-shadow: none;
 }
 
-@keyframes rr-home-orb-drift {
-  from {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
+[data-theme="light"] .setup-blueprint__node {
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.55) 0 38%, transparent 39%),
+    radial-gradient(
+      circle,
+      color-mix(in srgb, var(--node-color) 16%, transparent) 0 55%,
+      transparent 70%
+    ),
+    rgba(255, 255, 255, 0.86);
+  box-shadow:
+    0 0 0 7px rgba(255, 255, 255, 0.72),
+    0 0 0 10px color-mix(in srgb, var(--node-color) 20%, transparent),
+    0 16px 50px rgba(15, 23, 42, 0.1),
+    inset 0 0 26px color-mix(in srgb, var(--node-color) 15%, transparent);
+}
 
+[data-theme="light"] .setup-blueprint__node span {
+  color: #102033;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+[data-theme="light"] .setup-blueprint__step,
+[data-theme="light"] .setup-blueprint__step p:not(.setup-blueprint__step-label),
+[data-theme="light"] .setup-blueprint__signal small {
+  color: #475569;
+}
+
+[data-theme="light"] .setup-blueprint__version {
+  color: rgba(71, 85, 105, 0.72);
+}
+
+@keyframes setup-trace-flow {
   to {
-    transform: translate3d(2.2rem, 1.6rem, 0) scale(1.12);
+    stroke-dashoffset: -194;
   }
 }
 
-@keyframes rr-home-scan-sweep {
-  from {
-    background-position-y: -130%;
+@keyframes setup-glow-breathe {
+  0% {
+    opacity: 0;
+    stroke-dashoffset: 260;
   }
 
-  to {
-    background-position-y: 130%;
+  12%,
+  72% {
+    opacity: 0.8;
+  }
+
+  100% {
+    opacity: 0;
+    stroke-dashoffset: -1180;
   }
 }
 
-@keyframes rr-home-float {
+@keyframes setup-step-sequence {
+  0%,
+  100% {
+    --node-color: #5ddfff;
+    filter: none;
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  8%,
+  22% {
+    --node-color: #e3ff69;
+    filter: drop-shadow(
+      0 0 18px color-mix(in srgb, var(--node-color) 44%, transparent)
+    );
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.075);
+  }
+}
+
+@keyframes setup-mobile-step-sequence {
+  0%,
+  100% {
+    --node-color: #5ddfff;
+    filter: none;
+    transform: scale(1);
+  }
+
+  8%,
+  22% {
+    --node-color: #e3ff69;
+    filter: drop-shadow(
+      0 0 18px color-mix(in srgb, var(--node-color) 44%, transparent)
+    );
+    transform: scale(1.075);
+  }
+}
+
+@keyframes setup-ring-sequence {
+  0%,
+  100% {
+    opacity: 0.24;
+    transform: scale(1);
+  }
+
+  8%,
+  22% {
+    opacity: 0.72;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes setup-text-sequence {
+  0%,
+  100% {
+    --step-color: #55dfff;
+    opacity: 0.82;
+    text-shadow: none;
+  }
+
+  8%,
+  22% {
+    --step-color: #dfff67;
+    opacity: 1;
+    text-shadow: 0 0 18px rgba(223, 255, 103, 0.22);
+  }
+}
+
+@keyframes setup-rule-pulse {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: scaleX(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scaleX(1.22);
+  }
+}
+
+@keyframes setup-signal-float {
   0%,
   100% {
     transform: translateY(0);
   }
 
   50% {
-    transform: translateY(-0.55rem);
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes setup-anchor-ping {
+  0%,
+  100% {
+    opacity: 0.88;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.32);
   }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .home-orb--cyan {
-    animation: rr-home-orb-drift 19s ease-in-out infinite alternate;
+  .setup-blueprint__trace {
+    animation: none;
   }
 
-  .home-orb--lime {
-    animation: rr-home-orb-drift 23s ease-in-out infinite alternate-reverse;
+  .setup-blueprint__trace--lime {
+    animation: none;
   }
 
-  .home-orb--fuchsia {
-    animation: rr-home-orb-drift 27s ease-in-out infinite alternate;
+  .setup-blueprint__trace-glow {
+    animation: setup-glow-breathe 4.8s linear infinite;
   }
 
-  .home-preview__scan {
-    animation: rr-home-scan-sweep 7s linear infinite;
+  .setup-blueprint__node {
+    animation: setup-step-sequence 4.8s ease-in-out infinite;
   }
 
-  .home-preview__float--top {
-    animation: rr-home-float 6s ease-in-out infinite;
+  .setup-blueprint__node::after {
+    animation: setup-ring-sequence 4.8s ease-in-out infinite;
   }
 
-  .home-preview__float--bottom {
-    animation: rr-home-float 7.4s ease-in-out infinite reverse;
+  .setup-blueprint__node--two {
+    animation-delay: 1.6s;
+  }
+
+  .setup-blueprint__node--two::after {
+    animation-delay: 1.6s;
+  }
+
+  .setup-blueprint__node--three {
+    animation-delay: 3.2s;
+  }
+
+  .setup-blueprint__node--three::after {
+    animation-delay: 3.2s;
+  }
+
+  .setup-blueprint__step {
+    animation: setup-text-sequence 4.8s ease-in-out infinite;
+  }
+
+  .setup-blueprint__step--two {
+    animation-delay: 1.6s;
+  }
+
+  .setup-blueprint__step--three {
+    animation-delay: 3.2s;
+  }
+
+  .setup-blueprint__mobile-node {
+    animation: setup-mobile-step-sequence 4.8s ease-in-out infinite;
+  }
+
+  .setup-blueprint__mobile-node::after {
+    animation: setup-ring-sequence 4.8s ease-in-out infinite;
+  }
+
+  .setup-blueprint__mobile-step {
+    animation: setup-text-sequence 4.8s ease-in-out infinite;
+  }
+
+  .setup-blueprint__mobile-step:nth-child(2) .setup-blueprint__mobile-node {
+    animation-delay: 1.6s;
+  }
+
+  .setup-blueprint__mobile-step:nth-child(2)
+    .setup-blueprint__mobile-node::after,
+  .setup-blueprint__mobile-step:nth-child(2) {
+    animation-delay: 1.6s;
+  }
+
+  .setup-blueprint__mobile-step:nth-child(3) .setup-blueprint__mobile-node {
+    animation-delay: 3.2s;
+  }
+
+  .setup-blueprint__mobile-step:nth-child(3)
+    .setup-blueprint__mobile-node::after,
+  .setup-blueprint__mobile-step:nth-child(3) {
+    animation-delay: 3.2s;
+  }
+
+  .setup-blueprint__scan-lines {
+    animation: setup-trace-flow 14s linear infinite;
+  }
+
+  .setup-blueprint__intro-rule {
+    transform-origin: left center;
+    animation: setup-rule-pulse 4.8s ease-in-out infinite;
+  }
+
+  .setup-blueprint__signal {
+    animation: setup-signal-float 7s ease-in-out infinite;
+  }
+
+  .setup-blueprint__signal--repo {
+    animation-delay: 0.85s;
+  }
+
+  .setup-blueprint__signal--secrets {
+    animation-delay: 1.35s;
+  }
+
+  .setup-blueprint__anchor {
+    animation: setup-anchor-ping 5s ease-in-out infinite;
+  }
+
+  .setup-blueprint__anchor--lime {
+    animation-delay: 1.2s;
+  }
+}
+
+@media (max-width: 1180px) {
+  .setup-blueprint {
+    height: auto;
+    min-height: 0;
+    padding: 3rem 1.25rem;
+  }
+
+  .setup-blueprint__lines {
+    opacity: 0.24;
+  }
+
+  .setup-blueprint__intro,
+  .setup-blueprint__signal,
+  .setup-blueprint__cta,
+  .setup-blueprint__version {
+    position: relative;
+    inset: auto;
+    transform: none;
+  }
+
+  .setup-blueprint__step,
+  .setup-blueprint__node {
+    display: none;
+  }
+
+  .setup-blueprint__intro {
+    width: min(100%, 34rem);
+  }
+
+  .setup-blueprint__intro h1 {
+    font-size: clamp(1.75rem, 7.2vw, 4.2rem);
+  }
+
+  .setup-blueprint__mobile-steps {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    width: min(100%, 34rem);
+    gap: 2.5rem;
+    margin-top: 3.5rem;
+  }
+
+  .setup-blueprint__mobile-step {
+    --step-color: #55dfff;
+    display: grid;
+    grid-template-columns: 6rem minmax(0, 1fr);
+    gap: 1.2rem;
+    align-items: start;
+  }
+
+  .setup-blueprint__mobile-node {
+    --node-color: #5ddfff;
+    position: relative;
+    display: grid;
+    width: 5.25rem;
+    aspect-ratio: 1;
+    place-items: center;
+    border: 2px solid color-mix(in srgb, var(--node-color) 80%, white 6%);
+    border-radius: 999px;
+    background:
+      radial-gradient(circle, rgba(255, 255, 255, 0.08) 0 38%, transparent 39%),
+      radial-gradient(
+        circle,
+        color-mix(in srgb, var(--node-color) 18%, transparent) 0 55%,
+        transparent 70%
+      ),
+      rgba(3, 9, 15, 0.92);
+    box-shadow:
+      0 0 0 7px rgba(2, 6, 23, 0.78),
+      0 0 0 10px color-mix(in srgb, var(--node-color) 22%, transparent),
+      0 0 42px color-mix(in srgb, var(--node-color) 35%, transparent),
+      inset 0 0 26px color-mix(in srgb, var(--node-color) 20%, transparent);
+  }
+
+  .setup-blueprint__mobile-node::before,
+  .setup-blueprint__mobile-node::after {
+    position: absolute;
+    inset: -18%;
+    border: 1px solid color-mix(in srgb, var(--node-color) 22%, transparent);
+    border-radius: inherit;
+    content: "";
+  }
+
+  .setup-blueprint__mobile-node::after {
+    inset: -30%;
+    border-style: dashed;
+    opacity: 0.36;
+  }
+
+  .setup-blueprint__mobile-node--3 {
+    --node-color: #5ddfff;
+  }
+
+  .setup-blueprint__mobile-node span {
+    color: #f4fbff;
+    font-family: var(--font-mono), "JetBrains Mono", monospace;
+    font-size: 3rem;
+    font-weight: 700;
+    line-height: 1;
+    text-shadow:
+      0 0 22px color-mix(in srgb, var(--node-color) 42%, transparent),
+      0 0 2px #fff;
+  }
+
+  .setup-blueprint__mobile-step-title {
+    margin: 1rem 0 0;
+    color: #f1f7ff;
+    font-family: var(--font-mono), "JetBrains Mono", monospace;
+    font-size: clamp(1.7rem, 5.6vw, 2.35rem);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: 0;
+  }
+
+  .setup-blueprint__mobile-step p:not(.setup-blueprint__step-label) {
+    margin: 0.85rem 0 0;
+    color: rgba(203, 213, 225, 0.75);
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  .setup-blueprint__signal {
+    display: inline-flex;
+    margin: 2.5rem 1.25rem 0 0;
+  }
+
+  .setup-blueprint__cta {
+    z-index: 3;
+    display: flex;
+    width: min(100%, 31rem);
+    margin-top: 3rem;
+  }
+
+  .setup-blueprint__source-cta {
+    flex: 1 1 14rem;
+    min-width: min(100%, 13rem);
+  }
+
+  .setup-blueprint__version {
+    position: absolute;
+    right: 1.25rem;
+    bottom: 1.25rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .setup-blueprint {
+    width: 100%;
+    padding: 1.5rem 1rem 1.25rem;
+    border-radius: 1.5rem;
+    border-bottom: 1px solid rgba(45, 212, 191, 0.12);
+    background:
+      linear-gradient(
+        120deg,
+        rgba(52, 211, 153, 0.18),
+        transparent 34%,
+        rgba(34, 211, 238, 0.1) 58%,
+        rgba(245, 158, 11, 0.13)
+      ),
+      linear-gradient(180deg, rgba(18, 27, 28, 0.92), rgba(8, 13, 15, 0.86)),
+      conic-gradient(
+        from 35deg at 88% 0%,
+        rgba(52, 211, 153, 0.22),
+        rgba(34, 211, 238, 0.08),
+        rgba(245, 158, 11, 0.09),
+        rgba(52, 211, 153, 0.22)
+      ),
+      #080d0f;
+    background-size:
+      190% 190%,
+      auto,
+      180% 180%,
+      auto;
+    box-shadow:
+      inset 0 0 0 1px rgba(94, 234, 212, 0.06),
+      0 26px 70px -56px rgba(16, 185, 129, 0.75);
+  }
+
+  .setup-blueprint__lines {
+    opacity: 0.14;
+  }
+
+  .setup-blueprint__intro {
+    width: 100%;
+    border-left: 2px solid rgba(16, 185, 129, 0.62);
+    padding-left: 1rem;
+  }
+
+  .setup-blueprint__intro h1 {
+    max-width: 21rem;
+    margin-top: 0.85rem;
+    font-size: clamp(2rem, 9.8vw, 2.8rem);
+    line-height: 1.02;
+    color: #effff9;
+    text-shadow: 0 0 28px rgba(16, 185, 129, 0.12);
+  }
+
+  @supports ((-webkit-background-clip: text) or (background-clip: text)) {
+    .setup-blueprint__intro h1 {
+      background: linear-gradient(
+        112deg,
+        #ffffff 0%,
+        #bfffea 38%,
+        #7dd3fc 66%,
+        #fcd34d 100%
+      );
+      background-clip: text;
+      background-size: 180% auto;
+      color: transparent;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: none;
+    }
+  }
+
+  .setup-blueprint__eyebrow {
+    display: inline-flex;
+    width: fit-content;
+    border: 1px solid rgba(52, 211, 153, 0.24);
+    border-radius: 999px;
+    background: rgba(52, 211, 153, 0.08);
+    padding: 0.42rem 0.65rem;
+    color: #6ee7b7;
+  }
+
+  .setup-blueprint__intro-rule {
+    width: 100%;
+    max-width: 18rem;
+    margin-top: 1.15rem;
+    background: linear-gradient(90deg, #34d399, #22d3ee, #f59e0b, transparent);
+  }
+
+  .setup-blueprint__intro p:not(.setup-blueprint__eyebrow) {
+    max-width: 20rem;
+    padding: 0;
+    background: transparent;
+    color: #a7b8b2;
+    font-size: 0.95rem;
+    line-height: 1.65;
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.28);
+  }
+
+  .setup-blueprint__mobile-steps {
+    width: 100%;
+    gap: 0;
+    margin-top: 1.75rem;
+    overflow: hidden;
+    border: 1px solid rgba(45, 212, 191, 0.14);
+    border-radius: 1.25rem;
+    background:
+      linear-gradient(
+        135deg,
+        rgba(52, 211, 153, 0.12),
+        transparent 46%,
+        rgba(34, 211, 238, 0.08)
+      ),
+      linear-gradient(180deg, rgba(18, 27, 28, 0.94), rgba(10, 15, 17, 0.94)),
+      rgba(8, 13, 15, 0.96);
+    background-size:
+      170% 170%,
+      auto,
+      auto;
+    box-shadow: 0 18px 60px -48px rgba(16, 185, 129, 0.65);
+  }
+
+  .setup-blueprint__mobile-step {
+    grid-template-columns: 3.75rem minmax(0, 1fr);
+    gap: 0.9rem;
+    min-height: 8.5rem;
+    border-bottom: 1px solid rgba(45, 212, 191, 0.1);
+    background: linear-gradient(
+      110deg,
+      rgba(45, 212, 191, 0.085),
+      transparent 46%,
+      rgba(245, 158, 11, 0.045)
+    );
+    padding: 1rem;
+  }
+
+  .setup-blueprint__mobile-step:last-child {
+    border-bottom: 0;
+  }
+
+  .setup-blueprint__mobile-node {
+    width: 3rem;
+    border-color: rgba(52, 211, 153, 0.52);
+    border-radius: 1rem;
+    background:
+      linear-gradient(180deg, rgba(16, 185, 129, 0.2), rgba(15, 23, 42, 0.76)),
+      #0f1718;
+    box-shadow:
+      0 0 0 1px rgba(45, 212, 191, 0.08),
+      inset 0 0 18px rgba(16, 185, 129, 0.16);
+  }
+
+  .setup-blueprint__mobile-node::before,
+  .setup-blueprint__mobile-node::after {
+    display: none;
+  }
+
+  .setup-blueprint__mobile-node span {
+    color: #dcfce7;
+    font-size: 1.55rem;
+    text-shadow: 0 0 18px rgba(16, 185, 129, 0.28);
+  }
+
+  .setup-blueprint__mobile-step-title {
+    color: #effff9;
+    margin-top: 0.55rem;
+    font-size: clamp(1.25rem, 6.4vw, 1.75rem);
+  }
+
+  .setup-blueprint__mobile-step p:not(.setup-blueprint__step-label) {
+    color: #a7b8b2;
+    margin-top: 0.55rem;
+    font-size: 0.9rem;
+    line-height: 1.58;
+  }
+
+  .setup-blueprint__signal {
+    width: 100%;
+    margin: 0;
+    border-bottom: 1px solid rgba(45, 212, 191, 0.1);
+    color: #34d399;
+    padding: 0.9rem 0;
+  }
+
+  .setup-blueprint__signal small {
+    color: #96aaa2;
+  }
+
+  .setup-blueprint__signal--data {
+    margin-top: 1.25rem;
+  }
+
+  .setup-blueprint__signal span {
+    gap: 0.2rem;
+  }
+
+  .setup-blueprint__cta {
+    margin-top: 1.25rem;
+  }
+
+  .setup-blueprint__version {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
+  .setup-blueprint,
+  .setup-blueprint__mobile-steps,
+  #compare article,
+  #compare [class*="bg-[var(--rr-surface-panel)]"] {
+    animation: security-mobile-sheen 13s ease-in-out infinite;
+  }
+
+  .setup-blueprint__intro h1 {
+    animation: security-mobile-sheen 9s ease-in-out infinite;
   }
 }
 

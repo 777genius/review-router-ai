@@ -4,7 +4,6 @@ import { HomeFaq } from "./home-faq";
 import { HomeFeatures } from "./home-features";
 import { HomeFinalCta } from "./home-final-cta";
 import { HomeHero } from "./home-hero";
-import { HomeHowItWorks } from "./home-how-it-works";
 import {
   getDashboardMutationStatus,
   getDashboardWorkspaceScope,
@@ -94,7 +93,6 @@ export default async function HomePage(): Promise<React.ReactElement> {
       />
       <HomeHero {...ctaContext} />
       <HomeFeatures />
-      <HomeHowItWorks />
       <CompareSection />
       <HomeFaq />
       <HomeFinalCta {...ctaContext} />
