@@ -101,6 +101,7 @@ function fixture(action: AccountLifecycleIntent["action"] = "suspend") {
     },
   };
   const gateway: AccountLifecycleGatewayPort = {
+    preflight: async () => {},
     submit: async () => {
       submits++;
       throw Error("lost ACK");

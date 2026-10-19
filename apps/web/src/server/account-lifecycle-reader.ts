@@ -13,7 +13,10 @@ export function createAccountLifecycleReader(input: {
   type Capability = Awaited<ReturnType<LifecycleClient["capability"]>>;
   let capability: Promise<Capability | null> | undefined;
   const discover = () =>
-    (capability ??= input.lifecycle.capability().catch(() => null));
+    (capability ??= input.lifecycle.capability().catch(() => {
+      capability = undefined;
+      return null;
+    }));
   const compatible = async () => (await discover()) !== null;
   const writable = async () => (await discover())?.writeGate === "enabled";
   return {

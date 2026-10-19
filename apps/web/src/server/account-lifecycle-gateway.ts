@@ -40,6 +40,9 @@ export function createAccountLifecycleGateway(input: {
       throw new ProviderAccountError("connection_unavailable");
   }
   return {
+    async preflight() {
+      await input.authorize();
+    },
     async submit(command) {
       await checked(async () =>
         command.action === "delete"

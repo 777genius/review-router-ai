@@ -531,6 +531,7 @@ export async function runAccountLifecyclePostgresTests(
       let authorizations = 0,
         posts = 0;
       const gateway: AccountLifecycleDependencies["gateway"] = {
+        preflight: async () => {},
         submit: async () => {
           posts++;
         },

@@ -52,7 +52,7 @@ function setup() {
     unknown: vi.fn(async () => {}),
     finalize: vi.fn(),
   } as unknown as AccountLifecycleDependencies["store"];
-  const gateway = { submit: vi.fn(), read: vi.fn() };
+  const gateway = { preflight: vi.fn(), submit: vi.fn(), read: vi.fn() };
   const deliverFences = vi.fn(async () => {});
   const enabled = vi.fn(() => true);
   const service = createAccountLifecycleService({

@@ -19,7 +19,13 @@ export function AccountsAddDialog({
   const [path, setPath] = useState("personal");
   const cancel = useRef<HTMLButtonElement>(null);
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) setPath("personal");
+      }}
+    >
       <Dialog.Trigger render={<Button variant="outline" />}>
         {accountsCopy.add}
       </Dialog.Trigger>

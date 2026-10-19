@@ -84,7 +84,7 @@ export function createAccountsOverview(input: {
   };
   async function read(
     who: { workspaceId: string; userId: string },
-    id?: string,
+    ids?: readonly string[],
     after?: string,
     limit = 26,
   ) {
@@ -109,7 +109,7 @@ export function createAccountsOverview(input: {
             s."ownerWorkspaceId" = w."id"
             OR (${input.operatorWorkspaceId !== undefined} AND s."ownerWorkspaceId" = ${input.operatorWorkspaceId ?? who.workspaceId})
             OR (s."ownerWorkspaceId" IS NULL AND s."ownerUserId" IS NOT NULL AND donor."role" IN ('owner','admin')))))
-        ${id ? Prisma.sql`AND s."id" = ${id}` : Prisma.empty}
+        ${ids?.length ? Prisma.sql`AND s."id" IN (${Prisma.join(ids)})` : Prisma.empty}
         ${after ? Prisma.sql`AND s."id" > ${after}` : Prisma.empty}
       ORDER BY s."id" ASC LIMIT ${limit}`);
   }
@@ -147,18 +147,25 @@ export function createAccountsOverview(input: {
         }
         const candidates = await read(who, undefined, after, limit + 1);
         const scanned = candidates.slice(0, limit);
-        const projections: Array<{ source: Row; account: AccountView }> = [];
-        for (const source of scanned) {
+        const visible = scanned.flatMap((source) => {
           const profile = input.profiles.find(
             (p) => p.id === source.profileRef,
           );
-          if (!profile) continue;
-          let remote: AccountLifecycleRead | null = null;
-          try {
-            remote = await input.gateway.get(source.gatewayAccountRef);
-          } catch {
-            /* Fail closed readiness, retain authorized inventory. */
-          }
+          return profile ? [{ source, profile }] : [];
+        });
+        // One capability read per inventory page; per-row repetition only adds
+        // sequential Gateway timeouts to a server render.
+        const compatible =
+          !!input.lifecycleEnabled?.() &&
+          !!(await input.lifecycleCompatible?.().catch(() => false));
+        const remotes = await Promise.all(
+          visible.map(({ source }) =>
+            input.gateway.get(source.gatewayAccountRef).catch(() => null),
+          ),
+        );
+        const projections: Array<{ source: Row; account: AccountView }> = [];
+        for (const [index, { source, profile }] of visible.entries()) {
+          let remote = remotes[index];
           const own = source.ownerWorkspaceId === who.workspaceId;
           if (
             remote &&
@@ -204,9 +211,7 @@ export function createAccountsOverview(input: {
               ? (pendingLifecycle.action as "suspend" | "resume" | "delete")
               : undefined,
             owned: own && isAdmin,
-            compatible:
-              !!input.lifecycleEnabled?.() &&
-              !!(await input.lifecycleCompatible?.()),
+            compatible,
             state: remote?.state ?? source.state,
             pendingOperationId: source.pendingSourceOperationId,
             synchronized:
@@ -297,9 +302,20 @@ export function createAccountsOverview(input: {
             })
           : [];
         const accounts: AccountView[] = [];
+        // Authorization is repeated after all remote reads with one revalidation
+        // query, compared per row: current donor role and exact binding lifetime,
+        // not just session.
+        const liveRows = projections.length
+          ? await read(
+              who,
+              projections.map(({ source }) => source.id),
+              undefined,
+              projections.length,
+            )
+          : [];
+        const liveById = new Map(liveRows.map((row) => [row.id, row]));
         for (const { source, account } of projections) {
-          const live = (await read(who, source.id))[0];
-          // Includes current donor role and exact binding lifetime, not just session.
+          const live = liveById.get(source.id);
           if (
             !live ||
             JSON.stringify(live, (_key, value) =>

@@ -68,6 +68,7 @@ export async function submitAccountLifecycle(
     if (claim) {
       try {
         await deps.authorize(actorUserId);
+        await deps.gateway.preflight(command);
         if (
           !(await deps.store.enterClaim(
             actorUserId,

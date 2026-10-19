@@ -102,6 +102,7 @@ export ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL='postgresql://test_role:fixture_
 pnpm --dir scripts/accounts-reference-e2e run e2e -- \
   --repo-root "$PWD" \
   --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
+  --lifecycle-fixture \
   --expected-revision f4839fe0ca2329ca54fb3482138a3770a73bc5fc \
   --work-dir "$PWD/tmp/accounts-reference-e2e/runs/candidate"
 ```

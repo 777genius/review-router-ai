@@ -801,12 +801,12 @@ function OAuthForm({
               : "Подключить Codex OAuth"}
           </Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-slate-400">
-            Войти в Codex in a new browser tab. No API key is needed. Enrollment
-            stays pending until confirmed; an unresolved result requires status
-            readback. Reconnect preserves the logical account until the newly
-            authorized account is verified.
+            Вход в Codex откроется в новой вкладке браузера. API-ключ не нужен.
+            Подключение остаётся в ожидании до подтверждения; при неопределённом
+            результате дождитесь чтения статуса. При переподключении логический
+            аккаунт сохраняется, пока новая авторизация не будет проверена.
             {managementScope === "personal"
-              ? " This is your canonical personal connection. Its name is visible where you explicitly share it; authentication is shared by all authorized uses."
+              ? " Это ваше каноническое персональное подключение. Его имя видно там, где вы им явно делитесь; аутентификация общая для всех разрешённых использований."
               : ""}
           </Dialog.Description>
           <form

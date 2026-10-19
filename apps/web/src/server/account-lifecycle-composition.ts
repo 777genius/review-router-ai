@@ -158,7 +158,7 @@ export async function productionAccountLifecycle(workspaceId: string) {
     });
   };
   const gateway = {
-    async submit(
+    async preflight(
       command: Parameters<ReturnType<typeof boundGateway>["submit"]>[0],
     ) {
       const receipt = await store.read(userId, command.operationId);
@@ -174,8 +174,11 @@ export async function productionAccountLifecycle(workspaceId: string) {
       );
       if (capability.writeGate !== "enabled")
         throw new ProviderAccountError("connection_unavailable");
-      if (process.env.REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED !== "1")
-        throw new ProviderAccountError("connection_unavailable");
+    },
+    async submit(
+      command: Parameters<ReturnType<typeof boundGateway>["submit"]>[0],
+    ) {
+      const receipt = await store.read(userId, command.operationId);
       return boundGateway(receipt.intent.personalWorkspaceId !== null).submit(
         command,
       );
@@ -231,8 +234,8 @@ export async function productionAccountLifecycle(workspaceId: string) {
       return { personalWorkspaceId: null, owningWorkspaceId: workspaceId };
     },
     enabled: () => process.env.REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED === "1",
-    compatible: async (_workspaceId, receipt) => {
-      const selected = settingsFor(receipt.intent.personalWorkspaceId !== null);
+    compatible: async (_workspaceId, scope) => {
+      const selected = settingsFor(scope.personalWorkspaceId !== null);
       const capability = await checked(() =>
         createLifecycleClient({
           ...selected,

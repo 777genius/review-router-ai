@@ -98,7 +98,7 @@ export function createAccountLifecycleService(input: {
   enabled(): boolean;
   compatible(
     workspaceId: string,
-    receipt: AccountLifecycleReceipt,
+    scope: { readonly personalWorkspaceId: string | null },
   ): Promise<boolean>;
   deliverFences(actor: string, operationId: string): Promise<void>;
 }) {
@@ -146,6 +146,13 @@ export function createAccountLifecycleService(input: {
         throw new ProviderAccountError("connection_unavailable");
       await checkedScope(workspaceId, actor.userId);
       const ownership = await input.scopeForSource(request.connectionId);
+      // Suspend/resume never reserve while the write gate is closed or
+      // unreachable; a reservation would strand the source pending and fenced.
+      if (
+        request.action !== "delete" &&
+        !(await input.compatible(workspaceId, ownership))
+      )
+        throw new ProviderAccountError("connection_unavailable");
       const receipt = await beginAccountLifecycle(
         {
           actorUserId: actor.userId,
@@ -159,7 +166,11 @@ export function createAccountLifecycleService(input: {
         },
         input.deps,
       );
-      if (!(await input.compatible(workspaceId, receipt)))
+      // Delete stays deny-first: its local denial records before any remote I/O.
+      if (
+        request.action === "delete" &&
+        !(await input.compatible(workspaceId, receipt.intent))
+      )
         throw new ProviderAccountError("connection_unavailable");
       return reconcile(workspaceId, actor.userId, receipt, true);
     },
@@ -168,7 +179,10 @@ export function createAccountLifecycleService(input: {
       const receipt = await input.deps.store.read(actor.userId, operationId);
       if (!["fencing", "ready"].includes(receipt.phase))
         return reconcile(workspaceId, actor.userId, receipt, false);
-      if (!input.enabled() || !(await input.compatible(workspaceId, receipt)))
+      if (
+        !input.enabled() ||
+        !(await input.compatible(workspaceId, receipt.intent))
+      )
         throw new ProviderAccountError("connection_unavailable");
       return reconcile(workspaceId, actor.userId, receipt, true);
     },

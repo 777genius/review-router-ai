@@ -614,17 +614,24 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
               );
             } catch (error) {
               if (error instanceof Denied) return null;
-              const source = await scope.checked(() =>
-                input.store.findOwnedSource(scope.actor, row.sourceId),
-              );
+              let source: ProviderAccountConnection;
+              let pendingAction: "suspend" | "resume" | "delete" | null;
+              try {
+                source = await scope.checked(() =>
+                  input.store.findOwnedSource(scope.actor, row.sourceId),
+                );
+                pendingAction = source.pendingSourceOperationId
+                  ? ((await input.readLifecycleAction?.(
+                      source.id,
+                      source.pendingSourceOperationId,
+                    )) ?? null)
+                  : null;
+              } catch (fallbackError) {
+                if (fallbackError instanceof Denied) throw fallbackError;
+                return null;
+              }
               const profile = scope.profileFor(source.profileRef);
               if (!profile) return null;
-              const pendingAction = source.pendingSourceOperationId
-                ? await input.readLifecycleAction?.(
-                    source.id,
-                    source.pendingSourceOperationId,
-                  )
-                : null;
               const projection = lifecycleProjection({
                 pendingAction: pendingAction ?? undefined,
                 owned: true,

@@ -81,6 +81,8 @@ export type AccountLifecycleCommand = {
   readonly action: AccountLifecycleIntent["action"];
 };
 export interface AccountLifecycleGatewayPort {
+  /** Local ingress gates only; must pass before the unentered claim is consumed. */
+  preflight(command: AccountLifecycleCommand): Promise<void>;
   submit(command: AccountLifecycleCommand): Promise<void>;
   /** Exact immutable request tuple and authoritative result; never infers no-effect from 404. */
   read(command: AccountLifecycleCommand): Promise<{

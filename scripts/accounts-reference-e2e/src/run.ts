@@ -31,17 +31,23 @@ async function main(): Promise<void> {
   const options = parseCliOptions(process.argv);
   await ensureWorkDir(options.workDir);
   const revision = await readRevision(options.repoRoot);
-  const sourceDelta = await execFileAsync("git", [
-    "-C",
-    options.repoRoot,
-    "diff",
-    "--binary",
-    "HEAD",
-    "--",
-    "apps/web",
-    "packages/features/provider-accounts",
-    "packages/platform/db",
-  ]).then(({ stdout }) => createHash("sha256").update(stdout).digest("hex"));
+  const sourceDelta = await execFileAsync(
+    "git",
+    [
+      "-C",
+      options.repoRoot,
+      "diff",
+      "--binary",
+      "HEAD",
+      "--",
+      "apps/web",
+      "packages/features/provider-accounts",
+      "packages/platform/db",
+    ],
+    { maxBuffer: 256 * 1024 * 1024, encoding: "buffer" },
+  )
+    .then(({ stdout }) => createHash("sha256").update(stdout).digest("hex"))
+    .catch(() => "unknown");
   const secrets: FixtureSecrets = {
     authSecret: randomBytes(32).toString("base64url"),
     gatewayAccountsContextSecret: randomBytes(32).toString("base64url"),
