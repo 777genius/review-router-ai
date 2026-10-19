@@ -2454,9 +2454,15 @@ function DashboardSectionHeader(
       },
 ): React.ReactElement | null {
   const { selectedSection } = props;
-  // The Accounts panel renders its own heading; the section header card only
-  // repeated "Workspace credentials / Accounts / Connect accounts once…".
-  if (selectedSection === "setup") return null;
+  // The header card's eyebrow and description ("Workspace credentials",
+  // "Connect accounts once…") only repeated the Accounts panel below; the
+  // title stays as the section's content heading.
+  if (selectedSection === "setup")
+    return (
+      <h2 className="text-2xl font-semibold text-cyan-50">
+        {dashboardSectionMeta[selectedSection].title}
+      </h2>
+    );
   const meta = dashboardSectionMeta[selectedSection];
   const status =
     selectedSection === "repositories"
