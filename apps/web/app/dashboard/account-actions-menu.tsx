@@ -10,6 +10,9 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Button } from "@reviewrouter/ui";
 import { MoreHorizontal } from "lucide-react";
 
+export const accountMenuItemClass =
+  "w-full justify-start rounded-xl px-3 text-left";
+
 const MenuContext = createContext<{
   trigger: React.RefObject<HTMLButtonElement | null>;
   close(): void;

@@ -13,7 +13,11 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query";
 import { Button, Dialog } from "@reviewrouter/ui";
-import { AccountActionsMenu, AccountMenuItem } from "./account-actions-menu";
+import {
+  AccountActionsMenu,
+  AccountMenuItem,
+  accountMenuItemClass,
+} from "./account-actions-menu";
 import { GitHubAccountAvatar } from "../github-account-avatar";
 import { AccountIdentity } from "./account-identity";
 import { AccountUsageLine } from "./account-usage-line";
@@ -119,7 +123,12 @@ function AccountRowMenu({
     <AccountActionsMenu label={account.label}>
       {account.isOwnedByViewer && showOwn ? (
         <AccountMenuItem>
-          <Button variant="ghost" size="sm" onClick={showOwn}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={accountMenuItemClass}
+            onClick={showOwn}
+          >
             Мои подключения
           </Button>
         </AccountMenuItem>
@@ -134,7 +143,12 @@ function AccountRowMenu({
       />
       {canDetachRow ? (
         <AccountMenuItem>
-          <Button variant="ghost" size="sm" onClick={selectDetach}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={accountMenuItemClass}
+            onClick={selectDetach}
+          >
             Убрать из этого workspace
           </Button>
         </AccountMenuItem>

@@ -24,6 +24,7 @@ import {
 export type { AccountLifecycleApi } from "./account-lifecycle-api";
 import {
   AccountMenuItem,
+  accountMenuItemClass,
   useAccountMenuReturnFocus,
 } from "./account-actions-menu";
 import { AccountUsageWarning } from "./account-usage-line";
@@ -620,7 +621,11 @@ export function AccountLifecycleControls({
           <Button
             variant="ghost"
             size="sm"
-            className={action === "delete" ? "text-rose-300" : undefined}
+            className={
+              action === "delete"
+                ? `text-rose-300 ${accountMenuItemClass}`
+                : accountMenuItemClass
+            }
             onClick={() => open(action)}
           >
             {actionText(action)}
@@ -632,7 +637,13 @@ export function AccountLifecycleControls({
           <Button
             variant="ghost"
             size="sm"
+            className={accountMenuItemClass}
             disabled={busy || read.isFetching}
+            title={
+              busy || read.isFetching
+                ? "Идёт проверка исходной операции — подождите."
+                : undefined
+            }
             onClick={() => {
               setRecoveryOpen(true);
               void read.refetch();
@@ -651,7 +662,9 @@ export function AccountLifecycleControls({
           <Button
             variant="ghost"
             size="sm"
+            className={accountMenuItemClass}
             disabled={busy}
+            title={busy ? "Идёт обработка операции — подождите." : undefined}
             onClick={() => {
               setRecoveryOpen(true);
               void continueOriginal();
@@ -742,7 +755,13 @@ export function AccountLifecycleControls({
               journal.operationId &&
               !uncertainContinuation &&
               !authorityDenied ? (
-                <Button disabled={busy} onClick={() => void continueOriginal()}>
+                <Button
+                  disabled={busy}
+                  title={
+                    busy ? "Идёт обработка операции — подождите." : undefined
+                  }
+                  onClick={() => void continueOriginal()}
+                >
                   Продолжить исходное действие
                 </Button>
               ) : null}
@@ -750,6 +769,11 @@ export function AccountLifecycleControls({
                 <Button
                   variant="outline"
                   disabled={busy || read.isFetching}
+                  title={
+                    busy || read.isFetching
+                      ? "Идёт проверка исходной операции — подождите."
+                      : undefined
+                  }
                   onClick={() => void read.refetch()}
                 >
                   Проверить исходную операцию
@@ -762,6 +786,13 @@ export function AccountLifecycleControls({
                       : undefined
                   }
                   disabled={busy || !selection}
+                  title={
+                    busy
+                      ? "Идёт обработка операции — подождите."
+                      : !selection
+                        ? "Сначала выберите действие."
+                        : undefined
+                  }
                   onClick={() => void confirm()}
                 >
                   {selection?.request.action === "delete"

@@ -1,6 +1,9 @@
 import type { PendingOrganizationInstallRequest } from "../../src/server/dashboard-app-install-request";
 import { ConnectSourceDialog } from "../connect-source-dialog";
-import { DashboardWorkspaceTabs } from "./dashboard-workspace-tabs";
+import {
+  DashboardWorkspaceTabs,
+  workspaceAddTabClass,
+} from "./dashboard-workspace-tabs";
 import {
   DashboardSectionCompactNav,
   DashboardSectionTabs,
@@ -201,14 +204,14 @@ export function WorkspaceSwitcher({
     if (part === "tabs") return null;
     return (
       <section className="py-3">
-        <div className="flex justify-end px-1">
+        <div className="flex justify-end border-b border-cyan-200/15 px-1 pb-px">
           <ConnectSourceDialog
             appInstallUrl={appInstallUrl}
             workspaceId={selectedWorkspaceId}
-            triggerLabel="Add repos"
-            triggerVariant="outline"
+            triggerLabel="Add workspace"
+            triggerVariant="ghost"
             triggerSize="sm"
-            triggerClassName="inline-flex w-auto items-center gap-2 px-3"
+            triggerClassName={workspaceAddTabClass}
           />
         </div>
       </section>
@@ -242,37 +245,25 @@ export function WorkspaceSwitcher({
 
   return (
     <>
-      {part !== "tabs" ? (
-        <section className="py-3">
-          <div className="flex flex-wrap items-end justify-between gap-3 px-1">
-            <div className="min-w-0">
-              <p className="font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-cyan-100">
-                Workspace
-              </p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                Personal accounts and organizations stay isolated.
-              </p>
-            </div>
-            <ConnectSourceDialog
-              appInstallUrl={appInstallUrl}
-              workspaceId={selectedWorkspaceId}
-              triggerLabel="Add repos"
-              triggerVariant="outline"
-              triggerSize="sm"
-              triggerClassName="inline-flex w-auto items-center gap-2 px-3"
-            />
-          </div>
-        </section>
-      ) : null}
       {part !== "intro" && (items.length > 1 || pendingTab) ? (
         <div
           id="dashboard-workspace-bar"
-          className="z-30 bg-[var(--rr-header-bg)] py-1 backdrop-blur-xl"
+          className="z-30 bg-[var(--rr-page-bg)] pb-3 pt-1"
         >
           <DashboardWorkspaceTabs
             items={items}
             selectedWorkspaceId={selectedWorkspaceId}
             pendingInstallRequest={pendingTab}
+            addWorkspace={
+              <ConnectSourceDialog
+                appInstallUrl={appInstallUrl}
+                workspaceId={selectedWorkspaceId}
+                triggerLabel="Add workspace"
+                triggerVariant="ghost"
+                triggerSize="sm"
+                triggerClassName={workspaceAddTabClass}
+              />
+            }
           />
         </div>
       ) : null}

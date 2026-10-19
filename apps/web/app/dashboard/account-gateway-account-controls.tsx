@@ -21,6 +21,7 @@ import { Badge, Button, Dialog, SelectField } from "@reviewrouter/ui";
 import {
   AccountActionsMenu,
   AccountMenuItem,
+  accountMenuItemClass,
   useAccountMenuReturnFocus,
 } from "./account-actions-menu";
 import { Plus, RefreshCw } from "lucide-react";
@@ -503,14 +504,29 @@ function Controls({
     if (data?.status !== "ok") return null;
     const sourceBusy =
       disabled || lifecycleActivities.has(account.connectionId);
+    const manageReason = sourceBusy
+      ? "Подключение обновляется — попробуйте позже."
+      : account.canManage !== true
+        ? "Нет права управлять этим подключением."
+        : undefined;
+    const bindReason = sourceBusy
+      ? "Подключение обновляется — попробуйте позже."
+      : account.state !== "active"
+        ? "Аккаунт неактивен — сначала включите его."
+        : account.binding?.fencePending
+          ? "Идёт привязка workspace — подождите."
+          : account.canManage !== true
+            ? "Нет права управлять этим подключением."
+            : undefined;
     return (
-      <div className="flex flex-wrap gap-2">
+      <>
         {account.state !== "disabled" && account.state !== "tombstoned" ? (
           <AccountForm
             account={account}
             mode="rename"
             profiles={data.value.profiles}
             disabled={sourceBusy || account.canManage !== true}
+            disabledReason={manageReason}
             managementScope={managementScope}
             submit={submit}
           />
@@ -525,6 +541,7 @@ function Controls({
             mode="reconnect"
             profiles={data.value.profiles}
             disabled={sourceBusy || account.canManage !== true}
+            disabledReason={manageReason}
             submit={submit}
             managementScope={managementScope}
           />
@@ -540,6 +557,7 @@ function Controls({
               (p) => p.id === account.profileId,
             )}
             disabled={sourceBusy || account.canManage !== true}
+            disabledReason={manageReason}
             begin={beginOAuth}
             managementScope={managementScope}
           />
@@ -547,14 +565,16 @@ function Controls({
         {!personal && account.binding?.state !== "active" ? (
           <AccountMenuItem>
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
+              className={accountMenuItemClass}
               disabled={
                 sourceBusy ||
                 account.state !== "active" ||
                 Boolean(account.binding?.fencePending) ||
                 account.canManage !== true
               }
+              title={bindReason}
               onClick={() => bindingMutation.mutate(account)}
             >
               Добавить в этот workspace
@@ -564,16 +584,22 @@ function Controls({
         {!personal && account.binding?.state === "active" ? (
           <AccountMenuItem>
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
+              className={accountMenuItemClass}
               disabled={disabled}
+              title={
+                disabled
+                  ? "Дождитесь завершения текущего обновления."
+                  : undefined
+              }
               onClick={() => detachMutation.mutate(account)}
             >
               Убрать из этого workspace
             </Button>
           </AccountMenuItem>
         ) : null}
-      </div>
+      </>
     );
   }
   return (
@@ -600,6 +626,11 @@ function Controls({
                   (p) => p.authKind === "api_key",
                 )}
                 disabled={disabled}
+                disabledReason={
+                  disabled
+                    ? "Дождитесь завершения текущего обновления."
+                    : undefined
+                }
                 managementScope={managementScope}
                 submit={submit}
               />
@@ -611,6 +642,11 @@ function Controls({
                   (p) => p.authKind === "oauth",
                 )}
                 disabled={disabled}
+                disabledReason={
+                  disabled
+                    ? "Дождитесь завершения текущего обновления."
+                    : undefined
+                }
                 managementScope={managementScope}
                 begin={beginOAuth}
               />
@@ -622,6 +658,13 @@ function Controls({
           size="sm"
           aria-label="Обновить подключения"
           disabled={!context || page.isFetching}
+          title={
+            !context
+              ? "Контекст подключений недоступен."
+              : page.isFetching
+                ? "Идёт обновление списка подключений."
+                : undefined
+          }
           onClick={() => void refresh()}
         >
           <RefreshCw aria-hidden="true" className="size-4" />
@@ -768,6 +811,7 @@ function OAuthForm({
   accounts = [],
   profiles,
   disabled,
+  disabledReason,
   begin,
   managementScope = "workspace",
 }: {
@@ -775,6 +819,7 @@ function OAuthForm({
   accounts?: AccountView[];
   profiles: AccountProfileView[];
   disabled: boolean;
+  disabledReason?: string | undefined;
   begin(intent: OAuthFormIntent): Promise<void>;
   managementScope?: ManagementScope;
 }) {
@@ -784,7 +829,15 @@ function OAuthForm({
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <AccountMenuItem>
         <Dialog.Trigger
-          render={<Button variant="outline" size="sm" disabled={disabled} />}
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className={accountMenuItemClass}
+              disabled={disabled}
+              title={disabled ? disabledReason : undefined}
+            />
+          }
         >
           {account ? accountsCopy.reconnectOAuth : accountsCopy.connectOAuth}
         </Dialog.Trigger>
@@ -1069,7 +1122,15 @@ function KeyUpdateContinuation({
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <AccountMenuItem>
-        <Dialog.Trigger render={<Button variant="outline" size="sm" />}>
+        <Dialog.Trigger
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className={accountMenuItemClass}
+            />
+          }
+        >
           Continue key update
         </Dialog.Trigger>
       </AccountMenuItem>
@@ -1190,7 +1251,19 @@ function OAuthCompletionForm({
       <AccountMenuItem>
         <Dialog.Trigger
           render={
-            <Button variant="outline" size="sm" disabled={busy || spent} />
+            <Button
+              variant="ghost"
+              size="sm"
+              className={accountMenuItemClass}
+              disabled={busy || spent}
+              title={
+                busy
+                  ? "Идёт отправка результата авторизации — подождите."
+                  : spent
+                    ? "Авторизация уже завершена."
+                    : undefined
+              }
+            />
           }
         >
           Resume Codex authorization
@@ -1250,6 +1323,7 @@ function AccountForm({
   mode = "connect",
   profiles,
   disabled,
+  disabledReason,
   submit,
   managementScope = "workspace",
 }: {
@@ -1258,6 +1332,7 @@ function AccountForm({
   mode?: "connect" | "rename" | "reconnect";
   profiles: AccountProfileView[];
   disabled: boolean;
+  disabledReason?: string | undefined;
   managementScope?: ManagementScope;
   submit(
     intent: Omit<AccountIntent, "nonce">,
@@ -1305,7 +1380,15 @@ function AccountForm({
     >
       <AccountMenuItem>
         <Dialog.Trigger
-          render={<Button variant="outline" size="sm" disabled={disabled} />}
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className={accountMenuItemClass}
+              disabled={disabled}
+              title={disabled ? disabledReason : undefined}
+            />
+          }
         >
           {title}
         </Dialog.Trigger>

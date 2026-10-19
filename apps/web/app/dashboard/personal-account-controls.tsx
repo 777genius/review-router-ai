@@ -862,11 +862,7 @@ function AccessSummaryChips({
 }: {
   summary: PersonalAccessSummary | undefined;
 }) {
-  const organizations = (summary?.organizations ?? []).slice(0, 1);
-  const remaining =
-    summary && summary.complete
-      ? Math.max(0, summary.organizationCount - organizations.length)
-      : 0;
+  const organizations = summary?.organizations ?? [];
   return (
     <div
       className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-300"
@@ -893,11 +889,6 @@ function AccessSummaryChips({
       {summary && summary.hasRestrictedAccess ? (
         <span className="rounded-full border border-amber-300/20 bg-amber-300/[0.06] px-2 py-1 text-amber-100">
           {accountsCopy.privacy}
-        </span>
-      ) : null}
-      {summary?.complete && remaining > 0 ? (
-        <span className="rounded-full border border-cyan-200/15 px-2 py-1">
-          +{remaining}
         </span>
       ) : null}
     </div>
