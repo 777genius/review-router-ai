@@ -89,7 +89,7 @@ export function AccountActionsMenu({
             }}
             align="end"
             sideOffset={8}
-            className={`${inDialog ? "z-[70]" : "z-50"} data-[state=closed]:hidden grid min-w-56 gap-1 rounded-xl border border-cyan-200/20 bg-[var(--rr-surface-menu)] p-2 text-cyan-50 shadow-[var(--rr-shadow-glow-cyan)]`}
+            className={`${inDialog ? "z-[70]" : "z-50"} data-[state=closed]:hidden grid min-w-56 max-w-[min(20rem,calc(100vw-2rem))] gap-1 rounded-xl border border-cyan-200/20 bg-[var(--rr-surface-menu)] p-2 text-cyan-50 shadow-lg shadow-black/40`}
           >
             {children}
           </DropdownMenu.Content>

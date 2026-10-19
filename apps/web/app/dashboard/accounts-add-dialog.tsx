@@ -30,15 +30,10 @@ export function AccountsAddDialog({
         {accountsCopy.add}
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Backdrop className="z-[60]" />
-        <Dialog.Popup
-          initialFocus={cancel}
-          className="z-[61] w-[min(92vw,44rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto"
-        >
-          <Dialog.Title className="text-lg font-semibold">
-            {accountsCopy.add}
-          </Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-slate-400">
+        <Dialog.Backdrop />
+        <Dialog.Popup initialFocus={cancel} className="w-[min(92vw,44rem)]">
+          <Dialog.Title>{accountsCopy.add}</Dialog.Title>
+          <Dialog.Description>
             Выберите подключение и его владельца. Доступ организации не передаёт
             владение и не меняет выбор в Models.
           </Dialog.Description>
@@ -87,7 +82,7 @@ export function AccountsAddDialog({
               {personalConnect}
             </>
           )}
-          <div className="mt-5 flex justify-end">
+          <Dialog.Footer>
             <Button
               ref={cancel}
               variant="outline"
@@ -95,7 +90,7 @@ export function AccountsAddDialog({
             >
               Закрыть
             </Button>
-          </div>
+          </Dialog.Footer>
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

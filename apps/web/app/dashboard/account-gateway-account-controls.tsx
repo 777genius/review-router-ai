@@ -790,17 +790,14 @@ function OAuthForm({
         </Dialog.Trigger>
       </AccountMenuItem>
       <Dialog.Portal>
-        <Dialog.Backdrop className="z-[60]" />
-        <Dialog.Popup
-          finalFocus={menuReturnFocus}
-          className="z-[61] max-h-[calc(100dvh-2rem)] overflow-y-auto"
-        >
-          <Dialog.Title className="text-lg font-semibold">
+        <Dialog.Backdrop />
+        <Dialog.Popup finalFocus={menuReturnFocus}>
+          <Dialog.Title>
             {account
               ? `Обновить вход Codex · ${account.label}`
               : "Подключить Codex OAuth"}
           </Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-slate-400">
+          <Dialog.Description>
             Вход в Codex откроется в новой вкладке браузера. API-ключ не нужен.
             Подключение остаётся в ожидании до подтверждения; при неопределённом
             результате дождитесь чтения статуса. При переподключении логический
@@ -1077,12 +1074,10 @@ function KeyUpdateContinuation({
         </Dialog.Trigger>
       </AccountMenuItem>
       <Dialog.Portal>
-        <Dialog.Backdrop className="z-[60]" />
-        <Dialog.Popup className="z-[61] max-h-[calc(100dvh-2rem)] overflow-y-auto">
-          <Dialog.Title className="text-lg font-semibold">
-            Continue key update
-          </Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-slate-400">
+        <Dialog.Backdrop />
+        <Dialog.Popup>
+          <Dialog.Title>Continue key update</Dialog.Title>
+          <Dialog.Description>
             Old review access is blocked. Enter the new key to continue this
             original account update.
           </Dialog.Description>
@@ -1202,12 +1197,10 @@ function OAuthCompletionForm({
         </Dialog.Trigger>
       </AccountMenuItem>
       <Dialog.Portal>
-        <Dialog.Backdrop className="z-[60]" />
-        <Dialog.Popup className="z-[61] max-h-[calc(100dvh-2rem)] overflow-y-auto">
-          <Dialog.Title className="text-lg font-semibold">
-            Complete Codex authorization
-          </Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-slate-400">
+        <Dialog.Backdrop />
+        <Dialog.Popup>
+          <Dialog.Title>Complete Codex authorization</Dialog.Title>
+          <Dialog.Description>
             Finish authorizing Codex in the browser tab opened for this
             connection. If that tab cannot return here, copy its full web
             address and paste it below. The address is cleared as soon as you
@@ -1318,16 +1311,13 @@ function AccountForm({
         </Dialog.Trigger>
       </AccountMenuItem>
       <Dialog.Portal>
-        <Dialog.Backdrop className="z-[60]" />
-        <Dialog.Popup
-          finalFocus={menuReturnFocus}
-          className="z-[61] max-h-[calc(100dvh-2rem)] overflow-y-auto"
-        >
-          <Dialog.Title className="text-lg font-semibold">
+        <Dialog.Backdrop />
+        <Dialog.Popup finalFocus={menuReturnFocus}>
+          <Dialog.Title>
             {title}
             {account ? ` · ${account.label}` : ""}
           </Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-slate-400">
+          <Dialog.Description>
             {mode === "rename"
               ? "Update the friendly account label."
               : "Connect your provider account with an API key. The key is saved securely and cannot be viewed here."}

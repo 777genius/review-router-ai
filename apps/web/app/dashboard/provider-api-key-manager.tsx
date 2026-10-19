@@ -10,6 +10,7 @@ import {
 import {
   Badge,
   Button,
+  Checkbox,
   DialogBackdrop,
   DialogClose,
   DialogDescription,
@@ -416,8 +417,7 @@ export function ProviderApiKeyManagerContent({
                 key={repository.id}
                 className="flex cursor-pointer items-center gap-3 px-3 py-3 hover:bg-cyan-300/[0.035]"
               >
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={selectedRepositoryIds.has(repository.id)}
                   disabled={controlsDisabled}
                   onChange={(event) => {

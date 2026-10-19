@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactElement } from "react";
-import { Button } from "@reviewrouter/ui";
+import { Button, Checkbox } from "@reviewrouter/ui";
 import { ActionToast } from "../action-toast";
 import { dashboardErrorText } from "./dashboard-copy";
 import {
@@ -115,12 +115,11 @@ export function RepositorySetupActionButton({
       <input type="hidden" name="workflowStyle" value="reusable" />
       {gatewayWorkflow ? null : (
         <label className="mb-3 flex max-w-xl items-start gap-3 rounded-lg border border-cyan-200/15 bg-slate-950/40 px-3 py-3 text-left text-sm text-slate-200">
-          <input
-            type="checkbox"
+          <Checkbox
             name="reviewDiscussionMode"
             value="suggest"
             disabled={disabled}
-            className="mt-1 h-4 w-4 rounded border-cyan-200/30 bg-slate-950 text-cyan-300"
+            className="mt-1 h-4 w-4"
           />
           <span className="grid gap-1">
             <span className="font-semibold text-cyan-50">
