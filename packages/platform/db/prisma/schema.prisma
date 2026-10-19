@@ -3441,6 +3441,7 @@ enum ReviewProviderKindV2 {
   codex
   claude_code
   openrouter
+  ocr
 }
 
 enum ReviewTaskKindV2 {

@@ -56,6 +56,7 @@ export const providerInvocationManifestV1CanonicalizerDescriptor =
           ReviewProviderKind.Codex,
           ReviewProviderKind.ClaudeCode,
           ReviewProviderKind.OpenRouter,
+          ReviewProviderKind.Ocr,
         ]),
         unknownValue: ReviewProviderKind.Unknown,
         unknownErrorCode: "provider_kind_unknown",

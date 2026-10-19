@@ -202,6 +202,7 @@ function rolloutProvider(
     case ReviewProviderKind.ClaudeCode:
       return InvestigationRolloutProvider.Claude;
     case ReviewProviderKind.OpenRouter:
+    case ReviewProviderKind.Ocr:
     case ReviewProviderKind.Unknown:
       return InvestigationRolloutProvider.Unknown;
   }

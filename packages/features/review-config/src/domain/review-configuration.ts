@@ -30,6 +30,8 @@ export const reviewProviderConfigurationSchema = z
         authMode: providerAuthModeSchema.exclude(["codex_account_gateway"]),
         gatewayBindingId: z.never().optional(),
         gatewayProfileRef: z.never().optional(),
+        // Engine selection is only allowed on the Account Gateway row.
+        agentProfileRef: z.never().optional(),
       })
       .strict(),
     reviewProviderSettingsSchema
@@ -39,6 +41,9 @@ export const reviewProviderConfigurationSchema = z
         model: gatewayModelSchema,
         gatewayBindingId: gatewayReferenceSchema,
         gatewayProfileRef: gatewayReferenceSchema,
+        // Optional engine selection, separate from the model connection
+        // selected by gatewayProfileRef. Absent keeps the configured default.
+        agentProfileRef: gatewayReferenceSchema.optional(),
       })
       .strict(),
   ])
@@ -61,6 +66,20 @@ export const reviewProviderConfigurationSchema = z
         code: "custom",
         path: ["reasoningEffort"],
         message: "review reasoning effort is unsupported for model",
+      });
+    }
+    if (
+      provider.authMode === "codex_account_gateway" &&
+      provider.agentProfileRef !== undefined &&
+      provider.agenticContext === false
+    ) {
+      // An explicit approved engine selection (OCR included) runs with native
+      // agentic context tools; "supplied diff only" cannot be promised beside
+      // such a selection. Admission independently rejects this combination.
+      context.addIssue({
+        code: "custom",
+        path: ["agentProfileRef"],
+        message: "agent_profile_requires_agentic_context",
       });
     }
   });
@@ -278,6 +297,7 @@ function assertProviderRowsAreExplicitAndUnique(
       provider.model.trim(),
       provider.gatewayBindingId ?? null,
       provider.gatewayProfileRef ?? null,
+      provider.agentProfileRef ?? null,
     ]);
     if (seen.has(key)) {
       context.addIssue({

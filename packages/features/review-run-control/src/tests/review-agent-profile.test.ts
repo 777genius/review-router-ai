@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   parseReviewAgentProfiles,
+  reviewAgentExecutionProviderKind,
   selectReviewAgentProfile,
   selectProviderApiReviewAgentProfile,
 } from "../domain/review-agent-profile";
+import { ReviewProviderKind } from "../domain/review-run-control-types";
 const profile = {
   profileRef: "approved-codex",
   agentKind: "codex",
@@ -103,6 +105,70 @@ describe("approved producer agent profiles", () => {
     ])
       expect(() => parseReviewAgentProfiles([row])).toThrow();
     expect(() => parseReviewAgentProfiles([profile, profile])).toThrow();
+  });
+  it("accepts the approved OCR profile with a real false context gateway", () => {
+    const ocr = {
+      ...profile,
+      profileRef: "approved-ocr",
+      agentKind: "ocr",
+      modelTransports: ["account_gateway"],
+      contextGateway: false,
+    };
+    const selected = selectReviewAgentProfile(
+      [ocr],
+      ocr.profileRef,
+      "account_gateway",
+    );
+    expect(selected).toMatchObject({
+      profileRef: "approved-ocr",
+      agentKind: "ocr",
+      contextGateway: false,
+      cancellation: true,
+      modelTransports: ["account_gateway"],
+    });
+    expect(reviewAgentExecutionProviderKind(selected)).toBe(
+      ReviewProviderKind.Ocr,
+    );
+  });
+  it("rejects OCR profiles that claim a context gateway or drop the gateway transport", () => {
+    const ocr = {
+      ...profile,
+      profileRef: "approved-ocr",
+      agentKind: "ocr",
+      modelTransports: ["account_gateway"],
+      contextGateway: false,
+    };
+    for (const row of [
+      { ...ocr, contextGateway: true },
+      { ...ocr, modelTransports: ["provider_api"] },
+    ])
+      expect(() => parseReviewAgentProfiles([row])).toThrow();
+  });
+  it("keeps codex and claude bound to the context gateway contract", () => {
+    for (const agentKind of ["codex", "claude"] as const) {
+      const accepted = parseReviewAgentProfiles([
+        { ...profile, profileRef: `approved-${agentKind}`, agentKind },
+      ])[0];
+      expect(accepted).toMatchObject({
+        agentKind,
+        contextGateway: true,
+      });
+      expect(reviewAgentExecutionProviderKind(accepted!)).toBe(
+        agentKind === "codex"
+          ? ReviewProviderKind.Codex
+          : ReviewProviderKind.ClaudeCode,
+      );
+      expect(() =>
+        parseReviewAgentProfiles([
+          {
+            ...profile,
+            profileRef: `rejected-${agentKind}`,
+            agentKind,
+            contextGateway: false,
+          },
+        ]),
+      ).toThrow();
+    }
   });
   it("detaches and freezes the approved definition", () => {
     const input = { ...profile, modelTransports: [...profile.modelTransports] };

@@ -257,7 +257,7 @@ export function reviewSafetyScopeColumns(scope: ReviewSafetyScope): {
 }
 
 export function reviewSafetySelectorColumns(selector: ProviderTaskSelector): {
-  readonly providerKind: "codex" | "claude_code" | "openrouter";
+  readonly providerKind: "codex" | "claude_code" | "openrouter" | "ocr";
   readonly taskKind: "code_review" | "finding_revalidation" | "conflict_review";
 } {
   return {
@@ -434,6 +434,8 @@ function reviewProviderKindToDomain(value: string): ReviewProviderKind {
       return ReviewProviderKind.ClaudeCode;
     case "openrouter":
       return ReviewProviderKind.OpenRouter;
+    case "ocr":
+      return ReviewProviderKind.Ocr;
     default:
       return corrupt("review_provider_kind", value);
   }
@@ -441,7 +443,7 @@ function reviewProviderKindToDomain(value: string): ReviewProviderKind {
 
 function reviewProviderKindToPersistence(
   value: ReviewProviderKind,
-): "codex" | "claude_code" | "openrouter" {
+): "codex" | "claude_code" | "openrouter" | "ocr" {
   switch (value) {
     case ReviewProviderKind.Codex:
       return "codex";
@@ -449,6 +451,8 @@ function reviewProviderKindToPersistence(
       return "claude_code";
     case ReviewProviderKind.OpenRouter:
       return "openrouter";
+    case ReviewProviderKind.Ocr:
+      return "ocr";
   }
 }
 

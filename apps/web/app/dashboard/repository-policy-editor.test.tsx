@@ -41,6 +41,7 @@ import {
   GatewayModelAccountsProvider,
   type GatewayModelAccountsApi,
 } from "./gateway-model-account-options";
+import type { GatewayAgentProfileOption } from "../../src/server/gateway-agent-profile-options";
 
 const routerMock = vi.hoisted(() => ({
   refresh: vi.fn(),
@@ -200,6 +201,24 @@ const gatewayPage: AccountsPage = {
 function choose(label: string, option: RegExp): void {
   fireEvent.click(screen.getByRole("combobox", { name: label }));
   fireEvent.click(screen.getByRole("option", { name: option }));
+}
+
+const ocrAgentProfileOption: GatewayAgentProfileOption = {
+  profileRef: "ocr-prod-1",
+  agentKind: "ocr",
+  label: "ocr-prod-1",
+  description: "Approved OpenCodeReview agent profile (native context tools).",
+};
+
+function gatewayProviderFixture(): ReviewProviderConfiguration {
+  return {
+    ...workspacePolicy.providers[0]!,
+    kind: "codex" as const,
+    authMode: "codex_account_gateway" as const,
+    gatewayBindingId: "binding-mimo",
+    gatewayProfileRef: "profile-mimo",
+    model: "mimo-v2-pro",
+  };
 }
 
 describe("ReviewConfigForm", () => {
@@ -1234,6 +1253,77 @@ describe("ReviewConfigForm", () => {
     ).toBe("codex_account_gateway");
   });
 
+  it("offers only the default review agent profile and saves no engine selection", () => {
+    renderReviewConfigForm({
+      config: { ...workspacePolicy, providers: [gatewayProviderFixture()] },
+    });
+    const profileSelect = screen.getByRole("combobox", {
+      name: "Review agent profile",
+    });
+    expect(profileSelect.textContent).toContain("Default (Codex profile)");
+    fireEvent.click(profileSelect);
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent ?? ""),
+    ).toEqual([expect.stringContaining("Default (Codex profile)")]);
+    const form = document.querySelector("form")!;
+    expect(new FormData(form).get("providerAgentProfileRef.0")).toBe("");
+    expect(
+      readReviewConfigurationForm(new FormData(form)).providers[0]!
+        .agentProfileRef,
+    ).toBeUndefined();
+  });
+
+  it("saves an explicitly selected approved review agent profile", () => {
+    renderReviewConfigForm({
+      config: { ...workspacePolicy, providers: [gatewayProviderFixture()] },
+      agentProfileOptions: [ocrAgentProfileOption],
+    });
+    expect(
+      screen.getByRole("combobox", { name: "Review agent profile" })
+        .textContent,
+    ).toContain("Default (Codex profile)");
+    choose("Review agent profile", /ocr-prod-1/);
+    const form = document.querySelector("form")!;
+    expect(new FormData(form).get("providerAgentProfileRef.0")).toBe(
+      "ocr-prod-1",
+    );
+    expect(
+      readReviewConfigurationForm(new FormData(form)).providers[0]!
+        .agentProfileRef,
+    ).toBe("ocr-prod-1");
+  });
+
+  it("explains the incompatibility and blocks saving an OCR profile without agentic context", () => {
+    renderReviewConfigForm({
+      config: {
+        ...workspacePolicy,
+        providers: [{ ...gatewayProviderFixture(), agenticContext: false }],
+      },
+      agentProfileOptions: [ocrAgentProfileOption],
+    });
+    choose("Review agent profile", /ocr-prod-1/);
+    expect(
+      screen.getByText(/native context tools and needs Agentic context/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Set Agentic context to Enabled before saving/),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "Save workspace default" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    choose("Agentic context", /Enabled/);
+    expect(
+      screen.queryByText(/Set Agentic context to Enabled before saving/),
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Save workspace default" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
   it("offers account pool first in the storage choice and switches a secret provider to it", () => {
     renderReviewConfigForm({
       config: {
@@ -1244,6 +1334,7 @@ describe("ReviewConfigForm", () => {
             authMode: "mimo_token_plan_api_key",
             gatewayBindingId: undefined,
             gatewayProfileRef: undefined,
+            agentProfileRef: undefined,
           },
         ],
       },
@@ -2011,6 +2102,7 @@ function renderReviewConfigForm(input?: {
   readonly repositoryFullName?: string;
   readonly codexRotatingOAuthEnabled?: boolean;
   readonly claudeCodeProviderEnabled?: boolean;
+  readonly agentProfileOptions?: readonly GatewayAgentProfileOption[];
   readonly repositorySecretCheckTarget?: {
     readonly workspaceId: string;
     readonly repositoryId: string;
@@ -2022,6 +2114,7 @@ function renderReviewConfigForm(input?: {
       config={input?.config ?? workspacePolicy}
       modelOptions={modelOptions}
       gatewayAccounts={{ status: "ok", value: gatewayPage }}
+      agentProfileOptions={input?.agentProfileOptions}
       codexRotatingOAuthEnabled={input?.codexRotatingOAuthEnabled ?? true}
       claudeCodeProviderEnabled={input?.claudeCodeProviderEnabled ?? true}
       hiddenFields={[{ name: "workspaceId", value: "workspace_1" }]}

@@ -1574,6 +1574,8 @@ function investigationAuthorizationProvider(
         authorization: "claude_code",
       };
     case ReviewProviderKind.OpenRouter:
+    // OCR has no RR investigation descriptor or investigation authorization.
+    case ReviewProviderKind.Ocr:
       return null;
   }
 }
@@ -2410,6 +2412,8 @@ function evidenceProvider(provider: EvidenceProviderKind): ReviewProviderKind {
       return ReviewProviderKind.ClaudeCode;
     case EvidenceProviderKind.OpenRouter:
       return ReviewProviderKind.OpenRouter;
+    case EvidenceProviderKind.Ocr:
+      return ReviewProviderKind.Ocr;
     case EvidenceProviderKind.Unknown:
       throw new Error("review_action_v2_evidence_provider_unknown");
   }
@@ -2436,6 +2440,8 @@ function executionEvidenceProvider(
       return EvidenceProviderKind.ClaudeCode;
     case ReviewExecutionProviderKind.OpenRouter:
       return EvidenceProviderKind.OpenRouter;
+    case ReviewExecutionProviderKind.Ocr:
+      return EvidenceProviderKind.Ocr;
   }
 }
 

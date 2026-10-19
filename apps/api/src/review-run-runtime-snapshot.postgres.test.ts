@@ -364,6 +364,9 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         ...profiles[0]!,
         profileRef: "approved-claude",
         agentKind: "claude" as const,
+        // Keep the correlated profile contract: claude never opts out of the
+        // context gateway, so the spread union collapses to the claude variant.
+        contextGateway: true as const,
       };
       const claudeGatewaySnapshot = new ProductionReviewRunRuntimeSnapshot(
         prisma,
@@ -2365,16 +2368,17 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         { target, policy: changed, expectedVersion: 3 },
         { configurations },
       );
-      expect(
-        (
-          await snapshotSource.capture({
-            modelTransport: "account_gateway",
-            identity: original,
-            deadline: original.maxExpiresAt,
-            producerRelease: snapshotProducer,
-          })
-        )?.gateway?.bindingId,
-      ).toBe(replacementBinding.id);
+      const replacedPin = await snapshotSource.capture({
+        modelTransport: "account_gateway",
+        identity: original,
+        deadline: original.maxExpiresAt,
+        producerRelease: snapshotProducer,
+      });
+      if (replacedPin && "captureDenied" in replacedPin)
+        throw new Error(
+          `snapshot_capture_denied:${replacedPin.captureDenied}`,
+        );
+      expect(replacedPin?.gateway?.bindingId).toBe(replacementBinding.id);
       await expect(harness.authorize()).rejects.toThrow();
       expect(
         (

@@ -186,13 +186,21 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
             { target, policy: config(bindingId), expectedVersion },
             { configurations },
           );
-        const capture = () =>
-          snapshots.capture({
+        const capture = async () => {
+          const captured = await snapshots.capture({
             modelTransport: "account_gateway",
             identity: run,
             deadline: run.maxExpiresAt,
             producerRelease,
           });
+          // No fixture here saves an explicit agentProfileRef, so capture must
+          // never deny; surface a denial loudly instead of aliasing it to null.
+          if (captured && "captureDenied" in captured)
+            throw new Error(
+              `personal_capture_denied:${captured.captureDenied}`,
+            );
+          return captured;
+        };
         const live = (snapshot: ReviewRunRuntimeSnapshot) =>
           snapshots.isLive({ snapshot, identity: run, now: new Date() });
         const candidate = (

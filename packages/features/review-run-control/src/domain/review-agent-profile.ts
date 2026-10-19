@@ -1,9 +1,23 @@
-import { invalid } from "./review-run-control-types";
+import { invalid, ReviewProviderKind } from "./review-run-control-types";
 import {
   parseReviewAgentProfiles as parseProfileWire,
   type ReviewAgentProfile,
 } from "@reviewrouter/shared";
 export type { ReviewAgentProfile } from "@reviewrouter/shared";
+
+/** Execution identity comes from the captured engine, never from provider rows. */
+export function reviewAgentExecutionProviderKind(
+  profile: ReviewAgentProfile,
+): ReviewProviderKind {
+  switch (profile.agentKind) {
+    case "codex":
+      return ReviewProviderKind.Codex;
+    case "claude":
+      return ReviewProviderKind.ClaudeCode;
+    case "ocr":
+      return ReviewProviderKind.Ocr;
+  }
+}
 export function parseReviewAgentProfiles(
   value: unknown,
 ): readonly ReviewAgentProfile[] {

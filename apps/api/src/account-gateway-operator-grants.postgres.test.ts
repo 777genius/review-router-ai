@@ -30,6 +30,16 @@ import {
 import { ProductionReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
 import { createRunAccessClient } from "./account-gateway-run-access";
 
+// Explicit agentProfileRef capture denials are actionable policy errors, not
+// pins. No fixture here selects one, so surface a denial instead of storing it.
+const requireSnapshot = (
+  captured: Awaited<ReturnType<ProductionReviewRunRuntimeSnapshot["capture"]>>,
+) => {
+  if (captured && "captureDenied" in captured)
+    throw new Error(`snapshot_capture_denied:${captured.captureDenied}`);
+  return captured;
+};
+
 const producerRelease = {
   producerReleaseId: "operator-grants-test-producer",
   actionCommitSha: "a".repeat(40),
@@ -604,18 +614,22 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
         await configure(x, gx.id);
         await configure(y, gy.id);
         const deadline = new Date(Date.now() + 60000);
-        const pinX = await snapshots.capture({
-            modelTransport: "account_gateway",
-            producerRelease,
-            identity: identity(x),
-            deadline,
-          }),
-          pinY = await snapshots.capture({
-            modelTransport: "account_gateway",
-            producerRelease,
-            identity: identity(y),
-            deadline,
-          });
+        const pinX = requireSnapshot(
+            await snapshots.capture({
+              modelTransport: "account_gateway",
+              producerRelease,
+              identity: identity(x),
+              deadline,
+            }),
+          ),
+          pinY = requireSnapshot(
+            await snapshots.capture({
+              modelTransport: "account_gateway",
+              producerRelease,
+              identity: identity(y),
+              deadline,
+            }),
+          );
         expect(pinX?.gateway).toMatchObject({
           permittedAccountRef: connection.gatewayAccountRef,
           bindingRevision: gx.revision,
@@ -841,19 +855,23 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
           },
           deps,
         );
-        const newY = await snapshots.capture({
-          modelTransport: "account_gateway",
-          producerRelease,
-          identity: identity(y, "fresh-granted"),
-          deadline,
-        });
+        const newY = requireSnapshot(
+          await snapshots.capture({
+            modelTransport: "account_gateway",
+            producerRelease,
+            identity: identity(y, "fresh-granted"),
+            deadline,
+          }),
+        );
         await configure(x, byok.id, 1);
-        const ownPin = await ordinarySnapshots.capture({
-          modelTransport: "account_gateway",
-          producerRelease,
-          identity: identity(x),
-          deadline,
-        });
+        const ownPin = requireSnapshot(
+          await ordinarySnapshots.capture({
+            modelTransport: "account_gateway",
+            producerRelease,
+            identity: identity(x),
+            deadline,
+          }),
+        );
         if (!ownPin || !newY) throw new Error("s_fresh_pin_missing");
         expect(
           await snapshots.isLive({
@@ -868,12 +886,14 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
           deps,
         );
         await configure(x, gx.id, 2);
-        const freshX = await snapshots.capture({
-          modelTransport: "account_gateway",
-          producerRelease,
-          identity: identity(x, "fresh-granted"),
-          deadline,
-        });
+        const freshX = requireSnapshot(
+          await snapshots.capture({
+            modelTransport: "account_gateway",
+            producerRelease,
+            identity: identity(x, "fresh-granted"),
+            deadline,
+          }),
+        );
         if (!freshX) throw new Error("s_regranted_x_missing");
         // Privileged fixture rows cannot authorize arbitrary foreign/user sharing.
         for (const owner of [

@@ -1,6 +1,10 @@
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import { initialWorkspaceReviewPolicyDraft } from "../../src/server/initial-workspace-review-policy";
+import {
+  loadGatewayAgentProfileOptions,
+  type GatewayAgentProfileOption,
+} from "../../src/server/gateway-agent-profile-options";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
 import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
 import { productionPersonalAccounts } from "../../src/server/personal-account-composition";
@@ -1416,6 +1420,9 @@ async function DashboardSectionContent({
         : loadAccountsBootstrap(selectedWorkspace.workspace.id)
       : Promise.resolve(null),
   ]);
+  // Approved engine profiles for the Account Gateway provider row; derived
+  // from the producer-release approved profile authority, never user input.
+  const agentProfileOptions = loadGatewayAgentProfileOptions();
   const content = (
     <WorkspaceCard
       data={data}
@@ -1427,6 +1434,7 @@ async function DashboardSectionContent({
       appInstallUrl={getGitHubAppInstallUrl()}
       modelOptions={modelOptions}
       gatewayAccounts={accountsBootstrap?.page}
+      agentProfileOptions={agentProfileOptions}
       claudeCodeProviderEnabled={isClaudeCodeProviderEnabled()}
     />
   );
@@ -1745,6 +1753,7 @@ export function WorkspaceCard({
   appInstallUrl,
   modelOptions,
   gatewayAccounts,
+  agentProfileOptions = [],
   claudeCodeProviderEnabled,
 }: {
   readonly data: DashboardWorkspaceData;
@@ -1756,6 +1765,9 @@ export function WorkspaceCard({
   readonly appInstallUrl: string | null;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly agentProfileOptions?:
+    | readonly GatewayAgentProfileOption[]
+    | undefined;
   readonly claudeCodeProviderEnabled: boolean;
 }): React.ReactElement {
   const {
@@ -1883,6 +1895,7 @@ export function WorkspaceCard({
             config={draft}
             modelOptions={modelOptions}
             gatewayAccounts={gatewayAccounts}
+            agentProfileOptions={agentProfileOptions}
             codexRotatingOAuthEnabled={isCodexRotatingOAuthAllowedForWorkspaceDefault()}
             claudeCodeProviderEnabled={claudeCodeProviderEnabled}
             mutationsEnabled={mutationsEnabled}
@@ -2027,6 +2040,7 @@ export function WorkspaceCard({
               activeConfig={activeConfig}
               modelOptions={modelOptions}
               gatewayAccounts={gatewayAccounts}
+              agentProfileOptions={agentProfileOptions}
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               mutationsEnabled={mutationsEnabled}
               workspaceKey={workspaceKey}
@@ -2107,6 +2121,7 @@ export function WorkspaceCard({
                   config={activeConfig}
                   modelOptions={modelOptions}
                   gatewayAccounts={gatewayAccounts}
+                  agentProfileOptions={agentProfileOptions}
                   codexRotatingOAuthEnabled={isCodexRotatingOAuthAllowedForWorkspaceDefault()}
                   claudeCodeProviderEnabled={claudeCodeProviderEnabled}
                   mutationsEnabled={mutationsEnabled}
@@ -2198,6 +2213,7 @@ export function WorkspaceCard({
                         }
                         modelOptions={modelOptions}
                         gatewayAccounts={gatewayAccounts}
+                        agentProfileOptions={agentProfileOptions}
                         codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
                           repository,
                         )}
@@ -2752,6 +2768,7 @@ function RepositoryTable({
   activeConfig,
   modelOptions,
   gatewayAccounts,
+  agentProfileOptions = [],
   claudeCodeProviderEnabled,
   mutationsEnabled,
   workspaceKey,
@@ -2773,6 +2790,9 @@ function RepositoryTable({
   readonly repositoryConfigs: DashboardWorkspaceData["repositoryConfigs"];
   readonly activeConfig: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
+  readonly agentProfileOptions?:
+    | readonly GatewayAgentProfileOption[]
+    | undefined;
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
   readonly claudeCodeProviderEnabled: boolean;
   readonly mutationsEnabled: boolean;
@@ -3185,6 +3205,7 @@ function RepositoryTable({
                         effectiveConfig={effectiveConfig}
                         modelOptions={modelOptions}
                         gatewayAccounts={gatewayAccounts}
+                        agentProfileOptions={agentProfileOptions}
                         codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
                           repository,
                         )}
