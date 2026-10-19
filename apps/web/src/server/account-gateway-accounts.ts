@@ -61,17 +61,45 @@ export type AccountProfileView = {
   // Trusted deployment binding to the Gateway's fixed profile, never a caller override.
   dedicatedBaseURL?: string;
 };
+export type AccountAllowedAction =
+  | "rename"
+  | "reconnect"
+  | "retire"
+  | "detach"
+  | "access"
+  | "checkStatus"
+  | "suspend"
+  | "resume"
+  | "delete";
+export type AccountOwnerView =
+  | {
+      kind: "personal";
+      isViewer: boolean;
+      handle: string | null;
+      avatarUrl: string | null;
+    }
+  | { kind: "organization"; label: string }
+  | { kind: "operator"; label: string };
 export type AccountView = {
   origin?: "organization" | "personal" | "operator";
   // Display-only identity fact; never permission to manage a shared source.
   isOwnedByViewer?: boolean;
   canManage?: boolean;
+  owner?: AccountOwnerView;
+  allowedActions?: readonly AccountAllowedAction[];
   connectionId: string;
   label: string;
   profileId: string;
   profileLabel: string;
   authKind?: NonNullable<AccountProfileView["authKind"]>;
-  state: c.Account["state"];
+  state: c.Account["state"] | "suspended";
+  authorizationEpoch?: number;
+  lifecycle?: {
+    status: "available" | "pending" | "support_required" | "unavailable";
+    operationId?: string;
+    action?: "suspend" | "resume" | "delete";
+  };
+  readiness?: "ready" | "pending" | "unavailable" | "unknown";
   gatewayRevision: number;
   mirrorRevision: number;
   binding: {

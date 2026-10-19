@@ -1,6 +1,11 @@
+import { createAccountLifecycleReader } from "./account-lifecycle-reader";
 import { createHash } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
-import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import {
+  createLifecycleClient,
+  createConsumerControlClient,
+  createManagementClient,
+} from "@agent-teams/account-gateway/http";
 import {
   PrismaProviderAccountRepository,
   ProviderAccountError,
@@ -13,6 +18,8 @@ import {
 } from "@reviewrouter/features-provider-accounts/synchronization";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import {
+  accountsServerAdapter,
+  loadAccountsBootstrap,
   accountGatewayProfilesConfiguration,
   accountGatewayUserOwnerRef,
   accountGatewayWorkspaceOwnerRef,
@@ -24,6 +31,7 @@ import { getPrisma } from "./prisma";
 import { PrismaPersonalAccountSharingQueries } from "./personal-account-sharing-queries";
 import { createPersonalAccountSharingApi } from "./personal-account-sharing";
 import { createPersonalCanonicalAccounts } from "./personal-canonical-accounts";
+import { createAccountsOverview } from "./accounts-overview";
 import { createGatewayModelAccountOptions } from "./gateway-model-account-options";
 import { z } from "zod";
 
@@ -59,6 +67,14 @@ export async function productionPersonalAccounts() {
     responseBytes: 65536,
   };
   const control = createConsumerControlClient(controlSettings);
+  const lifecycleReader = createAccountLifecycleReader({
+    legacy: control,
+    lifecycle: createLifecycleClient({
+      ...controlSettings,
+      capability: c.LIFECYCLE_CAPABILITY_CONTRACT,
+      clientContract: c.LIFECYCLE_CLIENT_CONTRACT,
+    }),
+  });
   const prisma = getPrisma();
   const store = new PrismaPersonalAccountOperations(prisma);
   const canonicalStore = new PrismaPersonalCanonicalOperations(prisma);
@@ -197,6 +213,25 @@ export async function productionPersonalAccounts() {
     store,
     canonical: canonicalStore,
     control,
+    lifecycleReader,
+    lifecycleEnabled: () =>
+      process.env.REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED === "1",
+    readLifecycleAction: async (sourceId, operationId) => {
+      const operation = await checked(() =>
+        prisma.personalAccountOperation.findFirst({
+          where: {
+            id: operationId,
+            sourceId,
+            action: { in: ["suspend", "resume", "delete"] },
+            source: { ownerUserId: userId, ownerWorkspaceId: null },
+          },
+          select: { action: true },
+        }),
+      );
+      return operation
+        ? z.enum(["suspend", "resume", "delete"]).parse(operation.action)
+        : null;
+    },
     profiles,
     personalAdapterFactory: ({ authorizeUser: authorize, profiles: allowed }) =>
       createDisabledPersonalAccountsAdapter({
@@ -293,6 +328,45 @@ export async function productionPersonalAccounts() {
       },
     });
   }
+  async function overview(workspaceId: string) {
+    await workspaceAccess(workspaceId);
+    const managementSettings = {
+      role: "management" as const,
+      origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
+      token: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
+      timeoutMs: 10000,
+      responseBytes: 65536,
+    };
+    const overviewReader = createAccountLifecycleReader({
+      legacy: createManagementClient(managementSettings),
+      lifecycle: createLifecycleClient({
+        ...managementSettings,
+        capability: c.LIFECYCLE_CAPABILITY_CONTRACT,
+        clientContract: c.LIFECYCLE_CLIENT_CONTRACT,
+      }),
+    });
+    return createAccountsOverview({
+      prisma,
+      cursorSecret: controlSettings.token,
+      gateway: overviewReader,
+      lifecycleEnabled: () =>
+        process.env.REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED === "1",
+      lifecycleCompatible: overviewReader.writable,
+      profiles,
+      ...(settings.operatorWorkspaceId
+        ? { operatorWorkspaceId: settings.operatorWorkspaceId }
+        : {}),
+      ownerRef: (owner) =>
+        owner.kind === "user"
+          ? accountGatewayUserOwnerRef(owner.userId)
+          : accountGatewayWorkspaceOwnerRef(owner.workspaceId),
+      authorize: async () => {
+        await authorizeUser();
+        await workspaceAccess(workspaceId);
+        return { workspaceId, userId };
+      },
+    });
+  }
   async function detachRecipient(
     workspaceId: string,
     raw: { bindingId: string; expectedBindingRevision: number },
@@ -330,14 +404,109 @@ export async function productionPersonalAccounts() {
       return committed;
     }
   }
+  async function readWorkspaceDetachment(
+    workspaceId: string,
+    raw: { bindingId: string; expectedBindingRevision: number },
+  ) {
+    const request = z
+      .strictObject({
+        bindingId: c.reference,
+        expectedBindingRevision: z.number().int().min(1).max(2147483647),
+      })
+      .parse(raw);
+    const access = await workspaceAccess(workspaceId);
+    if (!access.canDetach)
+      throw new ProviderAccountError("workspace_forbidden");
+    const binding = await checked(() =>
+      prisma.workspaceAccountBinding.findFirst({
+        where: { id: request.bindingId, workspaceId },
+        select: {
+          id: true,
+          workspaceId: true,
+          revision: true,
+          state: true,
+          policyRevision: true,
+          pendingFenceOperationId: true,
+          fenceAckOperationId: true,
+          fenceAckPolicyRevision: true,
+        },
+      }),
+    );
+    if (
+      !binding ||
+      binding.state !== "revoked" ||
+      (binding.revision !== request.expectedBindingRevision + 1 &&
+        binding.revision !== request.expectedBindingRevision)
+    )
+      throw new ProviderAccountError("revision_conflict");
+    if (!(await workspaceAccess(workspaceId)).canDetach)
+      throw new ProviderAccountError("workspace_forbidden");
+    return {
+      bindingId: binding.id,
+      workspaceId,
+      revision: binding.revision,
+      state: "revoked" as const,
+      localAuthorization: "local_denied" as const,
+      remoteFenceDelivery:
+        binding.pendingFenceOperationId === null &&
+        binding.fenceAckOperationId !== null &&
+        binding.fenceAckPolicyRevision === binding.policyRevision
+          ? ("remote_applied" as const)
+          : ("remote_pending" as const),
+    };
+  }
+  async function detachWorkspaceUse(
+    workspaceId: string,
+    raw: { bindingId: string; expectedBindingRevision: number },
+  ) {
+    const request = z
+      .strictObject({
+        bindingId: c.reference,
+        expectedBindingRevision: z.number().int().min(1).max(2147483647),
+      })
+      .parse(raw);
+    if (!(await workspaceAccess(workspaceId)).canDetach)
+      throw new ProviderAccountError("workspace_forbidden");
+    const binding = await checked(() =>
+      prisma.workspaceAccountBinding.findFirst({
+        where: { id: request.bindingId, workspaceId },
+        select: {
+          connectionId: true,
+          connection: { select: { ownerUserId: true } },
+        },
+      }),
+    );
+    if (!binding) throw new ProviderAccountError("binding_unavailable");
+    if (binding.connection.ownerUserId !== null)
+      return detachRecipient(workspaceId, request);
+    const bootstrap = await loadAccountsBootstrap(workspaceId);
+    if (!bootstrap.context)
+      throw new ProviderAccountError("workspace_forbidden");
+    const result = await (
+      await accountsServerAdapter()
+    ).detach(bootstrap.context, {
+      connectionId: binding.connectionId,
+      expectedRevision: request.expectedBindingRevision,
+    });
+    if (result.status !== "ok")
+      throw new ProviderAccountError(
+        result.status === "conflict"
+          ? "revision_conflict"
+          : "binding_unavailable",
+      );
+    return readWorkspaceDetachment(workspaceId, request);
+  }
   const scope = `personal-${createHash("sha256").update(`rr-personal-ui-v1\0${userId}`).digest("hex")}`;
   return {
     sharing,
     canonical,
     scope,
     models,
+    overview,
     reviewProfiles,
     workspaceAccess,
     detachRecipient,
+    detachWorkspaceUse,
+    readWorkspaceDetachment,
   };
 }

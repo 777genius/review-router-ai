@@ -1,5 +1,7 @@
 "use client";
 
+import { useAccountLifecycleActivities } from "./account-lifecycle-controls";
+
 import {
   useCallback,
   useEffect,
@@ -16,8 +18,15 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Badge, Button, Dialog, SelectField } from "@reviewrouter/ui";
+import {
+  AccountActionsMenu,
+  AccountMenuItem,
+  useAccountMenuReturnFocus,
+} from "./account-actions-menu";
+import { Plus, RefreshCw } from "lucide-react";
 import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
 import { dashboardSectionHref } from "./dashboard-section";
+import { accountsCopy } from "./accounts-copy";
 import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
 import {
   canonicalMimoBaseURL,
@@ -39,7 +48,6 @@ import {
   beginGatewayOAuth,
   completeGatewayOAuth,
   detachGatewayAccount,
-  changeGatewayOperatorGrant,
   listGatewayAccounts,
   mutateGatewayAccount,
   readGatewayOperation,
@@ -141,6 +149,8 @@ export function AccountGatewayControls({
   queryClient,
   refreshRelated,
   renderAccounts,
+  hideConnect = false,
+  connectOnly = false,
   workspaceId,
 }: {
   bootstrap: AccountsBootstrap;
@@ -149,6 +159,8 @@ export function AccountGatewayControls({
   queryClient?: QueryClient;
   refreshRelated?: () => Promise<void>;
   renderAccounts?: AccountRowsRenderer;
+  hideConnect?: boolean;
+  connectOnly?: boolean;
   workspaceId?: string;
 }) {
   const optionsCache = useCurrentGatewayModelAccountsCache();
@@ -164,6 +176,8 @@ export function AccountGatewayControls({
         managementScope={managementScope}
         refreshRelated={refreshRelated}
         renderAccounts={renderAccounts}
+        hideConnect={hideConnect}
+        connectOnly={connectOnly}
         workspaceId={workspaceId}
       />
     </QueryClientProvider>
@@ -176,6 +190,8 @@ function Controls({
   managementScope,
   refreshRelated,
   renderAccounts,
+  hideConnect,
+  connectOnly,
   workspaceId,
 }: {
   bootstrap: AccountsBootstrap;
@@ -183,6 +199,8 @@ function Controls({
   managementScope: ManagementScope;
   refreshRelated: (() => Promise<void>) | undefined;
   renderAccounts: AccountRowsRenderer | undefined;
+  hideConnect: boolean;
+  connectOnly: boolean;
   workspaceId: string | undefined;
 }) {
   const { context } = bootstrap;
@@ -196,8 +214,7 @@ function Controls({
   const [ready, setReady] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [retirement, setRetirement] = useState<AccountView | null>(null);
-  const retirementCancelRef = useRef<HTMLButtonElement>(null);
+  const lifecycleActivities = useAccountLifecycleActivities(client);
   const [completionHandoff, setCompletionHandoff] = useState<string | null>(
     null,
   );
@@ -484,34 +501,37 @@ function Controls({
     data?.status !== "ok";
   function renderActions(account: AccountView) {
     if (data?.status !== "ok") return null;
+    const sourceBusy =
+      disabled || lifecycleActivities.has(account.connectionId);
     return (
       <div className="flex flex-wrap gap-2">
-        <AccountForm
-          account={account}
-          mode="rename"
-          profiles={data.value.profiles}
-          disabled={disabled || account.canManage !== true}
-          managementScope={managementScope}
-          submit={submit}
-        />
+        {account.state !== "disabled" && account.state !== "tombstoned" ? (
+          <AccountForm
+            account={account}
+            mode="rename"
+            profiles={data.value.profiles}
+            disabled={sourceBusy || account.canManage !== true}
+            managementScope={managementScope}
+            submit={submit}
+          />
+        ) : null}
         {account.authKind === "api_key" &&
+        account.state !== "disabled" &&
+        account.state !== "tombstoned" &&
         data.value.profiles.find((p) => p.id === account.profileId)
           ?.canReconnect ? (
           <AccountForm
             account={account}
             mode="reconnect"
             profiles={data.value.profiles}
-            disabled={
-              disabled ||
-              account.canManage !== true ||
-              (personal && account.state === "disabled") ||
-              account.state === "tombstoned"
-            }
+            disabled={sourceBusy || account.canManage !== true}
             submit={submit}
             managementScope={managementScope}
           />
         ) : null}
         {account.authKind === "oauth" &&
+        account.state !== "disabled" &&
+        account.state !== "tombstoned" &&
         data.value.profiles.find((p) => p.id === account.profileId)
           ?.canReconnect ? (
           <OAuthForm
@@ -519,75 +539,39 @@ function Controls({
             profiles={data.value.profiles.filter(
               (p) => p.id === account.profileId,
             )}
-            disabled={
-              disabled ||
-              account.canManage !== true ||
-              (personal && account.state === "disabled") ||
-              account.state === "tombstoned"
-            }
+            disabled={sourceBusy || account.canManage !== true}
             begin={beginOAuth}
             managementScope={managementScope}
           />
         ) : null}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={
-            disabled ||
-            account.canManage !== true ||
-            (personal && account.state === "disabled") ||
-            account.state === "tombstoned"
-          }
-          onClick={() => {
-            if (personal) setRetirement(account);
-            else
-              void submit({
-                kind: "disable",
-                connectionId: account.connectionId,
-                gatewayRevision: account.gatewayRevision,
-                mirrorRevision: account.mirrorRevision,
-              });
-          }}
-        >
-          {personal ? "Retire personal account" : "Disable"}
-        </Button>
         {!personal && account.binding?.state !== "active" ? (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={
-              disabled ||
-              account.state !== "active" ||
-              Boolean(account.binding?.fencePending) ||
-              account.canManage !== true
-            }
-            onClick={() => bindingMutation.mutate(account)}
-          >
-            Make available in this workspace
-          </Button>
+          <AccountMenuItem>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={
+                sourceBusy ||
+                account.state !== "active" ||
+                Boolean(account.binding?.fencePending) ||
+                account.canManage !== true
+              }
+              onClick={() => bindingMutation.mutate(account)}
+            >
+              Добавить в этот workspace
+            </Button>
+          </AccountMenuItem>
         ) : null}
         {!personal && account.binding?.state === "active" ? (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            onClick={() => detachMutation.mutate(account)}
-          >
-            Detach workspace use
-          </Button>
-        ) : null}
-        {!personal &&
-        data.value.canGrantOperatorUse &&
-        account.canManage === true ? (
-          <details className="text-sm">
-            <summary className="cursor-pointer py-2">Advanced</summary>
-            <OperatorGrantForm
-              context={context}
-              account={account}
+          <AccountMenuItem>
+            <Button
+              variant="outline"
+              size="sm"
               disabled={disabled}
-              refresh={refresh}
-            />
-          </details>
+              onClick={() => detachMutation.mutate(account)}
+            >
+              Убрать из этого workspace
+            </Button>
+          </AccountMenuItem>
         ) : null}
       </div>
     );
@@ -595,35 +579,52 @@ function Controls({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
-        {data?.status === "ok" &&
-        data.value.profiles.some((p) => p.authKind === "api_key") ? (
-          <AccountForm
-            accounts={data.value.accounts}
-            profiles={data.value.profiles.filter(
-              (p) => p.authKind === "api_key",
-            )}
-            disabled={disabled}
-            managementScope={managementScope}
-            submit={submit}
-          />
-        ) : null}
-        {data?.status === "ok" &&
-        data.value.profiles.some((p) => p.authKind === "oauth") ? (
-          <OAuthForm
-            accounts={data.value.accounts}
-            profiles={data.value.profiles.filter((p) => p.authKind === "oauth")}
-            disabled={disabled}
-            managementScope={managementScope}
-            begin={beginOAuth}
-          />
+        {!hideConnect &&
+        data?.status === "ok" &&
+        data.value.profiles.some(
+          (p) => p.authKind === "api_key" || p.authKind === "oauth",
+        ) ? (
+          <AccountActionsMenu
+            label={personal ? "Подключить аккаунт" : "Добавить аккаунт"}
+            triggerContent={
+              <>
+                <Plus aria-hidden="true" className="size-4" />
+                {personal ? "Подключить аккаунт" : "Добавить аккаунт"}
+              </>
+            }
+          >
+            {data.value.profiles.some((p) => p.authKind === "api_key") ? (
+              <AccountForm
+                accounts={data.value.accounts}
+                profiles={data.value.profiles.filter(
+                  (p) => p.authKind === "api_key",
+                )}
+                disabled={disabled}
+                managementScope={managementScope}
+                submit={submit}
+              />
+            ) : null}
+            {data.value.profiles.some((p) => p.authKind === "oauth") ? (
+              <OAuthForm
+                accounts={data.value.accounts}
+                profiles={data.value.profiles.filter(
+                  (p) => p.authKind === "oauth",
+                )}
+                disabled={disabled}
+                managementScope={managementScope}
+                begin={beginOAuth}
+              />
+            ) : null}
+          </AccountActionsMenu>
         ) : null}
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
+          aria-label="Обновить подключения"
           disabled={!context || page.isFetching}
           onClick={() => void refresh()}
         >
-          Refresh accounts
+          <RefreshCw aria-hidden="true" className="size-4" />
         </Button>
       </div>
       {message ? (
@@ -637,7 +638,7 @@ function Controls({
           separate.
         </p>
       ) : null}
-      {renderAccounts ? (
+      {connectOnly ? null : renderAccounts ? (
         renderAccounts(
           data?.status === "ok" ? data.value.accounts : [],
           renderActions,
@@ -717,7 +718,7 @@ function Controls({
           ))}
         </div>
       )}
-      {page.hasNextPage ? (
+      {!connectOnly && page.hasNextPage ? (
         <Button
           variant="outline"
           size="sm"
@@ -727,50 +728,6 @@ function Controls({
           Load more connection details
         </Button>
       ) : null}
-      <Dialog.Root
-        open={Boolean(retirement)}
-        onOpenChange={(open) => {
-          if (!open && !busy) setRetirement(null);
-        }}
-      >
-        <Dialog.Portal>
-          <Dialog.Backdrop />
-          <Dialog.Popup initialFocus={retirementCancelRef}>
-            <Dialog.Title>Retire personal account?</Dialog.Title>
-            <Dialog.Description>
-              Retiring {retirement?.label} permanently removes its use in all
-              organizations and your personal workspace. This cannot be undone.
-              To use it again, you will need to connect a new account.
-            </Dialog.Description>
-            <div className="mt-4 flex gap-2">
-              <Button
-                ref={retirementCancelRef}
-                variant="outline"
-                disabled={busy}
-                onClick={() => setRetirement(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                disabled={disabled || !retirement}
-                onClick={() => {
-                  if (!retirement) return;
-                  const account = retirement;
-                  setRetirement(null);
-                  void submit({
-                    kind: "disable",
-                    connectionId: account.connectionId,
-                    gatewayRevision: account.gatewayRevision,
-                    mirrorRevision: account.mirrorRevision,
-                  });
-                }}
-              >
-                Confirm retirement
-              </Button>
-            </div>
-          </Dialog.Popup>
-        </Dialog.Portal>
-      </Dialog.Root>
       {nonces.length ? (
         <div className="space-y-2 border-t border-cyan-200/10 pt-4">
           <h4 className="text-sm font-semibold text-cyan-50">
@@ -806,121 +763,6 @@ function Controls({
   );
 }
 
-function OperatorGrantForm({
-  context,
-  account,
-  disabled,
-  refresh,
-}: {
-  context: string;
-  account: AccountView;
-  disabled: boolean;
-  refresh(): Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [message, setMessage] = useState("");
-  const [pending, setPending] = useState(false);
-  const submitting = useRef(false);
-  async function applyGrant(intent: {
-    workspaceId: string;
-    expectedRevision: number;
-    state: "active" | "revoked";
-  }) {
-    if (submitting.current) return;
-    submitting.current = true;
-    setPending(true);
-    try {
-      const result = await changeGatewayOperatorGrant(context, {
-        ...intent,
-        connectionId: account.connectionId,
-      });
-      setMessage(
-        result.status === "ok"
-          ? `Use ${intent.state === "active" ? "granted" : "revoked"} at binding revision ${result.value.revision}.${result.value.remoteFenceDelivery === "remote_pending" ? " Gateway fence pending." : result.value.remoteFenceDelivery === "remote_applied" ? " Gateway fence acknowledged." : ""}`
-          : statusText(result.status),
-      );
-      await refresh();
-    } catch {
-      setMessage(
-        "Grant status is unavailable. Check the current binding before submitting another change.",
-      );
-    } finally {
-      submitting.current = false;
-      setPending(false);
-    }
-  }
-  return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger
-        render={<Button variant="outline" size="sm" disabled={disabled} />}
-      >
-        Manage operator grant
-      </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop />
-        <Dialog.Popup>
-          <Dialog.Title>Workspace use grant</Dialog.Title>
-          <Dialog.Description>
-            Grant or revoke use of {account.label} for a workspace by its stable
-            ID.
-          </Dialog.Description>
-          <form
-            className="mt-4 grid gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const values = new FormData(event.currentTarget);
-              void applyGrant({
-                workspaceId: String(values.get("workspaceId")),
-                expectedRevision: Number(values.get("revision")),
-                state: values.get("state") === "revoked" ? "revoked" : "active",
-              });
-            }}
-          >
-            <label className="grid gap-2 text-sm">
-              Workspace ID
-              <input
-                className={inputClass}
-                name="workspaceId"
-                required
-                maxLength={128}
-              />
-            </label>
-            <label className="grid gap-2 text-sm">
-              Expected binding revision (0 for new use)
-              <input
-                className={inputClass}
-                name="revision"
-                type="number"
-                min={0}
-                max={2147483646}
-                defaultValue={0}
-                required
-              />
-            </label>
-            <SelectField
-              name="state"
-              label="Use"
-              defaultValue="active"
-              options={[
-                { value: "active", label: "Grant" },
-                { value: "revoked", label: "Revoke" },
-              ]}
-            />
-            <Button type="submit" disabled={disabled || pending}>
-              Apply
-            </Button>
-            {message ? (
-              <p role="status" className="text-sm text-slate-300">
-                {message}
-              </p>
-            ) : null}
-          </form>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
-
 function OAuthForm({
   account,
   accounts = [],
@@ -936,27 +778,33 @@ function OAuthForm({
   begin(intent: OAuthFormIntent): Promise<void>;
   managementScope?: ManagementScope;
 }) {
+  const menuReturnFocus = useAccountMenuReturnFocus();
   const [open, setOpen] = useState(false);
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger
-        render={<Button variant="outline" size="sm" disabled={disabled} />}
-      >
-        {account ? "Reconnect Codex OAuth" : "Connect Codex OAuth"}
-      </Dialog.Trigger>
+      <AccountMenuItem>
+        <Dialog.Trigger
+          render={<Button variant="outline" size="sm" disabled={disabled} />}
+        >
+          {account ? accountsCopy.reconnectOAuth : accountsCopy.connectOAuth}
+        </Dialog.Trigger>
+      </AccountMenuItem>
       <Dialog.Portal>
-        <Dialog.Backdrop />
-        <Dialog.Popup>
+        <Dialog.Backdrop className="z-[60]" />
+        <Dialog.Popup
+          finalFocus={menuReturnFocus}
+          className="z-[61] max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        >
           <Dialog.Title className="text-lg font-semibold">
             {account
-              ? `Reconnect Codex OAuth · ${account.label}`
-              : "Connect Codex OAuth"}
+              ? `Обновить вход Codex · ${account.label}`
+              : "Подключить Codex OAuth"}
           </Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-slate-400">
-            Authorize Codex in a new browser tab. No API key is needed.
-            Enrollment stays pending until confirmed; an unresolved result
-            requires status readback. Reconnect preserves the logical account
-            until the newly authorized account is verified.
+            Войти в Codex in a new browser tab. No API key is needed. Enrollment
+            stays pending until confirmed; an unresolved result requires status
+            readback. Reconnect preserves the logical account until the newly
+            authorized account is verified.
             {managementScope === "personal"
               ? " This is your canonical personal connection. Its name is visible where you explicitly share it; authentication is shared by all authorized uses."
               : ""}
@@ -991,7 +839,7 @@ function OAuthForm({
               <>
                 <SelectField
                   name="profileId"
-                  label="Provider profile"
+                  label="Профиль провайдера"
                   defaultValue={profiles[0]?.id ?? ""}
                   options={profiles.map((p) => ({
                     value: p.id,
@@ -1000,7 +848,7 @@ function OAuthForm({
                   }))}
                 />
                 <label className="grid gap-2 text-sm">
-                  Account label
+                  Название подключения
                   <input
                     className={inputClass}
                     name="label"
@@ -1016,7 +864,7 @@ function OAuthForm({
               <p className="text-sm text-slate-300">{account.label}</p>
             )}
             <Button type="submit" disabled={disabled}>
-              Authorize Codex
+              Войти в Codex
             </Button>
           </form>
         </Dialog.Popup>
@@ -1223,12 +1071,14 @@ function KeyUpdateContinuation({
   const entered = useRef(false);
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger render={<Button variant="outline" size="sm" />}>
-        Continue key update
-      </Dialog.Trigger>
+      <AccountMenuItem>
+        <Dialog.Trigger render={<Button variant="outline" size="sm" />}>
+          Continue key update
+        </Dialog.Trigger>
+      </AccountMenuItem>
       <Dialog.Portal>
-        <Dialog.Backdrop />
-        <Dialog.Popup>
+        <Dialog.Backdrop className="z-[60]" />
+        <Dialog.Popup className="z-[61] max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <Dialog.Title className="text-lg font-semibold">
             Continue key update
           </Dialog.Title>
@@ -1266,7 +1116,7 @@ function KeyUpdateContinuation({
             <div className="flex gap-3">
               <Button type="submit">Continue update</Button>
               <Dialog.Close render={<Button type="button" variant="outline" />}>
-                Cancel
+                Отмена
               </Dialog.Close>
             </div>
           </form>
@@ -1342,14 +1192,18 @@ function OAuthCompletionForm({
   }
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger
-        render={<Button variant="outline" size="sm" disabled={busy || spent} />}
-      >
-        Resume Codex authorization
-      </Dialog.Trigger>
+      <AccountMenuItem>
+        <Dialog.Trigger
+          render={
+            <Button variant="outline" size="sm" disabled={busy || spent} />
+          }
+        >
+          Resume Codex authorization
+        </Dialog.Trigger>
+      </AccountMenuItem>
       <Dialog.Portal>
-        <Dialog.Backdrop />
-        <Dialog.Popup>
+        <Dialog.Backdrop className="z-[60]" />
+        <Dialog.Popup className="z-[61] max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <Dialog.Title className="text-lg font-semibold">
             Complete Codex authorization
           </Dialog.Title>
@@ -1417,6 +1271,7 @@ function AccountForm({
     credential?: string,
   ): Promise<void>;
 }) {
+  const menuReturnFocus = useAccountMenuReturnFocus();
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(profiles[0]?.id ?? "");
   const selected = profiles.find((p) => p.id === selectedId);
@@ -1436,10 +1291,10 @@ function AccountForm({
       canonicalMimoBaseURL(baseURL) === selected.dedicatedBaseURL);
   const title =
     mode === "rename"
-      ? "Rename account"
+      ? accountsCopy.rename
       : mode === "reconnect"
-        ? "Reconnect API key"
-        : "Connect API key";
+        ? accountsCopy.reconnectKey
+        : accountsCopy.connectKey;
   return (
     <Dialog.Root
       open={open}
@@ -1455,14 +1310,19 @@ function AccountForm({
         setOpen(next);
       }}
     >
-      <Dialog.Trigger
-        render={<Button variant="outline" size="sm" disabled={disabled} />}
-      >
-        {title}
-      </Dialog.Trigger>
+      <AccountMenuItem>
+        <Dialog.Trigger
+          render={<Button variant="outline" size="sm" disabled={disabled} />}
+        >
+          {title}
+        </Dialog.Trigger>
+      </AccountMenuItem>
       <Dialog.Portal>
-        <Dialog.Backdrop />
-        <Dialog.Popup>
+        <Dialog.Backdrop className="z-[60]" />
+        <Dialog.Popup
+          finalFocus={menuReturnFocus}
+          className="z-[61] max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        >
           <Dialog.Title className="text-lg font-semibold">
             {title}
             {account ? ` · ${account.label}` : ""}
@@ -1514,7 +1374,7 @@ function AccountForm({
             {mode === "connect" ? (
               <SelectField
                 name="profileId"
-                label="Provider profile"
+                label="Профиль провайдера"
                 defaultValue={profiles[0]?.id ?? ""}
                 onValueChange={(value) => {
                   const profile = profiles.find((p) => p.id === value);
@@ -1590,7 +1450,7 @@ function AccountForm({
             ) : null}
             {mode !== "reconnect" ? (
               <label className="grid gap-2 text-sm">
-                Account label{mode === "connect" ? " (optional)" : ""}
+                Название подключения{mode === "connect" ? " (optional)" : ""}
                 <input
                   className={inputClass}
                   name="label"
@@ -1620,7 +1480,7 @@ function AccountForm({
               </label>
             ) : null}
             <Button type="submit" disabled={disabled || !endpointValid}>
-              Submit
+              Подтвердить
             </Button>
           </form>
         </Dialog.Popup>

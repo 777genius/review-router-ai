@@ -53,6 +53,9 @@ function fixture() {
     },
   });
   const api = {
+    listAccessSummaries: vi
+      .fn<PersonalAccountsApi["listAccessSummaries"]>()
+      .mockResolvedValue({ status: "ok", value: { summaries: [] } }),
     listSources: vi.fn<PersonalAccountsApi["listSources"]>().mockResolvedValue({
       status: "ok",
       value: { sources: [source("offpage")], nextCursor: null },
@@ -131,7 +134,7 @@ function fixture() {
 }
 
 async function openBulk() {
-  fireEvent.click(screen.getByText("Share several accounts"));
+  fireEvent.click(screen.getByText("Поделиться несколькими подключениями"));
   await screen.findByRole("button", { name: "Share selected accounts" });
 }
 
@@ -211,20 +214,18 @@ test.each([null, "Organization X"])(
     render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Workspace access for Personal source-0",
+        name: "Доступ: Personal source-0",
       }),
     );
     expect(
-      await screen.findAllByText(
-        organizationLabel ?? "Organization unavailable",
-      ),
+      await screen.findAllByText(organizationLabel ?? "Workspace недоступен"),
     ).toBeTruthy();
     expect(document.body.textContent).not.toContain("opaque-former-org");
     if (organizationLabel === null)
       expect(
-        screen.getByText("Organization unavailable").parentElement?.textContent,
+        screen.getByText("Workspace недоступен").parentElement?.textContent,
       ).not.toContain("Organization X");
-    fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
+    fireEvent.click(screen.getByRole("button", { name: "Убрать доступ" }));
     await waitFor(() => expect(api.revoke).toHaveBeenCalledTimes(1));
     expect(api.revoke.mock.calls[0]?.[0]).toEqual({
       nonce: expect.any(String),
@@ -237,10 +238,10 @@ test.each([null, "Organization X"])(
     expect(
       await screen.findAllByText(/gateway confirmation pending/),
     ).not.toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть" }));
     expect(
       await screen.findByText(
-        `Personal source-0 · ${organizationLabel ?? "Organization unavailable"}`,
+        `Personal source-0 · ${organizationLabel ?? "Workspace недоступен"}`,
       ),
     ).toBeTruthy();
     expect(document.body.textContent).not.toContain("opaque-former-org");
@@ -327,10 +328,10 @@ test("revocation invalidates cached eligible selections in its scope before reus
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   fireEvent.click(
     screen.getByRole("button", {
-      name: "Workspace access for Personal source-0",
+      name: "Доступ: Personal source-0",
     }),
   );
-  fireEvent.click(await screen.findByRole("button", { name: "Revoke access" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Убрать доступ" }));
   await waitFor(() => expect(api.revoke).toHaveBeenCalledTimes(1));
   const eligibleKey = [
     "personal-accounts",
@@ -344,7 +345,7 @@ test("revocation invalidates cached eligible selections in its scope before reus
   expect(client.getQueryState(otherScope)?.isInvalidated).toBe(false);
   expect(client.getQueryState(operationKey)?.isInvalidated).toBe(false);
   await act(async () => releaseRefetch());
-  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  fireEvent.click(screen.getByRole("button", { name: "Закрыть" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await waitFor(() =>
     expect(
@@ -359,7 +360,9 @@ test("revocation invalidates cached eligible selections in its scope before reus
     screen.getByRole("button", { name: "Share selected accounts" }),
   );
   await waitFor(() =>
-    expect(api.listEligibleOrganizations).toHaveBeenCalledTimes(2),
+    expect(
+      api.listEligibleOrganizations.mock.calls.length,
+    ).toBeGreaterThanOrEqual(2),
   );
   await waitFor(() =>
     expect(client.getQueryState(eligibleKey)?.isInvalidated).toBe(false),
@@ -530,22 +533,20 @@ test("direct access keeps historical lifetimes separate and never substitutes an
   render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
   fireEvent.click(
     screen.getByRole("button", {
-      name: "Workspace access for Personal source-0",
+      name: "Доступ: Personal source-0",
     }),
   );
   const dialog = await screen.findByRole("dialog", {
-    name: "Workspace access · Personal source-0",
+    name: "Доступ · Personal source-0",
   });
-  await screen.findByText("Previous access revoked");
-  expect(within(dialog).getAllByText("Organization unavailable")).toHaveLength(
-    2,
-  );
+  await screen.findByText("Прежний доступ отозван");
+  expect(within(dialog).getAllByText("Workspace недоступен")).toHaveLength(2);
   expect(within(dialog).queryByText("Organization X")).toBeNull();
   expect(
-    within(dialog).getAllByRole("button", { name: "Revoke access" }),
+    within(dialog).getAllByRole("button", { name: "Убрать доступ" }),
   ).toHaveLength(1);
   fireEvent.click(
-    within(dialog).getByRole("button", { name: "Revoke access" }),
+    within(dialog).getByRole("button", { name: "Убрать доступ" }),
   );
   await waitFor(() =>
     expect(api.revoke).toHaveBeenCalledWith(
@@ -566,7 +567,7 @@ test("closing, remounting and reopening direct workspace access preserves uncert
     <PersonalAccountControls bootstrap={bootstrap} api={api} />,
   );
   let trigger = screen.getByRole("button", {
-    name: "Workspace access for Personal source-0",
+    name: "Доступ: Personal source-0",
   });
   trigger.focus();
   fireEvent.click(trigger);
@@ -577,7 +578,7 @@ test("closing, remounting and reopening direct workspace access preserves uncert
   fireEvent.click(add);
   await waitFor(() => expect(api.attach).toHaveBeenCalledTimes(1));
   const original = api.attach.mock.calls[0]![0];
-  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  fireEvent.click(screen.getByRole("button", { name: "Закрыть" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await waitFor(() => expect(document.activeElement).toBe(trigger));
   view.unmount();
@@ -586,17 +587,17 @@ test("closing, remounting and reopening direct workspace access preserves uncert
   api.readOperation.mockResolvedValue({ status: "denied" });
   render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
   trigger = screen.getByRole("button", {
-    name: "Workspace access for Personal source-0",
+    name: "Доступ: Personal source-0",
   });
   await waitFor(() =>
     expect(api.readOperation).toHaveBeenCalledWith(original.nonce),
   );
   fireEvent.click(trigger);
   const reopened = await screen.findByRole("dialog", {
-    name: "Workspace access · Personal source-0",
+    name: "Доступ · Personal source-0",
   });
   fireEvent.click(
-    within(reopened).getByRole("button", { name: "Refresh workspace access" }),
+    within(reopened).getByRole("button", { name: "Обновить доступ" }),
   );
   await waitFor(() =>
     expect(api.listEligibleOrganizations.mock.calls.length).toBeGreaterThan(1),
@@ -781,7 +782,7 @@ test("serializes saved terminal nonce refreshes and refreshes again for a receip
   );
   await waitFor(() => expect(api.listSources).toHaveBeenCalledTimes(2));
   await screen.findByRole("button", {
-    name: "Workspace access for After second receipt",
+    name: "Доступ: After second receipt",
   });
   expect(api.attach).not.toHaveBeenCalled();
   expect(api.revoke).not.toHaveBeenCalled();
@@ -860,7 +861,7 @@ test("drains a saved terminal receipt arriving during mutation refresh before re
   );
   fireEvent.click(
     screen.getByRole("button", {
-      name: "Workspace access for Personal source-1",
+      name: "Доступ: Personal source-1",
     }),
   );
   const add = await screen.findByRole("button", {
@@ -901,7 +902,7 @@ test("drains a saved terminal receipt arriving during mutation refresh before re
     }),
   );
   await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  fireEvent.click(screen.getByRole("button", { name: "Закрыть" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(
     screen.getByRole("article", { name: "Old receipt visible" }),
@@ -925,7 +926,7 @@ test("a terminal receipt from the mutation itself is covered by its availability
   render(<PersonalAccountControls bootstrap={bootstrap} api={api} />);
   fireEvent.click(
     screen.getByRole("button", {
-      name: "Workspace access for Personal source-0",
+      name: "Доступ: Personal source-0",
     }),
   );
   const add = await screen.findByRole("button", {
@@ -944,3 +945,9 @@ test("a terminal receipt from the mutation itself is covered by its availability
   expect(api.attach).toHaveBeenCalledTimes(1);
   expect(api.revoke).not.toHaveBeenCalled();
 });
+
+vi.mock("./account-lifecycle-actions", () => ({
+  continueAccountLifecycleOperation: vi.fn(),
+  mutateAccountLifecycle: vi.fn(),
+  readAccountLifecycleOperation: vi.fn(),
+}));

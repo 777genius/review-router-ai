@@ -1,3 +1,5 @@
+import { lifecycleProjection } from "./account-lifecycle";
+import type { AccountLifecycleRead } from "./account-lifecycle-reader";
 import * as c from "@agent-teams/account-gateway/contracts";
 import type { ConsumerControlClient } from "@agent-teams/account-gateway/http";
 import { z } from "zod";
@@ -47,6 +49,16 @@ export type PersonalCanonicalOperationView = AccountOperationView & {
 };
 type Dependencies = {
   authorizeUser(): Promise<string>;
+  lifecycleReader?: {
+    get(accountRef: string): Promise<AccountLifecycleRead>;
+    compatible(): Promise<boolean>;
+    writable(): Promise<boolean>;
+  };
+  lifecycleEnabled?: () => boolean;
+  readLifecycleAction?: (
+    sourceId: string,
+    operationId: string,
+  ) => Promise<"suspend" | "resume" | "delete" | null>;
   store: PersonalAccountOperationStore;
   canonical: PersonalCanonicalOperationStore;
   control: Pick<
@@ -175,10 +187,16 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         ]),
       ),
     });
-    async function get(source: ProviderAccountConnection) {
-      const account = c.account.parse(
-        await checked(() => input.control.get(source.gatewayAccountRef)),
-      );
+    async function get(
+      source: ProviderAccountConnection,
+    ): Promise<AccountLifecycleRead> {
+      const account = input.lifecycleReader
+        ? await checked(() =>
+            input.lifecycleReader!.get(source.gatewayAccountRef),
+          )
+        : c.account.parse(
+            await checked(() => input.control.get(source.gatewayAccountRef)),
+          );
       if (
         source.owner.kind !== "user" ||
         source.owner.userId !== actor ||
@@ -231,20 +249,59 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       const current = await checked(() =>
         input.store.findOwnedSource(actor, source.id),
       );
+      const synchronized =
+        current.metadataRevision === source.metadataRevision &&
+        current.pendingSourceOperationId == null &&
+        current.state === account.state &&
+        current.authorizationEpochMirror === account.authorizationEpoch;
+      const pendingAction = current.pendingSourceOperationId
+        ? await input.readLifecycleAction?.(
+            source.id,
+            current.pendingSourceOperationId,
+          )
+        : null;
+      const lifecycle = lifecycleProjection({
+        pendingAction: pendingAction ?? undefined,
+        owned: true,
+        compatible:
+          !!input.lifecycleEnabled?.() &&
+          !!(await input.lifecycleReader?.writable()),
+        state: account.state,
+        pendingOperationId: current.pendingSourceOperationId ?? null,
+        synchronized,
+        custodyVerified: account.resumeCustody === "verified",
+        operationReadable: !!pendingAction,
+      });
       return {
+        lifecycle: lifecycle.lifecycle,
+        isOwnedByViewer: true,
+        origin: "personal" as const,
+        allowedActions: lifecycle.actions,
+        ...(lifecycle.lifecycle.status === "available"
+          ? { authorizationEpoch: account.authorizationEpoch }
+          : {}),
         connectionId: source.id,
         label: account.displayName,
         profileId: account.profileId,
         profileLabel: profileFor(account.profileId)!.label,
         authKind: profileFor(account.profileId)!.authKind,
         state: account.state,
+        readiness: current.pendingSourceOperationId
+          ? ("pending" as const)
+          : synchronized
+            ? account.state === "active"
+              ? ("ready" as const)
+              : ("unavailable" as const)
+            : ("unknown" as const),
         gatewayRevision: account.metadataRevision,
         mirrorRevision: current.metadataRevision,
         binding: null,
         canManage:
           current.metadataRevision === source.metadataRevision &&
           current.pendingSourceOperationId == null &&
-          !["disabled", "unknown", "pending"].includes(current.state) &&
+          !["disabled", "suspended", "unknown", "pending"].includes(
+            current.state,
+          ) &&
           current.state === account.state &&
           current.authorizationEpochMirror === account.authorizationEpoch,
       };
@@ -555,8 +612,52 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
                   input.store.findOwnedSource(scope.actor, row.sourceId),
                 ),
               );
-            } catch {
-              return null;
+            } catch (error) {
+              if (error instanceof Denied) return null;
+              const source = await scope.checked(() =>
+                input.store.findOwnedSource(scope.actor, row.sourceId),
+              );
+              const profile = scope.profileFor(source.profileRef);
+              if (!profile) return null;
+              const pendingAction = source.pendingSourceOperationId
+                ? await input.readLifecycleAction?.(
+                    source.id,
+                    source.pendingSourceOperationId,
+                  )
+                : null;
+              const projection = lifecycleProjection({
+                pendingAction: pendingAction ?? undefined,
+                owned: true,
+                compatible: false,
+                state: source.state,
+                pendingOperationId: source.pendingSourceOperationId ?? null,
+                synchronized: false,
+                operationReadable: !!pendingAction,
+              });
+              return {
+                connectionId: source.id,
+                label: source.displayName,
+                profileId: profile.id,
+                profileLabel: profile.label,
+                authKind: profile.authKind,
+                state:
+                  source.state === "suspended"
+                    ? ("suspended" as const)
+                    : source.state === "disabled"
+                      ? ("disabled" as const)
+                      : ("quarantined" as const),
+                readiness: source.pendingSourceOperationId
+                  ? ("pending" as const)
+                  : ("unknown" as const),
+                gatewayRevision: 0,
+                mirrorRevision: source.metadataRevision,
+                binding: null,
+                canManage: false,
+                isOwnedByViewer: true,
+                origin: "personal" as const,
+                lifecycle: projection.lifecycle,
+                allowedActions: projection.actions,
+              };
             }
           }),
         );

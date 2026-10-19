@@ -119,6 +119,18 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
       where: {
         ownerUserId: actorUserId,
         ownerWorkspaceId: null,
+        // Exclude only verified terminal account deletion before keyset/take.
+        // Legacy retire/disabled and pending/unverified delete remain inspectable.
+        personalOperationIntents: {
+          none: {
+            action: "delete",
+            phase: "applied",
+            deleteRemoteRetirementProofRef: { not: null },
+            deleteBindingErasureProofRef: { not: null },
+            deleteTransportErasureProofRef: { not: null },
+            deleteNativeErasureProofRef: { not: null },
+          },
+        },
         ...(afterSourceId === undefined ? {} : { id: { gt: afterSourceId } }),
       },
       orderBy: { id: "asc" },
@@ -165,6 +177,8 @@ export class PrismaPersonalAccountOperations implements PersonalAccountOperation
     if (row.phase === "applied" && (!source || source.ownerUserId === null))
       return unavailable();
     const ownerId = source?.ownerUserId ?? row.actorUserId;
+    if (row.personalWorkspaceId === null)
+      throw new ProviderAccountError("operation_conflict");
     const scope = await tx.workspace.findFirst({
       where: {
         id: row.personalWorkspaceId,

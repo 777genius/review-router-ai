@@ -155,7 +155,10 @@ export default async function RootLayout({
         >
           Skip to content
         </a>
-        <header className="sticky top-0 z-40 border-b border-cyan-300/[0.1] bg-[var(--rr-header-bg)] shadow-[0_18px_60px_-42px_rgba(0,240,255,0.7)] backdrop-blur-xl">
+        <header
+          data-global-header
+          className="sticky top-0 z-40 border-b border-cyan-300/[0.1] bg-[var(--rr-header-bg)] shadow-[0_18px_60px_-42px_rgba(0,240,255,0.7)] backdrop-blur-xl"
+        >
           <div
             aria-hidden="true"
             className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan-200/55 to-transparent"

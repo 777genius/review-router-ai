@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import type { AccountsBootstrap } from "../../src/server/account-gateway-accounts";
 import type {
@@ -15,6 +15,7 @@ import {
   PersonalAccountControls,
   refreshPersonalAccountViews,
 } from "./personal-account-controls";
+import { personalAccountAccessReads } from "./personal-account-access-api";
 import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
 
 export function PersonalAccountsPanel({
@@ -23,13 +24,22 @@ export function PersonalAccountsPanel({
   management,
   managementApi,
   workspaceId,
+  accessReadContext,
 }: {
   bootstrap: PersonalAccountsBootstrap;
   api: PersonalAccountsApi;
   management: AccountsBootstrap;
   managementApi: AccountGatewayManagementApi;
   workspaceId?: string;
+  accessReadContext?: string;
 }) {
+  const readApi = useMemo(
+    () =>
+      accessReadContext
+        ? { ...api, ...personalAccountAccessReads(accessReadContext) }
+        : api,
+    [accessReadContext, api],
+  );
   const options = useCurrentGatewayModelAccountsCache();
   const [fallback] = useState(() => new QueryClient());
   const client = options?.client ?? fallback;
@@ -40,7 +50,7 @@ export function PersonalAccountsPanel({
   return (
     <section
       id="your-accounts"
-      className="space-y-4 border-b border-cyan-200/10 pb-6"
+      className="space-y-4"
       aria-labelledby="personal-accounts-panel-title"
     >
       <div>
@@ -48,11 +58,11 @@ export function PersonalAccountsPanel({
           id="personal-accounts-panel-title"
           className="text-lg font-semibold text-cyan-50"
         >
-          Your accounts
+          Мои подключения
         </h3>
         <p className="mt-1 text-sm text-slate-400">
-          Connect once and choose where it is available. Every workspace uses
-          the same name, sign-in and review capacity.
+          Подключите аккаунт один раз и укажите, где им можно пользоваться.
+          Владение и учётные данные остаются личными.
         </p>
       </div>
       <AccountGatewayControls
@@ -65,7 +75,7 @@ export function PersonalAccountsPanel({
         renderAccounts={(accounts, actions) => (
           <PersonalAccountControls
             bootstrap={bootstrap}
-            api={api}
+            api={readApi}
             queryClient={client}
             currentWorkspaceId={workspaceId}
             managementRows={accounts}

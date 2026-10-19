@@ -59,3 +59,10 @@ export function readPersonalAccountSharingEnabled(
 ): boolean {
   return env.REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED === "1";
 }
+
+/** Rollout remains closed until compatible Gateway/native readers are qualified. */
+export function readAccountLifecycleEnabled(
+  env: Readonly<Record<string, string | undefined>>,
+): boolean {
+  return env.REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED === "1";
+}
