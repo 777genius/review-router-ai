@@ -18,7 +18,7 @@ node scripts/build-public-review-pages.ts tmp/public-review-output
 
 The manifest records the source commit and SHA-256 of every published file.
 Copy the verified artifact to an immutable project release directory, then
-record `/srv/platform/projects/review-router/public-review/current` as its pointer.
+record `/srv/platform/public-web/review-router/current` as its pointer.
 In the installed Caddy snippet, replace the template root with that immutable
 release path; serving never follows a mutable release pointer.
 
