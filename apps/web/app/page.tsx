@@ -28,7 +28,7 @@ export const metadata: Metadata = createPublicPageMetadata({
 const setupSteps = [
   {
     title: "Install GitHub App",
-    body: "Choose one repository, selected repositories, or an organization. ReviewRouter syncs metadata, not source code.",
+    body: "Pick one repository, several, or a whole organization. Only metadata is synced, never source code.",
     badge: "STEP 1",
     number: "1",
     className: "setup-blueprint__step--one",
@@ -36,7 +36,7 @@ const setupSteps = [
   },
   {
     title: "Merge setup PR",
-    body: "A compact reusable workflow is added through a pull request, so your repository controls what runs in CI.",
+    body: "A small reusable workflow arrives as a pull request, so your repository controls what runs in CI.",
     badge: "STEP 2",
     number: "2",
     className: "setup-blueprint__step--two",
@@ -44,7 +44,7 @@ const setupSteps = [
   },
   {
     title: "Connect provider",
-    body: "Run one local command to seed Codex OAuth, Claude Code OAuth, or API keys directly into GitHub Actions secrets.",
+    body: "One local command saves Codex OAuth, Claude Code OAuth, or API keys into GitHub Actions secrets.",
     badge: "STEP 3",
     number: "3",
     className: "setup-blueprint__step--three",
@@ -67,7 +67,7 @@ const setupSignals = [
   },
   {
     title: "Secrets synced",
-    body: "Stored in GitHub Actions secrets. Or use the encrypted account pool.",
+    body: "GitHub Actions secrets, or the encrypted account pool.",
     className: "setup-blueprint__signal--secrets",
     icon: KeyRound,
   },
@@ -140,7 +140,6 @@ export default async function HomePage(): Promise<React.ReactElement> {
         <BlueprintLines />
 
         <div className="setup-blueprint__intro">
-          <p className="setup-blueprint__eyebrow">ReviewRouter Setup ///</p>
           <h1 id="setup-blueprint-title">
             Free privacy-first
             <br />

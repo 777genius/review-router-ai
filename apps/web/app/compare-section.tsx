@@ -189,8 +189,8 @@ export function CompareSection({
               ReviewRouter vs AI code review apps
             </Heading>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8 lg:max-w-xl">
-              Compare concrete reviewers first, then compare the cloud boundary
-              that decides where code, credentials, and model prompts travel.
+              Compare specific reviewers first, then the cloud boundary that
+              decides where your code, credentials, and prompts travel.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <LinkButton href="/security" variant="soft" tone="success">
@@ -217,7 +217,7 @@ export function CompareSection({
                 Competitor matrix
               </h3>
               <p className="mt-1 text-sm text-slate-400">
-                Concrete review apps compared across what matters.
+                Review apps compared on what matters.
               </p>
             </div>
             <p className="font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-500">
@@ -231,7 +231,7 @@ export function CompareSection({
               className="mt-0.5 size-4 shrink-0 text-cyan-300"
             />
             Information reflects public vendor docs checked on September 17,
-            2026. Verify current compliance details before procurement.
+            2026. Confirm compliance details before buying.
           </p>
         </div>
 
@@ -261,8 +261,8 @@ export function CompareSection({
               Keep code private. Keep control.
             </h3>
             <p className="mt-1 text-sm leading-6 text-slate-300">
-              ReviewRouter gives you a hosted control plane without taking
-              ownership of review execution.
+              ReviewRouter hosts the control plane. Review execution stays in
+              your environment.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 sm:justify-end">
@@ -297,8 +297,8 @@ function InsightPanel(): React.ReactElement {
         <span className="text-lime-300">The review workload is yours.</span>
       </h3>
       <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300">
-        ReviewRouter keeps orchestration, policy, health, and audit in the
-        product while review execution stays in a runtime you control.
+        Orchestration, policy, health, and audit stay in the product. Review
+        execution stays in a runtime you control.
       </p>
 
       <div className="mt-7 grid gap-4 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-center">

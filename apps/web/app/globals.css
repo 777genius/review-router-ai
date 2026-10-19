@@ -483,7 +483,6 @@ canvas {
   width: min(48rem, 44%);
 }
 
-.setup-blueprint__eyebrow,
 .setup-blueprint__step-label,
 .setup-blueprint__signal strong {
   margin: 0;
@@ -491,16 +490,6 @@ canvas {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-}
-
-.setup-blueprint__eyebrow {
-  color: rgba(203, 213, 225, 0.58);
-  font-size: clamp(0.7rem, 0.78vw, 1rem);
-}
-
-.setup-blueprint__eyebrow::after {
-  color: #59dfff;
-  content: "";
 }
 
 .setup-blueprint__intro h1 {
@@ -523,7 +512,7 @@ canvas {
   box-shadow: 0 0 18px rgba(100, 225, 255, 0.36);
 }
 
-.setup-blueprint__intro p:not(.setup-blueprint__eyebrow) {
+.setup-blueprint__intro p {
   position: relative;
   max-width: 24rem;
   margin: clamp(1rem, 1vw, 1.35rem) 0 0;
@@ -750,17 +739,13 @@ canvas {
     );
 }
 
-[data-theme="light"] .setup-blueprint__eyebrow {
-  color: rgba(71, 85, 105, 0.74);
-}
-
 [data-theme="light"] .setup-blueprint__intro h1,
 [data-theme="light"] .setup-blueprint__step h2 {
   color: #102033;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
-[data-theme="light"] .setup-blueprint__intro p:not(.setup-blueprint__eyebrow) {
+[data-theme="light"] .setup-blueprint__intro p {
   background: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0.88),
@@ -1370,16 +1355,6 @@ canvas {
     }
   }
 
-  .setup-blueprint__eyebrow {
-    display: inline-flex;
-    width: fit-content;
-    border: 1px solid rgba(52, 211, 153, 0.24);
-    border-radius: 999px;
-    background: rgba(52, 211, 153, 0.08);
-    padding: 0.42rem 0.65rem;
-    color: #6ee7b7;
-  }
-
   .setup-blueprint__intro-rule {
     width: 100%;
     max-width: 18rem;
@@ -1387,7 +1362,7 @@ canvas {
     background: linear-gradient(90deg, #34d399, #22d3ee, #f59e0b, transparent);
   }
 
-  .setup-blueprint__intro p:not(.setup-blueprint__eyebrow) {
+  .setup-blueprint__intro p {
     max-width: 20rem;
     padding: 0;
     background: transparent;

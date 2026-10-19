@@ -669,135 +669,139 @@ function PersonalControls({
       {sourceFailure || sources.isError ? (
         <p role="status">{errorText(sourceFailure?.status ?? "unavailable")}</p>
       ) : null}
-      <div
-        className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
-        aria-hidden="true"
-      >
-        <span>Аккаунт</span>
-        <span>Где доступен</span>
-        <span>Состояние</span>
-        <span />
-      </div>
-      <div className="divide-y divide-cyan-200/10">
-        {!inventory.length && !sourceFailure && !sources.isError ? (
-          <p className="py-4 text-sm text-slate-400">
-            No personal accounts on the loaded pages.
-          </p>
-        ) : null}
-        {inventory.map((id) => {
-          const source = sourcesById.get(id);
-          const account = managementById.get(id);
-          const label = account?.label ?? source!.label;
-          const canAdd =
-            source?.state === "active" &&
-            source.profileId !== null &&
-            !source.sourceOperationPending &&
-            !lifecycleActivities.has(id);
-          return (
-            <article
-              key={id}
-              aria-label={label}
-              className={`grid min-w-0 items-center gap-3 py-4 ${accountsGridColumns}`}
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-3">
-                  {bulk && source ? (
-                    <Checkbox
-                      aria-label={`Select ${label}`}
-                      checked={selected.some((value) => value.sourceId === id)}
-                      disabled={sharingDisabled || !canAdd}
-                      onChange={(event) =>
-                        setSelected((prior) =>
-                          event.target.checked
-                            ? [
-                                ...prior,
-                                {
-                                  sourceId: id,
-                                  metadataRevision: source.metadataRevision,
-                                },
-                              ]
-                            : prior.filter((row) => row.sourceId !== id),
-                        )
-                      }
-                    />
-                  ) : null}
-                  <AccountIdentity
-                    label={label}
-                    {...(account
-                      ? {
-                          profileLabel: account.profileLabel,
-                          authKind: account.authKind,
+      <div>
+        <div
+          className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
+          aria-hidden="true"
+        >
+          <span>Аккаунт</span>
+          <span>Где доступен</span>
+          <span>Состояние</span>
+          <span />
+        </div>
+        <div className="divide-y divide-cyan-200/10">
+          {!inventory.length && !sourceFailure && !sources.isError ? (
+            <p className="py-4 text-sm text-slate-400">
+              No personal accounts on the loaded pages.
+            </p>
+          ) : null}
+          {inventory.map((id) => {
+            const source = sourcesById.get(id);
+            const account = managementById.get(id);
+            const label = account?.label ?? source!.label;
+            const canAdd =
+              source?.state === "active" &&
+              source.profileId !== null &&
+              !source.sourceOperationPending &&
+              !lifecycleActivities.has(id);
+            return (
+              <article
+                key={id}
+                aria-label={label}
+                className={`grid min-w-0 items-center gap-3 py-4 ${accountsGridColumns}`}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3">
+                    {bulk && source ? (
+                      <Checkbox
+                        aria-label={`Select ${label}`}
+                        checked={selected.some(
+                          (value) => value.sourceId === id,
+                        )}
+                        disabled={sharingDisabled || !canAdd}
+                        onChange={(event) =>
+                          setSelected((prior) =>
+                            event.target.checked
+                              ? [
+                                  ...prior,
+                                  {
+                                    sourceId: id,
+                                    metadataRevision: source.metadataRevision,
+                                  },
+                                ]
+                              : prior.filter((row) => row.sourceId !== id),
+                          )
                         }
-                      : {})}
-                  />
-                </div>
-                {source?.state === "disabled" ||
-                account?.state === "tombstoned" ? (
-                  <p className="mt-2 text-xs text-slate-400">
-                    Retired accounts cannot reconnect. Connect a new account to
-                    use it again. Credential cleanup is unverified.
-                  </p>
-                ) : null}
-                {!source ? (
-                  <p className="mt-2 text-sm text-slate-400">
-                    Workspace access unavailable on the loaded source pages.
-                  </p>
-                ) : null}
-              </div>
-              <AccessSummaryChips summary={summaryBySource.get(id)} />
-              <p className="text-sm text-slate-300">
-                {lifecycleActivities.get(id) === "delete" ||
-                (account?.lifecycle?.status === "pending" &&
-                  account.lifecycle.action === "delete")
-                  ? "Удаляем…"
-                  : lifecycleActivities.has(id)
-                    ? "Подтверждаем изменение"
-                    : source?.sourceOperationPending
-                      ? "Подтверждаем изменение"
-                      : account
-                        ? accountStatus(account)
-                        : "Результат пока неизвестен"}
-              </p>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                {source ? (
-                  <WorkspaceAccess
-                    scope={bootstrap.scope}
-                    source={source}
-                    api={api}
-                    disabled={sharingDisabled}
-                    pendingWorkspaces={pendingWorkspaces(source.sourceId)}
-                    canAdd={Boolean(canAdd)}
-                    share={(targets) =>
-                      share(targets, [
-                        {
-                          sourceId: source.sourceId,
-                          metadataRevision: source.metadataRevision,
-                        },
-                      ])
-                    }
-                    revoke={revoke}
-                    currentWorkspace={currentWorkspaceId ?? currentWorkspace}
-                    message={sourceMessages[source.sourceId]}
-                  />
-                ) : null}
-                {account ? (
-                  <AccountActionsMenu label={label}>
-                    {managementActions?.(account)}
-                    {currentWorkspaceId ? (
-                      <AccountLifecycleControls
-                        account={account}
-                        context={bootstrap.scope}
-                        workspaceId={currentWorkspaceId}
-                        client={client}
-                        accessSummary={summaryBySource.get(id)}
                       />
                     ) : null}
-                  </AccountActionsMenu>
-                ) : null}
-              </div>
-            </article>
-          );
-        })}
+                    <AccountIdentity
+                      label={label}
+                      {...(account
+                        ? {
+                            profileLabel: account.profileLabel,
+                            authKind: account.authKind,
+                          }
+                        : {})}
+                    />
+                  </div>
+                  {source?.state === "disabled" ||
+                  account?.state === "tombstoned" ? (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Retired accounts cannot reconnect. Connect a new account
+                      instead. Credential cleanup is not confirmed.
+                    </p>
+                  ) : null}
+                  {!source ? (
+                    <p className="mt-2 text-sm text-slate-400">
+                      Workspace access unavailable on the loaded source pages.
+                    </p>
+                  ) : null}
+                </div>
+                <AccessSummaryChips summary={summaryBySource.get(id)} />
+                <p className="text-sm text-slate-300">
+                  {lifecycleActivities.get(id) === "delete" ||
+                  (account?.lifecycle?.status === "pending" &&
+                    account.lifecycle.action === "delete")
+                    ? "Удаляем…"
+                    : lifecycleActivities.has(id)
+                      ? "Подтверждаем изменение"
+                      : source?.sourceOperationPending
+                        ? "Подтверждаем изменение"
+                        : account
+                          ? accountStatus(account)
+                          : "Результат пока неизвестен"}
+                </p>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {source ? (
+                    <WorkspaceAccess
+                      scope={bootstrap.scope}
+                      source={source}
+                      api={api}
+                      disabled={sharingDisabled}
+                      pendingWorkspaces={pendingWorkspaces(source.sourceId)}
+                      canAdd={Boolean(canAdd)}
+                      share={(targets) =>
+                        share(targets, [
+                          {
+                            sourceId: source.sourceId,
+                            metadataRevision: source.metadataRevision,
+                          },
+                        ])
+                      }
+                      revoke={revoke}
+                      currentWorkspace={currentWorkspaceId ?? currentWorkspace}
+                      message={sourceMessages[source.sourceId]}
+                    />
+                  ) : null}
+                  {account ? (
+                    <AccountActionsMenu label={label}>
+                      {managementActions?.(account)}
+                      {currentWorkspaceId ? (
+                        <AccountLifecycleControls
+                          account={account}
+                          context={bootstrap.scope}
+                          workspaceId={currentWorkspaceId}
+                          client={client}
+                          accessSummary={summaryBySource.get(id)}
+                        />
+                      ) : null}
+                    </AccountActionsMenu>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
       </div>
       {sources.hasNextPage ? (
         <Button
@@ -1304,9 +1308,8 @@ function WorkspaceAccess({
                 История отозванного доступа
               </summary>
               <p className="mt-2 text-xs text-slate-400">
-                Прежние организации скрыты, если доступ к их названию утрачен.
-                Владелец источника всё равно может отозвать точную старую
-                запись.
+                Прежние организации скрыты, если их название недоступно.
+                Владелец источника всё равно может отозвать старую запись.
               </p>
               <div className="mt-2">
                 {(grantFailure ? [] : rows)
