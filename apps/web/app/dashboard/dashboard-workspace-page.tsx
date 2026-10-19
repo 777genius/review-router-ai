@@ -1,5 +1,9 @@
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
+import {
+  RepositoryNameLink,
+  RepositoryStarsBadge,
+} from "../repository-row-display";
 import { initialWorkspaceReviewPolicyDraft } from "../../src/server/initial-workspace-review-policy";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
 import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
@@ -2915,8 +2919,10 @@ function RepositoryTable({
       fullName: row.repository.fullName,
       sourceUrl: repositorySourceUrl(row.repository),
       searchText: row.searchableText,
+      provider: row.repository.provider === "gitlab" ? "gitlab" : "github",
       visibility: row.repository.visibility,
       readiness: row.readiness,
+      setupProgressStep: row.setupProgressStep,
       stargazersCount: row.repository.stargazersCount,
       archived: row.repository.archived,
     }),
@@ -3017,16 +3023,13 @@ function RepositoryTable({
             richRowIds={displayRows.map((row) => row.repository.id)}
           >
             {displayRows.map(
-              (
-                {
-                  repository,
-                  setupPullRequestUrl,
-                  setupIssue,
-                  workflowCurrent,
-                  setupProgressStep,
-                },
-                rowIndex,
-              ) => {
+              ({
+                repository,
+                setupPullRequestUrl,
+                setupIssue,
+                workflowCurrent,
+                setupProgressStep,
+              }) => {
                 const repositoryConfig =
                   repositoryConfigById.get(repository.id) ?? null;
                 const effectiveConfig =
@@ -3041,32 +3044,13 @@ function RepositoryTable({
                 const setupDisclosureId = `repo-setup-${repository.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
                 const isSelectedRepository =
                   repository.fullName === selectedRepositoryFullName;
-                const rowStripeClass = (() => {
-                  if (isSelectedRepository) {
-                    return setupProgressStep === 4
-                      ? "bg-emerald-400/[0.075]"
-                      : "bg-cyan-300/[0.045]";
-                  }
-                  if (setupProgressStep === 4) {
-                    return rowIndex % 2 === 0
-                      ? "bg-emerald-400/[0.04] hover:bg-emerald-400/[0.07]"
-                      : "bg-emerald-300/[0.07] hover:bg-emerald-300/[0.095]";
-                  }
-                  return rowIndex % 2 === 0
-                    ? "bg-slate-950/[0.2] hover:bg-cyan-300/[0.035]"
-                    : "bg-cyan-300/[0.035] hover:bg-cyan-300/[0.06]";
-                })();
-
                 return (
                   <div
                     key={repository.id}
                     data-repository-row-id={repository.id}
                     data-repository-setup-row
                     data-disclosure-id={setupDisclosureId}
-                    className={[
-                      "grid cursor-pointer gap-3 border-t border-cyan-200/10 px-4 py-3 transition-colors lg:px-6 lg:py-3.5",
-                      rowStripeClass,
-                    ].join(" ")}
+                    className="grid cursor-pointer gap-3 px-4 py-3 transition-colors lg:px-6 lg:py-3.5"
                   >
                     <input
                       id={setupDisclosureId}
@@ -3219,84 +3203,6 @@ function RepositoryTable({
       </GatewayRepositoryBatchRefreshBoundary>
     </div>
   );
-}
-
-function RepositoryNameLink({
-  fullName,
-  repositoryUrl,
-  className,
-}: {
-  readonly fullName: string;
-  readonly repositoryUrl: string | null;
-  readonly className: string;
-}): React.ReactElement {
-  const displayName = repositoryDisplayName(fullName);
-  const classes = [
-    className,
-    repositoryUrl
-      ? "transition hover:text-cyan-100 hover:underline hover:decoration-cyan-300/50 hover:underline-offset-4"
-      : "",
-  ].join(" ");
-
-  if (!repositoryUrl) {
-    return (
-      <p className={classes} title={fullName}>
-        {displayName}
-      </p>
-    );
-  }
-
-  return (
-    <a
-      href={repositoryUrl}
-      target="_blank"
-      rel="noreferrer"
-      className={classes}
-      title={fullName}
-      aria-label={fullName}
-    >
-      {displayName}
-    </a>
-  );
-}
-
-function repositoryDisplayName(fullName: string): string {
-  const [, repo] = fullName.split("/");
-  return repo || fullName;
-}
-
-function RepositoryStarsBadge({
-  stargazersCount,
-}: {
-  readonly stargazersCount: number;
-}): React.ReactElement {
-  const safeCount = Math.max(0, stargazersCount);
-
-  return (
-    <span
-      className="inline-flex shrink-0 items-center gap-1.5 font-mono text-xs font-semibold leading-none text-amber-100/90"
-      title={`${safeCount} GitHub stars`}
-      aria-label={`${safeCount} GitHub stars`}
-    >
-      <svg
-        aria-hidden="true"
-        viewBox="0 0 16 16"
-        className="h-3.5 w-3.5 shrink-0 translate-y-px fill-amber-300 text-amber-300"
-      >
-        <path d="M8 1.6 9.9 5.5l4.3.6-3.1 3 0.7 4.3L8 11.4l-3.8 2 0.7-4.3-3.1-3 4.3-.6L8 1.6Z" />
-      </svg>
-      <span className="leading-none">{formatRepositoryStars(safeCount)}</span>
-    </span>
-  );
-}
-
-function formatRepositoryStars(count: number): string {
-  if (count < 1000) return String(count);
-
-  return new Intl.NumberFormat("en", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(count);
 }
 
 function RepositorySetupProgressPanel({
