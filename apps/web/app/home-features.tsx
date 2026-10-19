@@ -80,7 +80,9 @@ export function HomeFeatures(): React.ReactElement {
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="home-section-eyebrow">Capabilities ///</p>
+          <p className="font-mono text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">
+            Capabilities ///
+          </p>
           <h2
             id="home-features-title"
             className="mt-3 max-w-2xl text-3xl font-semibold tracking-tight text-cyan-50 sm:text-4xl"
@@ -132,7 +134,7 @@ export function HomeFeatures(): React.ReactElement {
           );
         })}
 
-        <article className="home-feature-card group relative isolate overflow-hidden rounded-[1.4rem] border border-lime-300/28 bg-[linear-gradient(140deg,rgba(163,230,53,0.1),rgba(0,240,255,0.05),rgba(217,70,239,0.07))] p-6 transition duration-300 hover:-translate-y-1">
+        <article className="home-feature-card group relative isolate overflow-hidden rounded-[1.4rem] border border-lime-300/28 bg-[linear-gradient(140deg,rgba(163,230,53,0.1),rgba(0,240,255,0.05),rgba(217,70,239,0.07))] p-6 transition duration-300 hover:-translate-y-1 sm:col-span-2 lg:col-span-1">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-lime-200/70 to-transparent"

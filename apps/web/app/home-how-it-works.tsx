@@ -54,7 +54,9 @@ export function HomeHowItWorks(): React.ReactElement {
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="home-section-eyebrow">Setup ///</p>
+          <p className="font-mono text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">
+            Setup ///
+          </p>
           <h2
             id="home-how-title"
             className="mt-3 max-w-2xl text-3xl font-semibold tracking-tight text-cyan-50 sm:text-4xl"

@@ -40,7 +40,9 @@ export function HomeFaq(): React.ReactElement {
       className="mx-auto w-[calc(100%-2rem)] max-w-4xl sm:w-[calc(100%-3rem)]"
     >
       <div className="text-center">
-        <p className="home-section-eyebrow">Answers ///</p>
+        <p className="font-mono text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">
+          Answers ///
+        </p>
         <h2
           id="home-faq-title"
           className="mt-3 text-3xl font-semibold tracking-tight text-cyan-50 sm:text-4xl"
