@@ -45,7 +45,7 @@ Latest hosted GitHub App credential smoke:
 ```text
 Date: 2026-05-04 21:59 EEST
 Command: REVIEW_ROUTER_GITHUB_APP_ENV_FILE=.env.production pnpm github-app:check
-Result: credentials passed, required permissions present, webhook config matched `https://api.reviewrouter.site/webhooks/github`, and the App is installed on the `777genius` account.
+Result: credentials passed, required permissions present, webhook config matched `https://api.reviewrouter.org/webhooks/github`, and the App is installed on the `777genius` account.
 App: id 3599233 / slug review-router-ai / owner 777genius.
 Install URL: https://github.com/apps/review-router-ai/installations/new
 ```

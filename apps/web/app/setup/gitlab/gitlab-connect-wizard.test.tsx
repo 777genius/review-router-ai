@@ -241,7 +241,7 @@ function mockGitLabWizardFetch(input: {
       if (pathname === "/api/dashboard/gitlab/codex-command") {
         return Response.json({
           command:
-            'export GITLAB_TOKEN="paste_token_here"\ncurl -fsSL https://reviewrouter.site/install/codex-gitlab | bash -s -- --confirm-write',
+            'export GITLAB_TOKEN="paste_token_here"\ncurl -fsSL https://reviewrouter.org/install/codex-gitlab | bash -s -- --confirm-write',
           secretName: "CODEX_AUTH_JSON",
           sendsSecretToReviewRouter: false,
           targetLabel: "GitLab group acme/platform",

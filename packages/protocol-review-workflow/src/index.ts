@@ -25,7 +25,7 @@ export const reviewRouterWorkflowContract = Object.freeze({
   runtimeRepository: "777genius/review-router",
   runtimePath: ".github/workflows/reviewrouter-runtime.yml",
   channel: "workflow-v1",
-  controlPlaneUrl: "https://api.reviewrouter.site",
+  controlPlaneUrl: "https://api.reviewrouter.org",
   requiredInputs: Object.freeze([
     "review_request_id",
     "pr_number",

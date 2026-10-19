@@ -51,7 +51,7 @@ ReviewRouter GitLab Codex OAuth secret seeding
 
 Usage:
   export GITLAB_TOKEN="glpat-..."
-  curl -fsSL https://reviewrouter.site/install/codex-gitlab | bash -s -- --confirm-write --scope group --group my-group
+  curl -fsSL https://reviewrouter.org/install/codex-gitlab | bash -s -- --confirm-write --scope group --group my-group
 
 Options:
   --dry-run                 Validate and print target writes without calling GitLab.

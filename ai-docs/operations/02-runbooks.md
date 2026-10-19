@@ -282,7 +282,7 @@ curl --fail-with-body --silent --show-error \
   --header "Authorization: Bearer $github_token" \
   --header 'Content-Type: application/json' \
   --data '{"repository":"OWNER/REPOSITORY"}' \
-  https://reviewrouter.site/api/codex-rotating/cli/workflow-activate
+  https://reviewrouter.org/api/codex-rotating/cli/workflow-activate
 unset github_token
 ```
 
@@ -328,8 +328,8 @@ runs and mutation leases drain; migrate them through a fresh fenced setup.
 Post-sync verification:
 
 ```bash
-curl -fsS https://api.reviewrouter.site/health
-curl -fsS -o /dev/null -w '%{http_code}\n' https://reviewrouter.site
+curl -fsS https://api.reviewrouter.org/health
+curl -fsS -o /dev/null -w '%{http_code}\n' https://reviewrouter.org
 pnpm ops:sync-action-ref --dry-run --no-deploy
 ```
 

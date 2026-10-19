@@ -13,7 +13,7 @@ describe("provider secret setup guidance", () => {
       rotatingSetup: {
         repositoryId: "123456",
         repositoryIdentityVersion: 1,
-        installerUrl: "https://reviewrouter.site/install/codex-rotating",
+        installerUrl: "https://reviewrouter.org/install/codex-rotating",
         installerVersion: "v1.2.3",
         installerSha256:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",

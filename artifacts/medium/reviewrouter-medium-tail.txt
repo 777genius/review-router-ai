@@ -23,5 +23,5 @@ Current status
 ReviewRouter is in beta. The core direction is implemented: GitHub App onboarding, repository sync, workflow setup PRs, dashboard-managed review config, provider setup guidance, health, audit, rate limits, outbox processing, and smoke checks.
 The next work is about hardening the hosted beta: GitHub App lifecycle polish, public onboarding, billing boundaries, support tooling, and production release automation for the separate review Action runtime.
 If your team wants AI review but has been uncomfortable with the usual custody model, ReviewRouter is the attempt to make the boundary explicit: cloud for coordination, CI for execution.
-Website: https://reviewrouter.site
+Website: https://reviewrouter.org
 GitHub: https://github.com/777genius/review-router

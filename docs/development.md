@@ -40,7 +40,7 @@ Hosted configuration and public API checks:
 
 ```bash
 REVIEW_ROUTER_HOSTED_ENV_FILE=/path/to/configured.env pnpm hosted:check
-REVIEW_ROUTER_API_URL=https://api.reviewrouter.site pnpm hosted:api-demo:check
+REVIEW_ROUTER_API_URL=https://api.reviewrouter.org pnpm hosted:api-demo:check
 ```
 
 Include database checks with

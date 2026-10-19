@@ -404,7 +404,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       },
       inputs: {
         mode: "fork-agentic-sandbox",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         providerInstanceId: "codex-rotating:123456",
         workflowSchemaVersion: 1,
         reviewDrafts: false,
@@ -447,9 +447,9 @@ describe("Codex rotating GitHub Action runtime", () => {
     expect(childEnv.REVIEWROUTER_COMMENT_TOKEN_EXPIRES_AT).toBe(
       "2026-07-16T14:00:00.000Z",
     );
-    expect(childEnv.REVIEWROUTER_API_URL).toBe("https://api.reviewrouter.site");
+    expect(childEnv.REVIEWROUTER_API_URL).toBe("https://api.reviewrouter.org");
     expect(childEnv.REVIEWROUTER_CONTROL_PLANE_URL).toBe(
-      "https://api.reviewrouter.site",
+      "https://api.reviewrouter.org",
     );
     expect(childEnv.OPENAI_API_KEY).toBeUndefined();
     expect(childEnv.REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN).toBe(
@@ -495,7 +495,7 @@ describe("Codex rotating GitHub Action runtime", () => {
 
   it("reads hyphenated GitHub action inputs without reading auth-json", () => {
     const inputs = readActionInputs({
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
       "INPUT_CLAUDE-CODE-OAUTH-TOKEN": " sk-ant-oat01-provider-secret\n",
@@ -504,7 +504,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     });
 
     expect(inputs).toMatchObject({
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       workflowSchemaVersion: 1,
       reviewDrafts: false,
@@ -521,7 +521,7 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("prefers the explicit control-plane URL action input over api-url", () => {
     const inputs = readActionInputs({
       "INPUT_CONTROL-PLANE-URL": "https://self-hosted.reviewrouter.test/",
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
     });
 
@@ -531,7 +531,7 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("accepts underscore control plane URL inputs from workflow shims", () => {
     const inputs = readActionInputs({
       INPUT_CONTROL_PLANE_URL: "https://control-plane.internal/",
-      INPUT_API_URL: "https://api.reviewrouter.site/",
+      INPUT_API_URL: "https://api.reviewrouter.org/",
       INPUT_PROVIDER_INSTANCE_ID: "codex-rotating:123456",
     });
 
@@ -543,7 +543,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       sourceEnv: { PATH: "/usr/bin" },
       inputs: {
         mode: "codex-oauth-rotating",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         providerInstanceId: "codex-rotating:123456",
         workflowSchemaVersion: 1,
         reviewDrafts: false,
@@ -586,7 +586,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       sourceEnv: { PATH: "/usr/bin" },
       inputs: {
         mode: "codex-oauth-rotating",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         providerInstanceId: "codex-rotating:123456",
         workflowSchemaVersion: 1,
         reviewDrafts: false,
@@ -627,14 +627,14 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("reads an exact boolean draft review action input", () => {
     expect(
       readActionInputs({
-        "INPUT_API-URL": "https://api.reviewrouter.site/",
+        "INPUT_API-URL": "https://api.reviewrouter.org/",
         "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
         "INPUT_REVIEW-DRAFTS": "true",
       }).reviewDrafts,
     ).toBe(true);
     expect(() =>
       readActionInputs({
-        "INPUT_API-URL": "https://api.reviewrouter.site/",
+        "INPUT_API-URL": "https://api.reviewrouter.org/",
         "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
         "INPUT_REVIEW-DRAFTS": "yes",
       }),
@@ -644,14 +644,14 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("reads a non-negative changed-line limit", () => {
     expect(
       readActionInputs({
-        "INPUT_API-URL": "https://api.reviewrouter.site/",
+        "INPUT_API-URL": "https://api.reviewrouter.org/",
         "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
         "INPUT_MAX-CHANGED-LINES": "10000",
       }).maxChangedLines,
     ).toBe(10_000);
     expect(() =>
       readActionInputs({
-        "INPUT_API-URL": "https://api.reviewrouter.site/",
+        "INPUT_API-URL": "https://api.reviewrouter.org/",
         "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
         "INPUT_MAX-CHANGED-LINES": "-1",
       }),
@@ -661,7 +661,7 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("reads a bounded repository review timeout", () => {
     expect(
       readActionInputs({
-        "INPUT_API-URL": "https://api.reviewrouter.site/",
+        "INPUT_API-URL": "https://api.reviewrouter.org/",
         "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
         "INPUT_REVIEW-TIMEOUT-MINUTES": "180",
       }).reviewTimeoutMinutes,
@@ -669,7 +669,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     for (const value of ["9", "361", "1.5"]) {
       expect(() =>
         readActionInputs({
-          "INPUT_API-URL": "https://api.reviewrouter.site/",
+          "INPUT_API-URL": "https://api.reviewrouter.org/",
           "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
           "INPUT_REVIEW-TIMEOUT-MINUTES": value,
         }),
@@ -693,7 +693,7 @@ describe("Codex rotating GitHub Action runtime", () => {
   it("reads fork agentic sandbox action inputs through the rotating contract", () => {
     const inputs = readActionInputs({
       INPUT_MODE: "fork-agentic-sandbox",
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
       "INPUT_CLAUDE-CODE-OAUTH-TOKEN": " sk-ant-oat01-provider-secret\n",
@@ -701,7 +701,7 @@ describe("Codex rotating GitHub Action runtime", () => {
 
     expect(inputs).toMatchObject({
       mode: "fork-agentic-sandbox",
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       workflowSchemaVersion: 1,
       reviewDrafts: false,
@@ -773,7 +773,7 @@ describe("Codex rotating GitHub Action runtime", () => {
           protocolVersion: 1,
           grant: "opaque-hosted-grant",
           relayUrl:
-            "https://api.reviewrouter.site/api/action/v1/hosted-codex/responses",
+            "https://api.reviewrouter.org/api/action/v1/hosted-codex/responses",
           invocationLeaseId: "hosted-lease-1",
           runtimeConfigVersion: 9,
           runtimeEnv: {
@@ -883,7 +883,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     });
     const env: NodeJS.ProcessEnv = {
       INPUT_MODE: "fork-agentic-sandbox-hosted-pool",
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "hosted-pool:repository:777",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "5",
       "INPUT_SESSION-BINDING-ID": "binding-123",
@@ -986,7 +986,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     const stderr = vi.fn();
     const env: NodeJS.ProcessEnv = {
       INPUT_MODE: "fork-agentic-sandbox-hosted-pool",
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-hosted:123456",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "5",
       "INPUT_SESSION-BINDING-ID": "binding-123",
@@ -1215,7 +1215,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await runCodexRotatingGitHubAction({
         env: {
           INPUT_MODE: "fork-agentic-sandbox",
-          "INPUT_API-URL": "https://api.reviewrouter.site/",
+          "INPUT_API-URL": "https://api.reviewrouter.org/",
           "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_AUTH-JSON": JSON.stringify({
@@ -1391,7 +1391,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await runCodexRotatingGitHubAction({
         env: {
           INPUT_MODE: "codex-oauth-refresh",
-          "INPUT_API-URL": "https://api.reviewrouter.site/",
+          "INPUT_API-URL": "https://api.reviewrouter.org/",
           "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_AUTH-JSON": JSON.stringify({
@@ -1479,7 +1479,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await expect(
         runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             GITHUB_EVENT_NAME: "pull_request",
@@ -1517,7 +1517,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       }),
     );
     const baseEnv = {
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
       GITHUB_EVENT_PATH: eventPath,
       GITHUB_REPOSITORY: "777genius/agent-teams-ai",
@@ -1588,7 +1588,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
     const stdout = { write: vi.fn() };
     const env = {
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
       "INPUT_REVIEW-DRAFTS": "true",
       "INPUT_MAX-CHANGED-LINES": "10000",
@@ -1669,7 +1669,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await expect(
         runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             "INPUT_AUTH-JSON": JSON.stringify({
@@ -1741,7 +1741,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     }) as unknown as typeof fetch;
 
     const env = {
-      "INPUT_API-URL": "https://api.reviewrouter.site/",
+      "INPUT_API-URL": "https://api.reviewrouter.org/",
       "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
       ACTIONS_ID_TOKEN_REQUEST_URL:
@@ -1817,7 +1817,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await expect(
         runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             ACTIONS_ID_TOKEN_REQUEST_URL:
@@ -2579,7 +2579,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await runCodexRotatingGitHubAction({
         env: {
           INPUT_MODE: "fork-agentic-sandbox",
-          "INPUT_API-URL": "https://api.reviewrouter.site/",
+          "INPUT_API-URL": "https://api.reviewrouter.org/",
           "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_CLAUDE-CODE-OAUTH-TOKEN": "sk-ant-oat01-claude-input",
@@ -3106,7 +3106,7 @@ describe("Codex rotating GitHub Action runtime", () => {
     try {
       await runCodexRotatingGitHubAction({
         env: {
-          "INPUT_API-URL": "https://api.reviewrouter.site/",
+          "INPUT_API-URL": "https://api.reviewrouter.org/",
           "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
           "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
           "INPUT_CLAUDE-CODE-OAUTH-TOKEN": "sk-ant-oat01-claude-input",
@@ -3250,7 +3250,7 @@ describe("Codex rotating GitHub Action runtime", () => {
         runtimeMode: "static",
         commentTokenMode: "codex-oauth-rotating",
         commentTokenRefreshUrl:
-          "https://api.reviewrouter.site/api/action/v1/codex-oauth/comment-token",
+          "https://api.reviewrouter.org/api/action/v1/codex-oauth/comment-token",
         commentTokenLeaseId: "lease_1",
         commentTokenProviderInstanceId: "codex-rotating:123456",
         scmProvider: "github",
@@ -3547,7 +3547,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       try {
         await runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             "INPUT_AUTH-JSON": JSON.stringify({
@@ -3699,7 +3699,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await expect(
         runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             "INPUT_AUTH-JSON": JSON.stringify({
@@ -3821,7 +3821,7 @@ describe("Codex rotating GitHub Action runtime", () => {
       await expect(
         runCodexRotatingGitHubAction({
           env: {
-            "INPUT_API-URL": "https://api.reviewrouter.site/",
+            "INPUT_API-URL": "https://api.reviewrouter.org/",
             "INPUT_PROVIDER-INSTANCE-ID": "codex-rotating:123456",
             "INPUT_WORKFLOW-SCHEMA-VERSION": "1",
             "INPUT_AUTH-JSON": JSON.stringify({
@@ -3994,7 +3994,7 @@ describe("default-off certified fork Action ingress", () => {
 
   it("reads the explicit mode/schema contract without changing ordinary defaults", () => {
     const config = {
-      "INPUT_API-URL": "https://api.reviewrouter.site",
+      "INPUT_API-URL": "https://api.reviewrouter.org",
       "INPUT_PROVIDER-INSTANCE-ID": "provider",
     };
     expect(readActionInputs(config).mode).toBe("codex-oauth-rotating");
@@ -4050,7 +4050,7 @@ describe("default-off certified fork Action ingress", () => {
     const env: NodeJS.ProcessEnv = {
       INPUT_MODE: "fork_prompt_only_v2",
       "INPUT_WORKFLOW-SCHEMA-VERSION": "6",
-      "INPUT_API-URL": "https://api.reviewrouter.site",
+      "INPUT_API-URL": "https://api.reviewrouter.org",
       GITHUB_EVENT_NAME: "pull_request_target",
       GITHUB_EVENT_PATH: path,
       GITHUB_REPOSITORY: "base/project",
@@ -4091,7 +4091,7 @@ describe("default-off certified fork Action ingress", () => {
       });
       expect(fetchImpl).toHaveBeenCalledTimes(2);
       expect(fetchImpl.mock.calls[1]?.[0]).toBe(
-        "https://api.reviewrouter.site/api/action/v1/certified-fork/review",
+        "https://api.reviewrouter.org/api/action/v1/certified-fork/review",
       );
       const body = JSON.parse(
         String((fetchImpl.mock.calls[1]?.[1] as RequestInit).body),
