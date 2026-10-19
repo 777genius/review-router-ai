@@ -334,5 +334,8 @@ function send(response: ServerResponse, status: number, body: unknown): void {
 }
 
 function legacyWire(account: WireAccount) {
-  return { ...account, state: account.state === "suspended" ? "quarantined" : account.state };
+  return {
+    ...account,
+    state: account.state === "suspended" ? "quarantined" : account.state,
+  };
 }

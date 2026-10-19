@@ -411,7 +411,8 @@ async function seedFixtures(
       );
     }
     await client.query("COMMIT");
-    if (process.argv.includes("--lifecycle-fixture")) await seedSuspendedWireFixture(databaseUrl, repoRoot);
+    if (process.argv.includes("--lifecycle-fixture"))
+      await seedSuspendedWireFixture(databaseUrl, repoRoot);
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
@@ -420,26 +421,89 @@ async function seedFixtures(
   }
 }
 
-async function seedSuspendedWireFixture(databaseUrl: string, repoRoot: string): Promise<void> {
-  const require = createRequire(join(repoRoot, "packages/platform/db/package.json"));
-  const { PrismaClient } = require("@prisma/client") as { PrismaClient: new (input: {adapter: unknown}) => { $disconnect(): Promise<void> } };
-  const { PrismaPg } = require("@prisma/adapter-pg") as { PrismaPg: new (input: {connectionString: string}) => unknown };
-  type Receipt = { id: string; phase: string; source: {state: string} };
-  type Store = { reserve(input: unknown): Promise<Receipt>; ready(actor: string, id: string): Promise<Receipt>; claim(actor: string, id: string): Promise<{claimToken: string} | null>; enterClaim(actor: string, id: string, token: string): Promise<boolean>; finalize(actor: string, id: string, account: unknown, retirement: null, closure: null): Promise<Receipt> };
-  const { PrismaAccountLifecycleOperations } = await import(pathToFileURL(join(repoRoot, "packages/features/provider-accounts/src/infrastructure/prisma/prisma-account-lifecycle-operations.ts")).href) as { PrismaAccountLifecycleOperations: new (client: unknown) => Store };
-  const db = new PrismaClient({adapter: new PrismaPg({connectionString: databaseUrl})});
+async function seedSuspendedWireFixture(
+  databaseUrl: string,
+  repoRoot: string,
+): Promise<void> {
+  const require = createRequire(
+    join(repoRoot, "packages/platform/db/package.json"),
+  );
+  const { PrismaClient } = require("@prisma/client") as {
+    PrismaClient: new (input: { adapter: unknown }) => {
+      $disconnect(): Promise<void>;
+    };
+  };
+  const { PrismaPg } = require("@prisma/adapter-pg") as {
+    PrismaPg: new (input: { connectionString: string }) => unknown;
+  };
+  type Receipt = { id: string; phase: string; source: { state: string } };
+  type Store = {
+    reserve(input: unknown): Promise<Receipt>;
+    ready(actor: string, id: string): Promise<Receipt>;
+    claim(actor: string, id: string): Promise<{ claimToken: string } | null>;
+    enterClaim(actor: string, id: string, token: string): Promise<boolean>;
+    finalize(
+      actor: string,
+      id: string,
+      account: unknown,
+      retirement: null,
+      closure: null,
+    ): Promise<Receipt>;
+  };
+  const { PrismaAccountLifecycleOperations } = (await import(
+    pathToFileURL(
+      join(
+        repoRoot,
+        "packages/features/provider-accounts/src/infrastructure/prisma/prisma-account-lifecycle-operations.ts",
+      ),
+    ).href
+  )) as { PrismaAccountLifecycleOperations: new (client: unknown) => Store };
+  const db = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: databaseUrl }),
+  });
   try {
     const store = new PrismaAccountLifecycleOperations(db);
     const actor = FIXTURES.users.viewer;
-    const operation = await store.reserve({ actorUserId: actor, clientOperationId: "rr-e2e-suspended-wire-fixture", personalWorkspaceId: FIXTURES.workspaces.personalViewer, owningWorkspaceId: null, sourceId: FIXTURES.sources.viewerSuspendedCapable, expectedSourceMetadataRevision: 1, expectedGatewayRevision: 1, expectedAuthorizationEpoch: 1, action: "suspend" });
-    if ((await store.ready(actor, operation.id)).phase !== "ready") throw new Error("suspended_wire_fixture_not_ready");
+    const operation = await store.reserve({
+      actorUserId: actor,
+      clientOperationId: "rr-e2e-suspended-wire-fixture",
+      personalWorkspaceId: FIXTURES.workspaces.personalViewer,
+      owningWorkspaceId: null,
+      sourceId: FIXTURES.sources.viewerSuspendedCapable,
+      expectedSourceMetadataRevision: 1,
+      expectedGatewayRevision: 1,
+      expectedAuthorizationEpoch: 1,
+      action: "suspend",
+    });
+    if ((await store.ready(actor, operation.id)).phase !== "ready")
+      throw new Error("suspended_wire_fixture_not_ready");
     const claim = await store.claim(actor, operation.id);
-    if (!claim || !await store.enterClaim(actor, operation.id, claim.claimToken)) throw new Error("suspended_wire_fixture_claim_failed");
+    if (
+      !claim ||
+      !(await store.enterClaim(actor, operation.id, claim.claimToken))
+    )
+      throw new Error("suspended_wire_fixture_claim_failed");
     // This creates a synthetic wire/read fixture through the actual storage guard;
     // it is not an attestation or a native provider effect.
-    const result = await store.finalize(actor, operation.id, { accountRef: FIXTURES.gateway.accounts.viewerSuspendedCapable, profileId: FIXTURES.gateway.profileId, displayName: FIXTURES.sourceLabels.viewerSuspendedCapable, state: "suspended", metadataRevision: 2, authorizationEpoch: 2 }, null, null);
-    if (result.phase !== "applied" || result.source.state !== "suspended") throw new Error("suspended_wire_fixture_not_applied");
-  } finally { await db.$disconnect(); }
+    const result = await store.finalize(
+      actor,
+      operation.id,
+      {
+        accountRef: FIXTURES.gateway.accounts.viewerSuspendedCapable,
+        profileId: FIXTURES.gateway.profileId,
+        displayName: FIXTURES.sourceLabels.viewerSuspendedCapable,
+        state: "suspended",
+        metadataRevision: 2,
+        authorizationEpoch: 2,
+      },
+      null,
+      null,
+    );
+    if (result.phase !== "applied" || result.source.state !== "suspended")
+      throw new Error("suspended_wire_fixture_not_applied");
+  } finally {
+    await db.$disconnect();
+  }
 }
 
 const SQL_SEED = `

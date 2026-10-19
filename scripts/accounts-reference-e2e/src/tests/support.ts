@@ -95,9 +95,13 @@ export async function openAccounts(
 ): Promise<void> {
   // This inventory GET starts after its streamed client subtree hydrates.
   const personalHydrated = workspace.startsWith("rr-e2e-personal-")
-    ? page.waitForResponse(response => {
+    ? page.waitForResponse((response) => {
         const url = new URL(response.url());
-        return url.pathname === "/api/dashboard/accounts/access" && url.searchParams.get("view") === "summaries" && response.request().method() === "GET";
+        return (
+          url.pathname === "/api/dashboard/accounts/access" &&
+          url.searchParams.get("view") === "summaries" &&
+          response.request().method() === "GET"
+        );
       })
     : null;
   await page.goto(
