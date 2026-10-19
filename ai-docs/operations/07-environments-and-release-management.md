@@ -474,8 +474,8 @@ pnpm ops:sync-action-ref --allowlist-window 3
 Post-sync production checks:
 
 ```bash
-curl -fsS https://api.reviewrouter.site/health
-curl -fsS -o /dev/null -w '%{http_code}\n' https://reviewrouter.site
+curl -fsS https://api.reviewrouter.org/health
+curl -fsS -o /dev/null -w '%{http_code}\n' https://reviewrouter.org
 pnpm ops:sync-action-ref --dry-run --no-deploy
 ```
 

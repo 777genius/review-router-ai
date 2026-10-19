@@ -135,7 +135,7 @@
     "ops:sync-action-ref": "node scripts/sync-render-action-ref.mjs",
     "hosted:api-demo:check": "node scripts/check-hosted-api-demo.mjs",
     "web:ui-audit": "node scripts/check-ui-layout.mjs",
-    "hosted:ui-audit": "node scripts/check-ui-layout.mjs --base-url https://reviewrouter.site",
+    "hosted:ui-audit": "node scripts/check-ui-layout.mjs --base-url https://reviewrouter.org",
     "hosted:progress-canary": "node scripts/run-hosted-live-progress-canary.mjs",
     "release:sync-major": "node scripts/sync-major-release-tag.mjs",
     "lint:native:files": "node scripts/local-checks/lint-format-lint.mts",

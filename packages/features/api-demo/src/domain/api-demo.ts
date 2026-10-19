@@ -401,7 +401,7 @@ export function buildApiDemoOpenApiDocument(input: {
                   examples: {
                     hosted: {
                       value: buildApiDemoIndex({
-                        webUrl: "https://reviewrouter.site",
+                        webUrl: "https://reviewrouter.org",
                         apiUrl: input.apiUrl,
                       }),
                     },
@@ -468,7 +468,7 @@ export function buildApiDemoOpenApiDocument(input: {
                       value: {
                         ...buildApiDemoDocument({
                           checkedAt: new Date("2026-05-04T00:00:00.000Z"),
-                          webUrl: "https://reviewrouter.site",
+                          webUrl: "https://reviewrouter.org",
                           apiUrl: input.apiUrl,
                           actionVersion:
                             "777genius/review-router@0123456789abcdef0123456789abcdef01234567",

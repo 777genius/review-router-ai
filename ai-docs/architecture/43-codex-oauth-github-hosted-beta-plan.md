@@ -1219,7 +1219,7 @@ Installer behavior:
 set -euo pipefail
 
 installer="$(mktemp)"
-installer_url="https://reviewrouter.site/install/codex-rotating/v0.1.0/reviewrouter-codex-installer.sh"
+installer_url="https://reviewrouter.org/install/codex-rotating/v0.1.0/reviewrouter-codex-installer.sh"
 installer_version="v0.1.0"
 installer_sha256="<installer-sha256>"
 trap 'rm -f "$installer"' EXIT

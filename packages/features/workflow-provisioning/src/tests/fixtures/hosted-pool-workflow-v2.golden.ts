@@ -1,6 +1,6 @@
 export const hostedPoolWorkflowV2GoldenOptions = {
   actionRef: "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-  apiUrl: "https://api.reviewrouter.site",
+  apiUrl: "https://api.reviewrouter.org",
   providerInstanceId: "hosted-pool:repository:123456",
   bindingId: "hosted-binding-1",
   bindingRevision: 7,
@@ -27,7 +27,7 @@ jobs:
     uses: 777genius/review-router/.github/workflows/reviewrouter-t0-reusable.yml@0123456789abcdef0123456789abcdef01234567
     with:
       runtime_ref: "0123456789abcdef0123456789abcdef01234567"
-      api_url: "https://api.reviewrouter.site"
+      api_url: "https://api.reviewrouter.org"
       runtime_config_mode: oidc
       pr_number: \${{ format('{0}', github.event.pull_request.number) }}
       review_head_sha: \${{ github.event.pull_request.head.sha }}
