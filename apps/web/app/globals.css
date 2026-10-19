@@ -374,7 +374,7 @@ canvas {
 }
 
 :root {
-  --rr-sticky-table-top: 3.625rem;
+  --rr-sticky-table-top: 3.5rem;
 }
 
 @media (min-width: 1024px) {
@@ -1902,4 +1902,119 @@ canvas {
   .signin-route__dot--delayed {
     animation-delay: 1.3s;
   }
+}
+
+/* Landing motion: scroll-linked reveals, hero parallax and micro-interactions. */
+@keyframes rr-reveal-up {
+  from {
+    opacity: 0;
+    translate: 0 26px;
+  }
+
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes rr-reveal-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rr-hero-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(0, 44px, 0);
+  }
+}
+
+@keyframes home-boundary-grid {
+  to {
+    background-position:
+      28px 28px,
+      28px 28px;
+  }
+}
+
+@keyframes home-final-line {
+  0% {
+    background-position: 140% 0;
+  }
+
+  55%,
+  100% {
+    background-position: -140% 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .rr-reveal {
+      animation: rr-reveal-up linear both;
+      animation-timeline: view();
+      animation-range: entry 4% entry 42%;
+    }
+
+    .rr-reveal--fade {
+      animation-name: rr-reveal-fade;
+    }
+  }
+
+  @supports (animation-timeline: scroll()) {
+    .setup-blueprint__lines {
+      animation: rr-hero-drift linear both;
+      animation-timeline: scroll(root block);
+      animation-range: 0 820px;
+    }
+  }
+
+  .home-boundary-map__grid {
+    animation: home-boundary-grid 18s linear infinite;
+  }
+
+  .feature-row {
+    transition:
+      background-color 300ms ease,
+      transform 300ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+
+  .feature-row:hover {
+    transform: translateX(2px);
+  }
+
+  .home-faq-item {
+    transition:
+      border-color 300ms ease,
+      transform 300ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+
+  .home-faq-item:hover {
+    transform: translateY(-2px);
+  }
+
+  .home-final-cta__line {
+    background-size: 220% 100%;
+    animation: home-final-line 9s linear infinite;
+  }
+}
+
+.feature-row:hover {
+  background-color: rgba(103, 232, 249, 0.035);
+}
+
+.rr-sticky-table tbody tr {
+  transition: background-color 220ms ease;
+}
+
+.rr-sticky-table tbody tr:hover {
+  background-color: rgba(103, 232, 249, 0.03);
 }

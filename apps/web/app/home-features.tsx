@@ -77,7 +77,7 @@ export function HomeFeatures(): React.ReactElement {
       aria-labelledby="home-features-title"
       className="mx-auto w-[calc(100%-2rem)] max-w-7xl sm:w-[calc(100%-3rem)]"
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="rr-reveal flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="font-mono text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">
             What you get ///
@@ -108,7 +108,7 @@ export function HomeFeatures(): React.ReactElement {
             return (
               <article
                 key={feature.title}
-                className="group relative grid grid-cols-[auto_minmax(0,1fr)] gap-4 border-b border-cyan-200/10 py-5 last:border-b-0 sm:gap-5 sm:py-6"
+                className="feature-row rr-reveal group relative grid grid-cols-[auto_minmax(0,1fr)] gap-4 border-b border-cyan-200/10 py-5 last:border-b-0 sm:gap-5 sm:py-6"
               >
                 <div className="flex flex-col items-center gap-3">
                   <span className="font-mono text-[0.64rem] font-semibold tracking-[0.14em] text-slate-500 transition-colors duration-300 group-hover:text-cyan-200">
@@ -149,7 +149,7 @@ export function HomeFeatures(): React.ReactElement {
 
 function BoundaryMap(): React.ReactElement {
   return (
-    <div className="home-boundary-map relative isolate overflow-hidden rounded-[1.6rem] border border-cyan-200/14 bg-[var(--rr-surface-panel)] p-5 sm:p-6 lg:sticky lg:top-24">
+    <div className="home-boundary-map rr-reveal rr-reveal--fade relative isolate overflow-hidden rounded-[1.6rem] border border-cyan-200/14 bg-[var(--rr-surface-panel)] p-5 sm:p-6 lg:sticky lg:top-24">
       <div
         aria-hidden="true"
         className="home-boundary-map__grid absolute inset-0 -z-10"

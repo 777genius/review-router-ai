@@ -177,7 +177,7 @@ export function CompareSection({
     >
       <div className="relative isolate py-4 sm:py-6 lg:py-7">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,0.82fr)_minmax(430px,1.18fr)] lg:items-stretch">
-          <div className="flex min-w-0 flex-col justify-center py-2 lg:py-4">
+          <div className="rr-reveal flex min-w-0 flex-col justify-center py-2 lg:py-4">
             <Badge tone="accent">Comparison</Badge>
             <Heading
               id="compare-title"
@@ -205,7 +205,7 @@ export function CompareSection({
         </div>
 
         <div className="mt-7">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="rr-reveal mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <div className="mb-3 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-200 shadow-[0_0_28px_-16px_rgba(0,240,255,0.9)]">
                 <BarChart3 aria-hidden="true" className="size-5" />
@@ -233,7 +233,7 @@ export function CompareSection({
         </div>
 
         <div className="mt-8">
-          <div className="mb-4 flex items-start gap-3">
+          <div className="rr-reveal mb-4 flex items-start gap-3">
             <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-200">
               <Grid2X2 aria-hidden="true" className="size-5" />
             </div>
@@ -249,7 +249,7 @@ export function CompareSection({
           <BoundaryTable />
         </div>
 
-        <div className="rr-accent-callout mt-7 grid gap-5 rounded-2xl border border-fuchsia-400/30 bg-[linear-gradient(90deg,rgba(217,70,239,0.08),rgba(0,240,255,0.055),rgba(163,230,53,0.05))] p-5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+        <div className="rr-accent-callout rr-reveal mt-7 grid gap-5 rounded-2xl border border-fuchsia-400/30 bg-[linear-gradient(90deg,rgba(217,70,239,0.08),rgba(0,240,255,0.055),rgba(163,230,53,0.05))] p-5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
           <div className="grid h-14 w-14 place-items-center rounded-2xl border border-lime-300/30 bg-lime-300/[0.08] text-lime-200">
             <LockKeyhole aria-hidden="true" className="size-6" />
           </div>

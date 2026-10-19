@@ -219,9 +219,9 @@ const webhookRows = [
 
 export default function SecurityPage(): React.ReactElement {
   return (
-    <main className="home-shell min-h-screen w-full overflow-hidden py-8 md:py-10">
+    <main className="home-shell min-h-screen w-full overflow-clip py-8 md:py-10">
       <section className="mx-auto w-[calc(100%-2rem)] max-w-7xl sm:w-[calc(100%-3rem)]">
-        <div className="relative isolate overflow-hidden rounded-[2rem] border border-cyan-200/12 bg-[var(--rr-surface-card-strong)] p-4 shadow-[0_28px_120px_-70px_rgba(0,240,255,0.95)] sm:p-6 lg:p-7">
+        <div className="relative isolate overflow-clip rounded-[2rem] border border-cyan-200/12 bg-[var(--rr-surface-card-strong)] p-4 shadow-[0_28px_120px_-70px_rgba(0,240,255,0.95)] sm:p-6 lg:p-7">
           <div
             aria-hidden="true"
             className="absolute inset-0 -z-10 bg-[linear-gradient(rgba(103,232,249,0.055)_1px,transparent_1px),linear-gradient(90deg,rgba(103,232,249,0.035)_1px,transparent_1px),radial-gradient(circle_at_70%_7%,rgba(163,230,53,0.13),transparent_24rem),radial-gradient(circle_at_18%_34%,rgba(0,240,255,0.12),transparent_23rem),linear-gradient(180deg,rgba(2,6,12,0.1),rgba(0,0,0,0.28))] bg-[size:56px_56px,56px_56px,auto,auto,auto]"

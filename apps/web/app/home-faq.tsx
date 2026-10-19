@@ -45,7 +45,7 @@ export function HomeFaq(): React.ReactElement {
       aria-labelledby="home-faq-title"
       className="mx-auto w-[calc(100%-2rem)] max-w-4xl sm:w-[calc(100%-3rem)]"
     >
-      <div className="text-center">
+      <div className="rr-reveal text-center">
         <p className="font-mono text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">
           Answers ///
         </p>
@@ -66,7 +66,7 @@ export function HomeFaq(): React.ReactElement {
           return (
             <div
               key={item.question}
-              className={`home-faq-item rounded-2xl border bg-[var(--rr-surface-panel)] transition-colors duration-300 ${
+              className={`home-faq-item rr-reveal rounded-2xl border bg-[var(--rr-surface-panel)] transition-colors duration-300 ${
                 open
                   ? "border-cyan-200/30"
                   : "border-cyan-200/14 hover:border-cyan-200/26"

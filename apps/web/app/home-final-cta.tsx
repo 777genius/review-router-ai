@@ -14,10 +14,10 @@ export function HomeFinalCta({
       aria-labelledby="home-final-title"
       className="mx-auto w-[calc(100%-2rem)] max-w-7xl sm:w-[calc(100%-3rem)]"
     >
-      <div className="relative isolate overflow-hidden rounded-[1.8rem] border border-fuchsia-400/25 bg-[linear-gradient(120deg,rgba(217,70,239,0.1),rgba(0,240,255,0.07),rgba(163,230,53,0.09))] px-6 py-12 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_90px_-50px_rgba(217,70,239,0.9)] sm:px-10">
+      <div className="rr-reveal relative isolate overflow-hidden rounded-[1.8rem] border border-fuchsia-400/25 bg-[linear-gradient(120deg,rgba(217,70,239,0.1),rgba(0,240,255,0.07),rgba(163,230,53,0.09))] px-6 py-12 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_90px_-50px_rgba(217,70,239,0.9)] sm:px-10">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-fuchsia-200/70 to-transparent"
+          className="home-final-cta__line pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-fuchsia-200/70 to-transparent"
         />
 
         <p className="inline-flex items-center gap-3 font-mono text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">
