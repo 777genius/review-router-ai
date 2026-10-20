@@ -2375,9 +2375,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         producerRelease: snapshotProducer,
       });
       if (replacedPin && "captureDenied" in replacedPin)
-        throw new Error(
-          `snapshot_capture_denied:${replacedPin.captureDenied}`,
-        );
+        throw new Error(`snapshot_capture_denied:${replacedPin.captureDenied}`);
       expect(replacedPin?.gateway?.bindingId).toBe(replacementBinding.id);
       await expect(harness.authorize()).rejects.toThrow();
       expect(

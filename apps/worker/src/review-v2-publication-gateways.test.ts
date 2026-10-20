@@ -702,7 +702,7 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
     async ({ line, startLine }) => {
       const rendered = renderCanonicalReviewPublication(
         {
-          coverage: ReviewPublicationProjectionCoverage.Complete,
+          coverage: ReviewPublicationProjectionCoverage.Completed,
           renderPolicyVersion:
             CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4,
           targetCommitId: hash("9"),

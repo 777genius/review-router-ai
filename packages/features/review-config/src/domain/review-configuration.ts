@@ -80,7 +80,7 @@ export type ReviewAgentProfileKind = "codex" | "claude" | "ocr";
  * agentProfileRef opaque; save boundaries that know the resolved agent kind
  * apply this rule, and admission independently answers the incompatible OCR
  * selection with agent_profile_incompatible before any inference.
- */export function reviewAgentProfileRequiresAgenticContext(
+ */ export function reviewAgentProfileRequiresAgenticContext(
   agentKind: ReviewAgentProfileKind,
 ): boolean {
   return agentKind === "ocr";

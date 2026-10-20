@@ -49,10 +49,12 @@ describe("Prisma review observation store", () => {
 
   it("round-trips ocr through ReviewProviderKindV2 without touching legacy rows", async () => {
     let row: Record<string, unknown> | null = null;
-    const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-      row = data;
-      return data;
-    });
+    const create = vi.fn(
+      async ({ data }: { data: Record<string, unknown> }) => {
+        row = data;
+        return data;
+      },
+    );
     const findUnique = vi.fn(async () => row);
     const store = new PrismaReviewObservationStore({
       reviewEvidenceObservation: { create, findUnique },

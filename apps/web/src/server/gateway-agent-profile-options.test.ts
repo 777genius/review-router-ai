@@ -116,7 +116,9 @@ describe("gateway agent profile options", () => {
       ocrSelectionEnabled: true,
     });
 
-    expect(options.map((option) => option.profileRef)).toEqual(["approved-ocr"]);
+    expect(options.map((option) => option.profileRef)).toEqual([
+      "approved-ocr",
+    ]);
     expect(options.map((option) => option.agentKind)).toEqual(["ocr"]);
   });
 
@@ -148,7 +150,9 @@ describe("gateway agent profile options", () => {
 
     const options = loadGatewayAgentProfileOptions({ env });
 
-    expect(options.map((option) => option.profileRef)).toEqual(["approved-ocr"]);
+    expect(options.map((option) => option.profileRef)).toEqual([
+      "approved-ocr",
+    ]);
     expect(options.map((option) => option.agentKind)).toEqual(["ocr"]);
   });
 });

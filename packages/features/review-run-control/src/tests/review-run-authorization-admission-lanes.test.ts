@@ -301,9 +301,10 @@ describe("ReviewRunAuthorization engine admission lanes", () => {
       await useCase.authorizeReviewRun(
         inputFor(fixture, {
           providerVoteLanes: [codexLane, ocrLane],
-          reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson(
-            optionalInvestigationDescriptor([codexCapabilityRow]),
-          ),
+          reviewInvestigationAuthorizationDescriptorCanonicalJson:
+            canonicalJson(
+              optionalInvestigationDescriptor([codexCapabilityRow]),
+            ),
         }),
       ),
     );
@@ -343,7 +344,8 @@ describe("ReviewRunAuthorization engine admission lanes", () => {
       ),
     ).resolves.toEqual({
       status: ReviewRunAuthorizationUseCaseStatus.Denied,
-      reason: ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible,
+      reason:
+        ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible,
     });
   });
 
@@ -357,12 +359,13 @@ describe("ReviewRunAuthorization engine admission lanes", () => {
       await useCase.authorizeReviewRun(
         inputFor(fixture, {
           providerVoteLanes: [codexLane, claudeLane, ocrLane],
-          reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson(
-            optionalInvestigationDescriptor([
-              codexCapabilityRow,
-              claudeCapabilityRow,
-            ]),
-          ),
+          reviewInvestigationAuthorizationDescriptorCanonicalJson:
+            canonicalJson(
+              optionalInvestigationDescriptor([
+                codexCapabilityRow,
+                claudeCapabilityRow,
+              ]),
+            ),
         }),
       ),
     );
@@ -450,9 +453,8 @@ describe("ReviewRunAuthorization engine admission lanes", () => {
       snapshotFor(ocrAgent, input.deadline),
     );
     const { kit, fixture, useCase } = await admissionSetup(snapshots);
-    const commit = kit.store.createOrRestoreReviewRunAuthorizationAtomically.bind(
-      kit.store,
-    );
+    const commit =
+      kit.store.createOrRestoreReviewRunAuthorizationAtomically.bind(kit.store);
     vi.spyOn(
       kit.store,
       "createOrRestoreReviewRunAuthorizationAtomically",
@@ -484,7 +486,8 @@ describe("ReviewRunAuthorization engine admission lanes", () => {
         scmRepositoryIdentityId:
           fixture.authorizeInput.verifiedIdentity.scmRepositoryIdentityId,
         sourceRunId: fixture.authorizeInput.verifiedIdentity.sourceRunId,
-        sourceRunAttempt: fixture.authorizeInput.verifiedIdentity.sourceRunAttempt,
+        sourceRunAttempt:
+          fixture.authorizeInput.verifiedIdentity.sourceRunAttempt,
         protocolOfferHash: fixture.authorizeInput.protocolOfferHash,
       }),
     ).resolves.toBeNull();

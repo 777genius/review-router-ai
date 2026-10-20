@@ -199,7 +199,9 @@ function snapshotSource() {
   );
 }
 
-function captureInput(options?: { readonly modelTransport?: "account_gateway" }) {
+function captureInput(options?: {
+  readonly modelTransport?: "account_gateway";
+}) {
   return {
     identity,
     deadline: new Date("2126-10-19T12:00:00.000Z"),
@@ -225,7 +227,10 @@ describe("ProductionReviewRunRuntimeSnapshot explicit agentProfileRef capture", 
     // Discriminating by construction: the process default ("codex-default")
     // resolves to a full snapshot in this exact fixture, so any silent
     // fallback would make the denied case below return this same snapshot.
-    const control = await source.capture(captureInput(), readerFor(gatewayPolicyJson({})));
+    const control = await source.capture(
+      captureInput(),
+      readerFor(gatewayPolicyJson({})),
+    );
     expect(control).toMatchObject({
       agent: { profileRef: "codex-default", agentKind: "codex" },
     });

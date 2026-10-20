@@ -127,9 +127,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       >[0]["producerRelease"];
     },
     reader: RuntimeReader = this.prisma,
-  ): Promise<
-    ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null
-  > {
+  ): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null> {
     // Retain primitives across all reads; never retain the caller's nested identity.
     const identity = { ...input.identity };
     const modelTransport = input.modelTransport;
