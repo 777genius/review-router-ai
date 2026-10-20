@@ -202,7 +202,6 @@ export class PrismaPersonalAccountSharingQueries {
         const installations = await this.prisma.gitHubInstallation.findMany({
           where: {
             workspaceId: { in: avatarWorkspaceIds },
-            status: "active",
           },
           select: {
             workspaceId: true,

@@ -926,33 +926,44 @@ function AccessChip({
       className={`${className} text-cyan-100 transition-colors hover:border-cyan-200/40 hover:text-cyan-50`}
     >
       {children}
-      <ChipAvatar avatarUrl={avatarUrl} />
+      <ChipAvatar avatarUrl={avatarUrl} label={title ?? ""} />
     </a>
   ) : (
     <span className={className} title={title}>
       {children}
-      <ChipAvatar avatarUrl={avatarUrl} />
+      <ChipAvatar avatarUrl={avatarUrl} label={title ?? ""} />
     </span>
   );
 }
 
-// Mini org picture pinned to the chip corner, flush against it.
+// Mini org picture pinned to the chip corner, flush against it; without a
+// picture the org initial is drawn instead so the corner is never empty.
 function ChipAvatar({
   avatarUrl,
+  label,
 }: {
   avatarUrl?: string | null | undefined;
+  label: string;
 }): React.ReactElement | null {
-  if (!avatarUrl) return null;
+  if (!avatarUrl && !label) return null;
   return (
-    <img
-      src={avatarUrl}
-      alt=""
+    <span
       aria-hidden="true"
-      className="absolute -right-1.5 -top-1.5 size-3.5 rounded-full object-cover ring-2 ring-[var(--rr-page-bg)]"
-      draggable={false}
-      loading="lazy"
-      referrerPolicy="no-referrer"
-    />
+      className="absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center overflow-hidden rounded-full bg-cyan-200/25 text-[0.55rem] font-bold leading-none text-cyan-50 ring-2 ring-[var(--rr-page-bg)]"
+    >
+      {avatarUrl ? (
+        <img
+          src={avatarUrl}
+          alt=""
+          className="size-full object-cover"
+          draggable={false}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        label.slice(0, 1).toUpperCase()
+      )}
+    </span>
   );
 }
 

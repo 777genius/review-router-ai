@@ -541,14 +541,14 @@ VALUES
 INSERT INTO "GitHubInstallation"
   ("id", "workspaceId", "githubInstallationId", "accountLogin", "accountType", "accountAvatarUrl", "repositorySelection", "status", "updatedAt")
 VALUES
-  ('rr-e2e-install-alpha-suspended', '${FIXTURES.workspaces.orgAlpha}', 920000000001, 'rr-e2e-org-alpha', 'Organization', 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg"%3E%3C/svg%3E', 'selected', 'suspended', CURRENT_TIMESTAMP);
+  ('rr-e2e-install-alpha-suspended', '${FIXTURES.workspaces.orgAlpha}', 920000000001, 'rr-e2e-org-alpha', 'Organization', 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"%3E%3Ccircle cx="4" cy="4" r="4" fill="%2322d3ee"/%3E%3C/svg%3E', 'selected', 'suspended', CURRENT_TIMESTAMP);
 
 INSERT INTO "GitHubInstallation"
   ("id", "workspaceId", "githubInstallationId", "accountLogin", "accountType", "accountAvatarUrl", "repositorySelection", "status", "updatedAt")
 VALUES
-  ('rr-e2e-install-personal-viewer', '${FIXTURES.workspaces.personalViewer}', 920000000002, 'rr-e2e-viewer', 'User', 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg"%3E%3C/svg%3E', 'selected', 'suspended', CURRENT_TIMESTAMP),
-  ('rr-e2e-install-personal-other', '${FIXTURES.workspaces.personalOther}', 920000000003, 'rr-e2e-other-person', 'User', 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg"%3E%3C/svg%3E', 'selected', 'suspended', CURRENT_TIMESTAMP),
-  ('rr-e2e-install-bravo', '${FIXTURES.workspaces.orgBravo}', 920000000004, 'rr-e2e-org-bravo', 'Organization', 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg"%3E%3C/svg%3E', 'selected', 'suspended', CURRENT_TIMESTAMP);
+  ('rr-e2e-install-personal-viewer', '${FIXTURES.workspaces.personalViewer}', 920000000002, 'rr-e2e-viewer', 'User', 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"%3E%3Ccircle cx="4" cy="4" r="4" fill="%2334d399"/%3E%3C/svg%3E', 'selected', 'suspended', CURRENT_TIMESTAMP),
+  ('rr-e2e-install-personal-other', '${FIXTURES.workspaces.personalOther}', 920000000003, 'rr-e2e-other-person', 'User', 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"%3E%3Ccircle cx="4" cy="4" r="4" fill="%23fbbf24"/%3E%3C/svg%3E', 'selected', 'suspended', CURRENT_TIMESTAMP),
+  ('rr-e2e-install-bravo', '${FIXTURES.workspaces.orgBravo}', 920000000004, 'rr-e2e-org-bravo', 'Organization', 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"%3E%3Ccircle cx="4" cy="4" r="4" fill="%23a78bfa"/%3E%3C/svg%3E', 'selected', 'suspended', CURRENT_TIMESTAMP);
 
 INSERT INTO "ProviderAccountConnection"
   ("id", "ownerUserId", "ownerWorkspaceId", "gatewayAccountRef", "gatewayOperationRef", "profileRef", "displayName", "state", "metadataRevision", "authorizationEpochMirror", "updatedAt")

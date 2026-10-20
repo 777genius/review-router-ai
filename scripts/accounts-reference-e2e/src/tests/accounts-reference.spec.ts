@@ -70,6 +70,12 @@ test.describe("Accounts UX reference browser contract", () => {
         .getByRole("tab")
         .filter({ hasText: /My connections|Available in this workspace/ }),
     ).toHaveCount(0);
+    // Org badges draw the mini avatar flush in the chip corner (UX batch 3).
+    for (const organization of ["RR E2E Org Alpha", "RR E2E Org Bravo"]) {
+      await expect(
+        row.locator(`a[title="${organization}"] img[alt=""]`),
+      ).toHaveCount(1);
+    }
     await expectNetworkViolations(violations);
   });
 
