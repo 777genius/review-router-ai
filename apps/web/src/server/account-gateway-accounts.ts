@@ -80,7 +80,7 @@ export type AccountOwnerView =
       handle: string | null;
       avatarUrl: string | null;
     }
-  | { kind: "organization"; label: string }
+  | { kind: "organization"; label: string; avatarUrl: string | null }
   | { kind: "operator"; label: string };
 export type AccountView = {
   origin?: "organization" | "personal" | "operator";

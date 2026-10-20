@@ -20,6 +20,33 @@ import type {
   AccountView,
 } from "./account-gateway-accounts";
 
+// Decorative avatar for organization owners, resolved from the workspace's
+// GitHub App installation. Failures only lose the picture, never the row.
+async function workspaceOwnerAvatar(
+  prisma: PrismaClient,
+  workspaceId: string,
+): Promise<string | null> {
+  try {
+    const installations = await prisma.gitHubInstallation.findMany({
+      where: { workspaceId },
+      select: { status: true, accountAvatarUrl: true, accountLogin: true },
+      orderBy: { id: "asc" },
+    });
+    const preferred =
+      installations.find((installation) => installation.status === "active") ??
+      installations[0];
+    if (!preferred) return null;
+    return (
+      preferred.accountAvatarUrl ??
+      (/^[A-Za-z0-9-]+$/.test(preferred.accountLogin)
+        ? `https://github.com/${preferred.accountLogin}.png?size=64`
+        : null)
+    );
+  } catch {
+    return null;
+  }
+}
+
 // Inventory deliberately includes unavailable sources. Models keeps its separate,
 // executable-only selector. Authorization is repeated after all remote reads.
 export function createAccountsOverview(input: {
@@ -272,7 +299,11 @@ export function createAccountsOverview(input: {
                 }
               : null,
             owner: own
-              ? { kind: "organization", label: source.workspaceName }
+              ? {
+                  kind: "organization",
+                  label: source.workspaceName,
+                  avatarUrl: null,
+                }
               : source.ownerUserId
                 ? {
                     kind: "personal",
@@ -309,6 +340,11 @@ export function createAccountsOverview(input: {
               },
             })
           : [];
+        const organizationAvatar = projections.some(
+          ({ account }) => account.owner?.kind === "organization",
+        )
+          ? await workspaceOwnerAvatar(input.prisma, who.workspaceId)
+          : null;
         const accounts: AccountView[] = [];
         // Authorization is repeated after all remote reads with one revalidation
         // query, compared per row: current donor role and exact binding lifetime,
@@ -340,6 +376,9 @@ export function createAccountsOverview(input: {
               owner.githubLogin ?? owner.externalIdentities[0]?.login ?? null;
             account.owner.avatarUrl =
               owner.avatarUrl ?? owner.externalIdentities[0]?.avatarUrl ?? null;
+          }
+          if (account.owner?.kind === "organization") {
+            account.owner.avatarUrl = organizationAvatar;
           }
           accounts.push(account);
         }

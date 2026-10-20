@@ -66,6 +66,16 @@ type Props = {
 
 function AccountOwner({ account }: { account: AccountView }) {
   const owner = account.owner;
+  const avatarUrl =
+    owner?.kind === "personal" || owner?.kind === "organization"
+      ? owner.avatarUrl
+      : null;
+  const avatarLabel =
+    owner?.kind === "personal"
+      ? (owner.handle ?? "Owner")
+      : owner?.kind === "organization"
+        ? owner.label
+        : "Owner";
   const text =
     owner?.kind === "personal"
       ? owner.isViewer
@@ -84,10 +94,10 @@ function AccountOwner({ account }: { account: AccountView }) {
               : accountsCopy.ownerUnavailable;
   return (
     <p className="mt-2 flex min-w-0 items-center gap-2 text-xs text-slate-400">
-      {owner?.kind === "personal" && owner.avatarUrl ? (
+      {avatarUrl ? (
         <GitHubAccountAvatar
-          avatarUrl={owner.avatarUrl}
-          login={owner.handle ?? "Owner"}
+          avatarUrl={avatarUrl}
+          login={avatarLabel}
           altText=""
           size="sm"
         />
