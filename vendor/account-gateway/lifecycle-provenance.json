@@ -1,0 +1,32 @@
+{
+  "kind": "private_sdk_worktree_pack",
+  "sourceRepository": "https://github.com/agent-teams-ai/account-gateway",
+  "sourceBaseCommit": "ae96a3218cdaffad87ec11fd340c890596af1cc7",
+  "uncommittedSource": true,
+  "sourceFiles": {
+    "packages/account-gateway/README.md": "ebe03161a3ef0060a024bdf6bb578f161691f3a36e3f9890933fbae2777e2875",
+    "packages/account-gateway/package.json": "6ce2154f64ddac9228576af40e747bad8a96340783fd03fbead53f49d6a7a488",
+    "packages/account-gateway/src/contracts/index.ts": "76ddb91cd8919e11fa15288d1f0443c3ecb6e6816c170e68d86793d1cf0943dc",
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "6c06fc042bb871c9099d1f0ca75862c5bb1791c11673d7c8bbcd650676e1f54d",
+    "packages/account-gateway/src/features/facade-client/http/index.ts": "2d69148011b99530bc223a0d44a42aab0d2393bee4e2fc20e8d3610823a4053f",
+    "packages/account-gateway/src/features/facade-client/http/ingress.ts": "b8af9b59805f010c084a175b717ca2ca5c2dc64569ffb1b54196ed326034b757",
+    "packages/account-gateway/src/get-modular/index.ts": "e6ea38b7b03cab7ef80bfa19e8027c579908eaaf695f3e576e6189c1ee69c614",
+    "packages/account-gateway/src/http/index.ts": "490488b684d0fb7cd3a7bc16e85eed4c30aa066e68b9693ae1d307c3ae253959"
+  },
+  "vendoredArchive": "vendor/account-gateway/agent-teams-account-gateway-0.1.0-lifecycle-f9e0d304.tgz",
+  "bytes": 19580,
+  "sha256": "f9e0d30419b1a506cb324b9ba133b187288594afe7ee3cb0ba8190dce5a9eb7e",
+  "integrity": "sha512-Qzzxb56D0pGIn/FPNJ9+bYZ+4YDKHYgYNwesTCf6rHt+W+P9s9gfVikjG9jaoMLDDbiDWvL1D1SgvRZ2akQEfA==",
+  "packageVersion": "0.1.0",
+  "node": "26.11.1",
+  "pnpm": "11.28.2",
+  "published": false,
+  "productionEffects": 0,
+  "qualification": {
+    "sdkTestsNode24": 33,
+    "sdkTestsNode26": 33,
+    "joinedNativeGoGatewayPostgres": "passed API-key and OAuth; no inference/refresh/native writes",
+    "joinedReceiptSHA256": "6a8fbb911f3ea3f901ea1e4f2806e06810b413e1663d7b063315925f03ff317b"
+  },
+  "scope": "Stable local checkpoint; not a committed Gateway release or deployment"
+}

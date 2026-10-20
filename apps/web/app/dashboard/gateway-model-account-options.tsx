@@ -5,6 +5,8 @@ import {
   useContext,
   useState,
   useMemo,
+  useEffect,
+  useRef,
   type ReactNode,
 } from "react";
 import {
@@ -59,8 +61,12 @@ export function useCurrentGatewayModelAccountsCache() {
                 .filter(
                   (query) =>
                     (query.queryKey[0] === "account-options" ||
-                      query.queryKey[0] === "account-option") &&
-                    query.queryKey[1] === context.scope,
+                      query.queryKey[0] === "account-option" ||
+                      query.queryKey[0] === "accounts-overview") &&
+                    typeof query.queryKey[1] === "string" &&
+                    query.queryKey[1].startsWith(
+                      `${context.scope.split(":workspace:")[0]}:workspace:`,
+                    ),
                 );
               await Promise.all(
                 queries.map((query) =>
@@ -97,6 +103,14 @@ export function GatewayModelAccountsProvider({
   children: ReactNode;
 }) {
   const [client] = useState(() => new QueryClient());
+  const viewerScope = scope.split(":workspace:")[0];
+  const previousViewer = useRef(viewerScope);
+  useEffect(() => {
+    if (previousViewer.current !== viewerScope) {
+      client.clear();
+      previousViewer.current = viewerScope;
+    }
+  }, [client, viewerScope]);
   return (
     <OptionsContext.Provider value={{ scope, api, client }}>
       {children}

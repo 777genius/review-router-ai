@@ -6,7 +6,10 @@ import {
   personalOperationId,
 } from "@reviewrouter/features-provider-accounts/synchronization";
 import { PrismaPersonalAccountOperations } from "../../../../packages/features/provider-accounts/src/infrastructure/prisma/prisma-personal-account-operations";
-import { createReviewActionV2E2EHarness } from "../../../../scripts/review-action-v2-production-e2e/support/review-action-v2-e2e-harness";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { randomUUID } from "node:crypto";
+import { createAccountsOverview } from "./accounts-overview";
 import { PrismaPersonalAccountSharingQueries } from "./personal-account-sharing-queries";
 
 function disposableDatabase() {
@@ -32,9 +35,10 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
   "personal sharing recipient read queries",
   () => {
     it("projects own scoped history and current eligible org pages without reviving lineage", async () => {
-      const harness =
-        await createReviewActionV2E2EHarness(disposableDatabase());
-      const { prisma: db, prefix } = harness;
+      const db = new PrismaClient({
+        adapter: new PrismaPg({ connectionString: disposableDatabase() }),
+      });
+      const prefix = `accounts-query-${randomUUID()}`;
       try {
         const u = `${prefix}-u`,
           v = `${prefix}-v`,
@@ -359,6 +363,208 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
             sourceIds: Array.from({ length: 101 }, (_, i) => `source-${i}`),
           }),
         ).rejects.toMatchObject({ code: "invalid_input" });
+        // Exact aggregate spans all grants, never counts hidden names as visible.
+        expect(
+          await queries.listOwnAccessSummaries({
+            actorUserId: u,
+            sourceIds: [source.id, extra.id],
+          }),
+        ).toEqual([
+          {
+            sourceId: source.id,
+            organizationCount: 2,
+            hasRestrictedAccess: true,
+            organizations: [
+              { workspaceId: x.id, label: x.name },
+              { workspaceId: y.id, label: y.name },
+            ],
+            personalWorkspaceId: p,
+            complete: true,
+          },
+          {
+            sourceId: extra.id,
+            organizationCount: 0,
+            hasRestrictedAccess: false,
+            organizations: [],
+            personalWorkspaceId: p,
+            complete: true,
+          },
+        ]);
+        await expect(
+          queries.listOwnAccessSummaries({
+            actorUserId: u,
+            sourceIds: [foreign.id],
+          }),
+        ).rejects.toMatchObject({ code: "connection_unavailable" });
+        // Real DB inventory: a member sees only authorized uses, not private owner
+        // inventory. Remote-await donor loss must remove metadata before release.
+        let deferRoleLoss = false;
+        let gatewayUnavailable = false;
+        let inventoryViewer = admin;
+        let inventoryWorkspace = x.id;
+        const overview = createAccountsOverview({
+          prisma: db,
+          cursorSecret: "TEST-only-inventory-cursor-key",
+          visibleRepositoryIds: async () => null,
+          profiles: [
+            {
+              id: "mimo-responses-v1",
+              label: "MiMo",
+              protocol: "openai-responses",
+              models: [],
+              authKind: "api_key",
+            },
+          ],
+          authorize: async () => ({
+            workspaceId: inventoryWorkspace,
+            userId: inventoryViewer,
+          }),
+          ownerRef: (owner) =>
+            owner.kind === "user"
+              ? `TEST-user-${owner.userId}`
+              : `TEST-workspace-${owner.workspaceId}`,
+          gateway: {
+            get: async () => {
+              if (gatewayUnavailable) throw new Error("TEST-unavailable");
+              if (deferRoleLoss)
+                await db.workspaceMember.update({
+                  where: {
+                    workspaceId_userId: { workspaceId: x.id, userId: admin },
+                  },
+                  data: { role: "member" },
+                });
+              return {
+                accountRef: source.gatewayAccountRef,
+                ownerRef: `TEST-user-${u}`,
+                profileId: "mimo-responses-v1",
+                displayName: source.displayName,
+                state: "active",
+                metadataRevision: 1,
+                authorizationEpoch: 1,
+              };
+            },
+          },
+        });
+        const inventory = await overview.list({ limit: 1 });
+        expect(inventory).toMatchObject({
+          status: "ok",
+          value: {
+            accounts: [
+              {
+                connectionId: bx.id,
+                origin: "personal",
+                canManage: false,
+                owner: { kind: "personal", isViewer: false },
+              },
+            ],
+          },
+        });
+        expect(JSON.stringify(inventory)).not.toContain(
+          source.gatewayAccountRef,
+        );
+        expect(JSON.stringify(inventory)).not.toContain(source.id);
+        deferRoleLoss = true;
+        // Admin -> member removes recipient admin capabilities during the await.
+        expect(await overview.list()).toMatchObject({
+          status: "ok",
+          value: { accounts: [] },
+        });
+        await db.workspaceMember.update({
+          where: { workspaceId_userId: { workspaceId: x.id, userId: admin } },
+          data: { role: "owner" },
+        });
+        deferRoleLoss = false;
+        const ownedSources = await Promise.all(
+          ["pending", "disabled"].map((state) =>
+            db.providerAccountConnection.create({
+              data: {
+                ownerWorkspaceId: x.id,
+                gatewayAccountRef: `${prefix}-org-${state}`,
+                profileRef: "mimo-responses-v1",
+                displayName: `Organization ${state}`,
+                state: state as "pending" | "disabled",
+              },
+            }),
+          ),
+        );
+        gatewayUnavailable = true;
+        const offlineInventory = await overview.list();
+        expect(offlineInventory).toMatchObject({
+          status: "ok",
+          value: { profiles: [] },
+        });
+        if (offlineInventory.status === "ok") {
+          expect(offlineInventory.value.accounts).toHaveLength(3);
+          expect(
+            offlineInventory.value.accounts.every(
+              (row) =>
+                row.readiness === "unknown" || row.readiness === "pending",
+            ),
+          ).toBe(true);
+        }
+        gatewayUnavailable = false;
+        const paginated: string[] = [];
+        let inventoryCursor: string | undefined;
+        let disappearingBoundaryCursor: string | undefined;
+        do {
+          const next = await overview.list({
+            limit: 1,
+            ...(inventoryCursor ? { afterBindingId: inventoryCursor } : {}),
+          });
+          expect(next.status).toBe("ok");
+          if (next.status !== "ok") throw new Error("inventory_page_failed");
+          paginated.push(...next.value.accounts.map((row) => row.connectionId));
+          if (
+            !disappearingBoundaryCursor &&
+            next.value.nextCursor &&
+            next.value.accounts.some((row) =>
+              ownedSources.some((owned) => owned.id === row.connectionId),
+            )
+          )
+            disappearingBoundaryCursor = next.value.nextCursor;
+          inventoryCursor = next.value.nextCursor ?? undefined;
+        } while (inventoryCursor);
+        expect(new Set(paginated)).toEqual(
+          new Set([bx.id, ...ownedSources.map((row) => row.id)]),
+        );
+        await db.workspaceMember.update({
+          where: { workspaceId_userId: { workspaceId: x.id, userId: admin } },
+          data: { role: "member" },
+        });
+        expect(disappearingBoundaryCursor).toBeDefined();
+        expect(
+          await overview.list({
+            limit: 1,
+            afterBindingId: disappearingBoundaryCursor!,
+          }),
+        ).toMatchObject({ status: "ok" });
+        inventoryWorkspace = y.id;
+        expect(
+          await overview.list({
+            limit: 1,
+            afterBindingId: disappearingBoundaryCursor!,
+          }),
+        ).toEqual({ status: "denied" });
+        inventoryWorkspace = x.id;
+        inventoryViewer = u;
+        expect(
+          await overview.list({
+            limit: 1,
+            afterBindingId: disappearingBoundaryCursor!,
+          }),
+        ).toEqual({ status: "denied" });
+        inventoryViewer = admin;
+        const memberInventory = await overview.list();
+        expect(memberInventory).toMatchObject({
+          status: "ok",
+          value: { accounts: [{ connectionId: bx.id, allowedActions: [] }] },
+        });
+        if (memberInventory.status === "ok")
+          expect(memberInventory.value.accounts).toHaveLength(1);
+        await db.workspaceMember.update({
+          where: { workspaceId_userId: { workspaceId: x.id, userId: admin } },
+          data: { role: "owner" },
+        });
         const member = await db.workspaceMember.findUniqueOrThrow({
           where: { workspaceId_userId: { workspaceId: x.id, userId: u } },
         });
@@ -387,7 +593,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
         ).toBe(false);
       } finally {
         // Immutable grant/receipt rows stay in the disposable cluster for proof.
-        await harness.close();
+        await db.$disconnect();
       }
     }, 120_000);
   },

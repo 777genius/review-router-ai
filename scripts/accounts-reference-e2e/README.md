@@ -1,0 +1,194 @@
+# Accounts UX real-browser reference E2E
+
+This directory owns a narrowly scoped, executable TypeScript harness for the
+Accounts UX at ReviewRouter baseline
+`f4839fe0ca2329ca54fb3482138a3770a73bc5fc`. It launches the actual Next.js web
+application, uses the checked-in Prisma migration runner, creates synthetic
+users/identities/workspaces and source/binding fixtures, and drives Chromium
+through the real DOM.
+
+The harness adds no production login, session, auth, or provider bypass. It
+generates a fresh fixture-only `AUTH_SECRET` and uses `next-auth/jwt` `encode`
+to construct cookies for the exact source tuples the application's real
+`auth-options.ts` and dashboard session reader map. It never reads a real
+session or credential.
+
+## Fixture boundary
+
+- TEST database name: `review_router_accounts_reference_e2e_test`.
+- Exact fixture IDs are declared in `src/contracts.ts`. They include the
+  `rr-e2e-user-*`, `rr-e2e-ws-*`, `rr-e2e-source-*`, `rr-e2e-account-*`, and
+  `rr-e2e-binding-*` families.
+- The local database mode is an isolated PGlite data directory exposed only on
+  `127.0.0.1`, migrated with
+  `packages/platform/db/scripts/migrate-deploy.mjs`. It is suitable for harness
+  development only because PGlite reports its internal database name as
+  `postgres`.
+- The orchestrator database mode accepts only an explicit loopback URL whose
+  path is exactly `/review_router_accounts_reference_e2e_test`. The database
+  must already exist and contain zero public tables and no `_prisma_migrations`
+  table. The harness never falls back to `DATABASE_URL`, `TEST_DATABASE_URL`, a
+  shared cluster, or production state.
+- Gateway reads and binding-fence acknowledgements use the existing
+  `REVIEW_ROUTER_ACCOUNT_GATEWAY_*_ORIGIN` and `*_TOKEN` configuration seams
+  against an isolated loopback fixture. No GitHub/GitLab/provider API is
+  called. The test context aborts and records any external request.
+- These Gateway/network fixtures support UI/read contract and server
+  authorization testing only. They do **not** prove native suspend, resume,
+  credential erasure, transport cleanup, or lifecycle safety. Those assertions
+  remain in the separate lifecycle integration lane.
+
+## Prerequisites
+
+- Node.js 24+ (the checked-in package manager is pnpm 10.33.0).
+- The repository root dependencies installed without changing the root
+  lockfile.
+- Chromium installed to the owned cache path below. Linux environments that
+  Playwright does not officially recognize may use its fallback build.
+- For the orchestrator mode, PostgreSQL 17+ listening only on loopback and a
+  freshly provisioned empty database with the exact TEST name. The repository
+  migration runner rejects older PostgreSQL versions.
+- Permission to bind and connect to isolated loopback sockets for PostgreSQL,
+  the Gateway fixture, Next.js, and Chromium. If the execution sandbox blocks
+  loopback, run the exact command in the project CI/runner that permits the
+  designated TEST ports; do not weaken auth or replace the real browser run.
+
+## Install and typecheck
+
+Run from the repository root:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm --dir scripts/accounts-reference-e2e install --ignore-workspace --frozen-lockfile
+export TMPDIR="$PWD/tmp/accounts-reference-e2e/tmp"
+export PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/accounts-reference-e2e/browser-cache"
+mkdir -p "$TMPDIR" "$PLAYWRIGHT_BROWSERS_PATH"
+pnpm --dir scripts/accounts-reference-e2e exec playwright install chromium
+pnpm --dir scripts/accounts-reference-e2e run check
+pnpm --dir scripts/accounts-reference-e2e exec playwright test -c playwright.config.ts --list
+```
+
+These commands install only inside `scripts/accounts-reference-e2e/` and cache
+only inside the repository-owned `tmp/`. They do not update the root lockfile.
+
+## Local isolated run
+
+This starts a fresh PGlite fixture, migrates it, starts the fixture Gateway and
+actual Next app on fresh loopback ports, then runs the browser suite:
+
+```bash
+export TMPDIR="$PWD/tmp/accounts-reference-e2e/tmp"
+export PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/accounts-reference-e2e/browser-cache"
+pnpm --dir scripts/accounts-reference-e2e run e2e -- \
+  --repo-root "$PWD" \
+  --isolated-pglite \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/local"
+```
+
+Use `--bootstrap-only` after `--work-dir ...` to verify migration, fixtures,
+Next health, signed-out redirect, and generated-session access without running
+the acceptance browser assertions.
+
+## Orchestrator run against the integrated candidate
+
+Provision a new database as the designated TEST database, then pass its URL
+explicitly. The example deliberately does not use a production environment
+fallback:
+
+```bash
+export TMPDIR="$PWD/tmp/accounts-reference-e2e/tmp"
+export PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/accounts-reference-e2e/browser-cache"
+export ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL='postgresql://test_role:fixture_password@127.0.0.1:55432/review_router_accounts_reference_e2e_test?schema=public'
+pnpm --dir scripts/accounts-reference-e2e run e2e -- \
+  --repo-root "$PWD" \
+  --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
+  --lifecycle-fixture \
+  --expected-revision f4839fe0ca2329ca54fb3482138a3770a73bc5fc \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/candidate"
+```
+
+For an integrated candidate, keep `--expected-revision` at the baseline above
+to record the comparison, or pass the candidate revision to make the expected
+revision explicit. Revision mismatch is reported, not silently treated as a
+browser pass.
+
+## Exit behavior and artifacts
+
+- Exit `0`: harness boot and all browser assertions passed.
+- Exit `2`: harness booted but one or more acceptance assertions failed. This
+  is expected on the baseline, which predates the accepted Accounts UX patch.
+- Exit `1`: setup, migration, fixture, auth, app launch, or harness execution
+  failed. This is not a browser acceptance result.
+- `result.json`: no-secret summary with revision, database mode, resources,
+  fixture boundary, boot state, and test counts.
+- `runtime.json`, `boot-report.json`, `migrations.log`, `next-app.log`, and
+  `gateway-requests.jsonl`: diagnostics. Tokens, JWTs, auth secrets, and
+  database URLs are not written.
+- On browser failure Playwright retains a trace and screenshot in the harness
+  output. No video is recorded.
+
+## Expected baseline failures and final integration assertions
+
+The boot/auth/fixture-isolation test should pass wherever isolated loopback is
+allowed. Do not claim a browser acceptance pass from that result. The baseline
+is expected to fail at least these acceptance tests until the accepted UX is
+integrated:
+
+- organization combined rows use `you`/neutral owner handle/avatar semantics
+  without provider names in owner/avatar accessibility text;
+- the access action is named and behaves as `Доступ`, including a `Закрыть`
+  action; literal open/close sends no POST, using authenticated GET read adapters;
+- one source exposes both organization grants and removing one grant preserves
+  the other grant and the source;
+- sticky geometry removes the duplicate sidebar Current workspace/avatar/
+  install/repo-count block and satisfies the four viewport/zoom samples;
+- a real server-capable suspended source exposes only `Enable`, while a legacy
+  disabled source exposes neither `Enable` nor repeated disable actions.
+
+The personal one-row/source isolation and session cache-switch assertions may
+also fail if integrated UI grouping changes their semantic DOM. Use the role,
+name, heading, tab, dialog, article, and source-label identities already
+exposed by production code; do not add test IDs or production hooks.
+
+Final integration must run the entire command above against the integrated
+candidate. Native suspend/resume/erasure and production credential lifecycle
+proof must be supplied by the separate lifecycle integration lane, not this
+fixture-backed UI/read harness.
+
+## Integrated verifier notes
+
+Use actual PostgreSQL 17 for acceptance. When shared-cluster authority roles make
+fresh migration rehearsal unavailable, `--restored-empty-baseline` accepts only
+the exact TEST database, zero users and sources, and the complete 133/134 migration
+roster with every checksum and finished state matching this checkout. Restore
+schema and migration records only, with no source fixture rows. This mode is
+schema-restore evidence, **not** fresh migration rehearsal. `--resume-own-fixtures`
+requires the exact three declared synthetic users and exact TEST database; it
+preserves prior fixture effects and skips migration and seed. Preserve a full
+post-run dump before any explicitly authorized reset of this disposable database.
+
+The seed includes donor admin membership and original applied attach journals
+for personal grants; these are required product authorization invariants. Journal
+IDs and intent hashes are created by the checked-out policy functions. A successful
+revoke assertion checks persisted A=revoked, B=active and unchanged source owner,
+state and Gateway mapping. The organization test actually removes the donor role,
+refreshes to check concealment, then restores only that synthetic membership.
+
+`--lifecycle-fixture` requires the integrated 134-schema/SDK/server/UI candidate.
+It enables the existing RR gate and advertises v2 capabilities through the
+loopback fixture. Synthetic `resumeCustody: verified` is a **wire-contract fixture**,
+not native attestation evidence. The browser checks truthful action exposure and
+confirmation cancellation; native effects remain separately qualified.
+
+Next runs with the repository's webpack extension aliases because Turbopack does
+not resolve its existing `.js` source imports. The harness refuses live dotenv
+files in either the repository root or app directory. NextAuth 4 fixture JWTs use
+its default empty salt; boot verifies own source HTML, not merely HTTP 200.
+
+All screenshots, traces, browser request logs and geometry receipts live under
+the run directory in `tmp/`. Browser logs record method/origin/path, never request
+bodies, cookies or auth headers. All non-loopback browser requests are blocked.
+The 200% sample emulates browser layout using a 640x400 CSS viewport at DPR 2,
+rendering a 1280x800 screenshot; CSS `zoom` stress is separate and does not emulate
+browser breakpoint changes. `ACCOUNTS_REFERENCE_E2E_GREP` selects a bounded failed
+scenario for follow-up without replaying successful mutation tests.

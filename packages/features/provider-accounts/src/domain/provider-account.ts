@@ -4,6 +4,7 @@ export type ConnectionOwner =
 
 export type ConnectionState =
   | "active"
+  | "suspended"
   | "disabled"
   | "quarantined"
   | "pending"
@@ -154,9 +155,14 @@ export function assertMetadata(metadata: ConnectionMetadata): void {
       const code = character.charCodeAt(0);
       return code < 32 || code === 127;
     }) ||
-    !["active", "disabled", "quarantined", "pending", "unknown"].includes(
-      metadata.state,
-    )
+    ![
+      "active",
+      "suspended",
+      "disabled",
+      "quarantined",
+      "pending",
+      "unknown",
+    ].includes(metadata.state)
   ) {
     throw new ProviderAccountError("invalid_input");
   }

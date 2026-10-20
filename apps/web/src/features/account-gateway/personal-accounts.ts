@@ -8,7 +8,13 @@ export type PersonalSource = {
   sourceId: string;
   label: string;
   profileId: string | null;
-  state: "active" | "pending" | "disabled" | "quarantined" | "unknown";
+  state:
+    | "active"
+    | "suspended"
+    | "pending"
+    | "disabled"
+    | "quarantined"
+    | "unknown";
   metadataRevision: number;
   sourceOperationPending: boolean;
 };
@@ -30,6 +36,19 @@ export type OwnAccountGrant = {
 export type OwnAccountGrantPage = {
   grants: readonly OwnAccountGrant[];
   nextCursor: string | null;
+};
+export type PersonalAccessSummary = {
+  sourceId: string;
+  organizationCount: number;
+  hasRestrictedAccess: boolean;
+  // Up to 4 visible organizations, paired label↔workspaceId in name order.
+  organizations: readonly { workspaceId: string; label: string }[];
+  // The viewer's own personal workspace, identical on every row of one call.
+  personalWorkspaceId: string | null;
+  complete: true;
+};
+export type PersonalAccessSummaryPage = {
+  summaries: readonly PersonalAccessSummary[];
 };
 export type PersonalShareOrganization = {
   workspaceId: string;
@@ -82,6 +101,9 @@ export type PersonalAccountsApi = {
     afterBindingId?: string;
     limit: number;
   }): Promise<PersonalAccountsResult<OwnAccountGrantPage>>;
+  listAccessSummaries(request: {
+    sourceIds: readonly string[];
+  }): Promise<PersonalAccountsResult<PersonalAccessSummaryPage>>;
   listEligibleOrganizations(request: {
     sourceIds: readonly string[];
     afterWorkspaceId?: string;
@@ -119,4 +141,21 @@ export function personalAccountOriginText(account: {
       : account.origin === "operator"
         ? "Operator account"
         : null;
+}
+
+// Read adapter batches the already loaded inventory; the server reauthorizes
+// every source. A failed batch never releases a partial exact aggregate.
+export async function readOwnAccessSummaries(
+  api: Pick<PersonalAccountsApi, "listAccessSummaries">,
+  sourceIds: readonly string[],
+): Promise<PersonalAccountsResult<PersonalAccessSummaryPage>> {
+  const summaries: PersonalAccessSummary[] = [];
+  for (let offset = 0; offset < sourceIds.length; offset += 100) {
+    const page = await api.listAccessSummaries({
+      sourceIds: sourceIds.slice(offset, offset + 100),
+    });
+    if (page.status !== "ok") return page;
+    summaries.push(...page.value.summaries);
+  }
+  return { status: "ok", value: { summaries } };
 }

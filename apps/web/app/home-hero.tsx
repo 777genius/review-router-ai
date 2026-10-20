@@ -68,7 +68,6 @@ export function HomeHero({
       <BlueprintLines />
 
       <div className="setup-blueprint__intro">
-        <p className="setup-blueprint__eyebrow">ReviewRouter Setup ///</p>
         <h1 id="setup-blueprint-title">
           Free privacy-first
           <br />

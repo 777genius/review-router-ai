@@ -1,4 +1,17 @@
-# Private Account Gateway SDK artifact
+# Accounts lifecycle SDK checkpoint
+
+The current local Accounts candidate uses
+`agent-teams-account-gateway-0.1.0-lifecycle-f9e0d304.tgz`.
+`lifecycle-provenance.json` binds the archive to exact SDK source-file hashes
+on Gateway base `ae96a3218cdaffad87ec11fd340c890596af1cc7`.
+The Gateway worktree is uncommitted; this is a private checkpoint, not a release
+or npm publication. The v2 contract supports suspend/resume and compatible
+readback while writes are closed. Both SDK compatibility lanes and controlled
+actual Go/Gateway/PostgreSQL retained-custody qualification passed.
+
+Historical SDK provenance and archives below retain their original identities.
+
+## Previous private Account Gateway SDK artifact
 
 The current private SDK0.1.0 archive is
 `agent-teams-account-gateway-0.1.0-28d6da0.tgz` (17155 bytes), packed from normal

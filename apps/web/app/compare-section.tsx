@@ -214,7 +214,7 @@ export function CompareSection({
                 Competitor matrix
               </h3>
               <p className="mt-1 text-sm text-slate-400">
-                Concrete review apps compared across what matters.
+                Review apps compared on what matters.
               </p>
             </div>
             <p className="font-mono text-[0.68rem] uppercase tracking-[0.18em] text-slate-500">
@@ -228,7 +228,7 @@ export function CompareSection({
               className="mt-0.5 size-4 shrink-0 text-cyan-300"
             />
             Information reflects public vendor docs checked on September 17,
-            2026. Verify current compliance details before procurement.
+            2026. Confirm compliance details before buying.
           </p>
         </div>
 

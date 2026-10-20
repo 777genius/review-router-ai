@@ -42,6 +42,7 @@ import {
   canonicalMimoBaseURL,
   suggestedAccountLabel,
 } from "../features/account-gateway/connection-options";
+import type { AccountUsageView } from "./account-usage";
 
 // This module is imported at runtime only by RSC/server actions. Client imports are type-only.
 export type AccountsResult<T> =
@@ -49,6 +50,7 @@ export type AccountsResult<T> =
   | {
       status: "denied" | "conflict" | "invalid" | "unavailable";
     };
+
 export type AccountProfileView = {
   id: string;
   label: string;
@@ -61,17 +63,45 @@ export type AccountProfileView = {
   // Trusted deployment binding to the Gateway's fixed profile, never a caller override.
   dedicatedBaseURL?: string;
 };
+export type AccountAllowedAction =
+  | "rename"
+  | "reconnect"
+  | "retire"
+  | "detach"
+  | "access"
+  | "checkStatus"
+  | "suspend"
+  | "resume"
+  | "delete";
+export type AccountOwnerView =
+  | {
+      kind: "personal";
+      isViewer: boolean;
+      handle: string | null;
+      avatarUrl: string | null;
+    }
+  | { kind: "organization"; label: string }
+  | { kind: "operator"; label: string };
 export type AccountView = {
   origin?: "organization" | "personal" | "operator";
   // Display-only identity fact; never permission to manage a shared source.
   isOwnedByViewer?: boolean;
   canManage?: boolean;
+  owner?: AccountOwnerView;
+  allowedActions?: readonly AccountAllowedAction[];
   connectionId: string;
   label: string;
   profileId: string;
   profileLabel: string;
   authKind?: NonNullable<AccountProfileView["authKind"]>;
-  state: c.Account["state"];
+  state: c.Account["state"] | "suspended";
+  authorizationEpoch?: number;
+  lifecycle?: {
+    status: "available" | "pending" | "support_required" | "unavailable";
+    operationId?: string;
+    action?: "suspend" | "resume" | "delete";
+  };
+  readiness?: "ready" | "pending" | "unavailable" | "unknown";
   gatewayRevision: number;
   mirrorRevision: number;
   binding: {
@@ -80,6 +110,8 @@ export type AccountView = {
     state: "active" | "revoked";
     fencePending: boolean;
   } | null;
+  // Optional display projection; older safe bootstrap consumers may omit it.
+  usage?: AccountUsageView;
 };
 export type AccountsPage = {
   canGrantOperatorUse?: boolean;

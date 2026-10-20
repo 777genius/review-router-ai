@@ -26,14 +26,19 @@ export type DashboardPendingWorkspaceTabItem = {
   readonly statusLabel: string;
 };
 
+export const workspaceAddTabClass =
+  "inline-flex min-h-12 w-auto shrink-0 items-center gap-2 rounded-t-xl rounded-b-none border-b-2 border-transparent px-2 py-3 text-sm font-semibold text-slate-300 transition duration-200 ease-out hover:saturate-125 hover:border-cyan-300/35 hover:bg-cyan-300/[0.04] hover:text-cyan-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200";
+
 export function DashboardWorkspaceTabs({
   items,
   selectedWorkspaceId,
   pendingInstallRequest,
+  addWorkspace,
 }: {
   readonly items: readonly DashboardWorkspaceTabItem[];
   readonly selectedWorkspaceId: string;
   readonly pendingInstallRequest?: DashboardPendingWorkspaceTabItem | null;
+  readonly addWorkspace?: React.ReactNode;
 }): React.ReactElement {
   const { startNavigation } = useNavigationFeedback();
   const [showPendingRequest, setShowPendingRequest] = useState(false);
@@ -65,11 +70,14 @@ export function DashboardWorkspaceTabs({
   }, [activeLabels, pendingInstallRequest]);
 
   return (
-    <Tabs.Root value={selectedWorkspaceId}>
+    <Tabs.Root
+      value={selectedWorkspaceId}
+      className="flex items-stretch gap-4 overflow-x-auto overflow-y-hidden border-b border-cyan-200/15 pb-px [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
       <Tabs.List
         aria-label="Workspace"
         activateOnFocus
-        className="flex gap-4 overflow-x-auto overflow-y-hidden border-b border-cyan-200/15 pb-px [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex items-stretch gap-4"
       >
         {visibleItems.map((item) => {
           const href = dashboardClientNavigationHref(item.href);
@@ -117,6 +125,7 @@ export function DashboardWorkspaceTabs({
           );
         })}
       </Tabs.List>
+      {addWorkspace}
     </Tabs.Root>
   );
 }
