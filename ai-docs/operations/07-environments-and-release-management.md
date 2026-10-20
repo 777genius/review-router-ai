@@ -507,9 +507,7 @@ the attestation strands queued A, while retaining it blocks B. Concurrent
 in-place migration requires a future bounded attestation-history schema; until
 then, drain and allocate a fresh namespace.
 
-## Rollback
-
-### Public API hostname convergence
+## Public API hostname convergence
 
 When aligning web/API/worker public URLs to `https://api.reviewrouter.org`,
 retain `https://api.reviewrouter.site` as a direct alias to the same backend.
@@ -520,7 +518,7 @@ origins retain exact matching. Existing canonical workflow bytes, namespaces,
 signing keys, admitted tokens and captured runtime snapshots remain unchanged.
 New callers use the canonical `.org` origin.
 
-### Runtime rollback
+## Rollback
 
 Rollback options, safest first:
 

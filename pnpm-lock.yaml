@@ -385,6 +385,9 @@ importers:
       '@reviewrouter/platform-locks':
         specifier: workspace:*
         version: link:../../packages/platform/locks
+      '@reviewrouter/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@reviewrouter/ui':
         specifier: workspace:*
         version: link:../../packages/ui
