@@ -2,6 +2,7 @@
 
 import { Tabs } from "@base-ui/react/tabs";
 import { createContext, useContext, useState, type ReactNode } from "react";
+import { accountsCopy } from "./accounts-copy";
 const OwnAccountsView = createContext<(() => void) | null>(null);
 export const useOwnAccountsView = () => useContext(OwnAccountsView);
 
@@ -17,14 +18,14 @@ export function AccountsWorkspaceTabs({
     <OwnAccountsView.Provider value={() => setView("own")}>
       <Tabs.Root value={view} onValueChange={setView}>
         <Tabs.List
-          aria-label="Разделы подключений"
-          className="flex gap-4 overflow-x-auto border-b border-cyan-200/15"
+          aria-label="Connection views"
+          className="flex gap-2 overflow-x-auto"
         >
           <AccountsWorkspaceTab value="available">
-            Доступные в этом workspace
+            {accountsCopy.available}
           </AccountsWorkspaceTab>
           <AccountsWorkspaceTab value="own">
-            Мои подключения
+            {accountsCopy.own}
           </AccountsWorkspaceTab>
         </Tabs.List>
         <Tabs.Panel value="available" className="pt-5">
@@ -50,10 +51,10 @@ function AccountsWorkspaceTab({
       value={value}
       className={({ active }) =>
         [
-          "min-h-11 shrink-0 border-b-2 px-1 py-3 text-sm font-semibold",
+          "min-h-11 shrink-0 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors",
           active
-            ? "border-cyan-200 text-cyan-50"
-            : "border-transparent text-slate-300 hover:text-cyan-50",
+            ? "border-cyan-200/50 bg-cyan-200/[0.13] text-cyan-50"
+            : "border-white/[0.09] bg-white/[0.05] text-slate-200 hover:border-cyan-200/35 hover:bg-white/[0.09] hover:text-cyan-50",
         ].join(" ")
       }
     >

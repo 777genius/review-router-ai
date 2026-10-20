@@ -38,9 +38,11 @@ export type OwnAccessSummary = {
   readonly hasRestrictedAccess: boolean;
   // Up to 4 visible organizations; label and workspaceId pair by index in name
   // order. Hidden names stay unlisted and only raise hasRestrictedAccess.
+  // avatarUrl is decorative (GitHub org/user picture) and may be missing.
   readonly organizations: readonly {
     readonly workspaceId: string;
     readonly label: string;
+    readonly avatarUrl?: string | null;
   }[];
   // The viewer's own personal workspace, identical on every row of one call.
   readonly personalWorkspaceId: string | null;
@@ -187,6 +189,40 @@ export class PrismaPersonalAccountSharingQueries {
     ]);
     const bySource = new Map(rows.map((row) => [row.sourceId, row]));
     const personalWorkspaceId = personal?.id ?? null;
+    // Decorative avatars for the visible organization names. Failures only lose
+    // the pictures, never the access summary itself.
+    const avatarWorkspaceIds = [
+      ...new Set(
+        rows.flatMap((row) => (row.organizationIds ?? []).filter(Boolean)),
+      ),
+    ];
+    const avatarByWorkspace = new Map<string, string>();
+    if (avatarWorkspaceIds.length) {
+      try {
+        const installations = await this.prisma.gitHubInstallation.findMany({
+          where: {
+            workspaceId: { in: avatarWorkspaceIds },
+          },
+          select: {
+            workspaceId: true,
+            accountAvatarUrl: true,
+            accountLogin: true,
+          },
+          orderBy: { id: "asc" },
+        });
+        for (const installation of installations) {
+          if (avatarByWorkspace.has(installation.workspaceId)) continue;
+          const avatar =
+            installation.accountAvatarUrl ??
+            (/^[A-Za-z0-9-]+$/.test(installation.accountLogin)
+              ? `https://github.com/${installation.accountLogin}.png?size=64`
+              : null);
+          if (avatar) avatarByWorkspace.set(installation.workspaceId, avatar);
+        }
+      } catch {
+        // Avatars are decoration only.
+      }
+    }
     return sourceIds.map((sourceId) => {
       const row = bySource.get(sourceId);
       return {
@@ -196,7 +232,15 @@ export class PrismaPersonalAccountSharingQueries {
         organizations: (row?.organizationLabels ?? []).flatMap(
           (label, index) => {
             const workspaceId = row?.organizationIds?.[index];
-            return workspaceId ? [{ workspaceId, label }] : [];
+            return workspaceId
+              ? [
+                  {
+                    workspaceId,
+                    label,
+                    avatarUrl: avatarByWorkspace.get(workspaceId) ?? null,
+                  },
+                ]
+              : [];
           },
         ),
         personalWorkspaceId,

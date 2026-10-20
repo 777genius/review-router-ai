@@ -83,13 +83,13 @@ function fixture() {
   return { api, detach, readDetach };
 }
 async function confirm() {
-  fireEvent.click(screen.getByRole("button", { name: "Доступ" }));
+  fireEvent.click(screen.getByRole("button", { name: "Access" }));
   expect(
     await screen.findByText(
-      /Личный аккаунт и другие организации не изменяются/,
+      /Your personal account and other organizations stay unchanged/,
     ),
   ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Отозвать доступ" }));
+  fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
 }
 test("is inert without an explicit authorized API", () => {
   const f = fixture();
@@ -135,7 +135,7 @@ test.each([false, true])(
     );
     expect(await screen.findByText("Canonical old-BX")).toBeTruthy();
     expect(
-      screen.getByText(isOwnedByViewer ? "Вы" : "Владелец недоступен"),
+      screen.getByText(isOwnedByViewer ? "You" : "Owner unavailable"),
     ).toBeTruthy();
     expect(screen.getByText("Canonical org-owned")).toBeTruthy();
     expect(screen.queryByText("90")).toBeNull();
@@ -164,12 +164,10 @@ test("an empty filtered page keeps the next page reachable", async () => {
     />,
   );
   expect(
-    await screen.findByText(
-      "На загруженных страницах нет доступных подключений.",
-    ),
+    await screen.findByText("No available connections on the loaded pages."),
   ).toBeTruthy();
-  expect(screen.queryByText("Нет доступных подключений.")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Загрузить ещё" }));
+  expect(screen.queryByText("No available connections.")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Load more" }));
   expect(await screen.findByText("Canonical offpage")).toBeTruthy();
   expect(f.api.list).toHaveBeenNthCalledWith(2, {
     limit: 25,
@@ -188,7 +186,7 @@ test("captures the exact old binding and preserves local deny while checking its
     />,
   );
   await screen.findByText("Canonical old-BX");
-  fireEvent.click(screen.getByRole("button", { name: "Доступ" }));
+  fireEvent.click(screen.getByRole("button", { name: "Access" }));
   // A fresh lifetime arriving after opening confirmation cannot retarget the action.
   act(() =>
     context.client!.setQueryData(["accounts-overview", "org-x"], {
@@ -197,7 +195,7 @@ test("captures the exact old binding and preserves local deny while checking its
     }),
   );
   f.api.list.mockResolvedValue(page([account("new-BX")]));
-  fireEvent.click(screen.getByRole("button", { name: "Отозвать доступ" }));
+  fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
   expect(
     await screen.findByText(
       "Access revoked locally in this organization; gateway confirmation pending.",
@@ -210,7 +208,7 @@ test("captures the exact old binding and preserves local deny while checking its
   expect(await screen.findByText("Canonical new-BX")).toBeTruthy();
   f.readDetach.mockResolvedValueOnce({ status: "unavailable" });
   fireEvent.click(
-    screen.getByRole("button", { name: "Проверить исходный запрос" }),
+    screen.getByRole("button", { name: "Check original request" }),
   );
   await waitFor(() => expect(f.readDetach).toHaveBeenCalledTimes(1));
   expect(f.detach).toHaveBeenCalledTimes(1);
@@ -234,13 +232,13 @@ test("captures the exact old binding and preserves local deny while checking its
     expect(
       (
         screen.getByRole("button", {
-          name: "Проверить исходный запрос",
+          name: "Check original request",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false),
   );
   fireEvent.click(
-    screen.getByRole("button", { name: "Проверить исходный запрос" }),
+    screen.getByRole("button", { name: "Check original request" }),
   );
   expect(
     await screen.findByText(
@@ -346,11 +344,11 @@ test("opening and cancelling Access never submits or reads a detachment operatio
     />,
   );
   await screen.findByText("Canonical old-BX");
-  fireEvent.click(screen.getByRole("button", { name: "Доступ" }));
+  fireEvent.click(screen.getByRole("button", { name: "Access" }));
   await screen.findByRole("dialog");
   expect(f.detach).not.toHaveBeenCalled();
   expect(f.readDetach).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(f.detach).not.toHaveBeenCalled();
   expect(f.readDetach).not.toHaveBeenCalled();

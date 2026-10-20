@@ -216,7 +216,7 @@ function HostedPoolAccountCard({
             </p>
             {poolRepositories.length ? (
               <p className="mt-2 text-sm leading-5 text-amber-100">
-                Отзывы через пул идут в:{" "}
+                Reviews through the pool go to:{" "}
                 {poolRepositories
                   .slice(0, 3)
                   .map((repository) => repository.fullName)
@@ -224,7 +224,7 @@ function HostedPoolAccountCard({
                 {poolRepositories.length > 3
                   ? ` +${poolRepositories.length - 3}`
                   : ""}
-                . Если в пуле не останется готовых аккаунтов, они остановятся.
+                . If no ready accounts remain in the pool, reviews will stop.
               </p>
             ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">

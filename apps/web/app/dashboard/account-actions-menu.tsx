@@ -68,7 +68,7 @@ export function AccountActionsMenu({
             ref={trigger}
             variant="ghost"
             size="sm"
-            aria-label={triggerContent ? label : `Действия для ${label}`}
+            aria-label={triggerContent ? label : `Actions for ${label}`}
           >
             {triggerContent ?? (
               <MoreHorizontal aria-hidden="true" className="size-4" />
