@@ -141,10 +141,17 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
           { profiles: [{ profileRef: profile, limits }] },
           undefined,
           true,
+          "codex-default",
         );
-        const closedSnapshots = new ProductionReviewRunRuntimeSnapshot(db, {
-          profiles: [{ profileRef: profile, limits }],
-        });
+        const closedSnapshots = new ProductionReviewRunRuntimeSnapshot(
+          db,
+          {
+            profiles: [{ profileRef: profile, limits }],
+          },
+          undefined,
+          false,
+          "codex-default",
+        );
         const configurations = new PrismaReviewConfigurationRepository(
           db,
           undefined,

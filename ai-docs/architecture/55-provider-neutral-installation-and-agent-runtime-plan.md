@@ -75,7 +75,7 @@ jobs:
 
 ### Агент и model-provider разделены
 
-Авторитетная настройка агента - validated deployment `REVIEW_ROUTER_AGENT_PROFILE`, default approved Codex profile. Значение opaque profile ref; definition принадлежит existing approved producer metadata. Там agent kind, qualified binary/capabilities и существующие selector options, без arbitrary commands/URLs/credentials. Новые policy tables/operator APIs не нужны.
+Авторитетная настройка агента - validated deployment `REVIEW_ROUTER_AGENT_PROFILE`, default approved OCR profile `ocr-managed-v2` для Account Gateway с Agentic context. Значение opaque profile ref; definition принадлежит existing approved producer metadata. Там agent kind, qualified binary/capabilities и существующие selector options, без arbitrary commands/URLs/credentials. Новые policy tables/operator APIs не нужны.
 
 1. Current ReviewAgentPort с negotiate/executeTurn/cancel сохраняется. Model provider и agent kind имеют разные types; существующий selector получает explicit captured executionAuthority. Наличие secret/model-provider kind не выбирает агент.
 2. Server profile setting меняется после выпуска runtime, поддерживающего profile. Admission проверяет registered producer/profile/model-transport/auth combination; unknown combination fail closed, no guessed fallback.
@@ -173,3 +173,38 @@ Private snapshot generation уточнён при интеграции main: pub
 GitHub Secrets сохраняется, включая существующий scoped secret forwarding и credential rotation. Hosted Pool тоже сохраняется; основной текущий путь — sub2api. Эти режимы не удалять ради очистки имён. Их существующие entrypoints остаются отдельными от нового компактного Gateway caller; они не являются автоматическим fallback при отказе Gateway. При необходимости исправить небольшие несовместимости provisioning/path, без новой платформы миграций и без отдельной полной live-сертификации старых режимов.
 
 Требования выше об удалении obsolete execution paths относятся к заменяемому Gateway contract, а не к удалению GitHub Secrets/Hosted Pool. Новый Gateway caller сохраняет reviewrouter-review.yml и workflow-v1; существующий secret-backed/Hosted caller сохраняет свой путь до отдельной миграции. Общий constant старого caller нельзя переназначать на новый путь: это меняет установку и активацию ещё используемых режимов. Проверки ограничиваются затронутыми provisioning/secret-forwarding suites; основной live canary остаётся Gateway.
+
+## OCR default rollout (2026-10-20)
+
+Неявный engine на Account Gateway с `agenticContext=true` разрешается сервером
+через immutable approved profile `ocr-managed-v2`. Его реальный binary/capabilities
+должны быть зарегистрированы у exact admitted producer до включения. Explicit
+`agentProfileRef` сохраняется без fallback. Неявный supplied-diff-only сохраняет
+единственный approved Codex profile с Account Gateway transport; отсутствие или
+неоднозначность совместимого профиля закрывают admission. GitHub Secrets и Hosted
+Pool сохраняют свой qualified Codex/provider-api contract: текущий OCR его не
+поддерживает. Это граница охвата, а не переименование Codex в OCR.
+
+SQL-перенос policy не нужен: отсутствие `agentProfileRef` уже означает server
+default. JSON, версии policy и захваченные старые snapshots не переписываются.
+Process override `REVIEW_ROUTER_AGENT_PROFILE` остаётся авторитетным для неявного
+agentic Gateway default; production rollout сверяет его с новым exact profile.
+
+### TODO: отдельная квалификация оптимизаций native ReviewRouter
+
+- [ ] После вывода новых relation-обязательств повторно использовать полный proof
+      того же принятого turn через existing closure prover. В r2 следующий turn
+      повторил 10 поисков и 8 полных чтений (406 552 байта исходников); 3 набора путей
+      уже были полностью покрыты. Сохранять точные revision/tree, полный search chain,
+      exact required paths и contiguous complete HEAD proof. Missing/partial/wrong-tree
+      evidence оставляет relation открытой. Нужны отдельная версия domain/profile
+      policy и regression checks; число байтов не обещает экономии tokens/time.
+- [ ] После model-free квалификации нескольких direct MCP calls в одном ответе
+      (отдельные receipts и operation limits для каждого) предложить пакетировать
+      независимые read/search. В r2 было 61 request и 58 single-call continuations;
+      накопленная история добавила 15 550 402 serialized bytes. Это полезные evidence,
+      их нельзя молча обрезать. Prompt hint не гарантирует batching или экономию.
+
+Обе идеи только TODO: текущий алгоритм, prompt и frozen comparison не меняются.
+Измерения: retained r2 `optimization-followups.json`, `rr/native-context-traces.json`
+и `rr/wire-shapes-safe.json`; это один bounded case, не общий benchmark.

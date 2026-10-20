@@ -1260,11 +1260,11 @@ describe("ReviewConfigForm", () => {
     const profileSelect = screen.getByRole("combobox", {
       name: "Review agent profile",
     });
-    expect(profileSelect.textContent).toContain("Default (Codex profile)");
+    expect(profileSelect.textContent).toContain("Server default");
     fireEvent.click(profileSelect);
     expect(
       screen.getAllByRole("option").map((option) => option.textContent ?? ""),
-    ).toEqual([expect.stringContaining("Default (Codex profile)")]);
+    ).toEqual([expect.stringContaining("Server default")]);
     const form = document.querySelector("form")!;
     expect(new FormData(form).get("providerAgentProfileRef.0")).toBe("");
     expect(
@@ -1281,7 +1281,7 @@ describe("ReviewConfigForm", () => {
     expect(
       screen.getByRole("combobox", { name: "Review agent profile" })
         .textContent,
-    ).toContain("Default (Codex profile)");
+    ).toContain("Server default");
     choose("Review agent profile", /ocr-prod-1/);
     const form = document.querySelector("form")!;
     expect(new FormData(form).get("providerAgentProfileRef.0")).toBe(

@@ -259,9 +259,9 @@ function agentProfileChoiceOptions(
   const choices: DashboardSelectOption[] = [
     {
       value: agentProfileDefaultChoice,
-      label: "Default (Codex profile)",
+      label: "Server default",
       description:
-        "Runs reviews with the configured default Codex profile. No engine selection is saved.",
+        "Uses the managed engine (OpenCodeReview by default). Supplied-diff-only policies retain a compatible Codex profile. No engine selection is saved.",
     },
     ...agentProfileOptions.map((option) => ({
       value: option.profileRef,
@@ -332,7 +332,7 @@ const fieldHelp = {
   agenticContext:
     "Allows supported providers to inspect related files in the repository instead of relying only on the supplied diff.",
   agentProfile:
-    "Optional engine selection for this Account Gateway provider. Leaving it on Default runs reviews with the configured Codex profile and saves no engine selection. Only approved registered profiles are offered.",
+    "Optional engine selection for this Account Gateway provider. Server default uses the managed engine, OpenCodeReview by default with Agentic context enabled. Supplied-diff-only policies retain compatible Codex execution. Only approved registered profiles are offered.",
   providers: "Run one or more providers in parallel and merge their findings.",
   providerMaxParallel:
     "Maximum number of selected providers ReviewRouter may run at the same time.",

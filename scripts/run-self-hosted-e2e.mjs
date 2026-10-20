@@ -245,6 +245,7 @@ function createTestEnvironment() {
   const env = {
     ...process.env,
     NODE_ENV: "production",
+    REVIEW_ROUTER_AGENT_PROFILE: "codex-default",
     AUTH_TRUST_HOST: "true",
     POSTGRES_DB: "review_router",
     POSTGRES_USER: "reviewrouter",

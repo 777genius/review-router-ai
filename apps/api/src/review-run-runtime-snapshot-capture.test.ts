@@ -11,6 +11,7 @@ import {
 } from "@reviewrouter/features-review-run-control";
 import {
   readServerApprovedReviewRunGatewayPolicy,
+  readServerReviewAgentProfileRef,
   ProductionReviewRunRuntimeSnapshot,
 } from "./review-run-runtime-snapshot";
 
@@ -179,7 +180,10 @@ function fakeRuntimeReader(input: {
   >;
 }
 
-function snapshotSource(outputBytes = 196608) {
+function snapshotSource(
+  outputBytes = 196608,
+  agentProfileRef: string | null = "codex-default",
+) {
   return new ProductionReviewRunRuntimeSnapshot(
     {} as PrismaClient,
     {
@@ -198,7 +202,7 @@ function snapshotSource(outputBytes = 196608) {
     },
     undefined,
     false,
-    "codex-default",
+    agentProfileRef ?? undefined,
   );
 }
 
@@ -293,6 +297,106 @@ describe("ProductionReviewRunRuntimeSnapshot explicit agentProfileRef capture", 
     );
     expect(captured).toMatchObject({
       agent: { profileRef: "codex-default", agentKind: "codex" },
+    });
+  });
+});
+
+describe("managed review engine default", () => {
+  const approvedProfiles = parseReviewAgentProfiles([
+    codexDefaultProfile,
+    { ...ocrProfile, profileRef: "ocr-managed-v2" },
+  ]);
+  const input = () => ({
+    ...captureInput(),
+    producerRelease: {
+      ...captureInput().producerRelease,
+      agentProfiles: approvedProfiles,
+    },
+  });
+
+  it("uses qualified OCR for existing implicit Gateway policy without rewriting it", async () => {
+    expect(readServerReviewAgentProfileRef(undefined)).toBe("ocr-managed-v2");
+    expect(readServerReviewAgentProfileRef("codex-default")).toBe(
+      "codex-default",
+    );
+    const policyJson = gatewayPolicyJson({});
+    const captured = await snapshotSource(196608, null).capture(
+      input(),
+      readerFor(policyJson),
+    );
+    expect(captured).toMatchObject({
+      agent: {
+        profileRef: "ocr-managed-v2",
+        agentKind: "ocr",
+        contextGateway: false,
+      },
+      configurationCanonicalJson: policyJson,
+    });
+    const explicit = await snapshotSource(196608, null).capture(
+      input(),
+      readerFor(gatewayPolicyJson({ agentProfileRef: "codex-default" })),
+    );
+    expect(explicit).toMatchObject({ agent: codexDefaultProfile });
+  });
+
+  it("preserves an implicit supplied-diff-only policy and denies ambiguous compatibility", async () => {
+    const source = snapshotSource(196608, null);
+    const reader = readerFor(gatewayPolicyJson({ agenticContext: false }));
+    expect(await source.capture(input(), reader)).toMatchObject({
+      agent: { profileRef: "codex-default", agentKind: "codex" },
+    });
+    expect(
+      await source.capture(
+        {
+          ...input(),
+          producerRelease: {
+            ...input().producerRelease,
+            agentProfiles: parseReviewAgentProfiles([
+              ...approvedProfiles,
+              { ...codexDefaultProfile, profileRef: "other-codex" },
+            ]),
+          },
+        },
+        reader,
+      ),
+    ).toEqual({ captureDenied: "agent_profile_unavailable" });
+  });
+
+  it("denies an unqualified managed OCR default without falling back", async () => {
+    expect(
+      await snapshotSource(196608, null).capture(
+        captureInput(),
+        readerFor(gatewayPolicyJson({})),
+      ),
+    ).toEqual({ captureDenied: "agent_profile_unavailable" });
+  });
+
+  it("keeps provider-api execution on its qualified Codex profile", async () => {
+    const configuration = parseReviewConfigurationStrict(
+      JSON.parse(gatewayPolicyJson({})),
+    );
+    configuration.providers = [
+      {
+        kind: "codex",
+        authMode: "codex_subscription_oauth_rotating",
+        model: "gpt-5.4",
+        reasoningEffort: "high",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    ];
+    expect(
+      await snapshotSource(196608, null).capture(
+        {
+          ...input(),
+          modelTransport: "provider_api",
+        },
+        readerFor(canonicalJson(configuration)),
+      ),
+    ).toMatchObject({
+      agent: { profileRef: "codex-default", agentKind: "codex" },
+      gateway: null,
     });
   });
 });

@@ -1783,6 +1783,7 @@ function productionEnv(input: {
   ]);
   return {
     NODE_ENV: "production",
+    REVIEW_ROUTER_AGENT_PROFILE: "codex-default",
     GITHUB_APP_ID: "1",
     GITHUB_APP_PRIVATE_KEY: input.appPrivateKey,
     REVIEW_ROUTER_PUBLIC_API_URL: "https://api.reviewrouter.e2e",

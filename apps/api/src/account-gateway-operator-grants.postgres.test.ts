@@ -534,10 +534,18 @@ describe.skipIf(process.env.RR_S_OPERATOR_GRANTS_PG_TEST !== "1")(
           db,
           { profiles: [{ profileRef: profile, limits }] },
           operator,
+          false,
+          "codex-default",
         );
-        const ordinarySnapshots = new ProductionReviewRunRuntimeSnapshot(db, {
-          profiles: [{ profileRef: profile, limits }],
-        });
+        const ordinarySnapshots = new ProductionReviewRunRuntimeSnapshot(
+          db,
+          {
+            profiles: [{ profileRef: profile, limits }],
+          },
+          undefined,
+          false,
+          "codex-default",
+        );
         const identity = (
           workspaceId: string,
           sourceRunId = "1",

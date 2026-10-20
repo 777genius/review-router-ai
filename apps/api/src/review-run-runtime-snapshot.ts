@@ -20,6 +20,7 @@ import {
   parseReviewAgentProfiles,
   selectReviewAgentProfile,
   selectProviderApiReviewAgentProfile,
+  selectSuppliedDiffReviewAgentProfile,
   type ReviewRunAuthorizationCandidate,
   type ReviewRunGatewaySelection,
   type ReviewRunGatewayLimits,
@@ -37,10 +38,13 @@ type RuntimeReader = Pick<
   "reviewConfiguration" | "workspaceAccountBinding"
 >;
 
+// Exact profile identity is resolved against the admitted producer, never guessed.
+const defaultReviewAgentProfileRef = "ocr-managed-v2";
+
 export function readServerReviewAgentProfileRef(
   raw: string | undefined,
 ): string {
-  const profileRef = raw ?? "codex-default";
+  const profileRef = raw ?? defaultReviewAgentProfileRef;
   assertOpaqueReference(profileRef);
   return profileRef;
 }
@@ -93,7 +97,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     policy?: ServerApprovedReviewRunGatewayPolicy,
     private readonly operatorWorkspaceId?: string,
     private readonly personalAccountsEnabled = false,
-    private readonly agentProfileRef = "codex-default",
+    private readonly agentProfileRef = defaultReviewAgentProfileRef,
   ) {
     assertOpaqueReference(agentProfileRef);
     if (operatorWorkspaceId !== undefined)
@@ -203,11 +207,13 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
             )
           : modelTransport === "provider_api"
             ? selectProviderApiReviewAgentProfile(agentProfiles)
-            : selectReviewAgentProfile(
-                agentProfiles,
-                this.agentProfileRef,
-                modelTransport,
-              );
+            : selected?.provider.agenticContext === false
+              ? selectSuppliedDiffReviewAgentProfile(agentProfiles)
+              : selectReviewAgentProfile(
+                  agentProfiles,
+                  this.agentProfileRef,
+                  modelTransport,
+                );
       const transports = configuration.providers.map((provider) =>
         provider.authMode === "codex_account_gateway"
           ? ("account_gateway" as const)
@@ -218,7 +224,8 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           ? { captureDenied: "agent_profile_unavailable" }
           : null;
     } catch {
-      return explicitAgentProfileRef !== undefined
+      return explicitAgentProfileRef !== undefined ||
+        modelTransport === "account_gateway"
         ? { captureDenied: "agent_profile_unavailable" }
         : null;
     }
