@@ -250,12 +250,23 @@ test("delete applied alone stays visible; only original closure proof removes in
       ]),
     ),
   ).toContain('"connectionId":"source"');
+  // Let the automatic read finish so this click starts a fresh read.
+  await waitFor(() => expect(f.api.read).toHaveBeenCalled());
+  await waitFor(() =>
+    expect(
+      f.client.isFetching({ queryKey: ["account-lifecycle-operation"] }),
+    ).toBe(0),
+  );
+  const readsBeforeCheck = f.api.read.mock.calls.length;
   f.api.read.mockResolvedValue({
     status: "ok",
     value: receipt("delete", "applied", true),
   });
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Check original operation" }),
+  );
+  await waitFor(() =>
+    expect(f.api.read).toHaveBeenCalledTimes(readsBeforeCheck + 1),
   );
   await waitFor(() =>
     expect(f.api.read).toHaveBeenCalledWith("actor", "workspace-A", {
