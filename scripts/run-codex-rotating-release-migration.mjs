@@ -5139,6 +5139,15 @@ ${configuration.roles
     }) => `${databaseAclStatement(`GRANT CONNECT ON DATABASE __DATABASE_TARGET__ TO ${username};`)}
 GRANT USAGE ON SCHEMA public TO ${username};
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM ${username};
+-- SQL127's invoker triggers use this gate for workspace-bound writes,
+-- including ReviewRunAuthorization INSERT. Older catalogs omit the helper.
+DO $workspace_delete_admission_acl$
+BEGIN
+  IF pg_catalog.to_regprocedure('public.rr_workspace_delete_admission(text)') IS NOT NULL THEN
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.rr_workspace_delete_admission(text) TO %I', '${username}');
+  END IF;
+END
+$workspace_delete_admission_acl$;
 DO $historical_function_acl$
 BEGIN
   IF pg_catalog.to_regprocedure('public.hosted_historical_assert_ready()') IS NOT NULL THEN

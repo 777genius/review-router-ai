@@ -749,6 +749,19 @@ describe("canonical exclusive release migration caller", () => {
     );
     const grants = runtimeGrantSql(configuration);
     expect(grants).toContain("BEGIN;");
+    // SQL127's invoker triggers call this helper during ordinary authorization
+    // inserts. Keep the exact signature on app roles after function ACL reset;
+    // effect/custody identities must not acquire the workspace admission gate.
+    expect(
+      [
+        ...grants.matchAll(
+          /GRANT EXECUTE ON FUNCTION public\.rr_workspace_delete_admission\(text\) TO %I', '([^']+)'/gu,
+        ),
+      ].map((match) => match[1]),
+    ).toEqual(["reviewrouter_api", "reviewrouter_web", "reviewrouter_worker"]);
+    expect(grants).toContain(
+      "IF pg_catalog.to_regprocedure('public.rr_workspace_delete_admission(text)') IS NOT NULL THEN",
+    );
     const activationAuthority = activationAuthorityProvisioningSql();
     const atomicMigration = atomicMigrationAndGrantSql(configuration, {
       migrationPermit: migrationPermit(),
