@@ -155,11 +155,35 @@ describe("review investigation coverage profile", () => {
     ).toThrow("investigation_coverage_profile_unsupported");
   });
 
+  it("preserves the previous V10 prompt tuple while rejecting unknown prompts", () => {
+    const previousProfile = {
+      ...reviewInvestigationCoverageProfileV10,
+      turnPromptContractHash:
+        reviewInvestigationCoverageProfileV9.turnPromptContractHash,
+    };
+    const previous = {
+      ...previousProfile,
+      producerReleaseId: "release-draining-v10",
+    };
+    expect(resolveReviewInvestigationCoverageProfileGeneration(previous)).toBe(
+      ReviewInvestigationCoverageProfileGeneration.V10,
+    );
+    expect(
+      createHash("sha256").update(canonicalJson(previousProfile)).digest("hex"),
+    ).toBe("86a68eda454aff14d596da321ad635c7e67b3d6f18b990c2c1e02dfb3f9298b8");
+    expect(() =>
+      resolveReviewInvestigationCoverageProfileGeneration({
+        ...previous,
+        turnPromptContractHash: "f".repeat(64),
+      }),
+    ).toThrow("investigation_coverage_profile_unsupported");
+  });
+
   it("matches the current public Action capability golden vector", () => {
     expect(
       createHash("sha256")
         .update(canonicalJson(reviewInvestigationCoverageProfileV10), "utf8")
         .digest("hex"),
-    ).toBe("86a68eda454aff14d596da321ad635c7e67b3d6f18b990c2c1e02dfb3f9298b8");
+    ).toBe("021acf02bba4c0cc8d194edd921652adf6427bb073798a718520a01b245c5e9a");
   });
 });
