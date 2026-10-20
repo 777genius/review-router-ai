@@ -1260,17 +1260,45 @@ describe("ReviewConfigForm", () => {
     const profileSelect = screen.getByRole("combobox", {
       name: "Review agent profile",
     });
-    expect(profileSelect.textContent).toContain("Server default");
+    expect(profileSelect.textContent).toContain("Default (OpenCodeReview)");
     fireEvent.click(profileSelect);
     expect(
       screen.getAllByRole("option").map((option) => option.textContent ?? ""),
-    ).toEqual([expect.stringContaining("Server default")]);
+    ).toEqual([expect.stringContaining("Default (OpenCodeReview)")]);
     const form = document.querySelector("form")!;
     expect(new FormData(form).get("providerAgentProfileRef.0")).toBe("");
     expect(
       readReviewConfigurationForm(new FormData(form)).providers[0]!
         .agentProfileRef,
     ).toBeUndefined();
+  });
+
+  it("explains the engine when changing authentication or selecting supplied-diff-only", () => {
+    renderReviewConfigForm({
+      config: { ...workspacePolicy, providers: [gatewayProviderFixture()] },
+    });
+    expect(
+      screen.queryByText(/Uses the built-in ReviewRouter engine/),
+    ).toBeNull();
+    choose("Where to store account authentication?", /GitHub/);
+    expect(
+      screen.getByText(/To use OpenCodeReview, choose Account Gateway/),
+    ).toBeTruthy();
+    choose(
+      "Where to store account authentication?",
+      /ReviewRouter account pool/,
+    );
+    expect(
+      screen.queryByText(/Uses the built-in ReviewRouter engine/),
+    ).toBeNull();
+    choose("Agentic context", /Supplied diff only/);
+    expect(
+      screen.getByText(/To use OpenCodeReview, enable Agentic context/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: "Review agent profile" })
+        .textContent,
+    ).toContain("Default (ReviewRouter)");
   });
 
   it("saves an explicitly selected approved review agent profile", () => {
@@ -1281,7 +1309,7 @@ describe("ReviewConfigForm", () => {
     expect(
       screen.getByRole("combobox", { name: "Review agent profile" })
         .textContent,
-    ).toContain("Server default");
+    ).toContain("Default (OpenCodeReview)");
     choose("Review agent profile", /ocr-prod-1/);
     const form = document.querySelector("form")!;
     expect(new FormData(form).get("providerAgentProfileRef.0")).toBe(

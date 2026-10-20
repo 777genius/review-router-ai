@@ -259,7 +259,9 @@ function agentProfileChoiceOptions(
   const choices: DashboardSelectOption[] = [
     {
       value: agentProfileDefaultChoice,
-      label: "Server default",
+      label: provider.agenticContext
+        ? "Default (OpenCodeReview)"
+        : "Default (ReviewRouter)",
       description:
         "Uses the managed engine (OpenCodeReview by default). Supplied-diff-only policies retain a compatible Codex profile. No engine selection is saved.",
     },
@@ -285,6 +287,24 @@ function agentProfileChoiceOptions(
     });
   }
   return choices;
+}
+
+function reviewEngineNotice(
+  provider: ReviewProviderConfiguration,
+  agentProfileOptions: readonly GatewayAgentProfileOption[],
+): string | null {
+  if (provider.authMode !== "codex_account_gateway")
+    return "Uses the built-in ReviewRouter engine, not OpenCodeReview. To use OpenCodeReview, choose Account Gateway.";
+  if (provider.agentProfileRef === undefined)
+    return provider.agenticContext
+      ? null
+      : "Uses the built-in ReviewRouter engine for supplied-diff-only reviews. To use OpenCodeReview, enable Agentic context.";
+  const profile = agentProfileOptions.find(
+    (option) => option.profileRef === provider.agentProfileRef,
+  );
+  return profile?.agentKind === "codex"
+    ? "Uses the built-in ReviewRouter engine with the selected Codex profile. To use OpenCodeReview, choose Default and enable Agentic context."
+    : null;
 }
 
 function agentProfileAgenticContextViolation(
@@ -1979,6 +1999,11 @@ export function ReviewConfigForm({
                         }
                       />
                     )}
+                    {reviewEngineNotice(provider, agentProfileOptions) ? (
+                      <p className="text-sm leading-6 text-amber-100/85 md:col-span-2">
+                        {reviewEngineNotice(provider, agentProfileOptions)}
+                      </p>
+                    ) : null}
                     {provider.authMode === "codex_account_gateway" ? (
                       <>
                         <DashboardSelectField
