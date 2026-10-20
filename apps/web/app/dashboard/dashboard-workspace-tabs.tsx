@@ -77,7 +77,7 @@ export function DashboardWorkspaceTabs({
       <Tabs.List
         aria-label="Workspace"
         activateOnFocus
-        className="flex items-stretch gap-2"
+        className="flex items-stretch gap-1 border-b border-white/[0.10]"
       >
         {visibleItems.map((item) => {
           const href = dashboardClientNavigationHref(item.href);
@@ -99,10 +99,10 @@ export function DashboardWorkspaceTabs({
               }
               className={({ active }) =>
                 [
-                  "group relative inline-flex min-h-12 shrink-0 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold transition duration-200 ease-out hover:saturate-125 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200",
+                  "group relative -mb-px inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 px-3 pb-2.5 pt-2 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200",
                   active
-                    ? "border-cyan-200/50 bg-cyan-200/[0.13] text-cyan-50"
-                    : "border-white/[0.09] bg-white/[0.05] text-slate-200 hover:border-cyan-200/35 hover:bg-white/[0.09] hover:text-cyan-50",
+                    ? "border-cyan-300/80 text-cyan-50"
+                    : "border-transparent text-slate-300 hover:border-white/30 hover:text-cyan-100",
                 ].join(" ")
               }
             >

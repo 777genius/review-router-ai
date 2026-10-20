@@ -19,7 +19,7 @@ export function AccountsWorkspaceTabs({
       <Tabs.Root value={view} onValueChange={setView}>
         <Tabs.List
           aria-label="Connection views"
-          className="flex gap-2 overflow-x-auto"
+          className="flex gap-1 overflow-x-auto border-b border-white/[0.10]"
         >
           <AccountsWorkspaceTab value="available">
             {accountsCopy.available}
@@ -51,10 +51,10 @@ function AccountsWorkspaceTab({
       value={value}
       className={({ active }) =>
         [
-          "min-h-11 shrink-0 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors",
+          "-mb-px min-h-11 shrink-0 border-b-2 px-3 pb-2 pt-1.5 text-sm font-semibold transition-colors",
           active
-            ? "border-cyan-200/50 bg-cyan-200/[0.13] text-cyan-50"
-            : "border-white/[0.09] bg-white/[0.05] text-slate-200 hover:border-cyan-200/35 hover:bg-white/[0.09] hover:text-cyan-50",
+            ? "border-cyan-300/80 text-cyan-50"
+            : "border-transparent text-slate-200 hover:border-white/30 hover:text-cyan-50",
         ].join(" ")
       }
     >
