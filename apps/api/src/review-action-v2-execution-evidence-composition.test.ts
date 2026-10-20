@@ -710,6 +710,79 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(issueLease).not.toHaveBeenCalled();
   });
 
+  it("acquires an invocation lease for an OCR work slot without execution_provider_unknown", async () => {
+    // Discriminating pair for evidenceProviderForExecution: manifest
+    // validation on the invocation-lease acquire path must map the Ocr
+    // execution provider kind. Without the explicit Ocr case the same
+    // request rejects 422 execution_provider_unknown before any lease work.
+    const capabilities = capabilityAdapter();
+    const acquiredLease = lease();
+    const acquire = vi.fn(async () => ({
+      status: AcquireOrJoinInvocationFlightStatus.OwnerAcquired,
+      flight: invocationFlight(acquiredLease),
+    }));
+    const ocrSnapshot = {
+      ...snapshot,
+      execution: {
+        ...snapshot.execution,
+        workSlots: [
+          {
+            ...snapshot.execution.workSlots[0]!,
+            providerKind: ReviewExecutionProviderKind.Ocr,
+          },
+        ],
+      },
+    } as ReviewExecutionSnapshot;
+    const prepared: ProviderInvocationManifest = {
+      ...manifest(),
+      providerKind: ReviewProviderKind.Ocr,
+    };
+    const identity = await buildProviderInvocationIdentity(digest, {
+      manifest: prepared,
+      providerVoteIdentityHash: hash("c"),
+    });
+    const request = await withBodyHash(
+      ReviewActionV2OperationId.ReviewInvocationLeaseAcquire,
+      {
+        ...envelope("acquire-ocr-work-slot"),
+        authorizationToken: "authorization-token",
+        idempotencyKey: "acquire-ocr-work-slot",
+        requestBodyHash: hash("0"),
+        executionId: snapshot.execution.executionId,
+        workSlotId: "slot-1",
+        purpose: ReviewInvocationLeasePurpose.ProviderExecution,
+        manifestCanonicalJson:
+          serializeProviderInvocationManifestCanonicalWireJson(prepared),
+        manifestKey: identity.manifestKey,
+        providerVoteIdentityHash: hash("c"),
+        providerInvocationKey: identity.providerInvocationKey,
+        acquireRequestId: "acquire-ocr-work-slot",
+        ownerIdHash: acquiredLease.ownerIdHash,
+      } satisfies ReviewInvocationLeaseAcquireRequest,
+    );
+
+    await expect(
+      createReviewActionV2ExecutionHandlers(
+        executionDependencies({
+          capabilities,
+          acquire,
+          findExecution: vi.fn(async () => ocrSnapshot),
+          leaseSafety: vi.fn(async () => ({
+            allowed: true,
+            decisionHash: hash("6"),
+          })),
+        }),
+      ).acquireLease.execute(request),
+    ).resolves.toMatchObject({
+      statusCode: 201,
+      result: {
+        status: ReviewInvocationLeaseResultStatus.Acquired,
+        leaseId: acquiredLease.leaseId,
+      },
+    });
+    expect(acquire).toHaveBeenCalledTimes(1);
+  });
+
   it("acquires and renews a valid lease when authorization has less than the initial lease duration left", async () => {
     const delayedNow = new Date(now.getTime() + 1_000);
     let currentNow = delayedNow;

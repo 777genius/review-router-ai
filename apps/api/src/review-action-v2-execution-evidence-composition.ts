@@ -2639,6 +2639,8 @@ function evidenceProviderForExecution(
       return EvidenceProviderKind.ClaudeCode;
     case ReviewExecutionProviderKind.OpenRouter:
       return EvidenceProviderKind.OpenRouter;
+    case ReviewExecutionProviderKind.Ocr:
+      return EvidenceProviderKind.Ocr;
     default:
       throw failure(
         422,

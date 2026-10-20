@@ -31,6 +31,7 @@
     "@reviewrouter/platform-config": "workspace:*",
     "@reviewrouter/platform-db": "workspace:*",
     "@reviewrouter/platform-locks": "workspace:*",
+    "@reviewrouter/shared": "workspace:*",
     "@reviewrouter/ui": "workspace:*",
     "@tanstack/react-query": "^5.100.8",
     "@trpc/client": "^11.17.0",

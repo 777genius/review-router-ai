@@ -105,6 +105,7 @@ export function safeDashboardErrorCode(error: unknown): string {
       "account_gateway_workflow_options_not_supported",
       "gateway_review_model_unsupported",
       "gateway_review_reasoning_effort_unsupported",
+      "agent_profile_requires_agentic_context",
       "gateway_review_catalog_unavailable",
       "gateway_review_config_denied",
       "duplicate_review_provider",

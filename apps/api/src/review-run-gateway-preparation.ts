@@ -23,9 +23,11 @@ import {
   type ReviewRunRuntimeSnapshotPort,
   type VerifiedScmRunIdentity,
 } from "@reviewrouter/features-review-run-control";
-import type {
-  RunAccessConfig,
-  PreparedRunAccess,
+import {
+  reviewRunGatewayMaxResponseBytes,
+  reviewRunGatewayMaxChunkBytes,
+  type RunAccessConfig,
+  type PreparedRunAccess,
 } from "./account-gateway-run-access";
 
 export type ReviewRunGatewayPreparationResult =
@@ -358,7 +360,8 @@ export function createReviewRunGatewayPreparation(input: {
 
 /** The old run-access adapter fixes bufferBytes at 64KiB. This private handshake
  * uses the SAME v1 schemas/envelope, configuring the existing SDK at the saved
- * approved output cap. SDK max is 1MiB: larger policies deny before preparation.
+ * approved aggregate output cap while keeping SDK chunks bounded at 1MiB.
+ * Unsupported aggregate policies deny before the run-access HTTP call.
  * No control token or execution bearer leaves these closures. */
 function privateRunAccess(config: RunAccessConfig) {
   const token = z
@@ -414,7 +417,7 @@ function privateRunAccess(config: RunAccessConfig) {
     intent: c.Prepare,
     options: CallOptions,
   ): Promise<PreparedRunAccess> => {
-    if (intent.limits.outputBytes > 1_048_576)
+    if (intent.limits.outputBytes > reviewRunGatewayMaxResponseBytes)
       throw new GatewayError(
         "invalid_input",
         "not_dispatched",
@@ -491,7 +494,10 @@ function privateRunAccess(config: RunAccessConfig) {
         token: wire.bearer,
         timeoutMs,
         responseBytes: 65_536,
-        bufferBytes: Math.max(1024, intent.limits.outputBytes),
+        bufferBytes: Math.min(
+          reviewRunGatewayMaxChunkBytes,
+          Math.max(1024, intent.limits.outputBytes),
+        ),
       });
       const controlClient =
         controlOrigin === undefined
@@ -502,7 +508,10 @@ function privateRunAccess(config: RunAccessConfig) {
               token: wire.bearer,
               timeoutMs,
               responseBytes: 65_536,
-              bufferBytes: Math.max(1024, intent.limits.outputBytes),
+              bufferBytes: Math.min(
+                reviewRunGatewayMaxChunkBytes,
+                Math.max(1024, intent.limits.outputBytes),
+              ),
             });
       const client: ExecutionClient =
         controlOrigin === undefined

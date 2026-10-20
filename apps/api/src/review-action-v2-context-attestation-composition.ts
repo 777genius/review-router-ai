@@ -2621,7 +2621,9 @@ function extensionProvider(
       return "codex";
     case ReviewExecutionProviderKind.ClaudeCode:
       return "claude_code";
+    // These engines have no RR investigation authorization.
     case ReviewExecutionProviderKind.OpenRouter:
+    case ReviewExecutionProviderKind.Ocr:
       return null;
   }
 }
@@ -2635,6 +2637,7 @@ function rolloutProvider(
     case ReviewExecutionProviderKind.ClaudeCode:
       return InvestigationRolloutProvider.Claude;
     case ReviewExecutionProviderKind.OpenRouter:
+    case ReviewExecutionProviderKind.Ocr:
       return InvestigationRolloutProvider.Unknown;
   }
 }

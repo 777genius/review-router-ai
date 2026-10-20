@@ -364,6 +364,9 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         ...profiles[0]!,
         profileRef: "approved-claude",
         agentKind: "claude" as const,
+        // Keep the correlated profile contract: claude never opts out of the
+        // context gateway, so the spread union collapses to the claude variant.
+        contextGateway: true as const,
       };
       const claudeGatewaySnapshot = new ProductionReviewRunRuntimeSnapshot(
         prisma,
@@ -444,6 +447,111 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       await harness.close();
     }
   });
+  it("locks checkout repositories for the SELECT-only API without runtime write authority", async () => {
+    const harness = await createReviewActionV2E2EHarness(disposableDatabase());
+    const { prisma, workspaceId, repositoryConnectionId } = harness;
+    const writer = createPrismaClient({
+      databaseUrl: disposableDatabase(),
+      poolMax: 1,
+    });
+    const api = <T>(run: (tx: Prisma.TransactionClient) => Promise<T>) =>
+      prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL ROLE reviewrouter_api");
+        return run(tx);
+      });
+    const lock = (
+      tx: Prisma.TransactionClient,
+      workspace = workspaceId,
+      repository = repositoryConnectionId,
+    ) =>
+      tx.$queryRaw<
+        readonly { id: string }[]
+      >`SELECT id FROM public.rr_review_run_checkout_repository_lock(${workspace}, ${repository})`;
+    let unlock: (() => void) | undefined;
+    let held: Promise<void> | undefined;
+    try {
+      await prisma.$executeRawUnsafe(`DO $fixture$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_api') THEN
+          CREATE ROLE reviewrouter_api NOLOGIN NOINHERIT;
+        END IF;
+      END $fixture$`);
+      await prisma.$executeRawUnsafe(
+        "GRANT USAGE ON SCHEMA public TO reviewrouter_api",
+      );
+      await prisma.$executeRawUnsafe(
+        'REVOKE INSERT, UPDATE, DELETE ON public."RepositoryConnection" FROM reviewrouter_api',
+      );
+      await prisma.$executeRawUnsafe(
+        'GRANT SELECT ON public."RepositoryConnection" TO reviewrouter_api',
+      );
+      await prisma.$executeRawUnsafe(
+        "GRANT EXECUTE ON FUNCTION public.rr_review_run_checkout_repository_lock(text,text) TO reviewrouter_api",
+      );
+      expect(
+        await api(
+          (tx) =>
+            tx.$queryRaw`SELECT has_any_column_privilege(current_user, 'public."RepositoryConnection"', 'INSERT,UPDATE') AS writable`,
+        ),
+      ).toEqual([{ writable: false }]);
+      // This direct lock is the original production failure under canonical ACLs.
+      await expect(
+        api(
+          (tx) =>
+            tx.$queryRaw`SELECT id FROM public."RepositoryConnection" WHERE id=${repositoryConnectionId} FOR SHARE`,
+        ),
+      ).rejects.toThrow(/permission denied/);
+      expect(await api((tx) => lock(tx, `${workspaceId}-wrong`))).toEqual([]);
+      expect(
+        await api((tx) =>
+          lock(tx, workspaceId, `${repositoryConnectionId}-missing`),
+        ),
+      ).toEqual([]);
+      expect(await api((tx) => lock(tx))).toEqual([
+        { id: repositoryConnectionId },
+      ]);
+      await expect(
+        api(
+          (tx) =>
+            tx.$executeRaw`UPDATE public."RepositoryConnection" SET selected=selected WHERE id=${repositoryConnectionId}`,
+        ),
+      ).rejects.toThrow(/permission denied/);
+      let ready!: () => void;
+      const acquired = new Promise<void>((resolve) => {
+        ready = resolve;
+      });
+      const release = new Promise<void>((resolve) => {
+        unlock = resolve;
+      });
+      held = api(async (tx) => {
+        expect(await lock(tx)).toEqual([{ id: repositoryConnectionId }]);
+        ready();
+        await release;
+      });
+      await Promise.race([acquired, held]);
+      await expect(
+        writer.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '100ms'");
+          await tx.$executeRaw`UPDATE public."RepositoryConnection" SET selected=selected WHERE id=${repositoryConnectionId}`;
+        }),
+      ).rejects.toThrow(/lock timeout/);
+      unlock?.();
+      await held;
+      held = undefined;
+      // A writer can acquire the same row after the API transaction releases it.
+      await expect(
+        writer.$transaction(async (tx) => {
+          await tx.$executeRaw`UPDATE public."RepositoryConnection" SET selected=selected WHERE id=${repositoryConnectionId}`;
+          throw new Error("checkout_writer_rollback");
+        }),
+      ).rejects.toThrow("checkout_writer_rollback");
+    } finally {
+      unlock?.();
+      await held?.catch(() => undefined);
+      await writer.$disconnect();
+      await harness.close();
+    }
+  }, 30_000);
+
   // SELECT-only reproduces the production failure. The existing table owner
   // projects UPDATE(id) only; immutable guards still deny changed C1 authority.
   it("locks account admission with non-mutating API column privileges", async () => {
@@ -2365,16 +2473,15 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         { target, policy: changed, expectedVersion: 3 },
         { configurations },
       );
-      expect(
-        (
-          await snapshotSource.capture({
-            modelTransport: "account_gateway",
-            identity: original,
-            deadline: original.maxExpiresAt,
-            producerRelease: snapshotProducer,
-          })
-        )?.gateway?.bindingId,
-      ).toBe(replacementBinding.id);
+      const replacedPin = await snapshotSource.capture({
+        modelTransport: "account_gateway",
+        identity: original,
+        deadline: original.maxExpiresAt,
+        producerRelease: snapshotProducer,
+      });
+      if (replacedPin && "captureDenied" in replacedPin)
+        throw new Error(`snapshot_capture_denied:${replacedPin.captureDenied}`);
+      expect(replacedPin?.gateway?.bindingId).toBe(replacementBinding.id);
       await expect(harness.authorize()).rejects.toThrow();
       expect(
         (

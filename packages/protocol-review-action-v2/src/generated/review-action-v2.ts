@@ -5,13 +5,13 @@ export const reviewActionV2PublishedProtocolVersion = "2" as const;
 export const reviewActionV2PublishedSchemaDigest =
   "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3" as const;
 export const reviewActionV2CanonicalizerDigest =
-  "95a43332ccff5c8ccf8f6f9cb67d901d5efd3e91522c047c48f83b65c70cb03a" as const;
+  "12408727c244f65242534d3060983b87221715f2086631ab743c2c6f6248629a" as const;
 export const reviewInvestigationExtensionV1 = {
   extensionId: "review-investigation-shadow.v1",
   schemaDigest:
     "9ab22a39cc983b88ae50576ece6a777d72d904d09654d3f4c51a20fc13c29003",
   canonicalizerDigest:
-    "20dc769dd28947fe6ee0c7770199fbb6c5cd490a7d7f71785159da99d793ff77",
+    "5dc6b98d93527381c4337c9e05ea58a910b3b26342140300992077884f4d04ec",
   operationIds: [
     "review_investigation_open_v2",
     "review_investigation_lease_acquire",

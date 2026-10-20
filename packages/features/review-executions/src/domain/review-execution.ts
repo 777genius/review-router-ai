@@ -10,6 +10,7 @@ export enum ReviewExecutionProviderKind {
   Codex = "codex",
   ClaudeCode = "claude_code",
   OpenRouter = "openrouter",
+  Ocr = "ocr",
 }
 
 export enum ReviewTaskKind {

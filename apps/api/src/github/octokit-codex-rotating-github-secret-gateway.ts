@@ -1,3 +1,4 @@
+import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import {
   ManagedReviewV2WorkflowInventory,
   readReviewRouterCallerSource,
@@ -353,7 +354,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
       : readCanonicalCodexRotatingT0WorkflowSourceMetadata(currentSource);
     if (
       metadata.providerInstanceId !== input.providerInstanceId ||
-      metadata.apiUrl !== this.expectedApiUrl ||
+      !reviewRouterApiUrlsMatch(metadata.apiUrl, this.expectedApiUrl) ||
       !this.trustedActionRefs.has(metadata.actionRef.toLowerCase())
     ) {
       throw new Error("codex_rotating_workflow_publish_source_untrusted");
@@ -508,7 +509,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
     if (metadata.providerInstanceId !== input.expectedProviderInstanceId) {
       throw new Error("codex_rotating_workflow_provider_instance_mismatch");
     }
-    if (metadata.apiUrl !== this.expectedApiUrl) {
+    if (!reviewRouterApiUrlsMatch(metadata.apiUrl, this.expectedApiUrl)) {
       throw new Error("codex_rotating_workflow_api_url_mismatch");
     }
     if (
@@ -624,7 +625,12 @@ export class OctokitCodexRotatingGitHubSecretGateway
         const caller = readReviewRouterCallerSource(source);
         // Source proves the installation ABI, never the executed release.
         // Signed executable SHA and registry state are checked by admission.
-        return { compatible: caller.controlPlaneUrl === this.expectedApiUrl };
+        return {
+          compatible: reviewRouterApiUrlsMatch(
+            caller.controlPlaneUrl,
+            this.expectedApiUrl,
+          ),
+        };
       } catch {
         return { compatible: false };
       }
@@ -681,7 +687,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
           readCanonicalIsolatedQualityWorkflowSourceMetadata(claimedWorkflow);
         return {
           compatible:
-            quality.apiUrl === this.expectedApiUrl &&
+            reviewRouterApiUrlsMatch(quality.apiUrl, this.expectedApiUrl) &&
             quality.providerInstanceId ===
               `codex-rotating:${input.githubRepositoryId}` &&
             this.trustedActionRefs.has(quality.actionRef.toLowerCase()),
@@ -702,7 +708,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
       return { compatible: false };
     }
     if (
-      metadata.apiUrl !== this.expectedApiUrl ||
+      !reviewRouterApiUrlsMatch(metadata.apiUrl, this.expectedApiUrl) ||
       metadata.providerInstanceId !==
         `codex-rotating:${input.githubRepositoryId}` ||
       !this.trustedActionRefs.has(metadata.actionRef.toLowerCase())
@@ -715,17 +721,17 @@ export class OctokitCodexRotatingGitHubSecretGateway
     const expectedInteractionWorkflows = [
       renderCanonicalCodexRotatingInteractionWorkflowV3({
         actionRef: metadata.actionRef,
-        apiUrl: this.expectedApiUrl,
+        apiUrl: metadata.apiUrl,
         runtimeConfigMode: "oidc",
       }),
       renderCanonicalCodexRotatingInteractionWorkflowV2({
         actionRef: metadata.actionRef,
-        apiUrl: this.expectedApiUrl,
+        apiUrl: metadata.apiUrl,
         runtimeConfigMode: "oidc",
       }),
       renderCanonicalCodexRotatingInteractionWorkflowV1({
         actionRef: metadata.actionRef,
-        apiUrl: this.expectedApiUrl,
+        apiUrl: metadata.apiUrl,
         runtimeConfigMode: "oidc",
       }),
     ];

@@ -25,7 +25,7 @@ type JsonRpcRequest = Readonly<{
   params?: Readonly<Record<string, unknown>>;
 }>;
 
-const briefMarker = "REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:";
+const briefMarker = "REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_JSON:";
 const scenarioMarker = "REVIEWROUTER_PAIRED_E2E_SCENARIO:";
 const codexVersion = requireCodexVersion(
   process.env.REVIEW_ROUTER_PAIRED_CODEX_APP_SERVER_VERSION,
@@ -425,9 +425,7 @@ function decodeBrief(prompt: string): TurnBrief {
     .find((line) => line.startsWith(briefMarker))
     ?.slice(briefMarker.length);
   if (!encoded) throw new Error("paired_fake_turn_brief_missing");
-  return JSON.parse(
-    Buffer.from(encoded, "base64url").toString("utf8"),
-  ) as TurnBrief;
+  return JSON.parse(encoded) as TurnBrief;
 }
 
 function decodeScenario(prompt: string): Scenario {

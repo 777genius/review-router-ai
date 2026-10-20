@@ -19,7 +19,10 @@ import {
   type ReviewRunRuntimeSnapshotPort,
 } from "@reviewrouter/features-review-run-control";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config/review-configuration";
-import type { RunAccessConfig } from "./account-gateway-run-access";
+import {
+  reviewRunGatewayMaxResponseBytes,
+  type RunAccessConfig,
+} from "./account-gateway-run-access";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
 
 // Selected production provider path: ReviewRouter -> Account Gateway -> Sub2API.
@@ -338,7 +341,7 @@ export function createReviewRunGatewayRelay(input: {
         gateway.limits.tokens > qualified[0]!.outputTokens
       )
         throw new RelayFailure("gateway_unavailable", 403);
-      if (gateway.limits.outputBytes > 1_048_576)
+      if (gateway.limits.outputBytes > reviewRunGatewayMaxResponseBytes)
         throw new RelayFailure("gateway_unavailable", 403);
       const body = responsesBytes(
         bytes,

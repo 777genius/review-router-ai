@@ -57,10 +57,28 @@ function readReviewProvidersForm(
           formData,
           `providerGatewayProfileRef.${index}`,
         ) ?? undefined,
+      // Engine selection is serialized only from the Account Gateway row. The
+      // shared schema keeps every explicit selection readable; the per-kind
+      // save rule (agent_profile_requires_agentic_context) rejects only an
+      // OCR-eligible selection beside agenticContext=false.
+      ...readOptionalAgentProfileRef(formData, index),
     });
   });
 
   return providers;
+}
+
+function readOptionalAgentProfileRef(
+  formData: FormData,
+  index: number,
+): { readonly agentProfileRef?: string } {
+  const agentProfileRef = readOptionalFormString(
+    formData,
+    `providerAgentProfileRef.${index}`,
+  );
+  // Omit the key entirely when empty so legacy provider rows keep their
+  // canonical JSON byte-identical (no materialized agentProfileRef field).
+  return agentProfileRef === null ? {} : { agentProfileRef };
 }
 
 export function readReviewConfigurationForm(

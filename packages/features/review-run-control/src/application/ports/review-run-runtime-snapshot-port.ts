@@ -3,6 +3,14 @@ import type { VerifiedScmRunIdentity } from "../use-cases/manage-review-run-auth
 import type { ProducerRelease } from "../../domain/producer-release";
 import type { ReviewAgentProfile } from "../../domain/review-agent-profile";
 
+/** Explicit agentProfileRef configuration errors are actionable policy errors,
+ * not a generic admission-facts miss. Never fall back to another engine. */
+export type ReviewRunRuntimeCaptureDenial = Readonly<{
+  readonly captureDenied:
+    | "agent_profile_unavailable"
+    | "agent_profile_incompatible";
+}>;
+
 export interface ReviewRunRuntimeSnapshotPort {
   capture(input: {
     readonly identity: VerifiedScmRunIdentity;
@@ -15,7 +23,7 @@ export interface ReviewRunRuntimeSnapshotPort {
       | "runtimeCommitSha"
       | "agentProfiles"
     >;
-  }): Promise<ReviewRunRuntimeSnapshot | null>;
+  }): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null>;
   /** Recheck original binding, never today's repository configuration. */
   isLive(input: {
     readonly snapshot: ReviewRunRuntimeSnapshot;

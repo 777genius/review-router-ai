@@ -1107,8 +1107,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
           // all following local reads use this transaction, without HTTP.
           await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation"
             WHERE "githubInstallationId" = ${BigInt(checkoutTarget.githubInstallationId)} FOR SHARE`;
-          await tx.$queryRaw`SELECT "id" FROM "RepositoryConnection"
-            WHERE "id" = ${authorization.repositoryConnectionId} FOR SHARE`;
+          const lockedRepository = await tx.$queryRaw<
+            readonly { id: string }[]
+          >`
+            SELECT id FROM public.rr_review_run_checkout_repository_lock(
+              ${authorization.workspaceId}, ${authorization.repositoryConnectionId})`;
+          if (lockedRepository.length !== 1) return false;
           await tx.$queryRaw`SELECT "id" FROM "ProviderAccountConnection"
             WHERE "id" = ${original.connectionId} FOR SHARE`;
           await tx.$queryRaw`SELECT "id" FROM "WorkspaceAccountBinding"
@@ -1573,7 +1577,9 @@ function investigationAuthorizationProvider(
         rollout: InvestigationRolloutProvider.Claude,
         authorization: "claude_code",
       };
+    // These engines have no RR investigation descriptor or authorization.
     case ReviewProviderKind.OpenRouter:
+    case ReviewProviderKind.Ocr:
       return null;
   }
 }
@@ -2410,6 +2416,8 @@ function evidenceProvider(provider: EvidenceProviderKind): ReviewProviderKind {
       return ReviewProviderKind.ClaudeCode;
     case EvidenceProviderKind.OpenRouter:
       return ReviewProviderKind.OpenRouter;
+    case EvidenceProviderKind.Ocr:
+      return ReviewProviderKind.Ocr;
     case EvidenceProviderKind.Unknown:
       throw new Error("review_action_v2_evidence_provider_unknown");
   }
@@ -2436,6 +2444,8 @@ function executionEvidenceProvider(
       return EvidenceProviderKind.ClaudeCode;
     case ReviewExecutionProviderKind.OpenRouter:
       return EvidenceProviderKind.OpenRouter;
+    case ReviewExecutionProviderKind.Ocr:
+      return EvidenceProviderKind.Ocr;
   }
 }
 

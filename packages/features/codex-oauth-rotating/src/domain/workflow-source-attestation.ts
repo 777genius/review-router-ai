@@ -1,3 +1,4 @@
+import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import { managedCodexWorkflowPath } from "@reviewrouter/shared";
 import { createHash } from "node:crypto";
 import {
@@ -461,7 +462,7 @@ export function assertTrustedCanonicalVersionedWorkflow(input: {
   ) {
     throw new Error("codex_rotating_workflow_action_ref_not_trusted");
   }
-  if (input.metadata.apiUrl !== input.expectedApiUrl) {
+  if (!reviewRouterApiUrlsMatch(input.metadata.apiUrl, input.expectedApiUrl)) {
     throw new Error("codex_rotating_workflow_api_url_not_trusted");
   }
   if (input.metadata.providerInstanceId !== input.expectedProviderInstanceId) {

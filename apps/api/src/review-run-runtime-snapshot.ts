@@ -20,24 +20,31 @@ import {
   parseReviewAgentProfiles,
   selectReviewAgentProfile,
   selectProviderApiReviewAgentProfile,
+  selectSuppliedDiffReviewAgentProfile,
   type ReviewRunAuthorizationCandidate,
   type ReviewRunGatewaySelection,
   type ReviewRunGatewayLimits,
   type ReviewRunRuntimeSnapshot,
   type ReviewAgentProfile,
   type ReviewRunRuntimeSnapshotPort,
+  type ReviewRunRuntimeCaptureDenial,
   type VerifiedScmRunIdentity,
 } from "@reviewrouter/features-review-run-control";
+
+import { reviewRunGatewayMaxResponseBytes } from "./account-gateway-run-access";
 
 type RuntimeReader = Pick<
   PrismaClient,
   "reviewConfiguration" | "workspaceAccountBinding"
 >;
 
+// Exact profile identity is resolved against the admitted producer, never guessed.
+const defaultReviewAgentProfileRef = "ocr-managed-v2";
+
 export function readServerReviewAgentProfileRef(
   raw: string | undefined,
 ): string {
-  const profileRef = raw ?? "codex-default";
+  const profileRef = raw ?? defaultReviewAgentProfileRef;
   assertOpaqueReference(profileRef);
   return profileRef;
 }
@@ -63,7 +70,10 @@ export function readServerApprovedReviewRunGatewayPolicy(
           .array(
             z.strictObject({
               profileRef: c.reference,
-              limits: c.limits,
+              limits: c.limits.refine(
+                (limits) =>
+                  limits.outputBytes <= reviewRunGatewayMaxResponseBytes,
+              ),
             }),
           )
           .min(1)
@@ -87,7 +97,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     policy?: ServerApprovedReviewRunGatewayPolicy,
     private readonly operatorWorkspaceId?: string,
     private readonly personalAccountsEnabled = false,
-    private readonly agentProfileRef = "codex-default",
+    private readonly agentProfileRef = defaultReviewAgentProfileRef,
   ) {
     assertOpaqueReference(agentProfileRef);
     if (operatorWorkspaceId !== undefined)
@@ -102,7 +112,10 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       for (const entry of policy?.profiles ?? []) {
         const profileRef = c.reference.parse(entry.profileRef);
         if (profiles.has(profileRef)) throw new Error();
-        profiles.set(profileRef, Object.freeze(c.limits.parse(entry.limits)));
+        const limits = c.limits.parse(entry.limits);
+        if (limits.outputBytes > reviewRunGatewayMaxResponseBytes)
+          throw new Error();
+        profiles.set(profileRef, Object.freeze(limits));
       }
     } catch {
       throw new Error("review_run_gateway_policy_invalid");
@@ -126,7 +139,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       >[0]["producerRelease"];
     },
     reader: RuntimeReader = this.prisma,
-  ): Promise<ReviewRunRuntimeSnapshot | null> {
+  ): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null> {
     // Retain primitives across all reads; never retain the caller's nested identity.
     const identity = { ...input.identity };
     const modelTransport = input.modelTransport;
@@ -175,26 +188,56 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     // profiles need a qualified shared allowance contract, not fresh invocations.
     if (selectedProviders.length > 1) return null;
     const selected = selectedProviders[0];
+    // An explicit agentProfileRef is saved policy for Account Gateway rows only
+    // and resolves ONLY against the exact producer's approved profiles. An
+    // invalid/disabled/incompatible explicit ref is a configuration error with
+    // no fallback to the process default.
+    const explicitAgentProfileRef =
+      selected?.provider.authMode === "codex_account_gateway"
+        ? selected.provider.agentProfileRef
+        : undefined;
+    // A stale workflow transport is changed admission facts, not a bad engine.
+    if (
+      configuration.providers.some(
+        (provider) =>
+          (provider.authMode === "codex_account_gateway"
+            ? "account_gateway"
+            : "provider_api") !== modelTransport,
+      )
+    )
+      return null;
     let agent: ReviewAgentProfile;
     try {
       agent =
-        modelTransport === "provider_api"
-          ? selectProviderApiReviewAgentProfile(agentProfiles)
-          : selectReviewAgentProfile(
+        explicitAgentProfileRef !== undefined
+          ? selectReviewAgentProfile(
               agentProfiles,
-              this.agentProfileRef,
+              explicitAgentProfileRef,
               modelTransport,
-            );
-      const transports = configuration.providers.map((provider) =>
-        provider.authMode === "codex_account_gateway"
-          ? ("account_gateway" as const)
-          : ("provider_api" as const),
-      );
-      if (transports.some((transport) => transport !== modelTransport))
-        return null;
+            )
+          : modelTransport === "provider_api"
+            ? selectProviderApiReviewAgentProfile(agentProfiles)
+            : selected?.provider.agenticContext === false
+              ? selectSuppliedDiffReviewAgentProfile(agentProfiles)
+              : selectReviewAgentProfile(
+                  agentProfiles,
+                  this.agentProfileRef,
+                  modelTransport,
+                );
     } catch {
-      return null;
+      return explicitAgentProfileRef !== undefined ||
+        modelTransport === "account_gateway"
+        ? { captureDenied: "agent_profile_unavailable" }
+        : null;
     }
+    // The first OCR profile requires agenticContext=true (native context
+    // tools); explicit OCR with agenticContext=false is an actionable
+    // configuration error before any inference.
+    if (
+      agent.agentKind === "ocr" &&
+      selected?.provider.agenticContext === false
+    )
+      return { captureDenied: "agent_profile_incompatible" };
     const agentProfileDigest = createHash("sha256")
       .update(canonicalJson(agent))
       .digest("hex");

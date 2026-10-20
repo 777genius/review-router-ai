@@ -787,6 +787,10 @@ function fromPrismaProviderKind(
       return ContextProviderKind.ClaudeCode;
     case PrismaProviderKind.openrouter:
       return ContextProviderKind.OpenRouter;
+    // OCR runs without the Context Gateway and never writes attestations; a
+    // persisted OCR row here would be corrupt.
+    case PrismaProviderKind.ocr:
+      throw new Error("context_attestation_provider_kind_unsupported");
   }
 }
 

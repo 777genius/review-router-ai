@@ -175,7 +175,11 @@ import {
   type HostedSessionSource,
 } from "../../src/server/hosted-pool-dashboard";
 import { createPrismaHostedPoolDashboardMutationPort } from "../../src/server/prisma-hosted-pool-mutations";
-import { assertGatewayReviewConfigCatalogAllowed } from "../../src/server/gateway-review-config-catalog";
+import {
+  assertGatewayReviewConfigCatalogAllowed,
+  assertGatewayReviewAgentProfileContextAllowed,
+} from "../../src/server/gateway-review-config-catalog";
+import { loadApprovedGatewayAgentProfiles } from "../../src/server/gateway-agent-profile-options";
 import { provisionGatewayReviewV2Repository } from "../../src/server/prisma-gateway-review-v2-provisioning";
 
 export async function requestInstallationSyncAction(
@@ -2933,6 +2937,10 @@ async function saveWorkspaceReviewConfigMutation(
       workspaceId,
     });
     const config = readReviewConfigurationForm(formData);
+    assertGatewayReviewAgentProfileContextAllowed(
+      config,
+      loadApprovedGatewayAgentProfiles,
+    );
     assertCodexProductionReviewConfigAllowed(config);
     assertCodexRotatingReviewConfigAllowed({
       config,
@@ -3064,6 +3072,10 @@ async function saveRepositoryReviewConfigMutation(
       );
     const policy = readRepositoryReviewPolicyForm(formData);
     const config = resolveReviewPolicy(workspace.config, policy);
+    assertGatewayReviewAgentProfileContextAllowed(
+      config,
+      loadApprovedGatewayAgentProfiles,
+    );
     assertCodexProductionReviewConfigAllowed(config);
     assertCodexRotatingReviewConfigAllowed({
       config,
