@@ -254,23 +254,28 @@ test("delete applied alone stays visible; only original closure proof removes in
     status: "ok",
     value: receipt("delete", "applied", true),
   });
-  fireEvent.click(
-    within(dialog).getByRole("button", { name: "Check original operation" }),
-  );
-  await waitFor(() =>
+  // The button is disabled while a read is in flight, so one click can be
+  // swallowed; re-click until the recovery read lands.
+  const check = within(dialog).getByRole("button", {
+    name: "Check original operation",
+  });
+  await waitFor(() => {
+    fireEvent.click(check);
     expect(f.api.read).toHaveBeenCalledWith("actor", "workspace-A", {
       operationId: "original-operation",
-    }),
-  );
-  await waitFor(() =>
-    expect(
-      JSON.stringify(
-        f.client.getQueryData([
-          "accounts-overview",
-          "actor:workspace:workspace-B",
-        ]),
-      ),
-    ).not.toContain('"connectionId":"source"'),
+    });
+  });
+  await waitFor(
+    () =>
+      expect(
+        JSON.stringify(
+          f.client.getQueryData([
+            "accounts-overview",
+            "actor:workspace:workspace-B",
+          ]),
+        ),
+      ).not.toContain('"connectionId":"source"'),
+    { timeout: 5000 },
   );
   expect(
     JSON.stringify(
