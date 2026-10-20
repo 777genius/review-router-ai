@@ -762,6 +762,16 @@ describe("canonical exclusive release migration caller", () => {
     expect(grants).toContain(
       "IF pg_catalog.to_regprocedure('public.rr_workspace_delete_admission(text)') IS NOT NULL THEN",
     );
+    expect(
+      [
+        ...grants.matchAll(
+          /GRANT EXECUTE ON FUNCTION public\.rr_review_run_checkout_repository_lock\(text,text\) TO %I', '([^']+)'/gu,
+        ),
+      ].map((match) => match[1]),
+    ).toEqual(["reviewrouter_api"]);
+    expect(grants).toContain(
+      "IF pg_catalog.to_regprocedure('public.rr_review_run_checkout_repository_lock(text,text)') IS NOT NULL THEN",
+    );
     const activationAuthority = activationAuthorityProvisioningSql();
     const atomicMigration = atomicMigrationAndGrantSql(configuration, {
       migrationPermit: migrationPermit(),

@@ -5148,6 +5148,17 @@ BEGIN
   END IF;
 END
 $workspace_delete_admission_acl$;
+${
+  role === "api"
+    ? `DO $checkout_repository_lock_acl$
+BEGIN
+  IF pg_catalog.to_regprocedure('public.rr_review_run_checkout_repository_lock(text,text)') IS NOT NULL THEN
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION public.rr_review_run_checkout_repository_lock(text,text) TO %I', '${username}');
+  END IF;
+END
+$checkout_repository_lock_acl$;`
+    : ""
+}
 DO $historical_function_acl$
 BEGIN
   IF pg_catalog.to_regprocedure('public.hosted_historical_assert_ready()') IS NOT NULL THEN

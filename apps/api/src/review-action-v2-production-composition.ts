@@ -1107,8 +1107,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
           // all following local reads use this transaction, without HTTP.
           await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation"
             WHERE "githubInstallationId" = ${BigInt(checkoutTarget.githubInstallationId)} FOR SHARE`;
-          await tx.$queryRaw`SELECT "id" FROM "RepositoryConnection"
-            WHERE "id" = ${authorization.repositoryConnectionId} FOR SHARE`;
+          const lockedRepository = await tx.$queryRaw<
+            readonly { id: string }[]
+          >`
+            SELECT id FROM public.rr_review_run_checkout_repository_lock(
+              ${authorization.workspaceId}, ${authorization.repositoryConnectionId})`;
+          if (lockedRepository.length !== 1) return false;
           await tx.$queryRaw`SELECT "id" FROM "ProviderAccountConnection"
             WHERE "id" = ${original.connectionId} FOR SHARE`;
           await tx.$queryRaw`SELECT "id" FROM "WorkspaceAccountBinding"
