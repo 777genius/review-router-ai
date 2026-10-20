@@ -1370,6 +1370,17 @@ function denialFailure(
         ReviewActionV2ProtocolErrorCode.Forbidden,
         `${operationId}:${reason}`,
       );
+    // Engine/agent-profile, vote-lane and investigation mismatches are
+    // actionable configuration errors discovered before any inference.
+    case ReviewRunAuthorizationDenialReason.AgentProfileUnavailable:
+    case ReviewRunAuthorizationDenialReason.AgentProfileIncompatible:
+    case ReviewRunAuthorizationDenialReason.ProviderVoteLaneUnavailable:
+    case ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible:
+      return routeFailure(
+        422,
+        ReviewActionV2ProtocolErrorCode.InvariantViolation,
+        `${operationId}:${reason}`,
+      );
   }
 }
 

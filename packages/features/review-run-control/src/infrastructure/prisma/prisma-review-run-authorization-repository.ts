@@ -812,7 +812,7 @@ function protocolVersionToPersistence(
 
 function providerKindToPersistence(
   value: ReviewProviderKind,
-): "codex" | "claude_code" | "openrouter" {
+): "codex" | "claude_code" | "openrouter" | "ocr" {
   switch (value) {
     case ReviewProviderKind.Codex:
       return "codex";
@@ -820,6 +820,8 @@ function providerKindToPersistence(
       return "claude_code";
     case ReviewProviderKind.OpenRouter:
       return "openrouter";
+    case ReviewProviderKind.Ocr:
+      return "ocr";
   }
 }
 

@@ -531,6 +531,8 @@ export function providerKindToPrisma(
       return PrismaProviderKind.claude_code;
     case ReviewExecutionProviderKind.OpenRouter:
       return PrismaProviderKind.openrouter;
+    case ReviewExecutionProviderKind.Ocr:
+      return PrismaProviderKind.ocr;
   }
 }
 
@@ -744,6 +746,8 @@ function providerKindFromPrisma(
       return ReviewExecutionProviderKind.ClaudeCode;
     case PrismaProviderKind.openrouter:
       return ReviewExecutionProviderKind.OpenRouter;
+    case PrismaProviderKind.ocr:
+      return ReviewExecutionProviderKind.Ocr;
   }
 }
 

@@ -18,6 +18,7 @@ import * as RadixSelect from "@radix-ui/react-select";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
+  reviewAgentProfileRequiresAgenticContext,
   reviewProviderConfigurationSchema,
   type ReviewConfiguration,
   type RepositoryReviewPolicyOverride,
@@ -50,6 +51,7 @@ import type {
   AccountsPage,
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
+import type { GatewayAgentProfileOption } from "../../src/server/gateway-agent-profile-options";
 import { getReadyGatewayAccounts } from "../../src/server/dashboard-provider-setup-readiness";
 import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
 import { useGatewayModelAccounts } from "./gateway-model-account-options";
@@ -243,6 +245,87 @@ const agenticContextOptions = [
   },
 ] as const;
 
+/**
+ * Sentinel for the engine selector's "no explicit profile" choice. Approved
+ * profile refs must start with an alphanumeric character, so this value can
+ * never collide with a real ref and is never serialized into the form.
+ */
+const agentProfileDefaultChoice = "__default__";
+
+function agentProfileChoiceOptions(
+  provider: ReviewProviderConfiguration,
+  agentProfileOptions: readonly GatewayAgentProfileOption[],
+): readonly DashboardSelectOption[] {
+  const choices: DashboardSelectOption[] = [
+    {
+      value: agentProfileDefaultChoice,
+      label: provider.agenticContext
+        ? "Default (OpenCodeReview)"
+        : "Default (ReviewRouter)",
+      description:
+        "Uses the managed engine (OpenCodeReview by default). Supplied-diff-only policies retain a compatible Codex profile. No engine selection is saved.",
+    },
+    ...agentProfileOptions.map((option) => ({
+      value: option.profileRef,
+      label: option.label,
+      description: option.description,
+    })),
+  ];
+  const savedRef = provider.agentProfileRef;
+  if (
+    savedRef !== undefined &&
+    !choices.some((choice) => choice.value === savedRef)
+  ) {
+    // A saved selection outside the current allowlist keeps passing through
+    // untouched; it is shown as unavailable instead of silently rewritten.
+    choices.push({
+      value: savedRef,
+      label: "Selected profile unavailable",
+      description:
+        "This approved profile is not registered or enabled now. Your saved selection has not been replaced.",
+      disabled: true,
+    });
+  }
+  return choices;
+}
+
+function reviewEngineNotice(
+  provider: ReviewProviderConfiguration,
+  agentProfileOptions: readonly GatewayAgentProfileOption[],
+): string | null {
+  if (provider.authMode !== "codex_account_gateway")
+    return "Uses the built-in ReviewRouter engine, not OpenCodeReview. To use OpenCodeReview, choose Account Gateway.";
+  if (provider.agentProfileRef === undefined)
+    return provider.agenticContext
+      ? null
+      : "Uses the built-in ReviewRouter engine for supplied-diff-only reviews. To use OpenCodeReview, enable Agentic context.";
+  const profile = agentProfileOptions.find(
+    (option) => option.profileRef === provider.agentProfileRef,
+  );
+  return profile?.agentKind === "codex"
+    ? "Uses the built-in ReviewRouter engine with the selected Codex profile. To use OpenCodeReview, choose Default and enable Agentic context."
+    : null;
+}
+
+function agentProfileAgenticContextViolation(
+  provider: ReviewProviderConfiguration,
+  agentProfileOptions: readonly GatewayAgentProfileOption[],
+): string | null {
+  if (provider.agentProfileRef === undefined || provider.agenticContext)
+    return null;
+  const agentKind = agentProfileOptions.find(
+    (option) => option.profileRef === provider.agentProfileRef,
+  )?.agentKind;
+  // The save rule matches admission: only an OCR-eligible engine selection is
+  // incompatible beside supplied-diff-only (native context tools). Explicit
+  // codex/claude selections and unresolvable refs must save; admission answers
+  // those with its own actionable error.
+  return agentKind !== undefined &&
+    reviewAgentProfileRequiresAgenticContext(agentKind)
+    ? "The selected OpenCodeReview profile runs with native context tools and needs Agentic context enabled. A supplied-diff-only review cannot be promised beside this engine. Set Agentic context to Enabled before saving."
+    : null;
+}
+
 type DashboardSelectOption = {
   readonly value: string;
   readonly label: string;
@@ -268,6 +351,8 @@ const fieldHelp = {
     "Approximate context budget per review batch. Higher values let the runtime inspect more context per pass.",
   agenticContext:
     "Allows supported providers to inspect related files in the repository instead of relying only on the supplied diff.",
+  agentProfile:
+    "Optional engine selection for this Account Gateway provider. Server default uses the managed engine, OpenCodeReview by default with Agentic context enabled. Supplied-diff-only policies retain compatible Codex execution. Only approved registered profiles are offered.",
   providers: "Run one or more providers in parallel and merge their findings.",
   providerMaxParallel:
     "Maximum number of selected providers ReviewRouter may run at the same time.",
@@ -739,6 +824,7 @@ export function RepositoryPolicyOverrideDetails({
   configVersion,
   modelOptions,
   gatewayAccounts,
+  agentProfileOptions = [],
   mutationsEnabled,
   editDisabledReason,
   codexRotatingOAuthEnabled = false,
@@ -752,6 +838,9 @@ export function RepositoryPolicyOverrideDetails({
   readonly configVersion: number;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly agentProfileOptions?:
+    | readonly GatewayAgentProfileOption[]
+    | undefined;
   readonly mutationsEnabled: boolean;
   readonly editDisabledReason?: string | undefined;
   readonly codexRotatingOAuthEnabled?: boolean;
@@ -834,6 +923,7 @@ export function RepositoryPolicyOverrideDetails({
               }
               modelOptions={modelOptions}
               gatewayAccounts={gatewayAccounts}
+              agentProfileOptions={agentProfileOptions}
               codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               hiddenFields={[
@@ -889,6 +979,7 @@ export function RepositoryPolicyEditor({
   effectiveConfig,
   modelOptions,
   gatewayAccounts,
+  agentProfileOptions = [],
   mutationsEnabled,
   editDisabledReason,
   codexRotatingOAuthEnabled = false,
@@ -902,6 +993,9 @@ export function RepositoryPolicyEditor({
   readonly effectiveConfig: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly agentProfileOptions?:
+    | readonly GatewayAgentProfileOption[]
+    | undefined;
   readonly mutationsEnabled: boolean;
   readonly editDisabledReason?: string | undefined;
   readonly codexRotatingOAuthEnabled?: boolean;
@@ -994,6 +1088,7 @@ export function RepositoryPolicyEditor({
             repositoryPolicy={repositoryConfig?.policy ?? { schemaVersion: 3 }}
             modelOptions={modelOptions}
             gatewayAccounts={gatewayAccounts}
+            agentProfileOptions={agentProfileOptions}
             codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
             claudeCodeProviderEnabled={claudeCodeProviderEnabled}
             hiddenFields={[
@@ -1205,6 +1300,7 @@ export function WorkspaceReviewConfigForm({
   config,
   modelOptions,
   gatewayAccounts,
+  agentProfileOptions = [],
   codexRotatingOAuthEnabled = false,
   claudeCodeProviderEnabled = true,
   mutationsEnabled,
@@ -1216,6 +1312,9 @@ export function WorkspaceReviewConfigForm({
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly agentProfileOptions?:
+    | readonly GatewayAgentProfileOption[]
+    | undefined;
   readonly codexRotatingOAuthEnabled?: boolean;
   readonly claudeCodeProviderEnabled?: boolean;
   readonly mutationsEnabled: boolean;
@@ -1242,6 +1341,7 @@ export function WorkspaceReviewConfigForm({
         config={config}
         modelOptions={modelOptions}
         gatewayAccounts={gatewayAccounts}
+        agentProfileOptions={agentProfileOptions}
         codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
         claudeCodeProviderEnabled={claudeCodeProviderEnabled}
         hiddenFields={[
@@ -1264,6 +1364,7 @@ export function ReviewConfigForm({
   config,
   modelOptions,
   gatewayAccounts,
+  agentProfileOptions = [],
   codexRotatingOAuthEnabled = false,
   claudeCodeProviderEnabled = true,
   hiddenFields,
@@ -1277,6 +1378,9 @@ export function ReviewConfigForm({
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly agentProfileOptions?:
+    | readonly GatewayAgentProfileOption[]
+    | undefined;
   readonly codexRotatingOAuthEnabled?: boolean;
   readonly claudeCodeProviderEnabled?: boolean;
   readonly hiddenFields: readonly {
@@ -1411,6 +1515,14 @@ export function ReviewConfigForm({
   const hasGateway = providers.some(
     (provider) => provider.authMode === "codex_account_gateway",
   );
+  const agentProfileContextInvalid =
+    !providersInherited &&
+    providers.some(
+      (provider) =>
+        provider.authMode === "codex_account_gateway" &&
+        agentProfileAgenticContextViolation(provider, agentProfileOptions) !==
+          null,
+    );
   const gatewaySingleProviderViolation =
     !providersInherited && hasGateway && providers.length !== 1;
   const gatewaySingleProviderMessage =
@@ -1663,7 +1775,8 @@ export function ReviewConfigForm({
           if (
             gatewaySelectionInvalid ||
             gatewayReasoningInvalid ||
-            gatewaySingleProviderViolation
+            gatewaySingleProviderViolation ||
+            agentProfileContextInvalid
           )
             event.preventDefault();
         }}
@@ -1775,6 +1888,10 @@ export function ReviewConfigForm({
               const providerOptions = modelOptionsByProvider[provider.kind];
               const gatewayAccount = gatewayAccountForProvider(provider);
               const gatewayModels = gatewayModelsForProvider(provider);
+              const agentProfileViolation = agentProfileAgenticContextViolation(
+                provider,
+                agentProfileOptions,
+              );
               const requiredProviderCount = providers.filter(
                 (candidate) => candidate.requiredHealthy,
               ).length;
@@ -1808,6 +1925,11 @@ export function ReviewConfigForm({
                         type="hidden"
                         name={`providerGatewayProfileRef.${index}`}
                         value={provider.gatewayProfileRef}
+                      />
+                      <input
+                        type="hidden"
+                        name={`providerAgentProfileRef.${index}`}
+                        value={provider.agentProfileRef ?? ""}
                       />
                       <input
                         type="hidden"
@@ -1877,6 +1999,11 @@ export function ReviewConfigForm({
                         }
                       />
                     )}
+                    {reviewEngineNotice(provider, agentProfileOptions) ? (
+                      <p className="text-sm leading-6 text-amber-100/85 md:col-span-2">
+                        {reviewEngineNotice(provider, agentProfileOptions)}
+                      </p>
+                    ) : null}
                     {provider.authMode === "codex_account_gateway" ? (
                       <>
                         <DashboardSelectField
@@ -1954,6 +2081,28 @@ export function ReviewConfigForm({
                                 withGatewayModel(current, model),
                               );
                           }}
+                        />
+                        <DashboardSelectField
+                          label="Review agent profile"
+                          helpText={fieldHelp.agentProfile}
+                          value={
+                            provider.agentProfileRef ??
+                            agentProfileDefaultChoice
+                          }
+                          disabled={providersInherited || !mutationsEnabled}
+                          options={agentProfileChoiceOptions(
+                            provider,
+                            agentProfileOptions,
+                          )}
+                          onValueChange={(value) =>
+                            updateProvider(index, (current) => {
+                              if (current.authMode !== "codex_account_gateway")
+                                return current;
+                              return value === agentProfileDefaultChoice
+                                ? { ...current, agentProfileRef: undefined }
+                                : { ...current, agentProfileRef: value };
+                            })
+                          }
                         />
                       </>
                     ) : (
@@ -2152,6 +2301,9 @@ export function ReviewConfigForm({
                           saving. The saved value has not been changed.
                         </p>
                       ) : null}
+                      {agentProfileViolation ? (
+                        <p role="status">{agentProfileViolation}</p>
+                      ) : null}
                     </div>
                   ) : null}
                   {showProviderSecretNotice ? (
@@ -2244,7 +2396,8 @@ export function ReviewConfigForm({
               !mutationsEnabled ||
               gatewaySelectionInvalid ||
               gatewayReasoningInvalid ||
-              gatewaySingleProviderViolation
+              gatewaySingleProviderViolation ||
+              agentProfileContextInvalid
             }
             idleLabel={submitLabel}
             pendingLabel="Saving..."

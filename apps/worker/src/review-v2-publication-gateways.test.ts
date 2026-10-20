@@ -9,6 +9,10 @@ import {
   ReviewPublicationOperationRole,
   ReviewPublicationOperationState,
   ReviewPublicationReceiptStatus,
+  CanonicalReviewPublicationRenderPolicyVersion,
+  ReviewPublicationProjectionCoverage,
+  ReviewPublicationOccurrenceState,
+  renderCanonicalReviewPublication,
 } from "@reviewrouter/features-review-publishing/v2";
 import {
   CapabilityAudience,
@@ -689,6 +693,122 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
       retryable: true,
     });
   });
+
+  it.each([
+    { line: 2, startLine: 1 },
+    { line: 1, startLine: null },
+  ])(
+    "preserves the OCR publication range $startLine..$line through rendering and the GitHub request",
+    async ({ line, startLine }) => {
+      const rendered = renderCanonicalReviewPublication(
+        {
+          coverage: ReviewPublicationProjectionCoverage.Completed,
+          renderPolicyVersion:
+            CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4,
+          targetCommitId: hash("9"),
+          occurrenceStates: [ReviewPublicationOccurrenceState.New],
+          source: {
+            summary: {
+              marker: "summary-ocr",
+              body: "One finding",
+              allClear: false,
+              occurrenceCounts: {
+                new: 1,
+                reconfirmed: 0,
+                changed: 0,
+                carried_unverified: 0,
+                resolved: 0,
+                uncertain: 0,
+                suppressed_by_human: 0,
+              },
+            },
+            check: {
+              marker: "check-ocr",
+              name: "ReviewRouter",
+              title: "Review complete",
+              summary: "One finding",
+              conclusion: "failure",
+            },
+            inlineReviewChunks: [
+              {
+                chunkIndex: 0,
+                marker: "inline-ocr",
+                comments: [
+                  {
+                    marker: "finding-ocr",
+                    path: "src/a.ts",
+                    line,
+                    startLine,
+                    body: "Verified finding",
+                  },
+                ],
+              },
+            ],
+            lifecycle: [],
+          },
+        },
+        {
+          digestUtf8: hash,
+          utf8ByteLength: (value) => Buffer.byteLength(value, "utf8"),
+        },
+      );
+      const created = rendered.inlineReviews[0]!.create;
+      const payload = {
+        ...created,
+        kind: ReviewV2PublicationPayloadKind.PendingReviewCreate,
+        body: created.reviewBody,
+      } as const;
+      const requests: Readonly<Record<string, unknown>>[] = [];
+      const client = githubPublicationClient(
+        {
+          async request(route, parameters = {}) {
+            requests.push({ route, ...parameters });
+            if (route.startsWith("POST "))
+              return {
+                data: {
+                  id: 7,
+                  body: payload.body,
+                  commit_id: hash("9"),
+                  state: "PENDING",
+                  user: { login: "review-router[bot]" },
+                  app: { slug: "review-router" },
+                },
+              };
+            return {
+              data: payload.comments.map((comment) => ({
+                path: comment.path,
+                line: comment.line,
+                start_line: comment.startLine,
+                body: comment.body,
+              })),
+            };
+          },
+          async graphql<T = unknown>(): Promise<T> {
+            throw new Error("unexpected_graphql_call");
+          },
+        },
+        payload,
+      );
+      await client.applyOperation({
+        operation: reviewOperation(),
+        capability: capability(),
+      });
+      const mutation = requests.find(
+        (request) =>
+          request.route ===
+          "POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+      );
+      expect(mutation?.comments).toEqual([
+        {
+          path: "src/a.ts",
+          line,
+          ...(startLine === null ? {} : { start_line: startLine }),
+          side: "RIGHT",
+          body: payload.comments[0]!.body,
+        },
+      ]);
+    },
+  );
 
   it("keeps a created review ambiguous when post-mutation observation fails", async () => {
     const marker = "<!-- review-router:review-observation-failure -->";

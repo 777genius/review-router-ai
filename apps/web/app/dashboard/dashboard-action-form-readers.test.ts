@@ -103,6 +103,31 @@ describe("dashboard action form readers", () => {
     expect(() => readReviewConfigurationForm(formData)).toThrow();
   });
 
+  it("never materializes an agentProfileRef key without an explicit engine selection", () => {
+    const formData = reviewConfigFormData([
+      {
+        authMode: "codex_account_gateway",
+        model: "mimo-v2-pro",
+        reasoningEffort: "xhigh",
+      },
+    ]);
+    formData.set("providerGatewayBindingId.0", "binding-mimo");
+    formData.set("providerGatewayProfileRef.0", "profile-mimo");
+    // readOptionalFormString omits the key entirely when absent or blank so
+    // legacy provider rows keep their canonical JSON byte-identical.
+    for (const submitted of [undefined, "   "]) {
+      if (submitted !== undefined)
+        formData.set("providerAgentProfileRef.0", submitted);
+      const provider = readReviewConfigurationForm(formData).providers[0]!;
+      expect(Object.hasOwn(provider, "agentProfileRef")).toBe(false);
+      expect(JSON.stringify(provider)).not.toContain("agentProfileRef");
+    }
+    formData.set("providerAgentProfileRef.0", "approved-codex");
+    expect(
+      readReviewConfigurationForm(formData).providers[0]?.agentProfileRef,
+    ).toBe("approved-codex");
+  });
+
   it("rejects stale legacy auth instead of silently converting policy", () => {
     const formData = reviewConfigFormData([
       {

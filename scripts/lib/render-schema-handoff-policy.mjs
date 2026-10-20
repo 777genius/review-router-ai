@@ -275,8 +275,8 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
-  // Accounts lifecycle admitted as the current checkout134 extension
-  // over the unchanged identity-bind133 catalog.
+  // The merged checkout136 retains both independently released134 extensions
+  // and the scoped lock135. Only this exact union may reduce to checkout135.
   const accountLifecycleMigration = catalog.find(
     (row) => row.migrationName === "000134_account_lifecycle",
   );
@@ -284,15 +284,51 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     if (
       accountLifecycleMigration.checksum !==
         "92247cf49264abac1e2c6eaed78d741b57d8d21a28818e9d0264af89872ec213" ||
-      manifest(catalog) !==
-        "sha256:33fadb5470c593e0858e8e7feb47132c2931270e42ee1f0381940da9ef6dff5c"
+      ![
+        "sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8",
+        "sha256:33fadb5470c593e0858e8e7feb47132c2931270e42ee1f0381940da9ef6dff5c",
+      ].includes(manifest(catalog))
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(
       catalog.filter((row) => row !== accountLifecycleMigration),
     );
   }
-  // First-time SCM identity bind admitted as the current checkout133 extension
+  // The runtime checkout lock adds narrowly scoped authority, so admit only
+  // its reviewed SQL and complete checkout135. It never enters managed92 SQL.
+  const checkoutLockMigration = catalog.find(
+    (row) => row.migrationName === "000135_review_run_checkout_repository_lock",
+  );
+  if (checkoutLockMigration) {
+    if (
+      checkoutLockMigration.checksum !==
+        "b14b3974c83fffabb95b9f52b12b522561f47862917ad160d8a272afa138e186" ||
+      manifest(catalog) !==
+        "sha256:2624f6f55b524953b90c99415f1e0b216108e322fdb7b6e2ce539e5ce9935297"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== checkoutLockMigration),
+    );
+  }
+  // OCR's additive provider enum is admitted only as the exact checkout134
+  // extension; published checkout133 and historical authority stay unchanged.
+  const ocrProviderMigration = catalog.find(
+    (row) => row.migrationName === "000134_review_provider_kind_v2_ocr",
+  );
+  if (ocrProviderMigration) {
+    if (
+      ocrProviderMigration.checksum !==
+        "7f68071ce4a207434ac3434bbd793201b767ff3ae7799c2d55feb1589484573d" ||
+      manifest(catalog) !==
+        "sha256:b1cf647d94be3e446de05c85705616ab6b48cfb4b653e5557881971580cb4943"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== ocrProviderMigration),
+    );
+  }
+  // First-time SCM identity bind admitted as the exact checkout133 extension
   // over the unchanged published policy132 catalog.
   const identityBindMigration = catalog.find(
     (row) => row.migrationName === "000133_allow_first_time_scm_identity_bind",

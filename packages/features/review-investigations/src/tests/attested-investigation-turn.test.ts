@@ -655,6 +655,12 @@ describe("CommitAttestedInvestigationTurn", () => {
 
   it.each([
     [
+      "unknown receipt",
+      "src/service.ts",
+      2,
+      "investigation_finding_evidence_invalid",
+    ],
+    [
       "unrelated path",
       "src/unrelated.ts",
       2,
@@ -702,13 +708,16 @@ describe("CommitAttestedInvestigationTurn", () => {
         actualProviderKind: InvestigationTurnProviderKind.Codex,
         operations: [
           await completeTextFileEvidence(fixture.digest, {
-            receiptId,
+            receiptId: _case === "unknown receipt" ? hash("a") : receiptId,
             path: evidencePath,
             lineCount: 3,
           }),
         ],
       });
 
+      const before = await fixture.store.findById(
+        fixture.planned.investigationId,
+      );
       await expect(
         fixture.commit.execute({
           commandId: `commit-invalid-finding-${line}`,
@@ -725,11 +734,13 @@ describe("CommitAttestedInvestigationTurn", () => {
           ),
           observation,
         }),
-      ).rejects.toThrow(expectedError);
+      ).rejects.toMatchObject({
+        name: "ReviewInvestigationDomainError",
+        code: expectedError,
+      });
       expect(
-        (await fixture.store.findById(fixture.planned.investigationId))
-          ?.version,
-      ).toBe(fixture.planned.version);
+        await fixture.store.findById(fixture.planned.investigationId),
+      ).toEqual(before);
     },
   );
 
@@ -832,6 +843,9 @@ describe("CommitAttestedInvestigationTurn", () => {
         operations,
       });
 
+      const before = await fixture.store.findById(
+        fixture.planned.investigationId,
+      );
       await expect(
         fixture.commit.execute({
           commandId: `commit-invalid-finding-${_case}`,
@@ -848,11 +862,13 @@ describe("CommitAttestedInvestigationTurn", () => {
           ),
           observation,
         }),
-      ).rejects.toThrow(expectedError);
+      ).rejects.toMatchObject({
+        name: "ReviewInvestigationDomainError",
+        code: expectedError,
+      });
       expect(
-        (await fixture.store.findById(fixture.planned.investigationId))
-          ?.version,
-      ).toBe(fixture.planned.version);
+        await fixture.store.findById(fixture.planned.investigationId),
+      ).toEqual(before);
     },
   );
 

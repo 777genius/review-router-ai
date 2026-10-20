@@ -129,6 +129,16 @@ describe("review v2 production worker composition", () => {
     );
   });
 
+  it("maps a persisted OCR provider kind to its real enum value", () => {
+    // Discriminating pair: before the explicit Ocr case the persisted "ocr"
+    // string collapsed to EvidenceProviderKind.Unknown, erasing the OCR
+    // identity that downstream safety mapping needs to answer fail-closed
+    // non-participation explicitly.
+    expect(mapPersistedContextReuseProviderKind("ocr")).toBe(
+      EvidenceProviderKind.Ocr,
+    );
+  });
+
   it("maps every persisted context-reuse discriminator without throwing", () => {
     expect(mapPersistedContextReuseProviderKind("future_provider")).toBe(
       EvidenceProviderKind.Unknown,

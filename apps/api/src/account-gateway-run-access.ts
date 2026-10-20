@@ -10,6 +10,10 @@ import type {
   ExecutionClient,
 } from "@agent-teams/account-gateway/http";
 
+/** Total opaque Responses SSE budget, independent of any single SDK chunk. */
+export const reviewRunGatewayMaxResponseBytes = 8 * 1024 * 1024;
+export const reviewRunGatewayMaxChunkBytes = 1024 * 1024;
+
 /** Private API-backend composition only. Never export through a browser/API DTO. */
 export interface RunAccessConfig {
   readonly origin: string;

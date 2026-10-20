@@ -1,13 +1,27 @@
 /** Approved toolchain metadata; model providers never select an agent kind. */
-export type ReviewAgentProfile = Readonly<{
+type ReviewAgentProfileCommon = Readonly<{
   profileRef: string;
-  agentKind: "codex" | "claude";
   binarySha256: string;
   packageVersion: string;
   modelTransports: readonly ("account_gateway" | "provider_api")[];
-  contextGateway: true;
   cancellation: true;
 }>;
+
+/** Correlated union keyed by agentKind; always the same seven keys. */
+export type ReviewAgentProfile = Readonly<
+  | (ReviewAgentProfileCommon & {
+      agentKind: "codex";
+      contextGateway: true;
+    })
+  | (ReviewAgentProfileCommon & {
+      agentKind: "claude";
+      contextGateway: true;
+    })
+  | (ReviewAgentProfileCommon & {
+      agentKind: "ocr";
+      contextGateway: false;
+    })
+>;
 
 export function parseReviewAgentProfiles(
   value: unknown,
@@ -51,11 +65,17 @@ export function parseReviewAgentProfiles(
         refs.has(row.profileRef)
       )
         invalid("review_agent_profile_invalid");
+      const agentKind = row.agentKind;
       if (
-        (row.agentKind !== "codex" && row.agentKind !== "claude") ||
-        row.contextGateway !== true ||
-        row.cancellation !== true
+        agentKind !== "codex" &&
+        agentKind !== "claude" &&
+        agentKind !== "ocr"
       )
+        invalid("review_agent_profile_capabilities_invalid");
+      // codex/claude keep the current contextGateway=true contract; OCR talks
+      // to native Git context and returns the real false, never an attestation.
+      const contextGateway = agentKind === "ocr" ? false : true;
+      if (row.contextGateway !== contextGateway || row.cancellation !== true)
         invalid("review_agent_profile_capabilities_invalid");
       const transports = row.modelTransports;
       if (
@@ -66,18 +86,24 @@ export function parseReviewAgentProfiles(
         transports.some((t) => t !== "account_gateway" && t !== "provider_api")
       )
         invalid("review_agent_profile_transport_invalid");
+      // OCR speaks only through the Account Gateway transport.
+      if (
+        agentKind === "ocr" &&
+        (transports.length !== 1 || transports[0] !== "account_gateway")
+      )
+        invalid("review_agent_profile_transport_invalid");
       refs.add(row.profileRef);
       return Object.freeze({
         profileRef: row.profileRef,
-        agentKind: row.agentKind,
+        agentKind,
         binarySha256: row.binarySha256,
         packageVersion: row.packageVersion,
         modelTransports: Object.freeze([
           ...transports,
         ]) as ReviewAgentProfile["modelTransports"],
-        contextGateway: true,
+        contextGateway,
         cancellation: true,
-      });
+      } as ReviewAgentProfile);
     }),
   );
 }

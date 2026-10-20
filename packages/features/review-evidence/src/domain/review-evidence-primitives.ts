@@ -10,6 +10,7 @@ export enum ReviewProviderKind {
   Codex = "codex",
   ClaudeCode = "claude_code",
   OpenRouter = "openrouter",
+  Ocr = "ocr",
   Unknown = "unknown",
 }
 

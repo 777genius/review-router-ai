@@ -5,6 +5,7 @@ import {
 import { InMemoryReviewConfigurationRepository } from "./in-memory-review-configuration";
 import { describe, expect, it } from "vitest";
 import {
+  canonicalJson,
   findReviewConfiguration,
   clearReviewConfiguration,
   mapConfigToRuntimeEnv,
@@ -13,6 +14,7 @@ import {
   PrismaReviewConfigurationRepository,
   resolveReviewConfiguration,
   resolveReviewRuntimeEnv,
+  reviewAgentProfileAgenticContextSaveIssue,
   saveReviewConfiguration,
 } from "../index";
 
@@ -971,6 +973,170 @@ it.each([
   expect(() =>
     parseReviewConfigurationStrict(
       gatewayConfigInput({ ...gatewayProvider, ...patch }),
+    ),
+  ).toThrow();
+});
+
+// Detects any resave drift for legacy documents that never saved an engine selection.
+const legacyGatewayPolicyInput = {
+  schemaVersion: 3 as const,
+  providers: [
+    {
+      kind: "codex" as const,
+      authMode: "codex_account_gateway" as const,
+      model: "mimo-v2-pro",
+      reasoningEffort: "high" as const,
+      agenticContext: true,
+      fastMode: true,
+      requiredHealthy: false,
+      gatewayBindingId: "binding-safe",
+      gatewayProfileRef: "profile-mimo",
+    },
+  ],
+  execution: {
+    providerLimit: 1,
+    providerMaxParallel: 1,
+    inlineMinAgreement: 1,
+  },
+  blockingPolicy: { failOnSeverity: "critical" as const },
+  limits: { inlineMaxComments: 50, targetTokensPerBatch: 50000 },
+  reviewLanguage: null,
+  investigationRollout: disabledInvestigationRollout,
+};
+
+it("keeps legacy canonical policy JSON and digest byte-identical without agentProfileRef", async () => {
+  const parsed = parseReviewConfigurationStrict(legacyGatewayPolicyInput);
+  expect(Object.keys(parsed.providers[0]!)).not.toContain("agentProfileRef");
+  expect(canonicalJson(parsed)).toBe(
+    '{"blockingPolicy":{"failOnSeverity":"critical"},"execution":{"inlineMinAgreement":1,"providerLimit":1,"providerMaxParallel":1},"investigationRollout":{"contextCriticEnabled":false,"crossRevisionReplayEnabled":false,"productionEffectsEnabled":false,"recordingEnabled":false,"shadowEnabled":false,"verifiedCleanEnabled":false},"limits":{"inlineMaxComments":50,"targetTokensPerBatch":50000},"providers":[{"agenticContext":true,"authMode":"codex_account_gateway","fastMode":true,"gatewayBindingId":"binding-safe","gatewayProfileRef":"profile-mimo","kind":"codex","model":"mimo-v2-pro","reasoningEffort":"high","requiredHealthy":false}],"reviewLanguage":null,"schemaVersion":3}',
+  );
+  const configurations = new InMemoryReviewConfigurationRepository();
+  const target = { scope: "workspace", workspaceId: "workspace_1" } as const;
+  await saveReviewConfiguration(
+    { target, policy: legacyGatewayPolicyInput },
+    { configurations },
+  );
+  await expect(
+    findReviewConfiguration(target, { configurations }),
+  ).resolves.toMatchObject({
+    effectivePolicyDigest:
+      "14096179835af919b1664f7414fa8fb209b9261a85a855a0a43d5bbfd042cf28",
+  });
+});
+
+// Detects engine-selection smuggling outside the Account Gateway provider row.
+it("rejects agentProfileRef outside the Account Gateway row", () => {
+  expect(() =>
+    parseReviewConfigurationStrict({
+      ...gatewayConfigInput(gatewayProvider),
+      providers: [
+        { ...workspaceProviderFixture, agentProfileRef: "approved-ocr" },
+      ],
+    }),
+  ).toThrow();
+});
+
+it("keeps an allowlisted engine selection beside native agentic context", () => {
+  const config = parseReviewConfigurationStrict(
+    gatewayConfigInput({
+      ...gatewayProvider,
+      agenticContext: true,
+      agentProfileRef: "approved-ocr",
+    }),
+  );
+  expect(config.providers[0]!).toMatchObject({
+    authMode: "codex_account_gateway",
+    agentProfileRef: "approved-ocr",
+    agenticContext: true,
+  });
+});
+
+// Admission treats an explicit engine selection beside supplied-diff-only as
+// incompatible only for OCR (agent_profile_uncompatible before any inference).
+// The saved policy stays readable for every agent kind so admission can answer
+// with its own actionable error instead of a resave failure, while the per-kind
+// save rule matching admission still requires native context for OCR.
+it("keeps an explicit OCR engine selection readable beside supplied-diff-only for admission", () => {
+  const config = parseReviewConfigurationStrict(
+    gatewayConfigInput({
+      ...gatewayProvider,
+      agenticContext: false,
+      agentProfileRef: "approved-ocr",
+    }),
+  );
+  expect(config.providers[0]!).toMatchObject({
+    authMode: "codex_account_gateway",
+    agentProfileRef: "approved-ocr",
+    agenticContext: false,
+  });
+});
+
+it("accepts an explicit non-OCR engine selection beside supplied-diff-only", () => {
+  const config = parseReviewConfigurationStrict(
+    gatewayConfigInput({
+      ...gatewayProvider,
+      agenticContext: false,
+      agentProfileRef: "approved-codex",
+    }),
+  );
+  expect(config.providers[0]!).toMatchObject({
+    authMode: "codex_account_gateway",
+    agentProfileRef: "approved-codex",
+    agenticContext: false,
+  });
+});
+
+// The per-kind save rule matching admission: the explicit selection beside
+// supplied-diff-only is rejected ONLY for OCR-eligible refs (the resolved
+// agent kind admission also treats as incompatible), with the accurate
+// machine message; codex/claude explicit refs must save. Before the narrowing
+// the blanket schema rule rejected every explicit ref here.
+it("rejects an explicit engine selection beside supplied-diff-only only for the OCR kind", () => {
+  const suppliedDiffOnly = { agenticContext: false } as const;
+  expect(
+    reviewAgentProfileAgenticContextSaveIssue(
+      { ...suppliedDiffOnly, agentProfileRef: "approved-ocr" },
+      "ocr",
+    ),
+  ).toBe("agent_profile_requires_agentic_context");
+  expect(
+    reviewAgentProfileAgenticContextSaveIssue(
+      { ...suppliedDiffOnly, agentProfileRef: "approved-codex" },
+      "codex",
+    ),
+  ).toBeNull();
+  expect(
+    reviewAgentProfileAgenticContextSaveIssue(
+      { ...suppliedDiffOnly, agentProfileRef: "approved-claude" },
+      "claude",
+    ),
+  ).toBeNull();
+  // Native agentic context and the implicit default never trigger the rule.
+  expect(
+    reviewAgentProfileAgenticContextSaveIssue(
+      { agenticContext: true, agentProfileRef: "approved-ocr" },
+      "ocr",
+    ),
+  ).toBeNull();
+  expect(
+    reviewAgentProfileAgenticContextSaveIssue(suppliedDiffOnly, "ocr"),
+  ).toBeNull();
+});
+
+it.each([
+  { agentProfileRef: "" },
+  { agentProfileRef: " " },
+  { agentProfileRef: "p".repeat(161) },
+  { agentProfileRef: "https://private.example/profile" },
+  { agentProfileRef: "sk-secret-value" },
+])("rejects malformed agent profile selection %j", (patch) => {
+  expect(() =>
+    parseReviewConfigurationStrict(
+      gatewayConfigInput({
+        ...gatewayProvider,
+        agenticContext: true,
+        ...patch,
+      }),
     ),
   ).toThrow();
 });

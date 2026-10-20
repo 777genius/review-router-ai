@@ -1,7 +1,10 @@
 import { expect, test } from "vitest";
 import type { ReviewProviderConfiguration } from "@reviewrouter/features-review-config";
 import type { AccountProfileView } from "./account-gateway-accounts";
-import { assertGatewayReviewConfigCatalogAllowed } from "./gateway-review-config-catalog";
+import {
+  assertGatewayReviewConfigCatalogAllowed,
+  assertGatewayReviewAgentProfileContextAllowed,
+} from "./gateway-review-config-catalog";
 
 const gateway = {
   kind: "codex",
@@ -20,6 +23,71 @@ const profile = {
   protocol: "openai-responses",
   models: ["fixture-model"],
 } satisfies AccountProfileView;
+
+test("server saves reject known OCR without native context and preserve other saved engines", () => {
+  const profiles = [
+    {
+      profileRef: "ocr-managed-v2",
+      agentKind: "ocr" as const,
+      label: "OCR",
+      description: "OCR",
+    },
+    {
+      profileRef: "codex-default",
+      agentKind: "codex" as const,
+      label: "Codex",
+      description: "Codex",
+    },
+  ];
+  expect(() =>
+    assertGatewayReviewAgentProfileContextAllowed(
+      {
+        providers: [
+          {
+            ...gateway,
+            agentProfileRef: "ocr-managed-v2",
+            agenticContext: false,
+          },
+        ],
+      },
+      () => profiles,
+    ),
+  ).toThrow("agent_profile_requires_agentic_context");
+  for (const agentProfileRef of [
+    undefined,
+    "codex-default",
+    "historical-unavailable",
+  ]) {
+    expect(() =>
+      assertGatewayReviewAgentProfileContextAllowed(
+        {
+          providers: [
+            {
+              ...gateway,
+              ...(agentProfileRef ? { agentProfileRef } : {}),
+              agenticContext: false,
+            },
+          ],
+        },
+        () => profiles,
+      ),
+    ).not.toThrow();
+  }
+  expect(() =>
+    assertGatewayReviewAgentProfileContextAllowed(
+      {
+        providers: [
+          {
+            ...gateway,
+            agentProfileRef: "ocr-managed-v2",
+            agenticContext: true,
+          },
+        ],
+      },
+      () => profiles,
+    ),
+  ).not.toThrow();
+});
 
 // RED if a later Gateway row can bypass catalog admission, or membership is
 // checked globally instead of on the selected profile and supported protocol.

@@ -22,6 +22,7 @@ export const reviewEvidenceContractDescriptor = Object.freeze({
     ReviewProviderKind.Codex,
     ReviewProviderKind.ClaudeCode,
     ReviewProviderKind.OpenRouter,
+    ReviewProviderKind.Ocr,
   ]),
   taskKinds: Object.freeze([
     ReviewTaskKind.FindingDiscovery,
