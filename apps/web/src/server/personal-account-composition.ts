@@ -30,7 +30,6 @@ import {
   getDashboardSignedInActor,
   getDashboardWorkspaceScope,
 } from "./dashboard-mutations";
-import { listGitHubUserRepositoryAccess } from "./github-user-repository-access";
 import { getPrisma } from "./prisma";
 import { PrismaPersonalAccountSharingQueries } from "./personal-account-sharing-queries";
 import { createPersonalAccountSharingApi } from "./personal-account-sharing";
@@ -334,8 +333,10 @@ export async function productionPersonalAccounts() {
   }
   // Usage rows name repositories, so they follow the dashboard's repository
   // visibility: workspace-wide viewers read unfiltered (null), everyone else
-  // only the repositories they can see. Visibility read failures fail closed
-  // in the overview caller (empty set, usage hidden).
+  // only the repositories they can see. The restricted path reads the
+  // repository permission cache directly (DB only — never a live GitHub call
+  // from a render path); a missing or stale cache fails closed (empty set,
+  // usage hidden) together with any read failure.
   async function usageRepositoryVisibility(
     workspaceId: string,
   ): Promise<ReadonlySet<string> | null> {
@@ -346,19 +347,27 @@ export async function productionPersonalAccounts() {
         scope.workspaceIds.includes(workspaceId))
     )
       return null;
-    const current = await getDashboardSignedInActor();
-    if (!current || current.userId !== userId) return new Set<string>();
-    const access = await listGitHubUserRepositoryAccess({
-      prisma,
-      actor: {
-        userId,
-        githubUserId: current.githubUserId ?? "",
-        githubLogin: current.githubLogin ?? "",
-      },
-      excludedWorkspaceIds:
-        scope.kind === "workspace_ids" ? [...scope.workspaceIds] : [],
-    });
-    return access.repositoryIds;
+    try {
+      const rows = await prisma.repositoryPermissionCache.findMany({
+        where: {
+          userId,
+          canManage: true,
+          expiresAt: { gt: new Date() },
+          repository: {
+            selected: true,
+            archived: false,
+            installation: { status: "active" },
+            ...(scope.kind === "workspace_ids" && scope.workspaceIds.length > 0
+              ? { workspaceId: { notIn: [...scope.workspaceIds] } }
+              : {}),
+          },
+        },
+        select: { repositoryId: true },
+      });
+      return new Set(rows.map((row) => row.repositoryId));
+    } catch {
+      return new Set<string>();
+    }
   }
   async function overview(workspaceId: string) {
     await workspaceAccess(workspaceId);
