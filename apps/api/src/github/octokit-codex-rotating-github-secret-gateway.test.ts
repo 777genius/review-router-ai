@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
   renderReviewRouterCaller,
+  renderReviewRouterProviderApiCaller,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
 import {
@@ -111,6 +112,52 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
           path: reviewRouterWorkflowContract.callerPath,
           ref: "b".repeat(40),
         }),
+      );
+    },
+  );
+  it.each(["canonical", "wrong-pin", "wrong-secret", "gateway-source"])(
+    "checks direct source transport and executed pin: %s",
+    async (scenario) => {
+      const expectedSha = "a".repeat(40);
+      let source = renderReviewRouterProviderApiCaller({
+        runtimeRef: expectedSha,
+      });
+      if (scenario === "wrong-pin")
+        source = renderReviewRouterProviderApiCaller({
+          runtimeRef: "c".repeat(40),
+        });
+      if (scenario === "wrong-secret")
+        source = source.replace(
+          "secrets.OPENROUTER_API_KEY",
+          "secrets.OTHER_KEY",
+        );
+      if (scenario === "gateway-source")
+        source = renderReviewRouterCaller({ runtimeRef: expectedSha });
+      mocks.auth.mockResolvedValueOnce({
+        token: "fixture-read",
+        expiresAt: "2026-10-14T20:00:00.000Z",
+        permissions: { contents: "read" },
+      });
+      mocks.request.mockResolvedValueOnce(fileContent(source));
+      const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+        appId: "123",
+        privateKey: "fixture-key",
+        trustedActionRefs: [],
+      });
+      await expect(
+        gateway.verifyManagedV2SessionBootstrapSource({
+          githubInstallationId: "129500385",
+          githubRepositoryId: "123456",
+          repositoryFullName: "777genius/example",
+          owner: "777genius",
+          workflowPath: reviewRouterWorkflowContract.callerPath,
+          workflowSha: "b".repeat(40),
+          expectedProviderApiActionCommitSha: expectedSha,
+        }),
+      ).resolves.toEqual({ compatible: scenario === "canonical" });
+      expect(mocks.request).toHaveBeenCalledWith(
+        "GET /repos/{owner}/{repo}/contents/{path}",
+        expect.objectContaining({ ref: "b".repeat(40) }),
       );
     },
   );

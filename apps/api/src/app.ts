@@ -1,5 +1,8 @@
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
-import { registerReviewRunGatewayCheckoutRoute } from "./review-run-gateway-checkout.js";
+import {
+  registerReviewRunGatewayCheckoutRoute,
+  registerReviewRunCheckoutRoute,
+} from "./review-run-gateway-checkout.js";
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { registerReviewRunGatewayRelayRoutes } from "./review-run-gateway-relay.js";
 import { createDefaultHostedPoolOperatorConnect } from "./hosted-pool-workflow-operator-composition.js";
@@ -932,6 +935,12 @@ export async function createApiApp(
     await registerReviewRunGatewayCheckoutRoute(
       app,
       productionReviewActionV2Dependencies.accountGatewayCheckout,
+    );
+  }
+  if (productionReviewActionV2Dependencies?.providerApiCheckout) {
+    await registerReviewRunCheckoutRoute(
+      app,
+      productionReviewActionV2Dependencies.providerApiCheckout,
     );
   }
   await registerHostedV4ReadRoutes(

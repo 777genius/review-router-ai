@@ -94,10 +94,9 @@ export async function generateReviewActionV2Protocol(input = {}) {
   const files = new Map([
     [
       "generated/companion-contracts.ts",
-      await format(
-        await reviewActionCompanionContractsSource(repositoryRoot),
-        { parser: "typescript" },
-      ),
+      await format(await reviewActionCompanionContractsSource(repositoryRoot), {
+        parser: "typescript",
+      }),
     ],
     [
       "generated/review-agent-profile.ts",

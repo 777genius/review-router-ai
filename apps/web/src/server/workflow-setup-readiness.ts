@@ -22,6 +22,8 @@ import {
   isolatedQualityWorkflowPath,
   type ReviewRouterDiscussionMode,
   renderAccountGatewayWorkflow,
+  renderProviderApiWorkflow,
+  readManagedReviewRouterCallerSource,
   readReviewRouterCallerSource,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/features-workflow-provisioning";
@@ -36,6 +38,7 @@ export type WorkflowSetupReadinessInput = {
   readonly defaultBranch: string;
   readonly actionRef: string;
   readonly codexSessionMode?: "account-gateway";
+  readonly providerApiAuthMode?: "openrouter-api";
   readonly providerKind?: ProviderKind;
   readonly discussionMode?: ReviewRouterDiscussionMode;
   readonly conflictReviewFallbackEnabled?: boolean;
@@ -60,7 +63,11 @@ export async function isWorkflowSetupAlreadyCurrent(
     return false;
   }
 
-  if (input.codexSessionMode === "account-gateway") {
+  if (
+    input.codexSessionMode === "account-gateway" ||
+    input.providerApiAuthMode === "openrouter-api"
+  ) {
+    if (input.codexSessionMode && input.providerApiAuthMode) return false;
     if (
       input.codexRotatingProviderInstanceId ||
       input.codexRotatingWorkflowSecretNamespace ||
@@ -75,12 +82,21 @@ export async function isWorkflowSetupAlreadyCurrent(
       return false;
     let expected: ReturnType<typeof renderAccountGatewayWorkflow>;
     try {
-      expected = renderAccountGatewayWorkflow({
-        actionRef: input.actionRef,
-        apiUrl:
-          dependencies.resolvePublicApiUrl?.() ?? resolveWorkflowPublicApiUrl(),
-        githubRepositoryId: input.githubRepositoryId,
-      });
+      expected =
+        input.providerApiAuthMode === "openrouter-api"
+          ? renderProviderApiWorkflow({
+              actionRef: input.actionRef,
+              apiUrl:
+                dependencies.resolvePublicApiUrl?.() ??
+                resolveWorkflowPublicApiUrl(),
+            })
+          : renderAccountGatewayWorkflow({
+              actionRef: input.actionRef,
+              apiUrl:
+                dependencies.resolvePublicApiUrl?.() ??
+                resolveWorkflowPublicApiUrl(),
+              githubRepositoryId: input.githubRepositoryId,
+            });
     } catch {
       return false;
     }
@@ -90,7 +106,10 @@ export async function isWorkflowSetupAlreadyCurrent(
       name: input.name,
       defaultBranch: input.defaultBranch,
       workflowPath: expected.path,
-      expectedActionRef: `${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@${readReviewRouterCallerSource(expected.content).runtimeRef}`,
+      expectedActionRef:
+        input.providerApiAuthMode === "openrouter-api"
+          ? `${reviewRouterWorkflowContract.runtimeRepository}/.github/workflows/reviewrouter-reusable.yml@${readManagedReviewRouterCallerSource(expected.content).runtimeRef}`
+          : `${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@${readReviewRouterCallerSource(expected.content).runtimeRef}`,
       expectedContentValidator: (workflow) =>
         areWorkflowDocumentsSemanticallyEqual(workflow, expected.content),
     });

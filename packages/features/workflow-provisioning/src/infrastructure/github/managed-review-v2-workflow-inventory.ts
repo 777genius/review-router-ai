@@ -17,7 +17,7 @@ import {
   reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
 import {
-  readReviewRouterCallerSource,
+  readManagedReviewRouterCallerSource,
   renderCanonicalCodexRotatingInteractionWorkflowV3,
 } from "../../domain/workflow-template";
 
@@ -282,10 +282,11 @@ export class ManagedReviewV2WorkflowInventory {
                     reviewWorkflow,
                   )
                 : (() => {
-                    const caller = readReviewRouterCallerSource(reviewWorkflow);
+                    const caller =
+                      readManagedReviewRouterCallerSource(reviewWorkflow);
                     runtimeRef = caller.runtimeRef;
                     return {
-                      actionRef: `${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@${caller.runtimeRef}`,
+                      actionRef: `${reviewRouterWorkflowContract.runtimeRepository}/${caller.modelTransport === "provider_api" ? ".github/workflows/reviewrouter-reusable.yml" : reviewRouterWorkflowContract.runtimePath}@${caller.runtimeRef}`,
                       apiUrl: caller.controlPlaneUrl,
                       providerInstanceId: "",
                       workflowSchemaVersion: reviewRouterWorkflowContract.major,

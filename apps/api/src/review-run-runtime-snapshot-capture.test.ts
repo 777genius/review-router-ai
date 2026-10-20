@@ -441,3 +441,68 @@ describe("captured Gateway raw Responses output budget", () => {
     );
   });
 });
+
+describe("direct OpenRouter admission", () => {
+  const policy = () => {
+    const base = JSON.parse(gatewayPolicyJson({}));
+    base.providers = [
+      {
+        kind: "openrouter",
+        authMode: "openrouter_api_key",
+        model: "openai/gpt-5.3-codex",
+        reasoningEffort: "high",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    ];
+    return base;
+  };
+  it("captures one native engine with OpenRouter provenance and rejects a second vote", async () => {
+    const config = policy();
+    const input = {
+      ...captureInput(),
+      modelTransport: "provider_api" as const,
+      providerApiAuthMode: "openrouter-api" as const,
+      producerRelease: {
+        ...captureInput().producerRelease,
+        agentProfiles: parseReviewAgentProfiles([
+          codexDefaultProfile,
+          ocrProfile,
+        ]),
+      },
+    };
+    const accepted = await snapshotSource().capture(
+      input,
+      readerFor(canonicalJson(parseReviewConfigurationStrict(config))),
+    );
+    expect(accepted).toMatchObject({
+      gateway: null,
+      agent: { agentKind: "codex" },
+      configurationCanonicalJson: canonicalJson(
+        parseReviewConfigurationStrict(config),
+      ),
+    });
+    expect(() =>
+      parseReviewConfigurationStrict({
+        ...config,
+        providers: [...config.providers, { ...config.providers[0] }],
+      }),
+    ).toThrow("duplicate review provider");
+    config.providers.push({
+      ...config.providers[0],
+      model: "anthropic/claude-sonnet-4",
+    });
+    config.execution.providerLimit = 2;
+    config.execution.providerMaxParallel = 2;
+    await expect(
+      snapshotSource().capture(
+        input,
+        readerFor(canonicalJson(parseReviewConfigurationStrict(config))),
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      snapshotSource().capture(input, readerFor(gatewayPolicyJson({}))),
+    ).resolves.toBeNull();
+  });
+});

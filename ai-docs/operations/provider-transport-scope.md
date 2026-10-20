@@ -21,3 +21,26 @@ data, one writer and preserved recovery/rollback, plus a genuine disposable PR
 review through Sub2API with GitHub App publication. A merged implementation or
 HTTP 200 alone does not prove that acceptance. Render is entirely out of scope;
 the current Hetzner database is authoritative. Landing work is last priority.
+
+## Direct OpenRouter option (2026-10-21)
+
+The owner's later request adds a separate, explicit OpenRouter option using a
+repository `OPENROUTER_API_KEY` in GitHub Actions. It is not a Gateway fallback:
+Account Gateway retains its server-managed account and embedded Sub2API path.
+Both options use App-first admission and GitHub App publication. Direct execution
+uses the approved Codex CLI with OpenRouter as its model provider; OpenCodeReview
+remains available through eligible Account Gateway profiles.
+
+The direct caller is the canonical `.github/workflows/reviewrouter-review.yml`
+variant pinned to an exact public Action commit. It uses OIDC, T0/schema 2 and
+`provider_api_auth_mode: openrouter-api`, with only the fixed named secret mapping.
+Installing a key alone does not install or activate this caller, or change policy.
+Credential-only connection and rotation remain available before selecting a policy.
+
+The first direct T0 route requires one OpenRouter provider and model, with agreement
+of one. Setup, policy writes and admission reject incompatible multi-provider
+policies without selecting their first row or rewriting saved configuration. The
+captured OpenRouter model and authentication provenance use one conservative Codex
+execution vote identity; a named secret is not proof of an independent upstream
+account. TODO: qualify multi-provider/quorum execution before offering it on this
+direct route. Existing configurations remain readable.

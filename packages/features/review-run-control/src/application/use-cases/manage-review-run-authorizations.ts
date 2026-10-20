@@ -205,6 +205,7 @@ export class ManageReviewRunAuthorizations {
   async authorizeReviewRun(input: {
     readonly verifiedIdentity: VerifiedScmRunIdentity;
     readonly modelTransport?: ReviewAgentProfile["modelTransports"][number];
+    readonly providerApiAuthMode?: "openrouter-api";
     readonly producerReleaseId: string;
     readonly expectedBaseProducerRelease?: ProducerRelease;
     readonly protocolOfferHash: string;
@@ -276,6 +277,9 @@ export class ManageReviewRunAuthorizations {
       const captured = await this.dependencies.runtimeSnapshots.capture({
         identity: verifiedIdentity,
         modelTransport: input.modelTransport!,
+        ...(input.providerApiAuthMode
+          ? { providerApiAuthMode: input.providerApiAuthMode }
+          : {}),
         producerRelease: base.release,
         deadline:
           gatewayMaxExpiresAt > now ? gatewayMaxExpiresAt : maxExpiresAt,

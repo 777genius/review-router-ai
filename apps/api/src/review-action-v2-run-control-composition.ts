@@ -10,6 +10,7 @@ import {
 } from "@reviewrouter/features-action-control-plane";
 import type { Clock, ReviewAgentProfile } from "@reviewrouter/shared";
 import { codexWorkflowPathForRepository } from "@reviewrouter/features-codex-oauth-rotating";
+import { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";
 import {
   type RegisterReviewRunControlV2RoutesDependencies,
   ReviewActionV2RouteFailure,
@@ -75,6 +76,7 @@ export type ReviewActionV2ResolvedRevision = {
   readonly producerReleaseId: string;
   readonly producerActionCommitSha: string;
   readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
+  readonly providerApiAuthMode?: "openrouter-api";
   readonly providerVoteLanes: readonly ProviderVoteLane[];
 };
 
@@ -151,6 +153,17 @@ export interface ReviewActionV2RevisionHashPort {
 }
 
 export type ServerOwnedReviewActionV2AdmissionDependencies = {
+  readonly providerApiSource?: {
+    verifyManagedV2SessionBootstrapSource(input: {
+      readonly githubInstallationId: string;
+      readonly githubRepositoryId: string;
+      readonly repositoryFullName: string;
+      readonly owner: string;
+      readonly workflowPath: string;
+      readonly workflowSha: string;
+      readonly expectedProviderApiActionCommitSha: string;
+    }): Promise<{ readonly compatible: boolean }>;
+  };
   readonly revisionResolver: CanonicalReviewRevisionResolverPort;
   readonly releaseAttestations: ProducerReleaseAttestationPort;
   readonly providerVoteLanes: readonly ProviderVoteLane[];
@@ -325,8 +338,33 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
       const pullRequestNumberHint =
         requestedIntent?.pullRequestNumber ??
         pullRequestNumberHintFromClaims(input.claims);
-      const { actionCommitSha: producerActionCommitSha, modelTransport } =
-        producerExecutionFromClaims(input.claims);
+      const {
+        actionCommitSha: producerActionCommitSha,
+        modelTransport,
+        providerApiAuthMode,
+      } = producerExecutionFromClaims(input.claims);
+      if (providerApiAuthMode) {
+        const source =
+          input.claims.workflow_sha && isCommitSha(input.claims.workflow_sha)
+            ? await dependencies.providerApiSource?.verifyManagedV2SessionBootstrapSource(
+                {
+                  githubInstallationId: input.repository.githubInstallationId,
+                  githubRepositoryId: input.repository.githubRepositoryId,
+                  repositoryFullName: input.repository.fullName,
+                  owner: input.repository.owner,
+                  workflowPath: reviewRouterWorkflowContract.callerPath,
+                  workflowSha: input.claims.workflow_sha,
+                  expectedProviderApiActionCommitSha: producerActionCommitSha,
+                },
+              )
+            : undefined;
+        if (!source?.compatible)
+          throw routeFailure(
+            403,
+            ReviewActionV2ProtocolErrorCode.Forbidden,
+            "provider_api_workflow_source_not_canonical",
+          );
+      }
       const revision = await dependencies.revisionResolver.resolve({
         workspaceId: input.repository.workspaceId,
         repositoryConnectionId: input.repository.repositoryId,
@@ -418,6 +456,7 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
           producerReleaseId: attestation.release.producerReleaseId,
           producerActionCommitSha,
           modelTransport,
+          ...(providerApiAuthMode ? { providerApiAuthMode } : {}),
           providerVoteLanes: dependencies.providerVoteLanes.map((lane) => ({
             ...lane,
           })),
@@ -504,6 +543,7 @@ function pullRequestNumberHintFromClaims(
 export function producerExecutionFromClaims(claims: GitHubActionsOidcClaims): {
   readonly actionCommitSha: string;
   readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
+  readonly providerApiAuthMode?: "openrouter-api";
 } {
   const actionCommitSha = claims.job_workflow_sha?.toLowerCase();
   const workflowRef = claims.job_workflow_ref
@@ -527,6 +567,18 @@ export function producerExecutionFromClaims(claims: GitHubActionsOidcClaims): {
       repositoryId: claims.repository_id,
       repositoryFullName: claims.repository,
     });
+    if (
+      secretExecution?.[1]?.toLowerCase() === actionCommitSha &&
+      claims.workflow_ref.startsWith(
+        `${claims.repository}/${reviewRouterWorkflowContract.callerPath}@`,
+      )
+    ) {
+      return {
+        actionCommitSha,
+        modelTransport: "provider_api",
+        providerApiAuthMode: "openrouter-api",
+      };
+    }
     if (
       secretExecution?.[1]?.toLowerCase() === actionCommitSha &&
       claims.workflow_ref.startsWith(`${claims.repository}/${callerPath}@`)
@@ -724,6 +776,9 @@ async function authorizeReviewRun(
   const outcome = await dependencies.authorizations.authorizeReviewRun({
     verifiedIdentity: resolved.identity,
     modelTransport: resolved.facts.modelTransport,
+    ...(resolved.facts.providerApiAuthMode
+      ? { providerApiAuthMode: resolved.facts.providerApiAuthMode }
+      : {}),
     producerReleaseId: resolved.facts.producerReleaseId,
     ...(selectedRelease &&
     selectedRelease.producerReleaseId !== attestedBaseRelease.producerReleaseId
@@ -799,6 +854,7 @@ async function authorizeReviewRun(
         pullRequestNumber: success.authorization.pullRequestNumber,
         sourceRunId: success.authorization.sourceRunId,
         sourceRunAttempt: success.authorization.sourceRunAttempt,
+        workflowIdentityHash: success.authorization.workflowIdentityHash,
         baseSha: success.authorization.baseSha,
         mergeBaseSha: success.authorization.mergeBaseSha,
         headSha: success.authorization.headSha,

@@ -14,6 +14,7 @@ import {
   parseReviewConfigurationStrict,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config/review-configuration";
+import { assertOpenRouterDirectConfigurationSupported } from "@reviewrouter/features-review-config";
 import {
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
@@ -134,6 +135,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       readonly identity: VerifiedScmRunIdentity;
       readonly deadline: Date;
       readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
+      readonly providerApiAuthMode?: "openrouter-api";
       readonly producerRelease: Parameters<
         ReviewRunRuntimeSnapshotPort["capture"]
       >[0]["producerRelease"];
@@ -180,6 +182,14 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       configuration = parseReviewConfigurationStrict(current.config);
     } catch {
       return null;
+    }
+    if (input.providerApiAuthMode !== undefined) {
+      if (modelTransport !== "provider_api") return null;
+      try {
+        assertOpenRouterDirectConfigurationSupported(configuration);
+      } catch {
+        return null;
+      }
     }
     const selectedProviders = configuration.providers
       .map((provider, providerIndex) => ({ provider, providerIndex }))

@@ -138,7 +138,7 @@ describe("Review Action v2 run-control composition", () => {
         producerExecutionFromClaims({
           ...oidcClaims("denial-proof"),
           workflow_ref:
-            "777genius/example/.github/workflows/reviewrouter-review.yml@refs/heads/main",
+            "777genius/example/.github/workflows/other.yml@refs/heads/main",
           job_workflow_ref: ref,
         }),
       ).toThrow(
@@ -446,6 +446,63 @@ describe("Review Action v2 run-control composition", () => {
         pullRequestNumberHint: 42,
       }),
     ]);
+  });
+
+  it("requires signed canonical direct source before resolving authorization facts", async () => {
+    const release = await kit.store.findProducerReleaseById("release_v2");
+    if (!release) throw new Error("test_release_missing");
+    const resolveRevision = vi.fn(async () => ({
+      status: CanonicalReviewRevisionResolutionStatus.Resolved as const,
+      pullRequestNumber: facts.pullRequestNumber,
+      baseSha: facts.baseSha,
+      mergeBaseSha: facts.mergeBaseSha,
+      headSha: facts.headSha,
+      reviewRevisionHash: facts.reviewRevisionHash,
+    }));
+    const verify = vi.fn(async () => ({ compatible: false }));
+    const direct = createServerOwnedReviewActionV2AdmissionFacts({
+      revisionResolver: { resolve: resolveRevision },
+      releaseAttestations: {
+        attest: async () => ({
+          status: ProducerReleaseAttestationStatus.Attested,
+          release,
+        }),
+      },
+      providerVoteLanes: facts.providerVoteLanes,
+      providerApiSource: { verifyManagedV2SessionBootstrapSource: verify },
+    });
+    const claims = {
+      ...oidcClaims("direct-source-proof"),
+      workflow_ref:
+        "777genius/example/.github/workflows/reviewrouter-review.yml@refs/heads/main",
+      workflow_sha: "f".repeat(40),
+      job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionSha}`,
+      job_workflow_sha: actionSha,
+    };
+    const input = {
+      claims,
+      repository: new TestActionRepositories().repository!,
+      scmRepositoryIdentityId: "scm-identity-1",
+    };
+    await expect(direct.resolve(input)).rejects.toMatchObject({
+      statusCode: 403,
+      issues: ["provider_api_workflow_source_not_canonical"],
+    });
+    expect(resolveRevision).not.toHaveBeenCalled();
+    expect(verify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflowSha: claims.workflow_sha,
+        expectedProviderApiActionCommitSha: actionSha,
+      }),
+    );
+    verify.mockResolvedValue({ compatible: true });
+    await expect(direct.resolve(input)).resolves.toMatchObject({
+      revision: {
+        providerApiAuthMode: "openrouter-api",
+        modelTransport: "provider_api",
+        providerVoteLanes: facts.providerVoteLanes,
+      },
+    });
   });
 
   it.each([
@@ -957,6 +1014,14 @@ describe("Review Action v2 run-control composition", () => {
       ReviewRunAuthorizationResultStatus.Authorized,
     );
     expect(first.result.protocolLimitsCanonicalJson).toContain("maxWorkSlots");
+    const persisted = await kit.store.findReviewRunAuthorizationById(
+      first.result.authorizationId!,
+    );
+    expect(persisted).not.toBeNull();
+    expect(
+      JSON.parse(first.result.authorizationFactsCanonicalJson!)
+        .workflowIdentityHash,
+    ).toBe(persisted!.workflowIdentityHash);
     expect(JSON.parse(first.result.authorizationFactsCanonicalJson!)).toEqual(
       expect.objectContaining({
         pullRequestNumber: 42,
