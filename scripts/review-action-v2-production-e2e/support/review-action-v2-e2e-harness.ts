@@ -179,9 +179,7 @@ export class ReviewActionV2E2EHarness {
   readonly protocolLimitsProfileId: string;
   readonly operationalSloProfileId: string;
   readonly env: Readonly<Record<string, string>>;
-  readonly routes: ReturnType<
-    typeof composeReviewActionV2ProductionRoutes
-  >;
+  readonly routes: ReturnType<typeof composeReviewActionV2ProductionRoutes>;
   private readonly worker: ReturnType<typeof createReviewV2WorkerFeature>;
   private readonly originalFetch: typeof globalThis.fetch;
   private oidcOrdinal = 0;
