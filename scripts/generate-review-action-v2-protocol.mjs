@@ -5,6 +5,7 @@ import { mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { format } from "prettier";
+import { reviewActionCompanionContractsSource } from "./lib/review-action-companion-contracts.mjs";
 import {
   assembleReviewActionV2Contract,
   createPublishedProtocolArtifacts,
@@ -91,6 +92,13 @@ export async function generateReviewActionV2Protocol(input = {}) {
     parser: "json",
   });
   const files = new Map([
+    [
+      "generated/companion-contracts.ts",
+      await format(
+        await reviewActionCompanionContractsSource(repositoryRoot),
+        { parser: "typescript" },
+      ),
+    ],
     [
       "generated/review-agent-profile.ts",
       await format(
