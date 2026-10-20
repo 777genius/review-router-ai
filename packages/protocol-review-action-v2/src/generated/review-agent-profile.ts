@@ -88,7 +88,10 @@ export function parseReviewAgentProfiles(
       )
         invalid("review_agent_profile_transport_invalid");
       // OCR speaks only through the Account Gateway transport.
-      if (agentKind === "ocr" && !transports.includes("account_gateway"))
+      if (
+        agentKind === "ocr" &&
+        (transports.length !== 1 || transports[0] !== "account_gateway")
+      )
         invalid("review_agent_profile_transport_invalid");
       refs.add(row.profileRef);
       return Object.freeze({

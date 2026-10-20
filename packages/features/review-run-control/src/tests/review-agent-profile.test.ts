@@ -130,7 +130,7 @@ describe("approved producer agent profiles", () => {
       ReviewProviderKind.Ocr,
     );
   });
-  it("rejects OCR profiles that claim a context gateway or drop the gateway transport", () => {
+  it("rejects OCR profiles that claim a context gateway or differ from the bootstrap's sole gateway transport", () => {
     const ocr = {
       ...profile,
       profileRef: "approved-ocr",
@@ -141,6 +141,8 @@ describe("approved producer agent profiles", () => {
     for (const row of [
       { ...ocr, contextGateway: true },
       { ...ocr, modelTransports: ["provider_api"] },
+      { ...ocr, modelTransports: ["account_gateway", "provider_api"] },
+      { ...ocr, modelTransports: ["provider_api", "account_gateway"] },
     ])
       expect(() => parseReviewAgentProfiles([row])).toThrow();
   });

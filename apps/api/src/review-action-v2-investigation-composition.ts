@@ -1007,8 +1007,8 @@ function evidenceProviderForInvestigation(
       return EvidenceProviderKind.Codex;
     case ReviewExecutionProviderKind.ClaudeCode:
       return EvidenceProviderKind.ClaudeCode;
+    // These engines have no RR investigation certificates.
     case ReviewExecutionProviderKind.OpenRouter:
-    // OCR has no RR investigation certificates.
     case ReviewExecutionProviderKind.Ocr:
       return null;
   }
@@ -2255,8 +2255,8 @@ function extensionProvider(
       return "codex";
     case ReviewExecutionProviderKind.ClaudeCode:
       return "claude_code";
+    // These engines have no RR investigation authorization.
     case ReviewExecutionProviderKind.OpenRouter:
-    // OCR has no RR investigation authorization.
     case ReviewExecutionProviderKind.Ocr:
       return null;
   }

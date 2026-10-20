@@ -66,7 +66,11 @@ export function parseReviewAgentProfiles(
       )
         invalid("review_agent_profile_invalid");
       const agentKind = row.agentKind;
-      if (agentKind !== "codex" && agentKind !== "claude" && agentKind !== "ocr")
+      if (
+        agentKind !== "codex" &&
+        agentKind !== "claude" &&
+        agentKind !== "ocr"
+      )
         invalid("review_agent_profile_capabilities_invalid");
       // codex/claude keep the current contextGateway=true contract; OCR talks
       // to native Git context and returns the real false, never an attestation.
@@ -83,7 +87,10 @@ export function parseReviewAgentProfiles(
       )
         invalid("review_agent_profile_transport_invalid");
       // OCR speaks only through the Account Gateway transport.
-      if (agentKind === "ocr" && !transports.includes("account_gateway"))
+      if (
+        agentKind === "ocr" &&
+        (transports.length !== 1 || transports[0] !== "account_gateway")
+      )
         invalid("review_agent_profile_transport_invalid");
       refs.add(row.profileRef);
       return Object.freeze({

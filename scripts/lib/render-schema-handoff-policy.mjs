@@ -275,7 +275,24 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
-  // First-time SCM identity bind admitted as the current checkout133 extension
+  // OCR's additive provider enum is admitted only as the exact checkout134
+  // extension; published checkout133 and historical authority stay unchanged.
+  const ocrProviderMigration = catalog.find(
+    (row) => row.migrationName === "000134_review_provider_kind_v2_ocr",
+  );
+  if (ocrProviderMigration) {
+    if (
+      ocrProviderMigration.checksum !==
+        "7f68071ce4a207434ac3434bbd793201b767ff3ae7799c2d55feb1589484573d" ||
+      manifest(catalog) !==
+        "sha256:b1cf647d94be3e446de05c85705616ab6b48cfb4b653e5557881971580cb4943"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== ocrProviderMigration),
+    );
+  }
+  // First-time SCM identity bind admitted as the exact checkout133 extension
   // over the unchanged published policy132 catalog.
   const identityBindMigration = catalog.find(
     (row) => row.migrationName === "000133_allow_first_time_scm_identity_bind",

@@ -189,7 +189,7 @@ describe("generated Review Action v2 negotiation contract", () => {
       "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
     );
     expect(reviewActionV2CanonicalizerDigest).toBe(
-      "95a43332ccff5c8ccf8f6f9cb67d901d5efd3e91522c047c48f83b65c70cb03a",
+      "12408727c244f65242534d3060983b87221715f2086631ab743c2c6f6248629a",
     );
 
     for (const operation of reviewActionV2Operations) {

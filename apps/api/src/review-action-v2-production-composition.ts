@@ -1573,8 +1573,8 @@ function investigationAuthorizationProvider(
         rollout: InvestigationRolloutProvider.Claude,
         authorization: "claude_code",
       };
+    // These engines have no RR investigation descriptor or authorization.
     case ReviewProviderKind.OpenRouter:
-    // OCR has no RR investigation descriptor or investigation authorization.
     case ReviewProviderKind.Ocr:
       return null;
   }
