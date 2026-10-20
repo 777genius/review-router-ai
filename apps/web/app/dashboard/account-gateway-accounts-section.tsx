@@ -119,7 +119,18 @@ export async function AccountGatewayAccountsSection({
         {...(ownApi ? { api: ownApi } : {})}
       />
     );
-  if (personalScope) return ownPanel;
+  // Same page-block shell as the organization branch: the Accounts region is
+  // the page's top anchor on both kinds of workspace (the panel keeps its own
+  // "My connections" heading and description inside).
+  if (personalScope)
+    return (
+      <section
+        className="space-y-5 border-b border-cyan-200/10 pb-6"
+        aria-label="Accounts"
+      >
+        {ownPanel}
+      </section>
+    );
 
   const modelApi = personalService
     ? {
