@@ -12,9 +12,9 @@ vi.mock("./dashboard-rate-limits", () => ({
 }));
 
 vi.mock("./codex-rotating-seed-script", () => ({
-  resolveCodexRotatingPublicWebUrl: () => "https://reviewrouter.site/",
+  resolveCodexRotatingPublicWebUrl: () => "https://reviewrouter.org/",
   resolveCodexRotatingSeedScriptDescriptor: () => ({
-    url: "https://reviewrouter.site/install/codex-rotating",
+    url: "https://reviewrouter.org/install/codex-rotating",
     version: "composition-test",
     sha256: "a".repeat(64),
   }),

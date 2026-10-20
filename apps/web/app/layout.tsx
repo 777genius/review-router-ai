@@ -100,12 +100,14 @@ const jetBrainsMono = localFont({
 });
 
 const footerResourceLinks = [
+  { href: "/pricing", label: "Pricing" },
   { href: "/support", label: "Support" },
   { href: "/#compare", label: "Compare" },
   { href: "/fair-use", label: "Fair use" },
 ] as const;
 
 const footerLegalLinks = [
+  { href: "/refund-policy", label: "Refund policy" },
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },
   { href: "/disconnect", label: "Disconnect" },

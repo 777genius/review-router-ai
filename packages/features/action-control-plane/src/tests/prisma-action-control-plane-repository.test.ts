@@ -43,7 +43,7 @@ describe("persisted workflow schema admission", () => {
       generatedAt: "2026-09-14T00:00:00.000Z",
       expiresAt: "2026-09-14T00:15:00.000Z",
       installer: {
-        url: "https://reviewrouter.site/install",
+        url: "https://reviewrouter.org/install",
         version: "test",
         sha256: "a".repeat(64),
       },

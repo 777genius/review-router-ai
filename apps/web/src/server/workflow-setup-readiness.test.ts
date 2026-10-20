@@ -269,7 +269,7 @@ function canonicalV4Workflow(
 ): string {
   return renderCodexRotatingAdvisoryWorkflow({
     actionRef: versionedActionRef,
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
     providerInstanceId: versionedProviderInstanceId,
     reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     workflowSchemaVersion:
@@ -281,7 +281,7 @@ function canonicalV4Workflow(
 function canonicalV3InteractionWorkflow(): string {
   return renderCodexRotatingInteractionWorkflow({
     actionRef: versionedActionRef,
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
     runtimeConfigMode: "oidc",
   });
 }
@@ -289,7 +289,7 @@ function canonicalV3InteractionWorkflow(): string {
 function canonicalV5Workflow(): string {
   return renderCodexRotatingAdvisoryWorkflow({
     actionRef: versionedActionRef,
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
     providerInstanceId: versionedProviderInstanceId,
     reviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
     workflowSchemaVersion:
@@ -335,7 +335,7 @@ function checkVersionedWorkflowReadiness(
     },
     {
       workflowProbe: probe,
-      resolvePublicApiUrl: () => "https://api.reviewrouter.site",
+      resolvePublicApiUrl: () => "https://api.reviewrouter.org",
     },
   );
 }
@@ -670,7 +670,7 @@ describe("workflow setup readiness", () => {
       "public API URL changed",
       (workflow: string) =>
         workflow.replace(
-          "https://api.reviewrouter.site",
+          "https://api.reviewrouter.org",
           "https://attacker.example",
         ),
       false,
@@ -690,7 +690,7 @@ describe("workflow setup readiness", () => {
       const workflow = mutate(
         renderCanonicalIsolatedQualityWorkflow({
           actionRef: versionedActionRef,
-          apiUrl: "https://api.reviewrouter.site",
+          apiUrl: "https://api.reviewrouter.org",
           providerInstanceId: "codex-rotating:1228051727",
           activeSecretNamespace: namespace,
         }),
@@ -731,7 +731,7 @@ describe("workflow setup readiness", () => {
           },
           {
             workflowProbe,
-            resolvePublicApiUrl: () => "https://api.reviewrouter.site",
+            resolvePublicApiUrl: () => "https://api.reviewrouter.org",
           },
         ),
       ).resolves.toBe(expected);
@@ -755,7 +755,7 @@ describe("workflow setup readiness", () => {
       });
       const qualityWorkflow = renderCanonicalIsolatedQualityWorkflow({
         actionRef: versionedActionRef,
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         providerInstanceId: "codex-rotating:1228051727",
         activeSecretNamespace: namespace,
       });
@@ -913,7 +913,7 @@ describe("workflow setup readiness", () => {
         canonicalV4Workflow(),
         renderCanonicalCodexRotatingInteractionWorkflowV2({
           actionRef: versionedActionRef,
-          apiUrl: "https://api.reviewrouter.site",
+          apiUrl: "https://api.reviewrouter.org",
           runtimeConfigMode: "oidc",
         }),
       ),
@@ -930,7 +930,7 @@ describe("workflow setup readiness", () => {
     await expect(
       checkV5WorkflowReadiness(
         canonicalV5Workflow().replace(
-          "https://api.reviewrouter.site",
+          "https://api.reviewrouter.org",
           "https://attacker.example",
         ),
       ),
