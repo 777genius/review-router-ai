@@ -275,6 +275,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // The runtime checkout lock adds narrowly scoped authority, so admit only
+  // its reviewed SQL and complete checkout135. It never enters managed92 SQL.
+  const checkoutLockMigration = catalog.find(
+    (row) => row.migrationName === "000135_review_run_checkout_repository_lock",
+  );
+  if (checkoutLockMigration) {
+    if (
+      checkoutLockMigration.checksum !==
+        "b14b3974c83fffabb95b9f52b12b522561f47862917ad160d8a272afa138e186" ||
+      manifest(catalog) !==
+        "sha256:2624f6f55b524953b90c99415f1e0b216108e322fdb7b6e2ce539e5ce9935297"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== checkoutLockMigration),
+    );
+  }
   // OCR's additive provider enum is admitted only as the exact checkout134
   // extension; published checkout133 and historical authority stay unchanged.
   const ocrProviderMigration = catalog.find(
