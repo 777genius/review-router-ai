@@ -283,6 +283,17 @@ jobs:
     expect(() =>
       assertTrustedCanonicalVersionedWorkflow({
         ...trusted,
+        metadata: readCanonicalCodexRotatingT0WorkflowSourceMetadata(
+          workflow.replace(
+            "https://api.reviewrouter.org",
+            "https://api.reviewrouter.site",
+          ),
+        ),
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertTrustedCanonicalVersionedWorkflow({
+        ...trusted,
         expectedWorkflowSchemaVersion:
           CodexRotatingT0WorkflowSchemaVersion.VersionedSecretNamespaceV5,
       }),

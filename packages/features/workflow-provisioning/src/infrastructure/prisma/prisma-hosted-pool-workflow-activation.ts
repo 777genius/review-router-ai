@@ -1,3 +1,4 @@
+import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import { createHash } from "node:crypto";
 import {
   assertActiveHostedPoolWorkflowAttestation,
@@ -133,7 +134,7 @@ export async function activateConfirmedHostedPoolBindingAfterWorkflowMerge(input
     input.githubRepositoryId,
   );
   if (
-    metadata.apiUrl !== input.expectedApiUrl ||
+    !reviewRouterApiUrlsMatch(metadata.apiUrl, input.expectedApiUrl) ||
     metadata.providerInstanceId !== expectedProviderInstanceId ||
     metadata.bindingId !== binding.id ||
     metadata.bindingRevision !== bindingRevision ||

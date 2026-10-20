@@ -1,3 +1,4 @@
+import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import type { RepositoryWorkflowProbePort } from "@reviewrouter/features-repo-health";
 import type { ProviderKind } from "@reviewrouter/features-review-providers";
 import {
@@ -283,7 +284,7 @@ function isCanonicalVersionedCodexWorkflowReady(input: {
       : readCanonicalCodexRotatingT0WorkflowSourceMetadata(input.workflow);
     if (
       metadata.actionRef !== input.expectedActionRef ||
-      metadata.apiUrl !== input.expectedApiUrl ||
+      !reviewRouterApiUrlsMatch(metadata.apiUrl, input.expectedApiUrl) ||
       metadata.providerInstanceId !== input.expectedProviderInstanceId ||
       metadata.workflowSchemaVersion !== input.expectedWorkflowSchemaVersion ||
       !metadata.secretNamespace

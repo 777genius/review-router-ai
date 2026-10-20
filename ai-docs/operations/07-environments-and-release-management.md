@@ -509,6 +509,19 @@ then, drain and allocate a fresh namespace.
 
 ## Rollback
 
+### Public API hostname convergence
+
+When aligning web/API/worker public URLs to `https://api.reviewrouter.org`,
+retain `https://api.reviewrouter.site` as a direct alias to the same backend.
+Verify the shared reverse-proxy route before the configuration change; do not
+replace it with a redirect that could drop authenticated requests. Source
+verification accepts only this exact owned HTTPS origin pair; custom/self-hosted
+origins retain exact matching. Existing canonical workflow bytes, namespaces,
+signing keys, admitted tokens and captured runtime snapshots remain unchanged.
+New callers use the canonical `.org` origin.
+
+### Runtime rollback
+
 Rollback options, safest first:
 
 1. Disable the risky feature flag or block the bad exact runtime version.

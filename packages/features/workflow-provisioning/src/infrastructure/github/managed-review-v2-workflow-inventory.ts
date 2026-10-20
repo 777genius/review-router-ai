@@ -1,3 +1,4 @@
+import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import { App } from "@octokit/app";
 import { request as githubRequest } from "@octokit/request";
 import { createHash } from "node:crypto";
@@ -347,7 +348,8 @@ export class ManagedReviewV2WorkflowInventory {
         defaultInventory.actionRef?.startsWith(
           `${REVIEW_ROUTER_ACTION_REPOSITORY}@`,
         )) &&
-      defaultInventory.apiUrl === this.expectedApiUrl &&
+      defaultInventory.apiUrl !== null &&
+      reviewRouterApiUrlsMatch(defaultInventory.apiUrl, this.expectedApiUrl) &&
       (defaultInventory.runtimeRef !== null ||
         defaultInventory.providerInstanceId ===
           `codex-rotating:${input.githubRepositoryId}`) &&
@@ -357,7 +359,7 @@ export class ManagedReviewV2WorkflowInventory {
     const interaction = inspectReviewV2InteractionWorkflow(
       interactionWorkflow,
       defaultInventory.actionRef,
-      this.expectedApiUrl,
+      defaultInventory.apiUrl ?? this.expectedApiUrl,
       defaultInventory.runtimeRef !== null,
     );
     const revalidatedCoverage = await this.resolveReviewInventoryCoverage({
