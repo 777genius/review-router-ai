@@ -26135,6 +26135,13 @@ function isSafeGitHubBranchNameSegment(segment) {
   return true;
 }
 
+// packages/shared/src/review-action-companion-contracts.ts
+var providerApiCheckoutCompanionContract = Object.freeze({
+  path: "/api/action/v2/provider-api/checkout",
+  providerApiAuthMode: "openrouter-api",
+  workflowSchemaVersion: 2
+});
+
 var import_meta = {};
 async function A(A3 = {}) {
   var I2, g2 = A3, C2 = !!globalThis.window, B2 = !!globalThis.WorkerGlobalScope, Q2 = (globalThis.process?.versions?.node && globalThis.process, import_meta.url);
