@@ -8,8 +8,10 @@ import {
 import {
   gatewayAgentProfileOptions,
   loadGatewayAgentProfileOptions,
+  loadApprovedGatewayAgentProfiles,
   reviewOcrProfileSelectionEnv,
 } from "./gateway-agent-profile-options";
+import { assertGatewayReviewAgentProfileContextAllowed } from "./gateway-review-config-catalog";
 
 // Not re-exported outside the package; keep in sync with
 // configured-producer-release-attestation.ts.
@@ -17,6 +19,53 @@ const producerReleaseAttestationsEnv =
   "REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON";
 
 describe("gateway agent profile options", () => {
+  it("validates hidden approved OCR definitions independently of the offer gate and retained producers", () => {
+    const row = {
+      kind: "codex" as const,
+      authMode: "codex_account_gateway" as const,
+      model: "mimo-v2.6-pro",
+      reasoningEffort: "high" as const,
+      agenticContext: false,
+      fastMode: false,
+      requiredHealthy: true,
+      gatewayBindingId: "binding-1",
+      gatewayProfileRef: "gateway-1",
+      agentProfileRef: "ocr-managed-v2",
+    };
+    const newRelease = attestation("new-release", [
+      profile("ocr-managed-v2", "ocr"),
+    ]);
+    const oldRelease = attestation("old-release", [
+      profile("codex-default", "codex"),
+    ]);
+    const conflictingRelease = attestation("conflicting-release", [
+      profile("ocr-managed-v2", "codex"),
+    ]);
+    for (const releases of [
+      [oldRelease, newRelease],
+      [conflictingRelease, newRelease],
+      [newRelease, conflictingRelease],
+    ]) {
+      const env = {
+        ...attestationEnv(releases),
+        [reviewOcrProfileSelectionEnv]: "0",
+      };
+      expect(loadGatewayAgentProfileOptions({ env })).toEqual([]);
+      const loadProfiles = () => loadApprovedGatewayAgentProfiles({ env });
+      expect(() =>
+        assertGatewayReviewAgentProfileContextAllowed(
+          { providers: [row] },
+          loadProfiles,
+        ),
+      ).toThrow("agent_profile_requires_agentic_context");
+      expect(() =>
+        assertGatewayReviewAgentProfileContextAllowed(
+          { providers: [{ ...row, agentProfileRef: "historical-unknown" }] },
+          loadProfiles,
+        ),
+      ).not.toThrow();
+    }
+  });
   // Capture resolves an explicit agentProfileRef only against the run's exact
   // producer release, so offering a ref just one release resolves would deny
   // capture on the others (agent_profile_unavailable).

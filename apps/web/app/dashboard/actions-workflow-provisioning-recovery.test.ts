@@ -18,10 +18,10 @@ const mocks = vi.hoisted(() => ({
   isWorkflowSetupAlreadyCurrent: vi.fn(),
   resolveReviewRuntimeEnv: vi.fn(),
   provisionGatewayReviewV2Repository: vi.fn(),
-  loadGatewayAgentProfileOptions: vi.fn(),
+  loadApprovedGatewayAgentProfiles: vi.fn(),
 }));
 vi.mock("../../src/server/gateway-agent-profile-options", () => ({
-  loadGatewayAgentProfileOptions: mocks.loadGatewayAgentProfileOptions,
+  loadApprovedGatewayAgentProfiles: mocks.loadApprovedGatewayAgentProfiles,
 }));
 vi.mock("../../src/server/prisma-gateway-review-v2-provisioning", () => ({
   provisionGatewayReviewV2Repository: mocks.provisionGatewayReviewV2Repository,
@@ -180,7 +180,7 @@ describe("dashboard setup PR recovery", () => {
   });
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadGatewayAgentProfileOptions.mockReturnValue([]);
+    mocks.loadApprovedGatewayAgentProfiles.mockReturnValue([]);
     vi.stubEnv(
       "REVIEW_ROUTER_ACTION_REF",
       `777genius/review-router@${"a".repeat(40)}`,
@@ -383,7 +383,7 @@ describe("dashboard setup PR recovery", () => {
         },
       ],
     });
-    mocks.loadGatewayAgentProfileOptions.mockReturnValue([
+    mocks.loadApprovedGatewayAgentProfiles.mockReturnValue([
       {
         profileRef: "ocr-managed-v2",
         agentKind: "ocr",

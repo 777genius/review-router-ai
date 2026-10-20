@@ -19,6 +19,17 @@ export type GatewayAgentProfileOption = {
   readonly description: string;
 };
 
+/** Write validation uses all approved definitions, including hidden old releases.
+ * Offering a choice and knowing its native-context capability are distinct rules.
+ */
+export function loadApprovedGatewayAgentProfiles(input?: {
+  readonly env?: Readonly<Record<string, string | undefined>>;
+}): readonly ReviewAgentProfile[] {
+  return readConfiguredProducerReleaseAttestations(input?.env ?? process.env)
+    .flatMap((release) => release.agentProfiles ?? [])
+    .filter((profile) => profile.modelTransports.includes("account_gateway"));
+}
+
 /**
  * Approved engine profiles offered on the Account Gateway provider row. The
  * list is derived from the producer-release approved profile authority (the

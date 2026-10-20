@@ -4,7 +4,7 @@ import type {
 } from "@reviewrouter/features-review-config";
 import type { AccountProfileView } from "./account-gateway-accounts";
 import { reviewAgentProfileAgenticContextSaveIssue } from "@reviewrouter/features-review-config/review-configuration";
-import type { GatewayAgentProfileOption } from "./gateway-agent-profile-options";
+import type { ReviewAgentProfile } from "@reviewrouter/features-review-run-control";
 import { gatewayModelSupportsReasoningEffort } from "../features/account-gateway/review-reasoning-capabilities";
 
 type GatewaySelection = Extract<
@@ -17,26 +17,37 @@ type GatewaySelection = Extract<
  */
 export function assertGatewayReviewAgentProfileContextAllowed(
   config: Pick<ReviewConfiguration, "providers">,
-  profiles: readonly GatewayAgentProfileOption[],
+  loadProfiles: () => readonly Pick<
+    ReviewAgentProfile,
+    "profileRef" | "agentKind"
+  >[],
 ): void {
-  for (const provider of config.providers) {
+  const selections = config.providers.filter(
+    (provider) =>
+      provider.authMode === "codex_account_gateway" &&
+      provider.agentProfileRef !== undefined,
+  );
+  if (selections.length === 0) return;
+  const profiles = loadProfiles();
+  for (const provider of selections) {
     if (
       provider.authMode !== "codex_account_gateway" ||
       provider.agentProfileRef === undefined
     )
       continue;
-    const profile = profiles.find(
+    const matches = profiles.filter(
       (candidate) => candidate.profileRef === provider.agentProfileRef,
     );
-    if (!profile) continue;
-    const issue = reviewAgentProfileAgenticContextSaveIssue(
-      {
-        agentProfileRef: provider.agentProfileRef,
-        agenticContext: provider.agenticContext,
-      },
-      profile.agentKind,
-    );
-    if (issue !== null) throw new Error(issue);
+    for (const profile of matches) {
+      const issue = reviewAgentProfileAgenticContextSaveIssue(
+        {
+          agentProfileRef: provider.agentProfileRef,
+          agenticContext: provider.agenticContext,
+        },
+        profile.agentKind,
+      );
+      if (issue !== null) throw new Error(issue);
+    }
   }
 }
 

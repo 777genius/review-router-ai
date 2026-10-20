@@ -50,7 +50,7 @@ test("server saves reject known OCR without native context and preserve other sa
           },
         ],
       },
-      profiles,
+      () => profiles,
     ),
   ).toThrow("agent_profile_requires_agentic_context");
   for (const agentProfileRef of [
@@ -69,7 +69,7 @@ test("server saves reject known OCR without native context and preserve other sa
             },
           ],
         },
-        profiles,
+        () => profiles,
       ),
     ).not.toThrow();
   }
@@ -84,7 +84,7 @@ test("server saves reject known OCR without native context and preserve other sa
           },
         ],
       },
-      profiles,
+      () => profiles,
     ),
   ).not.toThrow();
 });

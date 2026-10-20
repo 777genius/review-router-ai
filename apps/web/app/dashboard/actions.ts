@@ -179,7 +179,7 @@ import {
   assertGatewayReviewConfigCatalogAllowed,
   assertGatewayReviewAgentProfileContextAllowed,
 } from "../../src/server/gateway-review-config-catalog";
-import { loadGatewayAgentProfileOptions } from "../../src/server/gateway-agent-profile-options";
+import { loadApprovedGatewayAgentProfiles } from "../../src/server/gateway-agent-profile-options";
 import { provisionGatewayReviewV2Repository } from "../../src/server/prisma-gateway-review-v2-provisioning";
 
 export async function requestInstallationSyncAction(
@@ -2939,7 +2939,7 @@ async function saveWorkspaceReviewConfigMutation(
     const config = readReviewConfigurationForm(formData);
     assertGatewayReviewAgentProfileContextAllowed(
       config,
-      loadGatewayAgentProfileOptions(),
+      loadApprovedGatewayAgentProfiles,
     );
     assertCodexProductionReviewConfigAllowed(config);
     assertCodexRotatingReviewConfigAllowed({
@@ -3074,7 +3074,7 @@ async function saveRepositoryReviewConfigMutation(
     const config = resolveReviewPolicy(workspace.config, policy);
     assertGatewayReviewAgentProfileContextAllowed(
       config,
-      loadGatewayAgentProfileOptions(),
+      loadApprovedGatewayAgentProfiles,
     );
     assertCodexProductionReviewConfigAllowed(config);
     assertCodexRotatingReviewConfigAllowed({
