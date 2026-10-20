@@ -32,6 +32,20 @@ export type EligiblePersonalSharingOrganization = {
     readonly revision: number;
   }[];
 };
+export type OwnAccessSummary = {
+  readonly sourceId: string;
+  readonly organizationCount: number;
+  readonly hasRestrictedAccess: boolean;
+  // Up to 4 visible organizations; label and workspaceId pair by index in name
+  // order. Hidden names stay unlisted and only raise hasRestrictedAccess.
+  readonly organizations: readonly {
+    readonly workspaceId: string;
+    readonly label: string;
+  }[];
+  // The viewer's own personal workspace, identical on every row of one call.
+  readonly personalWorkspaceId: string | null;
+  readonly complete: true;
+};
 
 function pageSize(value: number | undefined): number {
   const limit = value ?? 25;
@@ -117,6 +131,78 @@ export class PrismaPersonalAccountSharingQueries {
         ${input.afterBindingId === undefined ? Prisma.empty : Prisma.sql`AND b."id" > ${input.afterBindingId}`}
       ORDER BY b."id" ASC LIMIT ${limit + 1}`);
     return page(rows, limit, (row) => row.bindingId);
+  }
+
+  async listOwnAccessSummaries(request: {
+    readonly actorUserId: string;
+    readonly sourceIds: readonly string[];
+  }): Promise<readonly OwnAccessSummary[]> {
+    if (!Array.isArray(request.sourceIds))
+      throw new ProviderAccountError("invalid_input");
+    const sourceIds = [...request.sourceIds];
+    await this.assertOwnSources(request.actorUserId, sourceIds);
+    const [rows, personal] = await Promise.all([
+      this.prisma.$queryRaw<
+        {
+          sourceId: string;
+          organizationCount: number;
+          hasRestrictedAccess: boolean;
+          organizationLabels: string[];
+          organizationIds: string[];
+        }[]
+      >(Prisma.sql`
+      SELECT s."id" AS "sourceId",
+        COUNT(b."id") FILTER (WHERE w."name" IS NOT NULL)::int AS "organizationCount",
+        BOOL_OR(w."name" IS NULL) AS "hasRestrictedAccess",
+        COALESCE((array_agg(w."name" ORDER BY w."name", target."id")
+          FILTER (WHERE w."name" IS NOT NULL))[1:4], ARRAY[]::text[]) AS "organizationLabels",
+        COALESCE((array_agg(target."id" ORDER BY w."name", target."id")
+          FILTER (WHERE w."name" IS NOT NULL))[1:4], ARRAY[]::text[]) AS "organizationIds"
+      FROM "ProviderAccountConnection" s
+      JOIN "WorkspaceAccountBinding" b ON b."connectionId" = s."id"
+      JOIN "Workspace" target ON target."id" = b."workspaceId"
+      LEFT JOIN "WorkspaceMember" m
+        ON m."workspaceId" = target."id" AND m."userId" = ${request.actorUserId}
+      LEFT JOIN LATERAL (
+        SELECT CASE WHEN target."deletionState" = 'active'
+          AND m."role" IN ('owner', 'admin') THEN target."name" END AS "name"
+      ) w ON TRUE
+      WHERE s."id" IN (${Prisma.join(sourceIds)})
+        AND s."ownerUserId" = ${request.actorUserId}
+        AND s."ownerWorkspaceId" IS NULL
+        AND target."personalOwnerUserId" IS NULL
+        AND b."state" = 'active'
+        AND b."pendingFenceOperationId" IS NULL
+        AND b."pendingFencePolicySubject" IS NULL
+        AND b."pendingFencePolicyRevision" IS NULL
+      GROUP BY s."id"
+      ORDER BY s."id" ASC`),
+      this.prisma.workspace.findFirst({
+        where: {
+          personalOwnerUserId: request.actorUserId,
+          deletionState: "active",
+        },
+        select: { id: true },
+      }),
+    ]);
+    const bySource = new Map(rows.map((row) => [row.sourceId, row]));
+    const personalWorkspaceId = personal?.id ?? null;
+    return sourceIds.map((sourceId) => {
+      const row = bySource.get(sourceId);
+      return {
+        sourceId,
+        organizationCount: row?.organizationCount ?? 0,
+        hasRestrictedAccess: row?.hasRestrictedAccess ?? false,
+        organizations: (row?.organizationLabels ?? []).flatMap(
+          (label, index) => {
+            const workspaceId = row?.organizationIds?.[index];
+            return workspaceId ? [{ workspaceId, label }] : [];
+          },
+        ),
+        personalWorkspaceId,
+        complete: true as const,
+      };
+    });
   }
 
   async listEligibleOrganizations(request: {

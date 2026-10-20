@@ -32,7 +32,8 @@ const full = currentFull
       row.migrationName !== "000130_personal_canonical_operations" &&
       row.migrationName !== "000131_personal_canonical_unentered_claim" &&
       row.migrationName !== "000132_review_policy_schema_v3" &&
-      row.migrationName !== "000133_allow_first_time_scm_identity_bind",
+      row.migrationName !== "000133_allow_first_time_scm_identity_bind" &&
+      row.migrationName !== "000134_account_lifecycle",
   )
   .map((row) =>
     row.migrationName === "000119_review_configuration_gateway_binding"
@@ -161,7 +162,8 @@ describe("trusted historical96 checkout reader", () => {
         (row) =>
           row.migrationName !== "000131_personal_canonical_unentered_claim" &&
           row.migrationName !== "000132_review_policy_schema_v3" &&
-          row.migrationName !== "000133_allow_first_time_scm_identity_bind",
+          row.migrationName !== "000133_allow_first_time_scm_identity_bind" &&
+          row.migrationName !== "000134_account_lifecycle",
       ),
     },
     {
@@ -170,7 +172,8 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000130_personal_canonical_operations" &&
           row.migrationName !== "000131_personal_canonical_unentered_claim" &&
           row.migrationName !== "000132_review_policy_schema_v3" &&
-          row.migrationName !== "000133_allow_first_time_scm_identity_bind",
+          row.migrationName !== "000133_allow_first_time_scm_identity_bind" &&
+          row.migrationName !== "000134_account_lifecycle",
       ),
     },
     { checkout: historical },

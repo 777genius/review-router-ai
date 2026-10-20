@@ -16,6 +16,7 @@ type HostedAccountCardModel = HostedPoolDashboardView["accounts"][number];
 export function HostedPoolAccountCards({
   workspaceId,
   accounts,
+  poolRepositories,
   setAccountState,
   removeAccount,
   mutationsEnabled,
@@ -23,6 +24,7 @@ export function HostedPoolAccountCards({
 }: {
   readonly workspaceId: string;
   readonly accounts: HostedPoolDashboardView["accounts"];
+  readonly poolRepositories: readonly { fullName: string }[];
   readonly setAccountState: DashboardActionFormAction;
   readonly removeAccount: DashboardActionFormAction;
   readonly mutationsEnabled: boolean;
@@ -37,6 +39,7 @@ export function HostedPoolAccountCards({
             workspaceId={workspaceId}
             account={account}
             lineupRank={lineup.get(String(account.id)) ?? null}
+            poolRepositories={poolRepositories}
             setAccountState={setAccountState}
             removeAccount={removeAccount}
             mutationsEnabled={mutationsEnabled}
@@ -52,6 +55,7 @@ function HostedPoolAccountCard({
   workspaceId,
   account,
   lineupRank,
+  poolRepositories,
   setAccountState,
   removeAccount,
   mutationsEnabled,
@@ -60,6 +64,7 @@ function HostedPoolAccountCard({
   readonly workspaceId: string;
   readonly account: HostedAccountCardModel;
   readonly lineupRank: number | null;
+  readonly poolRepositories: readonly { fullName: string }[];
   readonly setAccountState: DashboardActionFormAction;
   readonly removeAccount: DashboardActionFormAction;
   readonly mutationsEnabled: boolean;
@@ -209,6 +214,19 @@ function HostedPoolAccountCard({
               Remove {account.label}? Reviews will skip it. You cannot add this
               same ChatGPT later.
             </p>
+            {poolRepositories.length ? (
+              <p className="mt-2 text-sm leading-5 text-amber-100">
+                Отзывы через пул идут в:{" "}
+                {poolRepositories
+                  .slice(0, 3)
+                  .map((repository) => repository.fullName)
+                  .join(", ")}
+                {poolRepositories.length > 3
+                  ? ` +${poolRepositories.length - 3}`
+                  : ""}
+                . Если в пуле не останется готовых аккаунтов, они остановятся.
+              </p>
+            ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <DashboardActionForm
                 action={removeAccount}

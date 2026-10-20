@@ -14,6 +14,7 @@ import {
 } from "../src/application/use-cases/workspace-account-bindings";
 
 import { runBindingFencePostgresTests } from "./postgres-fences";
+import { runAccountLifecyclePostgresTests } from "./postgres-lifecycle";
 
 const enabled = process.env.RR_PROVIDER_ACCOUNTS_PG_TEST === "1";
 const denied = (code: string) => (error: unknown) =>
@@ -994,6 +995,7 @@ test(
           );
         },
       );
+      await runAccountLifecyclePostgresTests(t, db);
       await runBindingFencePostgresTests(t, {
         db,
         sql,

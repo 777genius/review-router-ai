@@ -1840,42 +1840,59 @@ export function WorkspaceCard({
     const draft = hasWorkspaceWideAccess
       ? initialWorkspaceReviewPolicyDraft(gatewayAccounts)
       : null;
+    // reviewConfig is only loaded for policy/repositories/diagnostics. Other
+    // sections must not claim the policy is missing when it was never read.
+    const configLoaded = selectedSection !== "memory";
     return (
       <div id="dashboard-section-content" className="min-w-0 space-y-5">
         <DashboardActionToast
           params={params}
           selectedSection={selectedSection}
         />
-        <WorkspaceSourceConnectionPanel
-          workspaceId={workspace.id}
-          workspaceKey={workspaceKey}
-          installations={workspace.installations.filter(
-            (item) => item.status === "active",
-          )}
-          gitLabInstallations={workspace.gitLabInstallations}
-          repositories={repositories}
-          hasWorkspaceWideAccess={hasWorkspaceWideAccess}
-          mutationsEnabled={mutationsEnabled}
-        />
-        {data.reviewConfigExpectedVersion !== null ? (
-          <p role="alert">
-            Saved workspace policy v{data.reviewConfigExpectedVersion} uses a
-            retired format and is not applied — reviews are stopped. The form
-            below shows product defaults, not your previous values. Review and
-            save explicitly.
-          </p>
-        ) : (
-          <p>Save workspace review settings before enabling reviews.</p>
-        )}
-        {hasWorkspaceWideAccess ? (
-          <AccountGatewayAccountsSection
+        {selectedSection === "repositories" ? (
+          <WorkspaceSourceConnectionPanel
             workspaceId={workspace.id}
-            workspaceName={workspace.name}
+            workspaceKey={workspaceKey}
+            installations={workspace.installations.filter(
+              (item) => item.status === "active",
+            )}
+            gitLabInstallations={workspace.gitLabInstallations}
+            repositories={repositories}
+            hasWorkspaceWideAccess={hasWorkspaceWideAccess}
+            mutationsEnabled={mutationsEnabled}
           />
+        ) : null}
+        {configLoaded ? (
+          <>
+            <h2 className="text-2xl font-semibold text-cyan-50">
+              {dashboardSectionMeta[selectedSection].title}
+            </h2>
+            {data.reviewConfigExpectedVersion !== null ? (
+              <p role="alert">
+                Saved workspace policy v{data.reviewConfigExpectedVersion} uses
+                a retired format and is not applied — reviews are stopped. The
+                form below shows product defaults, not your previous values.
+                Review and save explicitly.
+              </p>
+            ) : (
+              <p>Save workspace review settings before enabling reviews.</p>
+            )}
+            {!hasWorkspaceWideAccess ? (
+              <p>A workspace owner or admin needs to complete review setup.</p>
+            ) : null}
+          </>
         ) : (
-          <p>A workspace owner or admin needs to complete review setup.</p>
+          <p>
+            <a
+              className="text-cyan-200 underline"
+              href={dashboardSectionHref("policy", workspaceKey)}
+            >
+              Сохраните настройки Model
+            </a>
+            , чтобы включить отзывы.
+          </p>
         )}
-        {draft ? (
+        {draft && configLoaded ? (
           <WorkspaceReviewConfigForm
             workspaceId={workspace.id}
             expectedVersion={data.reviewConfigExpectedVersion}
@@ -2439,8 +2456,17 @@ function DashboardSectionHeader(
         readonly workspaceHealth: WorkspaceHealthSummary;
         readonly activeConfig: ReviewConfiguration;
       },
-): React.ReactElement {
+): React.ReactElement | null {
   const { selectedSection } = props;
+  // The header card's eyebrow and description ("Workspace credentials",
+  // "Connect accounts once…") only repeated the Accounts panel below; the
+  // title stays as the section's content heading.
+  if (selectedSection === "setup")
+    return (
+      <h2 className="text-2xl font-semibold text-cyan-50">
+        {dashboardSectionMeta[selectedSection].title}
+      </h2>
+    );
   const meta = dashboardSectionMeta[selectedSection];
   const status =
     selectedSection === "repositories"
@@ -2490,8 +2516,7 @@ function DashboardSectionHeader(
             </div>
           ) : null}
         </div>
-        {selectedSection === "repositories" ||
-        selectedSection === "setup" ? null : (
+        {selectedSection === "repositories" ? null : (
           <div className="flex flex-wrap gap-2 xl:justify-end">
             {selectedSection === "diagnostics" ? (
               <Badge tone={props.workspaceHealth.tone}>

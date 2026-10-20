@@ -56,8 +56,9 @@ export function DashboardSectionCompactNav({
   const { startNavigation } = useNavigationFeedback();
   return (
     <nav
+      id="dashboard-compact-nav"
       aria-label="Dashboard sections"
-      className="flex gap-1 overflow-x-auto lg:hidden"
+      className="z-20 flex gap-1 overflow-x-auto overflow-y-hidden bg-[var(--rr-header-bg)] py-1 backdrop-blur-xl lg:hidden"
     >
       {items.map((item) => {
         const active = selectedSection === item.section;

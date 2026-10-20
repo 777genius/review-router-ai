@@ -1293,7 +1293,8 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000130_personal_canonical_operations" &&
         name !== "000131_personal_canonical_unentered_claim" &&
         name !== "000132_review_policy_schema_v3" &&
-        name !== "000133_allow_first_time_scm_identity_bind",
+        name !== "000133_allow_first_time_scm_identity_bind" &&
+        name !== "000134_account_lifecycle",
     );
     const withoutProviderKey = historicalCheckout.filter(
       (name) => name !== "000110_provider_api_key_workspace_management",
@@ -1347,9 +1348,9 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(133);
+    expect(migrationNames).toHaveLength(134);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:e88927dcec3f1ec6fdc966be8d937160f8fccbaf59720b99fdc6386e605d5d5e",
+      "sha256:33fadb5470c593e0858e8e7feb47132c2931270e42ee1f0381940da9ef6dff5c",
     );
     expect(historicalCheckout).toHaveLength(124);
     expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(
@@ -1453,6 +1454,7 @@ describe("disposable dual-version rehearsal", () => {
       "000131_personal_canonical_unentered_claim",
       "000132_review_policy_schema_v3",
       "000133_allow_first_time_scm_identity_bind",
+      "000134_account_lifecycle",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1578,14 +1580,14 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000133_allow_first_time_scm_identity_bind";
+    const currentTail = "000134_account_lifecycle";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
       names.filter((name) => name !== "000130_personal_canonical_operations"),
       names.filter((name) => name !== "000129_personal_run_snapshot_v2"),
       names.filter((name) => name !== "000127_owner_workspace_deletion"),
       [...names, currentTail],
-      names.map((name) => (name === currentTail ? "000133_relabelled" : name)),
+      names.map((name) => (name === currentTail ? "000134_relabelled" : name)),
       [...names, "000127_future_migration"],
       names.filter((name) => name !== "000125_hosted_codex_device_reconnect"),
       names.filter(
@@ -1655,6 +1657,7 @@ describe("disposable dual-version rehearsal", () => {
     "000131_personal_canonical_unentered_claim",
     "000132_review_policy_schema_v3",
     "000133_allow_first_time_scm_identity_bind",
+    "000134_account_lifecycle",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1718,7 +1721,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000130_personal_canonical_operations" &&
                 name !== "000131_personal_canonical_unentered_claim" &&
                 name !== "000132_review_policy_schema_v3" &&
-                name !== "000133_allow_first_time_scm_identity_bind",
+                name !== "000133_allow_first_time_scm_identity_bind" &&
+                name !== "000134_account_lifecycle",
               "000102_sdk_growth_current_authority",
             ),
           ),

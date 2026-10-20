@@ -1,6 +1,7 @@
 export * from "./badge/index";
 export * from "./button/index";
 export * from "./card/index";
+export * from "./checkbox/index";
 export * from "./code-block/index";
 export * from "./dialog/index";
 export * from "./link-button/index";

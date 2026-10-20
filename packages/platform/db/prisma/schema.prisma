@@ -22,6 +22,7 @@ model Workspace {
   ownedProviderAccountConnections ProviderAccountConnection[] @relation("WorkspaceProviderAccountOwner")
   accountBindings WorkspaceAccountBinding[]
   personalAccountOperationScopes PersonalAccountOperation[] @relation("PersonalOperationScope")
+  owningAccountOperations PersonalAccountOperation[] @relation("OwningWorkspaceAccountOperation")
   personalAccountOperationTargets PersonalAccountOperation[] @relation("PersonalOperationTarget")
 
   members                      WorkspaceMember[]
@@ -177,9 +178,11 @@ model PersonalAccountOperation {
   actorUserId String
   clientOperationId String
   action String
-  personalWorkspaceId String
+  personalWorkspaceId String?
+  owningWorkspaceId String?
   proposedSourceId String? @unique // Reservation scalar: the source does not exist yet.
   sourceId String?
+  originalOperationId String?
   targetWorkspaceId String?
   profileId String?
   displayName String?
@@ -194,12 +197,18 @@ model PersonalAccountOperation {
   expectedBindingRevision Int?
   resultSourceId String?
   resultBindingId String?
+  noEffectRejectionProofRef String?
+  deleteRemoteRetirementProofRef String?
+  deleteBindingErasureProofRef String?
+  deleteTransportErasureProofRef String?
+  deleteNativeErasureProofRef String?
   phase String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   actor User @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  personalWorkspace Workspace @relation("PersonalOperationScope", fields: [personalWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  personalWorkspace Workspace? @relation("PersonalOperationScope", fields: [personalWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  owningWorkspace Workspace? @relation("OwningWorkspaceAccountOperation", fields: [owningWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   targetWorkspace Workspace? @relation("PersonalOperationTarget", fields: [targetWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   source ProviderAccountConnection? @relation("PersonalOperationSource", fields: [sourceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   resultSource ProviderAccountConnection? @relation("PersonalOperationResultSource", fields: [resultSourceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -216,6 +225,7 @@ enum ProviderAccountConnectionState {
   disabled
   quarantined
   pending
+  suspended
   unknown
 }
 

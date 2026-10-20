@@ -1,6 +1,11 @@
 "use client";
 
 import {
+  AccountLifecycleControls,
+  useAccountLifecycleActivities,
+} from "./account-lifecycle-controls";
+
+import {
   useCallback,
   useEffect,
   useRef,
@@ -15,15 +20,22 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Badge, Button, Dialog } from "@reviewrouter/ui";
+import { Badge, Button, Checkbox, Dialog } from "@reviewrouter/ui";
+import { AccountIdentity } from "./account-identity";
+import { AccountActionsMenu } from "./account-actions-menu";
+import { accountsGridColumns } from "./accounts-grid";
+import { accountsCopy, accountStatus } from "./accounts-copy";
+
 import type { AccountView } from "../../src/server/account-gateway-accounts";
 import { dashboardSectionHref } from "./dashboard-section";
 import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
+import { readOwnAccessSummaries } from "../../src/features/account-gateway/personal-accounts";
 import type {
   OwnAccountGrant,
   PersonalAccountsApi,
   PersonalAccountsBootstrap,
   PersonalAccountsResult,
+  PersonalAccessSummary,
   PersonalAttachRequest,
   PersonalMutationReceipt,
   PersonalRevokeRequest,
@@ -34,6 +46,8 @@ const keys = {
   sources: (scope: string) => ["personal-accounts", scope, "sources"] as const,
   grants: (scope: string, sourceId: string) =>
     ["personal-accounts", scope, "grants", sourceId] as const,
+  accessSummaries: (scope: string, sourceIds: readonly string[]) =>
+    ["personal-accounts", scope, "access-summaries", ...sourceIds] as const,
   organizations: (scope: string, sourceIds: readonly string[]) =>
     ["personal-accounts", scope, "organizations", ...sourceIds] as const,
   operation: (scope: string, nonce: string) =>
@@ -52,9 +66,14 @@ export async function refreshPersonalAccountViews(
       (query) =>
         (query.queryKey[0] === "personal-accounts" &&
           query.queryKey[1] === scope &&
-          ["sources", "grants", "organizations"].includes(
+          ["sources", "grants", "organizations", "access-summaries"].includes(
             String(query.queryKey[2]),
           )) ||
+        (["accounts-overview", "account-options", "account-option"].includes(
+          String(query.queryKey[0]),
+        ) &&
+          typeof query.queryKey[1] === "string" &&
+          query.queryKey[1].startsWith(`${scope}:workspace:`)) ||
         (includeManagement &&
           query.queryKey[0] === "gateway-accounts" &&
           query.queryKey[1] === canonicalScope &&
@@ -196,6 +215,7 @@ function PersonalControls({
   managementActions: ((account: AccountView) => ReactNode) | undefined;
 }) {
   const client = useQueryClient();
+  const lifecycleActivities = useAccountLifecycleActivities(client);
   const [selected, setSelected] = useState<
     readonly { sourceId: string; metadataRevision: number }[]
   >([]);
@@ -249,6 +269,24 @@ function PersonalControls({
     page.status === "ok" ? page.value.sources : [],
   );
   const sourceFailure = sources.data.pages.find((page) => page.status !== "ok");
+  const sourceIds = [
+    ...new Set(sourceRows.map((source) => source.sourceId)),
+  ].sort();
+  const accessSummaries = useQuery({
+    queryKey: keys.accessSummaries(bootstrap.scope, sourceIds),
+    queryFn: () => readOwnAccessSummaries(api, sourceIds),
+    enabled: sourceIds.length > 0,
+    staleTime: 15000,
+    retry: false,
+  });
+  const summaryBySource = new Map(
+    accessSummaries.data?.status === "ok"
+      ? accessSummaries.data.value.summaries.map((summary) => [
+          summary.sourceId,
+          summary,
+        ])
+      : [],
+  );
   useEffect(() => {
     try {
       const saved: unknown = JSON.parse(
@@ -452,6 +490,12 @@ function PersonalControls({
     choices = selected,
   ) {
     if (busyRef.current) return;
+    if (choices.some((source) => lifecycleActivities.has(source.sourceId))) {
+      setMessage(
+        "Подтверждаем изменение подключения. Новый доступ пока не отправлен.",
+      );
+      return;
+    }
     busyRef.current = true;
     setBusy(true);
     try {
@@ -459,6 +503,18 @@ function PersonalControls({
       // Uncertain responses are read back, never resubmitted automatically.
       for (const source of choices)
         for (const target of targets) {
+          if (
+            client.getQueryData<{ pending: boolean }>([
+              "account-lifecycle-activity",
+              bootstrap.scope,
+              source.sourceId,
+            ])?.pending
+          ) {
+            setMessage(
+              "Подтверждаем изменение подключения. Новый доступ пока не отправлен.",
+            );
+            continue;
+          }
           const predecessor = target.predecessors?.find(
             (row) => row.sourceId === source.sourceId,
           );
@@ -523,7 +579,8 @@ function PersonalControls({
           source.metadataRevision === selection.metadataRevision &&
           source.profileId !== null &&
           source.state === "active" &&
-          !source.sourceOperationPending,
+          !source.sourceOperationPending &&
+          !lifecycleActivities.has(source.sourceId),
       ),
   );
   // Exact source identity only: a failed live management projection must not
@@ -562,7 +619,7 @@ function PersonalControls({
     >
       <details onToggle={(event) => setBulk(event.currentTarget.open)}>
         <summary className="w-fit cursor-pointer text-sm text-slate-400">
-          Share several accounts
+          Поделиться несколькими подключениями
         </summary>
         {bulk ? (
           <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -612,123 +669,139 @@ function PersonalControls({
       {sourceFailure || sources.isError ? (
         <p role="status">{errorText(sourceFailure?.status ?? "unavailable")}</p>
       ) : null}
-      <div className="divide-y divide-cyan-200/10">
-        {!inventory.length && !sourceFailure && !sources.isError ? (
-          <p className="py-4 text-sm text-slate-400">
-            No personal accounts on the loaded pages.
-          </p>
-        ) : null}
-        {inventory.map((id) => {
-          const source = sourcesById.get(id);
-          const account = managementById.get(id);
-          const label = account?.label ?? source!.label;
-          const canAdd =
-            source?.state === "active" &&
-            source.profileId !== null &&
-            !source.sourceOperationPending;
-          return (
-            <article
-              key={id}
-              aria-label={label}
-              className="flex flex-wrap items-center justify-between gap-3 py-4"
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-3">
-                  {bulk && source ? (
-                    <input
-                      type="checkbox"
-                      className="accent-cyan-300"
-                      aria-label={`Select ${label}`}
-                      checked={selected.some((value) => value.sourceId === id)}
-                      disabled={sharingDisabled || !canAdd}
-                      onChange={(event) =>
-                        setSelected((prior) =>
-                          event.target.checked
-                            ? [
-                                ...prior,
-                                {
-                                  sourceId: id,
-                                  metadataRevision: source.metadataRevision,
-                                },
-                              ]
-                            : prior.filter((row) => row.sourceId !== id),
-                        )
+      <div>
+        <div
+          className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
+          aria-hidden="true"
+        >
+          <span>Аккаунт</span>
+          <span>Где доступен</span>
+          <span>Состояние</span>
+          <span />
+        </div>
+        <div className="divide-y divide-cyan-200/10">
+          {!inventory.length && !sourceFailure && !sources.isError ? (
+            <p className="py-4 text-sm text-slate-400">
+              No personal accounts on the loaded pages.
+            </p>
+          ) : null}
+          {inventory.map((id) => {
+            const source = sourcesById.get(id);
+            const account = managementById.get(id);
+            const label = account?.label ?? source!.label;
+            const canAdd =
+              source?.state === "active" &&
+              source.profileId !== null &&
+              !source.sourceOperationPending &&
+              !lifecycleActivities.has(id);
+            return (
+              <article
+                key={id}
+                aria-label={label}
+                className={`grid min-w-0 items-center gap-3 py-4 ${accountsGridColumns}`}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3">
+                    {bulk && source ? (
+                      <Checkbox
+                        aria-label={`Select ${label}`}
+                        checked={selected.some(
+                          (value) => value.sourceId === id,
+                        )}
+                        disabled={sharingDisabled || !canAdd}
+                        onChange={(event) =>
+                          setSelected((prior) =>
+                            event.target.checked
+                              ? [
+                                  ...prior,
+                                  {
+                                    sourceId: id,
+                                    metadataRevision: source.metadataRevision,
+                                  },
+                                ]
+                              : prior.filter((row) => row.sourceId !== id),
+                          )
+                        }
+                      />
+                    ) : null}
+                    <AccountIdentity
+                      label={label}
+                      {...(account
+                        ? {
+                            profileLabel: account.profileLabel,
+                            authKind: account.authKind,
+                          }
+                        : {})}
+                    />
+                  </div>
+                  {source?.state === "disabled" ||
+                  account?.state === "tombstoned" ? (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Retired accounts cannot reconnect. Connect a new account
+                      instead. Credential cleanup is not confirmed.
+                    </p>
+                  ) : null}
+                  {!source ? (
+                    <p className="mt-2 text-sm text-slate-400">
+                      Workspace access unavailable on the loaded source pages.
+                    </p>
+                  ) : null}
+                </div>
+                <AccessSummaryChips summary={summaryBySource.get(id)} />
+                <p className="text-sm text-slate-300">
+                  {lifecycleActivities.get(id) === "delete" ||
+                  (account?.lifecycle?.status === "pending" &&
+                    account.lifecycle.action === "delete")
+                    ? "Удаляем…"
+                    : lifecycleActivities.has(id)
+                      ? "Подтверждаем изменение"
+                      : source?.sourceOperationPending
+                        ? "Подтверждаем изменение"
+                        : account
+                          ? accountStatus(account)
+                          : "Результат пока неизвестен"}
+                </p>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {source ? (
+                    <WorkspaceAccess
+                      scope={bootstrap.scope}
+                      source={source}
+                      api={api}
+                      disabled={sharingDisabled}
+                      pendingWorkspaces={pendingWorkspaces(source.sourceId)}
+                      canAdd={Boolean(canAdd)}
+                      share={(targets) =>
+                        share(targets, [
+                          {
+                            sourceId: source.sourceId,
+                            metadataRevision: source.metadataRevision,
+                          },
+                        ])
                       }
+                      revoke={revoke}
+                      currentWorkspace={currentWorkspaceId ?? currentWorkspace}
+                      message={sourceMessages[source.sourceId]}
                     />
                   ) : null}
-                  <p className="break-words font-medium text-cyan-50">
-                    {label}
-                  </p>
+                  {account ? (
+                    <AccountActionsMenu label={label}>
+                      {managementActions?.(account)}
+                      {currentWorkspaceId ? (
+                        <AccountLifecycleControls
+                          account={account}
+                          context={bootstrap.scope}
+                          workspaceId={currentWorkspaceId}
+                          client={client}
+                          accessSummary={summaryBySource.get(id)}
+                        />
+                      ) : null}
+                    </AccountActionsMenu>
+                  ) : null}
                 </div>
-                {account ? (
-                  <p className="mt-1 text-sm text-slate-400">
-                    {account.profileLabel}
-                  </p>
-                ) : (
-                  <p className="mt-1 text-sm text-slate-400">
-                    Connection details unavailable
-                  </p>
-                )}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Badge tone="neutral">Personal account</Badge>
-                  <Badge tone="neutral">
-                    {source?.sourceOperationPending
-                      ? "Connection update pending"
-                      : (account?.state ?? source?.state)}
-                  </Badge>
-                </div>
-                {source?.state === "disabled" ||
-                account?.state === "tombstoned" ? (
-                  <p className="mt-2 text-xs text-slate-400">
-                    Retired accounts cannot reconnect. Connect a new account to
-                    use it again. Credential cleanup is unverified.
-                  </p>
-                ) : null}
-                {!source ? (
-                  <p className="mt-2 text-sm text-slate-400">
-                    Workspace access unavailable on the loaded source pages.
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {source ? (
-                  <WorkspaceAccess
-                    scope={bootstrap.scope}
-                    source={source}
-                    api={api}
-                    disabled={sharingDisabled}
-                    pendingWorkspaces={pendingWorkspaces(source.sourceId)}
-                    canAdd={Boolean(canAdd)}
-                    share={(targets) =>
-                      share(targets, [
-                        {
-                          sourceId: source.sourceId,
-                          metadataRevision: source.metadataRevision,
-                        },
-                      ])
-                    }
-                    revoke={revoke}
-                    currentWorkspace={currentWorkspaceId ?? currentWorkspace}
-                    message={sourceMessages[source.sourceId]}
-                  />
-                ) : null}
-                {account && managementActions ? (
-                  <details className="text-sm">
-                    <summary
-                      className="cursor-pointer rounded-lg px-3 py-2 text-cyan-200"
-                      aria-label={`Account actions for ${label}`}
-                    >
-                      Account actions
-                    </summary>
-                    <div className="flex flex-wrap gap-2 pt-2">
-                      {managementActions(account)}
-                    </div>
-                  </details>
-                ) : null}
-              </div>
-            </article>
-          );
-        })}
+              </article>
+            );
+          })}
+        </div>
       </div>
       {sources.hasNextPage ? (
         <Button
@@ -785,6 +858,70 @@ function PersonalControls({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function AccessSummaryChips({
+  summary,
+}: {
+  summary: PersonalAccessSummary | undefined;
+}) {
+  const organizations = summary?.organizations ?? [];
+  return (
+    <div
+      className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-300"
+      aria-label="Где доступен"
+    >
+      <AccessChip
+        {...(summary?.personalWorkspaceId
+          ? {
+              href: dashboardSectionHref("setup", summary.personalWorkspaceId),
+            }
+          : {})}
+      >
+        {accountsCopy.personal}
+      </AccessChip>
+      {organizations.map((organization) => (
+        <AccessChip
+          key={organization.workspaceId}
+          href={dashboardSectionHref("setup", organization.workspaceId)}
+          title={organization.label}
+        >
+          {organization.label}
+        </AccessChip>
+      ))}
+      {summary && summary.hasRestrictedAccess ? (
+        <span className="rounded-full border border-amber-300/20 bg-amber-300/[0.06] px-2 py-1 text-amber-100">
+          {accountsCopy.privacy}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function AccessChip({
+  href,
+  title,
+  children,
+}: {
+  href?: string | undefined;
+  title?: string | undefined;
+  children: ReactNode;
+}) {
+  const className =
+    "max-w-48 truncate rounded-full border border-cyan-200/15 bg-white/[0.035] px-2 py-1";
+  return href ? (
+    <a
+      href={href}
+      title={title}
+      className={`${className} text-cyan-100 transition-colors hover:border-cyan-200/40 hover:text-cyan-50`}
+    >
+      {children}
+    </a>
+  ) : (
+    <span className={className} title={title}>
+      {children}
+    </span>
   );
 }
 
@@ -855,10 +992,8 @@ function ShareDialog({
       <Dialog.Portal>
         <Dialog.Backdrop />
         <Dialog.Popup>
-          <Dialog.Title className="text-lg font-semibold">
-            Share with organizations
-          </Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-slate-400">
+          <Dialog.Title>Share with organizations</Dialog.Title>
+          <Dialog.Description>
             Select organizations where you are an owner or admin. Your account
             name will be visible there. Each account and organization is
             processed separately; check each result below.
@@ -878,9 +1013,7 @@ function ShareDialog({
             ) : null}
             {rows.map((row) => (
               <label key={row.workspaceId} className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  className="accent-cyan-300"
+                <Checkbox
                   checked={selected.includes(row.workspaceId)}
                   disabled={submitting}
                   onChange={(event) =>
@@ -910,7 +1043,7 @@ function ShareDialog({
               Choose at most 100 account and organization pairs per request.
             </p>
           ) : null}
-          <div className="flex justify-end gap-3">
+          <Dialog.Footer>
             <Dialog.Close
               render={<Button variant="ghost" disabled={submitting} />}
             >
@@ -940,7 +1073,7 @@ function ShareDialog({
               Share {count || "selected"}{" "}
               {count === 1 ? "connection" : "connections"}
             </Button>
-          </div>
+          </Dialog.Footer>
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
@@ -1029,31 +1162,6 @@ function WorkspaceAccess({
   const targetFailure =
     organizations.isError ||
     organizations.data?.pages.some((page) => page.status !== "ok");
-  useEffect(() => {
-    if (open && grants.hasNextPage && !grants.isFetching && !grantFailure)
-      void grants.fetchNextPage();
-  }, [
-    open,
-    grants.hasNextPage,
-    grants.isFetching,
-    grantFailure,
-    grants.fetchNextPage,
-  ]);
-  useEffect(() => {
-    if (
-      open &&
-      organizations.hasNextPage &&
-      !organizations.isFetching &&
-      !targetFailure
-    )
-      void organizations.fetchNextPage();
-  }, [
-    open,
-    organizations.hasNextPage,
-    organizations.isFetching,
-    targetFailure,
-    organizations.fetchNextPage,
-  ]);
   // Existing grant labels are independently authorized. Never fill a hidden
   // grant name from eligible-organization cache, including former memberships.
   const newTargets = targets.filter(
@@ -1067,26 +1175,30 @@ function WorkspaceAccess({
       ),
   );
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(value) => {
+        setOpen(value);
+        if (value) {
+          if (grants.data) void grants.refetch();
+          if (organizations.data) void organizations.refetch();
+        }
+      }}
+    >
       <Dialog.Trigger
         render={<Button variant="outline" size="sm" />}
-        aria-label={`Workspace access for ${source.label}`}
+        aria-label={`Доступ: ${source.label}`}
       >
-        Workspace access
+        Доступ
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop />
-        <Dialog.Popup
-          initialFocus={closeRef}
-          className="max-h-[85dvh] overflow-y-auto"
-        >
-          <Dialog.Title className="text-lg font-semibold">
-            Workspace access · {source.label}
-          </Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-slate-400">
-            Add organizations where you are an owner or admin. Removing access
-            affects only that organization. Choose the account in Models
-            afterward to use it for reviews.
+        <Dialog.Popup initialFocus={closeRef} className="w-[min(92vw,44rem)]">
+          <Dialog.Title>Доступ · {source.label}</Dialog.Title>
+          <Dialog.Description>
+            Личный доступ остаётся постоянным. Доступ в организации действует
+            только для отзывов и не передаёт владение, учётные данные или
+            управление подключением.
           </Dialog.Description>
           {message ? (
             <p role="status" className="mt-3 text-sm text-cyan-100">
@@ -1094,7 +1206,11 @@ function WorkspaceAccess({
             </p>
           ) : null}
           <div className="mt-4 space-y-3">
-            <h4 className="font-medium">Current access and history</h4>
+            <div className="flex items-center justify-between border-b border-cyan-200/10 py-3">
+              <span>Личный workspace</span>
+              <Badge tone="neutral">Ваш аккаунт</Badge>
+            </div>
+            <h4 className="font-medium">Текущий доступ</h4>
             {grants.isPending ? <p role="status">Loading access...</p> : null}
             {grantFailure ? (
               <p role="status">
@@ -1107,11 +1223,22 @@ function WorkspaceAccess({
                 No organization access on the loaded pages.
               </p>
             ) : null}
-            {[...rows]
+            {[...(grantFailure ? [] : rows)]
+              .filter(
+                (grant) =>
+                  grant.state !== "revoked" ||
+                  grant.remoteFenceDelivery === "remote_pending",
+              )
               .sort(
                 (a, b) =>
-                  Number(b.targetWorkspaceId === currentWorkspace) -
-                  Number(a.targetWorkspaceId === currentWorkspace),
+                  Number(
+                    Boolean(b.organizationLabel) &&
+                      b.targetWorkspaceId === currentWorkspace,
+                  ) -
+                  Number(
+                    Boolean(a.organizationLabel) &&
+                      a.targetWorkspaceId === currentWorkspace,
+                  ),
               )
               .map((grant) => (
                 <div
@@ -1120,20 +1247,20 @@ function WorkspaceAccess({
                 >
                   <div className="min-w-0">
                     <p className="break-words">
-                      {grant.organizationLabel ?? "Organization unavailable"}
+                      {grant.organizationLabel ?? "Workspace недоступен"}
                       {grant.organizationLabel &&
                       grant.targetWorkspaceId === currentWorkspace
-                        ? " · current workspace"
+                        ? " · текущий workspace"
                         : ""}
                     </p>
                     <p className="mt-1 text-sm text-slate-400">
                       {grant.remoteFenceDelivery === "remote_pending"
                         ? grant.state === "revoked"
-                          ? "Revoked locally; gateway confirmation pending"
-                          : "Gateway confirmation pending; availability not confirmed"
+                          ? "Доступ отозван локально; подтверждение Gateway ожидается"
+                          : "Подтверждение Gateway ожидается; доступность не подтверждена"
                         : grant.state === "active"
-                          ? "Available in this workspace"
-                          : "Previous access revoked"}
+                          ? "Доступ сохранён в этом workspace"
+                          : "Прежний доступ отозван"}
                     </p>
                     {grant.state === "active" &&
                     grant.remoteFenceDelivery !== "remote_pending" &&
@@ -1145,7 +1272,7 @@ function WorkspaceAccess({
                           grant.targetWorkspaceId,
                         )}
                       >
-                        Choose for reviews
+                        Выбрать для отзывов
                       </a>
                     ) : null}
                   </div>
@@ -1161,7 +1288,7 @@ function WorkspaceAccess({
                       }
                       onClick={() => void revoke(source, grant)}
                     >
-                      Revoke access
+                      Убрать доступ
                     </Button>
                   ) : null}
                 </div>
@@ -1176,7 +1303,47 @@ function WorkspaceAccess({
                 Load more access
               </Button>
             ) : null}
-            <h4 className="pt-2 font-medium">Add workspace access</h4>
+            <details className="border-t border-cyan-200/10 pt-3">
+              <summary className="cursor-pointer text-sm text-slate-300">
+                История отозванного доступа
+              </summary>
+              <p className="mt-2 text-xs text-slate-400">
+                Если название организации недоступно, запись показана как
+                «Workspace недоступен». Владелец источника может отозвать её.
+              </p>
+              <div className="mt-2">
+                {(grantFailure ? [] : rows)
+                  .filter(
+                    (grant) =>
+                      grant.state === "revoked" &&
+                      grant.remoteFenceDelivery !== "remote_pending",
+                  )
+                  .map((grant) => (
+                    <div
+                      key={grant.bindingId}
+                      className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan-200/10 py-2 text-sm"
+                    >
+                      <span>
+                        {grant.organizationLabel ?? "Workspace недоступен"}
+                        <span className="block text-xs text-slate-400">
+                          Прежний доступ отозван
+                        </span>
+                      </span>
+                      {grant.canRevoke ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={disabled || grants.isFetching}
+                          onClick={() => void revoke(source, grant)}
+                        >
+                          Отозвать точную запись
+                        </Button>
+                      ) : null}
+                    </div>
+                  ))}
+              </div>
+            </details>
+            <h4 className="pt-2 font-medium">Добавить организацию</h4>
             {organizations.isPending ? (
               <p role="status">Loading eligible organizations...</p>
             ) : null}
@@ -1189,10 +1356,10 @@ function WorkspaceAccess({
             !targetFailure &&
             !newTargets.length ? (
               <p className="text-sm text-slate-400">
-                No additional eligible organizations on the loaded pages.
+                Нет других подходящих организаций.
               </p>
             ) : null}
-            {[...newTargets]
+            {[...(targetFailure ? [] : newTargets)]
               .sort(
                 (a, b) =>
                   Number(b.workspaceId === currentWorkspace) -
@@ -1226,7 +1393,7 @@ function WorkspaceAccess({
                     }
                     onClick={() => void share([target])}
                   >
-                    Add access
+                    Добавить
                   </Button>
                 </div>
               ))}
@@ -1242,20 +1409,19 @@ function WorkspaceAccess({
             ) : null}
             {!canAdd ? (
               <p className="text-sm text-slate-400">
-                This connection cannot be shared right now. Existing access can
-                still be removed when authorized.
+                Сейчас это подключение нельзя расшарить. Разрешённый
+                существующий доступ можно отозвать.
               </p>
             ) : null}
             <p className="text-xs text-slate-400">
-              Load remaining access pages before adding an organization. More
-              pages may contain other access. Your personal workspace is
-              separate from organization sharing. Request results remain below
-              Your accounts after closing this dialog.
+              Перед добавлением загрузите все страницы доступа. Личный workspace
+              отделён от организаций. Результаты запросов остаются ниже после
+              закрытия окна.
             </p>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Dialog.Close render={<Button ref={closeRef} variant="outline" />}>
-              Close
+              Закрыть
             </Dialog.Close>
             <Button
               variant="ghost"
@@ -1265,7 +1431,7 @@ function WorkspaceAccess({
                 void Promise.all([grants.refetch(), organizations.refetch()])
               }
             >
-              Refresh workspace access
+              Обновить доступ
             </Button>
           </div>
         </Dialog.Popup>
@@ -1400,7 +1566,7 @@ function OperationStatus({
             {source.label} ·{" "}
             {grant?.organizationLabel ??
               pendingOrganization?.label ??
-              "Organization unavailable"}
+              "Workspace недоступен"}
           </span>
         ) : null}
         Request {nonce.slice(0, 8)}:{" "}

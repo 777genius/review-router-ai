@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  AccountLifecycleControls,
+  useAccountLifecycleActivities,
+} from "./account-lifecycle-controls";
+
 import { useRef, useState } from "react";
 import {
   QueryClient,
@@ -7,14 +12,26 @@ import {
   useMutation,
   type InfiniteData,
 } from "@tanstack/react-query";
-import { Badge, Button, Dialog } from "@reviewrouter/ui";
+import { Button, Dialog } from "@reviewrouter/ui";
+import {
+  AccountActionsMenu,
+  AccountMenuItem,
+  accountMenuItemClass,
+} from "./account-actions-menu";
+import { GitHubAccountAvatar } from "../github-account-avatar";
+import { AccountIdentity } from "./account-identity";
+import { AccountUsageLine } from "./account-usage-line";
+import { useOwnAccountsView } from "./accounts-workspace-tabs";
+import { accountsGridColumns } from "./accounts-grid";
+import { accountsCopy, accountStatus } from "./accounts-copy";
+
 import type {
+  AccountView,
   AccountsPage,
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
 import { dashboardSectionHref } from "./dashboard-section";
 import { refreshPersonalAccountViews } from "./personal-account-controls";
-import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
 import {
   useGatewayModelAccountsQueryClient,
   type GatewayModelAccountsApi,
@@ -33,10 +50,112 @@ type Props = {
   scope: string;
   personalScope?: string;
   workspaceId?: string;
-  api?: GatewayModelAccountsApi;
+  api?: GatewayModelAccountsApi | undefined;
   canDetach: boolean;
   detach(request: DetachRequest): Promise<DetachResult>;
+  readDetach?: (request: DetachRequest) => Promise<DetachResult>;
+  initialPage?: AccountsResult<AccountsPage> | undefined;
+  managementRows?: readonly AccountView[];
+  managementActions?: ((account: AccountView) => React.ReactNode) | undefined;
 };
+
+function AccountOwner({ account }: { account: AccountView }) {
+  const owner = account.owner;
+  const text =
+    owner?.kind === "personal"
+      ? owner.isViewer
+        ? "Вы"
+        : owner.handle
+          ? `@${owner.handle}`
+          : accountsCopy.ownerUnavailable
+      : owner?.kind === "organization"
+        ? owner.label
+        : owner?.kind === "operator"
+          ? owner.label
+          : account.origin === "organization"
+            ? "Этот workspace"
+            : account.origin === "operator"
+              ? "ReviewRouter"
+              : accountsCopy.ownerUnavailable;
+  return (
+    <p className="mt-2 flex min-w-0 items-center gap-2 text-xs text-slate-400">
+      {owner?.kind === "personal" && owner.avatarUrl ? (
+        <GitHubAccountAvatar
+          avatarUrl={owner.avatarUrl}
+          login={owner.handle ?? "Владелец"}
+          altText=""
+          size="sm"
+        />
+      ) : null}
+      <span className="truncate">{text}</span>
+    </p>
+  );
+}
+
+function AccountRowMenu({
+  account,
+  managementRows,
+  managementActions,
+  canDetach,
+  selectDetach,
+  lifecycleContext,
+  workspaceId,
+  client,
+}: {
+  lifecycleContext: string;
+  workspaceId: string;
+  client: QueryClient;
+  account: AccountView;
+  managementRows: readonly AccountView[];
+  managementActions?: ((account: AccountView) => React.ReactNode) | undefined;
+  canDetach: boolean;
+  selectDetach(): void;
+}) {
+  const showOwn = useOwnAccountsView();
+  const managed = managementRows.find(
+    (row) => row.connectionId === account.connectionId,
+  );
+  const canDetachRow =
+    canDetach &&
+    account.binding?.state === "active" &&
+    account.allowedActions?.includes("detach");
+  return (
+    <AccountActionsMenu label={account.label}>
+      {account.isOwnedByViewer && showOwn ? (
+        <AccountMenuItem>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={accountMenuItemClass}
+            onClick={showOwn}
+          >
+            Мои подключения
+          </Button>
+        </AccountMenuItem>
+      ) : null}
+      {managed && managementActions ? managementActions(managed) : null}
+      <AccountLifecycleControls
+        account={account}
+        context={lifecycleContext}
+        workspaceId={workspaceId ?? ""}
+        client={client}
+        usage={account.usage}
+      />
+      {canDetachRow ? (
+        <AccountMenuItem>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={accountMenuItemClass}
+            onClick={selectDetach}
+          >
+            Убрать из этого workspace
+          </Button>
+        </AccountMenuItem>
+      ) : null}
+    </AccountActionsMenu>
+  );
+}
 
 // Rendering is opt-in at trusted server composition; no endpoint discovery or gate activation.
 export function WorkspacePersonalAccounts(props: Props) {
@@ -60,12 +179,17 @@ function WorkspacePersonalRows({
   api,
   canDetach,
   detach,
+  readDetach,
+  managementRows = [],
+  initialPage,
+  managementActions,
   client,
 }: Props & { api: GatewayModelAccountsApi; client: QueryClient }) {
-  const pageKey = ["account-options", scope] as const;
+  const lifecycleActivities = useAccountLifecycleActivities(client);
+  const pageKey = ["accounts-overview", scope] as const;
   const [selection, setSelection] = useState<{
     label: string;
-    request: DetachRequest;
+    request: DetachRequest | null;
   } | null>(null);
   const [last, setLast] = useState<{
     request: DetachRequest;
@@ -77,6 +201,9 @@ function WorkspacePersonalRows({
     {
       queryKey: pageKey,
       initialPageParam: null as string | null,
+      ...(initialPage
+        ? { initialData: { pages: [initialPage], pageParams: [null] } }
+        : {}),
       queryFn: ({ pageParam }) =>
         api.list({
           limit: 25,
@@ -100,16 +227,14 @@ function WorkspacePersonalRows({
   );
   const fetched = pages.data?.pages ?? [];
   const failed = pages.isError || fetched.some((p) => p.status !== "ok");
-  const rows = fetched
-    .flatMap((page) => (page.status === "ok" ? page.value.accounts : []))
-    .filter(
-      (row) => "origin" in row && row.origin === "personal" && row.binding,
-    );
+  const rows = fetched.flatMap((page) =>
+    page.status === "ok" ? page.value.accounts : [],
+  );
   const accounts = [
-    ...new Map(rows.map((row) => [row.binding!.id, row])).values(),
+    ...new Map(rows.map((row) => [row.connectionId, row])).values(),
   ];
 
-  async function submit(request: DetachRequest) {
+  async function submit(request: DetachRequest, readOnly = false) {
     if (!canDetach || busy.current) return;
     busy.current = true;
     setSubmitting(true);
@@ -121,7 +246,9 @@ function WorkspacePersonalRows({
     try {
       let result: DetachResult;
       try {
-        result = await mutation.mutateAsync(original);
+        result = readOnly
+          ? await readDetach!(original)
+          : await mutation.mutateAsync(original);
       } catch {
         result = { status: "unavailable" };
       }
@@ -147,38 +274,42 @@ function WorkspacePersonalRows({
       );
       setSelection(null);
       const detailKey = ["account-option", scope, original.bindingId] as const;
+      const modelPageKey = ["account-options", scope] as const;
       // A delayed pre-detach fetch must not restore the retired binding to Models.
       await Promise.all([
         client.cancelQueries({ queryKey: pageKey, exact: true }),
+        client.cancelQueries({ queryKey: modelPageKey, exact: true }),
         client.cancelQueries({ queryKey: detailKey, exact: true }),
       ]);
       if (result.status === "ok") {
-        client.setQueryData<
-          InfiniteData<AccountsResult<AccountsPage>, string | null>
-        >(pageKey, (prior) =>
-          prior
-            ? {
-                ...prior,
-                pages: prior.pages.map((page) =>
-                  page.status === "ok"
-                    ? {
-                        ...page,
-                        value: {
-                          ...page.value,
-                          accounts: page.value.accounts.filter(
-                            (row) => row.binding?.id !== original.bindingId,
-                          ),
-                        },
-                      }
-                    : page,
-                ),
-              }
-            : prior,
-        );
+        for (const listKey of [pageKey, modelPageKey])
+          client.setQueryData<
+            InfiniteData<AccountsResult<AccountsPage>, string | null>
+          >(listKey, (prior) =>
+            prior
+              ? {
+                  ...prior,
+                  pages: prior.pages.map((page) =>
+                    page.status === "ok"
+                      ? {
+                          ...page,
+                          value: {
+                            ...page.value,
+                            accounts: page.value.accounts.filter(
+                              (row) => row.binding?.id !== original.bindingId,
+                            ),
+                          },
+                        }
+                      : page,
+                  ),
+                }
+              : prior,
+          );
         client.setQueryData(detailKey, { status: "denied" });
       }
       await Promise.all([
         client.invalidateQueries({ queryKey: pageKey, exact: true }),
+        client.invalidateQueries({ queryKey: modelPageKey, exact: true }),
         client.invalidateQueries({ queryKey: detailKey, exact: true }),
       ]);
       if (personalScope)
@@ -202,71 +333,110 @@ function WorkspacePersonalRows({
             ? "Detachment could not be confirmed. Check the original request."
             : null;
   return (
-    <section aria-label="Personal accounts shared with this organization">
-      <h4 className="font-medium text-cyan-50">Shared accounts</h4>
-      <p className="mt-1 text-sm text-slate-400">
-        Removing access here affects only this workspace. Owners manage sign-in
-        and retirement in{" "}
-        <a className="text-cyan-200 underline" href="#your-accounts">
-          Your accounts
-        </a>
-        .
-      </p>
-      {pages.isPending ? <p role="status">Loading shared accounts...</p> : null}
+    <section aria-label="Доступные подключения">
+      {pages.isPending ? <p role="status">Загрузка подключений...</p> : null}
       {failed ? (
         <p role="status">
-          Shared accounts could not be refreshed. Try refreshing again.
+          Не удалось обновить подключения. Повторите обновление.
         </p>
       ) : null}
       {!pages.isPending && !failed && !accounts.length ? (
         <p>
           {pages.hasNextPage
-            ? "No shared personal accounts on the loaded pages."
-            : "No shared personal accounts available."}
+            ? "На загруженных страницах нет доступных подключений."
+            : "Нет доступных подключений."}
         </p>
       ) : null}
-      {accounts.map((row) => (
+      <div
+        className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
+        aria-hidden="true"
+      >
+        <span>Аккаунт</span>
+        <span>Владелец</span>
+        <span>Состояние</span>
+        <span />
+      </div>
+      {(failed ? [] : accounts).map((row) => (
         <article
-          key={row.binding!.id}
+          key={row.connectionId}
           aria-label={row.label}
-          className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-200/10 py-3"
+          className={`grid min-w-0 items-center gap-3 border-b border-cyan-200/10 py-4 ${accountsGridColumns}`}
         >
-          <div>
-            <p>{row.label}</p>
-            <div className="mt-1 flex flex-wrap gap-2">
-              <Badge tone="neutral">
-                {personalAccountOriginText(row)}
-                {row.isOwnedByViewer === true ? " · shared here" : ""}
-              </Badge>
-              <Badge tone="neutral">{row.state}</Badge>
-            </div>
+          <div className="min-w-0">
+            <AccountIdentity
+              label={row.label}
+              profileLabel={row.profileLabel}
+              authKind={row.authKind}
+            />
+            <AccountUsageLine usage={row.usage} />
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {row.binding!.state === "active" && !row.binding!.fencePending ? (
+          <AccountOwner account={row} />
+          <p className="text-sm text-slate-300">
+            {lifecycleActivities.get(row.connectionId) === "delete"
+              ? "Удаляем…"
+              : lifecycleActivities.has(row.connectionId)
+                ? "Подтверждаем изменение"
+                : !row.binding && row.canManage
+                  ? "Не добавлен сюда"
+                  : accountStatus(row)}
+          </p>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {!lifecycleActivities.has(row.connectionId) &&
+            row.readiness === "ready" &&
+            row.binding?.state === "active" &&
+            !row.binding.fencePending ? (
               <a
                 className="text-sm text-cyan-200 underline"
                 href={dashboardSectionHref("policy", workspaceId)}
               >
-                Choose for reviews
+                Выбрать для отзывов
               </a>
             ) : null}
-            {canDetach && row.binding!.state === "active" ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={submitting}
-                onClick={() =>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setSelection({
+                  label: row.label,
+                  request:
+                    canDetach &&
+                    row.binding?.state === "active" &&
+                    row.allowedActions?.includes("detach")
+                      ? {
+                          bindingId: row.binding.id,
+                          expectedBindingRevision: row.binding.revision,
+                        }
+                      : null,
+                })
+              }
+            >
+              Доступ
+            </Button>
+            {managementActions ||
+            canDetach ||
+            row.canManage ||
+            row.isOwnedByViewer ? (
+              <AccountRowMenu
+                account={row}
+                lifecycleContext={personalScope ?? ""}
+                workspaceId={workspaceId ?? ""}
+                client={client}
+                managementRows={managementRows}
+                managementActions={managementActions}
+                canDetach={canDetach}
+                selectDetach={() =>
                   setSelection({
                     label: row.label,
-                    request: {
-                      bindingId: row.binding!.id,
-                      expectedBindingRevision: row.binding!.revision,
-                    },
+                    request:
+                      row.binding?.state === "active"
+                        ? {
+                            bindingId: row.binding.id,
+                            expectedBindingRevision: row.binding.revision,
+                          }
+                        : null,
                   })
                 }
-              >
-                Detach from this organization
-              </Button>
+              />
             ) : null}
           </div>
         </article>
@@ -278,7 +448,7 @@ function WorkspacePersonalRows({
           disabled={pages.isFetching || submitting}
           onClick={() => void pages.refetch()}
         >
-          Refresh shared accounts
+          Обновить подключения
         </Button>
         {pages.hasNextPage ? (
           <Button
@@ -287,7 +457,7 @@ function WorkspacePersonalRows({
             disabled={pages.isFetching || submitting}
             onClick={() => void pages.fetchNextPage()}
           >
-            Load more shared accounts
+            Загрузить ещё
           </Button>
         ) : null}
       </div>
@@ -304,10 +474,10 @@ function WorkspacePersonalRows({
         <Button
           variant="outline"
           size="sm"
-          disabled={submitting}
-          onClick={() => void submit(last.request)}
+          disabled={submitting || !readDetach}
+          onClick={() => void submit(last.request, true)}
         >
-          Check confirmation
+          Проверить исходный запрос
         </Button>
       ) : null}
       <Dialog.Root
@@ -319,12 +489,11 @@ function WorkspacePersonalRows({
         <Dialog.Portal>
           <Dialog.Backdrop />
           <Dialog.Popup>
-            <Dialog.Title>
-              Detach {selection?.label} from this organization?
-            </Dialog.Title>
+            <Dialog.Title>Доступ · {selection?.label}</Dialog.Title>
             <Dialog.Description>
-              {selection?.label} will stop being available here. The personal
-              account and its use in other organizations are unaffected.
+              Доступ действует только для отзывов в этой организации. Личный
+              аккаунт и другие организации не изменяются. Владение, учётные
+              данные и управление не передаются.
             </Dialog.Description>
             <div className="mt-4 flex gap-2">
               <Button
@@ -332,15 +501,15 @@ function WorkspacePersonalRows({
                 disabled={submitting}
                 onClick={() => setSelection(null)}
               >
-                Cancel
+                Закрыть
               </Button>
               <Button
-                disabled={!canDetach || submitting || !selection}
+                disabled={!canDetach || submitting || !selection?.request}
                 onClick={() => {
-                  if (selection) void submit(selection.request);
+                  if (selection?.request) void submit(selection.request);
                 }}
               >
-                Confirm detachment
+                Отозвать доступ
               </Button>
             </div>
           </Dialog.Popup>

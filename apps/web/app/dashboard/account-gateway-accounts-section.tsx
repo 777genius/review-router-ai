@@ -1,16 +1,18 @@
 import { loadAccountsBootstrap } from "../../src/server/account-gateway-accounts";
 import { getPrisma } from "../../src/server/prisma";
 import { productionPersonalAccounts } from "../../src/server/personal-account-composition";
-import * as personalActions from "./personal-account-actions";
-import { AccountGatewayControls } from "./account-gateway-account-controls";
-import { PersonalAccountControls } from "./personal-account-controls";
-import { PersonalAccountsPanel } from "./personal-accounts-panel";
-import { WorkspacePersonalAccounts } from "./workspace-personal-accounts";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import type {
   PersonalAccountsApi,
   PersonalAccountsBootstrap,
 } from "../../src/features/account-gateway/personal-accounts";
+import * as personalActions from "./personal-account-actions";
+import { AccountGatewayControls } from "./account-gateway-account-controls";
+import { AccountsAddDialog } from "./accounts-add-dialog";
+import { AccountsWorkspaceTabs } from "./accounts-workspace-tabs";
+import { PersonalAccountControls } from "./personal-account-controls";
+import { PersonalAccountsPanel } from "./personal-accounts-panel";
+import { WorkspaceAccountsPanel } from "./workspace-accounts-panel";
 
 export async function AccountGatewayAccountsSection({
   workspaceId,
@@ -62,6 +64,10 @@ export async function AccountGatewayAccountsSection({
           null,
           personalService.scope,
         ),
+        listAccessSummaries: personalActions.listPersonalAccessSummaries.bind(
+          null,
+          personalService.scope,
+        ),
         listEligibleOrganizations:
           personalActions.listPersonalOrganizations.bind(
             null,
@@ -90,117 +96,143 @@ export async function AccountGatewayAccountsSection({
         ),
       }
     : null;
-  return (
-    <>
-      {management && ownBootstrap && ownApi ? (
-        <PersonalAccountsPanel
-          bootstrap={ownBootstrap}
-          api={ownApi}
-          workspaceId={workspaceId}
-          management={management}
-          managementApi={{
-            listGatewayAccounts: personalActions.listPersonalGatewayAccounts,
-            mutateGatewayAccount: personalActions.mutatePersonalGatewayAccount,
-            submitGatewayApiKey: personalActions.submitPersonalGatewayKey,
-            readGatewayOperation: personalActions.readPersonalGatewayOperation,
-            beginGatewayOAuth: personalActions.beginPersonalGatewayOAuth,
-            completeGatewayOAuth: personalActions.completePersonalGatewayOAuth,
-          }}
-        />
-      ) : enabled && !personalService ? (
-        <section
-          aria-label="Personal accounts"
-          className="border-b border-cyan-200/10 pb-6"
-        >
-          <h3 className="text-lg font-semibold text-cyan-50">Your accounts</h3>
-          <p className="mt-2 text-sm text-slate-400">
-            Personal accounts are temporarily unavailable. Refresh to try again.
-          </p>
-        </section>
-      ) : (
-        <PersonalAccountControls
-          {...(ownBootstrap ? { bootstrap: ownBootstrap } : {})}
-          {...(ownApi ? { api: ownApi } : {})}
-        />
-      )}
-      <section
-        className="space-y-4 border-b border-cyan-200/10 pb-6"
-        aria-labelledby="workspace-accounts-title"
-      >
-        <div>
-          <h3
-            id="workspace-accounts-title"
-            className="text-lg font-semibold text-cyan-50"
-          >
-            Accounts in {workspaceName ?? "this workspace"}
-          </h3>
-          <p className="mt-1 text-sm text-slate-400">
-            Available accounts can be selected in Models. Adding access does not
-            change review settings.
-          </p>
-        </div>
-        {personalService && recipient ? (
-          <WorkspacePersonalAccounts
-            workspaceId={workspaceId}
-            scope={`${personalService.scope}:workspace:${workspaceId}`}
-            api={{
-              list: personalActions.listPersonalModelAccounts.bind(
-                null,
-                personalService.scope,
-                workspaceId,
-              ),
-              get: personalActions.getPersonalModelAccount.bind(
-                null,
-                personalService.scope,
-                workspaceId,
-              ),
-            }}
-            personalScope={personalService.scope}
-            canDetach={recipient.canDetach}
-            detach={personalActions.detachRecipientPersonalAccount.bind(
-              null,
-              personalService.scope,
-              workspaceId,
-            )}
+  const ownPanel =
+    management && ownBootstrap && ownApi ? (
+      <PersonalAccountsPanel
+        bootstrap={ownBootstrap}
+        api={ownApi}
+        accessReadContext={management.context}
+        workspaceId={workspaceId}
+        management={management}
+        managementApi={{
+          listGatewayAccounts: personalActions.listPersonalGatewayAccounts,
+          mutateGatewayAccount: personalActions.mutatePersonalGatewayAccount,
+          submitGatewayApiKey: personalActions.submitPersonalGatewayKey,
+          readGatewayOperation: personalActions.readPersonalGatewayOperation,
+          beginGatewayOAuth: personalActions.beginPersonalGatewayOAuth,
+          completeGatewayOAuth: personalActions.completePersonalGatewayOAuth,
+        }}
+      />
+    ) : (
+      <PersonalAccountControls
+        {...(ownBootstrap ? { bootstrap: ownBootstrap } : {})}
+        {...(ownApi ? { api: ownApi } : {})}
+      />
+    );
+  if (personalScope) return ownPanel;
+
+  const modelApi = personalService
+    ? {
+        list: personalActions.listWorkspaceAccountsOverview.bind(
+          null,
+          personalService.scope,
+          workspaceId,
+        ),
+        get: personalActions.getPersonalModelAccount.bind(
+          null,
+          personalService.scope,
+          workspaceId,
+        ),
+      }
+    : undefined;
+  const inventoryPage =
+    personalService && recipient
+      ? await personalService
+          .overview(workspaceId)
+          .then((reader) => reader.list({ limit: 25 }))
+          .catch(() => ({ status: "unavailable" as const }))
+      : undefined;
+  const personalConnect = management ? (
+    <AccountGatewayControls
+      bootstrap={management}
+      managementScope="personal"
+      connectOnly
+      api={{
+        listGatewayAccounts: personalActions.listPersonalGatewayAccounts,
+        mutateGatewayAccount: personalActions.mutatePersonalGatewayAccount,
+        submitGatewayApiKey: personalActions.submitPersonalGatewayKey,
+        readGatewayOperation: personalActions.readPersonalGatewayOperation,
+        beginGatewayOAuth: personalActions.beginPersonalGatewayOAuth,
+        completeGatewayOAuth: personalActions.completePersonalGatewayOAuth,
+      }}
+    />
+  ) : null;
+  const available =
+    personalService && recipient ? (
+      <div className="space-y-4">
+        {recipient.canDetach ? (
+          <AccountsAddDialog
+            own={ownPanel}
+            personalConnect={personalConnect}
+            organizationConnect={
+              bootstrap ? (
+                <AccountGatewayControls
+                  bootstrap={bootstrap}
+                  connectOnly
+                  workspaceId={workspaceId}
+                />
+              ) : null
+            }
+            workspaceName={workspaceName ?? "этой организации"}
           />
         ) : null}
-        {bootstrap ? (
-          <section
-            className="space-y-4 border-b border-cyan-200/10 pb-6"
-            aria-labelledby="gateway-accounts-title"
-          >
-            <div>
-              <h3
-                id="gateway-accounts-title"
-                className="text-lg font-semibold text-cyan-50"
-              >
-                Workspace-owned accounts
-              </h3>
-              <p className="mt-1 text-sm text-slate-400">
-                Workspace admins manage these connections.
-              </p>
-              <details className="mt-2 text-sm text-slate-400">
-                <summary className="cursor-pointer">
-                  Connection and privacy details
-                </summary>
-                <p className="mt-2">
-                  Credentials are encrypted on our server and never returned
-                  here or copied into review CI or repository secrets. The
-                  provider receives review context. Authorized CI can use scoped
-                  review access; tool environment filtering does not fully
-                  isolate it. Codex authorization opens once; enrollment remains
-                  pending until confirmed.
-                </p>
-              </details>
-            </div>
-            <AccountGatewayControls
-              key={bootstrap.context || workspaceId}
-              bootstrap={bootstrap}
-              workspaceId={workspaceId}
-            />
-          </section>
-        ) : null}
-      </section>
-    </>
+        <WorkspaceAccountsPanel
+          key={workspaceId}
+          bootstrap={bootstrap ?? { context: "", page: { status: "denied" } }}
+          workspaceId={workspaceId}
+          scope={`${personalService.scope}:workspace:${workspaceId}`}
+          api={modelApi}
+          initialPage={inventoryPage}
+          personalScope={personalService.scope}
+          canDetach={recipient.canDetach}
+          readDetach={personalActions.readWorkspaceOverviewDetachment.bind(
+            null,
+            personalService.scope,
+            workspaceId,
+          )}
+          detach={personalActions.detachWorkspaceOverviewAccount.bind(
+            null,
+            personalService.scope,
+            workspaceId,
+          )}
+        />
+      </div>
+    ) : bootstrap ? (
+      <AccountGatewayControls
+        key={bootstrap.context || workspaceId}
+        bootstrap={bootstrap}
+        workspaceId={workspaceId}
+      />
+    ) : (
+      <p className="text-sm text-slate-400">
+        Подключения временно недоступны. Обновите страницу.
+      </p>
+    );
+
+  return (
+    <section
+      className="space-y-5 border-b border-cyan-200/10 pb-6"
+      aria-labelledby="workspace-accounts-title"
+    >
+      <div>
+        <h2
+          id="workspace-accounts-title"
+          className="text-2xl font-semibold text-cyan-50"
+        >
+          Аккаунты
+        </h2>
+        <p className="mt-1 text-sm text-slate-400">
+          {workspaceName
+            ? `Подключения, доступные для ${workspaceName}.`
+            : "Доступные подключения."}{" "}
+          Доступ разрешает отзывы, но не меняет настройки Models.
+        </p>
+      </div>
+      <AccountsWorkspaceTabs
+        key={workspaceId}
+        available={available}
+        own={ownPanel}
+      />
+    </section>
   );
 }

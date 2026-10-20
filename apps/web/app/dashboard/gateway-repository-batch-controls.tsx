@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@reviewrouter/ui";
+import { Button, Checkbox } from "@reviewrouter/ui";
 import {
   defaultGatewayMiMoReasoningEffort,
   gatewayModelSupportsReasoningEffort,
@@ -126,8 +126,7 @@ function SelectionCheckbox({
   readonly className?: string;
 }): React.ReactElement {
   return (
-    <input
-      type="checkbox"
+    <Checkbox
       checked={checked}
       aria-label={`Select ${item.fullName}`}
       title={
@@ -523,20 +522,20 @@ export function GatewayRepositoryBatchContent({
       </div>
       <div className="flex flex-wrap gap-4 text-sm text-slate-300">
         <label>
-          <input
-            type="checkbox"
+          <Checkbox
             checked={agenticContext}
             disabled={locked || !enabled}
             onChange={(event) => setAgenticContext(event.target.checked)}
+            className="align-middle"
           />{" "}
           Agentic context
         </label>
         <label>
-          <input
-            type="checkbox"
+          <Checkbox
             checked={fastMode}
             disabled={locked || !enabled}
             onChange={(event) => setFastMode(event.target.checked)}
+            className="align-middle"
           />{" "}
           Fast mode
         </label>

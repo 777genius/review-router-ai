@@ -154,6 +154,7 @@ export class PrismaPersonalCanonicalOperations implements PersonalCanonicalOpera
         if (
           source.pendingSourceOperationId ||
           source.state === "disabled" ||
+          source.state === "suspended" ||
           source.state === "pending" ||
           source.state === "unknown" ||
           source.metadataRevision !== intent.expectedSourceMetadataRevision ||

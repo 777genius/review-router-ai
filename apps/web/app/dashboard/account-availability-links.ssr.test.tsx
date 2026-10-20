@@ -42,6 +42,7 @@ test("workspace-owned and recipient Models links retain the selected nondefault 
     profileId: "mimo",
     profileLabel: "MiMo",
     state: "active",
+    readiness: "ready",
     gatewayRevision: 1,
     mirrorRevision: 2,
     binding: {
@@ -67,7 +68,7 @@ test("workspace-owned and recipient Models links retain the selected nondefault 
   expect(owned).toContain("Choose for reviews");
   const client = new QueryClient();
   context.client = client;
-  client.setQueryData(["account-options", "authorized-recipient"], {
+  client.setQueryData(["accounts-overview", "authorized-recipient"], {
     pages: [
       {
         status: "ok",
@@ -90,5 +91,11 @@ test("workspace-owned and recipient Models links retain the selected nondefault 
     />,
   );
   expect(recipient).toContain(expected);
-  expect(recipient).toContain("Choose for reviews");
+  expect(recipient).toContain("Выбрать для отзывов");
 });
+
+vi.mock("./account-lifecycle-actions", () => ({
+  continueAccountLifecycleOperation: vi.fn(),
+  mutateAccountLifecycle: vi.fn(),
+  readAccountLifecycleOperation: vi.fn(),
+}));

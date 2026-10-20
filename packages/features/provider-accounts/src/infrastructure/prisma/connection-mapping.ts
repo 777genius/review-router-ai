@@ -26,7 +26,9 @@ export function mapConnection(
     displayName: row.displayName,
     state: row.state,
     metadataRevision: row.metadataRevision,
-    ...(row.ownerUserId !== null
+    ...(row.ownerUserId !== null ||
+    row.authorizationEpochMirror !== null ||
+    row.pendingSourceOperationId !== null
       ? {
           authorizationEpochMirror:
             row.authorizationEpochMirror === null

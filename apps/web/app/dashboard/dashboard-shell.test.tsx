@@ -33,7 +33,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("../connect-source-dialog", () => ({
-  ConnectSourceDialog: () => <button type="button">Add repos</button>,
+  ConnectSourceDialog: () => <button type="button">Add workspace</button>,
 }));
 
 function workspace(id: string, repositoryCount = 3): DashboardWorkspaceSummary {
