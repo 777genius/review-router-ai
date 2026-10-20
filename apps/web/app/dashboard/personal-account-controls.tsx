@@ -917,20 +917,22 @@ function AccessChip({
   avatarUrl?: string | null | undefined;
   children: ReactNode;
 }) {
+  // Truncation lives on the inner text, never on the chip: an overflow-hidden
+  // parent would clip the corner avatar pinned outside the chip box.
   const className =
-    "relative max-w-48 truncate rounded-full border border-cyan-200/15 bg-white/[0.035] px-2 py-1";
+    "relative inline-flex max-w-48 items-center rounded-full border border-cyan-200/15 bg-white/[0.035] px-2 py-1";
   return href ? (
     <a
       href={href}
       title={title}
       className={`${className} text-cyan-100 transition-colors hover:border-cyan-200/40 hover:text-cyan-50`}
     >
-      {children}
+      <span className="min-w-0 truncate">{children}</span>
       <ChipAvatar avatarUrl={avatarUrl} label={title ?? ""} />
     </a>
   ) : (
     <span className={className} title={title}>
-      {children}
+      <span className="min-w-0 truncate">{children}</span>
       <ChipAvatar avatarUrl={avatarUrl} label={title ?? ""} />
     </span>
   );
@@ -949,7 +951,7 @@ function ChipAvatar({
   return (
     <span
       aria-hidden="true"
-      className="absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center overflow-hidden rounded-full bg-cyan-200/25 text-[0.55rem] font-bold leading-none text-cyan-50 ring-2 ring-[var(--rr-page-bg)]"
+      className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center overflow-hidden rounded-full bg-cyan-200/25 text-[0.6rem] font-bold leading-none text-cyan-50 ring-2 ring-[var(--rr-page-bg)]"
     >
       {avatarUrl ? (
         <img
