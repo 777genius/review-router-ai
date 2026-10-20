@@ -418,6 +418,7 @@ function createTestEnvironment() {
 function writeEnvFile(env) {
   const names = [
     "NODE_ENV",
+    "REVIEW_ROUTER_AGENT_PROFILE",
     "AUTH_TRUST_HOST",
     "POSTGRES_DB",
     "POSTGRES_USER",
