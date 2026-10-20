@@ -505,18 +505,18 @@ function Controls({
     const sourceBusy =
       disabled || lifecycleActivities.has(account.connectionId);
     const manageReason = sourceBusy
-      ? "Подключение обновляется — попробуйте позже."
+      ? "The connection is updating — try again later."
       : account.canManage !== true
-        ? "Нет права управлять этим подключением."
+        ? "You cannot manage this connection."
         : undefined;
     const bindReason = sourceBusy
-      ? "Подключение обновляется — попробуйте позже."
+      ? "The connection is updating — try again later."
       : account.state !== "active"
-        ? "Аккаунт неактивен — сначала включите его."
+        ? "The account is inactive — enable it first."
         : account.binding?.fencePending
-          ? "Идёт привязка workspace — подождите."
+          ? "Workspace binding in progress — please wait."
           : account.canManage !== true
-            ? "Нет права управлять этим подключением."
+            ? "You cannot manage this connection."
             : undefined;
     return (
       <>
@@ -577,7 +577,7 @@ function Controls({
               title={bindReason}
               onClick={() => bindingMutation.mutate(account)}
             >
-              Добавить в этот workspace
+              Add to this workspace
             </Button>
           </AccountMenuItem>
         ) : null}
@@ -589,13 +589,11 @@ function Controls({
               className={accountMenuItemClass}
               disabled={disabled}
               title={
-                disabled
-                  ? "Дождитесь завершения текущего обновления."
-                  : undefined
+                disabled ? "Wait for the current refresh to finish." : undefined
               }
               onClick={() => detachMutation.mutate(account)}
             >
-              Убрать из этого workspace
+              {accountsCopy.detach}
             </Button>
           </AccountMenuItem>
         ) : null}
@@ -611,11 +609,11 @@ function Controls({
           (p) => p.authKind === "api_key" || p.authKind === "oauth",
         ) ? (
           <AccountActionsMenu
-            label={personal ? "Подключить аккаунт" : "Добавить аккаунт"}
+            label={personal ? accountsCopy.connect : accountsCopy.add}
             triggerContent={
               <>
                 <Plus aria-hidden="true" className="size-4" />
-                {personal ? "Подключить аккаунт" : "Добавить аккаунт"}
+                {personal ? accountsCopy.connect : accountsCopy.add}
               </>
             }
           >
@@ -628,7 +626,7 @@ function Controls({
                 disabled={disabled}
                 disabledReason={
                   disabled
-                    ? "Дождитесь завершения текущего обновления."
+                    ? "Wait for the current refresh to finish."
                     : undefined
                 }
                 managementScope={managementScope}
@@ -644,7 +642,7 @@ function Controls({
                 disabled={disabled}
                 disabledReason={
                   disabled
-                    ? "Дождитесь завершения текущего обновления."
+                    ? "Wait for the current refresh to finish."
                     : undefined
                 }
                 managementScope={managementScope}
@@ -656,13 +654,13 @@ function Controls({
         <Button
           variant="ghost"
           size="sm"
-          aria-label="Обновить подключения"
+          aria-label="Refresh connections"
           disabled={!context || page.isFetching}
           title={
             !context
-              ? "Контекст подключений недоступен."
+              ? "The connection context is unavailable."
               : page.isFetching
-                ? "Идёт обновление списка подключений."
+                ? "The connection list is being refreshed."
                 : undefined
           }
           onClick={() => void refresh()}
@@ -847,16 +845,16 @@ function OAuthForm({
         <Dialog.Popup finalFocus={menuReturnFocus}>
           <Dialog.Title>
             {account
-              ? `Обновить вход Codex · ${account.label}`
-              : "Подключить Codex OAuth"}
+              ? `${accountsCopy.reconnectOAuth} · ${account.label}`
+              : accountsCopy.connectOAuth}
           </Dialog.Title>
           <Dialog.Description>
-            Вход в Codex откроется в новой вкладке браузера. API-ключ не нужен.
-            Подключение остаётся в ожидании до подтверждения; при неопределённом
-            результате дождитесь чтения статуса. При переподключении логический
-            аккаунт сохраняется, пока новая авторизация не будет проверена.
+            Codex sign-in opens in a new browser tab. No API key is needed. The
+            connection stays pending until it is confirmed; if the outcome is
+            uncertain, wait for a status check. When reconnecting, the logical
+            account is kept until the new authorization is verified.
             {managementScope === "personal"
-              ? " Это ваше каноническое персональное подключение. Его имя видно там, где вы им явно делитесь; аутентификация общая для всех разрешённых использований."
+              ? " This is your canonical personal connection. Its name is visible wherever you explicitly share it; authentication is shared across all authorized uses."
               : ""}
           </Dialog.Description>
           <form
@@ -889,7 +887,7 @@ function OAuthForm({
               <>
                 <SelectField
                   name="profileId"
-                  label="Профиль провайдера"
+                  label="Provider profile"
                   defaultValue={profiles[0]?.id ?? ""}
                   options={profiles.map((p) => ({
                     value: p.id,
@@ -898,7 +896,7 @@ function OAuthForm({
                   }))}
                 />
                 <label className="grid gap-2 text-sm">
-                  Название подключения
+                  Connection name
                   <input
                     className={inputClass}
                     name="label"
@@ -914,7 +912,7 @@ function OAuthForm({
               <p className="text-sm text-slate-300">{account.label}</p>
             )}
             <Button type="submit" disabled={disabled}>
-              Войти в Codex
+              Sign in to Codex
             </Button>
           </form>
         </Dialog.Popup>
@@ -1172,7 +1170,7 @@ function KeyUpdateContinuation({
             <div className="flex gap-3">
               <Button type="submit">Continue update</Button>
               <Dialog.Close render={<Button type="button" variant="outline" />}>
-                Отмена
+                Cancel
               </Dialog.Close>
             </div>
           </form>
@@ -1258,9 +1256,9 @@ function OAuthCompletionForm({
               disabled={busy || spent}
               title={
                 busy
-                  ? "Идёт отправка результата авторизации — подождите."
+                  ? "Submitting the authorization result — please wait."
                   : spent
-                    ? "Авторизация уже завершена."
+                    ? "Authorization is already complete."
                     : undefined
               }
             />
@@ -1447,7 +1445,7 @@ function AccountForm({
             {mode === "connect" ? (
               <SelectField
                 name="profileId"
-                label="Профиль провайдера"
+                label="Provider profile"
                 defaultValue={profiles[0]?.id ?? ""}
                 onValueChange={(value) => {
                   const profile = profiles.find((p) => p.id === value);
@@ -1523,7 +1521,7 @@ function AccountForm({
             ) : null}
             {mode !== "reconnect" ? (
               <label className="grid gap-2 text-sm">
-                Название подключения{mode === "connect" ? " (optional)" : ""}
+                Connection name{mode === "connect" ? " (optional)" : ""}
                 <input
                   className={inputClass}
                   name="label"
@@ -1553,7 +1551,7 @@ function AccountForm({
               </label>
             ) : null}
             <Button type="submit" disabled={disabled || !endpointValid}>
-              Подтвердить
+              Confirm
             </Button>
           </form>
         </Dialog.Popup>

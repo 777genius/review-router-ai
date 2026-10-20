@@ -42,7 +42,12 @@ export type PersonalAccessSummary = {
   organizationCount: number;
   hasRestrictedAccess: boolean;
   // Up to 4 visible organizations, paired label↔workspaceId in name order.
-  organizations: readonly { workspaceId: string; label: string }[];
+  // avatarUrl is decorative (GitHub org/user picture) and may be missing.
+  organizations: readonly {
+    workspaceId: string;
+    label: string;
+    avatarUrl?: string | null;
+  }[];
   // The viewer's own personal workspace, identical on every row of one call.
   personalWorkspaceId: string | null;
   complete: true;

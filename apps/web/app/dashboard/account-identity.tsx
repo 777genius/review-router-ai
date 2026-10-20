@@ -17,7 +17,7 @@ export function AccountIdentity({
       <div className="min-w-0">
         <p className="break-words font-medium text-cyan-50">{label}</p>
         <p className="mt-1 text-sm text-slate-400">
-          {profileLabel ?? "Сведения о подключении недоступны"}
+          {profileLabel ?? "Connection details unavailable"}
           {authKind ? ` · ${authKind === "oauth" ? "OAuth" : "API key"}` : ""}
         </p>
       </div>

@@ -80,15 +80,15 @@ function mount(
     />,
   );
 }
-async function confirm(action = "Выключить") {
+async function confirm(action = "Disable") {
   fireEvent.click(await screen.findByRole("button", { name: action }));
   const dialog = await screen.findByRole("dialog");
   fireEvent.click(
     within(dialog).getByRole("button", {
       name:
-        action === "Удалить подключение…"
-          ? "Удалить подключение навсегда"
-          : "Подтвердить",
+        action === "Remove connection…"
+          ? "Remove connection permanently"
+          : "Confirm",
     }),
   );
   return dialog;
@@ -107,13 +107,13 @@ test("open/cancel is inert, starts with Cancel focused, and exposes only server 
   const f = fixture();
   const view = mount(f);
   fireEvent.click(
-    await screen.findByRole("button", { name: "Удалить подключение…" }),
+    await screen.findByRole("button", { name: "Remove connection…" }),
   );
   const dialog = await screen.findByRole("dialog");
-  const cancel = within(dialog).getByRole("button", { name: "Отмена" });
+  const cancel = within(dialog).getByRole("button", { name: "Cancel" });
   await waitFor(() => expect(document.activeElement).toBe(cancel));
   expect(within(dialog).getByText(/Team API/)).toBeTruthy();
-  expect(within(dialog).getByText(/во всех workspace/)).toBeTruthy();
+  expect(within(dialog).getByText(/in all workspace/)).toBeTruthy();
   fireEvent.click(cancel);
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(f.api.mutate).not.toHaveBeenCalled();
@@ -132,8 +132,8 @@ test("open/cancel is inert, starts with Cancel focused, and exposes only server 
       api={f.api}
     />,
   );
-  expect(screen.queryByRole("button", { name: "Включить" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Выключить" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Enable" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Disable" })).toBeNull();
 });
 test("suspend and later server-proven resume keep original revision counters", async () => {
   const f = fixture();
@@ -147,7 +147,7 @@ test("suspend and later server-proven resume keep original revision counters", a
       value: receipt("resume", "applied"),
     });
   const view = mount(f);
-  fireEvent.click(await screen.findByRole("button", { name: "Выключить" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Disable" }));
   const dialog = await screen.findByRole("dialog");
   view.rerender(
     <AccountLifecycleControls
@@ -162,10 +162,10 @@ test("suspend and later server-proven resume keep original revision counters", a
       api={f.api}
     />,
   );
-  fireEvent.click(within(dialog).getByRole("button", { name: "Подтвердить" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
   await waitFor(() =>
     expect(
-      within(dialog).getByText(/Учётные данные и разрешения сохранены/),
+      within(dialog).getByText(/Credentials and permissions preserved/),
     ).toBeTruthy(),
   );
   expect(f.api.mutate).toHaveBeenCalledWith("actor", "workspace-A", {
@@ -176,7 +176,7 @@ test("suspend and later server-proven resume keep original revision counters", a
     gatewayRevision: 34,
     authorizationEpoch: 5,
   });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Закрыть" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
   view.rerender(
     <AccountLifecycleControls
       account={source({
@@ -192,7 +192,7 @@ test("suspend and later server-proven resume keep original revision counters", a
       api={f.api}
     />,
   );
-  await confirm("Включить");
+  await confirm("Enable");
   await waitFor(() => expect(f.api.mutate).toHaveBeenCalledTimes(2));
   expect(f.api.mutate.mock.calls[1]?.[2]).toEqual({
     nonce,
@@ -234,11 +234,11 @@ test("delete applied alone stays visible; only original closure proof removes in
     { status: "ok", value: { account: source(), profile: {} } },
   );
   mount(f);
-  const dialog = await confirm("Удалить подключение…");
+  const dialog = await confirm("Remove connection…");
   await waitFor(() =>
     expect(
       within(dialog).getByText(
-        /Завершение удаления и очистки пока не подтверждено/,
+        /Completion of removal and cleanup is not confirmed yet/,
       ),
     ).toBeTruthy(),
   );
@@ -255,7 +255,7 @@ test("delete applied alone stays visible; only original closure proof removes in
     value: receipt("delete", "applied", true),
   });
   fireEvent.click(
-    within(dialog).getByRole("button", { name: "Проверить исходную операцию" }),
+    within(dialog).getByRole("button", { name: "Check original operation" }),
   );
   await waitFor(() =>
     expect(f.api.read).toHaveBeenCalledWith("actor", "workspace-A", {
@@ -311,7 +311,7 @@ test("lost ACK reload reads retained nonce in its original workspace; only pre-i
   await waitFor(() => expect(f.api.mutate).toHaveBeenCalledTimes(1));
   await waitFor(() =>
     expect(screen.getByRole("dialog").textContent).toContain(
-      "Результат пока неизвестен",
+      "Outcome not confirmed yet",
     ),
   );
   view.unmount();
@@ -337,7 +337,7 @@ test("lost ACK reload reads retained nonce in its original workspace; only pre-i
     value: receipt("suspend", "unknown"),
   });
   fireEvent.click(
-    await screen.findByRole("button", { name: "Продолжить исходное действие" }),
+    await screen.findByRole("button", { name: "Continue original action" }),
   );
   await waitFor(() =>
     expect(f.api.continue).toHaveBeenCalledWith(
@@ -349,12 +349,12 @@ test("lost ACK reload reads retained nonce in its original workspace; only pre-i
   expect(f.api.mutate).toHaveBeenCalledTimes(1);
   await waitFor(() =>
     expect(
-      screen.queryByRole("button", { name: "Продолжить исходное действие" }),
+      screen.queryByRole("button", { name: "Continue original action" }),
     ).toBeNull(),
   );
   fireEvent.click(
     within(screen.getByRole("dialog")).getByRole("button", {
-      name: "Проверить исходную операцию",
+      name: "Check original operation",
     }),
   );
   expect(f.api.mutate).toHaveBeenCalledTimes(1);
@@ -396,7 +396,7 @@ test("authorized owner reopening without session intent can explicitly continue 
     }),
   );
   const button = await screen.findByRole("button", {
-    name: "Продолжить исходное действие",
+    name: "Continue original action",
   });
   expect(f.api.mutate).not.toHaveBeenCalled();
   expect(f.api.continue).not.toHaveBeenCalled();
@@ -412,7 +412,7 @@ test("authorized owner reopening without session intent can explicitly continue 
   await waitFor(() =>
     expect(
       within(dialog).queryByRole("button", {
-        name: "Продолжить исходное действие",
+        name: "Continue original action",
       }),
     ).toBeNull(),
   );
@@ -434,15 +434,15 @@ test("lost Continue acknowledgement requires a fresh read before any further con
     }),
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Продолжить исходное действие" }),
+    await screen.findByRole("button", { name: "Continue original action" }),
   );
   const dialog = await screen.findByRole("dialog");
   await waitFor(() =>
-    expect(within(dialog).getByText(/Результат пока неизвестен/)).toBeTruthy(),
+    expect(within(dialog).getByText(/Outcome not confirmed yet/)).toBeTruthy(),
   );
   expect(
     within(dialog).queryByRole("button", {
-      name: "Продолжить исходное действие",
+      name: "Continue original action",
     }),
   ).toBeNull();
   f.api.read.mockResolvedValue({
@@ -450,7 +450,7 @@ test("lost Continue acknowledgement requires a fresh read before any further con
     value: receipt("suspend", "submitted"),
   });
   const check = within(dialog).getByRole("button", {
-    name: "Проверить исходную операцию",
+    name: "Check original operation",
   });
   await waitFor(() =>
     expect((check as HTMLButtonElement).disabled).toBe(false),
@@ -464,7 +464,7 @@ test("lost Continue acknowledgement requires a fresh read before any further con
   await waitFor(() =>
     expect(
       within(dialog).queryByRole("button", {
-        name: "Продолжить исходное действие",
+        name: "Continue original action",
       }),
     ).toBeNull(),
   );
@@ -503,16 +503,16 @@ test("owning organization admin keeps pending operation recovery while availabil
     );
   }
   render(<OwnerInventory />);
-  const dialog = await confirm("Удалить подключение…");
+  const dialog = await confirm("Remove connection…");
   await waitFor(() =>
     expect(
       within(dialog).getByText(
-        /Завершение удаления и очистки пока не подтверждено/,
+        /Completion of removal and cleanup is not confirmed yet/,
       ),
     ).toBeTruthy(),
   );
   expect(
-    within(dialog).getByRole("button", { name: "Проверить исходную операцию" }),
+    within(dialog).getByRole("button", { name: "Check original operation" }),
   ).toBeTruthy();
   expect(f.api.mutate).toHaveBeenCalledTimes(1);
 });

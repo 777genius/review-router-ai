@@ -1813,7 +1813,7 @@ export function WorkspaceCard({
           className="inline-block text-sm text-cyan-200 underline"
           href={dashboardSectionHref("policy", workspaceKey)}
         >
-          Choose accounts for reviews in Models
+          Choose accounts for AI reviews in Models
         </a>
         <AccountGatewayAccountsSection
           workspaceId={workspace.id}
@@ -1899,9 +1899,9 @@ export function WorkspaceCard({
               className="text-cyan-200 underline"
               href={dashboardSectionHref("policy", workspaceKey)}
             >
-              Сохраните настройки Model
-            </a>
-            , чтобы включить отзывы.
+              Save Models settings
+            </a>{" "}
+            to enable reviews.
           </p>
         )}
         {draft && configLoaded ? (
@@ -2475,14 +2475,10 @@ function DashboardSectionHeader(
 ): React.ReactElement | null {
   const { selectedSection } = props;
   // The header card's eyebrow and description ("Workspace credentials",
-  // "Connect accounts once…") only repeated the Accounts panel below; the
-  // title stays as the section's content heading.
-  if (selectedSection === "setup")
-    return (
-      <h2 className="text-2xl font-semibold text-cyan-50">
-        {dashboardSectionMeta[selectedSection].title}
-      </h2>
-    );
+  // "Connect accounts once…") only repeated the Accounts panel below, and the
+  // title repeated it again at the page top; the page opens straight into the
+  // section's own description.
+  if (selectedSection === "setup") return null;
   const meta = dashboardSectionMeta[selectedSection];
   const status =
     selectedSection === "repositories"

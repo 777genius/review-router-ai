@@ -119,7 +119,18 @@ export async function AccountGatewayAccountsSection({
         {...(ownApi ? { api: ownApi } : {})}
       />
     );
-  if (personalScope) return ownPanel;
+  // Same page-block shell as the organization branch: the Accounts region is
+  // the page's top anchor on both kinds of workspace (the panel keeps its own
+  // "My connections" heading and description inside).
+  if (personalScope)
+    return (
+      <section
+        className="space-y-5 border-b border-cyan-200/10 pb-6"
+        aria-label="Accounts"
+      >
+        {ownPanel}
+      </section>
+    );
 
   const modelApi = personalService
     ? {
@@ -173,7 +184,7 @@ export async function AccountGatewayAccountsSection({
                 />
               ) : null
             }
-            workspaceName={workspaceName ?? "этой организации"}
+            workspaceName={workspaceName ?? "this organization"}
           />
         ) : null}
         <WorkspaceAccountsPanel
@@ -205,29 +216,21 @@ export async function AccountGatewayAccountsSection({
       />
     ) : (
       <p className="text-sm text-slate-400">
-        Подключения временно недоступны. Обновите страницу.
+        Connections are temporarily unavailable. Refresh the page.
       </p>
     );
 
   return (
     <section
       className="space-y-5 border-b border-cyan-200/10 pb-6"
-      aria-labelledby="workspace-accounts-title"
+      aria-label="Accounts"
     >
-      <div>
-        <h2
-          id="workspace-accounts-title"
-          className="text-2xl font-semibold text-cyan-50"
-        >
-          Аккаунты
-        </h2>
-        <p className="mt-1 text-sm text-slate-400">
-          {workspaceName
-            ? `Подключения, доступные для ${workspaceName}.`
-            : "Доступные подключения."}{" "}
-          Доступ разрешает отзывы, но не меняет настройки Models.
-        </p>
-      </div>
+      <p className="text-sm text-slate-400">
+        {workspaceName
+          ? `Connections available for ${workspaceName}.`
+          : "Available connections."}{" "}
+        Access enables reviews but does not change Models settings.
+      </p>
       <AccountsWorkspaceTabs
         key={workspaceId}
         available={available}

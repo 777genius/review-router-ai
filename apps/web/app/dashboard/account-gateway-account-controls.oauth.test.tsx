@@ -150,24 +150,24 @@ async function mount(
     />,
   );
   const add = await screen.findByRole("button", {
-    name: /Добавить аккаунт|Подключить аккаунт/,
+    name: /Add account|Connect account/,
   });
   await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
   fireEvent.keyDown(add, { key: "ArrowDown" });
-  await screen.findByRole("menuitem", { name: "Подключить Codex OAuth" });
+  await screen.findByRole("menuitem", { name: "Connect Codex OAuth" });
   return view;
 }
 async function startEnrollment() {
   fireEvent.click(
-    screen.getByRole("menuitem", { name: "Подключить Codex OAuth" }),
+    screen.getByRole("menuitem", { name: "Connect Codex OAuth" }),
   );
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).queryByLabelText("API key")).toBeNull();
-  fireEvent.change(within(dialog).getByLabelText("Название подключения"), {
+  fireEvent.change(within(dialog).getByLabelText("Connection name"), {
     target: { value: "New Codex" },
   });
   fireEvent.click(
-    within(dialog).getByRole("button", { name: "Войти в Codex" }),
+    within(dialog).getByRole("button", { name: "Sign in to Codex" }),
   );
 }
 
@@ -327,18 +327,18 @@ test("personal scope reuses canonical controls through injected actions and neve
   await mount({ api, managementScope: "personal" });
   for (const name of [
     "Select workspace binding",
-    "Добавить в этот workspace",
-    "Убрать из этого workspace",
+    "Add to this workspace",
+    "Remove from this workspace",
     "Disable",
   ])
     expect(screen.queryByRole("button", { name })).toBeNull();
   expect(screen.queryByLabelText("Workspace ID")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Переименовать" }));
+  fireEvent.click(screen.getByRole("button", { name: "Rename" }));
   let dialog = await screen.findByRole("dialog");
-  fireEvent.change(within(dialog).getByLabelText("Название подключения"), {
+  fireEvent.change(within(dialog).getByLabelText("Connection name"), {
     target: { value: "Shared canonical name" },
   });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Подтвердить" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
   await waitFor(() =>
     expect(api.mutateGatewayAccount).toHaveBeenCalledWith(context, {
       kind: "rename",
@@ -353,18 +353,18 @@ test("personal scope reuses canonical controls through injected actions and neve
     expect(
       (
         screen.getByRole("button", {
-          name: "Обновить ключ",
+          name: "Update API key",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Обновить ключ" }));
+  fireEvent.click(screen.getByRole("button", { name: "Update API key" }));
   dialog = await screen.findByRole("dialog");
   const key = "synthetic-personal-reconnect-key";
   fireEvent.change(within(dialog).getByLabelText("API key"), {
     target: { value: key },
   });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Подтвердить" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
   await waitFor(() =>
     expect(api.submitGatewayApiKey).toHaveBeenCalledWith(
       context,
@@ -379,7 +379,7 @@ test("personal scope reuses canonical controls through injected actions and neve
     ),
   );
   expect(
-    screen.queryByRole("button", { name: "Отключить навсегда…" }),
+    screen.queryByRole("button", { name: "Disable permanently…" }),
   ).toBeNull();
   expect(api.mutateGatewayAccount).not.toHaveBeenCalledWith(
     context,
@@ -683,11 +683,11 @@ test("MiMo uses its enabled URL and optional default label once, keeping the key
   );
   await mount();
   fireEvent.click(
-    screen.getByRole("menuitem", { name: "Подключить по API key" }),
+    screen.getByRole("menuitem", { name: "Connect with API key" }),
   );
   const dialog = await screen.findByRole("dialog");
   const label = within(dialog).getByLabelText(
-    "Название подключения (optional)",
+    "Connection name (optional)",
   ) as HTMLInputElement;
   expect(label.value).toBe("MiMo Account 2");
   expect(label.required).toBe(false);
@@ -696,7 +696,7 @@ test("MiMo uses its enabled URL and optional default label once, keeping the key
   fireEvent.change(within(dialog).getByLabelText("API key"), {
     target: { value: key },
   });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Подтвердить" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
   await waitFor(() => expect(submitGatewayApiKey).toHaveBeenCalledTimes(1));
   const intent = vi.mocked(submitGatewayApiKey).mock.calls[0]![1];
   expect(intent).toEqual({
@@ -725,11 +725,11 @@ test("manual MiMo URL rejects unenabled regions and provider changes preserve an
   });
   await mount();
   fireEvent.click(
-    screen.getByRole("menuitem", { name: "Подключить по API key" }),
+    screen.getByRole("menuitem", { name: "Connect with API key" }),
   );
   const dialog = await screen.findByRole("dialog");
   fireEvent.change(
-    within(dialog).getByLabelText("Название подключения (optional)"),
+    within(dialog).getByLabelText("Connection name (optional)"),
     {
       target: { value: "My account" },
     },
@@ -754,13 +754,13 @@ test("manual MiMo URL rejects unenabled regions and provider changes preserve an
   expect(
     (
       within(dialog).getByRole("button", {
-        name: "Подтвердить",
+        name: "Confirm",
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true);
   expect(submitGatewayApiKey).not.toHaveBeenCalled();
   fireEvent.click(
-    within(dialog).getByRole("combobox", { name: /Профиль провайдера/ }),
+    within(dialog).getByRole("combobox", { name: /Provider profile/ }),
   );
   const routerOption = await screen.findByRole("option", {
     name: /OpenRouter/,
@@ -770,7 +770,7 @@ test("manual MiMo URL rejects unenabled regions and provider changes preserve an
   expect(
     (
       within(dialog).getByLabelText(
-        "Название подключения (optional)",
+        "Connection name (optional)",
       ) as HTMLInputElement
     ).value,
   ).toBe("My account");
@@ -899,7 +899,7 @@ test("fresh pending completion survives an unavailable Accounts refresh after it
   await act(async () => releasePage({ status: "unavailable" }));
   await waitFor(() =>
     expect(
-      screen.queryByRole("button", { name: "Подключить Codex OAuth" }),
+      screen.queryByRole("button", { name: "Connect Codex OAuth" }),
     ).toBeNull(),
   );
   expect(
@@ -1271,23 +1271,23 @@ test("OAuth rows hide API-key reconnect and become selectable only after an acti
     .getByText("Workspace Codex")
     .closest("div.flex")! as HTMLElement;
   expect(
-    within(oauthRow).queryByRole("button", { name: "Обновить ключ" }),
+    within(oauthRow).queryByRole("button", { name: "Update API key" }),
   ).toBeNull();
-  expect(screen.getAllByRole("button", { name: "Обновить ключ" })).toHaveLength(
-    1,
-  );
+  expect(
+    screen.getAllByRole("button", { name: "Update API key" }),
+  ).toHaveLength(1);
   const pendingBinding = within(oauthRow).getByRole("button", {
-    name: "Добавить в этот workspace",
+    name: "Add to this workspace",
   }) as HTMLButtonElement;
   expect(pendingBinding.disabled).toBe(true);
   fireEvent.click(pendingBinding);
   expect(bindGatewayAccount).not.toHaveBeenCalled();
   fireEvent.click(
-    screen.getByRole("menuitem", { name: "Подключить по API key" }),
+    screen.getByRole("menuitem", { name: "Connect with API key" }),
   );
   const dialog = await screen.findByRole("dialog");
   fireEvent.click(
-    within(dialog).getByRole("combobox", { name: /Профиль провайдера/ }),
+    within(dialog).getByRole("combobox", { name: /Provider profile/ }),
   );
   expect(await screen.findByRole("option", { name: /MiMo/ })).toBeTruthy();
   expect(screen.queryByRole("option", { name: /Codex/ })).toBeNull();
@@ -1316,13 +1316,13 @@ test("OAuth rows hide API-key reconnect and become selectable only after an acti
     expect(
       (
         screen.getByRole("button", {
-          name: "Добавить в этот workspace",
+          name: "Add to this workspace",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false),
   );
   fireEvent.click(
-    screen.getByRole("button", { name: "Добавить в этот workspace" }),
+    screen.getByRole("button", { name: "Add to this workspace" }),
   );
   await waitFor(() => expect(bindGatewayAccount).toHaveBeenCalledTimes(1));
   expect(bindGatewayAccount).toHaveBeenCalledWith(context, {
@@ -1343,13 +1343,15 @@ test("OAuth reconnect reuses the ordinary handoff and original account revisions
   page.accounts = [row("active")];
   page.profiles.find((p) => p.id === oauthProfileId)!.canReconnect = true;
   await mount();
-  fireEvent.click(screen.getByRole("button", { name: "Обновить вход Codex" }));
-  const dialog = await screen.findByRole("dialog", {
-    name: "Обновить вход Codex · Workspace Codex",
-  });
-  expect(within(dialog).queryByLabelText("Название подключения")).toBeNull();
   fireEvent.click(
-    within(dialog).getByRole("button", { name: "Войти в Codex" }),
+    screen.getByRole("button", { name: "Refresh Codex sign-in" }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Refresh Codex sign-in · Workspace Codex",
+  });
+  expect(within(dialog).queryByLabelText("Connection name")).toBeNull();
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Sign in to Codex" }),
   );
   await waitFor(() => expect(beginGatewayOAuth).toHaveBeenCalledTimes(1));
   expect(vi.mocked(beginGatewayOAuth).mock.calls[0]).toEqual([

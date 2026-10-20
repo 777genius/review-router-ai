@@ -34,24 +34,24 @@ export function AccountsAddDialog({
         <Dialog.Popup initialFocus={cancel} className="w-[min(92vw,44rem)]">
           <Dialog.Title>{accountsCopy.add}</Dialog.Title>
           <Dialog.Description>
-            Выберите подключение и его владельца. Доступ организации не передаёт
-            владение и не меняет выбор в Models.
+            Choose a connection and its owner. Organization access does not
+            transfer ownership and does not change your selection in Models.
           </Dialog.Description>
           <div className="my-4">
             <SelectField
               name="connectionOwnership"
-              label="Способ добавления"
+              label="How to add"
               defaultValue="personal"
               onValueChange={setPath}
               options={[
                 {
                   value: "personal",
-                  label: "Подключить новое · личное, принадлежит вам",
+                  label: "Connect new · personal, owned by you",
                 },
-                { value: "existing", label: "Использовать мое подключение" },
+                { value: "existing", label: "Use my connection" },
                 {
                   value: "organization",
-                  label: `Подключить новое · принадлежит ${workspaceName}`,
+                  label: `Connect new · owned by ${workspaceName}`,
                 },
               ]}
             />
@@ -59,24 +59,24 @@ export function AccountsAddDialog({
           {path === "existing" ? (
             <>
               <p className="mb-3 text-sm text-slate-400">
-                Нажмите «Доступ» в строке подключения и добавьте {workspaceName}
-                . Уже выданный доступ показан отдельно.
+                Click “Access” in the connection row and add {workspaceName}.
+                Access already granted is shown separately.
               </p>
               {own}
             </>
           ) : path === "organization" ? (
             <>
               <p className="mb-3 text-sm">
-                Владелец — {workspaceName}. Подключением управляют
-                администраторы организации.
+                Owner — {workspaceName}. Organization administrators manage the
+                connection.
               </p>
               {organizationConnect}
             </>
           ) : (
             <>
               <p className="mb-3 text-sm">
-                Владелец — вы. Затем выдайте организации доступ через «Доступ».
-                Создание подключения и выдача доступа — разные действия.
+                Owner — you. Then grant the organization access via “Access”.
+                Creating a connection and granting access are separate actions.
               </p>
               {personalConnect}
             </>
@@ -87,7 +87,7 @@ export function AccountsAddDialog({
               variant="outline"
               onClick={() => setOpen(false)}
             >
-              Закрыть
+              Close
             </Button>
           </Dialog.Footer>
         </Dialog.Popup>

@@ -57,20 +57,20 @@ function resultText(
   action?: Action,
 ): string {
   if (receipt?.phase === "rejected")
-    return "Изменение отклонено. Обновите сведения перед новым подтверждением.";
+    return "Change rejected. Refresh the details before confirming again.";
   if (
     receipt?.action === "delete" &&
     receipt.phase === "applied" &&
     receipt.closureComplete
   )
-    return "Подключение удалено; очистка и прекращение использования подтверждены.";
+    return "Connection removed; cleanup and end of use confirmed.";
   if (receipt?.action === "delete" || action === "delete")
-    return "Удаляем… Завершение удаления и очистки пока не подтверждено.";
+    return "Removing… Completion of removal and cleanup is not confirmed yet.";
   if (receipt?.phase === "applied")
     return receipt.action === "resume"
-      ? "Подключение включено. Действуют только текущие разрешения доступа."
-      : "Подключение выключено. Учётные данные и разрешения сохранены.";
-  return "Результат пока неизвестен. Проверяем исходную операцию; повторная отправка не выполняется.";
+      ? "Connection enabled. Only current access permissions apply."
+      : "Connection disabled. Credentials and permissions preserved.";
+  return "Outcome not confirmed yet. Checking the original operation; no resubmission is made.";
 }
 function restore(key: string, connectionId: string): Journal | null {
   const raw = sessionStorage.getItem(key);
@@ -325,7 +325,7 @@ export function AccountLifecycleControls({
       setLoaded(true);
     } catch {
       setMessage(
-        "Не удалось восстановить исходную операцию. Проверьте доступ к хранилищу этой вкладки.",
+        "Could not restore the original operation. Check access to this tab's storage.",
       );
     }
   }, [
@@ -408,8 +408,8 @@ export function AccountLifecycleControls({
           setAuthorityDenied(true);
         setMessage(
           result.status === "denied"
-            ? "Право на чтение изменилось. Исходная операция сохранена; новый запрос не отправлен."
-            : "Результат пока неизвестен. Проверьте исходную операцию.",
+            ? "Read access changed. The original operation is preserved; no new request was sent."
+            : "Outcome not confirmed yet. Check the original operation.",
         );
         return;
       }
@@ -428,7 +428,7 @@ export function AccountLifecycleControls({
         ].includes(receipt.phase) ||
         typeof receipt.closureComplete !== "boolean"
       ) {
-        setMessage("Ответ не подтверждает исходную операцию.");
+        setMessage("The response does not confirm the original operation.");
         return;
       }
       if (
@@ -437,7 +437,7 @@ export function AccountLifecycleControls({
             receipt.action !== original.request.action)) ||
         (original.operationId && receipt.operationId !== original.operationId)
       ) {
-        setMessage("Ответ не подтверждает исходную операцию.");
+        setMessage("The response does not confirm the original operation.");
         return;
       }
       const progress = {
@@ -487,7 +487,7 @@ export function AccountLifecycleControls({
     if (read.data && !busy && read.dataUpdatedAt > readBarrier.current) {
       void accept(read.data).catch(() =>
         setMessage(
-          "Не удалось обновить сведения. Исходная операция сохранена.",
+          "Could not refresh the details. The original operation is preserved.",
         ),
       );
     }
@@ -518,7 +518,7 @@ export function AccountLifecycleControls({
       if (result.status !== "ok")
         await refreshScopes(client, context, account.connectionId, "refresh");
     } catch {
-      setMessage("Результат пока неизвестен. Проверьте исходную операцию.");
+      setMessage("Outcome not confirmed yet. Check the original operation.");
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -560,7 +560,7 @@ export function AccountLifecycleControls({
       });
       await accept(result);
     } catch {
-      setMessage("Результат пока неизвестен. Проверьте исходную операцию.");
+      setMessage("Outcome not confirmed yet. Check the original operation.");
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -578,7 +578,7 @@ export function AccountLifecycleControls({
       sessionStorage.setItem(storageKey, JSON.stringify(original));
     } catch {
       setMessage(
-        "Операция не отправлена: не удалось сохранить её исходный номер в этой вкладке.",
+        "Operation not sent: could not save its original identifier in this tab.",
       );
       return;
     }
@@ -641,7 +641,7 @@ export function AccountLifecycleControls({
             disabled={busy || read.isFetching}
             title={
               busy || read.isFetching
-                ? "Идёт проверка исходной операции — подождите."
+                ? "Checking the original operation — please wait."
                 : undefined
             }
             onClick={() => {
@@ -649,7 +649,7 @@ export function AccountLifecycleControls({
               void read.refetch();
             }}
           >
-            Проверить исходную операцию
+            Check original operation
           </Button>
         </AccountMenuItem>
       ) : null}
@@ -664,13 +664,13 @@ export function AccountLifecycleControls({
             size="sm"
             className={accountMenuItemClass}
             disabled={busy}
-            title={busy ? "Идёт обработка операции — подождите." : undefined}
+            title={busy ? "Processing the operation — please wait." : undefined}
             onClick={() => {
               setRecoveryOpen(true);
               void continueOriginal();
             }}
           >
-            Продолжить исходное действие
+            Continue original action
           </Button>
         </AccountMenuItem>
       ) : null}
@@ -681,8 +681,8 @@ export function AccountLifecycleControls({
       ) : null}
       {account.lifecycle?.status === "support_required" ? (
         <p className="max-w-64 p-2 text-xs text-slate-400">
-          Очистка прежнего отключения не подтверждена. Восстановление требует
-          проверки исходной операции.
+          Cleanup from the previous removal is not confirmed. Recovery requires
+          checking the original operation.
         </p>
       ) : null}
       <Dialog.Root
@@ -700,32 +700,32 @@ export function AccountLifecycleControls({
             <Dialog.Title>
               {selection
                 ? actionText(selection.request.action)
-                : "Изменение подключения"}{" "}
+                : "Connection change"}{" "}
               · {selection?.label ?? account.label}
             </Dialog.Title>
             <Dialog.Description>
               {!selection
-                ? "Проверка исходной операции изменения подключения. Новый запрос не создаётся."
+                ? "Checking the original connection-change operation. No new request is created."
                 : selection?.request.action === "delete"
-                  ? "Удаляется подключение ReviewRouter, а не аккаунт у провайдера. Использование через это подключение во всех workspace будет прекращено. Удаление необратимо; завершение очистки подтверждается отдельно."
+                  ? "This removes the ReviewRouter connection, not the account at the provider. Use of this connection in all workspace will stop. Removal is irreversible; cleanup completion is confirmed separately."
                   : selection?.request.action === "resume"
-                    ? "Разрешить новые review через то же подключение и сохранённые учётные данные. Действуют только текущие разрешения доступа; отозванные доступы и старые запросы не восстанавливаются."
-                    : "Остановить новые review через это подключение во всех workspace. Учётные данные и разрешения сохраняются. Уже отправленный запрос провайдеру может завершиться."}
+                    ? "Allow new review through the same connection and saved credentials. Only current access permissions apply; revoked access and old requests are not restored."
+                    : "Stop new review through this connection in all workspace. Credentials and permissions are preserved. A request already sent to the provider may still complete."}
             </Dialog.Description>
             {selection?.request.action === "delete" ? (
               usage ? (
                 <AccountUsageWarning usage={usage} />
               ) : (
                 <p className="mt-3 text-sm text-amber-200">
-                  Удаление может остановить CI и отзывы. Проверьте секреты
-                  репозиториев и выбор аккаунта в Model везде, где это
-                  подключение используется.
+                  Removal may stop CI and reviews. Check repository secrets and
+                  the account selected in Model everywhere this connection is
+                  used.
                 </p>
               )
             ) : null}
             {selection?.request.action === "delete" && accessSummary ? (
               <p className="mt-3 text-sm">
-                Организаций с видимым доступом:{" "}
+                Organizations with visible access:{" "}
                 {accessSummary.organizationCount}.
                 {accessSummary.hasRestrictedAccess
                   ? ` ${accountsCopy.privacy}.`
@@ -747,7 +747,7 @@ export function AccountLifecycleControls({
                   setRecoveryOpen(false);
                 }}
               >
-                {pending || terminal(journal?.receipt) ? "Закрыть" : "Отмена"}
+                {pending || terminal(journal?.receipt) ? "Close" : "Cancel"}
               </Button>
               {pending &&
               (journal?.receipt?.phase === "ready" ||
@@ -758,11 +758,11 @@ export function AccountLifecycleControls({
                 <Button
                   disabled={busy}
                   title={
-                    busy ? "Идёт обработка операции — подождите." : undefined
+                    busy ? "Processing the operation — please wait." : undefined
                   }
                   onClick={() => void continueOriginal()}
                 >
-                  Продолжить исходное действие
+                  Continue original action
                 </Button>
               ) : null}
               {pending ? (
@@ -771,12 +771,12 @@ export function AccountLifecycleControls({
                   disabled={busy || read.isFetching}
                   title={
                     busy || read.isFetching
-                      ? "Идёт проверка исходной операции — подождите."
+                      ? "Checking the original operation — please wait."
                       : undefined
                   }
                   onClick={() => void read.refetch()}
                 >
-                  Проверить исходную операцию
+                  Check original operation
                 </Button>
               ) : terminal(journal?.receipt) ? null : (
                 <Button
@@ -788,16 +788,16 @@ export function AccountLifecycleControls({
                   disabled={busy || !selection}
                   title={
                     busy
-                      ? "Идёт обработка операции — подождите."
+                      ? "Processing the operation — please wait."
                       : !selection
-                        ? "Сначала выберите действие."
+                        ? "Select an action first."
                         : undefined
                   }
                   onClick={() => void confirm()}
                 >
                   {selection?.request.action === "delete"
-                    ? "Удалить подключение навсегда"
-                    : "Подтвердить"}
+                    ? "Remove connection permanently"
+                    : "Confirm"}
                 </Button>
               )}
             </Dialog.Footer>
