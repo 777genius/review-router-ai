@@ -70,11 +70,14 @@ test.describe("Accounts UX reference browser contract", () => {
         .getByRole("tab")
         .filter({ hasText: /My connections|Available in this workspace/ }),
     ).toHaveCount(0);
-    // Org badges draw the mini avatar flush in the chip corner (UX batch 3).
+    // Org badges draw the mini avatar in the chip corner (UX batch 3); the chip
+    // must not clip it away (UX batch 4).
     for (const organization of ["RR E2E Org Alpha", "RR E2E Org Bravo"]) {
-      await expect(
-        row.locator(`a[title="${organization}"] img[alt=""]`),
-      ).toHaveCount(1);
+      const chip = row.locator(`a[title="${organization}"]`);
+      await expect(chip.locator('img[alt=""]')).toHaveCount(1);
+      expect(
+        await chip.evaluate((element) => getComputedStyle(element).overflow),
+      ).toBe("visible");
     }
     await expectNetworkViolations(violations);
   });
@@ -111,6 +114,11 @@ test.describe("Accounts UX reference browser contract", () => {
         { exact: true },
       ),
     ).toBeVisible();
+    // The organization owner draws its workspace avatar in the Owner column
+    // (UX batch 4).
+    await expect(
+      sourceRow(page, "RR E2E Org Alpha Owned", region).locator('img[alt=""]'),
+    ).toHaveCount(1);
     const ownerAccessibility = await viewerRow.evaluate((row) => {
       const nodes = [...row.querySelectorAll("img, [aria-label]")];
       return nodes.flatMap((node) => [

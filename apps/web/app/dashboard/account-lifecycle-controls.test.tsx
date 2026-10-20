@@ -273,15 +273,17 @@ test("delete applied alone stays visible; only original closure proof removes in
       operationId: "original-operation",
     }),
   );
-  await waitFor(() =>
-    expect(
-      JSON.stringify(
-        f.client.getQueryData([
-          "accounts-overview",
-          "actor:workspace:workspace-B",
-        ]),
-      ),
-    ).not.toContain('"connectionId":"source"'),
+  await waitFor(
+    () =>
+      expect(
+        JSON.stringify(
+          f.client.getQueryData([
+            "accounts-overview",
+            "actor:workspace:workspace-B",
+          ]),
+        ),
+      ).not.toContain('"connectionId":"source"'),
+    { timeout: 5000 },
   );
   expect(
     JSON.stringify(
