@@ -1,14 +1,21 @@
 import type { AccountUsageView } from "../../src/server/account-usage";
 
-function shortList(values: readonly (string | null)[], limit = 2): string {
-  const names = values.filter((value): value is string => !!value);
-  const shown = names.slice(0, limit).join(", ");
-  const remaining = names.length - Math.min(names.length, limit);
-  return remaining > 0 ? `${shown} +${remaining}` : shown;
+function uniqueNames(values: readonly (string | null)[]): string[] {
+  const names = new Set<string>();
+  for (const value of values) if (value) names.add(value);
+  return [...names];
 }
 
-function reviewLabel(targetKey: string, repositoryName: string | null): string {
-  return repositoryName ? `${targetKey} · ${repositoryName}` : targetKey;
+function shortList(values: readonly string[], limit = 2): string {
+  const shown = values.slice(0, limit).join(", ");
+  const remaining = values.length - Math.min(values.length, limit);
+  return remaining > 0 ? `${shown} +${remaining} more` : shown;
+}
+
+// The readable identity is the repository name: internal target keys are never
+// shown. Several targets can point at one repository, so names are deduplicated.
+function repositoryNames(entries: readonly (string | null)[]): string[] {
+  return uniqueNames(entries.map((name) => name ?? "repository unavailable"));
 }
 
 // Display-only usage facts. Review selection is exact per binding; repository
@@ -26,8 +33,8 @@ export function AccountUsageLine({
         <p>
           Selected for reviews:{" "}
           {shortList(
-            usage.reviews.map((review) =>
-              reviewLabel(review.targetKey, review.repositoryName),
+            repositoryNames(
+              usage.reviews.map((review) => review.repositoryName),
             ),
           )}
         </p>
@@ -36,7 +43,9 @@ export function AccountUsageLine({
         <p>
           CI secrets (shared across the profile):{" "}
           {shortList(
-            usage.secretRepositories.map((secret) => secret.repositoryName),
+            repositoryNames(
+              usage.secretRepositories.map((secret) => secret.repositoryName),
+            ),
           )}
         </p>
       ) : null}
@@ -57,11 +66,9 @@ export function AccountUsageWarning({
       {usage.reviews.length ? (
         <p>
           Selected for reviews:{" "}
-          {usage.reviews
-            .map((review) =>
-              reviewLabel(review.targetKey, review.repositoryName),
-            )
-            .join(", ")}
+          {repositoryNames(
+            usage.reviews.map((review) => review.repositoryName),
+          ).join(", ")}
           .
         </p>
       ) : null}
@@ -69,9 +76,9 @@ export function AccountUsageWarning({
         <p>
           Repository secrets are shared across the profile and can be used in
           workflows:{" "}
-          {usage.secretRepositories
-            .map((secret) => secret.repositoryName ?? "repository unavailable")
-            .join(", ")}
+          {repositoryNames(
+            usage.secretRepositories.map((secret) => secret.repositoryName),
+          ).join(", ")}
           .
         </p>
       ) : null}
