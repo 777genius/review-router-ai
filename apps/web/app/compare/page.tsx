@@ -11,7 +11,7 @@ export const metadata: Metadata = createPublicPageMetadata({
 
 export default function ComparePage(): React.ReactElement {
   return (
-    <main className="home-shell flex min-h-screen w-full flex-col overflow-hidden py-8 md:py-10">
+    <main className="home-shell flex min-h-screen w-full flex-col overflow-clip py-8 md:py-10">
       <CompareSection headingLevel={1} />
     </main>
   );

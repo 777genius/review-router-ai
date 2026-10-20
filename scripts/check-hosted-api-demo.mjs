@@ -3,7 +3,7 @@
 const apiUrl = normalizeUrl(
   process.env.REVIEW_ROUTER_PUBLIC_API_URL ??
     process.env.REVIEW_ROUTER_API_URL ??
-    "https://api.reviewrouter.site",
+    "https://api.reviewrouter.org",
 );
 
 async function fetchJson(path) {

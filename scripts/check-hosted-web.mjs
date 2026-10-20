@@ -14,7 +14,7 @@ const webUrl = normalizeUrl(
     env.REVIEW_ROUTER_HOSTED_WEB_URL ||
     process.env.REVIEW_ROUTER_PUBLIC_WEB_URL ||
     process.env.REVIEW_ROUTER_HOSTED_WEB_URL ||
-    "https://reviewrouter.site",
+    "https://reviewrouter.org",
 );
 const expectedAppSlug = String(
   env.REVIEW_ROUTER_EXPECTED_GITHUB_APP_SLUG || env.GITHUB_APP_SLUG || "",

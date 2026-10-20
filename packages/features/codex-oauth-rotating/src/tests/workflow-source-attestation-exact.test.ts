@@ -252,7 +252,7 @@ jobs:
   it("trusts only configured repository, full-SHA action, API and canonical V4 namespace", () => {
     const actionRef =
       "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
-    const apiUrl = "https://api.reviewrouter.site";
+    const apiUrl = "https://api.reviewrouter.org";
     const workflow = renderCanonicalCodexRotatingT0WorkflowV4({
       actionRef,
       apiUrl,
@@ -320,7 +320,7 @@ jobs:
       "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
     const commonInput = {
       actionRef,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       providerInstanceId: "codex-rotating:123456",
       refreshScheduleCron: "17 */6 * * *",
       activeSecretNamespace: namespace,
@@ -418,7 +418,7 @@ jobs:
 it("rejects schema 6 source even when every other byte is canonical V5", () => {
   const source = renderCanonicalCodexRotatingT0WorkflowV5({
     actionRef: `777genius/review-router@${"a".repeat(40)}`,
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
     providerInstanceId: "codex-rotating:123456",
     activeSecretNamespace: namespace,
   });
@@ -832,7 +832,7 @@ it.each([10, 15, 360])(
   (reviewTimeoutMinutes) => {
     const source = renderCanonicalAccountGatewayWorkflow({
       actionRef: `777genius/review-router@${"a".repeat(40)}`,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       githubRepositoryId: "123456",
       reviewTimeoutMinutes,
     });
@@ -855,7 +855,7 @@ it.each([9, 361, 15.5, Number.NaN])(
     expect(() =>
       renderCanonicalAccountGatewayWorkflow({
         actionRef: `777genius/review-router@${"a".repeat(40)}`,
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         githubRepositoryId: "123456",
         reviewTimeoutMinutes,
       }),

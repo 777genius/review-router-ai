@@ -47,8 +47,8 @@ function resolveUrls(input: Pick<GetApiDemoInput, "webUrl" | "apiUrl">): {
   readonly apiUrl: string;
 } {
   return {
-    webUrl: normalizeUrl(input.webUrl ?? "https://reviewrouter.site"),
-    apiUrl: normalizeUrl(input.apiUrl ?? "https://api.reviewrouter.site"),
+    webUrl: normalizeUrl(input.webUrl ?? "https://reviewrouter.org"),
+    apiUrl: normalizeUrl(input.apiUrl ?? "https://api.reviewrouter.org"),
   };
 }
 

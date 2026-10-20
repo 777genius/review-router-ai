@@ -12,6 +12,7 @@ import {
   selectVisibleRepositoryIds,
   type RepositorySearchIndexItem,
 } from "./repository-live-search";
+import { RepositoryActionSelectionProvider } from "./gateway-repository-batch-controls";
 
 const routerMock = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => routerMock }));
@@ -23,8 +24,10 @@ const index: RepositorySearchIndexItem[] = Array.from(
     fullName: `personal/project-${i + 1}`,
     sourceUrl: `https://github.com/personal/project-${i + 1}`,
     searchText: `personal/project-${i + 1}`,
+    provider: "github",
     visibility: i === 39 ? "public" : "private",
     readiness: i === 39 ? "needs_setup" : "ready",
+    setupProgressStep: i === 39 ? 1 : 4,
     stargazersCount: i + 1,
     archived: i === 39,
   }),
@@ -54,7 +57,8 @@ describe("RepositoryLiveSearch", () => {
     renderFixture({ searchIndex: [...index, deep] });
     search("project-395");
     expect(rowIds()).toEqual(["repo_395"]);
-    expect(screen.getByText("personal/project-395")).toBeTruthy();
+    expect(screen.getByText("project-395")).toBeTruthy();
+    expect(screen.getByLabelText("personal/project-395")).toBeTruthy();
     expect(
       screen.getByRole("button", {
         name: /Open setup\/settings for personal\/project-395/,
@@ -62,6 +66,33 @@ describe("RepositoryLiveSearch", () => {
     ).toBeTruthy();
     expect(routerMock.replace).not.toHaveBeenCalled();
     expect(window.location.search).toContain("q=project-395");
+  });
+
+  it("renders summary rows in the same row block and design as rich rows", () => {
+    renderFixture({ richIds: ["repo_1"] });
+    const summaryRow = document.querySelector<HTMLElement>(
+      '[data-repository-summary-row][data-repository-row-id="repo_2"]',
+    );
+    expect(summaryRow).not.toBeNull();
+    const slot = summaryRow!.closest<HTMLElement>(
+      "[data-repository-result-slot]",
+    )!;
+    // The checkbox sits inside the row block so it shares the row background.
+    expect(
+      slot.querySelector('input[aria-label="Select personal/project-2"]'),
+    ).not.toBeNull();
+    expect(slot.querySelector("[data-repository-summary-row]")).not.toBeNull();
+    // Divider and zebra/hover background live on the row block itself.
+    expect(slot.className).toContain("border-t");
+    expect(slot.className).toContain("bg-");
+    // Summary rows mirror the rich row header: provider logo, name, setup pill.
+    expect(
+      summaryRow!.querySelector('img[src="/service-icons/github.svg"]'),
+    ).not.toBeNull();
+    expect(summaryRow!.querySelector(".setup-toggle")?.textContent).toMatch(
+      /^Setup\s*4\/4$/,
+    );
+    expect(screen.getByLabelText("personal/project-2")).toBeTruthy();
   });
 
   it("orders rich and summary rows by the search index, with no duplicates", () => {
@@ -98,6 +129,11 @@ describe("RepositoryLiveSearch", () => {
     fireEvent.click(checkbox!);
     search("project-40");
     expect(rowIds()).toEqual(["repo_40"]);
+    expect(
+      document
+        .querySelector('[data-repository-row-id="repo_1"]')
+        ?.closest("[data-repository-result-slot]")?.className,
+    ).toBe("hidden");
     search("");
     expect(
       document.querySelector<HTMLInputElement>(
@@ -317,28 +353,38 @@ function Fixture({
 }): React.ReactElement {
   return (
     <div data-repository-table>
-      <RepositoryLiveSearch
-        key={workspaceKey}
-        workspaceKey={workspaceKey}
-        initialWorkspaceParam={initialWorkspaceParam}
-        selectedRepositoryFullName={
-          selectedId ? `personal/project-${selectedId.slice(5)}` : null
-        }
-        selectedRepositoryId={selectedId ?? null}
-        initialQuery=""
-        initialFilter="all"
-        searchIndex={searchIndex}
-        totalRepositoryCount={searchIndex.length}
-        rowLimit={24}
-        richRowIds={richIds}
+      <RepositoryActionSelectionProvider
+        workspaceId={workspaceKey}
+        inventory={searchIndex.map((item) => ({
+          repositoryId: item.id,
+          expectedVersion: null,
+          fullName: item.fullName,
+          eligible: true,
+        }))}
       >
-        {richIds.map((id) => (
-          <div key={id} data-repository-row-id={id} data-repository-setup-row>
-            <input type="checkbox" defaultChecked={id === selectedId} />
-            rich {id}
-          </div>
-        ))}
-      </RepositoryLiveSearch>
+        <RepositoryLiveSearch
+          key={workspaceKey}
+          workspaceKey={workspaceKey}
+          initialWorkspaceParam={initialWorkspaceParam}
+          selectedRepositoryFullName={
+            selectedId ? `personal/project-${selectedId.slice(5)}` : null
+          }
+          selectedRepositoryId={selectedId ?? null}
+          initialQuery=""
+          initialFilter="all"
+          searchIndex={searchIndex}
+          totalRepositoryCount={searchIndex.length}
+          rowLimit={24}
+          richRowIds={richIds}
+        >
+          {richIds.map((id) => (
+            <div key={id} data-repository-row-id={id} data-repository-setup-row>
+              <input type="checkbox" defaultChecked={id === selectedId} />
+              rich {id}
+            </div>
+          ))}
+        </RepositoryLiveSearch>
+      </RepositoryActionSelectionProvider>
     </div>
   );
 }

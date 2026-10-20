@@ -162,9 +162,9 @@ Merged via PR #2 and PR #3 into control plane `main`; action runtime released th
   - action repo `v1` and `v1.0.47` point to `c7146af585ecfe89c1b4948ffb98adb9119195ed`;
   - action release workflow <https://github.com/777genius/review-router/actions/runs/25972665885> passed;
   - control plane main `94e7df085d936ab2e2613c5b5a93cf22f06638cf` is live on Render web/api/worker;
-  - `REVIEW_ROUTER_PUBLIC_WEB_URL=https://reviewrouter.site pnpm hosted:web:check` - passed;
-  - `REVIEW_ROUTER_API_URL=https://api.reviewrouter.site pnpm hosted:api-demo:check` - passed;
-  - unauthenticated `GET https://api.reviewrouter.site/api/action/v1/memory` returns `401 missing_action_session_token`, proving the production route exists and stays session-protected.
+  - `REVIEW_ROUTER_PUBLIC_WEB_URL=https://reviewrouter.org pnpm hosted:web:check` - passed;
+  - `REVIEW_ROUTER_API_URL=https://api.reviewrouter.org pnpm hosted:api-demo:check` - passed;
+  - unauthenticated `GET https://api.reviewrouter.org/api/action/v1/memory` returns `401 missing_action_session_token`, proving the production route exists and stays session-protected.
 - Action runtime memory integration implemented on `feat/balanced-memory-runtime`:
   - review runtime fetches scoped memory bundle through `ControlPlaneMemoryClient` and injects it as low-priority prompt context;
   - runtime sends only sanitized PR metadata as `safeRetrievalQuery`, never raw diff/code/comment text;

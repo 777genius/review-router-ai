@@ -3747,7 +3747,7 @@ const store = new GitHubActionsSecretStore({
   secretName: "REVIEWROUTER_CODEX_AUTH_JSON",
   runnerSecretReader: new GitHubActionInputSecretReader(),
   encryptedWriteback: new ReviewRouterEncryptedWritebackClient({
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
   }),
   publicKeyProvider: new GitHubRepositoryPublicKeyProvider(),
 });

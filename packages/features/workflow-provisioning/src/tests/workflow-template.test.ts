@@ -145,7 +145,7 @@ describe("renderReviewRouterWorkflow", () => {
       "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
     const workflow = renderReviewRouterWorkflow({
       actionRef,
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       runtimeConfigMode: "static",
     });
     expect(workflowChecksOutReviewRouterRuntime(workflow, actionRef)).toBe(
@@ -175,7 +175,7 @@ describe("renderReviewRouterWorkflow", () => {
       "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
     const workflow = renderReviewRouterWorkflow({
       actionRef,
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       runtimeConfigMode: "static",
     });
     for (const invalid of [
@@ -201,7 +201,7 @@ describe("renderReviewRouterWorkflow", () => {
     const workflow =
       renderReviewRouterWorkflow({
         actionRef,
-        apiUrl: "https://reviewrouter.site",
+        apiUrl: "https://reviewrouter.org",
         runtimeConfigMode: "static",
       }).replace(
         "ref: 0123456789abcdef0123456789abcdef01234567",
@@ -224,7 +224,7 @@ describe("renderReviewRouterWorkflow", () => {
       const options = {
         actionRef:
           "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-        apiUrl: "https://reviewrouter.site",
+        apiUrl: "https://reviewrouter.org",
         runtimeConfigMode: "static" as const,
         staticRuntimeEnv: { REVIEW_AUTH_MODE: authMode },
       };
@@ -251,7 +251,7 @@ describe("renderReviewRouterWorkflow", () => {
     const workflow = renderExportedCodexRotatingAdvisoryWorkflow({
       actionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       providerInstanceId: "codex-rotating:777genius/agent-teams-ai",
     });
 
@@ -289,7 +289,7 @@ describe("renderReviewRouterWorkflow", () => {
     const files = renderReviewRouterWorkflowFiles({
       actionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       runtimeConfigMode: "oidc",
       workflowStyle: "reusable",
       staticRuntimeEnv: {
@@ -401,7 +401,7 @@ describe("renderReviewRouterWorkflow", () => {
       const options = {
         actionRef:
           "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-        apiUrl: "https://api.reviewrouter.site",
+        apiUrl: "https://api.reviewrouter.org",
         runtimeConfigMode: "oidc" as const,
         codexRotatingProviderInstanceId: "codex-rotating:1228051727",
         codexRotatingWorkflowPath: isolatedQualityWorkflowPath,
@@ -454,7 +454,7 @@ describe("renderReviewRouterWorkflow", () => {
     const files = renderReviewRouterWorkflowFiles({
       actionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       runtimeConfigMode: "oidc",
       codexRotatingProviderInstanceId: "codex-rotating:123456",
       codexRotatingReviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -473,7 +473,7 @@ describe("renderReviewRouterWorkflow", () => {
     const files = renderReviewRouterWorkflowFiles({
       actionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       runtimeConfigMode: "oidc",
       codexRotatingProviderInstanceId: "codex-rotating:123456",
       codexRotatingReviewActionV2Mode: CodexRotatingReviewActionV2Mode.T0,
@@ -503,7 +503,7 @@ describe("renderReviewRouterWorkflow", () => {
     const files = renderReviewRouterWorkflowFiles({
       actionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       runtimeConfigMode: "oidc",
       staticRuntimeEnv: {
         REVIEW_AUTH_MODE: "codex-oauth-rotating",
@@ -568,7 +568,7 @@ describe("renderReviewRouterWorkflow", () => {
     const files = renderReviewRouterWorkflowFiles({
       actionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       runtimeConfigMode: "oidc",
       workflowStyle: "reusable",
       staticRuntimeEnv: {
@@ -831,7 +831,7 @@ describe("renderReviewRouterWorkflow", () => {
     const files = renderReviewRouterWorkflowFiles({
       actionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       runtimeConfigMode: "oidc",
       staticRuntimeEnv: {
         REVIEW_AUTH_MODE: "codex-oauth-rotating",
@@ -886,7 +886,7 @@ describe("renderReviewRouterWorkflow", () => {
     const workflow = renderCodexRotatingInteractionWorkflow({
       actionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-      apiUrl: "https://reviewrouter.site",
+      apiUrl: "https://reviewrouter.org",
       runtimeConfigMode: "oidc",
     });
 
@@ -933,31 +933,31 @@ describe("renderReviewRouterWorkflow", () => {
         renderCanonicalCodexRotatingInteractionWorkflowV3({
           actionRef:
             "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-          apiUrl: "https://reviewrouter.site",
+          apiUrl: "https://reviewrouter.org",
           runtimeConfigMode: "oidc",
         }),
       ),
-    ).toBe("0d58d9a498409fad2b20c65d3ea09ed5c180c6b04d3e3b17faa58e20a031448f");
+    ).toBe("d2e12cf80e5280b62a39996453615388c978cfcc54111c4caf4dd22c9b851a20");
     expect(
       workflowDocumentSemanticSha256(
         renderCanonicalCodexRotatingInteractionWorkflowV2({
           actionRef:
             "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-          apiUrl: "https://reviewrouter.site",
+          apiUrl: "https://reviewrouter.org",
           runtimeConfigMode: "oidc",
         }),
       ),
-    ).toBe("84a2d9bf1a7df8902e286fbf107f334bb314f7d163bfb05dbe6eeb71f29142b3");
+    ).toBe("960ccad5ffc060928e979775095ae6919cd1389b0279981f531c560ec8b91ca3");
     expect(
       workflowDocumentSemanticSha256(
         renderCanonicalCodexRotatingInteractionWorkflowV1({
           actionRef:
             "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
-          apiUrl: "https://reviewrouter.site",
+          apiUrl: "https://reviewrouter.org",
           runtimeConfigMode: "oidc",
         }),
       ),
-    ).toBe("fb84012531a80de8ebe881b11fc7de6deb1b9074916b13e5c5d113d888bce865");
+    ).toBe("cfea330bd5b8f48a5d3f45235ae5f2fee7b61b5ccb4bec552125ec2ca46a3093");
     expect(
       areWorkflowDocumentsSemanticallyEqual(
         workflow,
@@ -971,7 +971,7 @@ describe("renderReviewRouterWorkflow", () => {
     (runtimeRef) => {
       const options = {
         actionRef: `777genius/review-router@${runtimeRef}`,
-        apiUrl: "https://reviewrouter.site",
+        apiUrl: "https://reviewrouter.org",
         runtimeConfigMode: "oidc" as const,
       };
 
@@ -996,7 +996,7 @@ describe("renderReviewRouterWorkflow", () => {
       expect(() =>
         renderCodexRotatingInteractionWorkflow({
           actionRef: `777genius/review-router@${runtimeRef}`,
-          apiUrl: "https://reviewrouter.site",
+          apiUrl: "https://reviewrouter.org",
           runtimeConfigMode: "oidc",
         }),
       ).toThrow("invalid_reusable_workflow_runtime_ref");
@@ -1007,7 +1007,7 @@ describe("renderReviewRouterWorkflow", () => {
     expect(() =>
       renderCodexRotatingInteractionWorkflow({
         actionRef: `777genius/review-router@${"A".repeat(40)}`,
-        apiUrl: "https://reviewrouter.site",
+        apiUrl: "https://reviewrouter.org",
         runtimeConfigMode: "oidc",
       }),
     ).not.toThrow();
@@ -2027,7 +2027,7 @@ function workflowFileContent(
 it("keeps compatible producer and execution setting changes out of the caller", () => {
   const options = {
     actionRef: `777genius/review-router@${"a".repeat(40)}`,
-    apiUrl: "https://api.reviewrouter.site",
+    apiUrl: "https://api.reviewrouter.org",
     githubRepositoryId: "1317214237",
     reviewTimeoutMinutes: 15,
   };

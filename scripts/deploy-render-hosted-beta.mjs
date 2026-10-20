@@ -2065,8 +2065,8 @@ export async function main() {
     );
   const imageUrl = `ghcr.io/777genius/review-router-saas-runtime@${imageDigest}`;
   if (phase === "runtime-deploy") assertRuntimeReleaseCommit(env, commit);
-  const webUrl = env.REVIEW_ROUTER_WEB_URL ?? "https://reviewrouter.site";
-  const apiUrl = env.REVIEW_ROUTER_API_URL ?? "https://api.reviewrouter.site";
+  const webUrl = env.REVIEW_ROUTER_WEB_URL ?? "https://reviewrouter.org";
+  const apiUrl = env.REVIEW_ROUTER_API_URL ?? "https://api.reviewrouter.org";
   assertHostedDeployEnv({ apiUrl, env, envFile, webUrl });
   // Resolve every cross-process security value before constructing a Render
   // client or mutating hosted state. buildServiceEnv revalidates defensively.

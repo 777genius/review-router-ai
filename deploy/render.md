@@ -46,8 +46,8 @@ resources can be created or re-synced from the CLI without printing secrets:
 export RENDER_OWNER_ID=tea-d11m6c0dl3ps73cuh2gg
 export RENDER_PROJECT_ID=prj-<exact-project-id>
 export RENDER_ENVIRONMENT_ID=evm-d7s67t0g4nts73d4l40g
-export REVIEW_ROUTER_WEB_URL=https://reviewrouter.site
-export REVIEW_ROUTER_API_URL=https://api.reviewrouter.site
+export REVIEW_ROUTER_WEB_URL=https://reviewrouter.org
+export REVIEW_ROUTER_API_URL=https://api.reviewrouter.org
 export REVIEW_ROUTER_RENDER_COMMIT_SHA=<exact-40-character-release-sha>
 # Copy this only from hosted-runtime-image-<version>.json produced by Release.
 export REVIEW_ROUTER_RENDER_IMAGE_DIGEST=sha256:<exact-64-character-OCI-manifest-digest>
@@ -69,8 +69,8 @@ and App-slug heuristics. The helper intentionally does not log secret values.
 
 Current hosted beta resources created by this helper:
 
-- Web: https://reviewrouter.site
-- API: https://api.reviewrouter.site
+- Web: https://reviewrouter.org
+- API: https://api.reviewrouter.org
 - Worker: `reviewrouter-worker`
 - Postgres: `reviewrouter-db`
 
@@ -80,10 +80,10 @@ During or immediately after Blueprint sync, fill these environment variables in
 `reviewrouter-hosted-beta`:
 
 ```text
-REVIEW_ROUTER_WEB_URL=https://reviewrouter.site
-REVIEW_ROUTER_API_URL=https://api.reviewrouter.site
-REVIEW_ROUTER_PUBLIC_API_URL=https://api.reviewrouter.site
-NEXTAUTH_URL=https://reviewrouter.site
+REVIEW_ROUTER_WEB_URL=https://reviewrouter.org
+REVIEW_ROUTER_API_URL=https://api.reviewrouter.org
+REVIEW_ROUTER_PUBLIC_API_URL=https://api.reviewrouter.org
+NEXTAUTH_URL=https://reviewrouter.org
 GITHUB_APP_ID=<production/staging app id>
 GITHUB_APP_CLIENT_ID=<production/staging app client id>
 GITHUB_APP_CLIENT_SECRET=<production/staging app client secret>
@@ -253,9 +253,9 @@ Those stay in each customer repository, group, or organization CI/CD secrets.
 Set these URLs on the GitHub App used for hosted beta:
 
 ```text
-Callback URL: https://reviewrouter.site/api/auth/callback/github
-Setup URL:    https://reviewrouter.site/setup
-Webhook URL:  https://api.reviewrouter.site/webhooks/github
+Callback URL: https://reviewrouter.org/api/auth/callback/github
+Setup URL:    https://reviewrouter.org/setup
+Webhook URL:  https://api.reviewrouter.org/webhooks/github
 ```
 
 Enable redirect on installation updates so repository add/remove flows return
@@ -446,22 +446,22 @@ fatal.
 5. Confirm the API health endpoint:
 
 ```bash
-curl -fsS https://api.reviewrouter.site/health
+curl -fsS https://api.reviewrouter.org/health
 ```
 
 6. Confirm the API demo endpoints:
 
 ```bash
-REVIEW_ROUTER_API_URL=https://api.reviewrouter.site pnpm hosted:api-demo:check
-curl -fsS https://api.reviewrouter.site/docs >/dev/null
-curl -fsS https://api.reviewrouter.site/demo.md | head
-curl -fsS https://api.reviewrouter.site/openapi.json | jq .info
+REVIEW_ROUTER_API_URL=https://api.reviewrouter.org pnpm hosted:api-demo:check
+curl -fsS https://api.reviewrouter.org/docs >/dev/null
+curl -fsS https://api.reviewrouter.org/demo.md | head
+curl -fsS https://api.reviewrouter.org/openapi.json | jq .info
 ```
 
 7. Confirm the web dashboard loads:
 
 ```bash
-curl -fsS https://reviewrouter.site/status
+curl -fsS https://reviewrouter.org/status
 ```
 
 ## Local Validation Against Hosted Env

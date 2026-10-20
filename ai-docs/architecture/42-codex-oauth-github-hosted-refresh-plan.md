@@ -3516,7 +3516,7 @@ installer artifact before executing it. Illustrative shape:
 RR_INSTALLER_VERSION=vX.Y.Z
 RR_INSTALLER_SHA256=<dashboard-provided-sha256>
 tmp="$(mktemp)"
-curl -fsSL "https://reviewrouter.site/install/codex/${RR_INSTALLER_VERSION}" -o "$tmp"
+curl -fsSL "https://reviewrouter.org/install/codex/${RR_INSTALLER_VERSION}" -o "$tmp"
 printf '%s  %s\n' "$RR_INSTALLER_SHA256" "$tmp" | shasum -a 256 -c -
 bash "$tmp" --repo owner/repo --mode github-hosted-refresh --confirm-write
 ```
@@ -3710,7 +3710,7 @@ The local installer is inside the user's trust boundary. It can read Codex
 Installer network allowlist before `auth.json` is read:
 
 ```text
-reviewrouter.site installer download
+reviewrouter.org installer download
 ReviewRouter setup-session metadata endpoint
 GitHub API through gh / api.github.com
 OpenAI/Codex login endpoints through codex login/smoke
@@ -4178,7 +4178,7 @@ spike shortcut, not the final recommended command.
 ### Installer Bootstrap Root of Trust
 
 The checksum shown by the dashboard and the installer downloaded from
-`reviewrouter.site` usually share the same control plane. That protects against
+`reviewrouter.org` usually share the same control plane. That protects against
 network, CDN, cache, and redirect tampering, but it does not protect against a
 compromised ReviewRouter web app, release account, or signing pipeline.
 
@@ -4232,7 +4232,7 @@ Production release artifact contract:
   "channel": "stable",
   "installer_version": "vX.Y.Z",
   "installer_sha256": "hex",
-  "installer_url": "https://reviewrouter.site/install/codex/vX.Y.Z",
+  "installer_url": "https://reviewrouter.org/install/codex/vX.Y.Z",
   "source_repository": "777genius/review-router",
   "source_commit": "full_sha",
   "release_tag": "vX.Y.Z",
