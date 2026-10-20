@@ -1291,7 +1291,7 @@ describe("ReviewConfigForm", () => {
     expect(
       screen.queryByText(/Uses the built-in ReviewRouter engine/),
     ).toBeNull();
-    choose("Agentic context", /Supplied diff only/);
+    choose("Agentic context", /Disabled/);
     expect(
       screen.getByText(/To use OpenCodeReview, enable Agentic context/),
     ).toBeTruthy();
