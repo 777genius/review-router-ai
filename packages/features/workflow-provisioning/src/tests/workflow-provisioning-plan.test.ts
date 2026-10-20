@@ -100,7 +100,7 @@ describe("stable ReviewRouter installation contract", () => {
   const render = (actionRef: string) =>
     renderAccountGatewayWorkflow({
       actionRef,
-      apiUrl: "https://api.reviewrouter.site",
+      apiUrl: "https://api.reviewrouter.org",
       githubRepositoryId: "123456",
     });
 
@@ -119,7 +119,7 @@ describe("stable ReviewRouter installation contract", () => {
     expect(first.content.match(/required: true/g)).toHaveLength(3);
     expect(readReviewRouterCallerSource(first.content)).toEqual({
       runtimeRef: "workflow-v1",
-      controlPlaneUrl: "https://api.reviewrouter.site",
+      controlPlaneUrl: "https://api.reviewrouter.org",
     });
   });
 

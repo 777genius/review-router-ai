@@ -1,5 +1,5 @@
-const hostedApiUrl = "https://api.reviewrouter.site";
-const hostedWebUrl = "https://reviewrouter.site";
+const hostedApiUrl = "https://api.reviewrouter.org";
+const hostedWebUrl = "https://reviewrouter.org";
 const contactEmail = "quantjumppro@gmail.com";
 const publicGitHubRepoUrl = "https://github.com/777genius/review-router";
 
