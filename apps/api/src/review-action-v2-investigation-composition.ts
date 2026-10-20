@@ -1512,29 +1512,35 @@ async function commitTurn(
       () => d.investigations.commitTurn.execute(command),
     );
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "investigation_lease_fencing_stale"
-    ) {
-      throw failure(
-        412,
-        ReviewActionV2ProtocolErrorCode.StalePrecondition,
-        error.message,
-      );
-    }
-    if (error instanceof ReviewInvestigationDomainError) {
-      throw failure(
-        422,
-        ReviewActionV2ProtocolErrorCode.InvariantViolation,
-        error.code,
-      );
-    }
-    throw error;
+    projectReviewInvestigationTurnCommitFailure(error);
   }
   return {
     statusCode: 201 as const,
     result: present(result, ReviewInvestigationMutationResultStatus.Applied),
   };
+}
+
+export function projectReviewInvestigationTurnCommitFailure(
+  error: unknown,
+): never {
+  if (
+    error instanceof Error &&
+    error.message === "investigation_lease_fencing_stale"
+  ) {
+    throw failure(
+      412,
+      ReviewActionV2ProtocolErrorCode.StalePrecondition,
+      error.message,
+    );
+  }
+  if (error instanceof ReviewInvestigationDomainError) {
+    throw failure(
+      422,
+      ReviewActionV2ProtocolErrorCode.InvariantViolation,
+      error.code,
+    );
+  }
+  throw error;
 }
 
 async function withTurnCommitDiagnosticStage<T>(

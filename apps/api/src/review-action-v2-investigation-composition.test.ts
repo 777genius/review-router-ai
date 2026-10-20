@@ -463,6 +463,16 @@ describe("Review Action v2 investigation composition", () => {
       expectedErrorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
       expectedIssue: "investigation_lease_fencing_stale",
     },
+    ...[
+      "investigation_finding_evidence_invalid",
+      "investigation_finding_evidence_path_invalid",
+      "investigation_finding_evidence_line_invalid",
+    ].map((code) => ({
+      failure: new ReviewInvestigationDomainError(code),
+      expectedStatusCode: 422,
+      expectedErrorCode: ReviewActionV2ProtocolErrorCode.InvariantViolation,
+      expectedIssue: code,
+    })),
     {
       failure: new ReviewInvestigationDomainError(
         "turn_obligation_claim_invalid",
