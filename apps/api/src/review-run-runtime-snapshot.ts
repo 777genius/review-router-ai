@@ -30,6 +30,8 @@ import {
   type VerifiedScmRunIdentity,
 } from "@reviewrouter/features-review-run-control";
 
+import { reviewRunGatewayMaxResponseBytes } from "./account-gateway-run-access";
+
 type RuntimeReader = Pick<
   PrismaClient,
   "reviewConfiguration" | "workspaceAccountBinding"
@@ -64,7 +66,10 @@ export function readServerApprovedReviewRunGatewayPolicy(
           .array(
             z.strictObject({
               profileRef: c.reference,
-              limits: c.limits,
+              limits: c.limits.refine(
+                (limits) =>
+                  limits.outputBytes <= reviewRunGatewayMaxResponseBytes,
+              ),
             }),
           )
           .min(1)
@@ -103,7 +108,10 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       for (const entry of policy?.profiles ?? []) {
         const profileRef = c.reference.parse(entry.profileRef);
         if (profiles.has(profileRef)) throw new Error();
-        profiles.set(profileRef, Object.freeze(c.limits.parse(entry.limits)));
+        const limits = c.limits.parse(entry.limits);
+        if (limits.outputBytes > reviewRunGatewayMaxResponseBytes)
+          throw new Error();
+        profiles.set(profileRef, Object.freeze(limits));
       }
     } catch {
       throw new Error("review_run_gateway_policy_invalid");

@@ -123,10 +123,16 @@ const previousReviewInvestigationCoverageProfileV10 = Object.freeze({
   probePolicyVersion: reviewInvestigationProbePolicyV3,
 } as const);
 
-export const reviewInvestigationCoverageProfileV10 = Object.freeze({
+const base64ReviewInvestigationCoverageProfileV10 = Object.freeze({
   ...previousReviewInvestigationCoverageProfileV10,
   turnPromptContractHash:
     "e73f81f5506c1f9c33510faff8a1a872b439596c694a70753927e84ff3ea0fa1",
+} as const);
+
+export const reviewInvestigationCoverageProfileV10 = Object.freeze({
+  ...base64ReviewInvestigationCoverageProfileV10,
+  turnPromptContractHash:
+    "48a3a67d11904996957416757bc82cdc2e7ddca13510bf9b4a441bd6f946bf82",
 } as const);
 
 export function resolveReviewInvestigationCoverageProfileGeneration(
@@ -179,6 +185,10 @@ export function resolveReviewInvestigationCoverageProfileGeneration(
     [
       ReviewInvestigationCoverageProfileGeneration.V10,
       previousReviewInvestigationCoverageProfileV10,
+    ],
+    [
+      ReviewInvestigationCoverageProfileGeneration.V10,
+      base64ReviewInvestigationCoverageProfileV10,
     ],
     [
       ReviewInvestigationCoverageProfileGeneration.V10,

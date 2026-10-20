@@ -8,10 +8,10 @@
       "probePolicyVersion": "review-investigation-probe-policy.v3",
       "runtimeProfileVersion": "gateway-attested-agent.v1",
       "searchPolicyVersion": "review-investigation-fixed-string-search.v1",
-      "turnPromptContractHash": "e73f81f5506c1f9c33510faff8a1a872b439596c694a70753927e84ff3ea0fa1"
+      "turnPromptContractHash": "48a3a67d11904996957416757bc82cdc2e7ddca13510bf9b4a441bd6f946bf82"
     },
-    "canonicalJson": "{\"coverageContractVersion\":\"review-investigation-coverage.v1\",\"criticPolicyVersion\":\"review-investigation-critic.v2\",\"expansionRulesVersion\":\"review-investigation-expansion.v3\",\"gatewayPolicyVersion\":\"context-gateway-v4\",\"probePolicyVersion\":\"review-investigation-probe-policy.v3\",\"runtimeProfileVersion\":\"gateway-attested-agent.v1\",\"searchPolicyVersion\":\"review-investigation-fixed-string-search.v1\",\"turnPromptContractHash\":\"e73f81f5506c1f9c33510faff8a1a872b439596c694a70753927e84ff3ea0fa1\"}",
-    "sha256": "021acf02bba4c0cc8d194edd921652adf6427bb073798a718520a01b245c5e9a"
+    "canonicalJson": "{\"coverageContractVersion\":\"review-investigation-coverage.v1\",\"criticPolicyVersion\":\"review-investigation-critic.v2\",\"expansionRulesVersion\":\"review-investigation-expansion.v3\",\"gatewayPolicyVersion\":\"context-gateway-v4\",\"probePolicyVersion\":\"review-investigation-probe-policy.v3\",\"runtimeProfileVersion\":\"gateway-attested-agent.v1\",\"searchPolicyVersion\":\"review-investigation-fixed-string-search.v1\",\"turnPromptContractHash\":\"48a3a67d11904996957416757bc82cdc2e7ddca13510bf9b4a441bd6f946bf82\"}",
+    "sha256": "359b9499b5cf7244bc734c2c8f352ce63ea99b285e67136f1214148ef0dd8dba"
   },
   "policy": {
     "value": {

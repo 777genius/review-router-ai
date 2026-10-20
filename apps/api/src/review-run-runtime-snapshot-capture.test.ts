@@ -9,7 +9,10 @@ import {
   ReviewTrustDomain,
   type VerifiedScmRunIdentity,
 } from "@reviewrouter/features-review-run-control";
-import { ProductionReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
+import {
+  readServerApprovedReviewRunGatewayPolicy,
+  ProductionReviewRunRuntimeSnapshot,
+} from "./review-run-runtime-snapshot";
 
 // Capture-level contract for the explicit agentProfileRef admission lane:
 // (1) an invalid or transport-disabled explicit ref denies with
@@ -176,7 +179,7 @@ function fakeRuntimeReader(input: {
   >;
 }
 
-function snapshotSource() {
+function snapshotSource(outputBytes = 196608) {
   return new ProductionReviewRunRuntimeSnapshot(
     {} as PrismaClient,
     {
@@ -187,7 +190,7 @@ function snapshotSource() {
             requests: 2,
             concurrency: 1,
             requestBytes: 4096,
-            outputBytes: 196608,
+            outputBytes,
             tokens: 128,
           },
         },
@@ -291,5 +294,38 @@ describe("ProductionReviewRunRuntimeSnapshot explicit agentProfileRef capture", 
     expect(captured).toMatchObject({
       agent: { profileRef: "codex-default", agentKind: "codex" },
     });
+  });
+});
+
+describe("captured Gateway raw Responses output budget", () => {
+  it.each([1024 * 1024, 8 * 1024 * 1024])(
+    "captures the approved %i byte allowance without upgrading historical limits",
+    async (outputBytes) => {
+      const result = await snapshotSource(outputBytes).capture(
+        captureInput(),
+        readerFor(gatewayPolicyJson({})),
+      );
+      expect(result).toMatchObject({ gateway: { limits: { outputBytes } } });
+    },
+  );
+
+  it("refuses unsupported server policy before any authorization or Gateway request", () => {
+    const limits = {
+      requests: 128,
+      concurrency: 1,
+      requestBytes: 4096,
+      outputBytes: 8 * 1024 * 1024 + 1,
+      tokens: 32768,
+    };
+    expect(() =>
+      readServerApprovedReviewRunGatewayPolicy(
+        JSON.stringify({
+          profiles: [{ profileRef: gatewayProfileRef, limits }],
+        }),
+      ),
+    ).toThrow("review_run_gateway_policy_invalid");
+    expect(() => snapshotSource(limits.outputBytes)).toThrow(
+      "review_run_gateway_policy_invalid",
+    );
   });
 });
