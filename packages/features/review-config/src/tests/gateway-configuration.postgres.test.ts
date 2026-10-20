@@ -100,8 +100,8 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        expect(names).toHaveLength(134);
-        expect(names.at(-1)).toBe("000134_review_provider_kind_v2_ocr");
+        expect(names).toHaveLength(135);
+        expect(names.at(-1)).toBe("000135_review_run_checkout_repository_lock");
         let legacyBefore: unknown;
         for (const name of names) {
           if (name === "000119_review_configuration_gateway_binding") {

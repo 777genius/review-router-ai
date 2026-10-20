@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout134 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout135 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,9 +107,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(134);
+    expect(full).toHaveLength(135);
     expect(manifest(full)).toBe(
-      "sha256:b1cf647d94be3e446de05c85705616ab6b48cfb4b653e5557881971580cb4943",
+      "sha256:2624f6f55b524953b90c99415f1e0b216108e322fdb7b6e2ce539e5ce9935297",
     );
     const old125 = full
       .filter(
@@ -122,6 +122,7 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000131_personal_canonical_unentered_claim" &&
           row.migrationName !== "000132_review_policy_schema_v3" &&
           row.migrationName !== "000134_review_provider_kind_v2_ocr" &&
+          row.migrationName !== "000135_review_run_checkout_repository_lock" &&
           row.migrationName !== "000133_allow_first_time_scm_identity_bind",
         "000132_review_policy_schema_v3",
       )
@@ -145,7 +146,7 @@ describe("canonical release migration transition", () => {
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-26).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-27).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
@@ -172,6 +173,7 @@ describe("canonical release migration transition", () => {
       "000132_review_policy_schema_v3",
       "000133_allow_first_time_scm_identity_bind",
       "000134_review_provider_kind_v2_ocr",
+      "000135_review_run_checkout_repository_lock",
     ]);
     const withoutProviderKey = historicalFull.filter(
       (row) =>
