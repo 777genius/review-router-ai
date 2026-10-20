@@ -20,13 +20,20 @@ export function assertGatewayReviewAgentProfileContextAllowed(
   profiles: readonly GatewayAgentProfileOption[],
 ): void {
   for (const provider of config.providers) {
-    if (provider.authMode !== "codex_account_gateway") continue;
+    if (
+      provider.authMode !== "codex_account_gateway" ||
+      provider.agentProfileRef === undefined
+    )
+      continue;
     const profile = profiles.find(
       (candidate) => candidate.profileRef === provider.agentProfileRef,
     );
     if (!profile) continue;
     const issue = reviewAgentProfileAgenticContextSaveIssue(
-      provider,
+      {
+        agentProfileRef: provider.agentProfileRef,
+        agenticContext: provider.agenticContext,
+      },
       profile.agentKind,
     );
     if (issue !== null) throw new Error(issue);
