@@ -9,7 +9,39 @@ import {
   type SetupPullRequestMergedEventDetail,
 } from "./repository-setup-optimistic-events";
 
-type SetupStep = 1 | 2 | 3 | 4;
+export type SetupStep = 1 | 2 | 3 | 4;
+
+export function repositorySetupStepPillClassName(isComplete: boolean): string {
+  return [
+    "setup-toggle inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs font-semibold uppercase tracking-[0.12em] transition duration-200 ease-out hover:saturate-125",
+    isComplete
+      ? "border-emerald-300/40 bg-emerald-400/[0.09] text-emerald-100 hover:border-emerald-300/60 hover:bg-emerald-400/[0.14]"
+      : "border-cyan-300/25 bg-cyan-300/[0.035] text-cyan-100 hover:border-cyan-300/50 hover:bg-cyan-300/[0.075]",
+  ].join(" ");
+}
+
+export function RepositorySetupStepPillBody({
+  step,
+}: {
+  readonly step: SetupStep;
+}): React.ReactElement {
+  const isComplete = step === 4;
+
+  return (
+    <>
+      <span>Setup</span>
+      <span
+        className={[
+          "text-[0.65rem] tracking-normal",
+          isComplete ? "text-emerald-200/80" : "text-slate-400",
+        ].join(" ")}
+      >
+        {step}/4
+      </span>
+      {isComplete ? <SetupCompleteCheckIcon /> : <SetupDisclosureChevron />}
+    </>
+  );
+}
 
 export function RepositorySetupDisclosureToggle({
   repositoryId,
@@ -36,23 +68,9 @@ export function RepositorySetupDisclosureToggle({
     <label
       htmlFor={disclosureId}
       title={repositorySetupProgressSummary(optimisticStep)}
-      className={[
-        "setup-toggle inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs font-semibold uppercase tracking-[0.12em] transition duration-200 ease-out hover:saturate-125",
-        isComplete
-          ? "border-emerald-300/40 bg-emerald-400/[0.09] text-emerald-100 hover:border-emerald-300/60 hover:bg-emerald-400/[0.14]"
-          : "border-cyan-300/25 bg-cyan-300/[0.035] text-cyan-100 hover:border-cyan-300/50 hover:bg-cyan-300/[0.075]",
-      ].join(" ")}
+      className={repositorySetupStepPillClassName(isComplete)}
     >
-      <span>Setup</span>
-      <span
-        className={[
-          "text-[0.65rem] tracking-normal",
-          isComplete ? "text-emerald-200/80" : "text-slate-400",
-        ].join(" ")}
-      >
-        {optimisticStep}/4
-      </span>
-      {isComplete ? <SetupCompleteCheckIcon /> : <SetupDisclosureChevron />}
+      <RepositorySetupStepPillBody step={optimisticStep} />
     </label>
   );
 }
