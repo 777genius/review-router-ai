@@ -77,7 +77,7 @@ export function DashboardWorkspaceTabs({
       <Tabs.List
         aria-label="Workspace"
         activateOnFocus
-        className="flex items-stretch gap-1 border-b border-white/[0.10]"
+        className="flex shrink-0 items-stretch gap-1 border-b border-white/[0.10]"
       >
         {visibleItems.map((item) => {
           const href = dashboardClientNavigationHref(item.href);
