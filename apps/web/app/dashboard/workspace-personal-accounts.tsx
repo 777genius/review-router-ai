@@ -23,7 +23,12 @@ import { AccountIdentity } from "./account-identity";
 import { AccountUsageLine } from "./account-usage-line";
 import { useOwnAccountsView } from "./accounts-workspace-tabs";
 import { accountsGridColumns } from "./accounts-grid";
-import { accountsCopy, accountStatus } from "./accounts-copy";
+import {
+  accountsCopy,
+  accountStatusInfo,
+  pendingStatusCopy,
+} from "./accounts-copy";
+import { AccountStatusLine } from "./account-status-icon";
 
 import type {
   AccountView,
@@ -64,7 +69,7 @@ function AccountOwner({ account }: { account: AccountView }) {
   const text =
     owner?.kind === "personal"
       ? owner.isViewer
-        ? "Вы"
+        ? "You"
         : owner.handle
           ? `@${owner.handle}`
           : accountsCopy.ownerUnavailable
@@ -73,7 +78,7 @@ function AccountOwner({ account }: { account: AccountView }) {
         : owner?.kind === "operator"
           ? owner.label
           : account.origin === "organization"
-            ? "Этот workspace"
+            ? "This workspace"
             : account.origin === "operator"
               ? "ReviewRouter"
               : accountsCopy.ownerUnavailable;
@@ -82,7 +87,7 @@ function AccountOwner({ account }: { account: AccountView }) {
       {owner?.kind === "personal" && owner.avatarUrl ? (
         <GitHubAccountAvatar
           avatarUrl={owner.avatarUrl}
-          login={owner.handle ?? "Владелец"}
+          login={owner.handle ?? "Owner"}
           altText=""
           size="sm"
         />
@@ -129,7 +134,7 @@ function AccountRowMenu({
             className={accountMenuItemClass}
             onClick={showOwn}
           >
-            Мои подключения
+            {accountsCopy.own}
           </Button>
         </AccountMenuItem>
       ) : null}
@@ -149,7 +154,7 @@ function AccountRowMenu({
             className={accountMenuItemClass}
             onClick={selectDetach}
           >
-            Убрать из этого workspace
+            {accountsCopy.detach}
           </Button>
         </AccountMenuItem>
       ) : null}
@@ -333,27 +338,25 @@ function WorkspacePersonalRows({
             ? "Detachment could not be confirmed. Check the original request."
             : null;
   return (
-    <section aria-label="Доступные подключения">
-      {pages.isPending ? <p role="status">Загрузка подключений...</p> : null}
+    <section aria-label="Available connections">
+      {pages.isPending ? <p role="status">Loading connections...</p> : null}
       {failed ? (
-        <p role="status">
-          Не удалось обновить подключения. Повторите обновление.
-        </p>
+        <p role="status">Connections could not be refreshed. Try again.</p>
       ) : null}
       {!pages.isPending && !failed && !accounts.length ? (
         <p>
           {pages.hasNextPage
-            ? "На загруженных страницах нет доступных подключений."
-            : "Нет доступных подключений."}
+            ? "No available connections on the loaded pages."
+            : "No available connections."}
         </p>
       ) : null}
       <div
         className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
         aria-hidden="true"
       >
-        <span>Аккаунт</span>
-        <span>Владелец</span>
-        <span>Состояние</span>
+        <span>Account</span>
+        <span>Owner</span>
+        <span>Status</span>
         <span />
       </div>
       {(failed ? [] : accounts).map((row) => (
@@ -372,13 +375,15 @@ function WorkspacePersonalRows({
           </div>
           <AccountOwner account={row} />
           <p className="text-sm text-slate-300">
-            {lifecycleActivities.get(row.connectionId) === "delete"
-              ? "Удаляем…"
-              : lifecycleActivities.has(row.connectionId)
-                ? "Подтверждаем изменение"
-                : !row.binding && row.canManage
-                  ? "Не добавлен сюда"
-                  : accountStatus(row)}
+            <AccountStatusLine
+              {...(lifecycleActivities.get(row.connectionId) === "delete"
+                ? { kind: "removing", text: pendingStatusCopy.removing }
+                : lifecycleActivities.has(row.connectionId)
+                  ? { kind: "confirming", text: pendingStatusCopy.confirming }
+                  : !row.binding && row.canManage
+                    ? { kind: "unknown", text: "Not added here" }
+                    : accountStatusInfo(row))}
+            />
           </p>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {!lifecycleActivities.has(row.connectionId) &&
@@ -389,7 +394,7 @@ function WorkspacePersonalRows({
                 className="text-sm text-cyan-200 underline"
                 href={dashboardSectionHref("policy", workspaceId)}
               >
-                Выбрать для отзывов
+                Choose in Models
               </a>
             ) : null}
             <Button
@@ -410,7 +415,7 @@ function WorkspacePersonalRows({
                 })
               }
             >
-              Доступ
+              {accountsCopy.access}
             </Button>
             {managementActions ||
             canDetach ||
@@ -448,7 +453,7 @@ function WorkspacePersonalRows({
           disabled={pages.isFetching || submitting}
           onClick={() => void pages.refetch()}
         >
-          Обновить подключения
+          Refresh connections
         </Button>
         {pages.hasNextPage ? (
           <Button
@@ -457,7 +462,7 @@ function WorkspacePersonalRows({
             disabled={pages.isFetching || submitting}
             onClick={() => void pages.fetchNextPage()}
           >
-            Загрузить ещё
+            Load more
           </Button>
         ) : null}
       </div>
@@ -477,7 +482,7 @@ function WorkspacePersonalRows({
           disabled={submitting || !readDetach}
           onClick={() => void submit(last.request, true)}
         >
-          Проверить исходный запрос
+          Check original request
         </Button>
       ) : null}
       <Dialog.Root
@@ -489,11 +494,13 @@ function WorkspacePersonalRows({
         <Dialog.Portal>
           <Dialog.Backdrop />
           <Dialog.Popup>
-            <Dialog.Title>Доступ · {selection?.label}</Dialog.Title>
+            <Dialog.Title>
+              {accountsCopy.access} · {selection?.label}
+            </Dialog.Title>
             <Dialog.Description>
-              Доступ действует только для отзывов в этой организации. Личный
-              аккаунт и другие организации не изменяются. Владение, учётные
-              данные и управление не передаются.
+              Access only covers reviews in this organization. Your personal
+              account and other organizations stay unchanged. Ownership,
+              credentials, and control are not transferred.
             </Dialog.Description>
             <div className="mt-4 flex gap-2">
               <Button
@@ -501,7 +508,7 @@ function WorkspacePersonalRows({
                 disabled={submitting}
                 onClick={() => setSelection(null)}
               >
-                Закрыть
+                Close
               </Button>
               <Button
                 disabled={!canDetach || submitting || !selection?.request}
@@ -509,7 +516,7 @@ function WorkspacePersonalRows({
                   if (selection?.request) void submit(selection.request);
                 }}
               >
-                Отозвать доступ
+                Revoke access
               </Button>
             </div>
           </Dialog.Popup>

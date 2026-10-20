@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { QueryClient } from "@tanstack/react-query";
+import { accountsCopy } from "./accounts-copy";
 import type { AccountsBootstrap } from "../../src/server/account-gateway-accounts";
 import type {
   PersonalAccountsApi,
@@ -58,11 +59,11 @@ export function PersonalAccountsPanel({
           id="personal-accounts-panel-title"
           className="text-lg font-semibold text-cyan-50"
         >
-          Мои подключения
+          {accountsCopy.own}
         </h3>
         <p className="mt-1 text-sm text-slate-400">
-          Подключите аккаунт один раз и укажите, где им можно пользоваться.
-          Владение и учётные данные остаются личными.
+          Connect an account once and choose where it can be used. Ownership and
+          credentials stay personal.
         </p>
       </div>
       <AccountGatewayControls

@@ -33,7 +33,7 @@ export function GitHubAccountAvatar({
     >
       <img
         src={avatarUrl}
-        alt={altText ?? `Аватар ${login}`}
+        alt={altText ?? `Avatar for ${login}`}
         className="h-full w-full rounded-[inherit] object-cover"
         draggable={false}
         loading="lazy"

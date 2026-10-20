@@ -91,7 +91,7 @@ test("workspace-owned and recipient Models links retain the selected nondefault 
     />,
   );
   expect(recipient).toContain(expected);
-  expect(recipient).toContain("Выбрать для отзывов");
+  expect(recipient).toContain("Choose in Models");
 });
 
 vi.mock("./account-lifecycle-actions", () => ({

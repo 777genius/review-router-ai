@@ -24,7 +24,7 @@ export function AccountUsageLine({
     <div className="mt-2 space-y-1 text-xs text-slate-400">
       {usage.reviews.length ? (
         <p>
-          Выбран для отзывов:{" "}
+          Selected for reviews:{" "}
           {shortList(
             usage.reviews.map((review) =>
               reviewLabel(review.targetKey, review.repositoryName),
@@ -34,7 +34,7 @@ export function AccountUsageLine({
       ) : null}
       {usage.secretRepositories.length ? (
         <p>
-          Секреты CI (общие для профиля):{" "}
+          CI secrets (shared across the profile):{" "}
           {shortList(
             usage.secretRepositories.map((secret) => secret.repositoryName),
           )}
@@ -53,10 +53,10 @@ export function AccountUsageWarning({
     return null;
   return (
     <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-sm leading-6 text-amber-100">
-      <p className="font-medium">Удаление может остановить CI и отзывы.</p>
+      <p className="font-medium">Removal may stop CI and reviews.</p>
       {usage.reviews.length ? (
         <p>
-          Выбран для отзывов:{" "}
+          Selected for reviews:{" "}
           {usage.reviews
             .map((review) =>
               reviewLabel(review.targetKey, review.repositoryName),
@@ -67,10 +67,10 @@ export function AccountUsageWarning({
       ) : null}
       {usage.secretRepositories.length ? (
         <p>
-          Секреты репозиториев общие для профиля и могут использоваться в
-          workflow:{" "}
+          Repository secrets are shared across the profile and can be used in
+          workflows:{" "}
           {usage.secretRepositories
-            .map((secret) => secret.repositoryName ?? "репозиторий недоступен")
+            .map((secret) => secret.repositoryName ?? "repository unavailable")
             .join(", ")}
           .
         </p>

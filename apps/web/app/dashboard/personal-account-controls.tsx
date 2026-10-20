@@ -24,7 +24,13 @@ import { Badge, Button, Checkbox, Dialog } from "@reviewrouter/ui";
 import { AccountIdentity } from "./account-identity";
 import { AccountActionsMenu } from "./account-actions-menu";
 import { accountsGridColumns } from "./accounts-grid";
-import { accountsCopy, accountStatus } from "./accounts-copy";
+import {
+  accountsCopy,
+  accountStatusInfo,
+  pendingStatusCopy,
+  type AccountStatusInfo,
+} from "./accounts-copy";
+import { AccountStatusLine } from "./account-status-icon";
 
 import type { AccountView } from "../../src/server/account-gateway-accounts";
 import { dashboardSectionHref } from "./dashboard-section";
@@ -492,7 +498,7 @@ function PersonalControls({
     if (busyRef.current) return;
     if (choices.some((source) => lifecycleActivities.has(source.sourceId))) {
       setMessage(
-        "Подтверждаем изменение подключения. Новый доступ пока не отправлен.",
+        "Confirming connection change. The new access has not been sent yet.",
       );
       return;
     }
@@ -511,7 +517,7 @@ function PersonalControls({
             ])?.pending
           ) {
             setMessage(
-              "Подтверждаем изменение подключения. Новый доступ пока не отправлен.",
+              "Confirming connection change. The new access has not been sent yet.",
             );
             continue;
           }
@@ -619,7 +625,7 @@ function PersonalControls({
     >
       <details onToggle={(event) => setBulk(event.currentTarget.open)}>
         <summary className="w-fit cursor-pointer text-sm text-slate-400">
-          Поделиться несколькими подключениями
+          Share multiple connections
         </summary>
         {bulk ? (
           <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -674,9 +680,9 @@ function PersonalControls({
           className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
           aria-hidden="true"
         >
-          <span>Аккаунт</span>
-          <span>Где доступен</span>
-          <span>Состояние</span>
+          <span>Account</span>
+          <span>Available in</span>
+          <span>Status</span>
           <span />
         </div>
         <div className="divide-y divide-cyan-200/10">
@@ -694,6 +700,16 @@ function PersonalControls({
               source.profileId !== null &&
               !source.sourceOperationPending &&
               !lifecycleActivities.has(id);
+            const status: AccountStatusInfo =
+              lifecycleActivities.get(id) === "delete" ||
+              (account?.lifecycle?.status === "pending" &&
+                account.lifecycle.action === "delete")
+                ? { kind: "removing", text: pendingStatusCopy.removing }
+                : lifecycleActivities.has(id) || source?.sourceOperationPending
+                  ? { kind: "confirming", text: pendingStatusCopy.confirming }
+                  : account
+                    ? accountStatusInfo(account)
+                    : { kind: "unknown", text: pendingStatusCopy.unknown };
             return (
               <article
                 key={id}
@@ -749,17 +765,7 @@ function PersonalControls({
                 </div>
                 <AccessSummaryChips summary={summaryBySource.get(id)} />
                 <p className="text-sm text-slate-300">
-                  {lifecycleActivities.get(id) === "delete" ||
-                  (account?.lifecycle?.status === "pending" &&
-                    account.lifecycle.action === "delete")
-                    ? "Удаляем…"
-                    : lifecycleActivities.has(id)
-                      ? "Подтверждаем изменение"
-                      : source?.sourceOperationPending
-                        ? "Подтверждаем изменение"
-                        : account
-                          ? accountStatus(account)
-                          : "Результат пока неизвестен"}
+                  <AccountStatusLine {...status} />
                 </p>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   {source ? (
@@ -870,7 +876,7 @@ function AccessSummaryChips({
   return (
     <div
       className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-300"
-      aria-label="Где доступен"
+      aria-label="Available in"
     >
       <AccessChip
         {...(summary?.personalWorkspaceId
@@ -886,6 +892,7 @@ function AccessSummaryChips({
           key={organization.workspaceId}
           href={dashboardSectionHref("setup", organization.workspaceId)}
           title={organization.label}
+          avatarUrl={organization.avatarUrl}
         >
           {organization.label}
         </AccessChip>
@@ -902,14 +909,16 @@ function AccessSummaryChips({
 function AccessChip({
   href,
   title,
+  avatarUrl,
   children,
 }: {
   href?: string | undefined;
   title?: string | undefined;
+  avatarUrl?: string | null | undefined;
   children: ReactNode;
 }) {
   const className =
-    "max-w-48 truncate rounded-full border border-cyan-200/15 bg-white/[0.035] px-2 py-1";
+    "relative max-w-48 truncate rounded-full border border-cyan-200/15 bg-white/[0.035] px-2 py-1";
   return href ? (
     <a
       href={href}
@@ -917,11 +926,33 @@ function AccessChip({
       className={`${className} text-cyan-100 transition-colors hover:border-cyan-200/40 hover:text-cyan-50`}
     >
       {children}
+      <ChipAvatar avatarUrl={avatarUrl} />
     </a>
   ) : (
     <span className={className} title={title}>
       {children}
+      <ChipAvatar avatarUrl={avatarUrl} />
     </span>
+  );
+}
+
+// Mini org picture pinned to the chip corner, flush against it.
+function ChipAvatar({
+  avatarUrl,
+}: {
+  avatarUrl?: string | null | undefined;
+}): React.ReactElement | null {
+  if (!avatarUrl) return null;
+  return (
+    <img
+      src={avatarUrl}
+      alt=""
+      aria-hidden="true"
+      className="absolute -right-1.5 -top-1.5 size-3.5 rounded-full object-cover ring-2 ring-[var(--rr-page-bg)]"
+      draggable={false}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+    />
   );
 }
 
@@ -1187,18 +1218,20 @@ function WorkspaceAccess({
     >
       <Dialog.Trigger
         render={<Button variant="outline" size="sm" />}
-        aria-label={`Доступ: ${source.label}`}
+        aria-label={`Access: ${source.label}`}
       >
-        Доступ
+        {accountsCopy.access}
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop />
         <Dialog.Popup initialFocus={closeRef} className="w-[min(92vw,44rem)]">
-          <Dialog.Title>Доступ · {source.label}</Dialog.Title>
+          <Dialog.Title>
+            {accountsCopy.access} · {source.label}
+          </Dialog.Title>
           <Dialog.Description>
-            Личный доступ остаётся постоянным. Доступ в организации действует
-            только для отзывов и не передаёт владение, учётные данные или
-            управление подключением.
+            Personal access stays permanent. Organization access only covers
+            reviews; it never transfers ownership, credentials, or connection
+            control.
           </Dialog.Description>
           {message ? (
             <p role="status" className="mt-3 text-sm text-cyan-100">
@@ -1207,10 +1240,10 @@ function WorkspaceAccess({
           ) : null}
           <div className="mt-4 space-y-3">
             <div className="flex items-center justify-between border-b border-cyan-200/10 py-3">
-              <span>Личный workspace</span>
-              <Badge tone="neutral">Ваш аккаунт</Badge>
+              <span>Personal workspace</span>
+              <Badge tone="neutral">Your account</Badge>
             </div>
-            <h4 className="font-medium">Текущий доступ</h4>
+            <h4 className="font-medium">Current access</h4>
             {grants.isPending ? <p role="status">Loading access...</p> : null}
             {grantFailure ? (
               <p role="status">
@@ -1247,20 +1280,20 @@ function WorkspaceAccess({
                 >
                   <div className="min-w-0">
                     <p className="break-words">
-                      {grant.organizationLabel ?? "Workspace недоступен"}
+                      {grant.organizationLabel ?? "Workspace unavailable"}
                       {grant.organizationLabel &&
                       grant.targetWorkspaceId === currentWorkspace
-                        ? " · текущий workspace"
+                        ? " · current workspace"
                         : ""}
                     </p>
                     <p className="mt-1 text-sm text-slate-400">
                       {grant.remoteFenceDelivery === "remote_pending"
                         ? grant.state === "revoked"
-                          ? "Доступ отозван локально; подтверждение Gateway ожидается"
-                          : "Подтверждение Gateway ожидается; доступность не подтверждена"
+                          ? "Access revoked locally; Gateway confirmation is pending"
+                          : "Gateway confirmation is pending; availability is not confirmed"
                         : grant.state === "active"
-                          ? "Доступ сохранён в этом workspace"
-                          : "Прежний доступ отозван"}
+                          ? "Access kept in this workspace"
+                          : "Previous access revoked"}
                     </p>
                     {grant.state === "active" &&
                     grant.remoteFenceDelivery !== "remote_pending" &&
@@ -1272,7 +1305,7 @@ function WorkspaceAccess({
                           grant.targetWorkspaceId,
                         )}
                       >
-                        Выбрать для отзывов
+                        Choose in Models
                       </a>
                     ) : null}
                   </div>
@@ -1288,7 +1321,7 @@ function WorkspaceAccess({
                       }
                       onClick={() => void revoke(source, grant)}
                     >
-                      Убрать доступ
+                      Remove access
                     </Button>
                   ) : null}
                 </div>
@@ -1305,11 +1338,12 @@ function WorkspaceAccess({
             ) : null}
             <details className="border-t border-cyan-200/10 pt-3">
               <summary className="cursor-pointer text-sm text-slate-300">
-                История отозванного доступа
+                Revoked access history
               </summary>
               <p className="mt-2 text-xs text-slate-400">
-                Если название организации недоступно, запись показана как
-                «Workspace недоступен». Владелец источника может отозвать её.
+                If the organization name is unavailable, the entry shows as
+                &quot;Workspace unavailable&quot;. The source owner can revoke
+                it.
               </p>
               <div className="mt-2">
                 {(grantFailure ? [] : rows)
@@ -1324,9 +1358,9 @@ function WorkspaceAccess({
                       className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan-200/10 py-2 text-sm"
                     >
                       <span>
-                        {grant.organizationLabel ?? "Workspace недоступен"}
+                        {grant.organizationLabel ?? "Workspace unavailable"}
                         <span className="block text-xs text-slate-400">
-                          Прежний доступ отозван
+                          Previous access revoked
                         </span>
                       </span>
                       {grant.canRevoke ? (
@@ -1336,14 +1370,14 @@ function WorkspaceAccess({
                           disabled={disabled || grants.isFetching}
                           onClick={() => void revoke(source, grant)}
                         >
-                          Отозвать точную запись
+                          Revoke exact entry
                         </Button>
                       ) : null}
                     </div>
                   ))}
               </div>
             </details>
-            <h4 className="pt-2 font-medium">Добавить организацию</h4>
+            <h4 className="pt-2 font-medium">Add organization</h4>
             {organizations.isPending ? (
               <p role="status">Loading eligible organizations...</p>
             ) : null}
@@ -1356,7 +1390,7 @@ function WorkspaceAccess({
             !targetFailure &&
             !newTargets.length ? (
               <p className="text-sm text-slate-400">
-                Нет других подходящих организаций.
+                No other eligible organizations.
               </p>
             ) : null}
             {[...(targetFailure ? [] : newTargets)]
@@ -1393,7 +1427,7 @@ function WorkspaceAccess({
                     }
                     onClick={() => void share([target])}
                   >
-                    Добавить
+                    Add
                   </Button>
                 </div>
               ))}
@@ -1409,19 +1443,19 @@ function WorkspaceAccess({
             ) : null}
             {!canAdd ? (
               <p className="text-sm text-slate-400">
-                Сейчас это подключение нельзя расшарить. Разрешённый
-                существующий доступ можно отозвать.
+                This connection cannot be shared right now. Existing allowed
+                access can still be revoked.
               </p>
             ) : null}
             <p className="text-xs text-slate-400">
-              Перед добавлением загрузите все страницы доступа. Личный workspace
-              отделён от организаций. Результаты запросов остаются ниже после
-              закрытия окна.
+              Load all access pages before adding. Personal workspace is
+              separate from organizations. Request results stay below after the
+              dialog closes.
             </p>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Dialog.Close render={<Button ref={closeRef} variant="outline" />}>
-              Закрыть
+              Close
             </Dialog.Close>
             <Button
               variant="ghost"
@@ -1431,7 +1465,7 @@ function WorkspaceAccess({
                 void Promise.all([grants.refetch(), organizations.refetch()])
               }
             >
-              Обновить доступ
+              Refresh access
             </Button>
           </div>
         </Dialog.Popup>
@@ -1566,7 +1600,7 @@ function OperationStatus({
             {source.label} ·{" "}
             {grant?.organizationLabel ??
               pendingOrganization?.label ??
-              "Workspace недоступен"}
+              "Workspace unavailable"}
           </span>
         ) : null}
         Request {nonce.slice(0, 8)}:{" "}

@@ -35,7 +35,7 @@ test.describe("Accounts UX reference browser contract", () => {
     await useViewerSession(context);
     await openAccounts(page, "rr-e2e-personal-viewer");
     await expect(
-      page.getByRole("heading", { name: "Мои подключения" }),
+      page.getByRole("heading", { name: "My connections" }),
     ).toBeVisible();
     await expect(
       page.getByText("RR E2E Viewer Primary", { exact: true }),
@@ -68,7 +68,7 @@ test.describe("Accounts UX reference browser contract", () => {
     await expect(
       page
         .getByRole("tab")
-        .filter({ hasText: /Мои подключения|Доступные в этом workspace/ }),
+        .filter({ hasText: /My connections|Available in this workspace/ }),
     ).toHaveCount(0);
     await expectNetworkViolations(violations);
   });
@@ -91,7 +91,7 @@ test.describe("Accounts UX reference browser contract", () => {
       await expect(sourceRow(page, label, region)).toHaveCount(1);
     }
     const viewerRow = sourceRow(page, "RR E2E Viewer Primary", region);
-    await expect(viewerRow.getByText(/^Вы$/)).toBeVisible();
+    await expect(viewerRow.getByText(/^You$/)).toBeVisible();
     await expect(viewerRow.locator('img[alt=""]')).toHaveCount(1);
     await expect(viewerRow.getByText(/rr-e2e-other-person/i)).toHaveCount(0);
     await expect(
@@ -125,7 +125,7 @@ test.describe("Accounts UX reference browser contract", () => {
         ]),
       );
       await region
-        .getByRole("button", { name: "Обновить подключения", exact: true })
+        .getByRole("button", { name: "Refresh connections", exact: true })
         .last()
         .click();
       await expect(
@@ -163,7 +163,7 @@ test.describe("Accounts UX reference browser contract", () => {
       await page.setViewportSize(size);
       await openAccounts(page, "rr-e2e-personal-viewer");
       const trigger = sourceRow(page, "RR E2E Viewer Primary")
-        .getByRole("button", { name: /^Доступ:/ })
+        .getByRole("button", { name: /^Access:/ })
         .first();
       await trigger.click();
       const dialog = dialogFor(page);
@@ -203,7 +203,7 @@ test.describe("Accounts UX reference browser contract", () => {
         );
         expect(overlayHit).toBe(true);
       }
-      await dialog.getByRole("button", { name: /^Закрыть$/ }).click();
+      await dialog.getByRole("button", { name: /^Close$/ }).click();
       await expect(dialog).toHaveCount(0);
       await expect(trigger).toBeFocused();
       expect(posts).toEqual([]);
@@ -225,7 +225,7 @@ test.describe("Accounts UX reference browser contract", () => {
     await useViewerSession(context);
     await openAccounts(page, "rr-e2e-personal-viewer");
     const trigger = sourceRow(page, "RR E2E Viewer Primary")
-      .getByRole("button", { name: /^Доступ:/ })
+      .getByRole("button", { name: /^Access:/ })
       .first();
     await trigger.click();
     const dialog = dialogFor(page);
@@ -233,7 +233,7 @@ test.describe("Accounts UX reference browser contract", () => {
     const alphaGrant = dialog
       .getByText("RR E2E Org Alpha", { exact: true })
       .locator("xpath=../..");
-    await alphaGrant.getByRole("button", { name: /^Убрать доступ$/ }).click();
+    await alphaGrant.getByRole("button", { name: /^Remove access$/ }).click();
     await expect
       .poll(async () =>
         withDatabase(
@@ -453,48 +453,41 @@ test.describe("Accounts UX reference browser contract", () => {
     await openAccounts(page, "rr-e2e-org-alpha");
     await page.getByRole("tab", { name: /RR E2E Org Bravo/ }).click();
     await expect(
-      page.getByText("Подключения, доступные для RR E2E Org Bravo.", {
+      page.getByText("Connections available for RR E2E Org Bravo.", {
         exact: false,
       }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "Аккаунты", exact: true }),
-    ).toBeVisible();
+    // The heading was removed on purpose (UX batch 3); the Accounts region is
+    // the page's top anchor and must stay clear of the workspace bar.
+    const accountsRegion = page.getByRole("region", { name: "Accounts" });
+    await expect(accountsRegion).toBeVisible();
     await page.evaluate(() => {
       location.hash = "dashboard-section-content";
     });
-    await expect(
-      page.getByRole("heading", { name: "Аккаунты", exact: true }),
-    ).toBeVisible();
-    const contentHeading = page.getByRole("heading", {
-      name: "Accounts",
-      exact: true,
-    });
+    await expect(accountsRegion).toBeVisible();
     await expect
       .poll(async () => {
-        const heading = await contentHeading.boundingBox();
+        const region = await accountsRegion.boundingBox();
         const bar = await page
           .locator("#dashboard-workspace-bar")
           .boundingBox();
-        return heading && bar ? heading.y - (bar.y + bar.height) : -1;
+        return region && bar ? region.y - (bar.y + bar.height) : -1;
       })
       .toBeGreaterThanOrEqual(0);
     await page.goBack();
     await expect(
-      page.getByText("Подключения, доступные для RR E2E Org Bravo.", {
+      page.getByText("Connections available for RR E2E Org Bravo.", {
         exact: false,
       }),
     ).toBeVisible();
     await page.goBack();
     await expect(
-      page.getByText("Подключения, доступные для RR E2E Org Alpha.", {
+      page.getByText("Connections available for RR E2E Org Alpha.", {
         exact: false,
       }),
     ).toBeVisible();
     await page.goForward();
-    await expect(
-      page.getByRole("heading", { name: "Аккаунты", exact: true }),
-    ).toBeVisible();
+    await expect(accountsRegion).toBeVisible();
     await context.clearCookies();
     await useOtherSession(context);
     await openAccounts(page, "rr-e2e-personal-other");
@@ -516,23 +509,21 @@ test.describe("Accounts UX reference browser contract", () => {
     await useViewerSession(context);
     await openAccounts(page, "rr-e2e-personal-viewer");
     const legacy = sourceRow(page, "RR E2E Legacy Disabled");
-    await legacy.getByRole("button", { name: /Действия для/ }).click();
+    await legacy.getByRole("button", { name: /Actions for/ }).click();
     // Retired sources intentionally expose no management items; an empty menu
     // need not acquire an accessible role. The forbidden actions stay absent.
-    await expect(
-      legacy.getByText("Отключен навсегда", { exact: true }),
-    ).toBeVisible();
+    await expect(legacy.getByText("Retired", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("menuitem", {
-        name: /Enable|Включить|Disable|Выключить|Reconnect|переподключ/i,
+        name: /Enable|Disable|Reconnect|Update API key|Refresh Codex|Connect Codex/i,
       }),
     ).toHaveCount(0);
     await page.keyboard.press("Escape");
+    await expect(legacy.getByRole("button", { name: /Enable/i })).toHaveCount(
+      0,
+    );
     await expect(
-      legacy.getByRole("button", { name: /Enable|Включить/i }),
-    ).toHaveCount(0);
-    await expect(
-      legacy.getByRole("button", { name: /^(Disable|Retire|Выключить)$/i }),
+      legacy.getByRole("button", { name: /^(Disable|Retire)$/i }),
     ).toHaveCount(0);
     const suspended = sourceRow(page, "RR E2E Suspended Capable");
     const posts: string[] = [];
@@ -540,22 +531,22 @@ test.describe("Accounts UX reference browser contract", () => {
       if (request.method() === "POST")
         posts.push(new URL(request.url()).pathname);
     });
-    const menuTrigger = suspended.getByRole("button", { name: /Действия для/ });
+    const menuTrigger = suspended.getByRole("button", { name: /Actions for/ });
     await menuTrigger.click();
     await expect(menuTrigger).toHaveAttribute("aria-expanded", "true");
     const resume = page.getByRole("menuitem", {
-      name: "Включить",
+      name: "Enable",
       exact: true,
     });
     await expect(resume).toBeVisible();
     await expect(
-      page.getByRole("menuitem", { name: "Выключить", exact: true }),
+      page.getByRole("menuitem", { name: "Disable", exact: true }),
     ).toHaveCount(0);
     await resume.click();
     const confirmation = page.getByRole("dialog");
     await expect(confirmation).toBeVisible();
     const cancel = confirmation.getByRole("button", {
-      name: "Отмена",
+      name: "Cancel",
       exact: true,
     });
     await expect(cancel).toBeFocused();

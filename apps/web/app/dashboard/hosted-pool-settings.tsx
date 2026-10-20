@@ -137,7 +137,7 @@ export function HostedPoolSettingsPanel({
           </p>
           {poolRepositories.length ? (
             <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-400 break-words">
-              Где используется пул:{" "}
+              Where the pool is used:{" "}
               {poolRepositories
                 .slice(0, 3)
                 .map((repository) => repository.fullName)
@@ -145,8 +145,8 @@ export function HostedPoolSettingsPanel({
               {poolRepositories.length > 3
                 ? ` +${poolRepositories.length - 3}`
                 : ""}
-              . Удаление последнего готового аккаунта остановит отзывы в этих
-              репозиториях.
+              . Removing the last ready account will stop reviews in these
+              repositories.
             </p>
           ) : null}
         </div>
