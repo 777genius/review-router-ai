@@ -18,6 +18,10 @@ const mocks = vi.hoisted(() => ({
   isWorkflowSetupAlreadyCurrent: vi.fn(),
   resolveReviewRuntimeEnv: vi.fn(),
   provisionGatewayReviewV2Repository: vi.fn(),
+  loadGatewayAgentProfileOptions: vi.fn(),
+}));
+vi.mock("../../src/server/gateway-agent-profile-options", () => ({
+  loadGatewayAgentProfileOptions: mocks.loadGatewayAgentProfileOptions,
 }));
 vi.mock("../../src/server/prisma-gateway-review-v2-provisioning", () => ({
   provisionGatewayReviewV2Repository: mocks.provisionGatewayReviewV2Repository,
@@ -176,6 +180,7 @@ describe("dashboard setup PR recovery", () => {
   });
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.loadGatewayAgentProfileOptions.mockReturnValue([]);
     vi.stubEnv(
       "REVIEW_ROUTER_ACTION_REF",
       `777genius/review-router@${"a".repeat(40)}`,
@@ -355,6 +360,44 @@ describe("dashboard setup PR recovery", () => {
       }
     },
   );
+
+  it("rejects a direct OCR policy save without native context before persistence", async () => {
+    mocks.getPrisma.mockReturnValue({});
+    mocks.assertDashboardMutationAllowed.mockResolvedValue({
+      actor: "user:admin",
+    });
+    mocks.readReviewConfigurationForm.mockReturnValue({
+      ...workspacePolicyFixture,
+      providers: [
+        {
+          kind: "codex",
+          authMode: "codex_account_gateway",
+          model: "mimo-v2.6-pro",
+          gatewayBindingId: "binding-1",
+          gatewayProfileRef: "profile-1",
+          agentProfileRef: "ocr-managed-v2",
+          agenticContext: false,
+          reasoningEffort: "high",
+          fastMode: false,
+          requiredHealthy: true,
+        },
+      ],
+    });
+    mocks.loadGatewayAgentProfileOptions.mockReturnValue([
+      {
+        profileRef: "ocr-managed-v2",
+        agentKind: "ocr",
+        label: "OCR",
+        description: "OCR",
+      },
+    ]);
+    const formData = new FormData();
+    formData.set("workspaceId", "workspace_1");
+    const result = await saveWorkspaceReviewConfigClientAction(formData);
+    expect(result.params.error).toBe("agent_profile_requires_agentic_context");
+    expect(mocks.saveReviewConfiguration).not.toHaveBeenCalled();
+    expect(mocks.assertDashboardMutationAllowed).toHaveBeenCalled();
+  });
 
   it("saves a workspace MiMo review configuration without an operator grant", async () => {
     const provider = {

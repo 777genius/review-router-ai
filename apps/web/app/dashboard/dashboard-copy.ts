@@ -438,6 +438,8 @@ export function dashboardErrorText(error: string): string {
       return "Gateway setup requires the reusable workflow style and review discussions turned off. Update these options and try again.";
     case "gateway_review_reasoning_effort_unsupported":
       return "The selected Gateway model does not support this reasoning effort. Choose a supported reasoning effort in review settings and save again.";
+    case "agent_profile_requires_agentic_context":
+      return "OpenCodeReview needs native repository context. Enable Agentic context or choose a compatible ReviewRouter profile before saving.";
     case "gateway_review_v2_inventory_retry":
       return "GitHub is still calculating pull request mergeability, or branches changed during the workflow check. Wait a minute, then click “I merged it” again to check the setup.";
     case "gateway_review_v2_workflow_incompatible":

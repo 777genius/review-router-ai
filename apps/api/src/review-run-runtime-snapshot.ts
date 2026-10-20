@@ -196,6 +196,16 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       selected?.provider.authMode === "codex_account_gateway"
         ? selected.provider.agentProfileRef
         : undefined;
+    // A stale workflow transport is changed admission facts, not a bad engine.
+    if (
+      configuration.providers.some(
+        (provider) =>
+          (provider.authMode === "codex_account_gateway"
+            ? "account_gateway"
+            : "provider_api") !== modelTransport,
+      )
+    )
+      return null;
     let agent: ReviewAgentProfile;
     try {
       agent =
@@ -214,15 +224,6 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
                   this.agentProfileRef,
                   modelTransport,
                 );
-      const transports = configuration.providers.map((provider) =>
-        provider.authMode === "codex_account_gateway"
-          ? ("account_gateway" as const)
-          : ("provider_api" as const),
-      );
-      if (transports.some((transport) => transport !== modelTransport))
-        return explicitAgentProfileRef !== undefined
-          ? { captureDenied: "agent_profile_unavailable" }
-          : null;
     } catch {
       return explicitAgentProfileRef !== undefined ||
         modelTransport === "account_gateway"

@@ -229,6 +229,14 @@ function readerFor(policyJson: string) {
 }
 
 describe("ProductionReviewRunRuntimeSnapshot explicit agentProfileRef capture", () => {
+  it("treats a stale workflow transport as changed facts before resolving an explicit engine", async () => {
+    expect(
+      await snapshotSource().capture(
+        { ...captureInput(), modelTransport: "provider_api" },
+        readerFor(gatewayPolicyJson({ agentProfileRef: "missing-profile" })),
+      ),
+    ).toBeNull();
+  });
   it("denies an unresolvable explicit ref with agent_profile_unavailable and never falls back to the configured default", async () => {
     const source = snapshotSource();
     // Discriminating by construction: the process default ("codex-default")

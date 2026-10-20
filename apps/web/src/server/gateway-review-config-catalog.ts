@@ -3,12 +3,35 @@ import type {
   ReviewProviderConfiguration,
 } from "@reviewrouter/features-review-config";
 import type { AccountProfileView } from "./account-gateway-accounts";
+import { reviewAgentProfileAgenticContextSaveIssue } from "@reviewrouter/features-review-config/review-configuration";
+import type { GatewayAgentProfileOption } from "./gateway-agent-profile-options";
 import { gatewayModelSupportsReasoningEffort } from "../features/account-gateway/review-reasoning-capabilities";
 
 type GatewaySelection = Extract<
   ReviewProviderConfiguration,
   { authMode: "codex_account_gateway" }
 >;
+
+/** Apply known engine capabilities after authorization, before either policy write.
+ * Unknown saved refs remain readable/preservable; admission resolves them exactly.
+ */
+export function assertGatewayReviewAgentProfileContextAllowed(
+  config: Pick<ReviewConfiguration, "providers">,
+  profiles: readonly GatewayAgentProfileOption[],
+): void {
+  for (const provider of config.providers) {
+    if (provider.authMode !== "codex_account_gateway") continue;
+    const profile = profiles.find(
+      (candidate) => candidate.profileRef === provider.agentProfileRef,
+    );
+    if (!profile) continue;
+    const issue = reviewAgentProfileAgenticContextSaveIssue(
+      provider,
+      profile.agentKind,
+    );
+    if (issue !== null) throw new Error(issue);
+  }
+}
 
 export function isGatewayReviewModelSupported(
   selection: GatewaySelection,
