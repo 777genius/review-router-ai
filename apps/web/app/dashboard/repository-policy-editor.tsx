@@ -18,6 +18,7 @@ import * as RadixSelect from "@radix-ui/react-select";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
+  reviewAgentProfileRequiresAgenticContext,
   reviewProviderConfigurationSchema,
   type ReviewConfiguration,
   type RepositoryReviewPolicyOverride,
@@ -295,9 +296,14 @@ function agentProfileAgenticContextViolation(
   const agentKind = agentProfileOptions.find(
     (option) => option.profileRef === provider.agentProfileRef,
   )?.agentKind;
-  return agentKind === "ocr"
+  // The save rule matches admission: only an OCR-eligible engine selection is
+  // incompatible beside supplied-diff-only (native context tools). Explicit
+  // codex/claude selections and unresolvable refs must save; admission answers
+  // those with its own actionable error.
+  return agentKind !== undefined &&
+    reviewAgentProfileRequiresAgenticContext(agentKind)
     ? "The selected OpenCodeReview profile runs with native context tools and needs Agentic context enabled. A supplied-diff-only review cannot be promised beside this engine. Set Agentic context to Enabled before saving."
-    : "The selected review agent profile needs Agentic context enabled before it can run. Set Agentic context to Enabled before saving.";
+    : null;
 }
 
 type DashboardSelectOption = {
@@ -1494,8 +1500,8 @@ export function ReviewConfigForm({
     providers.some(
       (provider) =>
         provider.authMode === "codex_account_gateway" &&
-        provider.agentProfileRef !== undefined &&
-        provider.agenticContext === false,
+        agentProfileAgenticContextViolation(provider, agentProfileOptions) !==
+          null,
     );
   const gatewaySingleProviderViolation =
     !providersInherited && hasGateway && providers.length !== 1;

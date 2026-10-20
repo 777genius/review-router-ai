@@ -14,6 +14,7 @@ import {
   PrismaReviewConfigurationRepository,
   resolveReviewConfiguration,
   resolveReviewRuntimeEnv,
+  reviewAgentProfileAgenticContextSaveIssue,
   saveReviewConfiguration,
 } from "../index";
 
@@ -1050,18 +1051,76 @@ it("keeps an allowlisted engine selection beside native agentic context", () => 
   });
 });
 
-// The user keeps the "supplied diff only" promise; an explicit engine selection
-// requiring native context tools is never saved beside agenticContext=false.
-it("refuses an engine selection that would silently drop native agentic context", () => {
-  expect(() =>
-    parseReviewConfigurationStrict(
-      gatewayConfigInput({
-        ...gatewayProvider,
-        agenticContext: false,
-        agentProfileRef: "approved-ocr",
-      }),
+// Admission treats an explicit engine selection beside supplied-diff-only as
+// incompatible only for OCR (agent_profile_uncompatible before any inference).
+// The saved policy stays readable for every agent kind so admission can answer
+// with its own actionable error instead of a resave failure, while the per-kind
+// save rule matching admission still requires native context for OCR.
+it("keeps an explicit OCR engine selection readable beside supplied-diff-only for admission", () => {
+  const config = parseReviewConfigurationStrict(
+    gatewayConfigInput({
+      ...gatewayProvider,
+      agenticContext: false,
+      agentProfileRef: "approved-ocr",
+    }),
+  );
+  expect(config.providers[0]!).toMatchObject({
+    authMode: "codex_account_gateway",
+    agentProfileRef: "approved-ocr",
+    agenticContext: false,
+  });
+});
+
+it("accepts an explicit non-OCR engine selection beside supplied-diff-only", () => {
+  const config = parseReviewConfigurationStrict(
+    gatewayConfigInput({
+      ...gatewayProvider,
+      agenticContext: false,
+      agentProfileRef: "approved-codex",
+    }),
+  );
+  expect(config.providers[0]!).toMatchObject({
+    authMode: "codex_account_gateway",
+    agentProfileRef: "approved-codex",
+    agenticContext: false,
+  });
+});
+
+// The per-kind save rule matching admission: the explicit selection beside
+// supplied-diff-only is rejected ONLY for OCR-eligible refs (the resolved
+// agent kind admission also treats as incompatible), with the accurate
+// machine message; codex/claude explicit refs must save. Before the narrowing
+// the blanket schema rule rejected every explicit ref here.
+it("rejects an explicit engine selection beside supplied-diff-only only for the OCR kind", () => {
+  const suppliedDiffOnly = { agenticContext: false } as const;
+  expect(
+    reviewAgentProfileAgenticContextSaveIssue(
+      { ...suppliedDiffOnly, agentProfileRef: "approved-ocr" },
+      "ocr",
     ),
-  ).toThrow("agent_profile_requires_agentic_context");
+  ).toBe("agent_profile_requires_agentic_context");
+  expect(
+    reviewAgentProfileAgenticContextSaveIssue(
+      { ...suppliedDiffOnly, agentProfileRef: "approved-codex" },
+      "codex",
+    ),
+  ).toBeNull();
+  expect(
+    reviewAgentProfileAgenticContextSaveIssue(
+      { ...suppliedDiffOnly, agentProfileRef: "approved-claude" },
+      "claude",
+    ),
+  ).toBeNull();
+  // Native agentic context and the implicit default never trigger the rule.
+  expect(
+    reviewAgentProfileAgenticContextSaveIssue(
+      { agenticContext: true, agentProfileRef: "approved-ocr" },
+      "ocr",
+    ),
+  ).toBeNull();
+  expect(
+    reviewAgentProfileAgenticContextSaveIssue(suppliedDiffOnly, "ocr"),
+  ).toBeNull();
 });
 
 it.each([

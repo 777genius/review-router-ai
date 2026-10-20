@@ -171,9 +171,42 @@ const codexLaneOther: ProviderVoteLane = {
   providerKind: ReviewProviderKind.Codex,
   providerVoteIdentityHash: hashB,
 };
+const claudeLane: ProviderVoteLane = {
+  providerKind: ReviewProviderKind.ClaudeCode,
+  providerVoteIdentityHash: hashB,
+};
 const ocrLane: ProviderVoteLane = {
   providerKind: ReviewProviderKind.Ocr,
   providerVoteIdentityHash: hashC,
+};
+
+/** Optional RR investigation participation capability, exactly as the
+ * run-control composition binds it from a release investigation profile. */
+function optionalInvestigationDescriptor(
+  providerCapabilities: readonly {
+    readonly providerKind: "codex" | "claude_code";
+    readonly capabilities: readonly string[];
+  }[],
+) {
+  return {
+    authorizationDescriptorVersion: 3 as const,
+    capability: "review_investigation_v1",
+    coverageProfileHash: hashA,
+    extensionCanonicalizerDigest: hashB,
+    extensionId: "review_investigation_extension_v1",
+    extensionSchemaDigest: hashC,
+    policyHash: hashA,
+    providerCapabilities,
+  };
+}
+
+const codexCapabilityRow = {
+  providerKind: "codex" as const,
+  capabilities: ["recording"],
+};
+const claudeCapabilityRow = {
+  providerKind: "claude_code" as const,
+  capabilities: ["recording"],
 };
 
 describe("ReviewRunAuthorization engine admission lanes", () => {
@@ -253,36 +286,33 @@ describe("ReviewRunAuthorization engine admission lanes", () => {
     });
   });
 
-  it("binds the OCR safety target and refuses a leftover Codex investigation capability", async () => {
+  it("binds the OCR safety target and stores no optional investigation descriptor for the OCR lane", async () => {
     const snapshots = new FakeRuntimeSnapshots((input) =>
       snapshotFor(ocrAgent, input.deadline),
     );
     const { fixture, safety, useCase } = await admissionSetup(snapshots);
 
-    await expect(
-      useCase.authorizeReviewRun(
-        inputFor(fixture, {
-          providerVoteLanes: [codexLane, ocrLane],
-          reviewInvestigationAuthorizationDescriptorCanonicalJson:
-            canonicalJson({ investigation: "codex-descriptor" }),
-        }),
-      ),
-    ).resolves.toEqual({
-      status: ReviewRunAuthorizationUseCaseStatus.Denied,
-      reason: ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible,
-    });
-
+    // §4.1.1 step 5: with the spec's mixed [codex, ocr] allowlist and a
+    // release investigation profile, the precomputed descriptor is optional
+    // participation eligibility only. The OCR lane must be ADMITTED with an
+    // absent descriptor — the precomputed Codex capability is dropped, never
+    // rejected.
     const result = authorizationOf(
       await useCase.authorizeReviewRun(
         inputFor(fixture, {
           providerVoteLanes: [codexLane, ocrLane],
-          reviewInvestigationAuthorizationDescriptorCanonicalJson: null,
+          reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson(
+            optionalInvestigationDescriptor([codexCapabilityRow]),
+          ),
         }),
       ),
     );
+
     expect(result.status).toBe(ReviewRunAuthorizationUseCaseStatus.Authorized);
+    expect(result.authorization.providerVoteLanes).toEqual([ocrLane]);
     expect(
-      result.authorization.reviewInvestigationAuthorizationDescriptorCanonicalJson,
+      result.authorization
+        .reviewInvestigationAuthorizationDescriptorCanonicalJson,
     ).toBeNull();
     // The provider/task safety target follows the selected OCR lane only.
     for (const target of safety.targets)
@@ -292,6 +322,61 @@ describe("ReviewRunAuthorization engine admission lanes", () => {
           taskKind: ReviewTaskKind.CodeReview,
         },
       ]);
+  });
+
+  it("still rejects a mandatory investigation policy the captured OCR engine cannot satisfy", async () => {
+    const snapshots = new FakeRuntimeSnapshots((input) =>
+      snapshotFor(ocrAgent, input.deadline),
+    );
+    const { fixture, useCase } = await admissionSetup(snapshots);
+
+    // Rejection is reserved for a mandatory investigation policy demand that
+    // cannot be recognized as optional participation eligibility: §4.2 rejects
+    // the incompatible combination before inference instead of weakening it.
+    await expect(
+      useCase.authorizeReviewRun(
+        inputFor(fixture, {
+          providerVoteLanes: [codexLane, ocrLane],
+          reviewInvestigationAuthorizationDescriptorCanonicalJson:
+            canonicalJson({ investigation: "mandatory-policy" }),
+        }),
+      ),
+    ).resolves.toEqual({
+      status: ReviewRunAuthorizationUseCaseStatus.Denied,
+      reason: ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible,
+    });
+  });
+
+  it("binds the investigation descriptor to the selected lane only", async () => {
+    const snapshots = new FakeRuntimeSnapshots((input) =>
+      snapshotFor(codexAgent, input.deadline),
+    );
+    const { fixture, useCase } = await admissionSetup(snapshots);
+
+    const result = authorizationOf(
+      await useCase.authorizeReviewRun(
+        inputFor(fixture, {
+          providerVoteLanes: [codexLane, claudeLane, ocrLane],
+          reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson(
+            optionalInvestigationDescriptor([
+              codexCapabilityRow,
+              claudeCapabilityRow,
+            ]),
+          ),
+        }),
+      ),
+    );
+
+    expect(result.status).toBe(ReviewRunAuthorizationUseCaseStatus.Authorized);
+    expect(result.authorization.providerVoteLanes).toEqual([codexLane]);
+    // Only the selected Codex lane's capability survives binding; the
+    // ClaudeCode row computed from the pre-selection allowlist is not stored.
+    expect(
+      JSON.parse(
+        result.authorization
+          .reviewInvestigationAuthorizationDescriptorCanonicalJson!,
+      ),
+    ).toEqual(optionalInvestigationDescriptor([codexCapabilityRow]));
   });
 
   it("restores the captured snapshot and lanes when current settings change", async () => {

@@ -1823,6 +1823,11 @@ export function mapPersistedContextReuseProviderKind(
       return EvidenceProviderKind.ClaudeCode;
     case EvidenceProviderKind.OpenRouter:
       return EvidenceProviderKind.OpenRouter;
+    // OCR keeps its real enum identity here so downstream safety mapping
+    // can answer fail-closed non-participation explicitly instead of
+    // swallowing the kind into Unknown.
+    case EvidenceProviderKind.Ocr:
+      return EvidenceProviderKind.Ocr;
     default:
       return EvidenceProviderKind.Unknown;
   }

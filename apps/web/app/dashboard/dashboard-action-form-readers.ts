@@ -57,9 +57,10 @@ function readReviewProvidersForm(
           formData,
           `providerGatewayProfileRef.${index}`,
         ) ?? undefined,
-      // Engine selection is serialized only from the Account Gateway row. An
-      // explicit selection with agenticContext=false is rejected by the shared
-      // schema (agent_profile_requires_agentic_context) with no fallback.
+      // Engine selection is serialized only from the Account Gateway row. The
+      // shared schema keeps every explicit selection readable; the per-kind
+      // save rule (agent_profile_requires_agentic_context) rejects only an
+      // OCR-eligible selection beside agenticContext=false.
       ...readOptionalAgentProfileRef(formData, index),
     });
   });

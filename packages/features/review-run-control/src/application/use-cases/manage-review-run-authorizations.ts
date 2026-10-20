@@ -20,6 +20,7 @@ import type {
   ReviewRunAuthorization,
   ReviewRunRevision,
 } from "../../domain/review-run-authorization";
+import { bindReviewInvestigationAuthorizationDescriptorToVoteLanes } from "../../domain/review-run-authorization";
 import {
   assertPositiveInteger,
   canonicalJson,
@@ -259,6 +260,8 @@ export class ManageReviewRunAuthorizations {
     // by the atomic repository; only its snapshot is checked/returned below.
     let runtimeSnapshotCanonicalJson =
       original?.runtimeSnapshotCanonicalJson ?? null;
+    let reviewInvestigationDescriptorCanonicalJson =
+      input.reviewInvestigationAuthorizationDescriptorCanonicalJson ?? null;
     let providerVoteLanes: readonly ProviderVoteLane[];
     if (original) {
       // An original admission for the same run/attempt keeps its captured
@@ -302,16 +305,23 @@ export class ManageReviewRunAuthorizations {
           ReviewRunAuthorizationDenialReason.ProviderVoteLaneUnavailable,
         );
       providerVoteLanes = matched;
-      // OCR has no RR investigation descriptor; do not keep a Codex
-      // investigation capability computed before the engine was selected.
-      if (
-        executionKind === ReviewProviderKind.Ocr &&
-        (input.reviewInvestigationAuthorizationDescriptorCanonicalJson ?? null) !==
-          null
-      )
+      // §4.1.1 step 5: bind the optional RR investigation descriptor to the
+      // SELECTED lane only. The precomputed capability is participation
+      // eligibility: for the OCR lane it is ABSENT (stored null) — the leftover
+      // Codex capability is dropped, never rejected. Only a descriptor that is
+      // not recognizable optional participation eligibility (a mandatory
+      // investigation policy demand) is rejected per §4.2 instead of being
+      // weakened into a silent success.
+      const investigation =
+        bindReviewInvestigationAuthorizationDescriptorToVoteLanes(
+          input.reviewInvestigationAuthorizationDescriptorCanonicalJson,
+          providerVoteLanes,
+        );
+      if (!investigation.bound)
         return denied(
           ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible,
         );
+      reviewInvestigationDescriptorCanonicalJson = investigation.canonicalJson;
       if (snapshot.gateway?.limits) {
         if (gatewayMaxExpiresAt <= now)
           return denied(
@@ -377,8 +387,7 @@ export class ManageReviewRunAuthorizations {
             mutationEpoch: eligibility.authority.epoch,
             providerVoteLanes,
             reviewInvestigationAuthorizationDescriptorCanonicalJson:
-              input.reviewInvestigationAuthorizationDescriptorCanonicalJson ??
-              null,
+              reviewInvestigationDescriptorCanonicalJson,
             authorizationSafetyDecisionHash:
               eligibility.safety.safetyDecisionHash,
             protocolOfferHash: input.protocolOfferHash,

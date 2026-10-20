@@ -24,23 +24,55 @@ export type GatewayAgentProfileOption = {
  * list is derived from the producer-release approved profile authority (the
  * same parseReviewAgentProfiles the runtime capture resolves against); the
  * component never keeps its own list of engine names.
+ *
+ * Capture resolves an explicit agentProfileRef ONLY against the run's exact
+ * producer release's approved profiles (selectReviewAgentProfile), so an
+ * option may be offered only when every configured producer release that can
+ * reach profile resolution accepts the ref identically: same agentKind and
+ * the account_gateway transport on the exact first ref match. Aggregating
+ * across attestations with a profileRef dedupe would offer refs some
+ * producers cannot resolve (those runs answer agent_profile_unavailable) and
+ * could hide an agentKind disagreement the per-kind agentic-context save rule
+ * depends on. Releases without approved profiles bail out of capture before
+ * any ref resolution, so they do not constrain the list.
  */
 export function gatewayAgentProfileOptions(input: {
   readonly attestations: readonly TrustedProducerReleaseAttestation[];
   readonly ocrSelectionEnabled: boolean;
 }): readonly GatewayAgentProfileOption[] {
+  const authorities = input.attestations
+    .map((attestation) => attestation.agentProfiles ?? null)
+    .filter(
+      (profiles): profiles is readonly ReviewAgentProfile[] =>
+        profiles !== null,
+    );
   const options = new Map<string, GatewayAgentProfileOption>();
-  for (const attestation of input.attestations) {
-    for (const profile of attestation.agentProfiles ?? []) {
-      // The Account Gateway row selects a profile for the account_gateway
-      // model transport only; anything else cannot resolve at capture time.
-      if (!profile.modelTransports.includes("account_gateway")) continue;
-      if (profile.agentKind === "ocr" && !input.ocrSelectionEnabled) continue;
+  for (const profiles of authorities) {
+    for (const profile of profiles) {
       if (options.has(profile.profileRef)) continue;
+      if (profile.agentKind === "ocr" && !input.ocrSelectionEnabled) continue;
+      if (!everyProducerResolves(authorities, profile)) continue;
       options.set(profile.profileRef, agentProfileOption(profile));
     }
   }
   return [...options.values()];
+}
+
+function everyProducerResolves(
+  authorities: readonly (readonly ReviewAgentProfile[])[],
+  profile: ReviewAgentProfile,
+): boolean {
+  for (const authority of authorities) {
+    // Capture matches the exact producer's first profileRef entry and then
+    // requires the model transport on that entry.
+    const match = authority.find(
+      (candidate) => candidate.profileRef === profile.profileRef,
+    );
+    if (match === undefined) return false;
+    if (!match.modelTransports.includes("account_gateway")) return false;
+    if (match.agentKind !== profile.agentKind) return false;
+  }
+  return true;
 }
 
 export function loadGatewayAgentProfileOptions(input?: {

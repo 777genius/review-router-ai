@@ -68,21 +68,51 @@ export const reviewProviderConfigurationSchema = z
         message: "review reasoning effort is unsupported for model",
       });
     }
-    if (
-      provider.authMode === "codex_account_gateway" &&
-      provider.agentProfileRef !== undefined &&
-      provider.agenticContext === false
-    ) {
-      // An explicit approved engine selection (OCR included) runs with native
-      // agentic context tools; "supplied diff only" cannot be promised beside
-      // such a selection. Admission independently rejects this combination.
-      context.addIssue({
-        code: "custom",
-        path: ["agentProfileRef"],
-        message: "agent_profile_requires_agentic_context",
-      });
-    }
   });
+
+/** Agent kinds of the approved toolchain profile an agentProfileRef selects. */
+export type ReviewAgentProfileKind = "codex" | "claude" | "ocr";
+
+/**
+ * The per-kind save rule matching admission: only an OCR engine needs native
+ * agentic context beside an explicit selection (its native context tools), so
+ * only that combination is a configuration error. The policy document keeps
+ * agentProfileRef opaque; save boundaries that know the resolved agent kind
+ * apply this rule, and admission independently answers the incompatible OCR
+ * selection with agent_profile_incompatible before any inference.
+ */export function reviewAgentProfileRequiresAgenticContext(
+  agentKind: ReviewAgentProfileKind,
+): boolean {
+  return agentKind === "ocr";
+}
+
+/** Accurate machine message for the OCR native-context requirement above. */
+export const agentProfileRequiresAgenticContextIssue =
+  "agent_profile_requires_agentic_context";
+
+/**
+ * The operative save-time rule for an explicit engine selection beside
+ * "supplied diff only". Returns the rejection message ONLY for an OCR-eligible
+ * ref (the resolved agent kind whose native context tools cannot be promised
+ * beside supplied-diff-only), matching admission, and null for codex/claude
+ * selections which must save. Save boundaries that know the resolved agent
+ * kind reject exactly the returned issue; the policy document itself stays
+ * readable for every kind so admission can answer a saved incompatible
+ * selection with its own actionable agent_profile_incompatible denial.
+ */
+export function reviewAgentProfileAgenticContextSaveIssue(
+  provider: {
+    readonly agentProfileRef?: string;
+    readonly agenticContext: boolean;
+  },
+  agentKind: ReviewAgentProfileKind,
+): string | null {
+  if (provider.agentProfileRef === undefined || provider.agenticContext)
+    return null;
+  return reviewAgentProfileRequiresAgenticContext(agentKind)
+    ? agentProfileRequiresAgenticContextIssue
+    : null;
+}
 
 function sanitizeReviewLanguage(value: string): string | null {
   const firstLine = value.split(/[\r\n]/)[0] ?? "";
