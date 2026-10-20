@@ -19,11 +19,49 @@ body {
   margin: 0;
   min-height: 100vh;
   width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
   background: var(--rr-page-bg);
   color: var(--rr-color-text);
   font-family:
     var(--font-sans), "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+}
+
+html[data-dashboard-layout-ready="true"] {
+  scroll-padding-top: var(--rr-header-height);
+}
+
+html[data-dashboard-layout-ready="true"] #dashboard-workspace-bar {
+  position: sticky;
+  top: var(--rr-header-height);
+  z-index: 30;
+}
+
+html[data-dashboard-layout-ready="true"] #dashboard-section-sidebar {
+  position: sticky;
+  top: calc(var(--rr-header-height) + var(--rr-workspace-bar-height) + 0.5rem);
+  z-index: 20;
+}
+
+.dashboard-section-nav-scroll {
+  max-height: calc(
+    100dvh - var(--rr-header-height) - var(--rr-workspace-bar-height) - 1rem
+  );
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+html[data-dashboard-layout-ready="true"] #dashboard-workspace {
+  scroll-margin-top: 0;
+}
+html[data-dashboard-layout-ready="true"] #dashboard-section-content {
+  scroll-margin-top: calc(var(--rr-workspace-bar-height) + 0.5rem);
+}
+@media (max-width: 1023px) {
+  html[data-dashboard-layout-ready="true"] #dashboard-section-content {
+    scroll-margin-top: calc(
+      var(--rr-workspace-bar-height) + var(--rr-compact-nav-height) + 1rem
+    );
+  }
 }
 
 body::before {
@@ -174,11 +212,7 @@ canvas {
 }
 
 .rr-button-primary:hover {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.46),
-    0 18px 44px -20px rgba(0, 240, 255, 0.95),
-    0 18px 44px -20px rgba(255, 0, 255, 0.86),
-    0 0 0 1px rgba(255, 255, 255, 0.12);
+  filter: brightness(1.05);
 }
 
 .home-install-cta {
@@ -536,7 +570,6 @@ canvas {
   width: min(48rem, 44%);
 }
 
-.setup-blueprint__eyebrow,
 .setup-blueprint__step-label,
 .setup-blueprint__signal strong {
   margin: 0;
@@ -544,16 +577,6 @@ canvas {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-}
-
-.setup-blueprint__eyebrow {
-  color: rgba(203, 213, 225, 0.58);
-  font-size: clamp(0.7rem, 0.78vw, 1rem);
-}
-
-.setup-blueprint__eyebrow::after {
-  color: #59dfff;
-  content: "";
 }
 
 .setup-blueprint__intro h1 {
@@ -576,7 +599,7 @@ canvas {
   box-shadow: 0 0 18px rgba(100, 225, 255, 0.36);
 }
 
-.setup-blueprint__intro p:not(.setup-blueprint__eyebrow) {
+.setup-blueprint__intro p {
   position: relative;
   max-width: 24rem;
   margin: clamp(1rem, 1vw, 1.35rem) 0 0;
@@ -803,17 +826,13 @@ canvas {
     );
 }
 
-[data-theme="light"] .setup-blueprint__eyebrow {
-  color: rgba(71, 85, 105, 0.74);
-}
-
 [data-theme="light"] .setup-blueprint__intro h1,
 [data-theme="light"] .setup-blueprint__step h2 {
   color: #102033;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
-[data-theme="light"] .setup-blueprint__intro p:not(.setup-blueprint__eyebrow) {
+[data-theme="light"] .setup-blueprint__intro p {
   background: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0.88),
@@ -1394,16 +1413,6 @@ canvas {
     }
   }
 
-  .setup-blueprint__eyebrow {
-    display: inline-flex;
-    width: fit-content;
-    border: 1px solid rgba(52, 211, 153, 0.24);
-    border-radius: 999px;
-    background: rgba(52, 211, 153, 0.08);
-    padding: 0.42rem 0.65rem;
-    color: #6ee7b7;
-  }
-
   .setup-blueprint__intro-rule {
     width: 100%;
     max-width: 18rem;
@@ -1411,7 +1420,7 @@ canvas {
     background: linear-gradient(90deg, #34d399, #22d3ee, #f59e0b, transparent);
   }
 
-  .setup-blueprint__intro p:not(.setup-blueprint__eyebrow) {
+  .setup-blueprint__intro p {
     max-width: 20rem;
     padding: 0;
     background: transparent;
@@ -1782,6 +1791,11 @@ canvas {
       auto,
       auto;
   }
+}
+
+/* Shared SelectField portals must remain usable inside the Accounts dialogs. */
+body:has([role="dialog"]) .z-50:has([role="listbox"]) {
+  z-index: 70;
 }
 
 /* Sign-in route schematic */

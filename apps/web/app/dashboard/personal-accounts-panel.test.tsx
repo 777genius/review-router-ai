@@ -89,6 +89,9 @@ test("unions exact identities across independent pages and keeps sharing-only so
     },
   };
   const api: PersonalAccountsApi = {
+    listAccessSummaries: vi
+      .fn<PersonalAccountsApi["listAccessSummaries"]>()
+      .mockResolvedValue({ status: "ok", value: { summaries: [] } }),
     listSources: vi.fn<PersonalAccountsApi["listSources"]>(async (request) =>
       request.afterSourceId
         ? {
@@ -176,7 +179,7 @@ test("unions exact identities across independent pages and keeps sharing-only so
   expect(screen.getAllByRole("article", { name: "available" })).toHaveLength(1);
   expect(
     within(screen.getByRole("article", { name: "sharing-only" })).getByText(
-      "Connection details unavailable",
+      "Сведения о подключении недоступны",
     ),
   ).toBeTruthy();
   fireEvent.click(
@@ -196,20 +199,17 @@ test("unions exact identities across independent pages and keeps sharing-only so
     afterSourceId: "source-page-2",
     limit: 25,
   });
-  fireEvent.click(screen.getByLabelText("Account actions for available"));
-  fireEvent.click(
-    within(screen.getByRole("article", { name: "available" })).getByRole(
-      "button",
-      { name: "Rename account" },
-    ),
-  );
-  const rename = await screen.findByRole("dialog", {
-    name: "Rename account · available",
+  fireEvent.keyDown(screen.getByLabelText("Действия для available"), {
+    key: "ArrowDown",
   });
-  fireEvent.change(within(rename).getByLabelText("Account label"), {
+  fireEvent.click(screen.getByRole("menuitem", { name: "Переименовать" }));
+  const rename = await screen.findByRole("dialog", {
+    name: "Переименовать · available",
+  });
+  fireEvent.change(within(rename).getByLabelText("Название подключения"), {
     target: { value: "Renamed" },
   });
-  fireEvent.click(within(rename).getByRole("button", { name: "Submit" }));
+  fireEvent.click(within(rename).getByRole("button", { name: "Подтвердить" }));
   await waitFor(() =>
     expect(managementApi.mutateGatewayAccount).toHaveBeenCalledWith("actor", {
       nonce: expect.any(String),
@@ -220,11 +220,9 @@ test("unions exact identities across independent pages and keeps sharing-only so
       label: "Renamed",
     }),
   );
-  fireEvent.click(
-    screen.getByRole("button", { name: "Workspace access for sharing-only" }),
-  );
-  await screen.findByText("Organization unavailable");
-  fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
+  fireEvent.click(screen.getByRole("button", { name: "Доступ: sharing-only" }));
+  await screen.findByText("Workspace недоступен");
+  fireEvent.click(screen.getByRole("button", { name: "Убрать доступ" }));
   await waitFor(() =>
     expect(api.revoke).toHaveBeenCalledWith({
       nonce: expect.any(String),
@@ -236,3 +234,9 @@ test("unions exact identities across independent pages and keeps sharing-only so
     }),
   );
 });
+
+vi.mock("./account-lifecycle-actions", () => ({
+  continueAccountLifecycleOperation: vi.fn(),
+  mutateAccountLifecycle: vi.fn(),
+  readAccountLifecycleOperation: vi.fn(),
+}));

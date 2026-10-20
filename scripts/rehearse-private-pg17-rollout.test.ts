@@ -1293,6 +1293,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000130_personal_canonical_operations" &&
         name !== "000131_personal_canonical_unentered_claim" &&
         name !== "000132_review_policy_schema_v3" &&
+        name !== "000134_account_lifecycle" &&
         name !== "000134_review_provider_kind_v2_ocr" &&
         name !== "000135_review_run_checkout_repository_lock" &&
         name !== "000133_allow_first_time_scm_identity_bind",
@@ -1349,9 +1350,9 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(135);
+    expect(migrationNames).toHaveLength(136);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:2624f6f55b524953b90c99415f1e0b216108e322fdb7b6e2ce539e5ce9935297",
+      "sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8",
     );
     expect(historicalCheckout).toHaveLength(124);
     expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(
@@ -1455,6 +1456,7 @@ describe("disposable dual-version rehearsal", () => {
       "000131_personal_canonical_unentered_claim",
       "000132_review_policy_schema_v3",
       "000133_allow_first_time_scm_identity_bind",
+      "000134_account_lifecycle",
       "000134_review_provider_kind_v2_ocr",
       "000135_review_run_checkout_repository_lock",
     ]);
@@ -1659,6 +1661,7 @@ describe("disposable dual-version rehearsal", () => {
     "000131_personal_canonical_unentered_claim",
     "000132_review_policy_schema_v3",
     "000133_allow_first_time_scm_identity_bind",
+    "000134_account_lifecycle",
     "000134_review_provider_kind_v2_ocr",
     "000135_review_run_checkout_repository_lock",
   ])(
@@ -1724,6 +1727,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000130_personal_canonical_operations" &&
                 name !== "000131_personal_canonical_unentered_claim" &&
                 name !== "000132_review_policy_schema_v3" &&
+                name !== "000134_account_lifecycle" &&
                 name !== "000134_review_provider_kind_v2_ocr" &&
                 name !== "000135_review_run_checkout_repository_lock" &&
                 name !== "000133_allow_first_time_scm_identity_bind",

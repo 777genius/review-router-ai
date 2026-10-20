@@ -56,6 +56,12 @@ export async function listPersonalGrants(
 ) {
   return invoke(context, ({ sharing }) => sharing.listOwnGrants(request));
 }
+export async function listPersonalAccessSummaries(
+  context: string,
+  request: { sourceIds: readonly string[] },
+) {
+  return invoke(context, ({ sharing }) => sharing.listAccessSummaries(request));
+}
 export async function listPersonalOrganizations(
   context: string,
   request: {
@@ -98,6 +104,9 @@ export async function mutatePersonalGatewayAccount(
   context: string,
   request: AccountIntent,
 ) {
+  // Original legacy operation readback remains available, but new retirement
+  // must reserve the lifecycle journal's permanent local denial first.
+  if (request?.kind === "disable") return { status: "denied" as const };
   return invoke(context, ({ canonical }) =>
     canonical.mutateGatewayAccount(context, request),
   );
@@ -162,5 +171,36 @@ export async function detachRecipientPersonalAccount(
   return invoke(context, async (service) => ({
     status: "ok" as const,
     value: await service.detachRecipient(workspaceId, request),
+  }));
+}
+
+export async function listWorkspaceAccountsOverview(
+  context: string,
+  workspaceId: string,
+  request: { afterBindingId?: string; limit: number },
+) {
+  return invoke(context, async (service) =>
+    (await service.overview(workspaceId)).list(request),
+  );
+}
+
+export async function detachWorkspaceOverviewAccount(
+  context: string,
+  workspaceId: string,
+  request: { bindingId: string; expectedBindingRevision: number },
+) {
+  return invoke(context, async (service) => ({
+    status: "ok" as const,
+    value: await service.detachWorkspaceUse(workspaceId, request),
+  }));
+}
+export async function readWorkspaceOverviewDetachment(
+  context: string,
+  workspaceId: string,
+  request: { bindingId: string; expectedBindingRevision: number },
+) {
+  return invoke(context, async (service) => ({
+    status: "ok" as const,
+    value: await service.readWorkspaceDetachment(workspaceId, request),
   }));
 }

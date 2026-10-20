@@ -28,7 +28,9 @@ type Dependencies = {
   gateway: PersonalAccountGatewayPort;
   queries: Pick<
     PrismaPersonalAccountSharingQueries,
-    "listOwnOrgBindings" | "listEligibleOrganizations"
+    | "listOwnOrgBindings"
+    | "listOwnAccessSummaries"
+    | "listEligibleOrganizations"
   >;
   /** Bounded applied attach lookup by immutable resultBindingId and source owner. */
   readBindingAttachOperation(
@@ -278,6 +280,26 @@ export function createPersonalAccountSharingApi(
             remoteFenceDelivery: row.remoteFenceDelivery,
           })),
           nextCursor: page.nextAfterId,
+        };
+      });
+    },
+    listAccessSummaries(raw) {
+      return authorized(async (actor, checked) => {
+        const safe = z
+          .strictObject({
+            sourceIds: z.array(reference).min(1).max(100),
+          })
+          .refine(
+            (value) => new Set(value.sourceIds).size === value.sourceIds.length,
+          )
+          .parse(raw);
+        return {
+          summaries: await checked(() =>
+            deps.queries.listOwnAccessSummaries({
+              actorUserId: actor,
+              sourceIds: safe.sourceIds,
+            }),
+          ),
         };
       });
     },

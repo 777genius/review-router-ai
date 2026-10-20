@@ -36,12 +36,14 @@ const account = (
   bindingId: string,
   origin: "personal" | "organization" = "personal",
 ): AccountView & { origin: typeof origin } => ({
-  connectionId: "incoming-masked-binding-handle",
+  connectionId: `masked-${bindingId}`,
   label: `Canonical ${bindingId}`,
   origin,
   profileId: "mimo",
   profileLabel: "MiMo",
   state: "active",
+  readiness: "ready",
+  allowedActions: ["detach"],
   gatewayRevision: 90,
   mirrorRevision: 12,
   binding: { id: bindingId, revision: 7, state: "active", fencePending: false },
@@ -73,23 +75,31 @@ function fixture() {
         remoteFenceDelivery: "remote_pending",
       },
     });
-  return { api, detach };
+  const readDetach = vi
+    .fn<
+      NonNullable<Parameters<typeof WorkspacePersonalAccounts>[0]["readDetach"]>
+    >()
+    .mockResolvedValue({ status: "unavailable" });
+  return { api, detach, readDetach };
 }
 async function confirm() {
-  fireEvent.click(
-    screen.getByRole("button", { name: "Detach from this organization" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Доступ" }));
   expect(
     await screen.findByText(
-      /personal account and its use in other organizations are unaffected/,
+      /Личный аккаунт и другие организации не изменяются/,
     ),
   ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Confirm detachment" }));
+  fireEvent.click(screen.getByRole("button", { name: "Отозвать доступ" }));
 }
 test("is inert without an explicit authorized API", () => {
   const f = fixture();
   render(
-    <WorkspacePersonalAccounts scope="org-x" canDetach detach={f.detach} />,
+    <WorkspacePersonalAccounts
+      scope="org-x"
+      canDetach
+      detach={f.detach}
+      readDetach={f.readDetach}
+    />,
   );
   expect(screen.queryByRole("region")).toBeNull();
   expect(f.api.list).not.toHaveBeenCalled();
@@ -101,7 +111,16 @@ test.each([false, true])(
     const f = fixture();
     f.api.list.mockResolvedValue(
       page([
-        { ...account("old-BX"), isOwnedByViewer },
+        {
+          ...account("old-BX"),
+          isOwnedByViewer,
+          owner: {
+            kind: "personal",
+            isViewer: isOwnedByViewer,
+            handle: null,
+            avatarUrl: null,
+          },
+        },
         account("org-owned", "organization"),
       ]),
     );
@@ -111,23 +130,15 @@ test.each([false, true])(
         api={f.api}
         canDetach={false}
         detach={f.detach}
+        readDetach={f.readDetach}
       />,
     );
     expect(await screen.findByText("Canonical old-BX")).toBeTruthy();
     expect(
-      screen.getByText(
-        isOwnedByViewer
-          ? "Your personal account · shared here"
-          : "Shared personal account",
-      ),
+      screen.getByText(isOwnedByViewer ? "Вы" : "Владелец недоступен"),
     ).toBeTruthy();
-    expect(screen.queryByText("Canonical org-owned")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Detach/ })).toBeNull();
-    expect(screen.queryByText("incoming-masked-binding-handle")).toBeNull();
+    expect(screen.getByText("Canonical org-owned")).toBeTruthy();
     expect(screen.queryByText("90")).toBeNull();
-    expect(
-      screen.getByRole("link", { name: "Your accounts" }).getAttribute("href"),
-    ).toBe("#your-accounts");
     expect(
       [...document.querySelectorAll("a")].some(
         (link) =>
@@ -141,9 +152,7 @@ test.each([false, true])(
 test("an empty filtered page keeps the next page reachable", async () => {
   const f = fixture();
   f.api.list
-    .mockResolvedValueOnce(
-      page([account("org-owned", "organization")], "cursor-first"),
-    )
+    .mockResolvedValueOnce(page([], "cursor-first"))
     .mockResolvedValueOnce(page([account("offpage")]));
   render(
     <WorkspacePersonalAccounts
@@ -151,17 +160,16 @@ test("an empty filtered page keeps the next page reachable", async () => {
       api={f.api}
       canDetach={false}
       detach={f.detach}
+      readDetach={f.readDetach}
     />,
   );
   expect(
-    await screen.findByText("No shared personal accounts on the loaded pages."),
+    await screen.findByText(
+      "На загруженных страницах нет доступных подключений.",
+    ),
   ).toBeTruthy();
-  expect(
-    screen.queryByText("No shared personal accounts available."),
-  ).toBeNull();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Load more shared accounts" }),
-  );
+  expect(screen.queryByText("Нет доступных подключений.")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Загрузить ещё" }));
   expect(await screen.findByText("Canonical offpage")).toBeTruthy();
   expect(f.api.list).toHaveBeenNthCalledWith(2, {
     limit: 25,
@@ -176,21 +184,20 @@ test("captures the exact old binding and preserves local deny while checking its
       api={f.api}
       canDetach
       detach={f.detach}
+      readDetach={f.readDetach}
     />,
   );
   await screen.findByText("Canonical old-BX");
-  fireEvent.click(
-    screen.getByRole("button", { name: "Detach from this organization" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Доступ" }));
   // A fresh lifetime arriving after opening confirmation cannot retarget the action.
   act(() =>
-    context.client!.setQueryData(["account-options", "org-x"], {
+    context.client!.setQueryData(["accounts-overview", "org-x"], {
       pages: [page([account("new-BX")])],
       pageParams: [null],
     }),
   );
   f.api.list.mockResolvedValue(page([account("new-BX")]));
-  fireEvent.click(screen.getByRole("button", { name: "Confirm detachment" }));
+  fireEvent.click(screen.getByRole("button", { name: "Отозвать доступ" }));
   expect(
     await screen.findByText(
       "Access revoked locally in this organization; gateway confirmation pending.",
@@ -201,15 +208,18 @@ test("captures the exact old binding and preserves local deny while checking its
     expectedBindingRevision: 7,
   });
   expect(await screen.findByText("Canonical new-BX")).toBeTruthy();
-  f.detach.mockResolvedValueOnce({ status: "unavailable" });
-  fireEvent.click(screen.getByRole("button", { name: "Check confirmation" }));
-  await waitFor(() => expect(f.detach).toHaveBeenCalledTimes(2));
+  f.readDetach.mockResolvedValueOnce({ status: "unavailable" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Проверить исходный запрос" }),
+  );
+  await waitFor(() => expect(f.readDetach).toHaveBeenCalledTimes(1));
+  expect(f.detach).toHaveBeenCalledTimes(1);
   expect(
     screen.getByText(
       "Access revoked locally in this organization; gateway confirmation pending.",
     ),
   ).toBeTruthy();
-  f.detach.mockResolvedValueOnce({
+  f.readDetach.mockResolvedValueOnce({
     status: "ok",
     value: {
       bindingId: "old-BX",
@@ -224,19 +234,21 @@ test("captures the exact old binding and preserves local deny while checking its
     expect(
       (
         screen.getByRole("button", {
-          name: "Check confirmation",
+          name: "Проверить исходный запрос",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Check confirmation" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Проверить исходный запрос" }),
+  );
   expect(
     await screen.findByText(
       "Access revoked in this organization; gateway confirmation received.",
     ),
   ).toBeTruthy();
   expect(
-    f.detach.mock.calls.every(
+    [...f.detach.mock.calls, ...f.readDetach.mock.calls].every(
       ([request]) =>
         request.bindingId === "old-BX" && request.expectedBindingRevision === 7,
     ),
@@ -262,6 +274,7 @@ test("cancels exact shared option caches before removing the retired binding, wi
       api={f.api}
       canDetach
       detach={f.detach}
+      readDetach={f.readDetach}
     />,
   );
   await screen.findByText("Canonical old-BX");
@@ -276,7 +289,7 @@ test("cancels exact shared option caches before removing the retired binding, wi
     }),
   );
   expect(cancel).toHaveBeenCalledWith({
-    queryKey: ["account-options", "org-x"],
+    queryKey: ["accounts-overview", "org-x"],
     exact: true,
   });
   expect(cancel).toHaveBeenCalledWith({
@@ -284,7 +297,7 @@ test("cancels exact shared option caches before removing the retired binding, wi
     exact: true,
   });
   expect(invalidate).toHaveBeenCalledWith({
-    queryKey: ["account-options", "org-x"],
+    queryKey: ["accounts-overview", "org-x"],
     exact: true,
   });
   expect(cancel.mock.invocationCallOrder[0]).toBeLessThan(
@@ -306,6 +319,7 @@ test("does not automatically retry or claim a local deny without a matching safe
       api={f.api}
       canDetach
       detach={f.detach}
+      readDetach={f.readDetach}
     />,
   );
   await screen.findByText("Canonical old-BX");
@@ -319,3 +333,31 @@ test("does not automatically retry or claim a local deny without a matching safe
   expect(screen.queryByText(/Access revoked locally/)).toBeNull();
   expect(screen.queryByText("private diagnostic")).toBeNull();
 });
+
+test("opening and cancelling Access never submits or reads a detachment operation", async () => {
+  const f = fixture();
+  render(
+    <WorkspacePersonalAccounts
+      scope="org-x"
+      api={f.api}
+      canDetach
+      detach={f.detach}
+      readDetach={f.readDetach}
+    />,
+  );
+  await screen.findByText("Canonical old-BX");
+  fireEvent.click(screen.getByRole("button", { name: "Доступ" }));
+  await screen.findByRole("dialog");
+  expect(f.detach).not.toHaveBeenCalled();
+  expect(f.readDetach).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(f.detach).not.toHaveBeenCalled();
+  expect(f.readDetach).not.toHaveBeenCalled();
+});
+
+vi.mock("./account-lifecycle-actions", () => ({
+  continueAccountLifecycleOperation: vi.fn(),
+  mutateAccountLifecycle: vi.fn(),
+  readAccountLifecycleOperation: vi.fn(),
+}));

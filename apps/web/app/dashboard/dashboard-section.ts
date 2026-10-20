@@ -28,7 +28,7 @@ export const dashboardSectionMeta: Record<
     eyebrow: "Repository setup",
     title: "Repositories",
     description:
-      "This page lists repositories from the GitHub App or GitLab group or project attached to this workspace. Create setup PRs and confirm runtime health here. ChatGPT logins for reviews are on Accounts.",
+      "Repositories from the GitHub App or GitLab attached to this workspace. Create setup PRs and check runtime health here. Provider logins for reviews are on Accounts.",
     navDescription: "Setup PRs and health",
   },
   memory: {
@@ -55,7 +55,7 @@ export const dashboardSectionMeta: Record<
     eyebrow: "Operations",
     title: "Diagnostics",
     description:
-      "Inspect metadata-only health, queue failures, audit events, and support diagnostics.",
+      "Metadata-only health, queue failures, audit events, and support diagnostics.",
     navDescription: "Queue, audit, support",
   },
 };

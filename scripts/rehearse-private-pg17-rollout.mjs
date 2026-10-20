@@ -340,6 +340,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000131_personal_canonical_unentered_claim",
     "000132_review_policy_schema_v3",
     "000133_allow_first_time_scm_identity_bind",
+    "000134_account_lifecycle",
     "000134_review_provider_kind_v2_ocr",
     "000135_review_run_checkout_repository_lock",
   ]),

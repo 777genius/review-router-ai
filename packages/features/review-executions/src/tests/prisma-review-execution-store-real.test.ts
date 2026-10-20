@@ -22,6 +22,7 @@ import {
   ReviewExecutionAdmissionVerdict,
   ReviewExecutionFinalizeStatus,
   ReviewExecutionPrepareStatus,
+  ReviewInvocationLeaseAcquireStatus,
 } from "../application/ports/review-execution-ports";
 import {
   ReviewRequestedClaimStatus,
@@ -75,6 +76,76 @@ if (databaseUrl) {
   runReviewExecutionStoreContract("Prisma", createHarness);
 
   describe("Prisma review execution PostgreSQL invariants", () => {
+    it("reclaims a stale provider lane incumbent instead of blocking the lane", async () => {
+      const suffix = randomUUID();
+      const owner = await createHarness();
+      const ownerRun = await prepareAndAdmit(owner, `lane-owner-${suffix}`);
+      const ownerLease = await owner.executions.acquireLease(
+        leaseCommand(owner, ownerRun.snapshot, `lane-owner-${suffix}`),
+      );
+      expect(ownerLease.status).toBe(
+        ReviewInvocationLeaseAcquireStatus.Acquired,
+      );
+
+      // The production incident: a crashed run leaves state=active past
+      // expiresAt while the auto-revoke sweeper has not run yet. The check
+      // constraint keeps expiresAt > acquiredAt, so age the whole row.
+      await prisma.reviewInvocationLeaseV2.update({
+        where: { leaseId: `lease-lane-owner-${suffix}` },
+        data: {
+          acquiredAt: new Date(Date.now() - 90_000),
+          renewedAt: new Date(Date.now() - 90_000),
+          expiresAt: new Date(Date.now() - 60_000),
+        },
+      });
+
+      const newcomer = await createHarness();
+      const newcomerRun = await prepareAndAdmit(
+        newcomer,
+        `lane-newcomer-${suffix}`,
+      );
+      const acquired = await newcomer.executions.acquireLease(
+        leaseCommand(newcomer, newcomerRun.snapshot, `lane-newcomer-${suffix}`),
+      );
+      expect(acquired.status).toBe(ReviewInvocationLeaseAcquireStatus.Acquired);
+      await expect(
+        prisma.reviewInvocationLeaseV2.findUnique({
+          where: { leaseId: `lease-lane-owner-${suffix}` },
+          select: { state: true },
+        }),
+      ).resolves.toEqual({ state: "expired" });
+    });
+
+    it("keeps a live provider lane incumbent blocking", async () => {
+      const suffix = randomUUID();
+      const owner = await createHarness();
+      const ownerRun = await prepareAndAdmit(
+        owner,
+        `lane-live-owner-${suffix}`,
+      );
+      expect(
+        (
+          await owner.executions.acquireLease(
+            leaseCommand(owner, ownerRun.snapshot, `lane-live-owner-${suffix}`),
+          )
+        ).status,
+      ).toBe(ReviewInvocationLeaseAcquireStatus.Acquired);
+
+      const newcomer = await createHarness();
+      const newcomerRun = await prepareAndAdmit(
+        newcomer,
+        `lane-live-newcomer-${suffix}`,
+      );
+      const busy = await newcomer.executions.acquireLease(
+        leaseCommand(
+          newcomer,
+          newcomerRun.snapshot,
+          `lane-live-newcomer-${suffix}`,
+        ),
+      );
+      expect(busy.status).toBe(ReviewInvocationLeaseAcquireStatus.Busy);
+    });
+
     it("serializes concurrent prepare attempts without allocating duplicate executions", async () => {
       const harness = await createHarness();
       const command = prepareCommand(harness, "concurrent-prepare", [

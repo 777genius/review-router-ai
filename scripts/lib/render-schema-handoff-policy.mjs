@@ -275,6 +275,25 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // The merged checkout136 retains both independently released134 extensions
+  // and the scoped lock135. Only this exact union may reduce to checkout135.
+  const accountLifecycleMigration = catalog.find(
+    (row) => row.migrationName === "000134_account_lifecycle",
+  );
+  if (accountLifecycleMigration) {
+    if (
+      accountLifecycleMigration.checksum !==
+        "92247cf49264abac1e2c6eaed78d741b57d8d21a28818e9d0264af89872ec213" ||
+      ![
+        "sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8",
+        "sha256:33fadb5470c593e0858e8e7feb47132c2931270e42ee1f0381940da9ef6dff5c",
+      ].includes(manifest(catalog))
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== accountLifecycleMigration),
+    );
+  }
   // The runtime checkout lock adds narrowly scoped authority, so admit only
   // its reviewed SQL and complete checkout135. It never enters managed92 SQL.
   const checkoutLockMigration = catalog.find(

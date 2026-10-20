@@ -115,6 +115,7 @@ function fixture() {
     operation: vi.fn(),
   };
   const queries = {
+    listOwnAccessSummaries: vi.fn(async () => []),
     listOwnOrgBindings: vi.fn(async () => ({
       items: [] as OwnOrganizationBinding[],
       nextAfterId: null,

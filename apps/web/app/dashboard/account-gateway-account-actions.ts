@@ -29,6 +29,8 @@ export async function mutateGatewayAccount(
   context: string,
   intent: AccountIntent,
 ): Promise<AccountsResult<AccountOperationView>> {
+  // Retirement is only admitted through the durable lifecycle journal.
+  if (intent?.kind === "disable") return { status: "denied" };
   if (intent?.kind === "connect" || intent?.kind === "reconnect")
     return { status: "invalid" };
   try {

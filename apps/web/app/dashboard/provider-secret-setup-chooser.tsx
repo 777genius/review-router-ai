@@ -12,7 +12,7 @@ import type {
   ProviderAuthMode,
   ProviderKind,
 } from "@reviewrouter/features-review-providers";
-import { Badge, Button, CodeBlock } from "@reviewrouter/ui";
+import { Badge, Button, Checkbox, CodeBlock } from "@reviewrouter/ui";
 import { clearProviderSecretStatusCache } from "./provider-secret-status-cache";
 import { ProviderAuthLogoFrame } from "./provider-auth-logo";
 import { providerSetupConfirmedEvent } from "./repository-setup-optimistic-events";
@@ -554,13 +554,12 @@ export function ProviderSecretSetupChooser({
                   versioned setup below before issuing another command.
                 </p>
                 <label className="flex items-start gap-3 text-sm text-red-50">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={setupRecoveryAcknowledged}
                     onChange={(event) =>
                       setSetupRecoveryAcknowledged(event.target.checked)
                     }
-                    className="mt-1 h-4 w-4 accent-cyan-300"
+                    className="mt-1 h-4 w-4"
                   />
                   <span>
                     I confirm every prior installer and runtime writer is
