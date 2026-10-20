@@ -26,7 +26,11 @@ import {
   type AccountProfileView,
   createDisabledPersonalAccountsAdapter,
 } from "./account-gateway-accounts";
-import { getDashboardSignedInActor } from "./dashboard-mutations";
+import {
+  getDashboardSignedInActor,
+  getDashboardWorkspaceScope,
+} from "./dashboard-mutations";
+import { listGitHubUserRepositoryAccess } from "./github-user-repository-access";
 import { getPrisma } from "./prisma";
 import { PrismaPersonalAccountSharingQueries } from "./personal-account-sharing-queries";
 import { createPersonalAccountSharingApi } from "./personal-account-sharing";
@@ -328,6 +332,34 @@ export async function productionPersonalAccounts() {
       },
     });
   }
+  // Usage rows name repositories, so they follow the dashboard's repository
+  // visibility: workspace-wide viewers read unfiltered (null), everyone else
+  // only the repositories they can see. Visibility read failures fail closed
+  // in the overview caller (empty set, usage hidden).
+  async function usageRepositoryVisibility(
+    workspaceId: string,
+  ): Promise<ReadonlySet<string> | null> {
+    const scope = await getDashboardWorkspaceScope();
+    if (
+      scope.kind === "all" ||
+      (scope.kind === "workspace_ids" &&
+        scope.workspaceIds.includes(workspaceId))
+    )
+      return null;
+    const current = await getDashboardSignedInActor();
+    if (!current || current.userId !== userId) return new Set<string>();
+    const access = await listGitHubUserRepositoryAccess({
+      prisma,
+      actor: {
+        userId,
+        githubUserId: current.githubUserId ?? "",
+        githubLogin: current.githubLogin ?? "",
+      },
+      excludedWorkspaceIds:
+        scope.kind === "workspace_ids" ? [...scope.workspaceIds] : [],
+    });
+    return access.repositoryIds;
+  }
   async function overview(workspaceId: string) {
     await workspaceAccess(workspaceId);
     const managementSettings = {
@@ -349,6 +381,7 @@ export async function productionPersonalAccounts() {
       prisma,
       cursorSecret: controlSettings.token,
       gateway: overviewReader,
+      visibleRepositoryIds: () => usageRepositoryVisibility(workspaceId),
       lifecycleEnabled: () =>
         process.env.REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED === "1",
       lifecycleCompatible: overviewReader.writable,

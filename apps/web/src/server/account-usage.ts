@@ -25,6 +25,15 @@ type UsageProfile = {
   readonly authKind?: "api_key" | "oauth" | undefined;
 };
 
+// Internal usage rows keep the repository id so the visibility filter can
+// decide; the public view keeps its exact shape.
+type UsageReviewEntry = AccountUsageReview & {
+  readonly repositoryId: string | null;
+};
+type UsageSecretEntry = AccountUsageSecretRepository & {
+  readonly repositoryId: string | null;
+};
+
 function providerTypeFor(label: string): "mimo" | "openrouter" | null {
   const value = label.toLowerCase();
   return value === "mimo" || value === "openrouter" ? value : null;
@@ -42,10 +51,15 @@ export async function readWorkspaceAccountUsage(
       readonly bindingId: string | null;
       readonly profileId: string;
     }[];
+    // Repository visibility for this viewer. A set limits both review and
+    // secret usage to those repositories (rows without a repository are
+    // dropped too); null keeps the workspace-wide unfiltered read.
+    readonly visibleRepositoryIds?: ReadonlySet<string> | null;
   },
 ): Promise<Map<string, AccountUsageView>> {
   const byKey = new Map<string, AccountUsageView>();
   if (!input.rows.length) return byKey;
+  const visibleRepositoryIds = input.visibleRepositoryIds ?? null;
   const bindingIds = [
     ...new Set(
       input.rows.flatMap((row) => (row.bindingId ? [row.bindingId] : [])),
@@ -61,7 +75,7 @@ export async function readWorkspaceAccountUsage(
           where: { workspaceId: input.workspaceId, active: true },
           select: {
             targetKey: true,
-            repository: { select: { fullName: true } },
+            repository: { select: { id: true, fullName: true } },
             versions: {
               orderBy: { version: "desc" },
               take: 1,
@@ -77,9 +91,7 @@ export async function readWorkspaceAccountUsage(
       profiles.map(
         async (
           profile,
-        ): Promise<
-          readonly [string, readonly AccountUsageSecretRepository[]]
-        > => {
+        ): Promise<readonly [string, readonly UsageSecretEntry[]]> => {
           if (profile.authKind === "oauth") {
             const instances = await prisma.codexOAuthProviderInstance.findMany({
               where: {
@@ -89,12 +101,13 @@ export async function readWorkspaceAccountUsage(
               select: {
                 secretName: true,
                 activeSecretNamespaceName: true,
-                repository: { select: { fullName: true } },
+                repository: { select: { id: true, fullName: true } },
               },
             });
             return [
               profile.id,
               instances.map((instance) => ({
+                repositoryId: instance.repository.id,
                 repositoryName: instance.repository.fullName,
                 secretName:
                   instance.activeSecretNamespaceName ?? instance.secretName,
@@ -108,7 +121,9 @@ export async function readWorkspaceAccountUsage(
             select: {
               repositoryLinks: {
                 where: { appliedKeyVersion: { not: null } },
-                select: { repository: { select: { fullName: true } } },
+                select: {
+                  repository: { select: { id: true, fullName: true } },
+                },
               },
             },
           });
@@ -116,6 +131,7 @@ export async function readWorkspaceAccountUsage(
             profile.id,
             connections.flatMap((connection) =>
               connection.repositoryLinks.map((link) => ({
+                repositoryId: link.repository.id,
                 repositoryName: link.repository.fullName,
                 secretName: null,
               })),
@@ -125,7 +141,7 @@ export async function readWorkspaceAccountUsage(
       ),
     ),
   ]);
-  const reviewsForBinding = new Map<string, AccountUsageReview[]>();
+  const reviewsForBinding = new Map<string, UsageReviewEntry[]>();
   for (const configuration of configurations) {
     const version = configuration.versions[0];
     if (!version) continue;
@@ -139,17 +155,38 @@ export async function readWorkspaceAccountUsage(
       entry.push({
         targetKey: configuration.targetKey,
         repositoryName: configuration.repository?.fullName ?? null,
+        repositoryId: configuration.repository?.id ?? null,
       });
       reviewsForBinding.set(bindingId, entry);
     }
   }
-  const secrets = new Map(secretsByProfile);
+  const secrets = new Map<string, readonly UsageSecretEntry[]>(
+    secretsByProfile,
+  );
+  const keepVisible = <T extends { readonly repositoryId: string | null }>(
+    entries: readonly T[],
+  ): readonly T[] =>
+    !visibleRepositoryIds
+      ? entries
+      : entries.filter(
+          (entry) =>
+            entry.repositoryId !== null &&
+            visibleRepositoryIds.has(entry.repositoryId),
+        );
   for (const row of input.rows) {
+    const reviews = row.bindingId
+      ? (reviewsForBinding.get(row.bindingId) ?? [])
+      : [];
+    const secretRepositories = secrets.get(row.profileId) ?? [];
     byKey.set(row.key, {
-      reviews: row.bindingId
-        ? (reviewsForBinding.get(row.bindingId) ?? [])
-        : [],
-      secretRepositories: secrets.get(row.profileId) ?? [],
+      reviews: keepVisible(reviews).map((entry) => ({
+        targetKey: entry.targetKey,
+        repositoryName: entry.repositoryName,
+      })),
+      secretRepositories: keepVisible(secretRepositories).map((entry) => ({
+        repositoryName: entry.repositoryName,
+        secretName: entry.secretName,
+      })),
       secretLevel: "profile",
     });
   }

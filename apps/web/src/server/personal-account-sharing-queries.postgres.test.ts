@@ -405,6 +405,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
         const overview = createAccountsOverview({
           prisma: db,
           cursorSecret: "TEST-only-inventory-cursor-key",
+          visibleRepositoryIds: async () => null,
           profiles: [
             {
               id: "mimo-responses-v1",

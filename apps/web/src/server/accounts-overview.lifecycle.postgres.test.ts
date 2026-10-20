@@ -99,6 +99,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
             cursorSecret: "TEST-only-inventory-cursor-secret",
             profiles: [{ id: "profile", label: "TEST", authKind: "api_key" }],
             authorize: async () => ({ workspaceId, userId: actor }),
+            visibleRepositoryIds: async () => null,
             ownerRef: (owner) =>
               owner.kind === "workspace"
                 ? accountGatewayWorkspaceOwnerRef(owner.workspaceId)

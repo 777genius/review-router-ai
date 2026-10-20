@@ -32,6 +32,10 @@ export function createAccountsOverview(input: {
     Partial<AccountProfileView>)[];
   operatorWorkspaceId?: string;
   authorize(): Promise<{ workspaceId: string; userId: string }>;
+  // Viewer repository visibility for the usage read. null keeps the
+  // workspace-wide unfiltered read; a failed read fails closed to an empty
+  // (fully hidden) set so repository names never leak past the filter.
+  visibleRepositoryIds(): Promise<ReadonlySet<string> | null>;
   ownerRef(
     owner:
       | { kind: "user"; userId: string }
@@ -342,9 +346,13 @@ export function createAccountsOverview(input: {
         // Usage is display-only and stays outside the row revalidation compare:
         // it never grants authority and a stale fact is conservative, not fatal.
         if (accounts.length) {
+          const visibleRepositoryIds = await input
+            .visibleRepositoryIds()
+            .catch(() => new Set<string>());
           const usage = await readWorkspaceAccountUsage(input.prisma, {
             workspaceId: who.workspaceId,
             profiles: input.profiles,
+            visibleRepositoryIds,
             rows: accounts.map((account) => ({
               key: account.connectionId,
               bindingId: account.binding?.id ?? null,
