@@ -37,7 +37,12 @@ Reviewed commit: 06b50bf. Architecture/runtime: P1 первого раунда �
 
 ## Раунд 3
 
-Передан новый план. Проверяются adversarial сценарии, реалистичность steps/ownership и отсутствие unresolved blocking decisions.
+Reviewed commit: 3fbeabb00c3e320262365a4847139269f5297eb9. **Все три критика: GO для реализации**, без оставшихся planning blockers.
+
+- Architecture: stale grant acceptance, source/destination lock ordering with new source, author departure vs consumption, immutable winner; минимальная scoped GM/Foundation adoption.
+- Runtime: legacy rr.3, supporting empty capture, missing-input rejection, prepared native seam, exact-base references, pre-dispatch inventory.
+- Frontend: create/assign continuation, canonical link/Edit original, repo-only authority/unavailable Remove, pagination/filter/1001 bounds, keyboard/mobile.
+- Frozen backend API и runtime execution input переданы между lanes. Это approval плана, **не заявление о завершённой реализации или успешных E2E**.
 
 ## Проверка реализации
 

@@ -93,6 +93,17 @@ export async function generateReviewActionV2Protocol(input = {}) {
   });
   const files = new Map([
     [
+      "generated/review-skills-contract.ts",
+      await format(
+        "// Generated from shared/src/review-skills-contract.ts. Do not edit.\n" +
+          (await readFile(
+            join(repositoryRoot, "packages/shared/src/review-skills-contract.ts"),
+            "utf8",
+          )),
+        { parser: "typescript" },
+      ),
+    ],
+    [
       "generated/companion-contracts.ts",
       await format(await reviewActionCompanionContractsSource(repositoryRoot), {
         parser: "typescript",

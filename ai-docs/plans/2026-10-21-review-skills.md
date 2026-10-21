@@ -1,6 +1,6 @@
 # Review Skills — подробный план реализации
 
-**Статус:** редакция после раунда №2, передана на финальный раунд №3. Реализация feature ещё не начата.
+**Статус:** три последовательных раунда критики завершены; все три направления GO на 3fbeabb. Реализация начата параллельными lanes, qualification ещё не завершена.
 Дата: 2026-10-21. [SaaS PR #635](https://github.com/777genius/review-router-ai/pull/635) · [Runtime PR #297](https://github.com/777genius/review-router/pull/297).
 Ветка обоих репозиториев: `feat/review-skills-20261021`, отдельные worktrees.
 
