@@ -421,6 +421,30 @@ describe("compact summary contracts", () => {
     },
   );
 
+  it.each([true, false])(
+    "contains HTML after a four-space fence closer (list container: %s)",
+    (list) => {
+      const body = [
+        ...(list ? ["- Fix the template:"] : []),
+        "  ```html",
+        "  <safe-code>",
+        "    ```",
+        "  <img src=x onerror=alert(1)>",
+        "  </details>",
+      ].join("\n");
+      const markdown = renderReviewSummaryMarkdown({
+        plan: planWith([finding("one", body), finding("two")]),
+      });
+      expect(markdown).not.toContain("<img src=x");
+      expect(markdown).toContain(
+        "  <safe-code>\n  ```\n  &lt;img src=x onerror=alert(1)&gt;",
+      );
+      expect(markdown.match(/<details>/g)).toHaveLength(2);
+      expect(markdown.match(/<\/details>/g)).toHaveLength(2);
+      expect(markdown).toContain("**[major] two**");
+    },
+  );
+
   it("keeps fence info validation and inline source intact at an indented fence boundary", () => {
     const body = [
       "  ```ts",

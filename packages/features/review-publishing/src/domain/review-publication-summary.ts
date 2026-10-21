@@ -312,6 +312,21 @@ function safeBody(value: string): string {
       prefix = `${" ".repeat(fence.indent)}${fence.char.repeat(fence.length)}\n`;
       fence = undefined;
     }
+    const closer = /^( *)(`{3,}|~{3,})[ \t]*$/.exec(line);
+    if (
+      fence &&
+      closer &&
+      closer[1]!.length <= fence.indent + 3 &&
+      closer[2]![0] === fence.char &&
+      closer[2]!.length >= fence.length
+    ) {
+      // A list-relative closer can exceed three physical spaces. Normalize it
+      // so the emitted Markdown also closes a top-level indented fence.
+      const closingLine =
+        closer[1]!.length > 3 ? " ".repeat(fence.indent) + closer[2]! : line;
+      fence = undefined;
+      return prefix + closingLine;
+    }
     const match = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(line);
     if (match) {
       const delimiter = match[2]!;
@@ -323,12 +338,7 @@ function safeBody(value: string): string {
           length: delimiter.length,
           indent: match[1]!.length,
         };
-      } else if (
-        delimiter[0] === fence.char &&
-        delimiter.length >= fence.length &&
-        !match[3]?.trim()
-      )
-        fence = undefined;
+      }
       return prefix + line;
     }
     return prefix + (fence ? line : escapeOutsideInlineCode(line));
