@@ -72,6 +72,11 @@ export const codexModelOptions: readonly ReviewModelOption[] = [
   },
 ];
 
+/** Retain the existing reviewed model policy; public metadata cannot enable fast mode. */
+export function codexModelSupportsFastMode(model: string): boolean {
+  return codexModelOptions.some((option) => option.value === model.trim());
+}
+
 export const claudeModelOptions: readonly ReviewModelOption[] = [
   {
     value: "sonnet",

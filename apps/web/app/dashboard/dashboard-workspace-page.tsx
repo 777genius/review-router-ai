@@ -10,6 +10,7 @@ import {
   type GatewayAgentProfileOption,
 } from "../../src/server/gateway-agent-profile-options";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
+import { ProviderModelCatalogProvider } from "./provider-model-catalog";
 import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
 import { productionPersonalAccounts } from "../../src/server/personal-account-composition";
 import {
@@ -144,6 +145,7 @@ import { deriveDashboardProviderSetupReadiness } from "../../src/server/dashboar
 import { PrismaCodexRotatingSetupReadiness } from "../../src/server/prisma-codex-rotating-setup-readiness";
 import {
   getReviewModelOptions,
+  getProviderModelCatalogs,
   type ReviewModelOption,
 } from "../../src/server/openrouter-model-catalog";
 import { FormSubmitButton } from "../form-submit-button";
@@ -1400,30 +1402,34 @@ async function DashboardSectionContent({
         .workspaceAccess(selectedWorkspace.workspace.id)
         .catch(() => null)
     : null;
-  const [data, modelOptions, accountsBootstrap] = await Promise.all([
-    loadDashboardSectionData(
-      selectedWorkspace,
-      selectedSection,
-      repositoryAccess,
-      supportAudit,
-      signedInActor ? dashboardMemoryActorInput(signedInActor) : null,
-    ),
-    selectedSection === "repositories" || selectedSection === "policy"
-      ? getReviewModelOptions()
-      : Promise.resolve([]),
-    selectedSection === "repositories" ||
-    selectedSection === "policy" ||
-    selectedSection === "diagnostics"
-      ? personal && personalAccess
-        ? personal
-            .models(selectedWorkspace.workspace.id)
-            .then(async (api) => ({
-              page: await api.list({ limit: 25 }),
-            }))
-            .catch(() => ({ page: { status: "unavailable" as const } }))
-        : loadAccountsBootstrap(selectedWorkspace.workspace.id)
-      : Promise.resolve(null),
-  ]);
+  const [data, modelOptions, accountsBootstrap, modelCatalogSnapshots] =
+    await Promise.all([
+      loadDashboardSectionData(
+        selectedWorkspace,
+        selectedSection,
+        repositoryAccess,
+        supportAudit,
+        signedInActor ? dashboardMemoryActorInput(signedInActor) : null,
+      ),
+      selectedSection === "repositories" || selectedSection === "policy"
+        ? getReviewModelOptions()
+        : Promise.resolve([]),
+      selectedSection === "repositories" ||
+      selectedSection === "policy" ||
+      selectedSection === "diagnostics"
+        ? personal && personalAccess
+          ? personal
+              .models(selectedWorkspace.workspace.id)
+              .then(async (api) => ({
+                page: await api.list({ limit: 25 }),
+              }))
+              .catch(() => ({ page: { status: "unavailable" as const } }))
+          : loadAccountsBootstrap(selectedWorkspace.workspace.id)
+        : Promise.resolve(null),
+      selectedSection === "repositories" || selectedSection === "policy"
+        ? getProviderModelCatalogs()
+        : Promise.resolve([]),
+    ]);
   // Approved engine profiles for the Account Gateway provider row; derived
   // from the producer-release approved profile authority, never user input.
   const agentProfileOptions = loadGatewayAgentProfileOptions();
@@ -1442,26 +1448,32 @@ async function DashboardSectionContent({
       claudeCodeProviderEnabled={isClaudeCodeProviderEnabled()}
     />
   );
-  return personal && personalAccess ? (
-    <GatewayModelAccountsProvider
-      scope={`${personal.scope}:workspace:${selectedWorkspace.workspace.id}`}
-      api={{
-        list: listPersonalModelAccounts.bind(
-          null,
-          personal.scope,
-          selectedWorkspace.workspace.id,
-        ),
-        get: getPersonalModelAccount.bind(
-          null,
-          personal.scope,
-          selectedWorkspace.workspace.id,
-        ),
-      }}
-    >
-      {content}
-    </GatewayModelAccountsProvider>
-  ) : (
-    content
+  const wrappedContent =
+    personal && personalAccess ? (
+      <GatewayModelAccountsProvider
+        scope={`${personal.scope}:workspace:${selectedWorkspace.workspace.id}`}
+        api={{
+          list: listPersonalModelAccounts.bind(
+            null,
+            personal.scope,
+            selectedWorkspace.workspace.id,
+          ),
+          get: getPersonalModelAccount.bind(
+            null,
+            personal.scope,
+            selectedWorkspace.workspace.id,
+          ),
+        }}
+      >
+        {content}
+      </GatewayModelAccountsProvider>
+    ) : (
+      content
+    );
+  return (
+    <ProviderModelCatalogProvider snapshots={modelCatalogSnapshots}>
+      {wrappedContent}
+    </ProviderModelCatalogProvider>
   );
 }
 

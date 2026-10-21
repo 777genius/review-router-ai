@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   listReviewModelOptions,
+  catalogSnapshotOptions,
   listStaticReviewModelOptions,
   normalizeOpenRouterModelsResponse,
   OpenRouterModelCatalogAdapter,
@@ -26,20 +27,96 @@ describe("provider model catalog", () => {
   it("combines static options with OpenRouter adapter models", async () => {
     const options = await listReviewModelOptions({
       modelCatalog: {
-        listModels: async () => [
-          {
-            value: "openrouter/test:free",
-            label: "OpenRouter Test",
-            provider: "openrouter",
-          },
-        ],
+        listModels: async ({ providerKind }) => ({
+          providerKind,
+          models:
+            providerKind === "openrouter"
+              ? [
+                  {
+                    id: "vendor/test:free",
+                    name: "Test",
+                    contextTokens: null,
+                    textInput: true,
+                    textOutput: true,
+                    toolCalling: true,
+                    pricing: null,
+                  },
+                ]
+              : [],
+          source: "local",
+          fetchedAt: null,
+          lastAttemptAt: null,
+          state: "fallback",
+          error: null,
+          refresh: "cached",
+        }),
       },
     });
 
     expect(options.map((option) => option.provider)).toContain("claude");
-    expect(options.map((option) => option.value)).toContain(
-      "openrouter/test:free",
-    );
+    expect(options.map((option) => option.value)).toContain("vendor/test:free");
+  });
+
+  it("does not label unknown OpenRouter pricing as paid", () => {
+    const models = [
+      { id: "vendor/unknown", pricing: null },
+      {
+        id: "vendor/partly-unknown",
+        pricing: {
+          currency: "USD" as const,
+          unit: "million_tokens" as const,
+          input: 0,
+          output: null,
+        },
+      },
+      {
+        id: "vendor/paid",
+        pricing: {
+          currency: "USD" as const,
+          unit: "million_tokens" as const,
+          input: 2,
+          output: null,
+        },
+      },
+      {
+        id: "vendor/free",
+        pricing: {
+          currency: "USD" as const,
+          unit: "million_tokens" as const,
+          input: 0,
+          output: 0,
+        },
+      },
+    ].map((model) => ({
+      ...model,
+      name: model.id,
+      contextTokens: null,
+      textInput: true,
+      textOutput: true,
+      toolCalling: true,
+    }));
+    const options = catalogSnapshotOptions({
+      providerKind: "openrouter",
+      models,
+      source: "openrouter",
+      fetchedAt: 1,
+      lastAttemptAt: 1,
+      state: "fresh",
+      error: null,
+      refresh: "updated",
+    });
+    expect(
+      options.find((option) => option.value === "vendor/unknown")?.badge,
+    ).toBeUndefined();
+    expect(
+      options.find((option) => option.value === "vendor/partly-unknown")?.badge,
+    ).toBeUndefined();
+    expect(
+      options.find((option) => option.value === "vendor/paid")?.badge,
+    ).toBe("PAID");
+    expect(
+      options.find((option) => option.value === "vendor/free")?.badge,
+    ).toBe("FREE");
   });
 
   it("normalizes and sorts OpenRouter models for review suitability", () => {
