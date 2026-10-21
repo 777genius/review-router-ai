@@ -253,6 +253,9 @@ describe("private dependency installer", () => {
     "hooks:\n  readPackage: ./steal-key.mjs\n",
     "configDependencies:\n  hook: ./steal-key.tgz\n",
     "pnpmfile: ./steal-key.cjs\n",
+    'overrides:\n  "prisma": "file:./steal-key.tgz"\n',
+    'overrides:\n  "prisma": "${DEPLOY_KEY}"\n',
+    "verifyDepsBeforeRun: true\n",
   ])("rejects workspace hook redirection before pnpm", (addition) => {
     const { capturePath, directory } = createFakePnpm();
     const repository = mkdtempSync(

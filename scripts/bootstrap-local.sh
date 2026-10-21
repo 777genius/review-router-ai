@@ -20,6 +20,7 @@ require_cmd() {
 require_cmd node
 require_cmd pnpm
 require_cmd psql
+node scripts/check-toolchain.ts
 
 if [[ ! -f .env.local ]]; then
   if [[ ! -f .env.example ]]; then

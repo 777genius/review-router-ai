@@ -58,13 +58,40 @@ function validateDeployKeyInstallConfiguration() {
   let sawOnlyBuiltDependencies = false;
   for (const line of workspaceLines) {
     if (!line.trim() || /^\s*#/u.test(line)) continue;
+    if (line === "verifyDepsBeforeRun: false") {
+      section = undefined;
+      continue;
+    }
     const heading = /^([A-Za-z][A-Za-z0-9]*):\s*$/u.exec(line);
     if (heading) {
       section = heading[1];
       if (section === "packages") sawPackages = true;
-      else if (section === "onlyBuiltDependencies")
+      else if (section === "minimumReleaseAgeExclude") {
+        // Reviewed exact new Foundation registry artifacts only.
+      } else if (section === "overrides") {
+        // pnpm 11 moved overrides out of package.json. Only exact data-only
+        // registry version pins are accepted while the deploy key is present.
+      } else if (section === "onlyBuiltDependencies")
         sawOnlyBuiltDependencies = true;
       else throw new Error("pnpm-workspace executable configuration denied");
+      continue;
+    }
+    if (section === "minimumReleaseAgeExclude") {
+      if (
+        !/^ {2}- ["'](?:@agent-teams\/document-authoring@0\.3\.4|@agent-teams\/engineering-foundation@2\.1\.0|@agent-teams\/repository-mutation@0\.4\.0)["']\s*$/u.test(
+          line,
+        )
+      )
+        throw new Error("pnpm-workspace executable configuration denied");
+      continue;
+    }
+    if (section === "overrides") {
+      if (
+        !/^ {2}"[A-Za-z0-9@._/ >=<*-]+": "[0-9]+\.[0-9]+\.[0-9]+"\s*$/u.test(
+          line,
+        )
+      )
+        throw new Error("pnpm-workspace executable configuration denied");
       continue;
     }
     if (
