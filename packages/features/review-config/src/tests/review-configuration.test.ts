@@ -1140,3 +1140,26 @@ it.each([
     ),
   ).toThrow();
 });
+
+// Public discovery cannot widen the runtime fast-mode compatibility policy.
+it("requires explicit fast-mode correction for an unverified public Codex model", () => {
+  const provider = {
+    ...workspaceProviderFixture,
+    kind: "codex",
+    model: "public-new-model",
+    reasoningEffort: "high",
+    fastMode: true,
+  };
+  expect(() =>
+    parseReviewConfigurationStrict({
+      ...workspacePolicyFixture,
+      providers: [provider],
+    }),
+  ).toThrow("Fast mode is not verified");
+  expect(
+    parseReviewConfigurationStrict({
+      ...workspacePolicyFixture,
+      providers: [{ ...provider, fastMode: false }],
+    }).providers[0],
+  ).toMatchObject({ model: "public-new-model", fastMode: false });
+});

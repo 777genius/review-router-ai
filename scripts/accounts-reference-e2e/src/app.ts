@@ -57,7 +57,24 @@ export async function startNextApp(input: {
   );
   const child: ChildProcess = spawn(
     process.execPath,
-    [nextBin, "dev", "--webpack", "-H", "127.0.0.1", "-p", String(port)],
+    [
+      ...(process.argv.includes("--catalog-fixture")
+        ? [
+            "--import",
+            join(
+              input.repoRoot,
+              "scripts/accounts-reference-e2e/src/catalog-fetch-fixture.ts",
+            ),
+          ]
+        : []),
+      nextBin,
+      "dev",
+      "--webpack",
+      "-H",
+      "127.0.0.1",
+      "-p",
+      String(port),
+    ],
     {
       cwd: join(input.repoRoot, "apps", "web"),
       env: environment,
