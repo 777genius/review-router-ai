@@ -1,4 +1,5 @@
 import {
+  prDescriptionInvocationManifestV1CanonicalizerDescriptor,
   ProviderRequestMessageRole,
   providerInvocationIdentityDomain,
   providerInvocationManifestV1CanonicalizerDescriptor,
@@ -27,6 +28,7 @@ export const reviewEvidenceContractDescriptor = Object.freeze({
   taskKinds: Object.freeze([
     ReviewTaskKind.FindingDiscovery,
     ReviewTaskKind.LifecycleRevalidation,
+    ReviewTaskKind.PrDescription,
   ]),
   executionProfiles: Object.freeze([
     ProviderExecutionProfile.PromptOnlyEnvelopeV1,
@@ -47,6 +49,9 @@ export const reviewEvidenceActionContractFragment = Object.freeze({
   boundedContext: "review_evidence",
   publishedCanonicalizers: Object.freeze([
     providerInvocationManifestV1CanonicalizerDescriptor,
+  ]),
+  publishedExtensionCanonicalizers: Object.freeze([
+    prDescriptionInvocationManifestV1CanonicalizerDescriptor,
   ]),
   publishedEnums: Object.freeze([
     Object.freeze({

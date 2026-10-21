@@ -20,6 +20,12 @@
       ]
     }
   ],
+  "auxiliaryExtensions": [
+    {
+      "extensionId": "pr-description.v1",
+      "canonicalizerDigest": "aa043184eb0a1a0cf230d8fbb03c6a63a05b950c82c0107bee7d2533c386eed0"
+    }
+  ],
   "canonicalizerGoldenFixtureDigest": "9f638db73ec3696da7f3aa842ed10b7cf7c466986dfbd45b1a602e3b08d75c57",
   "negotiationBridge": {
     "operationId": "review_run_authorize",
