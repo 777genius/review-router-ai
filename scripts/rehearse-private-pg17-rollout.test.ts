@@ -1295,6 +1295,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000132_review_policy_schema_v3" &&
         name !== "000134_account_lifecycle" &&
         name !== "000134_review_provider_kind_v2_ocr" &&
+        name !== "000136_provider_usage" &&
         name !== "000135_review_run_checkout_repository_lock" &&
         name !== "000133_allow_first_time_scm_identity_bind",
     );
@@ -1350,9 +1351,9 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(136);
+    expect(migrationNames).toHaveLength(137);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8",
+      "sha256:ed3d27f7417f66b56acf823358933d67ef6c3fae0cbcc88ed89a79cb4a1e27b5",
     );
     expect(historicalCheckout).toHaveLength(124);
     expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(
@@ -1459,6 +1460,7 @@ describe("disposable dual-version rehearsal", () => {
       "000134_account_lifecycle",
       "000134_review_provider_kind_v2_ocr",
       "000135_review_run_checkout_repository_lock",
+      "000136_provider_usage",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1664,6 +1666,7 @@ describe("disposable dual-version rehearsal", () => {
     "000134_account_lifecycle",
     "000134_review_provider_kind_v2_ocr",
     "000135_review_run_checkout_repository_lock",
+    "000136_provider_usage",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1729,6 +1732,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000132_review_policy_schema_v3" &&
                 name !== "000134_account_lifecycle" &&
                 name !== "000134_review_provider_kind_v2_ocr" &&
+                name !== "000136_provider_usage" &&
                 name !== "000135_review_run_checkout_repository_lock" &&
                 name !== "000133_allow_first_time_scm_identity_bind",
               "000102_sdk_growth_current_authority",
