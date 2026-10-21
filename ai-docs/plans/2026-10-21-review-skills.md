@@ -1,6 +1,6 @@
 # Review Skills — подробный план реализации
 
-**Статус:** редакция после раунда №1, передана на раунд №2. Реализация feature ещё не начата.
+**Статус:** редакция после раунда №2, передана на финальный раунд №3. Реализация feature ещё не начата.
 Дата: 2026-10-21. [SaaS PR #635](https://github.com/777genius/review-router-ai/pull/635) · [Runtime PR #297](https://github.com/777genius/review-router/pull/297).
 Ветка обоих репозиториев: `feat/review-skills-20261021`, отдельные worktrees.
 
@@ -83,6 +83,8 @@ Core/Assembly imports только composition/tests. Conformance dev-only в т
 
 Foundation/FMS — `scripts/review-skills-tooling`, отдельный private package, pnpm11.25 и lock. FMS public Node API `checkFeatureModuleOnDisk`/`formatNodeReport`; maps существующие domain/application/infrastructure/composition роли. Foundation scoped `architecture.source-dependencies` schemaVersion1: v2 требует полного closed workspace census и расширил бы задачу. Gate проверяет реальные запрещённые imports и rejecting mutation. Existing architecture gate и ADR-030 profile сохраняются. Не включаем global catalogs/presets/dependency migration.
 
+`architecture/review-skills/consumer-module-profile.json` фиксирует reviewed CMS/module-authoring commit и FMS standard digest, production root/governed paths, exact package pins, два borrowed inputs и один application module, app-owned lifetime/no owned resources, blocking commands и узкую область claims. Gate добавляет public checkNamespaces и independent checkWiring oracle; expected providers/namespaces не вычисляются из production graph.
+
 ## 3. Модель данных, ownership и ACL
 
 ### 3.1 Сущности
@@ -124,7 +126,7 @@ Additive migration: индексы source library, destination links, repo bindi
 
 Автор ушёл из source → edit заморожен, текущая revision/grants продолжают работать. Пользователь — member A/admin B → не может экспортировать A только из-за права читать. Destination не может re-share canonical link.
 
-Repository-only actor получает отдельный listAssignmentChoices после проверки **каждого exact selected repository**. Он видит только доступные для назначения metadata и k/N этого set, не всю библиотеку/body/history или usage остальных repos. Workspace library/body read по-прежнему требует membership. Acceptance использует настоящую write-permission ветку, без admin shortcut.
+Repository-only actor получает отдельный listAssignmentChoices после проверки **каждого exact selected repository**. Он видит доступные для назначения metadata плюс generic unavailable existing bindings для Remove и k/N этого set, не всю библиотеку/body/history или usage остальных repos. Workspace library/body read по-прежнему требует membership. Acceptance использует настоящую write-permission ветку, без admin shortcut.
 
 ### 3.3 Privacy/lifecycle
 
@@ -161,7 +163,10 @@ type AssignSkills = {
 | saveSkill | author/member check + expected head → append revision + CAS head в одной transaction |
 | listLinkableSkills(destination) | existing grants либо source admin authority; не вся доступная для чтения библиотека |
 | grant/revoke/accept/unlink | отдельные операции, repeated intent idempotent; dual-admin helper atomic |
-| listAssignmentChoices(workspace,repoIDs) | k/N по всему captured repo set, availability, current scopes |
+| loadSkillAccess(workspace,skillId) | source-admin-only grants/status/current generations; destination name только если actor вправе его видеть, иначе opaque ID |
+| listSkillRepositoryTargets(workspace,skillId,search,cursor) | authorized local target IDs/names/assignment states через существующий repository query port |
+| loadRepositorySkillSettings(workspace,repositoryId) | same repo-manager authority, roots/current source version и bindings/scopes/versions |
+| listAssignmentChoices(workspace,repoIDs) | available candidates **и generic unavailable existing bindings** selected set; k/N по всему captured set, availability, current scopes |
 | applyAssignments | Add union missing / Remove subtract; прочие bindings и existing scopes сохраняются |
 | updateBindingScope | explicit one-binding command + expectedVersion; не побочный эффект Add |
 | setRepositorySources | opt-in только разрешённых roots, expectedVersion |
@@ -221,7 +226,7 @@ Profile без capability и без назначений сохраняет lega
 3. Original найден → его attachment, включая null; не capture latest.
 4. Для нового run после captured engine selection читать текущие bindings/grants/links/source roots и exact immutable revision bodies, проверить capability/bounds.
 5. Сформировать canonical candidate; Git содержит exact authorization.baseSha и roots, без blobs.
-6. Existing Serializable admission transaction: identity locks → replay lookup → **prelock полного captured source/destination Workspace set в sorted order** → existing runtime fence (уже берёт destination FOR UPDATE) → Skills revalidation → authorization row/attachment + existing outbox. При новом source/binding вне candidate возвращаем AdmissionFactsChanged, не добираем out-of-order locks.
+6. Existing Serializable admission transaction: identity locks → replay lookup → **prelock полного captured source/destination Workspace set в sorted order** → existing runtime fence (уже берёт destination FOR UPDATE) → Skills revalidation → authorization row/attachment + existing outbox. Проверяем count locked parent rows == unique candidate workspaceIDs и все active. Missing/deleted parent → denied/eligibilitychanged. При новом source/binding вне candidate возвращаем AdmissionFactsChanged, не добираем out-of-order locks.
 7. Fence повторно получает полный current set и сравнивает candidate. Нет набора из разных revisions/assignment moments.
 8. Перед возвратом mutable Skills capture denial повторить original lookup: concurrent admitted winner мог появиться после первого lookup. Если найден — обычные eligibility/restore checks с его attachment, без capture latest. Действительно новый run остаётся denied.
 9. Cache/evidence reusable lookup только после successful new admission.
@@ -238,7 +243,7 @@ Mutations/capture используют общий lock order: sorted destination
 
 `POST /api/action/v2/skills`, existing review-run bearer, bounded empty request. Ответ captured DTO, Cache-Control:no-store. Endpoint resolves existing authorization, отдаёт только её attachment, валидирует scope/base/limits. Content не кладётся в env, claims, telemetry.
 
-Supporting runtime fetches до inference/cache, хранит immutable parsed DTO в execution input. Retry/token refresh не перечитывает latest; если повторяет fetch — сравнивает bytes/digest. Failure/missing/unsupported endpoint → blocked, без static fallback. Legacy unsupported profile не вызывает endpoint.
+Supporting runtime ограничивает чтение HTTP body до response.json/parse (stream UTF-8 byte cap, cancellation и run deadline); timeout/oversize/invalid не дают fallback. Supporting runtime fetches до inference/cache, хранит immutable parsed DTO в execution input. Retry/token refresh не перечитывает latest; если повторяет fetch — сравнивает bytes/digest. Failure/missing/unsupported endpoint → blocked, без static fallback. Legacy unsupported profile не вызывает endpoint.
 
 Queue/retry/restore используют captured bytes до max authorization lifetime. New manual run получает current capture. Existing emergency producer/run revocations остаются своими проверками.
 
@@ -286,7 +291,7 @@ Queue/retry/restore используют captured bytes до max authorization l
 
 - Precompose matching skills в один entry на path: upstream first match не суммирует rules.
 - Managed patch exact case-sensitive path matching; ordinary upstream glob mode сохраняется.
-- Managed assigned-inventory allowlist до model call; upstream include **не allowlist**.
+- Managed assigned-inventory allowlist **до grouping/native dispatch/первого model call**; upstream include **не allowlist**.
 - Preserve SkipProjectRules/private HOME/sanitized env; не читать PR-head .opencodereview/rule.json.
 - Multiline inline wrapper не даёт loader принять строку за path к md.
 - merge_system_rule true на каждом entry сохраняет built-ins.
@@ -321,7 +326,7 @@ Legacy absence branch сохраняет byte-for-byte old hashes; не доба
 
 Плоская таблица, source/author, local Used in, updated, действия. Empty: Create / Add from workspace. Три поля, explicit Save, hint «Updates future reviews in connected repositories». Linked skill read-only для неавтора; исходный автор с current source membership получает Edit original (переход в source workspace), а не ложный запрет из-за link.
 
-Dirty close — discard или продолжить. Conflict сохраняет draft, показывает fresh revision, explicit reload/reconcile; no blind overwrite. Create из empty bulk возвращает initial repo selection и отмечает созданный skill. Create из library предлагает Assign to repositories.
+Dirty close — discard или продолжить. Conflict сохраняет draft, показывает fresh revision, explicit reload/reconcile; no blind overwrite. Create в empty bulk доступен только workspace member; repository-only actor видит пояснение и возможность выбрать доступные скиллы без Create/body/share. Create из empty bulk возвращает initial repo selection и отмечает созданный skill. Create из library предлагает Assign to repositories.
 
 Import SKILL.md — bounded local file → plain-text preview полей нового web original; no raw HTML, remote images, YAML tags/aliases или выполнение. Export — portable text-only format. Это не live Git sync. Git-managed content не редактируется в web. V1 source settings показывает roots, включённость, trusted-base правило и понятные runtime discovery errors; **полного web preview Git bodies не добавляем**. Run provenance показывает разрешённые paths/revisions/diagnostics, без CP blob custody. Эти Git entries не выдаются за selectable web skill IDs.
 
@@ -450,7 +455,7 @@ Shared Base UI Dialog/Button/Checkbox/Badge/SelectField; semantic labels/table/t
 | U04 | viewer/workspace switch | query cache isolation |
 | P01 | logs/health/outbox | no bodies/Git blobs/raw prompts |
 | M01 | missing/wrong provider/forbidden import | scoped gates fail |
-| X01 | repo-only write actor | Add/Remove разрешены; content/share/чужой usage запрещены |
+| X01 | repo-only write actor | Add/Remove разрешены; content/share/чужой usage запрещены; role demotion/live permission loss/one forbidden selected repo → zero partial writes |
 | X02 | revoke→source rename | target не видит fresh source metadata/body |
 | X03 | revoke→regrant | нужен Accept current generation; stale Accept rejected |
 | X04 | 1001 selected / unknown transport | IDs retained, bounded error/no writes; no false outcome on lost response |

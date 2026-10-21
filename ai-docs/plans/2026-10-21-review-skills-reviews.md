@@ -27,11 +27,17 @@ Reviewed commit: 917b773. Три независимых критика, verdict 
 
 ## Раунд 2
 
-Редакция после round1 передана тем же трём направлениям для проверки исправлений и исполнимости.
+Reviewed commit: 06b50bf. Architecture/runtime: P1 первого раунда закрыты, новых blockers нет. Frontend: один read-contract gap. Исправления перед round3:
+
+- Добавлены loadSkillAccess, listSkillRepositoryTargets, loadRepositorySkillSettings с точными authority/versions; unavailable rows входят в Remove choices.
+- Create continuation только для workspace members; repository-only actor не получает заведомо forbidden control.
+- Добавлен scoped consumer-module-profile с standard pins/governed paths и независимыми namespace/wiring expectations.
+- Prelock проверяет полноту parent rows и active state. Добавлена authority-demotion/live-SCM-loss acceptance.
+- HTTP body bounded read до parse; OCR allowlist до grouping/dispatch, не post-filter.
 
 ## Раунд 3
 
-Ожидает исправлений второго раунда. Проверить конкретные сценарии и исполнимость.
+Передан новый план. Проверяются adversarial сценарии, реалистичность steps/ownership и отсутствие unresolved blocking decisions.
 
 ## Проверка реализации
 
