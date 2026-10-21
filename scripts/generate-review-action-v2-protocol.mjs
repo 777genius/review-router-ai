@@ -92,6 +92,7 @@ export async function generateReviewActionV2Protocol(input = {}) {
     parser: "json",
   });
   const files = new Map([
+    ["generated/fixtures/context-tools-v1.json", await format(await readFile(join(repositoryRoot, "packages/features/review-context-tools/src/tests/fixtures/context-tools-v1.json"), "utf8"), { parser: "json" })],
     [
       "generated/companion-contracts.ts",
       await format(await reviewActionCompanionContractsSource(repositoryRoot), {
