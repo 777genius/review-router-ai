@@ -133331,6 +133331,18 @@ var providerApiCheckoutCompanionContract = Object.freeze({
   providerApiAuthMode: "openrouter-api",
   workflowSchemaVersion: 2
 });
+var prDescriptionContract = Object.freeze({
+  taskKind: "pr_description",
+  runtimeEnvKey: "UPDATE_PR_DESCRIPTION",
+  capabilityRuntimeEnvKey: "REVIEW_ROUTER_PR_DESCRIPTION_CAPABILITY_JSON",
+  promptVersion: "pr-description-v1",
+  outputSchemaVersion: 1,
+  maxPromptBytes: 32768,
+  maxGeneratedMarkdownBytes: 8192,
+  maxOutputTokens: 1200,
+  deadlineMs: 6e4,
+  attemptBudget: 1
+});
 
 var import_meta = {};
 async function A(A3 = {}) {
@@ -139544,9 +139556,9 @@ async function requestCodexRotatingPreleaseWithFreshOidc(input) {
           body: {
             oidcToken,
             providerInstanceId: input.providerInstanceId,
-            workflowSchemaVersion: input.workflowSchemaVersion,
-            usagePublicKey: usageRegistration.publicKey
+            workflowSchemaVersion: input.workflowSchemaVersion
           },
+          usagePublicKey: usageRegistration.publicKey,
           maxAttempts: 1
         });
         if (prelease.bootstrapUsageGrant) {
@@ -139615,7 +139627,15 @@ async function postJson(input) {
     url: input.url,
     init: {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...input.usagePublicKey ? {
+          "x-reviewrouter-usage-public-key": Buffer.from(
+            input.usagePublicKey,
+            "utf8"
+          ).toString("base64url")
+        } : {}
+      },
       body: JSON.stringify(input.body),
       ...input.signal ? { signal: input.signal } : {}
     },
