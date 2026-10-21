@@ -275,6 +275,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Optional PR-description enum/profile storage is checkout-only. Admit its
+  // exact SQL and complete source union; historical managed SQL stays unchanged.
+  const prDescriptionMigration = catalog.find(
+    (row) => row.migrationName === "000138_pr_description",
+  );
+  if (prDescriptionMigration) {
+    if (
+      prDescriptionMigration.checksum !==
+        "4b41af195d5dd00df952d25d6c4999a64abf6cbc36351c2bd14d41f114cfe4e4" ||
+      manifest(catalog) !==
+        "sha256:af9bf892b5ec0e5817c9b1707869b8023ae5ce740af6e60b08c5aba328ec2694"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== prDescriptionMigration),
+    );
+  }
   // The merged checkout136 retains both independently released134 extensions
   // and the scoped lock135. Only this exact union may reduce to checkout135.
   const accountLifecycleMigration = catalog.find(
