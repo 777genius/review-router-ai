@@ -35,8 +35,13 @@ const accountLifecycleMigrationName = "000134_account_lifecycle";
 const ocrProviderMigrationName = "000134_review_provider_kind_v2_ocr";
 const checkoutLockMigrationName = "000135_review_run_checkout_repository_lock";
 const prDescriptionMigrationName = "000138_pr_description";
-const readPreviousCheckoutInventory = () =>
+const contextToolsMigrationName = "000139_review_context_tools";
+const readDescriptionCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
+    (row) => row.migrationName !== contextToolsMigrationName,
+  );
+const readPreviousCheckoutInventory = () =>
+  readDescriptionCheckoutInventory().filter(
     (row) => row.migrationName !== prDescriptionMigrationName,
   );
 const readPublishedCheckoutInventory = () =>
@@ -71,6 +76,7 @@ const historicalMigration119Sql = correctedMigration119Sql.replaceAll(
 const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
     (name) =>
+      name !== contextToolsMigrationName &&
       name !== prDescriptionMigrationName &&
       name !== accountLifecycleMigrationName &&
       name !== checkoutLockMigrationName &&
@@ -432,8 +438,38 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("admits only exact PR-description138 without changing managed or historical authority", () => {
+  it("admits only exact MCP139 custody storage and preserves previous authority", () => {
     const full = readRenderManagedCheckoutInventory();
+    expect(full).toHaveLength(138);
+    expect(full.at(-1)).toEqual({
+      migrationName: contextToolsMigrationName,
+      checksum:
+        "b2ac7d2121b0869dcfa77ee37ff85a86fe3947dad4a88ed595d73492a5eafed4",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    expect(
+      partitionRenderSchemaHandoffCheckout(readDescriptionCheckoutInventory()),
+    ).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === contextToolsMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === contextToolsMigrationName
+          ? { ...row, migrationName: "000139_relabelled" }
+          : row,
+      ),
+      full.filter((row) => row.migrationName !== prDescriptionMigrationName),
+      [...full, { migrationName: "000140_unknown", checksum: "0".repeat(64) }],
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow(
+        "checkout_extension",
+      );
+  });
+  it("admits only exact PR-description138 without changing managed or historical authority", () => {
+    const full = readDescriptionCheckoutInventory();
     expect(full).toHaveLength(137);
     expect(full.at(-1)).toEqual({
       migrationName: prDescriptionMigrationName,
@@ -1744,6 +1780,7 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      rmSync(join(migrations, contextToolsMigrationName), { recursive: true });
       rmSync(join(migrations, prDescriptionMigrationName), { recursive: true });
       rmSync(join(migrations, accountLifecycleMigrationName), {
         recursive: true,
@@ -1797,7 +1834,11 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(137);
+    expect(inventory).toHaveLength(138);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, contextToolsMigrationName), {
+      recursive: true,
+    });
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, prDescriptionMigrationName), {
       recursive: true,
@@ -2138,8 +2179,8 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      // Removing only description138 restores the exact admitted previous catalog.
-      if (name === prDescriptionMigrationName)
+      // Removing only MCP139 restores the exact admitted previous catalog.
+      if (name === contextToolsMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

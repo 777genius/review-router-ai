@@ -344,6 +344,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000134_review_provider_kind_v2_ocr",
     "000135_review_run_checkout_repository_lock",
     "000138_pr_description",
+    "000139_review_context_tools",
   ]),
   retained: Object.freeze([
     "000067_review_live_progress",

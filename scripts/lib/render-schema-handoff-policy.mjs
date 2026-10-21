@@ -275,6 +275,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // MCP connection custody and its optional producer descriptor are checkout-only.
+  // Admit the exact SQL and whole source catalog before reducing to the prior union.
+  const contextToolsMigration = catalog.find(
+    (row) => row.migrationName === "000139_review_context_tools",
+  );
+  if (contextToolsMigration) {
+    if (
+      contextToolsMigration.checksum !==
+        "b2ac7d2121b0869dcfa77ee37ff85a86fe3947dad4a88ed595d73492a5eafed4" ||
+      manifest(catalog) !==
+        "sha256:22d2cb47f5ec96e2b154ac07a375a19682243b7378df7a00f891a4713408b56b"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== contextToolsMigration),
+    );
+  }
   // Optional PR-description enum/profile storage is checkout-only. Admit its
   // exact SQL and complete source union; historical managed SQL stays unchanged.
   const prDescriptionMigration = catalog.find(
