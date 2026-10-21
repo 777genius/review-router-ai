@@ -28,6 +28,7 @@ const errors = {
   timeout:
     "The request timed out. Completion is unconfirmed; it was not retried.",
   cancelled: "Test cancelled. A request already sent may still consume quota.",
+  busy: "The account is currently busy. Wait for its active request to finish, then test again.",
   rate_limited: "Too many tests. Wait a minute before trying again.",
   cleanup_pending:
     "The test session could not be confirmed closed. Wait for it to expire before testing again.",

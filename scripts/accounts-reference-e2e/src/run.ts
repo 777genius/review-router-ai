@@ -74,6 +74,8 @@ async function main(): Promise<void> {
       isolatedPglite: options.isolatedPglite,
     });
     gateway = await startGatewayFixture({
+      repoRoot: options.repoRoot,
+      databaseUrl: database.databaseUrl,
       workDir: options.workDir,
       secrets,
     });

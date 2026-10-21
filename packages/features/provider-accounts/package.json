@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./gateway-probe": {
+      "types": "./src/gateway-probe.ts",
+      "production": "./dist/gateway-probe.js",
+      "default": "./src/gateway-probe.ts"
+    },
     ".": {
       "types": "./src/index.ts",
       "production": "./dist/index.js",

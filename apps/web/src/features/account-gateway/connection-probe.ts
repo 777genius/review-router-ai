@@ -26,6 +26,7 @@ export type ConnectionProbeEvent =
         | "invalid_response"
         | "timeout"
         | "cancelled"
+        | "busy"
         | "rate_limited"
         | "cleanup_pending";
     };

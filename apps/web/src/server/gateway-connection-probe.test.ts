@@ -19,6 +19,7 @@ async function fixture(
     | "truncated"
     | "mismatch"
     | "timeout"
+    | "busy"
     | "cleanup" = "ok",
 ) {
   const calls: { path: string; body: Record<string, unknown> }[] = [];
@@ -80,6 +81,23 @@ async function fixture(
       const admitted = JSON.parse(String(req.headers["x-gateway-admission"]));
       expect(admitted.limits.requests).toBe(1);
       expect(admitted.accountRef).toBe("shared-test-account");
+      if (mode === "busy") {
+        res.writeHead(202, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            requestRef: String(req.headers["x-gateway-request-id"]),
+            effect: "not_dispatched",
+            status: "failed",
+            error: {
+              code: "admission_limited",
+              traceRef: "busy-test",
+              effect: "not_dispatched",
+              retry: { kind: "after", milliseconds: 1000 },
+            },
+          }),
+        );
+        return;
+      }
       res.setHeader("content-type", "text/event-stream");
       res.setHeader(
         "x-gateway-request-ref",
@@ -271,4 +289,22 @@ it("times out an open provider stream and closes using a fresh cleanup signal", 
   })(request(), (e) => events.push(e), new AbortController().signal);
   expect(events.at(-1)).toMatchObject({ ok: false, code: "timeout" });
   expect(f.calls.at(-1)?.path).toContain("/close");
+});
+
+it("reports occupied account capacity without retrying inference and closes the session", async () => {
+  const f = await fixture("busy");
+  const events: ConnectionProbeEvent[] = [];
+  await createGatewayConnectionProbe({
+    resolve: async () => f.tuple,
+    admit: async () => {},
+    control: f.control,
+    executionOrigin: f.origin,
+  })(request(), (event) => events.push(event), new AbortController().signal);
+  expect(events.at(-1)).toEqual({ type: "result", ok: false, code: "busy" });
+  expect(
+    f.calls.filter((call) => call.path.endsWith("/requests")),
+  ).toHaveLength(1);
+  expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(
+    1,
+  );
 });

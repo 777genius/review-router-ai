@@ -1,4 +1,8 @@
-import { createHash } from "node:crypto";
+import {
+  gatewayProbeId,
+  gatewayProbeLimits as limits,
+  gatewayProbeTimeoutMs,
+} from "@reviewrouter/features-provider-accounts/gateway-probe";
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
   createExecutionClient,
@@ -23,13 +27,6 @@ class ProbeFailure extends Error {
     super(code);
   }
 }
-const limits = {
-  requests: 1,
-  requestBytes: 4096,
-  outputBytes: 262144,
-  tokens: 1024,
-  concurrency: 1,
-};
 
 /** A single bounded inference, independent of review agents and PR execution.
  * The consumer supplies live binding authority, never upstream credentials.
@@ -57,7 +54,7 @@ export function createGatewayConnectionProbe(input: {
     signal: AbortSignal,
   ) => {
     const start = Date.now();
-    const timeoutMs = input.timeoutMs ?? 90000;
+    const timeoutMs = input.timeoutMs ?? gatewayProbeTimeoutMs;
     const timeout = AbortSignal.timeout(timeoutMs);
     const abort = AbortSignal.any([signal, timeout]);
     let client: ExecutionClient | undefined;
@@ -65,7 +62,7 @@ export function createGatewayConnectionProbe(input: {
     let response: Awaited<ReturnType<ExecutionClient["request"]>> | undefined;
     let outcome: Extract<ConnectionProbeEvent, { type: "result" }> | undefined;
     const id = (kind: string) =>
-      `rr-probe-${kind}-${createHash("sha256").update(`${request.bindingId}\0${request.nonce}`).digest("hex")}`;
+      gatewayProbeId(kind, request.bindingId, request.nonce);
     const progress = (
       stage: Extract<ConnectionProbeEvent, { type: "progress" }>["stage"],
     ) => {
@@ -188,7 +185,11 @@ export function createGatewayConnectionProbe(input: {
         { signal: abort },
       );
       if (response.kind !== "stream")
-        throw new ProbeFailure("invalid_response");
+        throw new ProbeFailure(
+          response.status.error?.code === "admission_limited"
+            ? "busy"
+            : "unavailable",
+        );
       await check();
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8", { fatal: true });

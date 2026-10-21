@@ -6,6 +6,7 @@ import {
 } from "node:http";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { FIXTURES, type FixtureSecrets } from "./contracts.ts";
 
 type WireAccount = {
@@ -26,6 +27,8 @@ export type GatewayFixture = {
 
 export async function startGatewayFixture(input: {
   readonly workDir: string;
+  readonly repoRoot: string;
+  readonly databaseUrl: string;
   readonly secrets: FixtureSecrets;
 }): Promise<GatewayFixture> {
   const ownerForUser = (id: string) =>
@@ -107,6 +110,56 @@ export async function startGatewayFixture(input: {
   }
   const url = `http://127.0.0.1:${address.port}`;
 
+  let issuer:
+    | ((
+        raw: unknown,
+        signature: unknown,
+      ) => Promise<{ status: number; body: unknown }>)
+    | undefined;
+  let disconnect: (() => Promise<void>) | undefined;
+  if (process.argv.includes("--probe-fixture")) {
+    const dbModule = await import(
+      pathToFileURL(join(input.repoRoot, "packages/platform/db/src/index.ts"))
+        .href
+    );
+    const module = await import(
+      pathToFileURL(
+        join(input.repoRoot, "apps/api/src/dashboard-gateway-probe-access.ts"),
+      ).href
+    );
+    const { createConsumerControlClient } = await import(
+      pathToFileURL(
+        join(
+          input.repoRoot,
+          "apps/api/node_modules/@agent-teams/account-gateway/dist/http/index.js",
+        ),
+      ).href
+    );
+    const prisma = dbModule.createPrismaClient({
+      databaseUrl: input.databaseUrl,
+    });
+    disconnect = () => prisma.$disconnect();
+    issuer = module.createDashboardGatewayProbeAccess({
+      prisma,
+      secret: input.secrets.authSecret,
+      profiles: [
+        {
+          profileId: FIXTURES.gateway.profileId,
+          protocol: "openai-responses",
+          modelIds: ["rr-e2e-model"],
+          authKinds: ["api_key"],
+        },
+      ],
+      control: createConsumerControlClient({
+        role: "consumer-control",
+        origin: url,
+        token: input.secrets.personalControlToken,
+      }),
+      executionOrigin: url,
+      env: { REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED: "1" },
+    });
+  }
+
   async function handle(
     request: IncomingMessage,
     response: ServerResponse,
@@ -120,6 +173,18 @@ export async function startGatewayFixture(input: {
       `${JSON.stringify({ route, at: new Date().toISOString() })}\n`,
       { mode: 0o600, flag: "a" },
     );
+    if (
+      requestUrl.pathname === "/internal/dashboard/gateway-probe-access" &&
+      issuer &&
+      request.method === "POST"
+    ) {
+      const result = await issuer(
+        await readJson(request),
+        request.headers["x-reviewrouter-probe-proof"],
+      );
+      send(response, result.status, result.body);
+      return;
+    }
     // Opt-in synthetic transport contract; never enabled in product code.
     if (process.argv.includes("--probe-fixture")) {
       if (requestUrl.pathname === "/__probe-fixture") {
@@ -394,6 +459,7 @@ export async function startGatewayFixture(input: {
       return requestCount;
     },
     async stop() {
+      await disconnect?.();
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
