@@ -395,7 +395,10 @@ describe("disposable hosted pool local E2E", () => {
         { error: { code: "lane_saturated", effect: "not_dispatched" } },
       ],
     ];
-    for (const [index, [grant, expectedStatus, expectedBody]] of denials.entries()) {
+    for (const [
+      index,
+      [grant, expectedStatus, expectedBody],
+    ] of denials.entries()) {
       const response = await directRelayRequest(
         app.listeningOrigin,
         String(grant),
