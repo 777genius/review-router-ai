@@ -1,3 +1,5 @@
+import { loadProviderUsage } from "../../src/server/provider-usage-report";
+import { ProviderUsageView } from "./provider-usage-view";
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import {
@@ -1857,6 +1859,12 @@ export function WorkspaceCard({
             </p>
           </section>
         )}
+      </div>
+    );
+  if (selectedSection === "usage")
+    return (
+      <div id="dashboard-section-content" className="min-w-0 space-y-5">
+        <ProviderUsageSection workspaceId={workspace.id} />
       </div>
     );
   const activeConfig = data.reviewConfig?.config;
@@ -4071,4 +4079,27 @@ function dashboardMemoryModeHref(
   });
   if (workspaceKey) query.set("workspace", workspaceKey);
   return `/dashboard?${query.toString()}#dashboard-section-content`;
+}
+
+async function ProviderUsageSection({ workspaceId }: { workspaceId: string }) {
+  let report;
+  try {
+    report = await loadProviderUsage(workspaceId);
+  } catch (error) {
+    if (error instanceof Error && error.message === "usage_access_denied")
+      return (
+        <p>
+          Usage reports require workspace membership. Repository access alone
+          does not grant access to workspace usage.
+        </p>
+      );
+    throw error;
+  }
+  return (
+    <ProviderUsageView
+      key={workspaceId}
+      workspaceId={workspaceId}
+      initialReport={report}
+    />
+  );
 }
