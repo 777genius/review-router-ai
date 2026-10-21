@@ -1154,11 +1154,11 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       assert.equal(mutationEntries, beforeOAuth);
       const catalogue = ok(observe(await oauthAdapter.list("a"))).profiles;
       assert.deepEqual(
-        catalogue.map((p) => [p.id, p.authKind, p.canReconnect]),
+        catalogue.map((p) => [p.id, p.provider, p.authKind, p.canReconnect]),
         [
-          [profileId, "api_key", true],
-          [foreignProfileId, "api_key", true],
-          [oauthProfileId, "oauth", true],
+          [profileId, "codex-mimo", "api_key", true],
+          [foreignProfileId, "openrouter", "api_key", true],
+          [oauthProfileId, "codex", "oauth", true],
         ],
       );
       const original = account;

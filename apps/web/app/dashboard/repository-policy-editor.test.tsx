@@ -169,12 +169,14 @@ const gatewayPage: AccountsPage = {
     {
       id: "profile-mimo",
       label: "MiMo",
+      provider: "codex-mimo",
       protocol: "openai-responses",
       models: ["mimo-v2-pro", "openai/gpt-5.6-sol"],
     },
     {
       id: "profile-codex",
       label: "Codex",
+      provider: "codex",
       protocol: "openai-responses",
       models: ["gpt-6.1-sol"],
     },
@@ -322,10 +324,8 @@ describe("ReviewConfigForm", () => {
     const first = render(
       <ReviewConfigForm {...props} config={workspacePolicy} />,
     );
-    choose(
-      "Where to store account authentication?",
-      /ReviewRouter account pool/,
-    );
+    choose("Provider", /^MiMo$/);
+    choose("Connection method", /ReviewRouter \/ sub2api/);
     choose("Account", /Workspace mimo/);
     choose("Model", /^mimo-v2.6-pro$/);
     const form = document.querySelector("form")!;
@@ -376,6 +376,7 @@ describe("ReviewConfigForm", () => {
     expect(
       screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
     ).toBe(false);
+    choose("Provider", /OpenAI \/ Codex/);
     choose("Account", /Workspace codex/);
     choose("Model", /^gpt-6.1-sol$/);
     fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
@@ -383,6 +384,7 @@ describe("ReviewConfigForm", () => {
     expect(screen.getByRole("option", { name: /Max/ })).toBeTruthy();
     expect(screen.getByRole("option", { name: /Ultra/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("option", { name: /^Low/ }));
+    choose("Provider", /^MiMo$/);
     choose("Account", /Workspace mimo/);
     choose("Model", /^mimo-v2.6-pro$/);
     expect(
@@ -442,12 +444,18 @@ describe("ReviewConfigForm", () => {
       if (repair === "switch-to-direct") {
         fireEvent.click(
           screen.getAllByRole("combobox", {
-            name: "Where to store account authentication?",
+            name: "Connection method",
           })[0]!,
         );
-        fireEvent.click(screen.getByRole("option", { name: /GitHub Actions/ }));
+        fireEvent.click(screen.getByRole("option", { name: /GitHub Secrets/ }));
+        fireEvent.change(
+          screen.getAllByRole("textbox", { name: "Model" })[0]!,
+          { target: { value: "mimo-v2.6-pro" } },
+        );
         expect(payload().providers[1]).toEqual(extra);
-        expect(payload().providers[0]!.authMode).toBe("claude_code_oauth");
+        expect(payload().providers[0]!.authMode).toBe(
+          "mimo_token_plan_api_key",
+        );
         expect(payload().providers[0]!.gatewayBindingId).toBeUndefined();
         expect(payload().providers[0]!.gatewayProfileRef).toBeUndefined();
         expect(add.hasAttribute("disabled")).toBe(false);
@@ -457,11 +465,11 @@ describe("ReviewConfigForm", () => {
         expect(payload().providers).toHaveLength(2);
         fireEvent.click(
           screen.getAllByRole("combobox", {
-            name: "Where to store account authentication?",
+            name: "Connection method",
           })[0]!,
         );
         const pool = screen.getByRole("option", {
-          name: /ReviewRouter account pool/,
+          name: /ReviewRouter \/ sub2api/,
         });
         expect(pool.getAttribute("aria-disabled")).toBe("true");
         expect(pool.textContent).toContain("only one provider");
@@ -531,13 +539,11 @@ describe("ReviewConfigForm", () => {
       if (scope === "repository") {
         addOverrideField("Providers");
       }
+      choose("Provider", /^MiMo$/);
       const legacySecretChecks = vi.mocked(
         checkProviderRepositorySecretClientAction,
       ).mock.calls.length;
-      choose(
-        "Where to store account authentication?",
-        /ReviewRouter account pool/,
-      );
+      choose("Connection method", /ReviewRouter \/ sub2api/);
       const submit = screen.getByRole("button", {
         name: /Save workspace default|Save repo settings/,
       });
@@ -549,6 +555,7 @@ describe("ReviewConfigForm", () => {
       expect(screen.queryByRole("option", { name: "gpt-6.1-sol" })).toBeNull();
       fireEvent.click(screen.getByRole("option", { name: "mimo-v2-pro" }));
       expect(submit.hasAttribute("disabled")).toBe(false);
+      choose("Provider", /OpenAI \/ Codex/);
       choose("Account", /Workspace codex/);
       expect(submit.hasAttribute("disabled")).toBe(true);
       fireEvent.submit(document.querySelector("form")!);
@@ -581,6 +588,7 @@ describe("ReviewConfigForm", () => {
         {
           id: "profile-mimo",
           label: "MiMo",
+          provider: "codex-mimo",
           protocol: "openai-responses",
           models: ["mimo-v2.6-pro"],
         },
@@ -599,10 +607,8 @@ describe("ReviewConfigForm", () => {
         submitLabel="Save"
       />,
     );
-    choose(
-      "Where to store account authentication?",
-      /ReviewRouter account pool/,
-    );
+    choose("Provider", /^MiMo$/);
+    choose("Connection method", /ReviewRouter \/ sub2api/);
     expect(
       readReviewConfigurationForm(new FormData(document.querySelector("form")!))
         .providers[0]!,
@@ -813,7 +819,7 @@ describe("ReviewConfigForm", () => {
     expect(
       screen
         .getByRole("combobox", {
-          name: "Where to store account authentication?",
+          name: "Connection method",
         })
         .hasAttribute("disabled"),
     ).toBe(true);
@@ -1073,12 +1079,12 @@ describe("ReviewConfigForm", () => {
     if (condition === "denied" || condition === "unavailable") {
       fireEvent.click(
         screen.getByRole("combobox", {
-          name: "Where to store account authentication?",
+          name: "Connection method",
         }),
       );
       expect(
         screen
-          .getByRole("option", { name: /ReviewRouter account pool/ })
+          .getByRole("option", { name: /ReviewRouter \/ sub2api/ })
           .getAttribute("aria-disabled"),
       ).toBe("true");
     }
@@ -1213,14 +1219,14 @@ describe("ReviewConfigForm", () => {
     expect(pageText()).toContain("Credentials stay on the server");
     fireEvent.click(
       screen.getByRole("combobox", {
-        name: "Where to store account authentication?",
+        name: "Connection method",
       }),
     );
-    fireEvent.click(screen.getByRole("option", { name: /GitHub Actions/ }));
-    fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
-    fireEvent.click(
-      screen.getByRole("option", { name: /OpenRouter API key/i }),
-    );
+    fireEvent.click(screen.getByRole("option", { name: /GitHub Secrets/ }));
+    choose("Provider", /^OpenRouter$/);
+    fireEvent.change(screen.getByRole("textbox", { name: "Model" }), {
+      target: { value: "openai/gpt-5.6-sol" },
+    });
     const switched = readReviewConfigurationForm(new FormData(form!))
       .providers[0]!;
     expect(switched.authMode).toBe("openrouter_api_key");
@@ -1242,9 +1248,9 @@ describe("ReviewConfigForm", () => {
     });
     expect(
       screen.getByRole("combobox", {
-        name: "Where to store account authentication?",
+        name: "Connection method",
       }).textContent,
-    ).toContain("ReviewRouter account pool (encrypted)");
+    ).toContain("ReviewRouter / sub2api (encrypted)");
     expect(
       screen.queryByRole("combobox", { name: "Provider auth" }),
     ).toBeNull();
@@ -1280,14 +1286,11 @@ describe("ReviewConfigForm", () => {
     expect(
       screen.queryByText(/Uses the built-in ReviewRouter engine/),
     ).toBeNull();
-    choose("Where to store account authentication?", /GitHub/);
+    choose("Connection method", /GitHub/);
     expect(
       screen.getByText(/To use OpenCodeReview, choose Account Gateway/),
     ).toBeTruthy();
-    choose(
-      "Where to store account authentication?",
-      /ReviewRouter account pool/,
-    );
+    choose("Connection method", /ReviewRouter \/ sub2api/);
     expect(
       screen.queryByText(/Uses the built-in ReviewRouter engine/),
     ).toBeNull();
@@ -1368,17 +1371,17 @@ describe("ReviewConfigForm", () => {
       },
     });
     const storage = screen.getByRole("combobox", {
-      name: "Where to store account authentication?",
+      name: "Connection method",
     });
-    expect(storage.textContent).toContain("GitHub Actions");
+    expect(storage.textContent).toContain("GitHub Secrets");
     fireEvent.click(storage);
     const optionLabels = screen
       .getAllByRole("option")
       .map((option) => option.textContent ?? "");
-    expect(optionLabels[0]).toContain("ReviewRouter account pool (encrypted)");
-    expect(optionLabels[1]).toContain("GitHub Actions");
+    expect(optionLabels[0]).toContain("ReviewRouter / sub2api (encrypted)");
+    expect(optionLabels[1]).toContain("GitHub Secrets");
     fireEvent.click(
-      screen.getByRole("option", { name: /ReviewRouter account pool/ }),
+      screen.getByRole("option", { name: /ReviewRouter \/ sub2api/ }),
     );
     expect(
       new FormData(document.querySelector("form")!).get("providerAuthMode.0"),
@@ -1388,9 +1391,192 @@ describe("ReviewConfigForm", () => {
     ).toBeNull();
     expect(
       screen.getByRole("combobox", {
-        name: "Where to store account authentication?",
+        name: "Connection method",
       }).textContent,
-    ).toContain("ReviewRouter account pool (encrypted)");
+    ).toContain("ReviewRouter / sub2api (encrypted)");
+  });
+
+  // Regression: ambiguous Gateway accounts used to erase the selected vendor,
+  // and switching back to Secrets could silently become another provider.
+  it("keeps OpenRouter across both connection methods and filters accounts by configured provider", () => {
+    const profile = {
+      id: "profile-openrouter",
+      label: "OpenRouter",
+      provider: "openrouter" as const,
+      protocol: "openai-responses" as const,
+      models: ["openai/gpt-5.6-sol"],
+    };
+    const accounts = ["a", "b"].map((id) => ({
+      ...gatewayPage.accounts[0]!,
+      label: `OpenRouter ${id}`,
+      profileId: profile.id,
+      binding: {
+        ...gatewayPage.accounts[0]!.binding!,
+        id: `binding-openrouter-${id}`,
+      },
+    }));
+    renderReviewConfigForm({
+      config: openRouterReviewConfiguration(),
+      gatewayAccounts: {
+        status: "ok",
+        value: {
+          profiles: [...gatewayPage.profiles, profile],
+          accounts: [
+            ...accounts,
+            { ...gatewayPage.accounts[1]!, label: "OpenRouter spoofed label" },
+          ],
+          nextCursor: null,
+        },
+      },
+    });
+    const form = document.querySelector("form")!;
+    const submit = screen.getByRole("button", {
+      name: "Save workspace default",
+    });
+    choose("Connection method", /ReviewRouter \/ sub2api/);
+    expect(screen.getByRole("combobox", { name: "Provider" }).textContent).toBe(
+      "OpenRouter",
+    );
+    expect(submit.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("combobox", { name: "Account" }));
+    expect(screen.queryByRole("option", { name: /spoofed label/ })).toBeNull();
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("option", { name: /^OpenRouter a/ }));
+    choose("Model", /^openai\/gpt-5.6-sol$/);
+    expect(
+      readReviewConfigurationForm(new FormData(form)).providers[0],
+    ).toMatchObject({
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      gatewayBindingId: "binding-openrouter-a",
+      gatewayProfileRef: profile.id,
+      model: "openai/gpt-5.6-sol",
+    });
+    expect(submit.hasAttribute("disabled")).toBe(false);
+    choose("Connection method", /GitHub Secrets/);
+    expect(screen.getByRole("combobox", { name: "Provider" }).textContent).toBe(
+      "OpenRouter",
+    );
+    expect(new FormData(form).get("providerAuthMode.0")).toBe(
+      "openrouter_api_key",
+    );
+    expect(
+      (screen.getByRole("textbox", { name: "Model" }) as HTMLInputElement)
+        .value,
+    ).toBe("");
+    expect(submit.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "Model" }), {
+      target: { value: "openai/gpt-5.6-sol" },
+    });
+    const direct = readReviewConfigurationForm(new FormData(form))
+      .providers[0]!;
+    expect(direct.kind).toBe("openrouter");
+    expect(direct.gatewayBindingId).toBeUndefined();
+    expect(direct.gatewayProfileRef).toBeUndefined();
+    expect(submit.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("clears a Gateway tuple on provider change and explains unsupported Claude Gateway", () => {
+    renderReviewConfigForm({
+      config: { ...workspacePolicy, providers: [gatewayProviderFixture()] },
+    });
+    choose("Provider", /Anthropic \/ Claude/);
+    const form = document.querySelector("form")!;
+    expect(new FormData(form).get("providerGatewayBindingId.0")).toBe("");
+    expect(new FormData(form).get("providerGatewayProfileRef.0")).toBe("");
+    expect(new FormData(form).get("providerModel.0")).toBe("");
+    expect(pageText()).toContain(
+      "Anthropic / Claude is not supported by the current ReviewRouter Gateway protocol",
+    );
+    expect(
+      screen
+        .getByRole("combobox", { name: "Account" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Save workspace default" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    choose("Connection method", /GitHub Secrets/);
+    expect(new FormData(form).get("providerAuthMode.0")).toBe(
+      "claude_code_oauth",
+    );
+    expect(screen.getByRole("combobox", { name: "Provider" }).textContent).toBe(
+      "Anthropic / Claude",
+    );
+  });
+
+  it.each([false, true])(
+    "preserves unknown saved Gateway provider metadata and respects inherited=%s",
+    (inherited) => {
+      const provider = gatewayProviderFixture();
+      const action = vi.fn();
+      render(
+        <ReviewConfigForm
+          action={action}
+          config={{ ...workspacePolicy, providers: [provider] }}
+          {...(inherited
+            ? { repositoryPolicy: { schemaVersion: 3 as const } }
+            : {})}
+          modelOptions={modelOptions}
+          gatewayAccounts={{
+            status: "ok",
+            value: {
+              ...gatewayPage,
+              profiles: gatewayPage.profiles.map((profile) => ({
+                id: profile.id,
+                label: profile.label,
+                protocol: profile.protocol,
+                models: profile.models,
+              })),
+            },
+          }}
+          hiddenFields={[]}
+          mutationsEnabled={true}
+          submitLabel="Save"
+        />,
+      );
+      const form = document.querySelector("form")!;
+      expect(
+        screen.getByRole("combobox", { name: "Provider" }).textContent,
+      ).toContain("Selected provider unavailable");
+      expect(new FormData(form).get("providerGatewayBindingId.0")).toBe(
+        "binding-mimo",
+      );
+      expect(new FormData(form).get("providerModel.0")).toBe("mimo-v2-pro");
+      expect(
+        screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+      ).toBe(!inherited);
+      if (!inherited) {
+        fireEvent.submit(form);
+        expect(action).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it("keeps explicit vendor choices on their rows when removing an earlier provider", () => {
+    const config = duplicateOpenRouterReviewConfiguration();
+    renderReviewConfigForm({
+      config: {
+        ...config,
+        providers: [
+          ...config.providers,
+          { ...config.providers[0]!, model: "another-model" },
+        ],
+      },
+    });
+    fireEvent.click(screen.getAllByRole("combobox", { name: "Provider" })[2]!);
+    fireEvent.click(screen.getByRole("option", { name: /^MiMo$/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
+    const selects = screen.getAllByRole("combobox", { name: "Provider" });
+    expect(selects.map((select) => select.textContent)).toEqual([
+      "OpenRouter",
+      "MiMo",
+    ]);
+    expect(
+      new FormData(document.querySelector("form")!).get("providerAuthMode.1"),
+    ).toBe("mimo_token_plan_api_key");
   });
 
   it("preserves configured investigation rollout values in dashboard submissions", () => {
@@ -1752,12 +1938,8 @@ describe("ReviewConfigForm", () => {
 
     expect(screen.getByText("Provider 2")).toBeTruthy();
 
-    fireEvent.click(
-      screen.getAllByRole("combobox", { name: "Provider auth" })[0]!,
-    );
-    fireEvent.click(
-      screen.getByRole("option", { name: /Codex OAuth with refresh/i }),
-    );
+    fireEvent.click(screen.getAllByRole("combobox", { name: "Provider" })[0]!);
+    fireEvent.click(screen.getByRole("option", { name: /OpenAI \/ Codex/ }));
 
     expect(screen.getByText("Provider 2")).toBeTruthy();
     expect(
@@ -1775,6 +1957,8 @@ describe("ReviewConfigForm", () => {
       ).disabled,
     ).toBe(false);
 
+    fireEvent.click(screen.getAllByRole("combobox", { name: "Provider" })[1]!);
+    fireEvent.click(screen.getByRole("option", { name: /OpenAI \/ Codex/ }));
     fireEvent.click(
       screen.getAllByRole("combobox", { name: "Provider auth" })[1]!,
     );
@@ -1798,8 +1982,10 @@ describe("ReviewConfigForm", () => {
       },
     });
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
-    fireEvent.click(screen.getByRole("option", { name: /MiMo Token Plan/i }));
+    choose("Provider", /^MiMo$/);
+    fireEvent.change(screen.getByRole("textbox", { name: "Model" }), {
+      target: { value: "mimo-v2.6-pro" },
+    });
 
     expect(
       (screen.getByRole("textbox", { name: "Model" }) as HTMLInputElement)
@@ -1815,31 +2001,28 @@ describe("ReviewConfigForm", () => {
     );
   });
 
-  it("shows Claude Code by default, allows disabling it, and hides Codex controls after selection", () => {
-    renderReviewConfigForm();
-    fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
-    expect(
-      screen.getByRole("option", { name: /Claude Code subscription/i }),
-    ).toBeTruthy();
-
-    cleanup();
+  it("offers Claude explicitly, explains unavailable workspace auth, and hides Codex controls", () => {
     renderReviewConfigForm({ claudeCodeProviderEnabled: false });
-    fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
+    choose("Provider", /Anthropic \/ Claude/);
+    expect(pageText()).toContain(
+      "GitHub Secrets is unavailable for this provider",
+    );
     expect(
-      screen.queryByRole("option", { name: /Claude Code subscription/i }),
-    ).toBeNull();
+      screen
+        .getByRole("button", { name: "Save workspace default" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
 
     cleanup();
     renderReviewConfigForm();
-    fireEvent.click(screen.getByRole("combobox", { name: "Provider auth" }));
-    fireEvent.click(
-      screen.getByRole("option", { name: /Claude Code subscription/i }),
-    );
-
+    choose("Provider", /Anthropic \/ Claude/);
+    expect(
+      screen.getByRole("combobox", { name: "Provider auth" }).textContent,
+    ).toContain("Claude Code subscription");
     expect(
       (screen.getByRole("textbox", { name: "Model" }) as HTMLInputElement)
         .value,
-    ).toBe("sonnet");
+    ).toBe("");
     expect(screen.queryByText("Reasoning effort")).toBeNull();
     expect(screen.queryByText("Fast mode")).toBeNull();
     expect(screen.queryByText("Agentic context")).toBeNull();
@@ -2127,6 +2310,7 @@ function providersMode(): string | undefined {
 
 function renderReviewConfigForm(input?: {
   readonly config?: ReviewConfiguration;
+  readonly gatewayAccounts?: AccountsResult<AccountsPage>;
   readonly repositoryFullName?: string;
   readonly codexRotatingOAuthEnabled?: boolean;
   readonly claudeCodeProviderEnabled?: boolean;
@@ -2141,7 +2325,9 @@ function renderReviewConfigForm(input?: {
       action={() => undefined}
       config={input?.config ?? workspacePolicy}
       modelOptions={modelOptions}
-      gatewayAccounts={{ status: "ok", value: gatewayPage }}
+      gatewayAccounts={
+        input?.gatewayAccounts ?? { status: "ok", value: gatewayPage }
+      }
       agentProfileOptions={input?.agentProfileOptions}
       codexRotatingOAuthEnabled={input?.codexRotatingOAuthEnabled ?? true}
       claudeCodeProviderEnabled={input?.claudeCodeProviderEnabled ?? true}

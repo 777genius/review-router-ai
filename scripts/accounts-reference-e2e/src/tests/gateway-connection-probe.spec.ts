@@ -34,10 +34,11 @@ test.describe("Gateway connection test", () => {
   }
   async function open(page: Page) {
     await page.goto("/dashboard?section=policy&workspace=rr-e2e-org-alpha");
+    await select(page, "Provider", "MiMo");
     await select(
       page,
-      "Where to store account authentication?",
-      "ReviewRouter account pool (encrypted)",
+      "Connection method",
+      "ReviewRouter / sub2api (encrypted)",
     );
     await select(page, "Account", "RR E2E Viewer Primary");
     await select(page, "Model", "rr-e2e-model");
@@ -54,18 +55,15 @@ test.describe("Gateway connection test", () => {
     await useViewerSession(context);
     await stats("ok");
     await page.goto("/dashboard?section=policy&workspace=rr-e2e-org-alpha");
-    await select(
-      page,
-      "Where to store account authentication?",
-      "GitHub Actions secrets",
-    );
+    await select(page, "Provider", "MiMo");
+    await select(page, "Connection method", "GitHub Secrets");
     await expect(
       page.getByRole("button", { name: "Test connection", exact: true }),
     ).toHaveCount(0);
     await select(
       page,
-      "Where to store account authentication?",
-      "ReviewRouter account pool (encrypted)",
+      "Connection method",
+      "ReviewRouter / sub2api (encrypted)",
     );
     await select(page, "Account", "RR E2E Viewer Primary");
     await select(page, "Model", "rr-e2e-model");
@@ -143,11 +141,7 @@ test.describe("Gateway connection test", () => {
     await expect(
       page.getByRole("button", { name: "Test connection", exact: true }),
     ).toBeDisabled();
-    await select(
-      page,
-      "Where to store account authentication?",
-      "GitHub Actions secrets",
-    );
+    await select(page, "Connection method", "GitHub Secrets");
     await expect(
       page.getByRole("button", { name: "Test connection", exact: true }),
     ).toHaveCount(0);
