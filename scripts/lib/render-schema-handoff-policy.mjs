@@ -275,6 +275,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Usage is an additive checkout-only extension. Preserve the managed92
+  // authority and admit only this exact reviewed SQL and complete checkout137.
+  const usageMigration = catalog.find(
+    (row) => row.migrationName === "000136_provider_usage",
+  );
+  if (usageMigration) {
+    if (
+      usageMigration.checksum !==
+        "1f59f95079c29b0da051e0e67b965336107eee63c7bb921e626cd656ce696c48" ||
+      manifest(catalog) !==
+        "sha256:ed3d27f7417f66b56acf823358933d67ef6c3fae0cbcc88ed89a79cb4a1e27b5"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== usageMigration),
+    );
+  }
   // The merged checkout136 retains both independently released134 extensions
   // and the scoped lock135. Only this exact union may reduce to checkout135.
   const accountLifecycleMigration = catalog.find(
