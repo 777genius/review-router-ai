@@ -53,6 +53,7 @@ export function createGatewayModelAccountOptions(input: {
   const profiles = input.profiles.map((profile) => ({
     id: profile.id,
     label: profile.label,
+    ...(profile.provider ? { provider: profile.provider } : {}),
     protocol: profile.protocol,
     models: [...profile.models],
     ...(profile.authKind ? { authKind: profile.authKind } : {}),

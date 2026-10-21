@@ -97,6 +97,7 @@ export async function productionPersonalAccounts() {
   > = [...settings.apiKeyProfiles].map(([id, name]) => ({
     id,
     label: name,
+    provider: name === "MiMo" ? "codex-mimo" : "openrouter",
     authKind: "api_key" as "api_key" | "oauth",
     canReconnect: true,
     ...(settings.apiKeyProfileBaseURLs.has(id)
@@ -107,6 +108,7 @@ export async function productionPersonalAccounts() {
     profiles.push({
       id: settings.codexOAuthProfileId,
       label: "Codex",
+      provider: "codex",
       authKind: "oauth",
       canReconnect: false,
     });
@@ -306,6 +308,7 @@ export async function productionPersonalAccounts() {
             {
               id: configured.id,
               label: configured.label,
+              ...(configured.provider ? { provider: configured.provider } : {}),
               authKind: configured.authKind,
               canReconnect: false,
               protocol: wire.protocol,

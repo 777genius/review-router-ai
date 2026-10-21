@@ -33,6 +33,14 @@ describe("OpenRouter default catalog cache", () => {
     const first = catalog.getOpenRouterCatalog();
     const second = catalog.getOpenRouterCatalog();
     expect(fetchSpy).toHaveBeenCalledOnce();
+    // The shared catalog is public: no account credential may enter this request.
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/models",
+      {
+        headers: { accept: "application/json" },
+        signal: expect.any(AbortSignal),
+      },
+    );
     resolveFetch(response("vendor/first"));
     expect((await first)[0]?.id).toBe("vendor/first");
     expect((await second)[0]?.id).toBe("vendor/first");

@@ -56,6 +56,8 @@ export type AccountProfileView = {
   label: string;
   protocol: c.Profile["protocol"];
   models: string[];
+  // Trusted configured vendor; never derived from an editable account label.
+  provider?: import("@reviewrouter/features-review-providers").ProviderKind;
   // Additive display fields; older safe bootstrap consumers may omit them.
   // The authorized adapter always supplies both from its configured catalog.
   authKind?: c.Profile["authKinds"][number];
@@ -280,13 +282,19 @@ export function createAccountsAdapter(input: {
   const { gateway, accounts, synchronization, bindingDependencies } = input;
   const approved = new Map<
     string,
-    Required<Pick<AccountProfileView, "label" | "authKind" | "canReconnect">> &
+    Required<
+      Pick<
+        AccountProfileView,
+        "label" | "authKind" | "canReconnect" | "provider"
+      >
+    > &
       Pick<AccountProfileView, "dedicatedBaseURL">
   >(
     [...input.apiKeyProfiles].map(([id, name]) => [
       id,
       {
         label: name,
+        provider: name === "MiMo" ? "codex-mimo" : "openrouter",
         authKind: "api_key",
         canReconnect: true,
       },
@@ -305,6 +313,7 @@ export function createAccountsAdapter(input: {
       throw new Error("accounts_unavailable");
     approved.set(codexOAuthProfileId, {
       label: "Codex",
+      provider: "codex",
       authKind: "oauth",
       canReconnect: true,
     });

@@ -181,6 +181,7 @@ it("loads qualified profiles without projecting accounts and rechecks membership
   expect(await service.reviewProfiles("org")).toMatchObject([
     {
       id: "profile",
+      provider: "codex-mimo",
       protocol: "openai-responses",
       models: ["qualified-model"],
     },
