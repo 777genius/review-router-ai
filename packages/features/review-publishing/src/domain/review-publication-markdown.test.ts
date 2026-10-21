@@ -393,6 +393,45 @@ describe("compact summary contracts", () => {
     expect(markdown.match(/<details>/g)).toHaveLength(2);
   });
 
+  it("preserves matched inline code while escaping unmatched and escaped backticks with hostile HTML", () => {
+    const body = [
+      "Use `Promise<void>` and `a && b`, or `` `nested<type>` ``.",
+      "Unmatched ` <img src=x onerror=alert(1)>",
+      "Escaped \\`<script>alert(1)</script>\\` remains prose.",
+      "Protected `</details><summary>trap</summary>` stays inert.",
+    ].join("\n");
+    const markdown = renderReviewSummaryMarkdown({
+      plan: planWith([finding("one", body)]),
+    });
+    const details = markdown.split("<details>")[1]!;
+    expect(details).toContain("`Promise<void>` and `a && b`");
+    expect(details).toContain("`` `nested<type>` ``");
+    expect(details).toContain("Unmatched ` &lt;img src=x onerror=alert(1)&gt;");
+    expect(details).toContain("\\`&lt;script&gt;alert(1)&lt;/script&gt;\\`");
+    expect(details).toContain(
+      "`&lt;/details&gt;&lt;summary&gt;trap&lt;/summary&gt;`",
+    );
+    expect(markdown.match(/<details>/g)).toHaveLength(1);
+    expect(markdown.match(/<\/details>/g)).toHaveLength(1);
+  });
+
+  it("preserves literal path characters with a backtick-safe fallback code delimiter", () => {
+    const markdown = renderReviewSummaryMarkdown({
+      plan: planWith(
+        [
+          {
+            ...finding("one"),
+            location: { filePath: "src/`a``<b>&.ts", newLine: 4 },
+          },
+        ],
+        "gitlab",
+      ),
+    });
+    expect(markdown).toContain("``` src/`a``<b>&.ts:4 ```");
+    expect(markdown).not.toContain("&#96;");
+    expect(markdown).not.toContain("src/`a``&lt;b&gt;&amp;.ts");
+  });
+
   it("keeps clean text neutral when completeness is unknown", () => {
     const markdown = renderReviewSummaryMarkdown({ plan: planWith([]) });
     expect(markdown).toContain("**No findings**");

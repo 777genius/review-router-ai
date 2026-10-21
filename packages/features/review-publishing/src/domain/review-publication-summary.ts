@@ -309,10 +309,38 @@ function safeBody(value: string): string {
         fence = undefined;
       return line;
     }
-    return fence ? line : escapeHtml(line);
+    return fence ? line : escapeOutsideInlineCode(line);
   });
   if (fence) lines.push(fence.char.repeat(fence.length));
   return lines.join("\n");
+}
+
+function escapeOutsideInlineCode(line: string): string {
+  const runs = Array.from(line.matchAll(/`+/g));
+  let cursor = 0;
+  let escaped = "";
+  for (let index = 0; index < runs.length; index += 1) {
+    const opener = runs[index]!;
+    const precedingSlashes = /\\*$/.exec(line.slice(0, opener.index))![0]
+      .length;
+    if (precedingSlashes % 2 === 1) continue;
+    const closeIndex = runs.findIndex(
+      (run, candidate) =>
+        candidate > index && run[0].length === opener[0].length,
+    );
+    if (closeIndex < 0) continue;
+    const closer = runs[closeIndex]!;
+    const end = closer.index + closer[0].length;
+    escaped += escapeHtml(line.slice(cursor, opener.index));
+    // Preserve inline source literally, while retaining disclosure neutralization
+    // for the comment's structural scanners as well as Markdown renderers.
+    escaped += line
+      .slice(opener.index, end)
+      .replace(/<\/?(?:details|summary)\b[^>]*>/gi, escapeHtml);
+    cursor = end;
+    index = closeIndex;
+  }
+  return escaped + escapeHtml(line.slice(cursor));
 }
 
 function renderLocation(
@@ -324,7 +352,16 @@ function renderLocation(
 ): string {
   const label = formatFindingLocation(finding);
   if (!label) return "";
-  const fallback = `\`${escapeHtml(label.replace(/\s+/g, " ")).replaceAll("`", "&#96;")}\``;
+  const literalLabel = label.replace(/\s+/g, " ");
+  const ticks = "`".repeat(
+    Math.max(
+      0,
+      ...Array.from(literalLabel.matchAll(/`+/g), (run) => run[0].length),
+    ) + 1,
+  );
+  const fallback = literalLabel.includes("`")
+    ? `${ticks} ${literalLabel} ${ticks}`
+    : `${ticks}${literalLabel}${ticks}`;
   const target = input.target;
   const location = finding.location;
   if (!target || !location || !/^[a-f0-9]{40}$/i.test(target.headSha))
