@@ -421,14 +421,20 @@ describe("compact summary contracts", () => {
     },
   );
 
-  it.each([true, false])(
-    "contains HTML after a four-space fence closer (list container: %s)",
-    (list) => {
+  it.each([
+    { list: true, closingIndent: 4 },
+    { list: false, closingIndent: 4 },
+    { list: true, closingIndent: 0 },
+    { list: false, closingIndent: 0 },
+  ])(
+    "contains HTML and retains prose after a fence closer (list: $list, indent: $closingIndent)",
+    ({ list, closingIndent }) => {
       const body = [
         ...(list ? ["- Fix the template:"] : []),
         "  ```html",
         "  <safe-code>",
-        "    ```",
+        `${" ".repeat(closingIndent)}\`\`\``,
+        "  `Promise<void>` and `a && b` remain prose.",
         "  <img src=x onerror=alert(1)>",
         "  </details>",
       ].join("\n");
@@ -437,11 +443,12 @@ describe("compact summary contracts", () => {
       });
       expect(markdown).not.toContain("<img src=x");
       expect(markdown).toContain(
-        "  <safe-code>\n  ```\n  &lt;img src=x onerror=alert(1)&gt;",
+        "  <safe-code>\n  ```\n  `Promise<void>` and `a && b` remain prose.\n  &lt;img src=x onerror=alert(1)&gt;",
       );
       expect(markdown.match(/<details>/g)).toHaveLength(2);
       expect(markdown.match(/<\/details>/g)).toHaveLength(2);
       expect(markdown).toContain("**[major] two**");
+      expect(markdown.match(/^ {0,3}```/gm)).toHaveLength(2);
     },
   );
 

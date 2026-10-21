@@ -300,6 +300,23 @@ function safeBody(value: string): string {
       }
     | undefined;
   const lines = value.split(/\r?\n/).map((line) => {
+    const closer = /^( *)(`{3,}|~{3,})[ \t]*$/.exec(line);
+    if (
+      fence &&
+      closer &&
+      closer[1]!.length <= fence.indent + 3 &&
+      closer[2]![0] === fence.char &&
+      closer[2]!.length >= fence.length
+    ) {
+      // Normalize closers that would either leave a list container or exceed
+      // top-level fence indentation, keeping following prose outside code.
+      const closingLine =
+        closer[1]!.length < fence.indent || closer[1]!.length > 3
+          ? " ".repeat(fence.indent) + closer[2]!
+          : line;
+      fence = undefined;
+      return closingLine;
+    }
     let prefix = "";
     if (
       fence &&
@@ -311,21 +328,6 @@ function safeBody(value: string): string {
       // forgetting the fence could reinterpret its later closer as an opener.
       prefix = `${" ".repeat(fence.indent)}${fence.char.repeat(fence.length)}\n`;
       fence = undefined;
-    }
-    const closer = /^( *)(`{3,}|~{3,})[ \t]*$/.exec(line);
-    if (
-      fence &&
-      closer &&
-      closer[1]!.length <= fence.indent + 3 &&
-      closer[2]![0] === fence.char &&
-      closer[2]!.length >= fence.length
-    ) {
-      // A list-relative closer can exceed three physical spaces. Normalize it
-      // so the emitted Markdown also closes a top-level indented fence.
-      const closingLine =
-        closer[1]!.length > 3 ? " ".repeat(fence.indent) + closer[2]! : line;
-      fence = undefined;
-      return prefix + closingLine;
     }
     const match = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(line);
     if (match) {
