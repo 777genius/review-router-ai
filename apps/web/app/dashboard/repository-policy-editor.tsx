@@ -148,19 +148,26 @@ const providerAuthOptionCopyByAuthMode = {
 const authStorageOptions = [
   {
     value: "account_pool",
-    label: "ReviewRouter account pool (encrypted)",
+    label: "ReviewRouter / sub2api (encrypted)",
     description:
       "Account credentials stay encrypted on the ReviewRouter server.",
   },
   {
     value: "github_actions",
-    label: "GitHub Actions",
+    label: "GitHub Secrets",
     description:
       "Account credentials stay in GitHub Actions secrets owned by the repository or organization.",
   },
 ] as const;
 
 type AuthStorageChoice = (typeof authStorageOptions)[number]["value"];
+
+const providerChoices = [
+  { value: "codex", label: "OpenAI / Codex" },
+  { value: "claude", label: "Anthropic / Claude" },
+  { value: "openrouter", label: "OpenRouter" },
+  { value: "codex-mimo", label: "MiMo" },
+] as const;
 
 function authStorageForAuthMode(authMode: ProviderAuthMode): AuthStorageChoice {
   return authMode === "codex_account_gateway"
@@ -1421,6 +1428,11 @@ export function ReviewConfigForm({
     ),
   );
   const [providers, setProviders] = useState(initialProviders);
+  // Gateway's serialized engine kind remains codex. Vendor is a display choice
+  // resolved from trusted profiles until the user explicitly changes it.
+  const [selectedProviders, setSelectedProviders] = useState<
+    (ProviderKind | undefined)[]
+  >([]);
   const [providerMaxParallel, setProviderMaxParallel] = useState(
     Math.min(config.execution.providerMaxParallel, initialProviders.length),
   );
@@ -1450,11 +1462,41 @@ export function ReviewConfigForm({
         ? "No active accounts are available on the first page. Additional accounts are not available in this selection."
         : "No active workspace accounts are available. Connect and activate an account in Accounts."
       : null;
+  function providerChoice(
+    provider: ReviewProviderConfiguration,
+    index: number,
+  ) {
+    return (
+      selectedProviders[index] ??
+      (provider.authMode === "codex_account_gateway"
+        ? gatewayPage?.profiles.find(
+            (profile) => profile.id === provider.gatewayProfileRef,
+          )?.provider
+        : provider.kind)
+    );
+  }
+  function gatewayAccountsForChoice(choice: ProviderKind | undefined) {
+    if (!choice || choice === "claude") return [];
+    return eligibleGatewayAccounts.filter((account) =>
+      gatewayPage?.profiles.some(
+        (profile) =>
+          profile.id === account.profileId &&
+          profile.provider === choice &&
+          profile.protocol === "openai-responses",
+      ),
+    );
+  }
   function gatewayAccountForProvider(provider: ReviewProviderConfiguration) {
     return eligibleGatewayAccounts.find(
       (account) =>
         account.binding?.id === provider.gatewayBindingId &&
-        account.profileId === provider.gatewayProfileRef,
+        account.profileId === provider.gatewayProfileRef &&
+        gatewayPage?.profiles.some(
+          (profile) =>
+            profile.id === account.profileId &&
+            profile.provider !== undefined &&
+            profile.protocol === "openai-responses",
+        ),
     );
   }
   function gatewayModelsForAccount(account: {
@@ -1471,15 +1513,13 @@ export function ReviewConfigForm({
     const account = gatewayAccountForProvider(provider);
     return account ? gatewayModelsForAccount(account) : [];
   }
-  function soleGatewaySelection(): {
+  function soleGatewaySelection(choice: ProviderKind | undefined): {
     gatewayBindingId: string;
     gatewayProfileRef: string;
     model: string;
   } {
-    const soleAccount =
-      eligibleGatewayAccounts.length === 1
-        ? eligibleGatewayAccounts[0]
-        : undefined;
+    const accounts = gatewayAccountsForChoice(choice);
+    const soleAccount = accounts.length === 1 ? accounts[0] : undefined;
     const models = soleAccount ? gatewayModelsForAccount(soleAccount) : [];
     return {
       gatewayBindingId: soleAccount?.binding?.id ?? "",
@@ -1586,7 +1626,7 @@ export function ReviewConfigForm({
       )
         return current;
       if (current.length === 0 && eligibleGatewayAccounts.length > 0) {
-        const selection = soleGatewaySelection();
+        const selection = soleGatewaySelection("codex");
         return [
           withGatewayModel(
             {
@@ -1624,6 +1664,12 @@ export function ReviewConfigForm({
   }
 
   function removeProvider(index: number): void {
+    if (providers.length <= 1) return;
+    setSelectedProviders((current) =>
+      Array.from({ length: providers.length }, (_, i) => current[i]).filter(
+        (_, i) => i !== index,
+      ),
+    );
     setProviders((current) => {
       if (current.length <= 1) {
         return current;
@@ -1640,14 +1686,15 @@ export function ReviewConfigForm({
   function changeProviderAuth(
     index: number,
     authMode: ReviewProviderConfiguration["authMode"],
+    choice = providerChoice(providers[index]!, index),
   ): void {
     if (authMode === "codex_account_gateway") {
-      if (providers.length !== 1 || eligibleGatewayAccounts.length === 0)
-        return;
+      if (providers.length !== 1 || !choice || choice === "claude") return;
+      rememberProviderChoice(index, choice);
       // A single unambiguous account/model is preselected; anything else stays
       // explicit so transitional empty fields cannot be submitted.
       updateProvider(index, (provider) => {
-        const selection = soleGatewaySelection();
+        const selection = soleGatewaySelection(choice);
         return withGatewayModel(
           {
             ...provider,
@@ -1690,7 +1737,16 @@ export function ReviewConfigForm({
       }
       return ensureAtLeastOneRequiredProvider(
         current.map((provider, providerIndex) =>
-          providerIndex === index ? nextProvider : provider,
+          providerIndex === index
+            ? {
+                ...nextProvider,
+                model:
+                  provider.authMode === "codex_account_gateway" ||
+                  provider.kind !== kind
+                    ? ""
+                    : nextProvider.model,
+              }
+            : provider,
         ),
       );
     });
@@ -1700,41 +1756,86 @@ export function ReviewConfigForm({
     (provider) => provider.authMode === "codex_subscription_oauth_rotating",
   );
 
-  function authStorageOptionsForProvider(): readonly DashboardSelectOption[] {
-    const poolUnavailable =
-      providers.length > 1 || eligibleGatewayAccounts.length === 0;
-    const poolUnavailableMessage =
-      providers.length > 1
-        ? gatewaySingleProviderMessage
-        : gatewayAvailabilityMessage;
-    return authStorageOptions.map((option) =>
-      option.value === "account_pool" && poolUnavailable
-        ? {
-            ...option,
-            disabled: true,
-            ...(poolUnavailableMessage
-              ? { description: poolUnavailableMessage }
-              : {}),
-          }
-        : option,
+  function directAuthOptions(choice: ProviderKind | undefined) {
+    return providerAuthOptions.filter(
+      (option) =>
+        providerKindForAuthMode(option.value as ProviderAuthMode) === choice,
     );
   }
-
-  function defaultGitHubActionsAuthMode(): ReviewProviderConfiguration["authMode"] {
-    return (
-      providerAuthModeOrder.find(
-        (authMode) =>
-          (authMode !== "codex_subscription_oauth_rotating" ||
-            codexRotatingOAuthEnabled) &&
-          (authMode !== "claude_code_oauth" || claudeCodeProviderEnabled),
-      ) ?? "mimo_token_plan_api_key"
-    );
+  function authStorageOptionsForProvider(
+    choice: ProviderKind | undefined,
+  ): readonly DashboardSelectOption[] {
+    return authStorageOptions.map((option) => {
+      const reason =
+        option.value === "account_pool"
+          ? providers.length > 1
+            ? gatewaySingleProviderMessage
+            : choice === "claude"
+              ? "Anthropic / Claude is not supported by the current ReviewRouter Gateway protocol."
+              : !choice
+                ? "Choose a provider first."
+                : gatewayAccountsForChoice(choice).length === 0
+                  ? `No active accounts for this provider. Connect an account in Accounts, or refresh available accounts.`
+                  : null
+          : !choice || directAuthOptions(choice).length === 0
+            ? "GitHub Secrets is unavailable for this provider in this workspace."
+            : null;
+      return reason
+        ? { ...option, disabled: true, description: reason }
+        : option;
+    });
   }
+  function rememberProviderChoice(index: number, choice: ProviderKind) {
+    setSelectedProviders((current) => {
+      const next = Array.from(
+        { length: providers.length },
+        (_, i) => current[i],
+      );
+      next[index] = choice;
+      return next;
+    });
+  }
+  function changeProviderChoice(index: number, choice: ProviderKind) {
+    rememberProviderChoice(index, choice);
+    const provider = providers[index]!;
+    if (provider.authMode === "codex_account_gateway") {
+      // Keep the connection method explicit, including unsupported combinations.
+      // An incompatible vendor never inherits the previous account/model tuple.
+      updateProvider(index, (current) =>
+        current.authMode === "codex_account_gateway"
+          ? {
+              ...current,
+              gatewayBindingId: "",
+              gatewayProfileRef: "",
+              model: "",
+            }
+          : current,
+      );
+    } else {
+      const auth = directAuthOptions(choice)[0]?.value as
+        | ProviderAuthMode
+        | undefined;
+      if (auth) changeProviderAuth(index, auth, choice);
+      else updateProvider(index, (current) => ({ ...current, model: "" }));
+    }
+  }
+  const providerChoiceInvalid =
+    !providersInherited &&
+    providers.some(
+      (provider, index) =>
+        !provider.model.trim() ||
+        (provider.authMode === "codex_account_gateway"
+          ? !gatewayAccountsForChoice(providerChoice(provider, index)).some(
+              (account) => account.binding?.id === provider.gatewayBindingId,
+            )
+          : providerChoice(provider, index) !== provider.kind),
+    );
 
   function providerAuthOptionsForProvider(
     provider: ReviewProviderConfiguration,
+    choice: ProviderKind | undefined,
   ): readonly DashboardSelectOption[] {
-    const options = [...providerAuthOptions];
+    const options = directAuthOptions(choice);
     // The saved auth mode must stay submittable even when this surface hides it
     // for new selections (e.g. rotating Codex while the deployment or workspace
     // scope disables it); otherwise the form silently rewrites the mode.
@@ -1742,14 +1843,16 @@ export function ReviewConfigForm({
       (option) => option.value === provider.authMode,
     )
       ? options
-      : [
-          ...options,
-          {
-            value: provider.authMode,
-            providerAuthMode: provider.authMode,
-            ...providerAuthOptionCopyByAuthMode[provider.authMode],
-          },
-        ];
+      : providerKindForAuthMode(provider.authMode) !== choice
+        ? options
+        : [
+            ...options,
+            {
+              value: provider.authMode,
+              providerAuthMode: provider.authMode,
+              ...providerAuthOptionCopyByAuthMode[provider.authMode],
+            },
+          ];
     return optionsWithSavedAuthMode.map((option) => {
       if (
         option.providerAuthMode === "codex_subscription_oauth_rotating" &&
@@ -1774,6 +1877,7 @@ export function ReviewConfigForm({
         className="grid gap-5"
         onSubmit={(event) => {
           if (
+            providerChoiceInvalid ||
             gatewaySelectionInvalid ||
             gatewayReasoningInvalid ||
             gatewaySingleProviderViolation ||
@@ -1886,7 +1990,17 @@ export function ReviewConfigForm({
           ) : null}
           <div className="grid gap-4">
             {providers.map((provider, index) => {
-              const providerOptions = modelOptionsByProvider[provider.kind];
+              const choice = providerChoice(provider, index);
+              const matchingGatewayAccounts = gatewayAccountsForChoice(choice);
+              const connectionOptions = authStorageOptionsForProvider(choice);
+              const connection = connectionOptions.find(
+                (option) =>
+                  option.value === authStorageForAuthMode(provider.authMode),
+              );
+              const providerOptions =
+                choice === provider.kind
+                  ? modelOptionsByProvider[provider.kind]
+                  : [];
               const gatewayAccount = gatewayAccountForProvider(provider);
               const gatewayModels = gatewayModelsForProvider(provider);
               const agentProfileViolation = agentProfileAgenticContextViolation(
@@ -1966,24 +2080,42 @@ export function ReviewConfigForm({
 
                   <div className="grid gap-4 md:grid-cols-2 md:gap-x-8 md:gap-y-5">
                     <DashboardSelectField
-                      label="Where to store account authentication?"
-                      helpText="Choose where this provider's account credential is stored."
+                      label="Provider"
+                      helpText="Choose the service that provides your account and models."
+                      value={choice ?? ""}
+                      placeholder="Selected provider unavailable"
+                      disabled={providersInherited || !mutationsEnabled}
+                      options={providerChoices}
+                      onValueChange={(value) =>
+                        changeProviderChoice(index, value as ProviderKind)
+                      }
+                    />
+                    <DashboardSelectField
+                      label="Connection method"
+                      helpText="Choose where this provider's credentials are managed."
                       value={authStorageForAuthMode(provider.authMode)}
                       disabled={providersInherited || !mutationsEnabled}
-                      options={authStorageOptionsForProvider()}
+                      options={connectionOptions}
                       onValueChange={(value) => {
                         if (value === "account_pool") {
                           changeProviderAuth(index, "codex_account_gateway");
                         } else if (
                           provider.authMode === "codex_account_gateway"
                         ) {
-                          changeProviderAuth(
-                            index,
-                            defaultGitHubActionsAuthMode(),
-                          );
+                          const auth = directAuthOptions(choice)[0]?.value;
+                          if (auth)
+                            changeProviderAuth(index, auth as ProviderAuthMode);
                         }
                       }}
                     />
+                    {connection?.disabled ? (
+                      <p
+                        role="status"
+                        className="text-sm text-amber-100/85 md:col-span-2"
+                      >
+                        {connection.description}
+                      </p>
+                    ) : null}
                     {provider.authMode === "codex_account_gateway" ? null : (
                       <DashboardSelectField
                         name={`providerAuthMode.${index}`}
@@ -1991,7 +2123,10 @@ export function ReviewConfigForm({
                         helpText={fieldHelp.providerAuthMode}
                         value={provider.authMode}
                         disabled={providersInherited || !mutationsEnabled}
-                        options={providerAuthOptionsForProvider(provider)}
+                        options={providerAuthOptionsForProvider(
+                          provider,
+                          choice,
+                        )}
                         onValueChange={(value) =>
                           changeProviderAuth(
                             index,
@@ -2022,9 +2157,9 @@ export function ReviewConfigForm({
                           disabled={
                             providersInherited ||
                             !mutationsEnabled ||
-                            eligibleGatewayAccounts.length === 0
+                            matchingGatewayAccounts.length === 0
                           }
-                          options={eligibleGatewayAccounts.map((account) => ({
+                          options={matchingGatewayAccounts.map((account) => ({
                             value: account.binding!.id,
                             label: account.label,
                             description: [
@@ -2035,8 +2170,8 @@ export function ReviewConfigForm({
                               .join(" · "),
                           }))}
                           onValueChange={(value) => {
-                            const account = eligibleGatewayAccounts.find(
-                              (choice) => choice.binding?.id === value,
+                            const account = matchingGatewayAccounts.find(
+                              (candidate) => candidate.binding?.id === value,
                             );
                             if (!account) return;
                             // A changed account always clears the model so a
@@ -2403,6 +2538,7 @@ export function ReviewConfigForm({
             className="w-full sm:w-auto sm:min-w-64"
             disabled={
               !mutationsEnabled ||
+              providerChoiceInvalid ||
               gatewaySelectionInvalid ||
               gatewayReasoningInvalid ||
               gatewaySingleProviderViolation ||

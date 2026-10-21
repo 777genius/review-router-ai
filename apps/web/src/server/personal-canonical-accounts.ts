@@ -68,6 +68,7 @@ type Dependencies = {
   profiles: readonly {
     id: string;
     label: string;
+    provider?: NonNullable<AccountProfileView["provider"]>;
     authKind: "api_key" | "oauth";
     canReconnect?: boolean;
     dedicatedBaseURL?: string;
@@ -130,6 +131,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
   const approved = input.profiles.map((profile) => ({
     id: profile.id,
     label: profile.label,
+    ...(profile.provider ? { provider: profile.provider } : {}),
     authKind: profile.authKind,
     canReconnect:
       profile.authKind === "api_key" && profile.canReconnect === true,
