@@ -38,6 +38,10 @@ const OptionsContext = createContext<{
   client: QueryClient;
 } | null>(null);
 
+export function useGatewayModelAccountScope() {
+  return useContext(OptionsContext)?.scope ?? null;
+}
+
 export function useGatewayModelAccountsQueryClient(
   scope: string,
 ): QueryClient | null {

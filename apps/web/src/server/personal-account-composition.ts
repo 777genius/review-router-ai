@@ -36,6 +36,11 @@ import { createPersonalAccountSharingApi } from "./personal-account-sharing";
 import { createPersonalCanonicalAccounts } from "./personal-canonical-accounts";
 import { createAccountsOverview } from "./accounts-overview";
 import { createGatewayModelAccountOptions } from "./gateway-model-account-options";
+import { createGatewayConnectionProbe } from "./gateway-connection-probe";
+import {
+  assertRateLimit,
+  PrismaRateLimitStore,
+} from "@reviewrouter/features-rate-limits";
 import { z } from "zod";
 
 // A dedicated server-only consumer-control credential is required. Management
@@ -539,11 +544,39 @@ export async function productionPersonalAccounts() {
     return readWorkspaceDetachment(workspaceId, request);
   }
   const scope = `personal-${createHash("sha256").update(`rr-personal-ui-v1\0${userId}`).digest("hex")}`;
+  function probe(workspaceId: string) {
+    return createGatewayConnectionProbe({
+      resolve: async (bindingId, model) =>
+        (await models(workspaceId)).resolveProbe(bindingId, model),
+      admit: async () => {
+        await workspaceAccess(workspaceId);
+        await assertRateLimit(
+          {
+            key: `gateway-probe:${workspaceId}:${userId}`,
+            limit: 5,
+            windowMs: 60000,
+          },
+          {
+            rateLimits: new PrismaRateLimitStore(prisma),
+            clock: { now: () => new Date() },
+          },
+        );
+      },
+      control,
+      executionOrigin:
+        process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN ??
+        controlSettings.origin,
+      executionControlOrigin:
+        process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN ??
+        controlSettings.origin,
+    });
+  }
   return {
     sharing,
     canonical,
     scope,
     models,
+    probe,
     overview,
     reviewProfiles,
     workspaceAccess,

@@ -4,6 +4,9 @@ export const BASELINE_REVISION =
 export const TEST_DATABASE_NAME =
   "review_router_accounts_reference_e2e_test" as const;
 
+export const PROBE_FIXTURE_BOUNDARY =
+  "Real browser and controlled Gateway HTTP inference transport; no live model provider or native lifecycle proof" as const;
+
 export const FIXTURES = Object.freeze({
   users: {
     viewer: "rr-e2e-user-viewer-0001",
@@ -115,6 +118,7 @@ export type RuntimeDescriptor = {
   readonly secretsGenerated: true;
   readonly externalNetworkAllowed: false;
   readonly fixtureBoundary:
+    | typeof PROBE_FIXTURE_BOUNDARY
     | "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof"
     | "not-used";
 };
