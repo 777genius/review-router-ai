@@ -29,12 +29,12 @@ describe("review summary markdown", () => {
     });
 
     expect(markdown).toContain("<!-- reviewrouter:review:v1 summary -->");
-    expect(markdown).toContain("## 1 finding (1 major)");
-    expect(markdown).toContain(
-      "<summary>major · src/auth.ts:44 · Auth bypass</summary>",
-    );
+    expect(markdown).toContain("🟠 **1 major finding**");
+    expect(markdown).toContain("<summary>Details</summary>");
     expect(markdown).toContain("The query no longer filters by email.");
-    expect(markdown).toContain("**Location:** `src/auth.ts:44`");
+    expect(markdown).toContain(
+      `[src/auth.ts:44](<https://github.com/owner/repo/blob/${headSha}/src/auth.ts#L44>)`,
+    );
     expect(markdown).not.toContain("# ReviewRouter");
   });
 
@@ -71,7 +71,7 @@ describe("review summary markdown", () => {
     expect(markdown).toContain(
       "&lt;details&gt;&lt;summary&gt;trap&lt;/summary&gt;",
     );
-    expect(markdown).toContain("<summary>major · b.ts:2 · Second</summary>");
+    expect(markdown).toContain("**[major] Second**");
     expect(markdown).toContain("still visible");
     expect(markdown.match(/<details>/g)?.length).toBe(
       markdown.match(/<\/details>/g)?.length,
@@ -137,8 +137,209 @@ describe("review summary markdown", () => {
       }),
     });
 
-    expect(markdown).toContain("## 1 замечание (1 critical)");
-    expect(markdown).toContain("**Место:**");
+    expect(markdown).toContain("🔴 **1 critical замечание**");
+    expect(markdown).toContain("<summary>Подробности</summary>");
     expect(markdown).toContain("Фильтр email больше не применяется.");
+  });
+});
+
+function planWith(
+  findings: readonly import("./review-publication").ReviewFinding[],
+  provider: "github" | "gitlab" = "github",
+) {
+  return createReviewPublicationPlan({
+    target: {
+      provider,
+      repositoryExternalId: "123",
+      repositoryFullName: "owner/repo",
+      changeRequestExternalId: "8",
+      headSha,
+      baseSha: "b".repeat(40),
+    },
+    marker: "reviewrouter:review:v1",
+    findings,
+  });
+}
+function finding(
+  fingerprint: string,
+  body = "Visible first paragraph.\n\nFull evidence stays here.",
+  severity: "critical" | "major" | "minor" | "info" = "major",
+) {
+  return {
+    fingerprint,
+    severity,
+    title: fingerprint,
+    body,
+    location: { filePath: "src/a b#c.ts", newLine: 4 },
+  };
+}
+
+describe("compact summary contracts", () => {
+  it("shows an excerpt only for 1-3 findings and retains full evidence in details", () => {
+    const body =
+      "A word ".repeat(60) +
+      "\n\nEvidence with a fix: \n```ts\nconst secret = '<details>';\n```";
+    const markdown = renderReviewSummaryMarkdown({
+      plan: planWith([finding("one", body)]),
+    });
+    const beforeDetails = markdown.split("<details>")[0]!;
+    const excerpt = beforeDetails.trim().split("\n\n").at(-1)!.trim();
+    expect(Array.from(excerpt).length).toBeLessThanOrEqual(320);
+    expect(excerpt).toMatch(/(?:word|A)…$/);
+    expect(beforeDetails).not.toContain("Evidence with a fix");
+    expect(markdown).toContain("const secret = '<details>';");
+    expect(markdown).toContain(`/blob/${headSha}/src/a%20b%23c.ts#L4`);
+  });
+
+  it.each([
+    "```ts\ncode\n```",
+    "~~~\ncode\n~~~",
+    "<table>html</table>",
+    "A | B\n--- | ---\n1 | 2",
+    "| A | B |\n| --- | --- |",
+    "    indented code",
+  ])(
+    "does not invent a preview from a non-paragraph first block: %s",
+    (body) => {
+      const markdown = renderReviewSummaryMarkdown({
+        plan: planWith([finding("one", body)]),
+      });
+      const preview = markdown.split("<details>")[0]!.trim();
+      expect(preview.split(/\n\n/)).toHaveLength(2);
+    },
+  );
+
+  it("uses severity then fingerprint order without losing same-location findings", () => {
+    const findings = [
+      finding("z"),
+      finding("c", "Critical evidence", "critical"),
+      finding("a"),
+      finding("b"),
+    ];
+    const markdown = renderReviewSummaryMarkdown({ plan: planWith(findings) });
+    expect(markdown).toContain("**1 critical, 3 major findings**");
+    expect(markdown.match(/<details>/g)).toHaveLength(4);
+    expect(markdown.indexOf("[critical] c")).toBeLessThan(
+      markdown.indexOf("[major] a"),
+    );
+    expect(markdown.indexOf("[major] a")).toBeLessThan(
+      markdown.indexOf("[major] b"),
+    );
+    expect(markdown.split("<details>")[0]).not.toContain("Critical evidence");
+  });
+
+  it("binds removed lines to base SHA and GitLab locations to the configured host", () => {
+    const removed = {
+      ...finding("removed"),
+      location: { filePath: "src/old.ts", oldLine: 2 },
+    };
+    expect(
+      renderReviewSummaryMarkdown({ plan: planWith([removed]) }),
+    ).toContain(`/blob/${"b".repeat(40)}/src/old.ts#L2`);
+    const markdown = renderReviewSummaryMarkdown({
+      plan: planWith([finding("one")], "gitlab"),
+      sourceBaseUrl: "https://gitlab.example/team-root",
+    });
+    expect(markdown).toContain(
+      `https://gitlab.example/team-root/owner/repo/-/blob/${headSha}/`,
+    );
+    expect(markdown).not.toContain("github.com");
+  });
+
+  it("preserves an incomplete warning while omitting whole oversized Unicode blocks", () => {
+    const markdown = renderReviewSummaryMarkdown({
+      plan: planWith(
+        Array.from({ length: 40 }, (_, i) =>
+          finding(String(i), "```\n" + "🙂".repeat(3000)),
+        ),
+      ),
+      reviewState: "incomplete",
+    });
+    expect(Buffer.byteLength(markdown)).toBeLessThanOrEqual(60_000);
+    expect(markdown).toContain("Review incomplete");
+    expect(markdown).toContain("omitted from this summary");
+    expect(markdown).not.toContain("�");
+    expect(markdown.match(/<details>/g)?.length).toBe(
+      markdown.match(/<\/details>/g)?.length,
+    );
+    expect((markdown.match(/^```$/gm)?.length ?? 0) % 2).toBe(0);
+  });
+
+  it("escapes hostile titles, paths and invalid code fences without swallowing later findings", () => {
+    const malicious = {
+      ...finding("one", "```bad`\n</details><img src=x onerror=alert(1)>"),
+      title: "</summary><script>alert(1)</script>",
+      location: { filePath: "src/<img>.ts", newLine: 4 },
+    };
+    const markdown = renderReviewSummaryMarkdown({
+      plan: planWith([malicious, finding("two")]),
+    });
+    expect(markdown).not.toContain("<script>");
+    expect(markdown).not.toContain("<img src=x");
+    expect(markdown).toContain("**[major] two**");
+    expect(markdown.match(/<details>/g)).toHaveLength(2);
+  });
+
+  it("keeps clean text neutral when completeness is unknown", () => {
+    const markdown = renderReviewSummaryMarkdown({ plan: planWith([]) });
+    expect(markdown).toContain("**No findings**");
+    expect(markdown).not.toMatch(/all.clear|complete|picture/i);
+  });
+
+  it("renders optional HTTPS theme images using only counts and enums", () => {
+    const markdown = renderReviewSummaryMarkdown({
+      plan: planWith([finding("private-name")]),
+      bannerBaseUrl: "https://public.example/",
+      reviewState: "complete",
+    });
+    expect(markdown).toContain("<picture>");
+    expect(markdown).toContain(
+      'srcset="https://public.example/review-banner/v1.svg?state=complete&amp;critical=0&amp;major=1&amp;minor=0&amp;info=0&amp;lang=en&amp;theme=dark"',
+    );
+    expect(markdown).toContain(
+      '<img src="https://public.example/review-banner/v1.svg?',
+    );
+    expect(markdown.split("<picture>")[1]!.split("</picture>")[0]).not.toMatch(
+      /private-name|owner|repo|src%|headSha/,
+    );
+    expect(markdown).toContain("**1 major finding**");
+  });
+
+  it.each([
+    "http://public.example",
+    "https://user:password@public.example",
+    "https://public.example/?private=x",
+    "https://public.example/#private",
+  ])("omits invalid banner bases: %s", (bannerBaseUrl) => {
+    expect(
+      renderReviewSummaryMarkdown({
+        plan: planWith([]),
+        bannerBaseUrl,
+        reviewState: "complete",
+      }),
+    ).not.toContain("<picture>");
+  });
+
+  it("omits images for unknown completeness, GitLab and excessive counts", () => {
+    const bannerBaseUrl = "https://public.example";
+    expect(
+      renderReviewSummaryMarkdown({ plan: planWith([]), bannerBaseUrl }),
+    ).not.toContain("<picture>");
+    expect(
+      renderReviewSummaryMarkdown({
+        plan: planWith([], "gitlab"),
+        bannerBaseUrl,
+        reviewState: "complete",
+      }),
+    ).not.toContain("<picture>");
+    expect(
+      renderReviewSummaryMarkdown({
+        plan: planWith(
+          Array.from({ length: 10_000 }, (_, i) => finding(String(i))),
+        ),
+        bannerBaseUrl,
+        reviewState: "complete",
+      }),
+    ).not.toContain("<picture>");
   });
 });

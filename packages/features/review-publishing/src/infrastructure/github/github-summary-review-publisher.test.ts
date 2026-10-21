@@ -47,6 +47,8 @@ describe("GitHubSummaryReviewPublisher", () => {
 
     const publisher = new GitHubSummaryReviewPublisher({
       token: "ghs-token",
+      bannerBaseUrl: "https://public.example",
+      reviewState: "complete",
       apiBaseUrl: "https://github.test",
       fetchImpl,
     });
@@ -62,6 +64,8 @@ describe("GitHubSummaryReviewPublisher", () => {
       "POST https://github.test/repos/owner/repo/issues/7/comments",
     );
     expect(bodies[0]).toContain("reviewrouter:review:v1 summary");
+    expect(JSON.parse(bodies[0]!).body).toContain("<picture>");
+    expect(methods).toHaveLength(2);
   });
 
   it("updates an existing marker-based summary comment", async () => {

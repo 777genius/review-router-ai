@@ -1,10 +1,11 @@
 import type {
   ReviewFinding,
   ReviewFindingSeverity,
+  ReviewPublicationTarget,
 } from "./review-publication";
 
 const maxPublicationBodyBytes = 60_000;
-const maxFindingBodyChars = 2_500;
+export type ReviewSummaryState = "complete" | "incomplete";
 
 export type ReviewSummaryLocale =
   | "en"
@@ -28,9 +29,10 @@ type SeverityCounts = {
 };
 
 type ReviewSummaryCopy = {
-  readonly noFindingsHeading: string;
-  readonly findingsHeading: (counts: SeverityCounts) => string;
-  readonly location: string;
+  readonly noFindingsStatus: string;
+  readonly findingsStatus: (counts: SeverityCounts) => string;
+  readonly details: string;
+  readonly incomplete: string;
   readonly moreFindings: (count: number) => string;
 };
 
@@ -125,76 +127,222 @@ export function resolveReviewSummaryLocale(
 export function renderFindingsSummaryMarkdown(input: {
   readonly language?: string | undefined;
   readonly findings: readonly ReviewFinding[];
+  readonly target?: ReviewPublicationTarget | undefined;
+  readonly sourceBaseUrl?: string | undefined;
+  readonly reviewState?: ReviewSummaryState | undefined;
+  readonly bannerBaseUrl?: string | undefined;
   readonly maxBytes?: number | undefined;
 }): string {
   const maxBytes = input.maxBytes ?? maxPublicationBodyBytes;
-  const copy = copies[resolveReviewSummaryLocale(input.language)];
+  const locale = resolveReviewSummaryLocale(input.language);
+  const copy = copies[locale];
   const counts = countFindingsBySeverity(input.findings);
   const heading =
-    counts.total === 0 ? copy.noFindingsHeading : copy.findingsHeading(counts);
-  const lines: string[] = [heading];
+    counts.total === 0 ? copy.noFindingsStatus : copy.findingsStatus(counts);
+  const icon =
+    counts.critical > 0
+      ? "🔴"
+      : counts.major > 0
+        ? "🟠"
+        : counts.total > 0
+          ? "🟡"
+          : "⚪";
+  const lines = [`${icon} **${heading}**`];
+  if (input.reviewState === "incomplete") lines.push("", copy.incomplete);
+  const banner = renderBanner(input, counts, locale);
+  if (banner) lines.push("", banner);
   const sorted = [...input.findings].sort(compareFindings);
-
-  const remaining: string[] = [];
-  for (const finding of sorted) {
-    const block = renderFindingDetails(copy, finding);
-    const candidate = [...lines, "", block];
-    if (utf8Bytes(candidate.join("\n")) > maxBytes) {
-      remaining.push(compactFindingLine(finding));
-      continue;
+  let omitted = 0;
+  for (let index = 0; index < sorted.length; index += 1) {
+    const finding = sorted[index]!;
+    const block = renderFinding(
+      finding,
+      input,
+      copy.details,
+      sorted.length <= 3,
+    );
+    // Reserve the omission notice before accepting any complete finding block.
+    const notice = copy.moreFindings(sorted.length);
+    if (utf8Bytes([...lines, "", block, "", notice].join("\n")) > maxBytes) {
+      omitted = sorted.length - index;
+      break;
     }
     lines.push("", block);
   }
-
-  if (remaining.length > 0) {
-    const header = ["", copy.moreFindings(remaining.length)];
-    if (utf8Bytes([...lines, ...header].join("\n")) <= maxBytes) {
-      lines.push(...header);
-      for (const compact of remaining) {
-        const candidate = [...lines, compact];
-        if (utf8Bytes(candidate.join("\n")) > maxBytes) {
-          break;
-        }
-        lines.push(compact);
-      }
-    }
-  }
-
-  return limitUtf8(lines.join("\n"), maxBytes);
+  if (omitted > 0) lines.push("", copy.moreFindings(omitted));
+  // Production's 60KB budget always accommodates status + notice. Tiny caller
+  // budgets must also remain bounded, without cutting a Markdown/HTML block.
+  const result = lines.join("\n");
+  return utf8Bytes(result) <= maxBytes ? result : "";
 }
 
-function renderFindingDetails(
-  copy: ReviewSummaryCopy,
+function renderFinding(
   finding: ReviewFinding,
+  input: {
+    readonly target?: ReviewPublicationTarget | undefined;
+    readonly sourceBaseUrl?: string | undefined;
+  },
+  details: string,
+  expanded: boolean,
 ): string {
-  const location = formatFindingLocation(finding);
-  const summary = escapeHtml(
-    [finding.severity, location, finding.title.trim()]
-      .filter(Boolean)
-      .join(" · "),
-  );
-  const parts = [
-    "<details>",
-    `<summary>${summary}</summary>`,
-    "",
-    truncateChars(
-      neutralizeDetailsMarkup(finding.body.trim()),
-      maxFindingBodyChars,
-    ),
-  ];
-  if (location) {
-    parts.push(
+  const title = `**[${finding.severity}] ${escapeMarkdownInline(finding.title.trim())}**`;
+  const location = renderLocation(finding, input);
+  const body = safeBody(finding.body.trimEnd());
+  if (!expanded) {
+    return [
+      "<details>",
+      `<summary>${escapeHtml(`[${finding.severity}] ${finding.title.trim()}${formatFindingLocation(finding) ? ` · ${formatFindingLocation(finding)}` : ""}`)}</summary>`,
       "",
-      `**${copy.location}:** \`${escapeMarkdownInline(location)}\``,
-    );
+      ...(location ? [location, ""] : []),
+      body,
+      "",
+      "</details>",
+    ].join("\n");
   }
-  parts.push("", "</details>");
-  return parts.join("\n");
+  const excerpt = firstParagraph(finding.body);
+  return [
+    title,
+    ...(location ? [location] : []),
+    ...(excerpt ? ["", escapeMarkdownInline(excerpt)] : []),
+    "",
+    "<details>",
+    `<summary>${details}</summary>`,
+    "",
+    body,
+    "",
+    "</details>",
+  ].join("\n");
 }
 
-function compactFindingLine(finding: ReviewFinding): string {
-  const location = formatFindingLocation(finding);
-  return `- **${finding.severity}**${location ? ` \`${escapeMarkdownInline(location)}\`` : ""} ${escapeMarkdownInline(finding.title.trim())}`;
+function firstParagraph(body: string): string {
+  const first =
+    body.replace(/^(?:[ \t]*\r?\n)+/, "").split(/\r?\n\s*\r?\n/, 1)[0] ?? "";
+  if (
+    /^(?: {4}|\t| {0,3}(?:`{3,}|~{3,}|<|#{1,6}\s|>|[-*+]\s|\d+[.)]\s|\|))/.test(
+      first,
+    ) ||
+    /\n\s*\|?\s*:?-{3,}/.test(first)
+  )
+    return "";
+  const paragraph = first.replace(/\s+/g, " ").trim();
+  const chars = Array.from(paragraph);
+  if (chars.length <= 320) return paragraph;
+  const prefix = chars.slice(0, 319).join("");
+  const boundary = prefix.lastIndexOf(" ");
+  return boundary > 0 ? `${prefix.slice(0, boundary).trimEnd()}…` : "";
+}
+
+function safeBody(value: string): string {
+  let fence: { readonly char: string; readonly length: number } | undefined;
+  const lines = value.split(/\r?\n/).map((line) => {
+    const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (match) {
+      const delimiter = match[1]!;
+      if (!fence) {
+        if (delimiter[0] === "`" && match[2]?.includes("`"))
+          return escapeHtml(line);
+        fence = { char: delimiter[0]!, length: delimiter.length };
+      } else if (
+        delimiter[0] === fence.char &&
+        delimiter.length >= fence.length &&
+        !match[2]?.trim()
+      )
+        fence = undefined;
+      return line;
+    }
+    return fence ? line : escapeHtml(line);
+  });
+  if (fence) lines.push(fence.char.repeat(fence.length));
+  return lines.join("\n");
+}
+
+function renderLocation(
+  finding: ReviewFinding,
+  input: {
+    readonly target?: ReviewPublicationTarget | undefined;
+    readonly sourceBaseUrl?: string | undefined;
+  },
+): string {
+  const label = formatFindingLocation(finding);
+  if (!label) return "";
+  const fallback = `\`${escapeHtml(label.replace(/\s+/g, " ")).replaceAll("`", "&#96;")}\``;
+  const target = input.target;
+  const location = finding.location;
+  if (!target || !location || !/^[a-f0-9]{40}$/i.test(target.headSha))
+    return fallback;
+  const sha =
+    location.newLine === undefined && location.oldLine !== undefined
+      ? target.baseSha
+      : target.headSha;
+  if (!sha || !/^[a-f0-9]{40}$/i.test(sha)) return fallback;
+  const base = safeHttpsBase(
+    input.sourceBaseUrl ??
+      (target.provider === "github" ? "https://github.com" : ""),
+  );
+  const parts = target.repositoryFullName.split("/");
+  if (
+    !base ||
+    parts.some((part) => !part || part === "." || part === "..") ||
+    (target.provider === "github" && parts.length !== 2)
+  )
+    return fallback;
+  const pathParts = location.filePath.split("/");
+  if (pathParts.some((part) => !part || part === "." || part === ".."))
+    return fallback;
+  const path = pathParts.map(encodeURIComponent).join("/");
+  const repo = parts.map(encodeURIComponent).join("/");
+  const line = location.newLine ?? location.oldLine;
+  const url = `${base}/${repo}/${target.provider === "gitlab" ? "-/blob" : "blob"}/${sha}/${path}${line ? `#L${line}` : ""}`;
+  return `[${escapeMarkdownInline(label)}](<${url}>)`;
+}
+
+function renderBanner(
+  input: {
+    readonly target?: ReviewPublicationTarget | undefined;
+    readonly bannerBaseUrl?: string | undefined;
+    readonly reviewState?: ReviewSummaryState | undefined;
+  },
+  counts: SeverityCounts,
+  locale: ReviewSummaryLocale,
+): string {
+  const base = safeHttpsBase(input.bannerBaseUrl ?? "");
+  if (
+    !base ||
+    input.target?.provider !== "github" ||
+    (input.reviewState !== "complete" && input.reviewState !== "incomplete") ||
+    [counts.critical, counts.major, counts.minor, counts.info].some(
+      (count) => !Number.isInteger(count) || count < 0 || count > 9999,
+    )
+  )
+    return "";
+  const url = (theme: "light" | "dark") => {
+    const query = new URLSearchParams({
+      state: input.reviewState!,
+      critical: String(counts.critical),
+      major: String(counts.major),
+      minor: String(counts.minor),
+      info: String(counts.info),
+      lang: locale,
+      theme,
+    });
+    return escapeHtml(`${base}/review-banner/v1.svg?${query}`);
+  };
+  return `<picture>\n<source media="(prefers-color-scheme: dark)" srcset="${url("dark")}">\n<img src="${url("light")}" alt="ReviewRouter" width="640" height="110">\n</picture>`;
+}
+
+function safeHttpsBase(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+      ? url.href.replace(/\/+$/, "")
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function compareFindings(left: ReviewFinding, right: ReviewFinding): number {
@@ -206,7 +354,11 @@ function compareFindings(left: ReviewFinding, right: ReviewFinding): number {
   };
   return (
     rank[right.severity] - rank[left.severity] ||
-    left.title.localeCompare(right.title)
+    (left.fingerprint < right.fingerprint
+      ? -1
+      : left.fingerprint > right.fingerprint
+        ? 1
+        : 0)
   );
 }
 
@@ -224,9 +376,7 @@ function countFindingsBySeverity(
 }
 
 function formatFindingLocation(finding: ReviewFinding): string {
-  if (!finding.location) {
-    return "";
-  }
+  if (!finding.location) return "";
   const line = finding.location.newLine ?? finding.location.oldLine;
   return line
     ? `${finding.location.filePath}:${line}`
@@ -269,89 +419,105 @@ function slavicFindingWord(
 
 const copies: Record<ReviewSummaryLocale, ReviewSummaryCopy> = {
   en: {
-    noFindingsHeading: "## No findings",
-    findingsHeading: (counts) =>
-      `## ${counts.total} ${counts.total === 1 ? "finding" : "findings"} (${formatSeverityCounts(counts)})`,
-    location: "Location",
+    noFindingsStatus: "No findings",
+    findingsStatus: (counts) =>
+      `${formatSeverityCounts(counts)} ${counts.total === 1 ? "finding" : "findings"}`,
+    details: "Details",
+    incomplete: "⚠️ Review incomplete. This result is not an all-clear.",
     moreFindings: (count) =>
       `**${count} more ${count === 1 ? "finding" : "findings"} omitted from this summary because of size limits.**`,
   },
   ru: {
-    noFindingsHeading: "## Замечаний нет",
-    findingsHeading: (counts) =>
-      `## ${counts.total} ${slavicFindingWord(counts.total, ["замечание", "замечания", "замечаний"])} (${formatSeverityCounts(counts)})`,
-    location: "Место",
+    noFindingsStatus: "Замечаний нет",
+    findingsStatus: (counts) =>
+      `${formatSeverityCounts(counts)} ${slavicFindingWord(counts.total, ["замечание", "замечания", "замечаний"])}`,
+    details: "Подробности",
+    incomplete:
+      "⚠️ Ревью не завершено. Этот результат не означает отсутствия проблем.",
     moreFindings: (count) =>
       `**Ещё ${count} ${slavicFindingWord(count, ["замечание", "замечания", "замечаний"])} не влезли в это сообщение из‑за лимита размера.**`,
   },
   uk: {
-    noFindingsHeading: "## Зауважень немає",
-    findingsHeading: (counts) =>
-      `## ${counts.total} ${slavicFindingWord(counts.total, ["зауваження", "зауваження", "зауважень"])} (${formatSeverityCounts(counts)})`,
-    location: "Місце",
+    noFindingsStatus: "Зауважень немає",
+    findingsStatus: (counts) =>
+      `${formatSeverityCounts(counts)} ${slavicFindingWord(counts.total, ["зауваження", "зауваження", "зауважень"])}`,
+    details: "Подробиці",
+    incomplete:
+      "⚠️ Рев'ю не завершено. Цей результат не означає відсутності проблем.",
     moreFindings: (count) =>
       `**Ще ${count} ${slavicFindingWord(count, ["зауваження", "зауваження", "зауважень"])} не вмістилися в це повідомлення через ліміт розміру.**`,
   },
   es: {
-    noFindingsHeading: "## Sin hallazgos",
-    findingsHeading: (counts) =>
-      `## ${counts.total} ${counts.total === 1 ? "hallazgo" : "hallazgos"} (${formatSeverityCounts(counts)})`,
-    location: "Ubicación",
+    noFindingsStatus: "Sin hallazgos",
+    findingsStatus: (counts) =>
+      `${formatSeverityCounts(counts)} ${counts.total === 1 ? "hallazgo" : "hallazgos"}`,
+    details: "Detalles",
+    incomplete:
+      "⚠️ Revisión incompleta. Este resultado no confirma la ausencia de problemas.",
     moreFindings: (count) =>
       `**${count} ${count === 1 ? "hallazgo más omitido" : "hallazgos más omitidos"} de este resumen por el límite de tamaño.**`,
   },
   pt: {
-    noFindingsHeading: "## Nenhum achado",
-    findingsHeading: (counts) =>
-      `## ${counts.total} ${counts.total === 1 ? "achado" : "achados"} (${formatSeverityCounts(counts)})`,
-    location: "Local",
+    noFindingsStatus: "Nenhum achado",
+    findingsStatus: (counts) =>
+      `${formatSeverityCounts(counts)} ${counts.total === 1 ? "achado" : "achados"}`,
+    details: "Detalhes",
+    incomplete:
+      "⚠️ Revisão incompleta. Este resultado não confirma a ausência de problemas.",
     moreFindings: (count) =>
       `**Mais ${count} ${count === 1 ? "achado omitido" : "achados omitidos"} deste resumo por limite de tamanho.**`,
   },
   fr: {
-    noFindingsHeading: "## Aucune anomalie",
-    findingsHeading: (counts) =>
-      `## ${counts.total} ${counts.total === 1 ? "anomalie" : "anomalies"} (${formatSeverityCounts(counts)})`,
-    location: "Emplacement",
+    noFindingsStatus: "Aucune anomalie",
+    findingsStatus: (counts) =>
+      `${formatSeverityCounts(counts)} ${counts.total === 1 ? "anomalie" : "anomalies"}`,
+    details: "Détails",
+    incomplete:
+      "⚠️ Revue incomplète. Ce résultat ne confirme pas l'absence de problèmes.",
     moreFindings: (count) =>
       `**${count} ${count === 1 ? "anomalie supplémentaire omise" : "anomalies supplémentaires omises"} de ce résumé à cause de la limite de taille.**`,
   },
   de: {
-    noFindingsHeading: "## Keine Befunde",
-    findingsHeading: (counts) =>
-      `## ${counts.total} ${counts.total === 1 ? "Befund" : "Befunde"} (${formatSeverityCounts(counts)})`,
-    location: "Stelle",
+    noFindingsStatus: "Keine Befunde",
+    findingsStatus: (counts) =>
+      `${formatSeverityCounts(counts)} ${counts.total === 1 ? "Befund" : "Befunde"}`,
+    details: "Details",
+    incomplete:
+      "⚠️ Review unvollständig. Dieses Ergebnis bestätigt keine Fehlerfreiheit.",
     moreFindings: (count) =>
       `**${count} weitere ${count === 1 ? "Befund" : "Befunde"} fehlen in dieser Zusammenfassung wegen des Größenlimits.**`,
   },
   it: {
-    noFindingsHeading: "## Nessun rilievo",
-    findingsHeading: (counts) =>
-      `## ${counts.total} ${counts.total === 1 ? "rilievo" : "rilievi"} (${formatSeverityCounts(counts)})`,
-    location: "Posizione",
+    noFindingsStatus: "Nessun rilievo",
+    findingsStatus: (counts) =>
+      `${formatSeverityCounts(counts)} ${counts.total === 1 ? "rilievo" : "rilievi"}`,
+    details: "Dettagli",
+    incomplete:
+      "⚠️ Revisione incompleta. Questo risultato non conferma l'assenza di problemi.",
     moreFindings: (count) =>
       `**Altri ${count} ${count === 1 ? "rilievo omesso" : "rilievi omessi"} da questo riassunto per il limite di dimensione.**`,
   },
   zh: {
-    noFindingsHeading: "## 无问题",
-    findingsHeading: (counts) =>
-      `## ${counts.total} 个问题（${formatSeverityCounts(counts)}）`,
-    location: "位置",
+    noFindingsStatus: "无问题",
+    findingsStatus: (counts) => `${formatSeverityCounts(counts)} 个问题`,
+    details: "详细信息",
+    incomplete: "⚠️ 审查未完成。此结果不代表没有问题。",
     moreFindings: (count) => `**受篇幅限制，本摘要还省略了 ${count} 条问题。**`,
   },
   ja: {
-    noFindingsHeading: "## 指摘なし",
-    findingsHeading: (counts) =>
-      `## 指摘 ${counts.total} 件（${formatSeverityCounts(counts)}）`,
-    location: "場所",
+    noFindingsStatus: "指摘なし",
+    findingsStatus: (counts) => `指摘 ${formatSeverityCounts(counts)} 件`,
+    details: "詳細",
+    incomplete: "⚠️ レビュー未完了。この結果は問題がないことを示しません。",
     moreFindings: (count) =>
       `**サイズ制限のため、この要約から指摘がさらに ${count} 件省略されています。**`,
   },
   ko: {
-    noFindingsHeading: "## 이슈 없음",
-    findingsHeading: (counts) =>
-      `## 이슈 ${counts.total}개 (${formatSeverityCounts(counts)})`,
-    location: "위치",
+    noFindingsStatus: "이슈 없음",
+    findingsStatus: (counts) => `이슈 ${formatSeverityCounts(counts)}개`,
+    details: "세부 정보",
+    incomplete:
+      "⚠️ 검토가 완료되지 않았습니다. 이 결과는 문제가 없음을 의미하지 않습니다.",
     moreFindings: (count) =>
       `**크기 제한 때문에 이 요약에서 이슈 ${count}개가 더 생략되었습니다.**`,
   },
@@ -366,48 +532,11 @@ function escapeHtml(value: string): string {
 }
 
 function escapeMarkdownInline(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("`", "\\`");
-}
-
-function neutralizeDetailsMarkup(value: string): string {
-  return value.replace(/<\/?(?:details|summary)\b[^>]*>/gi, (tag) =>
-    tag.replaceAll("<", "&lt;").replaceAll(">", "&gt;"),
-  );
-}
-
-function dropIncompleteDetails(value: string): string {
-  const openTags = Array.from(value.matchAll(/<details\b[^>]*>/gi));
-  const closeTags = Array.from(value.matchAll(/<\/details>/gi));
-  if (openTags.length <= closeTags.length) {
-    return value;
-  }
-  const lastOpen = openTags[openTags.length - 1];
-  if (lastOpen?.index === undefined) {
-    return value;
-  }
-  return value.slice(0, lastOpen.index).trimEnd();
-}
-
-function truncateChars(value: string, maxChars: number): string {
-  if (value.length <= maxChars) {
-    return value;
-  }
-  return `${value.slice(0, maxChars - 12).trimEnd()}\n\n[truncated]`;
+  return escapeHtml(value.replace(/\s+/g, " "))
+    .replaceAll("\\", "\\\\")
+    .replace(/([`*_[\]~])/g, "\\$1");
 }
 
 function utf8Bytes(value: string): number {
   return Buffer.byteLength(value, "utf8");
-}
-
-function limitUtf8(value: string, maxBytes: number): string {
-  if (utf8Bytes(value) <= maxBytes) {
-    return value;
-  }
-  const suffix = "\n\n[truncated]";
-  const budget = Math.max(0, maxBytes - utf8Bytes(suffix));
-  let cut = Buffer.from(value, "utf8").subarray(0, budget).toString("utf8");
-  if (cut.endsWith("\uFFFD")) {
-    cut = cut.slice(0, -1);
-  }
-  return `${dropIncompleteDetails(cut).trimEnd()}${suffix}`;
 }
