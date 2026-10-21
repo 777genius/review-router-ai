@@ -292,26 +292,49 @@ function interruptsParagraph(line: string): boolean {
 }
 
 function safeBody(value: string): string {
-  let fence: { readonly char: string; readonly length: number } | undefined;
+  let fence:
+    | {
+        readonly char: string;
+        readonly length: number;
+        readonly indent: number;
+      }
+    | undefined;
   const lines = value.split(/\r?\n/).map((line) => {
-    const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    let prefix = "";
+    if (
+      fence &&
+      fence.indent > 0 &&
+      line.trim() &&
+      /^ */.exec(line)![0].length < fence.indent
+    ) {
+      // Close inside the original container before dedented prose/HTML. Merely
+      // forgetting the fence could reinterpret its later closer as an opener.
+      prefix = `${" ".repeat(fence.indent)}${fence.char.repeat(fence.length)}\n`;
+      fence = undefined;
+    }
+    const match = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(line);
     if (match) {
-      const delimiter = match[1]!;
+      const delimiter = match[2]!;
       if (!fence) {
-        if (delimiter[0] === "`" && match[2]?.includes("`"))
-          return escapeHtml(line);
-        fence = { char: delimiter[0]!, length: delimiter.length };
+        if (delimiter[0] === "`" && match[3]?.includes("`"))
+          return prefix + escapeHtml(line);
+        fence = {
+          char: delimiter[0]!,
+          length: delimiter.length,
+          indent: match[1]!.length,
+        };
       } else if (
         delimiter[0] === fence.char &&
         delimiter.length >= fence.length &&
-        !match[2]?.trim()
+        !match[3]?.trim()
       )
         fence = undefined;
-      return line;
+      return prefix + line;
     }
-    return fence ? line : escapeOutsideInlineCode(line);
+    return prefix + (fence ? line : escapeOutsideInlineCode(line));
   });
-  if (fence) lines.push(fence.char.repeat(fence.length));
+  if (fence)
+    lines.push(" ".repeat(fence.indent) + fence.char.repeat(fence.length));
   return lines.join("\n");
 }
 

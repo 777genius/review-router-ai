@@ -393,6 +393,54 @@ describe("compact summary contracts", () => {
     expect(markdown.match(/<details>/g)).toHaveLength(2);
   });
 
+  it.each(["```html", "~~~html"])(
+    "escapes dedented HTML after a list-contained fence: %s",
+    (opener) => {
+      const delimiter = opener.slice(0, 3);
+      const body = [
+        "- Fix the template:",
+        `  ${opener}`,
+        "  <safe-code>",
+        "",
+        "</details>",
+        "<img src=x onerror=alert(1)>",
+        `  ${delimiter}`,
+      ].join("\n");
+      const markdown = renderReviewSummaryMarkdown({
+        plan: planWith([finding("one", body)]),
+      });
+      expect(markdown.match(/<details>/g)).toHaveLength(1);
+      expect(markdown.match(/<\/details>/g)).toHaveLength(1);
+      expect(markdown).not.toContain("<img src=x");
+      expect(markdown).toContain(
+        "&lt;/details&gt;\n&lt;img src=x onerror=alert(1)&gt;",
+      );
+      expect(markdown).toContain(
+        `  <safe-code>\n\n  ${delimiter}\n&lt;/details&gt;`,
+      );
+    },
+  );
+
+  it("keeps fence info validation and inline source intact at an indented fence boundary", () => {
+    const body = [
+      "  ```ts",
+      "  const template = '<safe-code>';",
+      "`Promise<void>` and `a && b`.",
+      "```bad`",
+      "</summary><img src=x>",
+    ].join("\n");
+    const markdown = renderReviewSummaryMarkdown({
+      plan: planWith([finding("one", body)]),
+    });
+    const details = markdown.split("<details>")[1]!;
+    expect(details).toContain(
+      "  const template = '<safe-code>';\n  ```\n`Promise<void>` and `a && b`.",
+    );
+    expect(details).toContain("&lt;/summary&gt;&lt;img src=x&gt;");
+    expect(details).not.toContain("<img src=x>");
+    expect(markdown.match(/<summary>/g)).toHaveLength(1);
+  });
+
   it("preserves matched inline code while escaping unmatched and escaped backticks with hostile HTML", () => {
     const body = [
       "Use `Promise<void>` and `a && b`, or `` `nested<type>` ``.",
