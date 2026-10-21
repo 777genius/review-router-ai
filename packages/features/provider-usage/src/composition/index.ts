@@ -101,6 +101,7 @@ export async function createProviderUsage(dependencies: {
     typeof dependencies.store.ingest !== "function" ||
     !dependencies.reports ||
     typeof dependencies.reports.read !== "function" ||
+    typeof dependencies.reports.report !== "function" ||
     (dependencies.prices !== undefined &&
       typeof dependencies.prices.read !== "function") ||
     (dependencies.source !== undefined &&

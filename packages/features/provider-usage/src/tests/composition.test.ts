@@ -48,3 +48,24 @@ it("rejects a missing binding before store I/O", async () => {
   ).rejects.toThrow("usage_composition_binding_invalid");
   expect(writes).toBe(0);
 });
+
+it("rejects a reader missing period reports before any adapter I/O", async () => {
+  let calls = 0;
+  await expect(
+    createProviderUsage({
+      store: {
+        ingest: async () => {
+          calls++;
+          return { status: "accepted", hash: "x" };
+        },
+      },
+      reports: {
+        read: async () => {
+          calls++;
+          return [];
+        },
+      },
+    } as never),
+  ).rejects.toThrow("usage_composition_binding_invalid");
+  expect(calls).toBe(0);
+});
