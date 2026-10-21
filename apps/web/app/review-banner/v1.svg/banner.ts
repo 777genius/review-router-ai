@@ -188,15 +188,27 @@ export function reviewBannerResponse(request: Request): Response {
     "X-Content-Type-Options": "nosniff",
     ETag: etag,
   };
-  const matches = request.headers
-    .get("If-None-Match")
-    ?.split(",")
-    .some(
-      (value) =>
-        value.trim() === "*" || value.trim().replace(/^W\//, "") === etag,
-    );
+  const matches = matchesValidator(request.headers.get("If-None-Match"), etag);
   return new Response(matches ? null : svg, {
     status: matches ? 304 : 200,
     headers,
   });
+}
+
+function matchesValidator(header: string | null, etag: string): boolean {
+  if (header === null) return false;
+  if (header.trim() === "*") return true;
+  const values: string[] = [];
+  let quoted = false;
+  let start = 0;
+  for (let index = 0; index < header.length; index += 1) {
+    if (header[index] === '"') quoted = !quoted;
+    if (header[index] === "," && !quoted) {
+      values.push(header.slice(start, index));
+      start = index + 1;
+    }
+  }
+  if (quoted) return false;
+  values.push(header.slice(start));
+  return values.some((value) => value.trim().replace(/^W\//, "") === etag);
 }

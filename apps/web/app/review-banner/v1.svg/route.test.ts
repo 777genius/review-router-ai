@@ -34,6 +34,28 @@ describe("public review banner v1", () => {
   });
 
   it.each([
+    ['"other,*,also"', 200],
+    ['"other,*,also", "unrelated"', 200],
+    ['"unclosed,*,also', 200],
+    ["*", 304],
+  ])("preserves quoted commas in If-None-Match: %s", (value, status) => {
+    expect(
+      GET(request("state=complete", { "If-None-Match": value })).status,
+    ).toBe(status);
+  });
+
+  it("matches a validator in a list containing a comma-bearing tag", () => {
+    const etag = GET(request("state=complete")).headers.get("etag")!;
+    expect(
+      GET(
+        request("state=complete", {
+          "If-None-Match": `"other,*,also", W/${etag}`,
+        }),
+      ).status,
+    ).toBe(304);
+  });
+
+  it.each([
     "state=complete&critical=-1",
     "state=complete&critical=10000",
     "state=complete&critical=1.5",
