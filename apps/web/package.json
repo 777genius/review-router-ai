@@ -19,6 +19,7 @@
     "@reviewrouter/features-org-ruleset-provisioning": "workspace:*",
     "@reviewrouter/features-outbox": "workspace:*",
     "@reviewrouter/features-provider-accounts": "workspace:*",
+    "@reviewrouter/features-provider-usage": "workspace:*",
     "@reviewrouter/features-provider-setup": "workspace:*",
     "@reviewrouter/features-rate-limits": "workspace:*",
     "@reviewrouter/features-repo-health": "workspace:*",
