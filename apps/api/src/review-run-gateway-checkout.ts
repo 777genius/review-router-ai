@@ -6,7 +6,10 @@ import {
   parseReviewConfigurationStrict,
   assertOpenRouterDirectConfigurationSupported,
 } from "@reviewrouter/features-review-config";
-import { providerApiCheckoutCompanionContract } from "@reviewrouter/shared";
+import {
+  prDescriptionContract,
+  providerApiCheckoutCompanionContract,
+} from "@reviewrouter/shared";
 import {
   canonicalCodexRotatingProviderId,
   CodexRotatingT0WorkflowSchemaVersion,
@@ -315,6 +318,10 @@ function createReviewRunCheckout(
       );
       runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_DIGEST =
         snapshot.agentProfileDigest;
+      if (snapshot.prDescriptionCapability !== undefined) {
+        runtimeEnv[prDescriptionContract.capabilityRuntimeEnvKey] =
+          canonicalJson(snapshot.prDescriptionCapability);
+      }
       // Protected server observation policy; no lifecycle mutation permission.
       if (observationAuthorsJson !== undefined) {
         runtimeEnv.REVIEW_ROUTER_LIFECYCLE_OBSERVATION_AUTHORS =

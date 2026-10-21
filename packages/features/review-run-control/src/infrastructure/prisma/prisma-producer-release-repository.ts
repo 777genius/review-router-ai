@@ -211,12 +211,17 @@ export class PrismaProducerReleaseRepository
         reviewInvestigationProfile,
         agentProfiles,
         contextToolsProfile,
+        prDescriptionProfile,
         ...releaseRecord
       } = release;
       const created = await transaction.producerRelease.create({
         data: {
           ...releaseRecord,
           contextToolsProfile: contextToolsProfile ?? Prisma.DbNull,
+          prDescriptionProfile:
+            prDescriptionProfile == null
+              ? Prisma.DbNull
+              : { ...prDescriptionProfile },
           agentProfilesJson:
             agentProfiles === null ? null : canonicalJson(agentProfiles),
           distributionKind: distributionKindToPersistence(
@@ -301,6 +306,12 @@ function producerReleaseTupleWhere(release: ProducerRelease) {
   return {
     contextToolsProfile: {
       equals: release.contextToolsProfile ?? Prisma.DbNull,
+    },
+    prDescriptionProfile: {
+      equals:
+        release.prDescriptionProfile == null
+          ? Prisma.DbNull
+          : { ...release.prDescriptionProfile },
     },
     distributionKind: distributionKindToPersistence(release.distributionKind),
     actionCommitSha: release.actionCommitSha,

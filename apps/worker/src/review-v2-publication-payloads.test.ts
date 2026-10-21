@@ -6,6 +6,9 @@ import {
 } from "@reviewrouter/features-review-executions";
 import {
   ReviewPublicationOperationPlanningService,
+  ReviewPublicationKind,
+  ReviewPublicationEffectStrategy,
+  ReviewPublicationOperationRole,
   ReviewPublicationOperationIdentityVersion,
   ReviewPublicationOperationState,
 } from "@reviewrouter/features-review-publishing/v2";
@@ -93,6 +96,71 @@ describe("canonical review v2 projection adapter", () => {
     });
   });
 
+  it("publishes only an explicit generated narrative and withholds it for partial coverage", async () => {
+    for (const partial of [false, true]) {
+      const artifact = finalizedArtifact({
+        partial,
+        generatedMarkdown: "## Changes\n\nIndependent description",
+      });
+      const adapter = new CanonicalReviewV2ProjectionAdapter({
+        async findArtifact() {
+          return {
+            artifact,
+            protocolLimitsProfileId: "limits-1",
+            limitsDigest: hash("8"),
+          };
+        },
+      });
+      const envelope = await adapter.publicationEnvelope(artifact);
+      if (partial) {
+        expect(envelope?.prDescription).toBeUndefined();
+        continue;
+      }
+      expect(envelope?.prDescription).toBeDefined();
+      const payload = await adapter.resolve({
+        permit: artifact.publicationPermit,
+        operation: {
+          ...envelope!.prDescription!,
+          publicationAttemptId: "publication-1",
+          publicationOperationId: "description-1",
+          publicationKind: ReviewPublicationKind.PrDescription,
+          chunkIndex: 0,
+          effectStrategy: ReviewPublicationEffectStrategy.MutableSingleton,
+          role: ReviewPublicationOperationRole.Standalone,
+          renderPolicyVersion: envelope!.renderPolicyVersion,
+          targetCommitId: artifact.reviewedHeadSha,
+          reviewRevisionHash: artifact.reviewRevisionHash,
+          required: true,
+          dependsOnOperationId: null,
+          reconcileUntil: new Date("2026-07-23T12:30:00.000Z"),
+          state: ReviewPublicationOperationState.Planned,
+        },
+      });
+      expect(payload).toMatchObject({
+        kind: ReviewV2PublicationPayloadKind.PrDescription,
+        body: "<!-- review-router-summary:start -->\n## Changes\n\nIndependent description\n<!-- review-router-summary:end -->",
+      });
+    }
+  });
+
+  it("rejects a generated narrative beyond the UTF-8 byte bound", async () => {
+    const artifact = finalizedArtifact({
+      generatedMarkdown: "😀".repeat(2049),
+    });
+    const adapter = new CanonicalReviewV2ProjectionAdapter({
+      async findArtifact() {
+        return {
+          artifact,
+          protocolLimitsProfileId: "limits-1",
+          limitsDigest: hash("8"),
+        };
+      },
+    });
+    await expect(adapter.publicationEnvelope(artifact)).rejects.toThrow(
+      "publication_pr_description_markdown_invalid",
+    );
+  });
+
   it("publishes only the preserved summary for a partial v5 projection", async () => {
     const artifact = finalizedArtifact({ partial: true });
     const adapter = new CanonicalReviewV2ProjectionAdapter({
@@ -155,7 +223,10 @@ describe("canonical review v2 projection adapter", () => {
 });
 
 function finalizedArtifact(
-  options: { readonly partial?: boolean } = {},
+  options: {
+    readonly partial?: boolean;
+    readonly generatedMarkdown?: string;
+  } = {},
 ): FinalizedReviewProjectionArtifact {
   const partial = options.partial ?? false;
   const createdAt = new Date("2026-07-23T12:00:00.000Z");
@@ -176,6 +247,20 @@ function finalizedArtifact(
       },
     ],
     publishing: {
+      ...(options.generatedMarkdown === undefined
+        ? {}
+        : {
+            prDescription: {
+              generatedMarkdown: options.generatedMarkdown,
+              generationProvenance: {
+                leaseId: "description-lease",
+                providerIndex: 0,
+                requestedModel: "requested",
+                actualModel: "actual",
+                providerRequestEnvelopeHash: hash("9"),
+              },
+            },
+          }),
       check: {
         conclusion: "success",
         marker: "reviewrouter:check:v2:test",

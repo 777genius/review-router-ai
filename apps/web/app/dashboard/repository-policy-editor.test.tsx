@@ -224,6 +224,70 @@ function gatewayProviderFixture(): ReviewProviderConfiguration {
 }
 
 describe("ReviewConfigForm", () => {
+  it("enables PR description updates by default and persists an explicit opt-out", () => {
+    const { container } = render(
+      <ReviewConfigForm
+        action={vi.fn()}
+        config={workspacePolicy}
+        hiddenFields={[]}
+        modelOptions={modelOptions}
+        mutationsEnabled={true}
+        submitLabel="Save"
+      />,
+    );
+    const toggle = screen.getByRole("checkbox", {
+      name: "Update PR description",
+    }) as HTMLInputElement;
+    const form = container.querySelector("form")!;
+    expect(toggle.checked).toBe(true);
+    expect(
+      screen.getByText(
+        "AI PR descriptions are unavailable for this connection method. Reviews continue normally.",
+      ),
+    ).toBeTruthy();
+    expect(
+      readReviewConfigurationForm(new FormData(form)).updatePrDescription,
+    ).toBe(true);
+    fireEvent.click(toggle);
+    expect(
+      readReviewConfigurationForm(new FormData(form)).updatePrDescription,
+    ).toBe(false);
+  });
+
+  it("inherits the PR description opt-out and saves only explicit repository overrides", () => {
+    const { container } = render(
+      <ReviewConfigForm
+        action={vi.fn()}
+        config={{ ...workspacePolicy, updatePrDescription: false }}
+        repositoryPolicy={{ schemaVersion: 3 }}
+        hiddenFields={[]}
+        modelOptions={modelOptions}
+        mutationsEnabled={true}
+        submitLabel="Save"
+      />,
+    );
+    const toggle = screen.getByRole("checkbox", {
+      name: "Update PR description",
+    }) as HTMLInputElement;
+    const form = container.querySelector("form")!;
+    const saved = () => readRepositoryReviewPolicyForm(new FormData(form));
+    expect(toggle.checked).toBe(false);
+    expect(toggle.disabled).toBe(true);
+    expect(saved()).toEqual({ schemaVersion: 3 });
+    addOverrideField("Update Pr Description");
+    expect(toggle.disabled).toBe(false);
+    fireEvent.click(toggle);
+    expect(saved()).toEqual({ schemaVersion: 3, updatePrDescription: true });
+    fireEvent.click(toggle);
+    expect(saved()).toEqual({ schemaVersion: 3, updatePrDescription: false });
+    fireEvent.change(
+      form.querySelector('select[name="policyMode.updatePrDescription"]')!,
+      { target: { value: "inherit" } },
+    );
+    expect(toggle.disabled).toBe(true);
+    expect(saved()).toEqual({ schemaVersion: 3 });
+  });
+
   it("keeps explicit zero and false overrides and removes them when reset to inherit", () => {
     const { container } = render(
       <ReviewConfigForm
@@ -706,7 +770,10 @@ describe("ReviewConfigForm", () => {
       expect(readReviewPolicyExpectedVersion(submitted)).toBe(expectedVersion);
       expect(submitted.get("workspaceId")).toBe("workspace_1");
       if (surface === "workspace") {
-        expect(readReviewConfigurationForm(submitted)).toEqual(config);
+        expect(readReviewConfigurationForm(submitted)).toEqual({
+          ...config,
+          updatePrDescription: true,
+        });
       } else {
         expect(submitted.get("repositoryId")).toBe("repo_1");
         expect(readRepositoryReviewPolicyForm(submitted)).toEqual({

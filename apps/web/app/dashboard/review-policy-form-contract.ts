@@ -9,6 +9,7 @@ export const repositoryPolicyFormFields = [
   ["limits", "targetTokensPerBatch"],
   ["reviewLanguage"],
   ["contextTools"],
+  ["updatePrDescription"],
   ["investigationRollout", "recordingEnabled"],
   ["investigationRollout", "shadowEnabled"],
   ["investigationRollout", "contextCriticEnabled"],

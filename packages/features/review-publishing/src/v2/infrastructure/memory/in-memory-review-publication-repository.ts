@@ -11,6 +11,8 @@ import {
   assertReviewPublicationAttemptCandidate,
   claimCapabilityFacts,
   hasEveryRequiredCanonicalReceipt,
+  hasPendingPrDescriptionContinuation,
+  isOptionalPrDescriptionContinuation,
   hasPublicationExternalEffectRisk,
   isActiveReviewPublicationOperation,
   isAttemptLevelNoEffectOutcome,
@@ -912,10 +914,13 @@ export class InMemoryReviewPublicationRepository
             : ReviewPublicationOperationAttemptState.Stale,
       });
     }
-    const allReceipts = hasEveryRequiredCanonicalReceipt({
+    const requiredReceiptsComplete = hasEveryRequiredCanonicalReceipt({
       operations: stored.attempt.operations,
       receipts: [...stored.receipts.values()],
     });
+    const allReceipts =
+      requiredReceiptsComplete &&
+      !hasPendingPrDescriptionContinuation(stored.attempt.operations);
     stored.attempt = {
       ...stored.attempt,
       version: stored.attempt.version + 1n,
@@ -925,9 +930,11 @@ export class InMemoryReviewPublicationRepository
       terminalOutcome: allReceipts
         ? ReviewPublicationTerminalOutcome.Succeeded
         : null,
-      activeClaimId: allReceipts ? null : stored.attempt.activeClaimId,
+      activeClaimId: requiredReceiptsComplete
+        ? null
+        : stored.attempt.activeClaimId,
     };
-    if (allReceipts) {
+    if (requiredReceiptsComplete) {
       stored.claims.set(claim.claimId, {
         ...claim,
         state: ReviewPublicationClaimState.Released,
@@ -993,12 +1000,21 @@ export class InMemoryReviewPublicationRepository
     const operationAttempts = [...stored.operationAttempts.values()];
     const effects = [...stored.effects.values()];
     const receipts = [...stored.receipts.values()];
+    const optionalDescription = isOptionalPrDescriptionContinuation({
+      publicationOperationId: operation.publicationOperationId,
+      operations: stored.attempt.operations,
+      receipts,
+    });
     const riskOperations = publicationOperationsWithExternalEffectRisk({
       operations: stored.attempt.operations,
       operationAttempts,
       effects,
       receipts,
-    });
+    }).filter(
+      (candidate) =>
+        !optionalDescription ||
+        candidate.publicationOperationId === operation.publicationOperationId,
+    );
     if (
       finalOutcome === ReviewPublicationTerminalOutcome.TerminalUnknown &&
       [operation, ...riskOperations].some(
@@ -1009,12 +1025,14 @@ export class InMemoryReviewPublicationRepository
     }
     if (
       isAttemptLevelNoEffectOutcome(finalOutcome) &&
-      hasPublicationExternalEffectRisk({
-        operations: stored.attempt.operations,
-        operationAttempts,
-        effects,
-        receipts,
-      })
+      (optionalDescription
+        ? riskOperations.length > 0
+        : hasPublicationExternalEffectRisk({
+            operations: stored.attempt.operations,
+            operationAttempts,
+            effects,
+            receipts,
+          }))
     ) {
       return {
         status: TerminalizeUnknownReviewPublicationStatus.ExternalEffectRisk,
@@ -1151,7 +1169,9 @@ export class InMemoryReviewPublicationRepository
       version: stored.attempt.version + 1n,
       activeClaimId: null,
       state: ReviewPublicationAttemptState.Terminal,
-      terminalOutcome: finalOutcome,
+      terminalOutcome: optionalDescription
+        ? ReviewPublicationTerminalOutcome.Succeeded
+        : finalOutcome,
     };
     return {
       status: TerminalizeUnknownReviewPublicationStatus.Terminalized,

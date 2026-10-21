@@ -24,6 +24,7 @@ import { assertOpenRouterDirectConfigurationSupported } from "@reviewrouter/feat
 import {
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
+  parseProducerPrDescriptionProfile,
   parseReviewAgentProfiles,
   parseProducerContextToolsProfile,
   selectReviewAgentProfile,
@@ -334,6 +335,17 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     try {
       return parseReviewRunRuntimeSnapshot(
         canonicalJson({
+          ...(input.producerRelease.prDescriptionProfile != null &&
+          (gateway !== null ||
+            (modelTransport === "provider_api" &&
+              configuration.providers.length === 1 &&
+              configuration.providers[0]?.authMode === "openrouter_api_key"))
+            ? {
+                prDescriptionCapability: parseProducerPrDescriptionProfile(
+                  input.producerRelease.prDescriptionProfile,
+                ),
+              }
+            : {}),
           snapshotVersion: 3,
           configurationSource: current.source,
           configurationVersion: current.version,
@@ -507,6 +519,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         runtimeCommitSha: true,
         agentProfilesJson: true,
         contextToolsProfile: true,
+        prDescriptionProfile: true,
       },
     });
     if (
@@ -543,6 +556,13 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
               : {
                   contextToolsProfile: parseProducerContextToolsProfile(
                     producer.contextToolsProfile,
+                  ),
+                }),
+            ...(producer.prDescriptionProfile == null
+              ? {}
+              : {
+                  prDescriptionProfile: parseProducerPrDescriptionProfile(
+                    producer.prDescriptionProfile,
                   ),
                 }),
             agentProfiles: parseReviewAgentProfiles(

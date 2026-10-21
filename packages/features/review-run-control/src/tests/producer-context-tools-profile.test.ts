@@ -109,6 +109,7 @@ describe("producer context tools extension identity", () => {
       reviewInvestigationCoverageProfileHash: null,
       reviewInvestigationPolicyHash: null,
       contextToolsProfile: null,
+      prDescriptionProfile: null,
     };
     expect(producerReleaseToDomain(row)).not.toHaveProperty(
       "contextToolsProfile",

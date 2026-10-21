@@ -130,7 +130,7 @@ describe("dashboard action form readers", () => {
     expect(() => readReviewConfigurationForm(formData)).toThrow();
   });
 
-  it("never materializes an agentProfileRef key without an explicit engine selection", () => {
+  it("keeps optional policy fields absent from legacy form submissions", () => {
     const formData = reviewConfigFormData([
       {
         authMode: "codex_account_gateway",
@@ -145,7 +145,9 @@ describe("dashboard action form readers", () => {
     for (const submitted of [undefined, "   "]) {
       if (submitted !== undefined)
         formData.set("providerAgentProfileRef.0", submitted);
-      const provider = readReviewConfigurationForm(formData).providers[0]!;
+      const configuration = readReviewConfigurationForm(formData);
+      expect(Object.hasOwn(configuration, "updatePrDescription")).toBe(false);
+      const provider = configuration.providers[0]!;
       expect(Object.hasOwn(provider, "agentProfileRef")).toBe(false);
       expect(JSON.stringify(provider)).not.toContain("agentProfileRef");
     }

@@ -170,6 +170,8 @@ export const reviewConfigurationSchema = z
     blockingPolicy: blockingPolicySchema,
     limits: limitsSchema,
     reviewLanguage: reviewLanguageSchema,
+    // Absence keeps historical policy bytes stable; runtime defaults to enabled.
+    updatePrDescription: z.boolean().optional(),
     investigationRollout: reviewInvestigationRolloutConfigurationSchema,
     contextTools: contextToolsSelectionSchema.optional(),
   })
@@ -204,6 +206,7 @@ export const reviewRepositoryPolicyOverrideSchema = z
     blockingPolicy: blockingPolicySchema.partial().optional(),
     limits: limitsSchema.partial().optional(),
     reviewLanguage: reviewLanguageSchema.optional(),
+    updatePrDescription: z.boolean().optional(),
     investigationRollout: reviewInvestigationRolloutConfigurationSchema
       .partial()
       .optional(),
@@ -270,7 +273,11 @@ export function resolveReviewPolicy(
     : null;
   if (!parsedOverride) return parsedWorkspace;
 
+  const updatePrDescription =
+    parsedOverride.updatePrDescription ?? parsedWorkspace.updatePrDescription;
+
   return parseReviewConfiguration({
+    ...(updatePrDescription === undefined ? {} : { updatePrDescription }),
     schemaVersion: REVIEW_POLICY_SCHEMA_VERSION,
     providers: parsedOverride.providers ?? parsedWorkspace.providers,
     execution: {

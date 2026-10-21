@@ -32,6 +32,9 @@ import {
   ReviewPublicationRunControlStatus,
   ResolveCurrentPublicationLifecycle,
   isReviewFindingFingerprint,
+  hasEveryRequiredCanonicalReceipt,
+  hasPendingPrDescriptionContinuation,
+  ReviewPublicationTerminalOutcome,
   renderCanonicalReviewPublication,
   resolveReviewPublicationRenderPolicyVersion,
   resolveCurrentReviewPublicationOperationIdentity,
@@ -96,6 +99,11 @@ import type {
   VerifiedReviewActionV2PublicationPermit,
 } from "./review-action-v2-execution-evidence-capabilities.js";
 
+import {
+  assertPrDescriptionArtifact,
+  parseGeneratedPrDescription,
+} from "./review-pr-description.js";
+
 type Runtime = Pick<
   RegisterReviewSnapshotReadV2RoutesDependencies,
   "readServerTime" | "createRequestId"
@@ -106,7 +114,8 @@ type ReleaseQueries = ProducerReleaseQueryPort &
 type FinalizedExecutionQueries = Pick<
   ReviewExecutionQueryPort,
   "findExecution"
->;
+> &
+  Partial<Pick<ReviewExecutionQueryPort, "findLease">>;
 
 export interface ReviewPublicationContextPolicyPort {
   assertCurrentPolicy(input: {
@@ -351,9 +360,7 @@ async function requestPublication(
     !release ||
     release.state !== ProducerReleaseState.Registered ||
     !limits ||
-    release.protocolLimitsProfileId !== limits.protocolLimitsProfileId ||
-    Buffer.byteLength(request.operationsCanonicalJson, "utf8") >
-      limits.maxPublicationBodyBytes
+    release.protocolLimitsProfileId !== limits.protocolLimitsProfileId
   ) {
     throw routeFailure(
       403,
@@ -368,6 +375,32 @@ async function requestPublication(
     protocolLimitsProfileId: limits.protocolLimitsProfileId,
     limitsDigest: limits.limitsDigest,
   });
+  await assertPrDescriptionArtifact({
+    authorization,
+    execution: snapshot.execution,
+    leases: dependencies.executions,
+    projection: JSON.parse(artifact.projectionEnvelopeJson),
+  });
+  // The full canonical source and auxiliary authority were verified above.
+  // Charge only required source bytes to the original publication budget;
+  // strict description/provenance bounds and the HTTP body limit still apply.
+  const requiredPublishing = {
+    ...parseCanonicalRecord(
+      request.operationsCanonicalJson,
+      "publication_payload_invalid",
+    ),
+  };
+  delete requiredPublishing.prDescription;
+  if (
+    Buffer.byteLength(canonicalJson(requiredPublishing), "utf8") >
+    limits.maxPublicationBodyBytes
+  ) {
+    throw routeFailure(
+      403,
+      ReviewActionV2ProtocolErrorCode.Forbidden,
+      "publication_release_or_limits_invalid",
+    );
+  }
   const publicationAttemptId = reviewPublicationAttemptId({
     executionId: artifact.executionId,
     artifactId: artifact.artifactId,
@@ -627,20 +660,30 @@ async function readPublicationStatus(
     );
   }
   assertPublicationReadAuthority(view, authorization);
+  const requiredReviewSucceeded =
+    view.attempt.operations.some((operation) => operation.required) &&
+    hasPendingPrDescriptionContinuation(view.attempt.operations) &&
+    hasEveryRequiredCanonicalReceipt({
+      operations: view.attempt.operations,
+      receipts: view.receipts,
+    });
+  const mainTerminal =
+    requiredReviewSucceeded ||
+    view.attempt.state === ReviewPublicationAttemptState.Terminal;
   return {
     statusCode: 200,
     result: {
-      status: publicationStatus(view.attempt.state),
+      status: requiredReviewSucceeded
+        ? ReviewPublicationStatusResultStatus.Terminal
+        : publicationStatus(view.attempt.state),
       publicationAttemptId: view.attempt.publicationAttemptId,
-      terminalOutcome: view.attempt.terminalOutcome,
-      canonicalReceiptSetHash:
-        view.attempt.state === ReviewPublicationAttemptState.Terminal
-          ? publicationReceiptSetHash(view)
-          : null,
-      pollAfterMs:
-        view.attempt.state === ReviewPublicationAttemptState.Terminal
-          ? null
-          : 1_000,
+      terminalOutcome: requiredReviewSucceeded
+        ? ReviewPublicationTerminalOutcome.Succeeded
+        : view.attempt.terminalOutcome,
+      canonicalReceiptSetHash: mainTerminal
+        ? publicationReceiptSetHash(view)
+        : null,
+      pollAfterMs: mainTerminal ? null : 1_000,
     },
   } as const;
 }
@@ -983,6 +1026,9 @@ function publishedEnvelope(input: {
       semantic: rendered.summary.semantic,
       ...bodyFactsOf(rendered.summary),
     },
+    ...(rendered.prDescription === undefined
+      ? {}
+      : { prDescription: bodyFactsOf(rendered.prDescription) }),
     managedCheck:
       rendered.managedCheck === null
         ? null
@@ -1005,7 +1051,8 @@ function publicationRenderingInvariantIssue(error: unknown): string | null {
   if (!(error instanceof Error)) return null;
   return error.message === "publication_occurrence_counts_invalid" ||
     error.message === "publication_occurrence_counts_mismatch" ||
-    error.message === "publication_occurrence_state_invalid"
+    error.message === "publication_occurrence_state_invalid" ||
+    error.message === "publication_pr_description_markdown_invalid"
     ? error.message
     : null;
 }
@@ -1048,7 +1095,7 @@ function publicationProjection(value: unknown) {
   const root = exactRecordWithOptional(
     value,
     ["summary", "check", "inlineReviewChunks", "lifecycle"],
-    ["lifecycleObservationVersion"],
+    ["lifecycleObservationVersion", "prDescription"],
     "publication_projection_shape_invalid",
   );
   const lifecycleObservationVersion = publicationLifecycleObservationVersion(
@@ -1079,6 +1126,9 @@ function publicationProjection(value: unknown) {
     ...(lifecycleObservationVersion === null
       ? {}
       : { lifecycleObservationVersion }),
+    ...(root.prDescription === undefined
+      ? {}
+      : { prDescription: parseGeneratedPrDescription(root.prDescription) }),
     summary: {
       marker: boundedString(summary.marker, 4_096),
       body: boundedString(summary.body, 1_000_000),
@@ -1398,6 +1448,14 @@ function publicationReceiptSetHash(view: ReviewPublicationAttemptView): string {
   return sha256(
     canonicalJson(
       [...view.receipts]
+        .filter(
+          (receipt) =>
+            view.attempt.operations.find(
+              (operation) =>
+                operation.publicationOperationId ===
+                receipt.publicationOperationId,
+            )?.required,
+        )
         .map((receipt) => ({
           operationId: receipt.publicationOperationId,
           receiptHash: receipt.receiptHash,

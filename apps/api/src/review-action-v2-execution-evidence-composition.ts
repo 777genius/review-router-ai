@@ -92,6 +92,12 @@ import type {
   VerifiedReviewActionV2LeaseCapability,
 } from "./review-action-v2-execution-evidence-capabilities.js";
 import type { ReviewActionV2ContextReplayCoordinatorPort } from "./review-action-v2-context-attestation-composition.js";
+import {
+  assertNotPrDescriptionEvidence,
+  assertPrDescriptionArtifact,
+  assertPrDescriptionManifest,
+  assertPrDescriptionWorkSlots,
+} from "./review-pr-description.js";
 
 export interface ReviewActionV2AuthorizationResolverPort {
   resolveReviewRunAuthorizationToken(input: {
@@ -369,6 +375,7 @@ async function startExecution(
   );
   await executionLimits(authorization, d);
   const workSlots = parseWorkSlots(request.workSlotsCanonicalJson);
+  assertPrDescriptionWorkSlots(authorization, workSlots);
   const now = d.now();
   const outcome = await d.executions.startReviewExecution.execute({
     scope: toExecutionScope(authorization),
@@ -605,7 +612,13 @@ async function acquireLease(
     expiresAt: minDate(
       add(
         now,
-        Math.min(limits.maxLeaseDurationMs, d.timing.initialLeaseDurationMs),
+        Math.min(
+          limits.maxLeaseDurationMs,
+          d.timing.initialLeaseDurationMs,
+          slot.taskKind === ReviewTaskKind.PrDescription
+            ? 60_000
+            : Number.POSITIVE_INFINITY,
+        ),
       ),
       snapshot.execution.executionDeadlineAt,
       authorization.expiresAt,
@@ -722,6 +735,13 @@ async function renewLease(
     snapshot.execution,
     d,
   );
+  const auxiliaryDeadline = snapshot.execution.workSlots.some(
+    (slot) =>
+      slot.workSlotId === lease.workSlotId &&
+      slot.taskKind === ReviewTaskKind.PrDescription,
+  )
+    ? add(lease.acquiredAt, 60_000)
+    : hardDeadline;
   const renewalNow = d.now();
   const leaseDurationMs = Math.min(
     d.timing.initialLeaseDurationMs,
@@ -735,7 +755,11 @@ async function renewLease(
     renewRequestIdHash,
     renewRequestHash: request.requestBodyHash,
     now: renewalNow,
-    expiresAt: minDate(add(renewalNow, leaseDurationMs), hardDeadline),
+    expiresAt: minDate(
+      add(renewalNow, leaseDurationMs),
+      hardDeadline,
+      auxiliaryDeadline,
+    ),
     resultReportUntil: minDate(
       add(renewalNow, limits.maxResultReportDurationMs),
       hardDeadline,
@@ -898,6 +922,8 @@ async function attachObservation(
     authorization,
     d.executionQueries,
   );
+
+  assertNotPrDescriptionEvidence(snapshot.execution, request.workSlotId);
   const now = d.now();
   try {
     const reusable = await d.capabilities.verifyReusableAttachment(
@@ -1098,6 +1124,8 @@ async function adoptObservation(
     authorization,
     d.executionQueries,
   );
+
+  assertNotPrDescriptionEvidence(snapshot.execution, request.workSlotId);
   requireEqual(
     snapshot.execution.generation,
     decimal(request.executionGeneration),
@@ -1310,6 +1338,12 @@ async function finalizeExecution(
     request.projectionHash,
     "projection_hash_mismatch",
   );
+  await assertPrDescriptionArtifact({
+    authorization,
+    execution: snapshot.execution,
+    leases: d.executionQueries,
+    projection,
+  });
   const now = d.now();
   const protocolLimits = await requireProtocolLimits(authorization, d);
   const limits = await executionLimits(authorization, d);
@@ -1407,6 +1441,8 @@ async function lookupEvidence(
     authorization,
     d.executionQueries,
   );
+
+  assertNotPrDescriptionEvidence(snapshot.execution, request.workSlotId);
   requireEqual(
     snapshot.execution.planHash,
     request.planHash,
@@ -2009,6 +2045,7 @@ async function validatePreparedManifest(
       "manifest_task_mismatch",
     );
   }
+  assertPrDescriptionManifest(authorization, slot, manifest);
   requireEqual(
     request.providerVoteIdentityHash,
     slot.providerVoteIdentityHash,
@@ -2651,6 +2688,8 @@ function evidenceProviderForExecution(
 }
 function evidenceTaskForExecution(value: ReviewTaskKind): EvidenceTaskKind {
   switch (value) {
+    case ReviewTaskKind.PrDescription:
+      return EvidenceTaskKind.PrDescription;
     case ReviewTaskKind.FindingDiscovery:
       return EvidenceTaskKind.FindingDiscovery;
     case ReviewTaskKind.LifecycleRevalidation:

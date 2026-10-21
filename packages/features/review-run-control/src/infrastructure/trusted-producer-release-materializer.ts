@@ -116,6 +116,9 @@ export function createTrustedProducerReleaseMaterializer(input: {
             ...(release.contextToolsProfile !== undefined
               ? { contextToolsProfile: release.contextToolsProfile }
               : {}),
+            ...(release.prDescriptionProfile == null
+              ? {}
+              : { prDescriptionProfile: release.prDescriptionProfile }),
           },
           expectedProtocolLimitsDigest: limitsDigest,
           expectedOperationalSloDigest: sloDigest,

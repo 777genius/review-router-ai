@@ -26,6 +26,7 @@ export interface ReviewRunRuntimeSnapshotPort {
       | "runtimeCommitSha"
       | "agentProfiles"
       | "contextToolsProfile"
+      | "prDescriptionProfile"
     >;
   }): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null>;
   /** Recheck original binding, never today's repository configuration. */

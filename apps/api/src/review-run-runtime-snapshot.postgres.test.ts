@@ -34,6 +34,7 @@ import {
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
   parseReviewAgentProfiles,
+  parseProducerPrDescriptionProfile,
   ReviewRunAuthorizationState,
   ReviewRunAuthorizationDenialReason,
   ReviewTrustDomain,
@@ -341,15 +342,25 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       });
       const { prisma } = harness;
       expect(await prisma.reviewRunAuthorization.count()).toBe(0);
-      const producer = await prisma.producerRelease.findUniqueOrThrow({
+      const producerRow = await prisma.producerRelease.findUniqueOrThrow({
         where: { producerReleaseId: harness.producerReleaseId },
         select: {
           producerReleaseId: true,
           actionCommitSha: true,
           runtimeCommitSha: true,
           agentProfilesJson: true,
+          prDescriptionProfile: true,
         },
       });
+      const producer = {
+        ...producerRow,
+        prDescriptionProfile:
+          producerRow.prDescriptionProfile == null
+            ? null
+            : parseProducerPrDescriptionProfile(
+                producerRow.prDescriptionProfile,
+              ),
+      };
       if (typeof producer.agentProfilesJson !== "string")
         throw new Error("signed_transport_producer_profiles_missing");
       const profiles = parseReviewAgentProfiles(
@@ -1002,12 +1013,19 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           actionCommitSha: true,
           runtimeCommitSha: true,
           agentProfilesJson: true,
+          prDescriptionProfile: true,
         },
       });
       if (typeof producerRow.agentProfilesJson !== "string")
         throw new Error("c2c_producer_profiles_missing");
       const snapshotProducer = {
         ...producerRow,
+        prDescriptionProfile:
+          producerRow.prDescriptionProfile == null
+            ? null
+            : parseProducerPrDescriptionProfile(
+                producerRow.prDescriptionProfile,
+              ),
         agentProfiles: parseReviewAgentProfiles(
           JSON.parse(producerRow.agentProfilesJson),
         ),
