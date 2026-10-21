@@ -18,6 +18,7 @@ import {
   renderCodexRotatingInteractionWorkflow,
   renderCodexRotatingAdvisoryWorkflow,
   renderAccountGatewayWorkflow,
+  renderProviderApiWorkflow,
 } from "@reviewrouter/features-workflow-provisioning";
 import { isWorkflowSetupAlreadyCurrent } from "./workflow-setup-readiness";
 
@@ -1018,3 +1019,51 @@ describe("workflow setup readiness", () => {
     ).resolves.toBe(false);
   });
 });
+
+it.each(["current", "other-secret", "other-runtime"])(
+  "attests the direct OpenRouter caller: %s",
+  async (scenario) => {
+    let source = renderProviderApiWorkflow({
+      actionRef: versionedActionRef,
+      apiUrl: "https://app.reviewrouter.dev",
+    }).content;
+    if (scenario === "other-secret")
+      source = source.replace(
+        "secrets.OPENROUTER_API_KEY",
+        "secrets.OTHER_KEY",
+      );
+    if (scenario === "other-runtime")
+      source = source.replace(
+        "runtime_ref: 0123456789abcdef0123456789abcdef01234567",
+        `runtime_ref: ${"b".repeat(40)}`,
+      );
+    const current = await isWorkflowSetupAlreadyCurrent(
+      {
+        ...readinessInput,
+        actionRef: versionedActionRef,
+        providerApiAuthMode: "openrouter-api",
+      },
+      {
+        resolvePublicApiUrl: () => "https://app.reviewrouter.dev",
+        workflowProbe: new OctokitRepositoryWorkflowProbe({
+          createRequester: async () => ({
+            request: async (_route, parameters) => {
+              if (
+                parameters?.path !== ".github/workflows/reviewrouter-review.yml"
+              )
+                throw Object.assign(new Error("missing"), { status: 404 });
+              return {
+                data: {
+                  type: "file",
+                  encoding: "base64",
+                  content: Buffer.from(source).toString("base64"),
+                },
+              };
+            },
+          }),
+        }),
+      },
+    );
+    expect(current).toBe(scenario === "current");
+  },
+);

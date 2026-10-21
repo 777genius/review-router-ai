@@ -440,6 +440,10 @@ export function dashboardErrorText(error: string): string {
       return "The selected Gateway model does not support this reasoning effort. Choose a supported reasoning effort in review settings and save again.";
     case "agent_profile_requires_agentic_context":
       return "OpenCodeReview needs native repository context. Enable Agentic context or choose a compatible ReviewRouter profile before saving.";
+    case "openrouter_direct_requires_single_provider":
+      return "Direct OpenRouter reviews currently support one provider and one model. Select a single OpenRouter provider without multi-provider agreement before saving or installing the workflow. Your saved policy has not been replaced.";
+    case "openrouter_direct_workflow_options_not_supported":
+      return "Direct OpenRouter requires the reusable App-first workflow without discussion or conflict fallback. Use Account Gateway for OpenCodeReview.";
     case "gateway_review_v2_inventory_retry":
       return "GitHub is still calculating pull request mergeability, or branches changed during the workflow check. Wait a minute, then click “I merged it” again to check the setup.";
     case "gateway_review_v2_workflow_incompatible":

@@ -119,7 +119,7 @@ function workspacePolicyHeadsFixture() {
   };
 }
 
-function reusableWorkflowResponse(mimo = false) {
+function reusableWorkflowResponse(mimo = true) {
   return {
     data: {
       type: "file",
@@ -217,9 +217,9 @@ describe("dashboard setup PR recovery", () => {
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "openrouter",
-            authMode: "openrouter_api_key",
-            model: "openai/gpt-5",
+            kind: "codex-mimo",
+            authMode: "mimo_token_plan_api_key",
+            model: "mimo-v2.6-pro",
           },
         ],
       }),
@@ -357,6 +357,82 @@ describe("dashboard setup PR recovery", () => {
         if (scenario === "unauthorized") {
           expect(mocks.resolveReviewRuntimeEnv).not.toHaveBeenCalled();
         }
+      }
+    },
+  );
+
+  it.each(["single", "multiple", "explicit"])(
+    "selects the App-first direct OpenRouter setup before effects: %s",
+    async (scenario) => {
+      mocks.getPrisma.mockReturnValue({
+        repositoryConnection: {
+          findUnique: vi.fn(async () => ({
+            workspaceId: "workspace_1",
+            provider: "github",
+            githubRepositoryId: 456n,
+            owner: "acme",
+            name: "widget",
+            fullName: "acme/widget",
+            defaultBranch: "main",
+            visibility: "private",
+            installation: { id: "installation_1", githubInstallationId: 123n },
+          })),
+        },
+        reviewConfiguration: workspacePolicyHeadsFixture(),
+      });
+      const provider = {
+        kind: "openrouter" as const,
+        authMode: "openrouter_api_key" as const,
+        model: "openai/gpt-5",
+      };
+      mocks.resolveReviewRuntimeEnv.mockResolvedValue({
+        config: parseReviewConfiguration({
+          ...workspacePolicyFixture,
+          providers:
+            scenario === "multiple"
+              ? [provider, { ...provider, model: "anthropic/claude-sonnet-4" }]
+              : [provider],
+          execution: {
+            providerLimit: scenario === "multiple" ? 2 : 1,
+            providerMaxParallel: 1,
+            inlineMinAgreement: 1,
+          },
+        }),
+      });
+      vi.stubEnv(
+        "REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF",
+        `777genius/review-router@${"c".repeat(40)}`,
+      );
+      mocks.isWorkflowSetupAlreadyCurrent.mockResolvedValue(true);
+      const form = new FormData();
+      form.set("workspaceId", "workspace_1");
+      form.set("repositoryId", "repository_1");
+      form.set(
+        "workflowStyle",
+        scenario === "explicit" ? "explicit" : "reusable",
+      );
+      const result = await createSetupPullRequestClientAction(form);
+      if (scenario === "single") {
+        expect(result.params.notice).toBe("workflow_already_current");
+        expect(mocks.isWorkflowSetupAlreadyCurrent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            providerApiAuthMode: "openrouter-api",
+            actionRef: `777genius/review-router@${"c".repeat(40)}`,
+            conflictReviewFallbackEnabled: false,
+          }),
+          expect.anything(),
+        );
+        expect(
+          mocks.isWorkflowSetupAlreadyCurrent.mock.calls[0]?.[0],
+        ).not.toHaveProperty("codexSessionMode");
+      } else {
+        expect(result.params.error).toBe(
+          scenario === "multiple"
+            ? "openrouter_direct_requires_single_provider"
+            : "openrouter_direct_workflow_options_not_supported",
+        );
+        expect(mocks.createGitHubAppInstallationOctokit).not.toHaveBeenCalled();
+        expect(mocks.provisionGatewayReviewV2Repository).not.toHaveBeenCalled();
       }
     },
   );
@@ -532,7 +608,7 @@ describe("dashboard setup PR recovery", () => {
 
   it("loads failed provisioning deterministically and confirms a reopened merged PR", async () => {
     let provisioningStatus: "failed" | "configured" = "failed";
-    let mimoWorkflow = false;
+    let mimoWorkflow = true;
     const repositoryFindUnique = vi.fn(async () => ({
       id: "repository_1",
       workspaceId: "workspace_1",
@@ -901,6 +977,10 @@ describe("dashboard setup PR recovery", () => {
                     apiUrl: "https://api.reviewrouter.test",
                     runtimeConfigMode: "oidc",
                     conflictReviewFallbackEnabled: true,
+                    staticRuntimeEnv: {
+                      REVIEW_AUTH_MODE: "mimo-token-plan-api",
+                      REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+                    },
                   }),
                 ).toString("base64"),
               },

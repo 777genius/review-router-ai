@@ -1138,3 +1138,63 @@ it("persists a normalized untrusted deletion failure without the workflow path",
   ).rejects.toThrow("workflow_delete_untrusted:");
   expect(provisioning.failed?.errorMessage).toBe("workflow_delete_untrusted");
 });
+
+it("installs one exact-pinned App-first direct caller and rejects extra votes before any attempt", async () => {
+  const config = parseReviewConfigurationStrict({
+    ...workspacePolicy,
+    providers: [
+      {
+        kind: "openrouter",
+        authMode: "openrouter_api_key",
+        model: "openai/gpt-5.3-codex",
+        reasoningEffort: "high",
+        agenticContext: true,
+        fastMode: false,
+        requiredHealthy: true,
+      },
+    ],
+  });
+  const configurations = savedConfigurations();
+  const originalFind = configurations.findLatest;
+  const directConfigurations: ReviewConfigurationRepositoryPort = {
+    ...configurations,
+    findLatest: async (target) => {
+      const result = await originalFind(target);
+      return result ? { ...result, policy: config, config } : null;
+    },
+  };
+  const { codexSessionMode, ...base } = gatewayInput;
+  expect(codexSessionMode).toBe("account-gateway");
+  const input = { ...base, providerApiAuthMode: "openrouter-api" as const };
+  const setupGateway = new CapturingSetupGateway();
+  const provisioning = new CapturingProvisioningRepository();
+  const dependencies = {
+    setupGateway,
+    provisioning,
+    configurations: directConfigurations,
+    trustedGithubRepositoryId: "123456",
+  };
+  await provisionReviewRouterWorkflow(input, dependencies);
+  expect(setupGateway.input?.setupMode).toBe("provider_api");
+  const file = setupGateway.input?.workflowFiles.find(
+    (file) => file.path === ".github/workflows/reviewrouter-review.yml",
+  );
+  expect(file && "content" in file ? file.content : "").toContain(
+    "provider_api_auth_mode: openrouter-api",
+  );
+  expect(file && "content" in file ? file.content : "").toContain(
+    "secrets.OPENROUTER_API_KEY",
+  );
+  expect(provisioning.opened?.actionVersion).toBe(input.actionRef);
+  const attempts = provisioning.attempts;
+  const before = structuredClone(config);
+  config.providers.push({ ...config.providers[0]! });
+  config.execution.providerLimit = 2;
+  config.execution.providerMaxParallel = 2;
+  await expect(
+    provisionReviewRouterWorkflow(input, dependencies),
+  ).rejects.toThrow("openrouter_direct_requires_single_provider");
+  expect(provisioning.attempts).toBe(attempts);
+  expect(before.providers).toHaveLength(1);
+  expect(config.providers).toHaveLength(2);
+});

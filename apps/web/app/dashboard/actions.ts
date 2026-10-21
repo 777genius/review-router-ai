@@ -31,6 +31,7 @@ import {
 } from "@reviewrouter/features-org-ruleset-provisioning";
 import {
   clearReviewConfiguration,
+  isOpenRouterDirectConfiguration,
   PrismaReviewConfigurationRepository,
   resolveReviewRuntimeEnv,
   type ResolvedReviewRuntimeEnv,
@@ -1245,25 +1246,35 @@ async function createSetupPullRequestMutation(
     const accountGateway = isAccountGatewayConfiguration(
       resolvedRuntime.config,
     );
+    const openRouterDirect = isOpenRouterDirectConfiguration(
+      resolvedRuntime.config,
+    );
+    const managedReview = accountGateway || openRouterDirect;
     if (
-      accountGateway &&
+      managedReview &&
       (workflowStyle === "explicit" || discussionMode === "suggest")
     ) {
-      throw new Error("account_gateway_workflow_options_not_supported");
+      throw new Error(
+        openRouterDirect
+          ? "openrouter_direct_workflow_options_not_supported"
+          : "account_gateway_workflow_options_not_supported",
+      );
     }
     const gatewayActionRef = accountGateway
       ? validateAccountGatewayActionRef(
           process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF,
         )
-      : undefined;
+      : openRouterDirect
+        ? resolveReviewRouterCodexRotatingActionRef()
+        : undefined;
     assertCodexProductionReviewConfigAllowed(resolvedRuntime.config);
     assertCodexRotatingReviewConfigAllowed({
       config: resolvedRuntime.config,
       repository: githubRepository,
     });
-    const workflowProviderKind = workflowReadinessProviderKind(
-      resolvedRuntime.config,
-    );
+    const workflowProviderKind = managedReview
+      ? undefined
+      : workflowReadinessProviderKind(resolvedRuntime.config);
     const codexRotatingProviderInstanceId =
       resolveCodexRotatingProviderInstanceId({
         config: resolvedRuntime.config,
@@ -1324,10 +1335,10 @@ async function createSetupPullRequestMutation(
           })
         : resolveReviewRouterActionRef());
     const conflictReviewFallbackAllowed =
-      accountGateway || codexRotatingProviderInstanceId
+      managedReview || codexRotatingProviderInstanceId
         ? false
         : isConflictReviewFallbackAllowedForRepository(repository.fullName);
-    const workflowPath = accountGateway
+    const workflowPath = managedReview
       ? reviewRouterWorkflowContract.callerPath
       : codexRotatingProviderInstanceId
         ? codexWorkflowPathForRepository({
@@ -1348,7 +1359,9 @@ async function createSetupPullRequestMutation(
         discussionMode,
         ...(accountGateway
           ? { codexSessionMode: "account-gateway" as const }
-          : {}),
+          : openRouterDirect
+            ? { providerApiAuthMode: "openrouter-api" as const }
+            : {}),
         conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
         ...(codexRotatingProviderInstanceId
           ? {
@@ -1439,7 +1452,9 @@ async function createSetupPullRequestMutation(
               runtimeConfigMode: "oidc",
               ...(accountGateway
                 ? { codexSessionMode: "account-gateway" as const }
-                : { staticRuntimeEnv: resolvedRuntime.runtimeEnv }),
+                : openRouterDirect
+                  ? { providerApiAuthMode: "openrouter-api" as const }
+                  : { staticRuntimeEnv: resolvedRuntime.runtimeEnv }),
               workflowStyle,
               discussionMode,
               conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
@@ -1687,13 +1702,19 @@ async function confirmSetupPullRequestMergedMutation(
     const accountGateway = isAccountGatewayConfiguration(
       resolvedRuntime.config,
     );
+    const openRouterDirect = isOpenRouterDirectConfiguration(
+      resolvedRuntime.config,
+    );
+    const managedReview = accountGateway || openRouterDirect;
     const gatewayActionRef = accountGateway
       ? validateAccountGatewayActionRef(
           process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF,
         )
-      : undefined;
+      : openRouterDirect
+        ? resolveReviewRouterCodexRotatingActionRef()
+        : undefined;
     const codexWorkflowExpected =
-      !accountGateway &&
+      !managedReview &&
       (hostedBinding !== null ||
         resolvedRuntime.config.providers.some(
           (provider) =>
@@ -1703,7 +1724,7 @@ async function confirmSetupPullRequestMergedMutation(
     const rotatingWorkflowExpected = resolvedRuntime.config.providers.some(
       (provider) => provider.authMode === "codex_subscription_oauth_rotating",
     );
-    const selectedCodexWorkflowPath = accountGateway
+    const selectedCodexWorkflowPath = managedReview
       ? reviewRouterWorkflowContract.callerPath
       : setupProvisioning?.workflowPath === isolatedQualityWorkflowPath ||
           (!setupProvisioning?.workflowPath && rotatingWorkflowExpected)
@@ -1725,7 +1746,7 @@ async function confirmSetupPullRequestMergedMutation(
     } | null = null;
     let assertCurrentGatewaySource: (() => Promise<void>) | undefined;
     let currentGatewaySourceCommitSha: string | null = null;
-    if (accountGateway || codexWorkflowExpected) {
+    if (managedReview || codexWorkflowExpected) {
       const repositoryRoute = "GET /repos/{owner}/{repo}";
       const refRoute = "GET /repos/{owner}/{repo}/git/ref/{ref}";
       const contentRoute = "GET /repos/{owner}/{repo}/contents/{path}";
@@ -1757,7 +1778,7 @@ async function confirmSetupPullRequestMergedMutation(
       const commitSha = readCommit(
         (await octokit.request(refRoute, refParameters)).data,
       );
-      if (accountGateway) currentGatewaySourceCommitSha = commitSha;
+      if (managedReview) currentGatewaySourceCommitSha = commitSha;
       const content = await octokit
         .request(contentRoute, {
           ...location,
@@ -1766,7 +1787,7 @@ async function confirmSetupPullRequestMergedMutation(
         })
         .catch((error: unknown) => {
           if (
-            accountGateway &&
+            managedReview &&
             setupPullRequestStatus === "open" &&
             setupPullRequestInspection?.merged === false &&
             typeof error === "object" &&
@@ -1785,7 +1806,7 @@ async function confirmSetupPullRequestMergedMutation(
       const blob = readGitHubWorkflowBlob(content.data);
       // Parsing selects a candidate only. The selected adapter must still verify
       // canonical content, trust, namespace/binding and immutable source identity.
-      if (!accountGateway) {
+      if (!managedReview) {
         try {
           const metadata = readCanonicalHostedPoolWorkflowMetadata(blob.source);
           codexWorkflow = {
@@ -1847,7 +1868,7 @@ async function confirmSetupPullRequestMergedMutation(
         workflowOctokit.request(repositoryRoute, location),
         workflowOctokit.request(refRoute, refParameters),
       ]);
-      if (accountGateway) {
+      if (managedReview) {
         assertCurrentGatewaySource = async () => {
           // Independent reads of the same pinned source: verify concurrently so
           // repeated re-checks cost one round trip instead of three.
@@ -1870,9 +1891,9 @@ async function confirmSetupPullRequestMergedMutation(
         !hostedWorkflowRequired)
     )
       throw new Error("hosted_pool_binding_activation_conflict");
-    const workflowProviderKind = workflowReadinessProviderKind(
-      resolvedRuntime.config,
-    );
+    const workflowProviderKind = managedReview
+      ? undefined
+      : workflowReadinessProviderKind(resolvedRuntime.config);
     const codexRotatingProviderInstanceId =
       codexWorkflow && !hostedWorkflowRequired
         ? resolveCodexRotatingProviderInstanceId({
@@ -1926,7 +1947,7 @@ async function confirmSetupPullRequestMergedMutation(
       : null;
     const forkAgenticSandboxEnabled = false;
     const conflictReviewFallbackAllowed =
-      accountGateway || codexRotatingProviderInstanceId
+      managedReview || codexRotatingProviderInstanceId
         ? false
         : isConflictReviewFallbackAllowedForRepository(repository.fullName);
     const verifiedWorkflowActionRef =
@@ -1953,7 +1974,9 @@ async function confirmSetupPullRequestMergedMutation(
             actionRef: verifiedWorkflowActionRef,
             ...(accountGateway
               ? { codexSessionMode: "account-gateway" as const }
-              : {}),
+              : openRouterDirect
+                ? { providerApiAuthMode: "openrouter-api" as const }
+                : {}),
             conflictReviewFallbackEnabled: conflictReviewFallbackAllowed,
             ...(codexRotatingProviderInstanceId
               ? {
@@ -1983,7 +2006,7 @@ async function confirmSetupPullRequestMergedMutation(
                             !input.expectedContentValidator(workflow)
                           )
                             return false;
-                          if (accountGateway) {
+                          if (managedReview) {
                             genericWorkflowStyle = "reusable";
                             return true;
                           }
@@ -2060,7 +2083,7 @@ async function confirmSetupPullRequestMergedMutation(
     if (!codexWorkflow && !genericWorkflowStyle)
       throw new Error("workflow_provisioning_match_not_found");
     let verifiedWorkflowArtifact = {
-      workflowPath: accountGateway
+      workflowPath: managedReview
         ? reviewRouterWorkflowContract.callerPath
         : codexWorkflow
           ? selectedCodexWorkflowPath
@@ -2166,7 +2189,7 @@ async function confirmSetupPullRequestMergedMutation(
       if (activation.status === "not_configured")
         throw new Error("hosted_pool_binding_activation_conflict");
       verifiedWorkflowArtifact = activation;
-    } else if (!accountGateway) {
+    } else if (!managedReview) {
       await assertCurrentSetup(verifiedWorkflowArtifact);
       await assertCurrentBinding();
       const activation =
@@ -2207,7 +2230,7 @@ async function confirmSetupPullRequestMergedMutation(
       }
     }
 
-    if (accountGateway) {
+    if (managedReview) {
       await assertCurrentSetup(verifiedWorkflowArtifact);
       await assertCurrentBinding();
       await assertCurrentGatewaySource!();
@@ -2937,6 +2960,7 @@ async function saveWorkspaceReviewConfigMutation(
       workspaceId,
     });
     const config = readReviewConfigurationForm(formData);
+    isOpenRouterDirectConfiguration(config);
     assertGatewayReviewAgentProfileContextAllowed(
       config,
       loadApprovedGatewayAgentProfiles,
@@ -3072,6 +3096,7 @@ async function saveRepositoryReviewConfigMutation(
       );
     const policy = readRepositoryReviewPolicyForm(formData);
     const config = resolveReviewPolicy(workspace.config, policy);
+    isOpenRouterDirectConfiguration(config);
     assertGatewayReviewAgentProfileContextAllowed(
       config,
       loadApprovedGatewayAgentProfiles,

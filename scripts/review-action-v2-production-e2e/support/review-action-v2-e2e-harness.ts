@@ -67,6 +67,7 @@ import {
   type ReviewInvocationLeaseAcquireRequest,
   type ReviewInvocationLeaseReleaseRequest,
   type ReviewRunAuthorizeRequest,
+  type ReviewRunAuthorizeResult,
   type ReviewRunRenewRequest,
 } from "../../../packages/protocol-review-action-v2/src/index.js";
 import { exportJWK, SignJWT } from "jose";
@@ -139,6 +140,7 @@ export type ReviewActionV2E2EFlow = Readonly<{
 }>;
 
 export type ReviewActionV2E2EAuthorization = Readonly<{
+  result: ReviewRunAuthorizeResult;
   sourceRunAttempt?: string;
   oidcExpiresAt?: string;
   authorizationId: string;
@@ -177,9 +179,7 @@ export class ReviewActionV2E2EHarness {
   readonly protocolLimitsProfileId: string;
   readonly operationalSloProfileId: string;
   readonly env: Readonly<Record<string, string>>;
-  private readonly routes: ReturnType<
-    typeof composeReviewActionV2ProductionRoutes
-  >;
+  readonly routes: ReturnType<typeof composeReviewActionV2ProductionRoutes>;
   private readonly worker: ReturnType<typeof createReviewV2WorkerFeature>;
   private readonly originalFetch: typeof globalThis.fetch;
   private oidcOrdinal = 0;
@@ -381,12 +381,19 @@ export class ReviewActionV2E2EHarness {
   }
 
   async authorize(
-    input: { readonly sourceRunAttempt?: string } = {},
+    input: {
+      readonly sourceRunAttempt?: string;
+      readonly providerApiAuthMode?: "openrouter-api";
+    } = {},
   ): Promise<ReviewActionV2E2EAuthorization> {
     const runAttempt = input.sourceRunAttempt ?? "1";
     const oidcExpiresAt =
       Math.floor(Date.now() / 1000) + this.oidcLifetimeSeconds;
-    const oidcToken = await this.signOidcToken(runAttempt, oidcExpiresAt);
+    const oidcToken = await this.signOidcToken(
+      runAttempt,
+      oidcExpiresAt,
+      input.providerApiAuthMode,
+    );
     const request: ReviewRunAuthorizeRequest = {
       ...envelope(`${this.prefix}-authorize-${runAttempt}`),
       oidcToken,
@@ -411,6 +418,7 @@ export class ReviewActionV2E2EHarness {
       ),
     );
     return {
+      result: response.result,
       sourceRunAttempt: runAttempt,
       oidcExpiresAt: new Date(oidcExpiresAt * 1000).toISOString(),
       authorizationId,
@@ -1428,6 +1436,7 @@ export class ReviewActionV2E2EHarness {
   private async signOidcToken(
     runAttempt: string,
     expiresAt: number,
+    providerApiAuthMode?: "openrouter-api",
   ): Promise<string> {
     this.oidcOrdinal += 1;
     const keyPair = oidcSigningKeys.get(this.fakeGitHub.options.oidcKeyId);
@@ -1441,7 +1450,7 @@ export class ReviewActionV2E2EHarness {
       ref: "refs/heads/main",
       run_id: sourceRunId,
       run_attempt: runAttempt,
-      workflow_ref: `${owner}/${repo}/.github/workflows/${this.modelTransport === "account_gateway" ? "reviewrouter-review.yml" : "reviewrouter-codex.yml"}@refs/heads/main`,
+      workflow_ref: `${owner}/${repo}/.github/workflows/${this.modelTransport === "account_gateway" || providerApiAuthMode ? "reviewrouter-review.yml" : "reviewrouter-codex.yml"}@refs/heads/main`,
       workflow_sha: this.fakeGitHub.revision.headSha,
       job_workflow_ref:
         this.modelTransport === "account_gateway"

@@ -6,6 +6,7 @@ import {
   managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
   renderReviewRouterCaller,
+  renderReviewRouterProviderApiCaller,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
 import {
@@ -147,6 +148,63 @@ export function readReviewRouterCallerSource(source: string): {
     throw new Error("review_workflow_source_not_canonical");
   }
   return { runtimeRef, controlPlaneUrl: new URL(controlPlaneUrl).origin };
+}
+
+/** Both canonical managed callers, retaining the source-selected transport. */
+export function readManagedReviewRouterCallerSource(source: string): {
+  readonly runtimeRef: string;
+  readonly controlPlaneUrl: string;
+  readonly modelTransport: "account_gateway" | "provider_api";
+} {
+  try {
+    return {
+      ...readReviewRouterCallerSource(source),
+      modelTransport: "account_gateway",
+    };
+  } catch {
+    // The separate direct variant is immutable and never inherits workflow-v1.
+  }
+  const root = readCanonicalWorkflowDocument(source) as {
+    jobs?: { review?: { uses?: unknown; with?: Record<string, unknown> } };
+  };
+  const job = root.jobs?.review;
+  const runtimeRef =
+    typeof job?.uses === "string"
+      ? /^777genius\/review-router\/\.github\/workflows\/reviewrouter-reusable\.yml@([a-f0-9]{40})$/.exec(
+          job.uses,
+        )?.[1]
+      : undefined;
+  const controlPlaneUrl =
+    job?.with?.control_plane_url ??
+    reviewRouterWorkflowContract.controlPlaneUrl;
+  if (!runtimeRef || typeof controlPlaneUrl !== "string")
+    throw new Error("review_workflow_source_not_canonical");
+  const expected = renderReviewRouterProviderApiCaller({
+    runtimeRef,
+    controlPlaneUrl,
+  });
+  if (!areWorkflowDocumentsSemanticallyEqual(source, expected))
+    throw new Error("review_workflow_source_not_canonical");
+  return {
+    runtimeRef,
+    controlPlaneUrl: new URL(controlPlaneUrl).origin,
+    modelTransport: "provider_api",
+  };
+}
+
+export function renderProviderApiWorkflow(options: {
+  readonly actionRef: string;
+  readonly apiUrl: string;
+}): ReviewRouterWorkflowUpsertFile {
+  const runtimeRef = options.actionRef.match(/@([a-f0-9]{40})$/)?.[1];
+  if (!runtimeRef) throw new Error("review_workflow_runtime_ref_invalid");
+  return {
+    path: reviewRouterWorkflowContract.callerPath,
+    content: renderReviewRouterProviderApiCaller({
+      runtimeRef,
+      controlPlaneUrl: options.apiUrl,
+    }),
+  };
 }
 export const reusableReviewWorkflowPath =
   ".github/workflows/reviewrouter-reusable.yml";

@@ -1,7 +1,7 @@
 import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import {
   ManagedReviewV2WorkflowInventory,
-  readReviewRouterCallerSource,
+  readManagedReviewRouterCallerSource,
 } from "@reviewrouter/features-workflow-provisioning";
 import { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";
 import { App } from "@octokit/app";
@@ -600,6 +600,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly owner: string;
     readonly workflowPath: string;
     readonly workflowSha: string;
+    readonly expectedProviderApiActionCommitSha?: string;
   }): Promise<{ readonly compatible: boolean }> {
     if (input.workflowPath === reviewRouterWorkflowContract.callerPath) {
       let source: string | null;
@@ -622,14 +623,19 @@ export class OctokitCodexRotatingGitHubSecretGateway
       }
       if (!source) return { compatible: false };
       try {
-        const caller = readReviewRouterCallerSource(source);
+        const caller = readManagedReviewRouterCallerSource(source);
         // Source proves the installation ABI, never the executed release.
         // Signed executable SHA and registry state are checked by admission.
         return {
-          compatible: reviewRouterApiUrlsMatch(
-            caller.controlPlaneUrl,
-            this.expectedApiUrl,
-          ),
+          compatible:
+            (input.expectedProviderApiActionCommitSha !== undefined
+              ? caller.modelTransport === "provider_api" &&
+                caller.runtimeRef === input.expectedProviderApiActionCommitSha
+              : caller.modelTransport === "account_gateway") &&
+            reviewRouterApiUrlsMatch(
+              caller.controlPlaneUrl,
+              this.expectedApiUrl,
+            ),
         };
       } catch {
         return { compatible: false };

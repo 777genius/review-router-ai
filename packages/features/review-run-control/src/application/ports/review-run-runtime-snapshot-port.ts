@@ -16,6 +16,8 @@ export interface ReviewRunRuntimeSnapshotPort {
     readonly identity: VerifiedScmRunIdentity;
     readonly deadline: Date;
     readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
+    /** Derived from a verified canonical caller, never a request input. */
+    readonly providerApiAuthMode?: "openrouter-api";
     readonly producerRelease: Pick<
       ProducerRelease,
       | "producerReleaseId"

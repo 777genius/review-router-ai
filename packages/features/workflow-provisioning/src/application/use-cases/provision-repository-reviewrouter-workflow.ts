@@ -26,6 +26,7 @@ export type ProvisionRepositoryReviewRouterWorkflowInput = {
   readonly apiUrl: string;
   readonly runtimeConfigMode: "oidc" | "static";
   readonly codexSessionMode?: "account-gateway";
+  readonly providerApiAuthMode?: "openrouter-api";
   readonly staticRuntimeEnv?: Readonly<Record<string, string>>;
   readonly workflowStyle?: ReviewRouterWorkflowStyle;
   readonly discussionMode?: ReviewRouterDiscussionMode;
@@ -95,6 +96,9 @@ export async function provisionRepositoryReviewRouterWorkflow(
       actionRef: input.actionRef,
       apiUrl: input.apiUrl,
       runtimeConfigMode: input.runtimeConfigMode,
+      ...(input.providerApiAuthMode
+        ? { providerApiAuthMode: input.providerApiAuthMode }
+        : {}),
       ...(input.codexSessionMode
         ? { codexSessionMode: input.codexSessionMode }
         : {}),

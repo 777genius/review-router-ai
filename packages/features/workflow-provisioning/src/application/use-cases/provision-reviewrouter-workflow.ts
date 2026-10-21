@@ -1,5 +1,6 @@
 import {
   resolveReviewConfiguration,
+  isOpenRouterDirectConfiguration,
   type ReviewConfigurationRepositoryPort,
 } from "@reviewrouter/features-review-config";
 import {
@@ -10,6 +11,7 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderReviewRouterWorkflowFiles,
   renderAccountGatewayWorkflow,
+  renderProviderApiWorkflow,
   defaultWorkflowPath,
   defaultCodexRotatingWorkflowPath,
   defaultInteractionWorkflowPath,
@@ -54,6 +56,30 @@ export async function provisionReviewRouterWorkflow(
   const gatewaySelected = saved
     ? isAccountGatewayConfiguration(saved.config)
     : false;
+  const providerApiSelected = saved
+    ? isOpenRouterDirectConfiguration(saved.config)
+    : false;
+  if (input.providerApiAuthMode && !providerApiSelected)
+    throw new Error("openrouter_direct_requires_single_provider");
+  if (
+    providerApiSelected &&
+    (input.providerApiAuthMode !== "openrouter-api" ||
+      input.codexSessionMode !== undefined ||
+      input.runtimeConfigMode !== "oidc" ||
+      input.staticRuntimeEnv !== undefined ||
+      (input.workflowStyle !== undefined &&
+        input.workflowStyle !== "reusable") ||
+      input.conflictReviewFallbackEnabled === true ||
+      input.forkAgenticSandboxEnabled === true ||
+      (input.discussionMode !== undefined && input.discussionMode !== "off") ||
+      input.codexRotatingProviderInstanceId !== undefined ||
+      input.codexRotatingWorkflowSecretNamespace !== undefined ||
+      input.codexRotatingReviewActionV2Mode !== undefined ||
+      input.codexRotatingWorkflowSchemaVersion !== undefined ||
+      (input.workflowPath !== undefined &&
+        input.workflowPath !== reviewRouterWorkflowContract.callerPath))
+  )
+    throw new Error("openrouter_direct_workflow_options_not_supported");
   const gatewayHint =
     input.codexSessionMode !== undefined ||
     input.staticRuntimeEnv?.REVIEW_AUTH_MODE === "codex-account-gateway" ||
@@ -63,7 +89,7 @@ export async function provisionReviewRouterWorkflow(
     throw new Error("account_gateway_saved_config_required");
   }
   if (
-    gatewaySelected &&
+    (gatewaySelected || providerApiSelected) &&
     (!dependencies.trustedGithubRepositoryId ||
       input.githubRepositoryId !== dependencies.trustedGithubRepositoryId)
   ) {
@@ -71,7 +97,8 @@ export async function provisionReviewRouterWorkflow(
   }
   if (
     gatewaySelected &&
-    (input.codexSessionMode !== "account-gateway" ||
+    (input.providerApiAuthMode !== undefined ||
+      input.codexSessionMode !== "account-gateway" ||
       input.runtimeConfigMode !== "oidc" ||
       input.staticRuntimeEnv !== undefined ||
       (input.workflowStyle !== undefined &&
@@ -88,17 +115,22 @@ export async function provisionReviewRouterWorkflow(
   ) {
     throw new Error("account_gateway_workflow_options_not_supported");
   }
-  const gatewayFile = gatewaySelected
+  const managedFile = gatewaySelected
     ? renderAccountGatewayWorkflow({
         actionRef: input.actionRef,
         apiUrl: input.apiUrl,
         githubRepositoryId: dependencies.trustedGithubRepositoryId!,
       })
-    : undefined;
+    : providerApiSelected
+      ? renderProviderApiWorkflow({
+          actionRef: input.actionRef,
+          apiUrl: input.apiUrl,
+        })
+      : undefined;
   const plan = createProvisionWorkflowPlan(
-    gatewayFile ? { ...input, workflowPath: gatewayFile.path } : input,
+    managedFile ? { ...input, workflowPath: managedFile.path } : input,
   );
-  const actionVersion = gatewayFile
+  const actionVersion = gatewaySelected
     ? reviewRouterWorkflowContract.channel
     : plan.actionRef;
   if (plan.codexRotatingProviderInstanceId) {
@@ -154,21 +186,21 @@ export async function provisionReviewRouterWorkflow(
 
   try {
     if (
-      !gatewayFile &&
+      !managedFile &&
       plan.runtimeConfigMode === "static" &&
       plan.staticRuntimeEnv === undefined
     ) {
       throw new Error("workflow_static_policy_required");
     }
-    const staticRuntimeEnv = gatewayFile ? {} : (plan.staticRuntimeEnv ?? {});
-    if (!gatewayFile) {
+    const staticRuntimeEnv = managedFile ? {} : (plan.staticRuntimeEnv ?? {});
+    if (!managedFile) {
       assertProductionCodexWorkflowProvisioningAllowed({
         codexRotatingProviderInstanceId: plan.codexRotatingProviderInstanceId,
         staticRuntimeEnv,
       });
     }
 
-    const workflowFiles = gatewayFile
+    const workflowFiles = managedFile
       ? [
           {
             path: defaultCodexRotatingWorkflowPath,
@@ -186,7 +218,7 @@ export async function provisionReviewRouterWorkflow(
             markerGroups:
               getLegacyReviewRouterInteractionWorkflowDeletionMarkerGroups(),
           },
-          gatewayFile,
+          managedFile,
         ]
       : renderReviewRouterWorkflowFiles({
           actionRef: plan.actionRef,
@@ -230,7 +262,13 @@ export async function provisionReviewRouterWorkflow(
         repo: plan.name,
         baseBranch: plan.defaultBranch,
         setupBranch: attempt.branch,
-        ...(gatewayFile ? { setupMode: "gateway" as const } : {}),
+        ...(managedFile
+          ? {
+              setupMode: gatewaySelected
+                ? ("gateway" as const)
+                : ("provider_api" as const),
+            }
+          : {}),
         workflowFiles,
       });
 

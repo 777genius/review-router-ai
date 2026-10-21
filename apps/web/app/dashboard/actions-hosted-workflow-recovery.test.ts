@@ -489,9 +489,9 @@ function fixture(
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "openrouter",
-            authMode: "openrouter_api_key",
-            model: "openai/gpt-5",
+            kind: "codex-mimo",
+            authMode: "mimo_token_plan_api_key",
+            model: "mimo-v2.6-pro",
           },
         ],
       }),
@@ -501,6 +501,10 @@ function fixture(
       apiUrl: "https://api.reviewrouter.test",
       runtimeConfigMode: "oidc",
       conflictReviewFallbackEnabled: true,
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "mimo-token-plan-api",
+        REVIEW_PROVIDERS: "codex-mimo/mimo-v2.6-pro",
+      },
     });
   }
   if (gateway) {
@@ -1468,9 +1472,9 @@ describe("hosted setup recovery composition", () => {
         ...workspacePolicyFixture,
         providers: [
           {
-            kind: "openrouter" as const,
-            authMode: "openrouter_api_key" as const,
-            model: "openai/gpt-5",
+            kind: "codex-mimo" as const,
+            authMode: "mimo_token_plan_api_key" as const,
+            model: "mimo-v2.6-pro",
           },
         ],
       });
@@ -2042,9 +2046,9 @@ describe("hosted setup recovery composition", () => {
           ...workspacePolicyFixture,
           providers: [
             {
-              kind: "openrouter",
-              authMode: "openrouter_api_key",
-              model: "openai/gpt-5",
+              kind: "codex-mimo",
+              authMode: "mimo_token_plan_api_key",
+              model: "mimo-v2.6-pro",
             },
           ],
         }),

@@ -3,6 +3,7 @@ import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features
 export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 import {
   createReviewRunGatewayCheckout,
+  createReviewRunProviderApiCheckout,
   type ReviewRunGatewayCheckout,
   type ReviewRunGatewayCheckoutTarget,
 } from "./review-run-gateway-checkout.js";
@@ -283,6 +284,7 @@ type ReviewActionV2RouteRuntime = Pick<
 export type ReviewActionV2ProductionRoutes = Readonly<{
   accountGatewayRelay?: ReviewRunGatewayRelay;
   accountGatewayCheckout?: ReviewRunGatewayCheckout;
+  providerApiCheckout?: ReviewRunGatewayCheckout;
   hostedV4: HostedV4ReadRoutesDependencies;
   hostedV4Relay: Readonly<{
     enabled: false;
@@ -538,6 +540,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     input.prisma,
   );
   const admissionFacts = createServerOwnedReviewActionV2AdmissionFacts({
+    providerApiSource: workflowInventory,
     revisionResolver: prerequisites.revisionResolver,
     releaseAttestations: prerequisites.releaseAttestations,
     providerVoteLanes,
@@ -1102,7 +1105,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
           : null;
         if (checkoutTarget) {
           const original = checkoutSnapshot?.gateway;
-          if (!original?.limits) return false;
+          if (!checkoutSnapshot || (original && !original.limits)) return false;
           // Checkout keeps connection-before-binding-before-authorization order;
           // all following local reads use this transaction, without HTTP.
           await tx.$queryRaw`SELECT "id" FROM "GitHubInstallation"
@@ -1113,10 +1116,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
             SELECT id FROM public.rr_review_run_checkout_repository_lock(
               ${authorization.workspaceId}, ${authorization.repositoryConnectionId})`;
           if (lockedRepository.length !== 1) return false;
-          await tx.$queryRaw`SELECT "id" FROM "ProviderAccountConnection"
-            WHERE "id" = ${original.connectionId} FOR SHARE`;
-          await tx.$queryRaw`SELECT "id" FROM "WorkspaceAccountBinding"
-            WHERE "id" = ${original.bindingId} AND "workspaceId" = ${authorization.workspaceId} FOR SHARE`;
+          if (original) {
+            await tx.$queryRaw`SELECT "id" FROM "ProviderAccountConnection"
+              WHERE "id" = ${original.connectionId} FOR SHARE`;
+            await tx.$queryRaw`SELECT "id" FROM "WorkspaceAccountBinding"
+              WHERE "id" = ${original.bindingId} AND "workspaceId" = ${authorization.workspaceId} FOR SHARE`;
+          }
         }
         // Row SHARE also protects against termination/sweep writers; acquire
         // it only after scope guards, then reread on this connection.
@@ -1252,6 +1257,33 @@ export function composeReviewActionV2ProductionRoutes(input: {
         bindings: gatewayBindings,
       })
     : undefined;
+  const resolveCheckoutRepository = async (
+    authorization: ReviewRunAuthorization,
+  ) => {
+    const target = await readCheckoutTarget(prisma, authorization);
+    if (!target) return null;
+    const revision = await currentRevision.resolve(
+      authorizationScope(authorization),
+    );
+    if (
+      revision.status !== CurrentReviewRevisionStatus.Found ||
+      canonicalJson(revision.revision) !==
+        canonicalJson(authorizationRevision(authorization))
+    )
+      return null;
+    return target;
+  };
+  const providerApiCheckout = createReviewRunProviderApiCheckout({
+    lifecycleObservationAuthors: [
+      ...trustedReviewCommandLedgerAuthorsFromEnv(input.env),
+    ],
+    authorizations: runControl.authorizations,
+    confirmAuthority: confirmAccountGatewayAuthority,
+    issuer: workflowInventory,
+    maxInFlight: 4,
+    timeoutMs: 30_000,
+    resolveRepository: resolveCheckoutRepository,
+  });
   const accountGatewayCheckout = accountGatewayRelayPolicy
     ? createReviewRunGatewayCheckout({
         lifecycleObservationAuthors: [
@@ -1263,23 +1295,11 @@ export function composeReviewActionV2ProductionRoutes(input: {
         issuer: workflowInventory,
         maxInFlight: Math.min(4, accountGatewayRelayPolicy.maxInFlight),
         timeoutMs: Math.min(30_000, accountGatewayRelayPolicy.requestTimeoutMs),
-        resolveRepository: async (authorization) => {
-          const target = await readCheckoutTarget(prisma, authorization);
-          if (!target) return null;
-          const revision = await currentRevision.resolve(
-            authorizationScope(authorization),
-          );
-          if (
-            revision.status !== CurrentReviewRevisionStatus.Found ||
-            canonicalJson(revision.revision) !==
-              canonicalJson(authorizationRevision(authorization))
-          )
-            return null;
-          return target;
-        },
+        resolveRepository: resolveCheckoutRepository,
       })
     : undefined;
   return Object.freeze({
+    providerApiCheckout,
     ...(accountGatewayRelay ? { accountGatewayRelay } : {}),
     ...(accountGatewayCheckout ? { accountGatewayCheckout } : {}),
     hostedV4,

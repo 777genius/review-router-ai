@@ -2,6 +2,7 @@ export { managedCodexWorkflowPath } from "@reviewrouter/shared";
 import {
   managedCodexWorkflowPath,
   reviewRouterWorkflowPath,
+  providerApiCheckoutCompanionContract,
 } from "@reviewrouter/shared";
 export {
   parseReviewAgentProfiles,
@@ -98,4 +99,28 @@ ${Object.entries(reviewRouterWorkflowContract.permissions)
     with:
 ${inputs.map((name) => `      ${name}: \${{ inputs.${name} }}`).join("\n")}${origin !== reviewRouterWorkflowContract.controlPlaneUrl ? `\n      control_plane_url: ${JSON.stringify(origin)}` : ""}
 `;
+}
+
+/** Exact-pinned native provider API variant; the Gateway ABI above stays intact. */
+export function renderReviewRouterProviderApiCaller(options: {
+  readonly controlPlaneUrl?: string;
+  readonly runtimeRef: string;
+}): string {
+  if (!/^[a-f0-9]{40}$/.test(options.runtimeRef))
+    throw new Error("review_workflow_runtime_ref_invalid");
+  const caller = renderReviewRouterCaller(options);
+  return (
+    caller.replace(
+      `${reviewRouterWorkflowContract.runtimePath}@${options.runtimeRef}`,
+      `.github/workflows/reviewrouter-reusable.yml@${options.runtimeRef}`,
+    ) +
+    `      runtime_ref: ${options.runtimeRef}
+      runtime_config_mode: oidc
+      review_action_v2_mode: t0
+      workflow_schema_version: ${providerApiCheckoutCompanionContract.workflowSchemaVersion}
+      provider_api_auth_mode: ${providerApiCheckoutCompanionContract.providerApiAuthMode}
+    secrets:
+      OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}
+`
+  );
 }
