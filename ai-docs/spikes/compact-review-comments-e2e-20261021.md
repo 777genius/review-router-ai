@@ -112,3 +112,13 @@ control-plane CI pinned exact Action revision
 version1.0.191 publication canary above. Public release,
 compatible producer adoption and matching private publication are separate gates;
 source merge alone does not prove their completion.
+
+The final fence-boundary fix is [public PR305](https://github.com/777genius/review-router/pull/305),
+merged at `e716b9632d8e892bfea7d41102a2d0fab3306ec1` for version1.0.193.
+The paired control-plane CI now pins that exact revision. Focused regressions
+and actual GitHub Markdown rendering cover invalid fence info, dedented prose,
+and both list and top-level closers at zero and four spaces after a two-space
+opener. Following inline code remains readable, HTML stays escaped, later
+findings remain visible, and generated disclosures remain balanced. Original
+finding bodies remain unchanged in JSON. Public release, private publication
+and production activation remain separate from these source/rendering proofs.
