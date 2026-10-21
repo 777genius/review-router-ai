@@ -87,6 +87,7 @@ describe("producer context tools extension identity", () => {
     }
     expect(parseProducerContextToolsProfile(profile)).toEqual(profile);
     const { contextToolsProfile: _profile, ...old } = attestation();
+    void _profile;
     expect(
       readConfiguredProducerReleaseAttestations({
         [reviewRunProducerReleaseAttestationsEnv]: JSON.stringify([old]),
@@ -100,6 +101,8 @@ describe("producer context tools extension identity", () => {
       reviewInvestigationProfile: _investigation,
       ...legacy
     } = createProducerRelease(releaseCandidate, now);
+    void _agents;
+    void _investigation;
     const row = {
       ...legacy,
       distributionKind: "public_reusable" as const,

@@ -90,6 +90,7 @@ function fixture() {
 }
 function resigned(plan: ContextToolsPlan): ContextToolsPlan {
   const { planDigest: _digest, ...rest } = plan;
+  void _digest;
   return { ...rest, planDigest: contextPlanDigest(rest) };
 }
 

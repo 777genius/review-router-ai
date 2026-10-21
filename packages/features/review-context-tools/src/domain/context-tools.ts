@@ -189,6 +189,7 @@ export function parseContextToolsPlan(value: unknown): ContextToolsPlan {
   const bindings = new Map<string, string>();
   for (const server of plan.servers) {
     const { version: _version, ...definitionInput } = server;
+    void _version;
     const definition = contextConnectionDefinitionSchema.parse({
       ...definitionInput,
       credentials: Object.fromEntries(
