@@ -1,6 +1,6 @@
 # Review Skills — подробный план реализации
 
-**Статус:** три последовательных раунда критики завершены; все три направления GO на 3fbeabb. Реализация начата параллельными lanes, qualification ещё не завершена.
+**Статус:** план прошёл три последовательных раунда критики; все три направления GO на 3fbeabb. Реализация и локальная квалификация завершены, включая свежий browser 7/7 и настоящий OCR. [Результаты и границы проверок](./2026-10-21-review-skills-implementation.md); полный удалённый CI отслеживается отдельно в PR.
 Дата: 2026-10-21. [SaaS PR #635](https://github.com/777genius/review-router-ai/pull/635) · [Runtime PR #297](https://github.com/777genius/review-router/pull/297).
 Ветка обоих репозиториев: `feat/review-skills-20261021`, отдельные worktrees.
 
@@ -500,4 +500,6 @@ Rollback code не удаляет revisions/attachments. Не rebind profileRef/
 ## 12. Журнал исполнения
 
 Три раунда: [2026-10-21-review-skills-reviews.md](./2026-10-21-review-skills-reviews.md).
-Текущий checkpoint: PR/worktrees готовы, audits/registry проверены, dependencies установлены. Реализация и успешная квалификация ещё не заявлены; checklist обновляется только фактическим выполнением.
+Все implementation lanes B–E завершены. Общие локальные gates F пройдены: captured contract/real PostgreSQL/actual roles, signed paired HTTP transport, native/OCR projection, реальный OCR binary, fresh seven-case browser qualification, scoped GM/Foundation/FMS, protocol/artifact parity и независимый implementation review. Подробные команды, версии, результаты и ограничения — в [отчёте о реализации](./2026-10-21-review-skills-implementation.md).
+
+Функциональный SaaS checkpoint `03c94f32ce4a5147336681502742e4385c1827d5`; runtime `4aae5bd7e1c62cfa6852209ca78799d2e5e14132`. Коммиты отправлены в оба PR по ходу работы. Последующие документационные checkpoints не меняют квалифицированный product behavior. Финальные remote jobs и production release остаются отдельными наблюдаемыми этапами, не подразумеваемым результатом локальных тестов.

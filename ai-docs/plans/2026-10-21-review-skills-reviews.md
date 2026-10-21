@@ -46,4 +46,19 @@ Reviewed commit: 3fbeabb00c3e320262365a4847139269f5297eb9. **Все три кр�
 
 ## Проверка реализации
 
-Отдельна от review плана. Команды, результаты и ограничения записываются после выполнения.
+Отдельна от review плана. После реализации критики повторно проверили код и границы интеграции; существенные находки закрыты до финальной квалификации.
+
+| Направление / finding                                                                                                              | Исправление и проверка                                                                                                                              |
+| ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Admission: Serializable snapshot мог пережить ожидание revoke на неизменённом parent row                                           | Физический parent write после ordered locks; actual unprivileged web/API barrier test получает 40001, новый capture видит revoke                    |
+| Producer selection: общий provider_api label не гарантировал передачу Skills старым Secrets/Hosted caller                          | Supporting preference только на verified direct OpenRouter; legacy route с назначениями получает явный отказ; signed PG positive/negative proof     |
+| Admission fence терял подтверждённый direct transport при recapture                                                                | Delivery восстанавливается только из исходного защищённого snapshot с проверкой frozen configuration; signed admission/restore/renew tests проходят |
+| ACL: table REVOKE не удалял существующие column UPDATE grants                                                                      | Точные grants и отдельный closed-gate column cleanup; реальные LOGIN roles доказывают denial и восстановление                                       |
+| Frontend: автор мог открыть linked skill, но Save использовал destination workspace                                                | Save/conflict reload используют source identity; invalidate обоих caches; final browser подтверждает original + linked view                         |
+| CI: actual OCR мог скрыто skip без binary, paired Skills test без checkout                                                         | Обязательные pinned OCR build/manifest + required flag; signed HTTP step после verified immutable paired checkout                                   |
+| Additive migrations ломали исторические full-checkout validators                                                                   | Exact checksum-pinned pair поверх неизменённого predecessor; 303 regressions и независимые missing/modified/unknown-tail отрицательные проверки     |
+| Production packaging/tooling: isolated compiler отсутствовал в Docker, ignore-workspace терял package exceptions, bundles устарели | Штатный production compiler + отдельный явный TS7 gate; nested workspace install; official artifact build/parity                                    |
+
+Независимый runtime review: P0/P1 в проверенной области не осталось; 52/52 Skills/native/OCR adapter tests. Независимый frontend review проверил server authority, privacy, canonical linking, exact selection/retry и inert Markdown; обнаруженный author-edit UX исправлен. Отдельный release review подтвердил сохранение managed92/historical96 identities и отклонение шести повреждённых каталогов без изменения protected baseline.
+
+Финальный browser receipt на `03c94f32ce4a5147336681502742e4385c1827d5`: 7/7, без skips, с 138 свежими migrations. Полная таблица выполненных проверок, команды и честные пределы локального/удалённого evidence — [в отчёте](./2026-10-21-review-skills-implementation.md).
