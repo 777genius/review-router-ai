@@ -190,9 +190,14 @@ function renderFinding(
   const location = renderLocation(finding, input);
   const body = safeBody(finding.body.trimEnd());
   if (!expanded) {
+    const summaryLabel =
+      `[${finding.severity}] ${finding.title.trim()}${formatFindingLocation(finding) ? ` · ${formatFindingLocation(finding)}` : ""}`.replace(
+        /\s+/g,
+        " ",
+      );
     return [
       "<details>",
-      `<summary>${escapeHtml(`[${finding.severity}] ${finding.title.trim()}${formatFindingLocation(finding) ? ` · ${formatFindingLocation(finding)}` : ""}`)}</summary>`,
+      `<summary>${escapeHtml(summaryLabel)}</summary>`,
       "",
       ...(location ? [location, ""] : []),
       body,

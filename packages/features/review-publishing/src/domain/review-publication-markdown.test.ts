@@ -280,7 +280,11 @@ describe("compact summary contracts", () => {
 
   it("uses severity then fingerprint order without losing same-location findings", () => {
     const findings = [
-      finding("z"),
+      {
+        ...finding("z"),
+        title: "z\n\n<injected>",
+        location: { filePath: "src/one\r\n\r\n\ttwo.ts", newLine: 4 },
+      },
       finding("c", "Critical evidence", "critical"),
       finding("a"),
       finding("b"),
@@ -288,6 +292,11 @@ describe("compact summary contracts", () => {
     const markdown = renderReviewSummaryMarkdown({ plan: planWith(findings) });
     expect(markdown).toContain("**1 critical, 3 major findings**");
     expect(markdown.match(/<details>/g)).toHaveLength(4);
+    expect(markdown.match(/<\/details>/g)).toHaveLength(4);
+    expect(markdown.match(/<summary>[^\r\n]*<\/summary>/g)).toHaveLength(4);
+    expect(markdown).toContain(
+      "<summary>[major] z &lt;injected&gt; · src/one two.ts:4</summary>",
+    );
     expect(markdown.indexOf("[critical] c")).toBeLessThan(
       markdown.indexOf("[major] a"),
     );
