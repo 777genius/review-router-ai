@@ -39,3 +39,10 @@ checks read-only; run a frozen install explicitly when dependencies change.
 The three exact Foundation package release-age exceptions are reviewed pins,
 not a general disablement. Local bootstrap validates the supported Node interval
 and exact pnpm version. CI and Docker preserve Node 26.11.1 and pin pnpm 11.28.7.
+
+Build permissions use pnpm 11's supported `allowBuilds` map. The removed
+`onlyBuiltDependencies` setting is not effective in pnpm 11. The runtime
+permission matches only its reviewed full codeload URL and commit; Prisma and
+esbuild retain narrowly versioned approvals. No repository-wide or unpinned
+Git build permission is granted. A normal install must exercise Git preparation;
+`--ignore-scripts` does not qualify that boundary.

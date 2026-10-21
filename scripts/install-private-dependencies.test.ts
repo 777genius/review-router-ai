@@ -224,7 +224,7 @@ describe("private dependency installer", () => {
     );
     writeFileSync(
       join(repository, "pnpm-workspace.yaml"),
-      "packages:\n  - packages/*\n\nonlyBuiltDependencies:\n  - prisma\n",
+      'packages:\n  - packages/*\n\nallowBuilds:\n  "prisma@7.8.0": true\n',
     );
     writeFileSync(join(repository, path), value);
     expect(spawnSync("git", ["init", "-q"], { cwd: repository }).status).toBe(
@@ -256,6 +256,9 @@ describe("private dependency installer", () => {
     'overrides:\n  "prisma": "file:./steal-key.tgz"\n',
     'overrides:\n  "prisma": "${DEPLOY_KEY}"\n',
     "verifyDepsBeforeRun: true\n",
+    'allowBuilds:\n  "@vioxen/subscription-runtime": true\n',
+    'allowBuilds:\n  "@vioxen/subscription-runtime@git+https://github.com/777genius/ar.git": true\n',
+    'allowBuilds:\n  "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/0000000000000000000000000000000000000000": true\n',
   ])("rejects workspace hook redirection before pnpm", (addition) => {
     const { capturePath, directory } = createFakePnpm();
     const repository = mkdtempSync(
@@ -269,7 +272,7 @@ describe("private dependency installer", () => {
     );
     writeFileSync(
       join(repository, "pnpm-workspace.yaml"),
-      `packages:\n  - packages/*\n\nonlyBuiltDependencies:\n  - prisma\n${addition}`,
+      `packages:\n  - packages/*\n\nallowBuilds:\n  \"prisma@7.8.0\": true\n${addition}`,
     );
     expect(spawnSync("git", ["init", "-q"], { cwd: repository }).status).toBe(
       0,

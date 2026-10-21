@@ -12,11 +12,11 @@ minimumReleaseAgeExclude:
   - "@agent-teams/engineering-foundation@2.1.0"
   - "@agent-teams/repository-mutation@0.4.0"
 
-onlyBuiltDependencies:
-  - "@prisma/engines"
-  - "@vioxen/subscription-runtime"
-  - esbuild
-  - prisma
+allowBuilds:
+  "@prisma/engines@7.8.0": true
+  "esbuild@0.28.1": true
+  "prisma@7.8.0": true
+  "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/83a7329f4383b05ac5c39356b79f82f029182d42": true
 
 overrides:
   "@hono/node-server": "2.0.11"
