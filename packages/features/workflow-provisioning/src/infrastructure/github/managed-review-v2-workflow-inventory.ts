@@ -286,7 +286,7 @@ export class ManagedReviewV2WorkflowInventory {
                       readManagedReviewRouterCallerSource(reviewWorkflow);
                     runtimeRef = caller.runtimeRef;
                     return {
-                      actionRef: `${reviewRouterWorkflowContract.runtimeRepository}/${caller.modelTransport === "provider_api" ? ".github/workflows/reviewrouter-reusable.yml" : reviewRouterWorkflowContract.runtimePath}@${caller.runtimeRef}`,
+                      actionRef: `${reviewRouterWorkflowContract.runtimeRepository}/${caller.modelTransport === "provider_api" ? ".github/workflows/reviewrouter-execution-reusable.yml" : reviewRouterWorkflowContract.runtimePath}@${caller.runtimeRef}`,
                       apiUrl: caller.controlPlaneUrl,
                       providerInstanceId: "",
                       workflowSchemaVersion: reviewRouterWorkflowContract.major,
