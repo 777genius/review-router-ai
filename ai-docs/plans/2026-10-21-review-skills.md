@@ -1,6 +1,6 @@
 # Review Skills — подробный план реализации
 
-**Статус:** проект для раунда критики №1. Реализация feature ещё не начата.
+**Статус:** редакция после раунда №1, передана на раунд №2. Реализация feature ещё не начата.
 Дата: 2026-10-21. [SaaS PR #635](https://github.com/777genius/review-router-ai/pull/635) · [Runtime PR #297](https://github.com/777genius/review-router/pull/297).
 Ветка обоих репозиториев: `feat/review-skills-20261021`, отдельные worktrees.
 
@@ -92,10 +92,14 @@ Foundation/FMS — `scripts/review-skills-tooling`, отдельный private p
 | ReviewSkill | id, sourceWorkspaceId, authorUserId, headRevisionId, createdAt, deletedAt? | immutable source/author identity |
 | ReviewSkillRevision | id, skillId, revisionNumber, name, description, instructions, contentDigest, createdAt | append-only; unique(skillId,revisionNumber) |
 | ReviewSkillGrant | skillId, destinationWorkspaceId, grantedBy, grantedAt, revokedAt?, version | только direct source grant; unique(skill,destination) |
-| ReviewSkillLink | workspaceId, skillId, acceptedBy, acceptedAt, unlinkedAt? | canonical reference, не копия |
-| ReviewSkillBinding | repositoryConnectionId, skillId, includePaths, excludePaths, version | repository и local link принадлежат destination |
+| ReviewSkillLink | workspaceId, skillId, acceptedGrantVersion, acceptedBy, acceptedAt, unlinkedAt? | canonical reference, не копия |
+| ReviewSkillBinding | workspaceId, repositoryConnectionId, skillId, includePaths, excludePaths, version | repository и local link принадлежат destination |
 | ReviewSkillRepositorySource | repositoryConnectionId, roots, version | только allowlisted roots, opt-in |
 | Authorization attachment | nullable skillsSnapshotCanonicalJson на ReviewRunAuthorization | null = historical absence, никогда capture latest |
+
+Grant generation: revoke и regrant увеличивают version. Link действителен только при acceptedGrantVersion == current active grant.version; Accept требует expectedGrantVersion. Regrant требует нового destination Accept, repeated active Grant/Accept — no-op. Dual-admin helper принимает точное поколение atomically.
+
+Binding ownership: composite FK (workspaceId,repositoryConnectionId) проверяет repository ownership; доступность local original либо shared accepted link проверяет atomic command (без выдуманного FK для union). Source/head revision constraint — composite key.
 
 Local original доступен source workspace без self-grant. Destination требует одновременно active grant и active accepted link. Binding хранит canonical skillId. Одинаковые имена не сливаются. Composite FK/constraint запрещает head revision чужого skill.
 
@@ -111,21 +115,23 @@ Additive migration: индексы source library, destination links, repo bindi
 | Grant/revoke | source owner/admin |
 | Accept/unlink | destination owner/admin |
 | Dual-admin Add | в одной transaction проверить обе authority и создать grant+link |
-| Bind/unbind/scope/Git opt-in | repository manager write/maintain/admin либо допустимый workspace admin path |
+| Bind/unbind/scope/Git opt-in | current destination owner/admin **или** подтверждённый SCM repository manager write/maintain/admin; active workspace обязателен, membership для второго пути не требуется |
 | Delete original | author с source membership; нет local bindings/active grants |
 | New admission | active workspace/grant/link/binding; членство автора **не требуется** |
 | Admitted execution | existing run authorization + captured attachment; no live grant recheck |
 
-Не использовать mutable GitHub login для authorship. Actor из server session, не client payload. `canAdminWorkspace`/local override не дают author-only edit. Repo adapter использует `assertDashboardRepositoryMutationAllowed`, не direct_config guard (тот исключает write role). UI capabilities — presentation, server повторно проверяет.
+Не использовать mutable GitHub login для authorship. Actor из server session, не client payload. `canAdminWorkspace`/local override не дают author-only edit. Repo adapter сохраняет правила repo_manager (write/maintain/admin), но не принимает local-admin override как достаточную Skills authority: либо current DB owner/admin, либо реальная SCM проверка. Source grant/destination accept также требуют actual current DB role owner/admin, без override. UI capabilities — presentation, server повторно проверяет.
 
 Автор ушёл из source → edit заморожен, текущая revision/grants продолжают работать. Пользователь — member A/admin B → не может экспортировать A только из-за права читать. Destination не может re-share canonical link.
+
+Repository-only actor получает отдельный listAssignmentChoices после проверки **каждого exact selected repository**. Он видит только доступные для назначения metadata и k/N этого set, не всю библиотеку/body/history или usage остальных repos. Workspace library/body read по-прежнему требует membership. Acceptance использует настоящую write-permission ветку, без admin shortcut.
 
 ### 3.3 Privacy/lifecycle
 
 - Usage показывает только разрешённые repo names/counts текущего workspace. Source не читает destination results/private repo list.
 - Linking не открывает историю source revisions; target читает текущую доступную head и свои captured runs.
 - Audit/outbox/logs: IDs/digests/counts/safe reasons; без body/provider prompt.
-- Revoked dependency видна как unavailable. Пока assignment остаётся, new admission blocked; нельзя превратить это в green skipped review.
+- Revoked dependency — отдельная unavailable projection: generic label + canonical ID + local assignment counts/removal capability, без чтения свежего source head/name/description/body. После revoke→source rename target не видит новое имя. Revoked dependency видна как unavailable. Пока assignment остаётся, new admission blocked; нельзя превратить это в green skipped review.
 - Revoke не отменяет admitted run; UI объясняет это. Остановка уже принятого run — отдельная destination операция.
 - Unlink с bindings требует явного снятия, не скрытой потери проверок.
 - Delete original = soft tombstone после проверки активных зависимостей. Revoked stale links не запрещают deletion навсегда; captured bytes сохраняются по run retention.
@@ -200,11 +206,13 @@ type CapturedReviewSkills = {
 
 Canonicalization сортирует canonical IDs/roots/scopes, rejects unknown keys/duplicates, валидирует digest и bytes. Envelope baseSha равен authorization baseSha. Web identity учитывает revision/body/description/scopes; exact-base descriptor фиксирует Git content без CP custody. Explicit empty capture отличается от historical null. Старые hash preimages не меняются.
 
+Transport descriptor в этом же generated source фиксирует `/api/action/v2/skills`, empty-object request <=1024 bytes, response <=256KiB, no-store и safe error codes. Это companion существующего v2 transport, не незарегистрированный ad-hoc маршрут.
+
 ### 5.2 Capability
 
 Optional `reviewSkillsVersion:1` в **registered ReviewAgentProfile**. Новый qualified profile/binary identity; registered historical records не переписываем. Existing producer immutable key уже включает agentProfiles.
 
-Profile без capability и без назначений сохраняет legacy execution. Nonempty bindings/Git sources с unsupported profile → actionable skills_engine_unsupported до inference. Client flag не заменяет registered capability. Supporting profile всегда получает captured empty/nonempty DTO; missing attachment — error.
+Profile без capability и без назначений сохраняет legacy execution. Nonempty bindings/Git sources с unsupported profile → actionable skills_engine_unsupported до inference. Capability migration охватывает shared profile parser, scripts/lib/review-action-v2-release-manifests.mjs readers/writers, generated runtime profile reader, private captured agent parser и ручной readApprovedOcrReviewAgent в ocr-managed-bootstrap.ts. Supporting value1 сохраняется normalization; absence возвращает прежний семиключевой object без undefined/null. Full manifest→capture→runtime и invalid capability fixtures обязательны. Client flag не заменяет registered capability. Supporting profile всегда получает captured empty/nonempty DTO; missing attachment — error.
 
 ### 5.3 Admission последовательность
 
@@ -213,11 +221,14 @@ Profile без capability и без назначений сохраняет lega
 3. Original найден → его attachment, включая null; не capture latest.
 4. Для нового run после captured engine selection читать текущие bindings/grants/links/source roots и exact immutable revision bodies, проверить capability/bounds.
 5. Сформировать canonical candidate; Git содержит exact authorization.baseSha и roots, без blobs.
-6. Existing Serializable admission transaction: identity locks → replay lookup → runtime fence + Skills fence → authorization row/attachment + existing outbox.
+6. Existing Serializable admission transaction: identity locks → replay lookup → **prelock полного captured source/destination Workspace set в sorted order** → existing runtime fence (уже берёт destination FOR UPDATE) → Skills revalidation → authorization row/attachment + existing outbox. При новом source/binding вне candidate возвращаем AdmissionFactsChanged, не добираем out-of-order locks.
 7. Fence повторно получает полный current set и сравнивает candidate. Нет набора из разных revisions/assignment moments.
-8. Cache/evidence reusable lookup только после successful new admission.
+8. Перед возвратом mutable Skills capture denial повторить original lookup: concurrent admitted winner мог появиться после первого lookup. Если найден — обычные eligibility/restore checks с его attachment, без capture latest. Действительно новый run остаётся denied.
+9. Cache/evidence reusable lookup только после successful new admission.
 
 Consumer `ReviewRunSkillsSnapshotPort` в review-run-control, app adapter вызывает context. TransactionClient только app/infrastructure, не generic UoW в application.
+
+Attachment пишется только вместе с new authorization row; renew/restore/terminate не меняют его. Все Prisma selected mappings возвращают поле. Racing candidates возвращают первый persisted winner bytes и один outbox. Skills digest не добавляется в existing replay immutable key, иначе valid first-winner restore превратится в conflict. Snapshot immutable защищён write paths и DB guard.
 
 Mutations/capture используют общий lock order: sorted destination/source workspaceIDs, затем repositoryIDs/skillIDs. Destination scope защищает от phantom added binding; source scope — Save/revoke. Serializable reads текущих workspace/membership + bounded retries на serialization failures. Внешний GitHub permission I/O перед короткой DB transaction; DB membership повторно внутри.
 
@@ -225,11 +236,21 @@ Mutations/capture используют общий lock order: sorted destination
 
 ### 5.4 Отдельный endpoint
 
-`POST /api/review-action/v2/skills`, existing review-run bearer, bounded empty request. Ответ captured DTO, Cache-Control:no-store. Endpoint resolves existing authorization, отдаёт только её attachment, валидирует scope/base/limits. Content не кладётся в env, claims, telemetry.
+`POST /api/action/v2/skills`, existing review-run bearer, bounded empty request. Ответ captured DTO, Cache-Control:no-store. Endpoint resolves existing authorization, отдаёт только её attachment, валидирует scope/base/limits. Content не кладётся в env, claims, telemetry.
 
 Supporting runtime fetches до inference/cache, хранит immutable parsed DTO в execution input. Retry/token refresh не перечитывает latest; если повторяет fetch — сравнивает bytes/digest. Failure/missing/unsupported endpoint → blocked, без static fallback. Legacy unsupported profile не вызывает endpoint.
 
 Queue/retry/restore используют captured bytes до max authorization lifetime. New manual run получает current capture. Existing emergency producer/run revocations остаются своими проверками.
+
+### 5.5 Все runtime entrypoints
+
+| Seam | Обязательный trusted input |
+| --- | --- |
+| ProductionT0ReviewRunner.runInWorkspace | Supporting captured profile + attachment до compatibility/evidence lookup |
+| prepareSingleT0NativeInputs | После fresh receipt тот же attachment, exact-base materialization |
+| prepareSingleT0ReviewPlan | Уже materialized bundle и trusted captured profile/capability; omission при capability1 forbidden |
+| Native finding/investigation | Один projection для обеих веток |
+| Older/nonmanaged paths | Если admitted transport не умеет доставить Skills, new admission с назначениями explicitly denied до legacy cache reuse |
 
 ## 6. Git Skills и materialization
 
@@ -239,10 +260,10 @@ Queue/retry/restore используют captured bytes до max authorization l
 
 1. Сверить captured baseSha с verified authorization.baseSha.
 2. Читать exact commit через git tree/blob API, не рабочий HEAD.
-3. Обнаружить непосредственные <root>/<name>/SKILL.md, stable POSIX order.
+3. Обнаружить непосредственные <root>/<name>/SKILL.md, stable POSIX order. Ограничить tree output <=1MiB и <=4096 entries/root; count SKILL.md до чтения blobs, общий limit32 с учётом web. Reference/byte budgets проверять инкрементально.
 4. Regular blobs only; no symlink/gitlink; path containment/UTF-8/bytes.
-5. Agent Skills YAML frontmatter required name/description; supported text-only subset явно документирован.
-6. Локальные relative Markdown references внутри skill directory читаются из того же commit. Не делать remote fetch.
+5. Frontmatter: required name/description, optional license/compatibility/metadata (string map). Unknown keys, YAML custom tags/anchors/aliases и execution-required fields (allowed-tools/tools/scripts/dependencies) rejected с понятной unsupported ошибкой. Git skills apply all reviewable files; custom path scope только web binding.
+6. Материализовать Markdown inline links `[text](relative.md)` и reference definitions `[id]: relative.md` (используемые reference-style links) без optional title/embedded HTML. Разрешены `.md` пути без пробелов/URL encoding с optional #anchor, строго внутри skill directory. External URLs/anchors остаются текстом без fetch; unsupported local reference syntax даёт actionable error, не обещает загрузку. Depth<=4, <=8 unique references/skill, cycle rejected.
 7. Traversal/missing local md/cycles/recursion/unsupported mandatory resources/limits → explicit error. Scripts/tool instructions не исполняются и не расширяют authority.
 8. Neutral resolved item identity = git:root/name, revision=baseSha, resources+bytes/digests.
 9. Общие web+Git limits; materialized execution digest включает все bytes/scopes.
@@ -254,7 +275,7 @@ Queue/retry/restore используют captured bytes до max authorization l
 
 ### Common
 
-В `production-t0-review-runner.ts` один immutable effective bundle до `if(input.ocr)`. Case-sensitive POSIX scope matcher: include union минус excludes. Compose **все** подходящие skills на assigned path, stable order, dedupe canonical ID/revision. Не расширять inventory/tools. Порядок обеспечивает reproducibility, не решает семантические противоречия.
+В `production-t0-review-runner.ts` один immutable effective bundle до `if(input.ocr)`. Единый dialect: anchored repository-relative POSIX globs, `*`, `?`, `**` (только целый segment), dotfiles included, case-sensitive. Reject absolute/drive/backslash/empty or dot-dot segments, bracket classes, braces, extglob, negation/comments. Matcher minimatch10.2.5: dot:true, nocase:false, nonegate:true, nocomment:true, noext:true, nobrace:true; один shared grammar validator и независимый fixture corpus. Include union минус excludes. Compose **все** подходящие skills на assigned path, stable order, dedupe canonical ID/revision. Не расширять inventory/tools. Порядок обеспечивает reproducibility, не решает семантические противоречия.
 
 ### OCR
 
@@ -272,6 +293,8 @@ Queue/retry/restore используют captured bytes до max authorization l
 - Assert main **и plan** requests; factual-only filter не переписываем.
 - Новый patch set → новая qualified binary/profile identity; rr.3 immutable.
 - Missing binary в required qualification lane = fail, не describe.skip green.
+
+**Historical OCR branch:** captured legacy absence/rr.3 использует старый builder и его ruleText/semantic preimage byte-for-byte. Новый supporting profile + explicit empty/nonempty attachment использует corrected builder/patch. Нельзя выбрать ветку по сегодняшним assignments. Supporting profile + missing attachment fails. Fixture восстановленного rr.3 через новый Action обязателен.
 
 ### Native
 
@@ -296,27 +319,27 @@ Legacy absence branch сохраняет byte-for-byte old hashes; не доба
 
 ### 8.2 Library/editor
 
-Плоская таблица, source/author, local Used in, updated, действия. Empty: Create / Add from workspace. Три поля, explicit Save, hint «Updates future reviews in connected repositories». Read-only linked skill показывает source и причину.
+Плоская таблица, source/author, local Used in, updated, действия. Empty: Create / Add from workspace. Три поля, explicit Save, hint «Updates future reviews in connected repositories». Linked skill read-only для неавтора; исходный автор с current source membership получает Edit original (переход в source workspace), а не ложный запрет из-за link.
 
 Dirty close — discard или продолжить. Conflict сохраняет draft, показывает fresh revision, explicit reload/reconcile; no blind overwrite. Create из empty bulk возвращает initial repo selection и отмечает созданный skill. Create из library предлагает Assign to repositories.
 
-Import SKILL.md — bounded local file → preview полей нового web original. Export — portable text-only format. Это не live Git sync. Git-managed content не редактируется в web; source settings объясняют trusted base.
+Import SKILL.md — bounded local file → plain-text preview полей нового web original; no raw HTML, remote images, YAML tags/aliases или выполнение. Export — portable text-only format. Это не live Git sync. Git-managed content не редактируется в web. V1 source settings показывает roots, включённость, trusted-base правило и понятные runtime discovery errors; **полного web preview Git bodies не добавляем**. Run provenance показывает разрешённые paths/revisions/diagnostics, без CP blob custody. Эти Git entries не выдаются за selectable web skill IDs.
 
 ### 8.3 Sharing
 
 Add → Create / Import / From another workspace. Eligible originals показывают source/author/live link explanation.
 
-Dual admin: одно Add. Existing explicit grant: destination Accept. Source admin выдаёт/revokes direct grant выбранному workspace. No invites/email/public catalog. Unavailable row объясняет состояние и позволяет снять dependencies. Query не раскрывает workspace/repo metadata неавторизованному actor.
+Dual admin: одно Add. Existing explicit grant: destination Accept. Source admin выдаёт/revokes direct grant выбранному workspace. Destination picker содержит только workspace, metadata которых actor вправе видеть; односторонний grant другому workspace использует exact opaque destination ID без global search/enumeration. No invites/email/public catalog. Unavailable row объясняет состояние и позволяет снять dependencies. Query не раскрывает workspace/repo metadata неавторизованному actor.
 
 ### 8.4 Selection/bulk
 
 Existing gateway-repository-batch-controls содержит gateway targets/version/cap100. Extract neutral repo ID selection provider; Gateway adapter сохраняет свои eligibility/version/cap. Skills inventory допускает repo_manager и не наследует direct_config-only выборку.
 
-repository-live-search различает matchingIds/visibleIds. Select all N matching берёт matchingIds. Selection survives filters/pages; selected/hidden counters, Clear. Exact repoIDs фиксируются при открытии/apply, future repos не входят.
+repository-live-search различает matchingIds/visibleIds. Select all N matching берёт matchingIds. Selection survives filters/pages; selected/hidden counters, Clear. Exact repoIDs фиксируются при открытии; background selection/filter changes не меняют dialog title/N/set. Изменение — явный reopen. При >1000 selection сохраняется целиком, Apply disabled с инструкцией сузить; no truncate/chunk/future selection.
 
-Dialog: Add/Remove title/description/primary action различны. Checkboxes initially empty, Assigned k/N отдельный столбец. Skill selection survives pages/search. Add scope default all; advanced optional include/exclude. Existing scope не меняется Add; Paths для single repo — explicit versioned command. Remove доступен для unavailable binding.
+Dialog: Add/Remove title/description/primary action различны. Checkboxes initially empty, Assigned k/N отдельный столбец. Skill selection survives pages/search. Add scope default all; advanced optional include/exclude. Подсказка advanced scope: применяется только к новым bindings. Existing scope не меняется Add; Paths для single repo — explicit versioned command. Remove доступен для unavailable binding.
 
-Bulk transaction all-or-nothing; pending prevents duplicate submit, safe rejection остаётся в dialog. Success invalidates usages+bindings. Library Repositories использует тот же API.
+Bulk transaction all-or-nothing; pending prevents duplicate submit, safe rejection остаётся в dialog. Transport-unknown completion не называется failure/no-change: exact delta selection сохраняется, предлагается readback/безопасный same-delta retry. Known unsupported runtime показывается до Apply; assignment может быть сохранён с явным сообщением, что новое ревью blocked до update. Success invalidates usages+bindings. Library Repositories использует тот же API.
 
 ### 8.5 Accessibility
 
@@ -377,14 +400,14 @@ Shared Base UI Dialog/Button/Checkbox/Badge/SelectField; semantic labels/table/t
 5. Neutral selection provider + Gateway regression.
 6. Bulk Add/Remove, all matching/kN/scopes/Git opt-in/reverse assignments.
 7. Nav before Memory.
-8. Actual Next/browser cases в existing accounts-reference-e2e harness.
+8. Actual Next/browser cases в existing accounts-reference-e2e harness. Для repository-only write actor внедрить narrow test HTTP transport seam в существующий GitHub App adapter и loopback token+collaborator permission fixture с user ID/login/write. Session/guards/use case/DB настоящие, no production bypass/no fake authorizer true. Workspace-admin fixture не считается этой проверкой.
 
 ### F. Общие gates
 
 1. Dependency install/Prisma generate/build new packages.
 2. Focused tests/typecheck + existing relevant regressions.
 3. Foundation/FMS/GM independent oracle; запрещённый импорт действительно red.
-4. Real PostgreSQL17 acceptance migrations/transactions; PGlite только developer smoke.
+4. Real PostgreSQL17+ acceptance migrations/transactions (точная версия в evidence); PGlite только developer smoke.
 5. Real patched OCR binary+loopback Responses, main/plan actual prompt assertions.
 6. Existing browser harness расширить, без production auth bypass; actual Next actions/DB.
 7. Paired CP→runtime captured transport/projection/digest parity fixture.
@@ -427,6 +450,13 @@ Shared Base UI Dialog/Button/Checkbox/Badge/SelectField; semantic labels/table/t
 | U04 | viewer/workspace switch | query cache isolation |
 | P01 | logs/health/outbox | no bodies/Git blobs/raw prompts |
 | M01 | missing/wrong provider/forbidden import | scoped gates fail |
+| X01 | repo-only write actor | Add/Remove разрешены; content/share/чужой usage запрещены |
+| X02 | revoke→source rename | target не видит fresh source metadata/body |
+| X03 | revoke→regrant | нужен Accept current generation; stale Accept rejected |
+| X04 | 1001 selected / unknown transport | IDs retained, bounded error/no writes; no false outcome on lost response |
+| X05 | sourceID<destID concurrent admit/revoke | consistent prelock order, bounded retry, один row/outbox |
+| X06 | same-run two candidates + denial race | оба возвращают persisted winner; new run denied |
+| X07 | manifest/profile/legacy rr.3 | full capability roundtrip; old profile, ruleText и hashes unchanged |
 
 ## 11. Rollout и совместимость
 
