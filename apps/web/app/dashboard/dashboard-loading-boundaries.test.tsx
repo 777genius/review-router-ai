@@ -101,6 +101,13 @@ const fixtures = vi.hoisted(() => {
 });
 const { spies } = fixtures;
 
+vi.mock("./dashboard-action-form", () => ({
+  DashboardActionForm: ({
+    children,
+  }: {
+    readonly children: React.ReactNode;
+  }) => <form>{children}</form>,
+}));
 vi.mock("./account-gateway-accounts-section", () => ({
   AccountGatewayAccountsSection: ({
     workspaceName,
@@ -750,6 +757,35 @@ describe("dashboard server loading boundaries", () => {
       expect(spies.batchConfig).not.toHaveBeenCalled();
     },
   );
+
+  it("renders Other without model configuration or repository health", async () => {
+    const data = await loadDashboardSectionData(workspace, "setup", access);
+    const html = renderToStaticMarkup(
+      <WorkspaceCard
+        data={{
+          ...data,
+          reviewDraftPullRequests: true,
+          canEditOtherSettings: true,
+        }}
+        mutationsEnabled
+        selectedSection="other"
+        params={{}}
+        repositoryAccess={access}
+        workspaceKey="acme"
+        appInstallUrl={null}
+        modelOptions={[]}
+        claudeCodeProviderEnabled={false}
+      />,
+    );
+    expect(html).toContain(">Other</h2>");
+    expect(html).toContain("Review draft pull requests");
+    expect(html).toContain('name="reviewDraftPullRequests"');
+    expect(html).toContain('checked=""');
+    expect(html).not.toContain("Metadata only");
+    expect(html).not.toContain("Save workspace review settings");
+    expect(spies.config).not.toHaveBeenCalled();
+    expect(spies.health).not.toHaveBeenCalled();
+  });
 
   it("loads account summaries without reading per-repository hosted bindings", async () => {
     const data = await loadDashboardSectionData(workspace, "setup", access);

@@ -2314,9 +2314,9 @@ export function WorkspaceCard({
 
 function DashboardSectionHeader(
   props:
-    | { readonly selectedSection: "setup" }
+    | { readonly selectedSection: "setup" | "other" }
     | {
-        readonly selectedSection: Exclude<DashboardSection, "setup">;
+        readonly selectedSection: Exclude<DashboardSection, "setup" | "other">;
         readonly repositoryCount: number;
         readonly workspaceHealth: WorkspaceHealthSummary;
         readonly activeConfig: ReviewConfiguration;
@@ -2330,19 +2330,21 @@ function DashboardSectionHeader(
   if (selectedSection === "setup") return null;
   const meta = dashboardSectionMeta[selectedSection];
   const status =
-    selectedSection === "repositories"
-      ? `${props.repositoryCount} synced repositories`
-      : selectedSection === "policy"
-        ? props.activeConfig.providers
-            .map((provider) =>
-              provider.reasoningEffort
-                ? `${provider.model} / ${provider.reasoningEffort}`
-                : provider.model,
-            )
-            .join(", ")
-        : selectedSection === "memory"
-          ? "In development"
-          : "Metadata only";
+    selectedSection === "other"
+      ? null
+      : selectedSection === "repositories"
+        ? `${props.repositoryCount} synced repositories`
+        : selectedSection === "policy"
+          ? props.activeConfig.providers
+              .map((provider) =>
+                provider.reasoningEffort
+                  ? `${provider.model} / ${provider.reasoningEffort}`
+                  : provider.model,
+              )
+              .join(", ")
+          : selectedSection === "memory"
+            ? "In development"
+            : "Metadata only";
 
   return (
     <section className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
@@ -2379,7 +2381,8 @@ function DashboardSectionHeader(
             </div>
           ) : null}
         </div>
-        {selectedSection === "repositories" ? null : (
+        {selectedSection === "repositories" ||
+        selectedSection === "other" ? null : (
           <div className="flex flex-wrap gap-2 xl:justify-end">
             {selectedSection === "diagnostics" ? (
               <Badge tone={props.workspaceHealth.tone}>
