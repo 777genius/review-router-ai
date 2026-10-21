@@ -6,7 +6,10 @@ import { createProviderUsageGatewayReconciliation } from "./provider-usage-gatew
 import { createProviderUsageArtifactRecovery } from "./provider-usage-artifact-recovery-store.js";
 import { ProviderUsageArtifactReader } from "./provider-usage-artifact-recovery.js";
 import { createGatewayUsageRecorder } from "./provider-usage-gateway-recorder.js";
-import { createProviderUsageApi, type ProviderUsageApi } from "./provider-usage-routes.js";
+import {
+  createProviderUsageApi,
+  type ProviderUsageApi,
+} from "./provider-usage-routes.js";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
@@ -292,10 +295,18 @@ type ReviewActionV2RouteRuntime = Pick<
 
 export type ReviewActionV2ProductionRoutes = Readonly<{
   providerUsage?: ProviderUsageApi;
-  providerUsageActionSession?: ReturnType<typeof createProviderUsageActionSessionIssuer>;
-  providerUsageBootstrap?: ReturnType<typeof createProviderUsageBootstrapIssuer>;
-  providerUsageNative?: ReturnType<typeof createProviderUsageGatewayReconciliation>;
-  providerUsageRecovery?: ReturnType<typeof createProviderUsageArtifactRecovery>;
+  providerUsageActionSession?: ReturnType<
+    typeof createProviderUsageActionSessionIssuer
+  >;
+  providerUsageBootstrap?: ReturnType<
+    typeof createProviderUsageBootstrapIssuer
+  >;
+  providerUsageNative?: ReturnType<
+    typeof createProviderUsageGatewayReconciliation
+  >;
+  providerUsageRecovery?: ReturnType<
+    typeof createProviderUsageArtifactRecovery
+  >;
   accountGatewayRelay?: ReviewRunGatewayRelay;
   accountGatewayCheckout?: ReviewRunGatewayCheckout;
   providerApiCheckout?: ReviewRunGatewayCheckout;
@@ -1236,7 +1247,15 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
-        usage: createGatewayUsageRecorder(prisma,async auth=>{const target=await resolveCheckoutRepository(auth);return target?createProviderUsageActorResolver(prisma,{appId:githubAppId,privateKey:githubAppPrivateKey})(auth,target):null;}),
+        usage: createGatewayUsageRecorder(prisma, async (auth) => {
+          const target = await resolveCheckoutRepository(auth);
+          return target
+            ? createProviderUsageActorResolver(prisma, {
+                appId: githubAppId,
+                privateKey: githubAppPrivateKey,
+              })(auth, target)
+            : null;
+        }),
         runAccess: {
           ...(accountGatewayControlOrigin === undefined
             ? {}
@@ -1313,14 +1332,47 @@ export function composeReviewActionV2ProductionRoutes(input: {
         resolveRepository: resolveCheckoutRepository,
       })
     : undefined;
-  const providerUsage = createProviderUsageApi({prisma,resolveRunClosedAt:createProviderUsageRunCompletion({appId:githubAppId,privateKey:githubAppPrivateKey}), resolveActor:createProviderUsageActorResolver(prisma,{appId:githubAppId,privateKey:githubAppPrivateKey}), authorizations:runControl.authorizations,resolveRepository:resolveCheckoutRepository,confirmAuthority:confirmAccountGatewayAuthority});
-  const providerUsageRecovery = createProviderUsageArtifactRecovery({prisma,api:providerUsage,reader:new ProviderUsageArtifactReader({appId:githubAppId,privateKey:githubAppPrivateKey})});
+  const providerUsage = createProviderUsageApi({
+    prisma,
+    resolveRunClosedAt: createProviderUsageRunCompletion({
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+    resolveActor: createProviderUsageActorResolver(prisma, {
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+    authorizations: runControl.authorizations,
+    resolveRepository: resolveCheckoutRepository,
+    confirmAuthority: confirmAccountGatewayAuthority,
+  });
+  const providerUsageRecovery = createProviderUsageArtifactRecovery({
+    prisma,
+    api: providerUsage,
+    reader: new ProviderUsageArtifactReader({
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+  });
   return Object.freeze({
     providerUsage,
-    providerUsageNative: createProviderUsageGatewayReconciliation(prisma,input.env),
+    providerUsageNative: createProviderUsageGatewayReconciliation(
+      prisma,
+      input.env,
+    ),
     providerUsageRecovery,
-    providerUsageActionSession: createProviderUsageActionSessionIssuer({prisma,api:providerUsage,appId:githubAppId,privateKey:githubAppPrivateKey}),
-    providerUsageBootstrap: createProviderUsageBootstrapIssuer({prisma,api:providerUsage,appId:githubAppId,privateKey:githubAppPrivateKey}),
+    providerUsageActionSession: createProviderUsageActionSessionIssuer({
+      prisma,
+      api: providerUsage,
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
+    providerUsageBootstrap: createProviderUsageBootstrapIssuer({
+      prisma,
+      api: providerUsage,
+      appId: githubAppId,
+      privateKey: githubAppPrivateKey,
+    }),
     providerApiCheckout,
     ...(accountGatewayRelay ? { accountGatewayRelay } : {}),
     ...(accountGatewayCheckout ? { accountGatewayCheckout } : {}),
