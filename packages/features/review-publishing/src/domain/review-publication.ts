@@ -204,8 +204,9 @@ function normalizeFinding(finding: ReviewFinding): ReviewFinding {
   if (title.length > maxTitleLength) {
     throw new Error("review_finding_title_too_large");
   }
-  const body = finding.body.trim();
-  if (!body) {
+  // Leading indentation can be a Markdown code block, so trim only blank lines.
+  const body = finding.body.replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd();
+  if (!body.trim()) {
     throw new Error("review_finding_body_required");
   }
   if (body.length > maxBodyLength) {
