@@ -973,6 +973,12 @@ importers:
 
   packages/features/review-providers:
     dependencies:
+      '@get-modular/assembly':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@get-modular/core':
+        specifier: 0.2.0
+        version: 0.2.0
       zod:
         specifier: ^4.4.2
         version: 4.4.2

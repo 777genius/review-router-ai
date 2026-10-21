@@ -202,3 +202,13 @@ The 200% sample emulates browser layout using a 640x400 CSS viewport at DPR 2,
 rendering a 1280x800 screenshot; CSS `zoom` stress is separate and does not emulate
 browser breakpoint changes. `ACCOUNTS_REFERENCE_E2E_GREP` selects a bounded failed
 scenario for follow-up without replaying successful mutation tests.
+
+## Public model catalogs
+
+Use `ACCOUNTS_REFERENCE_E2E_GREP='public catalogs'` and `--catalog-fixture`
+for the public catalog scenario. This opt-in mode enables the existing rotating
+OAuth feature flag and preloads a harness-only HTTP fixture for the two fixed
+public catalog URLs. The actual server composition, normalization and cache run
+unchanged. The browser verifies all three vendors, native IDs, manual refresh,
+cooldown, preserved selection, row removal and absence of automatic inference.
+No provider credentials or external requests are needed.

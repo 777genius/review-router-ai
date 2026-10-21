@@ -313,6 +313,9 @@ export function applicationEnvironment(input: {
     REVIEW_ROUTER_API_URL: input.gatewayUrl,
     REVIEW_ROUTER_PUBLIC_WEB_URL: input.appUrl,
     REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: "1",
+    ...(process.argv.includes("--catalog-fixture")
+      ? { REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH: "1" }
+      : {}),
     REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED: "1",
     ...(process.argv.includes("--lifecycle-fixture")
       ? { REVIEW_ROUTER_ACCOUNT_LIFECYCLE_ENABLED: "1" }

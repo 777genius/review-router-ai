@@ -10,6 +10,7 @@ boundaries:
       - packages/features/review-providers/src/domain
     entrypoints:
       - packages/features/review-providers/src/domain/provider-catalog.ts
+      - packages/features/review-providers/src/domain/provider-model-catalog.ts
       - packages/features/review-providers/src/domain/provider-models.ts
       - packages/features/review-providers/src/domain/provider-runtime-plan.ts
     allow:
@@ -32,14 +33,31 @@ boundaries:
       runtimeReferences: []
   - id: catalog.infrastructure
     roots:
+      - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.ts
       - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.ts
     entrypoints:
+      - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.ts
       - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.ts
     allow:
       boundaries:
         - catalog.domain
         - catalog.application
       packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: catalog.composition
+    roots:
+      - packages/features/review-providers/src/composition/index.ts
+    entrypoints:
+      - packages/features/review-providers/src/composition/index.ts
+    allow:
+      boundaries:
+        - catalog.domain
+        - catalog.application
+        - catalog.infrastructure
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
       builtins: []
       runtimeReferences: []
   - id: catalog.public
@@ -58,6 +76,8 @@ boundaries:
   - id: catalog.tests
     roots:
       - packages/features/review-providers/src/tests
+      - packages/features/review-providers/src/composition/index.test.ts
+      - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.test.ts
       - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.test.ts
     entrypoints: []
     allow:
@@ -65,6 +85,7 @@ boundaries:
         - catalog.domain
         - catalog.application
         - catalog.infrastructure
+        - catalog.composition
         - catalog.public
       packages:
         - vitest
