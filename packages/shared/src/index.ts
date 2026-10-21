@@ -8,6 +8,8 @@ export * from "./validation/index";
 export { reviewRouterApiUrlsMatch } from "./reviewrouter-service-origin";
 export {
   providerApiCheckoutCompanionContract,
+  contextToolsContract,
+  type ContextToolsPlanV1,
   prDescriptionContract,
   type GeneratedPrDescription,
   type PrDescriptionGenerationProvenance,
