@@ -55,6 +55,7 @@ import type { GatewayAgentProfileOption } from "../../src/server/gateway-agent-p
 import { getReadyGatewayAccounts } from "../../src/server/dashboard-provider-setup-readiness";
 import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
 import { useGatewayModelAccounts } from "./gateway-model-account-options";
+import { GatewayConnectionTest } from "./gateway-connection-test";
 import {
   defaultGatewayMiMoReasoningEffort,
   gatewayModelSupportsReasoningEffort,
@@ -2230,6 +2231,14 @@ export function ReviewConfigForm({
                   </div>
                   {provider.authMode === "codex_account_gateway" ? (
                     <div className="text-sm leading-6 text-slate-400">
+                      <GatewayConnectionTest
+                        bindingId={provider.gatewayBindingId ?? ""}
+                        model={provider.model.trim()}
+                        available={Boolean(
+                          gatewayAccount &&
+                          gatewayModels.includes(provider.model.trim()),
+                        )}
+                      />
                       {gatewayAvailabilityMessage ? (
                         <p>{gatewayAvailabilityMessage}</p>
                       ) : null}

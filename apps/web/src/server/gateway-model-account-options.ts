@@ -8,6 +8,7 @@ import {
   ProviderAccountError,
   selectBinding,
   type BindingSelection,
+  type SafeBindingTuple,
   type ConnectionOwner,
 } from "@reviewrouter/features-provider-accounts";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
@@ -142,7 +143,12 @@ export function createGatewayModelAccountOptions(input: {
   async function detail(
     authority: Authority,
     bindingId: string,
-  ): Promise<{ account: ModelAccount; profile: AccountProfileView }> {
+  ): Promise<{
+    account: ModelAccount;
+    profile: AccountProfileView;
+    selection: SafeBindingTuple;
+    authorizationEpoch: number;
+  }> {
     const request = { workspaceId: authority.workspaceId, bindingId };
     const before = await checked(authority, () =>
       accounts.findBinding(request),
@@ -185,6 +191,8 @@ export function createGatewayModelAccountOptions(input: {
           row.connection.owner.userId === authority.actor.userId
         : row.connection.owner.workspaceId === authority.workspaceId;
     return {
+      selection: live,
+      authorizationEpoch: remote.authorizationEpoch,
       account: {
         // Shared consumption has only the exact binding handle, never foreign source ID.
         connectionId: own ? row.connection.id : bindingId,
@@ -299,10 +307,34 @@ export function createGatewayModelAccountOptions(input: {
       return result(async () => {
         assertOpaqueReference(id);
         const authority = await authorize();
-        const value = await detail(authority, id);
+        const { account, profile } = await detail(authority, id);
         await checked(authority, async () => undefined);
-        return value;
+        return { account, profile };
       });
+    },
+    // Private server-only selection for a diagnostic inference. Never returned
+    // by the public list/get DTOs or accepted from the browser.
+    async resolveProbe(bindingId: string, model: string) {
+      try {
+        assertOpaqueReference(bindingId);
+        const authority = await authorize();
+        const value = await detail(authority, bindingId);
+        if (
+          value.account.state !== "active" ||
+          !value.profile.models.includes(model) ||
+          value.profile.protocol !== "openai-responses"
+        )
+          throw new RowDenied();
+        await checked(authority, async () => undefined);
+        return {
+          ...value.selection,
+          authorizationEpoch: value.authorizationEpoch,
+        };
+      } catch (error) {
+        if (error instanceof Denied || error instanceof RowDenied)
+          throw new ProviderAccountError("binding_unavailable");
+        throw error;
+      }
     },
   };
 }

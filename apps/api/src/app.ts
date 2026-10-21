@@ -1,5 +1,9 @@
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import {
+  productionDashboardGatewayProbeAccess,
+  registerDashboardGatewayProbeAccessRoute,
+} from "./dashboard-gateway-probe-access.js";
+import {
   registerReviewRunGatewayCheckoutRoute,
   registerReviewRunCheckoutRoute,
 } from "./review-run-gateway-checkout.js";
@@ -280,6 +284,12 @@ export async function createApiApp(
       : undefined);
   const codexRotatingOAuthEnabled =
     isCodexRotatingOAuthEnabled(reviewActionV2Env);
+  await registerDashboardGatewayProbeAccessRoute(
+    app,
+    prisma
+      ? productionDashboardGatewayProbeAccess(prisma, reviewActionV2Env)
+      : null,
+  );
   const codexEffectAuthorityDatabaseUrl = codexRotatingOAuthEnabled
     ? resolveCodexOAuthDatabaseEffectAuthorityUrl({
         env: reviewActionV2Env,
