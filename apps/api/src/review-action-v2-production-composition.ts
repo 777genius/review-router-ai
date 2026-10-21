@@ -282,6 +282,7 @@ type ReviewActionV2RouteRuntime = Pick<
 >;
 
 export type ReviewActionV2ProductionRoutes = Readonly<{
+  reviewSkills?: ReturnType<typeof createReviewRunSkillsReader>;
   accountGatewayRelay?: ReviewRunGatewayRelay;
   accountGatewayCheckout?: ReviewRunGatewayCheckout;
   providerApiCheckout?: ReviewRunGatewayCheckout;
@@ -333,11 +334,15 @@ export function composeReviewActionV2ProductionRunControl(input: {
     input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
     readPersonalAccountSharingEnabled(input.env),
     readServerReviewAgentProfileRef(input.env.REVIEW_ROUTER_AGENT_PROFILE),
+    input.env.REVIEW_ROUTER_AGENT_PROFILE === undefined,
   );
+  const skillsSnapshots = new ProductionReviewSkillsSnapshot(input.prisma);
   const repositories = createPrismaReviewRunControlRepositories(
     input.prisma,
-    (transaction, candidate) =>
-      runtimeSnapshots.matchesAdmission(transaction, candidate),
+    async (transaction, candidate) =>
+      (await skillsSnapshots.prelock(transaction, candidate)) &&
+      (await runtimeSnapshots.matchesAdmission(transaction, candidate)) &&
+      (await skillsSnapshots.matchesAdmission(transaction, candidate)),
   );
   const actionRepositories = new PrismaActionControlPlaneRepository(
     input.prisma,
@@ -394,6 +399,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
     });
   const runControl = composeReviewRunControl({
     runtimeSnapshots,
+    skillsSnapshots,
     clock,
     identifiers: { nextId: (prefix) => `${prefix}-${randomUUID()}` },
     digest,
@@ -1300,6 +1306,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     : undefined;
   return Object.freeze({
     providerApiCheckout,
+    reviewSkills: createReviewRunSkillsReader(runControl.authorizations),
     ...(accountGatewayRelay ? { accountGatewayRelay } : {}),
     ...(accountGatewayCheckout ? { accountGatewayCheckout } : {}),
     hostedV4,
@@ -2676,3 +2683,5 @@ const productionTiming = Object.freeze({
 });
 
 const zeroHash = "0".repeat(64);
+import { ProductionReviewSkillsSnapshot } from "./review-run-skills-snapshot";
+import { createReviewRunSkillsReader } from "./review-run-skills";

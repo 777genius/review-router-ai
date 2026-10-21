@@ -933,6 +933,9 @@ export async function createApiApp(
   if (reviewRunControlV2Dependencies) {
     await registerReviewRunControlV2Routes(app, reviewRunControlV2Dependencies);
   }
+  if (productionReviewActionV2Dependencies?.reviewSkills) {
+    await registerReviewRunSkillsRoute(app, productionReviewActionV2Dependencies.reviewSkills);
+  }
   if (productionReviewActionV2Dependencies?.accountGatewayRelay) {
     // Selected production path: ReviewRouter -> Account Gateway -> Sub2API.
     // Do not silently fall back to the legacy direct hosted Codex relay.
@@ -1419,3 +1422,4 @@ function resolveActionOwnerRepo(actionRef: string | undefined): string {
   }
   return ownerRepo;
 }
+import { registerReviewRunSkillsRoute } from "./review-run-skills";

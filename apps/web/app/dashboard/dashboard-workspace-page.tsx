@@ -1,3 +1,5 @@
+import { ReviewSkillsSection } from "./review-skills-section";
+import { RepositorySkillsDialog } from "./repository-skills-dialog";
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import {
@@ -1353,6 +1355,14 @@ async function DashboardSectionContent({
   readonly params: Record<string, string | string[] | undefined>;
   readonly workspaceKey: string;
 }): Promise<React.ReactElement> {
+  if (selectedSection === "skills")
+    return (
+      <ReviewSkillsSection
+        workspaceId={selectedWorkspace.workspace.id}
+        workspaceKey={workspaceKey}
+        initialSkillId={typeof params.skill === "string" ? params.skill : ""}
+      />
+    );
   if (selectedSection === "memory") {
     return (
       <section
@@ -3004,6 +3014,14 @@ function RepositoryTable({
         key={workspace.id}
         workspaceId={workspace.id}
         enabled={mutationsEnabled}
+        selectionInventory={repositories.map((repository) => ({
+          repositoryId: repository.id,
+          fullName: repository.fullName,
+          available:
+            repository.provider === "github" &&
+            repository.selected &&
+            !repository.archived,
+        }))}
         inventory={repositories.map((repository) => ({
           repositoryId: repository.id,
           fullName: repository.fullName,
@@ -3029,16 +3047,19 @@ function RepositoryTable({
               selected repositories.
             </p>
           </div>
-          <ProviderApplicationDialog
-            workspaceId={workspace.id}
-            accounts={gatewayAccounts}
-            enabled={mutationsEnabled}
-            directEnabled={directConfigRepositoryIds === null}
-            actions={{
-              save: saveGatewayRepositoryBatch,
-              read: readGatewayRepositoryBatch,
-            }}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <RepositorySkillsDialog workspaceId={workspace.id} />
+            <ProviderApplicationDialog
+              workspaceId={workspace.id}
+              accounts={gatewayAccounts}
+              enabled={mutationsEnabled}
+              directEnabled={directConfigRepositoryIds === null}
+              actions={{
+                save: saveGatewayRepositoryBatch,
+                read: readGatewayRepositoryBatch,
+              }}
+            />
+          </div>
         </div>
         {repositories.length === 0 ? (
           <div className="p-5">

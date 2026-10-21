@@ -66,6 +66,10 @@ function selectUniqueCodexProfile(
       profile.agentKind === "codex" &&
       profile.modelTransports.includes(transport),
   );
-  if (candidates.length !== 1) invalid("review_agent_profile_unavailable");
-  return candidates[0]!;
+  const supporting = candidates.filter(
+    (profile) => profile.reviewSkillsVersion === 1,
+  );
+  const preferred = supporting.length > 0 ? supporting : candidates;
+  if (preferred.length !== 1) invalid("review_agent_profile_unavailable");
+  return preferred[0]!;
 }

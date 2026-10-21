@@ -2,6 +2,7 @@ import { isMemoryError } from "./dashboard-copy";
 
 export type DashboardSection =
   | "repositories"
+  | "skills"
   | "memory"
   | "setup"
   | "policy"
@@ -12,6 +13,7 @@ export const DASHBOARD_SECTIONS = [
   "setup",
   "policy",
   "diagnostics",
+  "skills",
   "memory",
 ] as const satisfies readonly DashboardSection[];
 
@@ -30,6 +32,13 @@ export const dashboardSectionMeta: Record<
     description:
       "Repositories from the GitHub App or GitLab attached to this workspace. Create setup PRs and check runtime health here. Provider logins for reviews are on Accounts.",
     navDescription: "Setup PRs and health",
+  },
+  skills: {
+    eyebrow: "Review instructions",
+    title: "Skills",
+    description:
+      "Create and share review instructions, then choose the repositories that use them.",
+    navDescription: "Reusable review instructions",
   },
   memory: {
     eyebrow: "In development",

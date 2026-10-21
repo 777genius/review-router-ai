@@ -7,6 +7,9 @@ datasource db {
 }
 
 model Workspace {
+  reviewSkills ReviewSkill[]
+  reviewSkillGrants ReviewSkillGrant[]
+  reviewSkillLinks ReviewSkillLink[]
   id        String   @id @default(cuid())
   slug      String   @unique
   name      String
@@ -358,6 +361,8 @@ model GitLabInstallation {
 }
 
 model RepositoryConnection {
+  reviewSkillBindings ReviewSkillBinding[]
+  reviewSkillSource ReviewSkillRepositorySource?
   id                      String                @id @default(cuid())
   workspaceId             String
   provider                ScmProvider           @default(github)
@@ -1236,6 +1241,7 @@ model ReviewRunAuthorization {
   mutationEpoch                                           BigInt
   providerVoteLanes                                       Json
   runtimeSnapshotCanonicalJson                            String?
+  skillsSnapshotCanonicalJson                             String?
   gatewayExecutionCanonicalJson                           String?
   reviewInvestigationAuthorizationDescriptorCanonicalJson String?
   authorizationSafetyDecisionHash                         String
@@ -4448,4 +4454,82 @@ model SdkGrowthFinalizedReportEvidence {
   createdAt         DateTime                  @default(now()) @db.Timestamptz(3)
   evidence          SdkGrowthVerifierEvidence @relation(fields: [evidenceId], references: [evidenceId], onDelete: Restrict, onUpdate: Restrict)
 
+}
+
+// Explicit user-managed instructions. Repository skill bytes never enter these tables.
+model ReviewSkill {
+  id String @id
+  sourceWorkspaceId String
+  authorUserId String
+  headRevisionId String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
+  sourceWorkspace Workspace @relation(fields: [sourceWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  headRevision ReviewSkillRevision @relation("ReviewSkillHead", fields: [headRevisionId, id], references: [id, skillId], onDelete: Restrict, onUpdate: Restrict)
+  revisions ReviewSkillRevision[] @relation("ReviewSkillRevisions")
+  grants ReviewSkillGrant[]
+  links ReviewSkillLink[]
+  bindings ReviewSkillBinding[]
+  @@index([sourceWorkspaceId, id])
+}
+
+model ReviewSkillRevision {
+  id String @id
+  skillId String
+  revisionNumber Int
+  name String
+  description String
+  instructions String
+  contentDigest String @db.VarChar(71)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  skill ReviewSkill @relation("ReviewSkillRevisions", fields: [skillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  headFor ReviewSkill[] @relation("ReviewSkillHead")
+  @@unique([id, skillId])
+  @@unique([skillId, revisionNumber])
+}
+
+model ReviewSkillGrant {
+  skillId String
+  destinationWorkspaceId String
+  grantedBy String
+  grantedAt DateTime @default(now()) @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  version Int @default(1)
+  skill ReviewSkill @relation(fields: [skillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  destinationWorkspace Workspace @relation(fields: [destinationWorkspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@id([skillId, destinationWorkspaceId])
+  @@index([destinationWorkspaceId, skillId])
+}
+
+model ReviewSkillLink {
+  workspaceId String
+  skillId String
+  acceptedGrantVersion Int
+  acceptedBy String
+  acceptedAt DateTime @default(now()) @db.Timestamptz(3)
+  unlinkedAt DateTime? @db.Timestamptz(3)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  skill ReviewSkill @relation(fields: [skillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@id([workspaceId, skillId])
+}
+
+model ReviewSkillBinding {
+  workspaceId String
+  repositoryConnectionId String
+  skillId String
+  includePaths Json
+  excludePaths Json
+  version Int @default(1)
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Restrict)
+  skill ReviewSkill @relation(fields: [skillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@id([repositoryConnectionId, skillId])
+  @@index([workspaceId, skillId])
+}
+
+model ReviewSkillRepositorySource {
+  repositoryConnectionId String @id
+  roots Json
+  version Int @default(1)
+  repository RepositoryConnection @relation(fields: [repositoryConnectionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 }

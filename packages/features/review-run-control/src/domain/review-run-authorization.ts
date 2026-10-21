@@ -18,6 +18,10 @@ import {
 import type { ReviewRunAuthorizationTokenAudience } from "./review-run-control-types";
 
 import { parseReviewRunRuntimeSnapshot } from "./review-run-runtime-snapshot";
+import {
+  canonicalReviewSkillsJson,
+  parseCapturedReviewSkills,
+} from "@reviewrouter/shared";
 
 export type ReviewRunRevision = {
   readonly baseSha: string;
@@ -30,6 +34,8 @@ export type ReviewRunAuthorization = ReviewRunScope &
   ReviewRunRevision & {
     /** Nullable for authorizations admitted before runtime pinning. Private only. */
     readonly runtimeSnapshotCanonicalJson?: string | null;
+    /** Private immutable attachment. Historical null must never capture current Skills. */
+    readonly skillsSnapshotCanonicalJson?: string | null;
     readonly authorizationId: string;
     readonly version: number;
     readonly sourceRunId: string;
@@ -79,6 +85,7 @@ export function createReviewRunAuthorization(
     ...candidate,
     runtimeSnapshotCanonicalJson:
       candidate.runtimeSnapshotCanonicalJson ?? null,
+    skillsSnapshotCanonicalJson: candidate.skillsSnapshotCanonicalJson ?? null,
     reviewInvestigationAuthorizationDescriptorCanonicalJson:
       normalizeReviewInvestigationAuthorizationDescriptor(
         candidate.reviewInvestigationAuthorizationDescriptorCanonicalJson,
@@ -292,6 +299,20 @@ function assertAuthorizationCandidate(
   );
   if (runtime && runtime.deadline !== candidate.maxExpiresAt.toISOString()) {
     invalid("runtime_snapshot_deadline_mismatch");
+  }
+  const skillsJson = candidate.skillsSnapshotCanonicalJson ?? null;
+  if (runtime?.agent.reviewSkillsVersion === 1) {
+    if (skillsJson === null) invalid("review_skills_capture_required");
+  } else if (skillsJson !== null) invalid("review_skills_capability_required");
+  if (skillsJson !== null) {
+    if (new TextEncoder().encode(skillsJson).byteLength > 262144)
+      invalid("review_skills_capture_too_large");
+    const capture = parseCapturedReviewSkills(JSON.parse(skillsJson));
+    if (
+      capture.baseSha !== candidate.baseSha ||
+      canonicalReviewSkillsJson(capture) !== skillsJson
+    )
+      invalid("review_skills_capture_mismatch");
   }
   normalizeProviderVoteLanes(candidate.providerVoteLanes);
   normalizeReviewInvestigationAuthorizationDescriptor(

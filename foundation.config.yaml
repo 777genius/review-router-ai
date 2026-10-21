@@ -1,0 +1,6 @@
+schemaVersion: 1
+project:
+  id: reviewrouter-review-skills
+capabilities:
+  architecture.source-dependencies:
+    configPath: architecture/review-skills/source-dependencies.yaml
