@@ -192,6 +192,59 @@ describe("compact summary contracts", () => {
   });
 
   it.each([
+    {
+      language: "Chinese",
+      body: "权限检查缺失导致其他用户能够读取私人数据。".repeat(30),
+    },
+    {
+      language: "Japanese",
+      body: "認証チェックが欠落しているため他の利用者の個人情報を読み取れます。".repeat(
+        20,
+      ),
+    },
+  ])(
+    "truncates unspaced $language prose at a word boundary",
+    ({ language, body }) => {
+      const markdown = renderReviewSummaryMarkdown({
+        plan: { ...planWith([finding("one", body)]), outputLanguage: language },
+      });
+      const preview = markdown
+        .split("<details>")[0]!
+        .trim()
+        .split(/\n\n/)
+        .at(-1)!;
+      expect(preview.endsWith("…")).toBe(true);
+      expect(Array.from(preview).length).toBeGreaterThan(250);
+      expect(Array.from(preview).length).toBeLessThanOrEqual(320);
+      const prefix = preview.slice(0, -1);
+      expect(body.startsWith(prefix)).toBe(true);
+      // Independent ICU segmentation confirms that the preview retains a full word.
+      const endings = Array.from(
+        new Intl.Segmenter(language === "Chinese" ? "zh" : "ja", {
+          granularity: "word",
+        }).segment(body),
+      )
+        .filter((segment) => segment.isWordLike)
+        .map((segment) => segment.index + segment.segment.length);
+      expect(endings).toContain(prefix.length);
+      expect(markdown).toContain(body);
+    },
+  );
+
+  it.each([
+    "unbroken".repeat(60),
+    `https://example.test/${"path".repeat(100)}`,
+  ])("omits an oversized unspaced word or URL", (body) => {
+    const markdown = renderReviewSummaryMarkdown({
+      plan: { ...planWith([finding("one", body)]), outputLanguage: "Chinese" },
+    });
+    expect(markdown.split("<details>")[0]!.trim().split(/\n\n/)).toHaveLength(
+      2,
+    );
+    expect(markdown).toContain(body);
+  });
+
+  it.each([
     "```ts\ncode\n```",
     "~~~\ncode\n~~~",
     "<table>html</table>",

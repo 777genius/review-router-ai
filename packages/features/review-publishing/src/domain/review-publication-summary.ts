@@ -181,6 +181,7 @@ function renderFinding(
   input: {
     readonly target?: ReviewPublicationTarget | undefined;
     readonly sourceBaseUrl?: string | undefined;
+    readonly language?: string | undefined;
   },
   details: string,
   expanded: boolean,
@@ -199,7 +200,10 @@ function renderFinding(
       "</details>",
     ].join("\n");
   }
-  const excerpt = firstParagraph(finding.body);
+  const excerpt = firstParagraph(
+    finding.body,
+    resolveReviewSummaryLocale(input.language),
+  );
   return [
     title,
     ...(location ? [location] : []),
@@ -214,7 +218,7 @@ function renderFinding(
   ].join("\n");
 }
 
-function firstParagraph(body: string): string {
+function firstParagraph(body: string, locale: ReviewSummaryLocale): string {
   const first =
     body.replace(/^(?:[ \t]*\r?\n)+/, "").split(/\r?\n\s*\r?\n/, 1)[0] ?? "";
   if (
@@ -229,7 +233,25 @@ function firstParagraph(body: string): string {
   if (chars.length <= 320) return paragraph;
   const prefix = chars.slice(0, 319).join("");
   const boundary = prefix.lastIndexOf(" ");
-  return boundary > 0 ? `${prefix.slice(0, boundary).trimEnd()}…` : "";
+  if (boundary > 0) return `${prefix.slice(0, boundary).trimEnd()}…`;
+  // Languages without spaces still have word boundaries; do not hard-cut a
+  // word, identifier or URL just because it exceeds the preview budget.
+  if (
+    !/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(
+      prefix,
+    )
+  )
+    return "";
+  let usedChars = 0;
+  let wordEnd = 0;
+  for (const segment of new Intl.Segmenter(locale, {
+    granularity: "word",
+  }).segment(paragraph)) {
+    usedChars += Array.from(segment.segment).length;
+    if (usedChars > 319) break;
+    if (segment.isWordLike) wordEnd = segment.index + segment.segment.length;
+  }
+  return wordEnd > 0 ? `${paragraph.slice(0, wordEnd)}…` : "";
 }
 
 function safeBody(value: string): string {

@@ -202,6 +202,20 @@ const proxied = await fetch(camo, { signal: AbortSignal.timeout(45_000) });
 assert.equal(proxied.status, 200, "real Camo image load");
 assert.match(proxied.headers.get("content-type") ?? "", /^image\/svg\+xml/);
 assert.match(await proxied.text(), /1 critical/);
+const themedImages: string[] = [];
+for (const source of initial.body_html.matchAll(
+  /<source[^>]+srcset="([^"]+)"/g,
+)) {
+  const themedUrl = source[1]!.replaceAll("&amp;", "&");
+  assert.match(themedUrl, /^https:\/\/camo\.githubusercontent\.com\//);
+  const themed = await fetch(themedUrl, {
+    signal: AbortSignal.timeout(45_000),
+  });
+  assert.equal(themed.status, 200, "theme-specific Camo image load");
+  assert.match(await themed.text(), /1 critical/);
+  themedImages.push(themedUrl);
+}
+assert.ok(themedImages.length > 0);
 await writeFile(resolve(output, "github-comment.md"), initial.body);
 await writeFile(resolve(output, "github-comment.html"), initial.body_html);
 steps.push(
@@ -292,6 +306,7 @@ const receipt = {
   cleanedUp: !values.keep,
   imageUrl,
   camoUrl: camo,
+  themedImages,
   endpoint: {
     mime: image.headers.get("content-type"),
     etag,
