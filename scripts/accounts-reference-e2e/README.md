@@ -40,7 +40,7 @@ session or credential.
 
 ## Prerequisites
 
-- Node.js 24+ (the checked-in package manager is pnpm 10.33.0).
+- The repository-supported Node.js version and pnpm 11.28.7.
 - The repository root dependencies installed without changing the root
   lockfile.
 - Chromium installed to the owned cache path below. Linux environments that
@@ -55,11 +55,16 @@ session or credential.
 
 ## Install and typecheck
 
+The harness owns its lockfile and a separate pnpm workspace. Its build policy
+approves only the locked `esbuild@0.28.2` and `sharp@0.34.5` lifecycle scripts;
+these permissions do not extend to the application workspace. Do not pass
+`--ignore-workspace`: pnpm would also ignore this local build policy.
+
 Run from the repository root:
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm --dir scripts/accounts-reference-e2e install --ignore-workspace --frozen-lockfile
+pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
 export TMPDIR="$PWD/tmp/accounts-reference-e2e/tmp"
 export PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/accounts-reference-e2e/browser-cache"
 mkdir -p "$TMPDIR" "$PLAYWRIGHT_BROWSERS_PATH"

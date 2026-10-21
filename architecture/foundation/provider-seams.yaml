@@ -1,0 +1,73 @@
+schemaVersion: 1
+workspace:
+  kind: pnpm
+  manifest: pnpm-workspace.yaml
+governedRoots:
+  - packages/features/review-providers/src
+boundaries:
+  - id: catalog.domain
+    roots:
+      - packages/features/review-providers/src/domain
+    entrypoints:
+      - packages/features/review-providers/src/domain/provider-catalog.ts
+      - packages/features/review-providers/src/domain/provider-models.ts
+      - packages/features/review-providers/src/domain/provider-runtime-plan.ts
+    allow:
+      boundaries: []
+      packages:
+        - zod
+      builtins: []
+      runtimeReferences: []
+  - id: catalog.application
+    roots:
+      - packages/features/review-providers/src/application
+    entrypoints:
+      - packages/features/review-providers/src/application/ports/provider-model-catalog-port.ts
+      - packages/features/review-providers/src/application/use-cases/list-review-model-options.ts
+    allow:
+      boundaries:
+        - catalog.domain
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: catalog.infrastructure
+    roots:
+      - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.ts
+    entrypoints:
+      - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.ts
+    allow:
+      boundaries:
+        - catalog.domain
+        - catalog.application
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: catalog.public
+    roots:
+      - packages/features/review-providers/src/index.ts
+    entrypoints:
+      - packages/features/review-providers/src/index.ts
+    allow:
+      boundaries:
+        - catalog.domain
+        - catalog.application
+        - catalog.infrastructure
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: catalog.tests
+    roots:
+      - packages/features/review-providers/src/tests
+      - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.test.ts
+    entrypoints: []
+    allow:
+      boundaries:
+        - catalog.domain
+        - catalog.application
+        - catalog.infrastructure
+        - catalog.public
+      packages:
+        - vitest
+      builtins: []
+      runtimeReferences: []
+    dependencyMode: development

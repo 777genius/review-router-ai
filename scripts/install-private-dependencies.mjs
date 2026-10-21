@@ -55,16 +55,54 @@ function validateDeployKeyInstallConfiguration() {
   );
   let section;
   let sawPackages = false;
-  let sawOnlyBuiltDependencies = false;
+  let sawAllowBuilds = false;
   for (const line of workspaceLines) {
     if (!line.trim() || /^\s*#/u.test(line)) continue;
+    if (line === "verifyDepsBeforeRun: false") {
+      section = undefined;
+      continue;
+    }
     const heading = /^([A-Za-z][A-Za-z0-9]*):\s*$/u.exec(line);
     if (heading) {
       section = heading[1];
       if (section === "packages") sawPackages = true;
-      else if (section === "onlyBuiltDependencies")
-        sawOnlyBuiltDependencies = true;
+      else if (section === "minimumReleaseAgeExclude") {
+        // Reviewed exact new Foundation registry artifacts only.
+      } else if (section === "overrides") {
+        // pnpm 11 moved overrides out of package.json. Only exact data-only
+        // registry version pins are accepted while the deploy key is present.
+      } else if (section === "allowBuilds") sawAllowBuilds = true;
       else throw new Error("pnpm-workspace executable configuration denied");
+      continue;
+    }
+    if (section === "allowBuilds") {
+      const match = /^ {2}"([^"]+)": true\s*$/u.exec(line);
+      const reviewedBuilds = new Set([
+        "@prisma/engines@7.8.0",
+        "esbuild@0.28.1",
+        "prisma@7.8.0",
+        "@vioxen/subscription-runtime@https://codeload.github.com/777genius/ar/tar.gz/83a7329f4383b05ac5c39356b79f82f029182d42",
+      ]);
+      if (!match || !reviewedBuilds.has(match[1]))
+        throw new Error("pnpm-workspace executable configuration denied");
+      continue;
+    }
+    if (section === "minimumReleaseAgeExclude") {
+      if (
+        !/^ {2}- ["'](?:@agent-teams\/document-authoring@0\.3\.4|@agent-teams\/engineering-foundation@2\.1\.0|@agent-teams\/repository-mutation@0\.4\.0)["']\s*$/u.test(
+          line,
+        )
+      )
+        throw new Error("pnpm-workspace executable configuration denied");
+      continue;
+    }
+    if (section === "overrides") {
+      if (
+        !/^ {2}"[A-Za-z0-9@._/ >=<*-]+": "[0-9]+\.[0-9]+\.[0-9]+"\s*$/u.test(
+          line,
+        )
+      )
+        throw new Error("pnpm-workspace executable configuration denied");
       continue;
     }
     if (
@@ -73,7 +111,7 @@ function validateDeployKeyInstallConfiguration() {
     )
       throw new Error("pnpm-workspace executable configuration denied");
   }
-  if (!sawPackages || !sawOnlyBuiltDependencies)
+  if (!sawPackages || !sawAllowBuilds)
     throw new Error("pnpm-workspace configuration is incomplete");
 }
 
@@ -189,7 +227,7 @@ try {
 if (teardownFailure) throw teardownFailure;
 
 if (rebuildAfterTeardown) {
-  // Native engines and onlyBuiltDependencies may run now that the deploy key
+  // Reviewed native engines and allowBuilds may run now that the deploy key
   // and SSH material are gone.
   process.exitCode = runPnpm(["rebuild", "--ignore-pnpmfile"]);
 }
