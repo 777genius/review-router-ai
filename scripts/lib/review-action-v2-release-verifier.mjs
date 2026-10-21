@@ -3,6 +3,8 @@ import {
   HANDOFF_MANIFEST_FILE,
   parseContextGatewayReleaseMetadata,
   parseHandoffManifest,
+  parseProtocolGenerationManifest,
+  PROTOCOL_GENERATION_MANIFEST_FILE,
   PUBLIC_CONTEXT_GATEWAY_BUNDLE,
   PUBLIC_CONTEXT_GATEWAY_RELEASE_METADATA,
   PUBLIC_GENERATED_DIRECTORY,
@@ -72,6 +74,15 @@ export function verifyPublicActionReleaseCommit(input) {
       throw new Error(`committed generated file digest mismatch: ${file}`);
     }
   }
+  // This descriptor comes from committed bytes already bound by the handoff.
+  const { prDescriptionProfile, contextToolsProfile } =
+    parseProtocolGenerationManifest(
+      readCommitFile(
+        input.actionRepo,
+        input.actionCommitSha,
+        posixPath.join(targetDirectory, PROTOCOL_GENERATION_MANIFEST_FILE),
+      ).toString("utf8"),
+    );
   assertAncestor(
     input.actionRepo,
     handoff.expectedPublicActionBaseCommit,
@@ -126,6 +137,8 @@ export function verifyPublicActionReleaseCommit(input) {
     ),
   );
   return Object.freeze({
+    ...(contextToolsProfile === undefined ? {} : { contextToolsProfile }),
+    ...(prDescriptionProfile === undefined ? {} : { prDescriptionProfile }),
     agentProfiles,
     handoff,
     handoffBytes,

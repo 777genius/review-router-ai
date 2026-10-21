@@ -49,6 +49,12 @@ export async function generateReviewActionV2Protocol(input = {}) {
     publishedContract,
     published,
   );
+  if (sources.contextToolsContract !== undefined) {
+    manifest.contextToolsProfile = {
+      extensionId: sources.contextToolsContract.extensionId,
+      descriptorDigest: `sha256:${sha256(canonicalJson(sources.contextToolsContract))}`,
+    };
+  }
   const generatedIndex = await format(generatedIndexSource(), {
     parser: "typescript",
   });
@@ -101,6 +107,19 @@ export async function generateReviewActionV2Protocol(input = {}) {
   const wireBoundary = usageSource.indexOf("export interface UsageProjection");
   if (wireBoundary < 0) throw new Error("usage_wire_boundary_missing");
   const files = new Map([
+    [
+      "generated/fixtures/context-tools-v1.json",
+      await format(
+        await readFile(
+          join(
+            repositoryRoot,
+            "packages/features/review-context-tools/src/tests/fixtures/context-tools-v1.json",
+          ),
+          "utf8",
+        ),
+        { parser: "json" },
+      ),
+    ],
     [
       "generated/usage-v1.ts",
       await format(
@@ -884,7 +903,11 @@ export async function loadCompiledContractSources() {
     "../packages/features/review-snapshots/package.json",
     "@reviewrouter/features-review-snapshots/v2/contract-source",
   );
+  const companion = await importCompiledContractSourceFile(
+    "../packages/shared/src/review-action-companion-contracts.ts",
+  );
   return {
+    contextToolsContract: companion.contextToolsContract,
     negotiationContract: actionControlPlane.reviewActionV2NegotiationContract,
     transportContract: actionControlPlane.reviewActionV2TransportContract,
     publishedContracts: [
