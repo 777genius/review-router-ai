@@ -4449,3 +4449,129 @@ model SdkGrowthFinalizedReportEvidence {
   evidence          SdkGrowthVerifierEvidence @relation(fields: [evidenceId], references: [evidenceId], onDelete: Restrict, onUpdate: Restrict)
 
 }
+
+// Provider usage facts are immutable. JSON holds only the versioned safe RR DTO.
+model UsageSourceFact {
+  sourceInstance String
+  eventId String
+  revision Int
+  hash String
+  callId String
+  workspaceId String
+  fact Json
+  occurredAt DateTime @db.Timestamptz(3)
+  receivedAt DateTime @default(now()) @db.Timestamptz(3)
+  @@id([sourceInstance, eventId, revision])
+  @@index([callId])
+  @@index([receivedAt])
+}
+model UsageCall {
+  callId String @id
+  workspaceId String
+  actorId String?
+  provider String
+  actualModel String?
+  route String
+  bindingId String?
+  runId String?
+  purpose String
+  occurredAt DateTime @db.Timestamptz(3)
+  identityHash String
+  projection Json
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  @@index([workspaceId, occurredAt, provider, actualModel])
+}
+model UsageDedupeTombstone {
+  sourceInstance String
+  eventId String
+  callId String
+  workspaceId String
+  identityHash String
+  lastRevision Int
+  lastHash String
+  lastAcceptedAt DateTime @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+  @@id([sourceInstance, eventId])
+  @@index([expiresAt])
+}
+model UsageSourceCheckpoint {
+  failureCount Int @default(0)
+  nextAttemptAt DateTime? @db.Timestamptz(3)
+  deadLetteredAt DateTime? @db.Timestamptz(3)
+  lastErrorCode String?
+  sourceInstance String @id
+  workspaceId String
+  cursor String?
+  highWaterMark String?
+  fence BigInt @default(0)
+  leaseOwner String?
+  leaseUntil DateTime? @db.Timestamptz(3)
+  coveredFrom DateTime @db.Timestamptz(3)
+  asOf DateTime? @db.Timestamptz(3)
+  disabledAt DateTime? @db.Timestamptz(3)
+  @@index([workspaceId])
+}
+model UsageIngestionConflict {
+  id String @id
+  workspaceId String
+  sourceInstance String
+  eventId String
+  revision Int
+  code String
+  incomingHash String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([workspaceId, createdAt])
+}
+model ProviderUsageGrant {
+  purpose String @default("review")
+  bootstrapLeaseId String?
+  bootstrapScope Json?
+  actionSessionScope Json?
+  producerCoverage Json?
+  priceSnapshot Json?
+  githubInstallationId String?
+  repositoryFullName String?
+  artifactDeletedAt DateTime? @db.Timestamptz(3)
+  recoveryClaimToken String?
+  recoveryClaimUntil DateTime? @db.Timestamptz(3)
+  recoveryNextAttemptAt DateTime? @db.Timestamptz(3)
+  recoveredAt DateTime? @db.Timestamptz(3)
+  id String @id
+  tokenHash String @unique
+  workspaceId String
+  invocationId String
+  repositoryId String
+  runId String
+  runAttempt Int
+  authorizationId String
+  actorId String?
+  bindingId String?
+  producerDigest String
+  workflowIdentity String
+  jobIdentity String
+  publicKey String
+  issuedAt DateTime @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+  closedAt DateTime? @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  @@index([workspaceId, invocationId])
+  @@index([workspaceId,actorId])
+  @@index([revokedAt,artifactDeletedAt])
+  @@index([recoveredAt,recoveryNextAttemptAt])
+}
+model UsageUnattributedObservation {
+  nextResolutionAt DateTime @default(now()) @db.Timestamptz(3)
+  sourceInstance String
+  eventId String
+  revision Int
+  hash String
+  payload Json
+  workspaceId String?
+  observedAt DateTime @db.Timestamptz(3)
+  receivedAt DateTime @default(now()) @db.Timestamptz(3)
+  reason String
+  resolvedAt DateTime? @db.Timestamptz(3)
+  @@id([sourceInstance,eventId,revision])
+  @@index([receivedAt])
+  @@index([resolvedAt,nextResolutionAt])
+}

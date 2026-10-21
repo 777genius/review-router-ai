@@ -121,16 +121,38 @@ boundaries:
       runtimeReferences: []
   - id: usage.infrastructure
     roots:
+      - packages/features/provider-usage/src/infrastructure/prisma-operator-usage-report-reader.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-store.ts
       - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts
     entrypoints:
+      - packages/features/provider-usage/src/infrastructure/prisma-operator-usage-report-reader.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-store.ts
       - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts
     allow:
       boundaries:
         - usage.domain
         - usage.application
-      packages: []
+      packages:
+        - "@prisma/client"
       builtins:
         - node:crypto
+      runtimeReferences: []
+  - id: usage.composition
+    roots:
+      - packages/features/provider-usage/src/composition/index.ts
+    entrypoints:
+      - packages/features/provider-usage/src/composition/index.ts
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+        - usage.infrastructure
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+      builtins: []
       runtimeReferences: []
   - id: usage.public
     roots:
@@ -155,9 +177,20 @@ boundaries:
         - usage.domain
         - usage.application
         - usage.infrastructure
+        - usage.composition
         - usage.public
       packages:
         - vitest
-      builtins: []
+        - "@prisma/client"
+        - "@prisma/adapter-pg"
+        - "@reviewrouter/platform-db"
+        - pg
+      builtins:
+        - node:crypto
+        - node:assert/strict
+        - node:child_process
+        - node:fs
+        - node:os
+        - node:path
       runtimeReferences: []
     dependencyMode: development
