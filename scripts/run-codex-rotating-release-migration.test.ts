@@ -1654,7 +1654,8 @@ describe("canonical exclusive release migration caller", () => {
     expect(provisioning).toContain(
       "reviewrouter_bootstrap.consume_migration_evidence",
     );
-    expect(grants.match(/SELECT, INSERT, UPDATE, DELETE/g)).toHaveLength(6);
+    // Three runtime table grants/defaults plus the explicit WEB-only MCP table grant.
+    expect(grants.match(/SELECT, INSERT, UPDATE, DELETE/g)).toHaveLength(7);
     expect(grants).toContain(
       "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC",
     );
