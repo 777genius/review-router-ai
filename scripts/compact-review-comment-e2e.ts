@@ -45,13 +45,19 @@ const token = execFileSync(
   ["auth", "token", "--hostname", "github.com"],
   { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
 ).trim();
-const api = async <T>(path: string, method = "GET"): Promise<T> => {
+const api = async <T>(
+  path: string,
+  method = "GET",
+  payload?: unknown,
+): Promise<T> => {
   const response = await fetch(`https://api.github.com${path}`, {
     method,
     headers: {
       authorization: `Bearer ${token}`,
       accept: "application/vnd.github.full+json",
+      "content-type": "application/json",
     },
+    ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
     signal: AbortSignal.timeout(30_000),
   });
   assert.ok(response.ok, `GitHub ${method} ${path}: HTTP ${response.status}`);
@@ -228,14 +234,12 @@ if (values["base64-fixture"]) {
   assert.equal(fixture.toString("ascii", 0, 4), "RIFF");
   assert.equal(fixture.toString("ascii", 8, 12), "WEBP");
   const data = `data:image/webp;base64,${fixture.toString("base64")}`;
-  const base64 = await publish(
-    [
-      {
-        ...findings[0]!,
-        body: `![ReviewRouter base64 canary](${data})\n\nFull agent-readable evidence remains text.`,
-      },
-    ],
-    "complete",
+  // Probe GitHub's image transport directly; this payload is not a finding and
+  // must not relax the product's finding-body limit to accommodate base64.
+  const base64 = await api<{ body: string; body_html: string }>(
+    `/repos/${values.repo}/issues/comments/${commentId}`,
+    "PATCH",
+    { body: `${initial.body}\n\n![ReviewRouter base64 canary](${data})` },
   );
   assert.ok(base64.body.includes(data));
   const img = base64.body_html.match(
