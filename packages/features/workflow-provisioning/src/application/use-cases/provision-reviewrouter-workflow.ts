@@ -29,6 +29,7 @@ import type { WorkflowProvisioningRepositoryPort } from "../ports/workflow-provi
 import type { WorkflowSetupGatewayPort } from "../ports/workflow-setup-gateway-port";
 
 export type ProvisionReviewRouterWorkflowDependencies = {
+  readonly secretsRuntimeActionRef?: string;
   readonly setupGateway: WorkflowSetupGatewayPort;
   readonly provisioning: WorkflowProvisioningRepositoryPort;
   readonly auditLog?: AuditLogRepositoryPort;
@@ -221,6 +222,14 @@ export async function provisionReviewRouterWorkflow(
           managedFile,
         ]
       : renderReviewRouterWorkflowFiles({
+          ...(!plan.codexRotatingProviderInstanceId &&
+          !plan.conflictReviewFallbackEnabled &&
+          !plan.forkAgenticSandboxEnabled &&
+          plan.runtimeConfigMode === "oidc" &&
+          (plan.workflowStyle ?? "reusable") === "reusable" &&
+          dependencies.secretsRuntimeActionRef
+            ? { secretsRuntimeActionRef: dependencies.secretsRuntimeActionRef }
+            : {}),
           actionRef: plan.actionRef,
           apiUrl: plan.apiUrl,
           runtimeConfigMode: plan.runtimeConfigMode,

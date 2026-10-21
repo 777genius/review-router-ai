@@ -83,6 +83,38 @@ export async function buildCodexRotatingAction({
           );
         },
       },
+      {
+        // Retain the pinned package identity (including peer/version suffix),
+        // while excluding machine-specific pnpm install paths from CJS labels.
+        name: "logical-pinned-dependency-paths",
+        setup(actionBuild) {
+          const resolveDependency = async (args) => {
+            if (args.pluginData === "physical-pinned-resolution") return;
+            const resolved = await actionBuild.resolve(args.path, {
+              resolveDir: args.resolveDir,
+              kind: args.kind,
+              pluginData: "physical-pinned-resolution",
+            });
+            if (resolved.errors.length || resolved.external) return resolved;
+            const marker = "/node_modules/.pnpm/";
+            const offset = resolved.path.lastIndexOf(marker);
+            if (offset < 0) return resolved;
+            return {
+              ...resolved,
+              path: resolved.path.slice(offset + marker.length),
+              namespace: "pinned-dependency",
+              pluginData: resolved.path,
+            };
+          };
+          actionBuild.onResolve({ filter: /.*/, namespace: "file" }, resolveDependency);
+          actionBuild.onResolve({ filter: /.*/, namespace: "pinned-dependency" }, resolveDependency);
+          actionBuild.onLoad({ filter: /.*/, namespace: "pinned-dependency" }, async args => ({
+            contents: await readFile(args.pluginData, "utf8"),
+            loader: args.pluginData.endsWith(".json") ? "json" : "js",
+            resolveDir: dirname(args.pluginData),
+          }));
+        },
+      },
     ],
     legalComments: "none",
     banner: {

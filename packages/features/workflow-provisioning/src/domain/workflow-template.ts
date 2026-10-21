@@ -38,6 +38,8 @@ export {
 };
 
 export type ReviewRouterWorkflowOptions = {
+  /** Server-qualified immutable producer, selected only at controlled setup refresh. */
+  readonly secretsRuntimeActionRef?: string;
   readonly actionRef: string;
   readonly apiUrl: string;
   readonly runtimeConfigMode: "oidc" | "static";
@@ -208,6 +210,86 @@ export function renderProviderApiWorkflow(options: {
 }
 export const reusableReviewWorkflowPath =
   ".github/workflows/reviewrouter-reusable.yml";
+export const reusableSecretsRuntimeWorkflowPath =
+  ".github/workflows/reviewrouter-secrets-runtime.yml";
+
+export function renderReviewRouterSecretsCaller(options: {
+  readonly actionRef: string;
+  readonly apiUrl: string;
+}): string {
+  const match = /^777genius\/review-router@([a-f0-9]{40})$/.exec(
+    options.actionRef,
+  );
+  if (!match) throw new Error("secrets_runtime_immutable_producer_required");
+  const api = new URL(options.apiUrl);
+  if (api.protocol !== "https:")
+    throw new Error("secrets_runtime_https_required");
+  return `name: ReviewRouter
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  review:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: 777genius/review-router/${reusableSecretsRuntimeWorkflowPath}@${match[1]}
+    with:
+      api_url: ${JSON.stringify(options.apiUrl)}
+      pr_number: \${{ github.event.pull_request.number || inputs.pr_number }}
+    secrets:
+      REVIEW_ROUTER_LEDGER_KEY: \${{ secrets.REVIEW_ROUTER_LEDGER_KEY }}
+      REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN: \${{ secrets.REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN }}
+      CODEX_AUTH_JSON: \${{ secrets.CODEX_AUTH_JSON }}
+      CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
+      CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
+      OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}
+      MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}
+`;
+}
+function readSecretsCaller(source: string): {
+  actionRef: string;
+  apiUrl: string;
+} {
+  const mapping = (value: unknown): Record<string, unknown> => {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new Error("secrets_runtime_caller_invalid");
+    return value as Record<string, unknown>;
+  };
+  const root = mapping(readCanonicalWorkflowDocument(source));
+  const review = mapping(mapping(root.jobs).review);
+  const match =
+    typeof review.uses === "string"
+      ? /^777genius\/review-router\/\.github\/workflows\/reviewrouter-secrets-runtime\.yml@([a-f0-9]{40})$/.exec(
+          review.uses,
+        )
+      : null;
+  const apiUrl = mapping(review.with).api_url;
+  if (!match || typeof apiUrl !== "string")
+    throw new Error("secrets_runtime_caller_invalid");
+  const caller = { actionRef: `777genius/review-router@${match[1]}`, apiUrl };
+  if (
+    !areWorkflowDocumentsSemanticallyEqual(
+      source,
+      renderReviewRouterSecretsCaller(caller),
+    )
+  )
+    throw new Error("secrets_runtime_caller_invalid");
+  return caller;
+}
 export const reusableInteractionWorkflowPath =
   ".github/workflows/reviewrouter-interaction-reusable.yml";
 export const reusableConflictReviewWorkflowPath =
@@ -992,6 +1074,27 @@ export function analyzeWorkflowProviderCompatibility(input: {
   const missingRequirements: WorkflowProviderRequirement[] = [];
   const workflowStyle =
     input.workflowStyle ?? inferWorkflowStyle(input.workflowYaml);
+  if (input.workflowYaml.includes(reusableSecretsRuntimeWorkflowPath)) {
+    try {
+      const source = readSecretsCaller(input.workflowYaml);
+      if (
+        input.expectedActionRef &&
+        source.actionRef !== input.expectedActionRef
+      )
+        throw new Error("secrets_runtime_caller_invalid");
+      return {
+        providerKind: input.providerKind,
+        supported: true,
+        missingRequirements: [],
+      };
+    } catch {
+      return {
+        providerKind: input.providerKind,
+        supported: false,
+        missingRequirements: ["trusted_reusable_workflow_ref"],
+      };
+    }
+  }
 
   if (
     input.expectedActionRef &&
@@ -1759,7 +1862,15 @@ export function renderReviewRouterWorkflowFiles(
     return [
       {
         path: defaultWorkflowPath,
-        content: renderReviewRouterReusableWorkflow(options),
+        content:
+          options.secretsRuntimeActionRef &&
+          options.runtimeConfigMode === "oidc" &&
+          options.conflictReviewFallbackEnabled !== true
+            ? renderReviewRouterSecretsCaller({
+                actionRef: options.secretsRuntimeActionRef,
+                apiUrl: options.apiUrl,
+              })
+            : renderReviewRouterReusableWorkflow(options),
       },
       {
         path: defaultInteractionWorkflowPath,

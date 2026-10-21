@@ -9,6 +9,8 @@ import {
   signGatewayProbeAccess,
   gatewayProbeAccessPath,
 } from "@reviewrouter/features-provider-accounts/gateway-probe";
+const usage=vi.hoisted(()=>({diagnostic:vi.fn(async()=>{})}));
+vi.mock('./provider-usage-gateway-recorder',()=>({createGatewayUsageRecorder:()=>usage}));
 const secret = "synthetic-probe-purpose-secret-123456";
 const request = () => ({
   userId: "test-user",

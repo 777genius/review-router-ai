@@ -15,7 +15,8 @@
     "@reviewrouter/shared": "workspace:*",
     "libsodium-wrappers": "^0.8.4",
     "yaml": "^2.9.0",
-    "zod": "^4.4.2"
+    "zod": "^4.4.2",
+    "@actions/artifact": "6.3.1"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

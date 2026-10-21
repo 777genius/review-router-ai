@@ -1,3 +1,5 @@
+import type { UsageIdentity } from "@reviewrouter/features-provider-usage";
+import { gatewayUsageReceipt } from "./provider-usage-gateway-relay-receipt";
 import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -123,6 +125,22 @@ export function createReviewRunGatewayRelay(input: {
   ) => Promise<boolean>;
   readonly snapshots: ReviewRunRuntimeSnapshotPort;
   readonly bindings: ReviewRunGatewayExecutionBindingPort;
+  /** Persist trusted correlation before dispatch; outcome reporting never replays inference. */
+  readonly usage?: {
+    prepare(input: {
+      authorization: ReviewRunAuthorization;
+      executionRef: string;
+      requestRef: string;
+      occurredAt: string;
+      model: string;
+    }): Promise<UsageIdentity | void>;
+    outcome(input: {
+      authorizationId: string;
+      executionRef: string;
+      requestRef: string;
+      effect: c.RequestStatus["effect"];
+    }): Promise<void>;
+  };
 }) {
   const policy = Object.freeze(relayPolicy.parse(input.policy));
   if (
@@ -315,7 +333,7 @@ export function createReviewRunGatewayRelay(input: {
     raw: Uint8Array,
     controller: AbortController,
     diagnostic?: RelayDiagnostic,
-  ): Promise<NativeResponse> {
+  ): Promise<NativeResponse & { readonly usageIdentity?: UsageIdentity }> {
     if (raw.byteLength > policy.ingressBytes)
       throw new RelayFailure("invalid_request", 400);
     const bytes = new Uint8Array(raw); // Capture caller-owned bytes before any await.
@@ -392,6 +410,28 @@ export function createReviewRunGatewayRelay(input: {
           let response: NativeResponse;
           let limited: c.SafeError | undefined;
           const requestRef = `rr-request-${randomUUID()}`;
+          const usageBinding = session.preparation.usageBinding();
+          let usageIdentity: UsageIdentity | void = undefined;
+          if (input.usage && usageBinding) {
+            usageIdentity = await input.usage.prepare({
+              authorization: auth,
+              executionRef: usageBinding.executionRef,
+              requestRef,
+              occurredAt: new Date().toISOString(),
+              model: provider.model,
+            });
+          }
+          const usageOutcome = (effect: c.RequestStatus["effect"]) =>
+            input.usage && usageBinding
+              ? input.usage
+                  .outcome({
+                    authorizationId: auth.authorizationId,
+                    executionRef: usageBinding.executionRef,
+                    requestRef,
+                    effect,
+                  })
+                  .catch(() => {})
+              : Promise.resolve();
           try {
             if (diagnostic) diagnostic.stage = "request";
             response = await session.preparation.request(
@@ -401,6 +441,7 @@ export function createReviewRunGatewayRelay(input: {
               fresh,
             );
             if (response.kind === "stream") {
+              await usageOutcome("dispatch_started");
               try {
                 if (diagnostic) diagnostic.stage = "post_request_authority";
                 await fresh();
@@ -445,6 +486,7 @@ export function createReviewRunGatewayRelay(input: {
               if (diagnostic) diagnostic.stage = "stream_wrap";
               return {
                 ...upstream,
+                ...(usageIdentity ? { usageIdentity } : {}),
                 body: new ReadableStream<Uint8Array>(
                   {
                     async pull(stream) {
@@ -467,6 +509,7 @@ export function createReviewRunGatewayRelay(input: {
                             requestRef,
                           );
                         if (chunk.done) {
+                          await usageOutcome("completed");
                           dispose();
                           stream.close();
                         } else stream.enqueue(chunk.value);
@@ -488,10 +531,12 @@ export function createReviewRunGatewayRelay(input: {
                             requestRef,
                           ),
                         );
+                        await usageOutcome("effect_unknown");
                         emitStreamFailureDiagnostic(diagnostic);
                       }
                     },
                     async cancel() {
+                      await usageOutcome("effect_unknown");
                       controller.abort();
                       dispose();
                       await upstream.cancel();
@@ -517,6 +562,7 @@ export function createReviewRunGatewayRelay(input: {
                 requestRef,
               );
             }
+            await usageOutcome(response.status.effect);
             if (response.status.status === "failed")
               limited = response.status.error;
             if (
@@ -528,6 +574,9 @@ export function createReviewRunGatewayRelay(input: {
               return response;
             }
           } catch (error) {
+            await usageOutcome(
+              error instanceof GatewayError ? error.effect : "effect_unknown",
+            );
             if (
               !(error instanceof GatewayError) ||
               error.code !== "safe_error" ||
@@ -733,7 +782,9 @@ export async function registerReviewRunGatewayRelayRoutes(
         const abort = () => controller.abort();
         // Preserve the existing dispatch/stream timeout after body ingestion.
         const timer = setTimeout(abort, relay.policy.requestTimeoutMs);
-        let upstream: NativeResponse | undefined;
+        let upstream:
+          | (NativeResponse & { readonly usageIdentity?: UsageIdentity })
+          | undefined;
         const diagnostic: RelayDiagnostic = {
           stage: "resolve",
           bodyLocked: false,
@@ -760,6 +811,13 @@ export async function registerReviewRunGatewayRelayRoutes(
             "content-type": "text/event-stream",
             "cache-control": "no-store",
             "x-reviewrouter-request-ref": upstream.requestRef,
+            ...(upstream.usageIdentity
+              ? {
+                  "x-reviewrouter-usage-receipt": gatewayUsageReceipt(
+                    upstream.usageIdentity,
+                  ),
+                }
+              : {}),
           });
           const reader = upstream.body.getReader();
           const source = Readable.from(

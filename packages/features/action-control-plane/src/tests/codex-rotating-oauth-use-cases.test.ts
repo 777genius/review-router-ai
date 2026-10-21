@@ -2648,3 +2648,68 @@ function requireLease(
   }
   return response;
 }
+
+describe("bootstrap report grant admission", () => {
+  it("issues the optional report grant only after existing verified prelease admission", async () => {
+    const issue = vi.fn(async () => ({
+      grantId: "grant",
+      grantToken: "report-only",
+      expiresAt: now.toISOString(),
+      scope: { purpose: "diagnostic" },
+    }));
+    const result = await preleaseCodexRotatingOAuth(
+      {
+        oidcToken: "jwt",
+        audience: "reviewrouter",
+        providerInstanceId: "codex-rotating:123456",
+        workflowSchemaVersion: 4,
+        usagePublicKey: "ephemeral-public-key",
+      },
+      { ...buildRotatingDependencies(), bootstrapUsageGrants: { issue } },
+    );
+    expect(result).toHaveProperty(
+      "bootstrapUsageGrant.grantToken",
+      "report-only",
+    );
+    expect(issue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publicKey: "ephemeral-public-key",
+        repository,
+        claims,
+        actionRef: `777genius/review-router@${workflowSha}`,
+        leaseId: expect.any(String),
+      }),
+    );
+  });
+  it("never issues a report grant for unverified OIDC and preserves bootstrap when analytics fails", async () => {
+    const issue = vi.fn(async () => {
+      throw new Error("analytics unavailable");
+    });
+    const request = {
+      oidcToken: "jwt",
+      audience: "reviewrouter",
+      providerInstanceId: "codex-rotating:123456",
+      workflowSchemaVersion: 4,
+      usagePublicKey: "ephemeral-public-key",
+    };
+    await expect(
+      preleaseCodexRotatingOAuth(request, {
+        ...buildRotatingDependencies({
+          oidcVerifier: {
+            verify: vi.fn(async () => {
+              throw new Error("oidc denied");
+            }),
+          },
+        }),
+        bootstrapUsageGrants: { issue },
+      }),
+    ).rejects.toThrow("oidc denied");
+    expect(issue).not.toHaveBeenCalled();
+    const result = await preleaseCodexRotatingOAuth(request, {
+      ...buildRotatingDependencies(),
+      bootstrapUsageGrants: { issue },
+    });
+    expect(result).not.toHaveProperty("bootstrapUsageGrant");
+    expect(result).toHaveProperty("leaseId");
+  });
+});

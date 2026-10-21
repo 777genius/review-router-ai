@@ -277,6 +277,7 @@ export function createReviewRunGatewayPreparation(input: {
     recoverSameOperation: () => begin(true),
     // Private backend capabilities, never part of the preparation result/SQL DTO.
     hasSession: () => session?.attached === true && !closed,
+    usageBinding: () => (session?.attached ? { ...session.binding } : null),
     needsRecovery: () => initialAttempted && !session?.attached,
     request: async (
       requestRef: string,
