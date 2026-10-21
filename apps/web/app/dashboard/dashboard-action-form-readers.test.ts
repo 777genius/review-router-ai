@@ -38,12 +38,26 @@ describe("dashboard action form readers", () => {
     for (const field of repositoryPolicyFormFields)
       form.set(`policyMode.${field.join(".")}`, "inherit");
     form.set("policyMode.contextTools", "override");
-    expect(readRepositoryReviewPolicyForm(form)).toEqual({ schemaVersion: 3, contextTools: { version: 1, builtinTools: [], mcp: [] } });
-    const selection = { version: 1, builtinTools: ["github.issue.read"], mcp: [{ connection: "docs", tools: ["search_docs"] }] };
+    expect(readRepositoryReviewPolicyForm(form)).toEqual({
+      schemaVersion: 3,
+      contextTools: { version: 1, builtinTools: [], mcp: [] },
+    });
+    const selection = {
+      version: 1,
+      builtinTools: ["github.issue.read"],
+      mcp: [{ connection: "docs", tools: ["search_docs"] }],
+    };
     form.set("contextTools", JSON.stringify(selection));
-    expect(readRepositoryReviewPolicyForm(form).contextTools).toEqual(selection);
-    form.set("contextTools", JSON.stringify({ ...selection, rawSecret: "must-not-echo" }));
-    expect(() => readRepositoryReviewPolicyForm(form)).toThrow("context_connection_invalid");
+    expect(readRepositoryReviewPolicyForm(form).contextTools).toEqual(
+      selection,
+    );
+    form.set(
+      "contextTools",
+      JSON.stringify({ ...selection, rawSecret: "must-not-echo" }),
+    );
+    expect(() => readRepositoryReviewPolicyForm(form)).toThrow(
+      "context_connection_invalid",
+    );
   });
 
   it("requires an explicit CAS version or create-only intent", () => {

@@ -78,6 +78,7 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         if (!run) throw new Error("personal_fixture_run_missing");
         const producerRow = await db.producerRelease.findUniqueOrThrow({
           where: { producerReleaseId: harness.producerReleaseId },
+          select: { producerReleaseId: true, actionCommitSha: true, runtimeCommitSha: true, agentProfilesJson: true },
         });
         const producerRelease = {
           ...producerRow,

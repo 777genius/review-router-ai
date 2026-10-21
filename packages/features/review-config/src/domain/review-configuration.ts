@@ -1,4 +1,4 @@
-import { contextToolsSelectionSchema } from "@reviewrouter/features-review-context-tools";
+import { contextToolsSelectionSchema } from "@reviewrouter/features-review-context-tools/selection";
 import {
   codexModelSupportsReasoningEffort,
   defaultProviderReasoningEffort,
@@ -289,8 +289,12 @@ export function resolveReviewPolicy(
       parsedOverride.reviewLanguage !== undefined
         ? parsedOverride.reviewLanguage
         : parsedWorkspace.reviewLanguage,
-    ...((parsedOverride.contextTools ?? parsedWorkspace.contextTools) !== undefined
-      ? { contextTools: parsedOverride.contextTools ?? parsedWorkspace.contextTools }
+    ...((parsedOverride.contextTools ?? parsedWorkspace.contextTools) !==
+    undefined
+      ? {
+          contextTools:
+            parsedOverride.contextTools ?? parsedWorkspace.contextTools,
+        }
       : {}),
     investigationRollout: {
       ...parsedWorkspace.investigationRollout,

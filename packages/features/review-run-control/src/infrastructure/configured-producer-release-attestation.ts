@@ -17,6 +17,7 @@ import {
 import {
   createProducerRelease,
   producerReleaseImmutableKey,
+  parseProducerContextToolsProfile,
   reviewInvestigationCapabilityV1,
 } from "../domain/producer-release";
 
@@ -43,7 +44,19 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
       if (entries.has(actionCommitSha)) {
         throw new Error("producer_release_attestation_action_commit_duplicate");
       }
-      entries.set(actionCommitSha, Object.freeze({ ...attestation }));
+      entries.set(
+        actionCommitSha,
+        Object.freeze({
+          ...attestation,
+          ...(attestation.contextToolsProfile !== undefined
+            ? {
+                contextToolsProfile: parseProducerContextToolsProfile(
+                  attestation.contextToolsProfile,
+                ),
+              }
+            : {}),
+        }),
+      );
     }
     this.byActionCommitSha = entries;
   }
@@ -83,6 +96,9 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
             reviewInvestigationProfile:
               configured.reviewInvestigationProfile ?? null,
             agentProfiles: configured.agentProfiles ?? null,
+            ...(configured.contextToolsProfile !== undefined
+              ? { contextToolsProfile: configured.contextToolsProfile }
+              : {}),
             schemaDigest: configured.schemaDigest,
             capabilityProfile: configured.capabilityProfile,
             protocolLimitsProfileId: configured.protocolLimitsProfileId,
@@ -149,7 +165,9 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
     "reviewInvestigationCoverageProfileHash",
     "reviewInvestigationPolicyHash",
   ].sort();
-  const actualKeys = Object.keys(value).sort();
+  const actualKeys = Object.keys(value)
+    .filter((key) => key !== "contextToolsProfile")
+    .sort();
   const currentKeys = [...investigationKeys, "agentProfiles"].sort();
   if (
     canonicalJson(actualKeys) !== canonicalJson(currentKeys) &&
@@ -179,6 +197,13 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
   }
   return {
     producerReleaseId: requiredString(value.producerReleaseId),
+    ...("contextToolsProfile" in value
+      ? {
+          contextToolsProfile: parseProducerContextToolsProfile(
+            value.contextToolsProfile,
+          ),
+        }
+      : {}),
     agentProfiles:
       value.agentProfiles == null
         ? null
@@ -221,6 +246,8 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
 }
 
 function assertAttestation(value: TrustedProducerReleaseAttestation): void {
+  if (value.contextToolsProfile !== undefined)
+    parseProducerContextToolsProfile(value.contextToolsProfile);
   assertIdentifier(value.producerReleaseId, "producer_release_id");
   assertCommitSha(value.actionCommitSha, "action_commit_sha");
   assertCommitSha(value.runtimeCommitSha, "runtime_commit_sha");
@@ -274,6 +301,13 @@ function configuredReleaseKey(
   configured: TrustedProducerReleaseAttestation,
 ): string {
   return canonicalJson({
+    ...(configured.contextToolsProfile !== undefined
+      ? {
+          contextToolsProfile: parseProducerContextToolsProfile(
+            configured.contextToolsProfile,
+          ),
+        }
+      : {}),
     agentProfiles: configured.agentProfiles ?? null,
     distributionKind: configured.distributionKind,
     actionCommitSha: configured.actionCommitSha,

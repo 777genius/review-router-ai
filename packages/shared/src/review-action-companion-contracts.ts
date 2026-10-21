@@ -65,27 +65,57 @@ export const contextToolsContract = Object.freeze({
   maxCredentialBytes: 8192,
   maxCredentialMapBytes: 65536,
   headerNamePattern: "^[A-Za-z][!#$%&'*+.^_`|~0-9A-Za-z-]{0,63}$",
-  forbiddenHeaderNames: ["host", "connection", "content-length", "content-type", "content-encoding", "accept", "transfer-encoding", "te", "trailer", "upgrade", "origin", "referer", "forwarded", "via"],
-  forbiddenHeaderPrefixPattern: "^(proxy-|mcp-|x-forwarded-|x-real-|x-http-method|x-original-|x-rewrite-|x-host|x-proxy|x-mcp-)",
+  forbiddenHeaderNames: [
+    "host",
+    "connection",
+    "content-length",
+    "content-type",
+    "content-encoding",
+    "accept",
+    "transfer-encoding",
+    "te",
+    "trailer",
+    "upgrade",
+    "origin",
+    "referer",
+    "forwarded",
+    "via",
+  ],
+  forbiddenHeaderPrefixPattern:
+    "^(proxy-|mcp-|x-forwarded-|x-real-|x-http-method|x-original-|x-rewrite-|x-host|x-proxy|x-mcp-)",
   runtimeEnvKey: "REVIEW_ROUTER_CONTEXT_TOOLS_PLAN_JSON",
   credentialsPath: "/api/action/v2/context-tools/credentials",
   githubIssuePath: "/api/action/v2/context-tools/github-issue",
   workflowSecret: "mcp_secrets_json",
   runnerSecretEnvKey: "REVIEWROUTER_MCP_CREDENTIALS_JSON",
-  limits: {startupTimeoutMs:30000,callTimeoutMs:30000,responseBytes:1048576,maxCalls:128},
+  limits: {
+    startupTimeoutMs: 30000,
+    callTimeoutMs: 30000,
+    responseBytes: 1048576,
+    maxCalls: 128,
+  },
 } as const);
 
 export type ContextToolsPlanV1 = Readonly<{
   version: 1;
   builtinTools: readonly ("github.issue.read" | "repository.docs.read")[];
   servers: readonly Readonly<{
-    id: string; version: number; url: string;
+    id: string;
+    version: number;
+    url: string;
     headers: Readonly<Record<string, string>>;
     tools: readonly string[];
-    credentials: Readonly<Record<string,
-      | Readonly<{source:"github-secret";name:string}>
-      | Readonly<{source:"dashboard-secret";credentialRef:string;version:number}>
-    >>;
+    credentials: Readonly<
+      Record<
+        string,
+        | Readonly<{ source: "github-secret"; name: string }>
+        | Readonly<{
+            source: "dashboard-secret";
+            credentialRef: string;
+            version: number;
+          }>
+      >
+    >;
   }>[];
   limits: typeof contextToolsContract.limits;
   planDigest: string;

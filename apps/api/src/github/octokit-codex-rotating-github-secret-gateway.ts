@@ -601,7 +601,10 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly workflowPath: string;
     readonly workflowSha: string;
     readonly expectedProviderApiActionCommitSha?: string;
-  }): Promise<{ readonly compatible: boolean; readonly mcpSecrets?: Readonly<Record<string, string>> }> {
+  }): Promise<{
+    readonly compatible: boolean;
+    readonly mcpSecrets?: Readonly<Record<string, string>>;
+  }> {
     if (input.workflowPath === reviewRouterWorkflowContract.callerPath) {
       let source: string | null;
       try {

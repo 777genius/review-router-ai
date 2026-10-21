@@ -48,22 +48,46 @@ export type ReviewRouterMcpSecrets = Readonly<Record<string, string>>;
 const mcpSecretNamePattern = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 /** Named values only: never serializes the GitHub secrets context itself. */
-export function renderMcpSecretsExpression(binding: ReviewRouterMcpSecrets): string | undefined {
+export function renderMcpSecretsExpression(
+  binding: ReviewRouterMcpSecrets,
+): string | undefined {
   if (!binding || typeof binding !== "object" || Array.isArray(binding)) {
     throw new Error("review_workflow_mcp_secrets_invalid");
   }
-  const entries = Object.entries(binding).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  if (entries.some(([logical, secret]) => !mcpSecretNamePattern.test(logical) || typeof secret !== "string" || !mcpSecretNamePattern.test(secret))) {
+  const entries = Object.entries(binding).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  if (
+    entries.some(
+      ([logical, secret]) =>
+        !mcpSecretNamePattern.test(logical) ||
+        typeof secret !== "string" ||
+        !mcpSecretNamePattern.test(secret),
+    )
+  ) {
     throw new Error("review_workflow_mcp_secrets_invalid");
   }
   if (!entries.length) return undefined;
-  const template = "{{" + entries.map(([logical], index) => `"${logical}":{${index}}`).join(",") + "}}";
-  return "${{ format('" + template + "', " + entries.map(([, secret]) => `toJSON(secrets.${secret})`).join(", ") + ") }}";
+  const template =
+    "{{" +
+    entries.map(([logical], index) => `"${logical}":{${index}}`).join(",") +
+    "}}";
+  return (
+    "${{ format('" +
+    template +
+    "', " +
+    entries.map(([, secret]) => `toJSON(secrets.${secret})`).join(", ") +
+    ") }}"
+  );
 }
 
 /** Accepts exactly the renderer's canonical expression grammar. */
-export function readMcpSecretsExpression(value: unknown): ReviewRouterMcpSecrets {
-  const fail = (): never => { throw new Error("review_workflow_mcp_secrets_invalid"); };
+export function readMcpSecretsExpression(
+  value: unknown,
+): ReviewRouterMcpSecrets {
+  const fail = (): never => {
+    throw new Error("review_workflow_mcp_secrets_invalid");
+  };
   if (typeof value !== "string") return fail();
   const expression = /^\$\{\{ format\('\{\{(.+)\}\}', (.+)\) \}\}$/.exec(value);
   if (!expression) return fail();
@@ -72,8 +96,12 @@ export function readMcpSecretsExpression(value: unknown): ReviewRouterMcpSecrets
   if (fields.length !== args.length) return fail();
   const binding: Record<string, string> = {};
   for (let index = 0; index < fields.length; index++) {
-    const field = /^"([A-Z][A-Z0-9_]{0,63})":\{([0-9]+)\}$/.exec(fields[index]!);
-    const arg = /^toJSON\(secrets\.([A-Z][A-Z0-9_]{0,63})\)$/.exec(args[index]!);
+    const field = /^"([A-Z][A-Z0-9_]{0,63})":\{([0-9]+)\}$/.exec(
+      fields[index]!,
+    );
+    const arg = /^toJSON\(secrets\.([A-Z][A-Z0-9_]{0,63})\)$/.exec(
+      args[index]!,
+    );
     if (!field || !arg || field[2] !== String(index)) return fail();
     binding[field[1]!] = arg[1]!;
   }
@@ -116,7 +144,10 @@ export function renderReviewRouterCaller(
   }
   const origin = url.origin;
   const inputs = reviewRouterWorkflowContract.requiredInputs;
-  const mcpSecrets = options.mcpSecrets === undefined ? undefined : renderMcpSecretsExpression(options.mcpSecrets);
+  const mcpSecrets =
+    options.mcpSecrets === undefined
+      ? undefined
+      : renderMcpSecretsExpression(options.mcpSecrets);
   return `name: ReviewRouter
 run-name: \${{ format('ReviewRouter review {0}', inputs.review_request_id) }}
 on:

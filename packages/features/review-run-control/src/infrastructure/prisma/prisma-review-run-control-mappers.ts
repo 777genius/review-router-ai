@@ -14,7 +14,10 @@ import type {
   ReviewOperationalSloProfileV2,
   ReviewProtocolLimitsV2,
 } from "../../domain/producer-release";
-import { reviewInvestigationCapabilityV1 } from "../../domain/producer-release";
+import {
+  parseProducerContextToolsProfile,
+  reviewInvestigationCapabilityV1,
+} from "../../domain/producer-release";
 import { parseReviewAgentProfiles } from "../../domain/review-agent-profile";
 import type { ReviewMutationAuthority } from "../../domain/review-mutation-authority";
 import type { ReviewRunAuthorization } from "../../domain/review-run-authorization";
@@ -69,10 +72,17 @@ export function producerReleaseToDomain(
     reviewInvestigationCoverageProfileHash,
     reviewInvestigationPolicyHash,
     agentProfilesJson,
+    contextToolsProfile,
     ...release
   } = row;
   return {
     ...release,
+    ...(contextToolsProfile == null
+      ? {}
+      : {
+          contextToolsProfile:
+            parseProducerContextToolsProfile(contextToolsProfile),
+        }),
     agentProfiles:
       agentProfilesJson === null
         ? null

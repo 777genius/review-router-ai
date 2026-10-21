@@ -849,7 +849,9 @@ export function RepositoryPolicyOverrideDetails({
   readonly configVersion: number;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
-  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -1007,7 +1009,9 @@ export function RepositoryPolicyEditor({
   readonly effectiveConfig: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
-  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -1329,7 +1333,9 @@ export function WorkspaceReviewConfigForm({
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
-  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -1398,7 +1404,9 @@ export function ReviewConfigForm({
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
-  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -2549,7 +2557,12 @@ export function ReviewConfigForm({
           value={config.contextTools}
           repositoryTarget={repositorySecretCheckTarget}
           connections={contextConnections}
-          disabled={!mutationsEnabled || Boolean(repositoryPolicy && overrideModes.contextTools !== "override")}
+          disabled={
+            !mutationsEnabled ||
+            Boolean(
+              repositoryPolicy && overrideModes.contextTools !== "override",
+            )
+          }
         />
 
         <div className="flex min-w-0 items-end border-t border-cyan-200/10 pt-4">

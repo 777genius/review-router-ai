@@ -1,5 +1,8 @@
 import { decryptServerToken } from "@reviewrouter/features-auth";
-import { PrismaContextConnectionStore, deliverContextCredentials } from "@reviewrouter/features-review-context-tools";
+import {
+  PrismaContextConnectionStore,
+  deliverContextCredentials,
+} from "@reviewrouter/features-review-context-tools";
 import { createContextIssueReader } from "./github/context-issue-read.js";
 import type { ContextToolsRunAccess } from "./review-context-tools.js";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
@@ -1279,21 +1282,52 @@ export function composeReviewActionV2ProductionRoutes(input: {
       return null;
     return target;
   };
-  const issueReader = createContextIssueReader({ appId: githubAppId, privateKey: githubAppPrivateKey, resolveRepository: resolveCheckoutRepository });
+  const issueReader = createContextIssueReader({
+    appId: githubAppId,
+    privateKey: githubAppPrivateKey,
+    resolveRepository: resolveCheckoutRepository,
+  });
   const contextTools: ContextToolsRunAccess = {
     authorize: async (token) => {
       try {
-        const resolved = await runControl.authorizations.resolveReviewRunAuthorizationToken({ token });
-        if (resolved.status !== ReviewRunAuthorizationTokenResolutionStatus.Valid) return null;
+        const resolved =
+          await runControl.authorizations.resolveReviewRunAuthorizationToken({
+            token,
+          });
+        if (
+          resolved.status !== ReviewRunAuthorizationTokenResolutionStatus.Valid
+        )
+          return null;
         const authorization = resolved.authorization;
-        if (authorization.state !== RunAuthorizationState.Active || authorization.expiresAt <= clock.now() || authorization.maxExpiresAt <= clock.now()) return null;
+        if (
+          authorization.state !== RunAuthorizationState.Active ||
+          authorization.expiresAt <= clock.now() ||
+          authorization.maxExpiresAt <= clock.now()
+        )
+          return null;
         const target = await resolveCheckoutRepository(authorization);
-        return target && await confirmAccountGatewayAuthority(token, authorization, target) ? authorization : null;
-      } catch { return null; }
+        return target &&
+          (await confirmAccountGatewayAuthority(token, authorization, target))
+          ? authorization
+          : null;
+      } catch {
+        return null;
+      }
     },
-    deliver: (workspaceId, plan) => deliverContextCredentials(workspaceId, plan, { store: new PrismaContextConnectionStore(prisma), crypto: { encrypt: () => { throw new Error("context_encrypt_not_allowed"); }, decrypt: value => decryptServerToken(value, input.env) } }),
-    assertIssueAccess: authorization => issueReader.assertAvailable(authorization),
-    readIssue: (authorization, issueNumber) => issueReader.read(authorization, issueNumber),
+    deliver: (workspaceId, plan) =>
+      deliverContextCredentials(workspaceId, plan, {
+        store: new PrismaContextConnectionStore(prisma),
+        crypto: {
+          encrypt: () => {
+            throw new Error("context_encrypt_not_allowed");
+          },
+          decrypt: (value) => decryptServerToken(value, input.env),
+        },
+      }),
+    assertIssueAccess: (authorization) =>
+      issueReader.assertAvailable(authorization),
+    readIssue: (authorization, issueNumber) =>
+      issueReader.read(authorization, issueNumber),
   };
   const providerApiCheckout = createReviewRunProviderApiCheckout({
     lifecycleObservationAuthors: [

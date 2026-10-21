@@ -1,6 +1,7 @@
 import type { ReviewAgentProfile } from "../../domain/review-agent-profile";
 import type {
   ProducerRelease,
+  ProducerContextToolsProfile,
   ProducerReviewInvestigationProfile,
 } from "../../domain/producer-release";
 import type {
@@ -9,6 +10,7 @@ import type {
 } from "../../domain/review-run-control-types";
 
 export type TrustedProducerReleaseAttestation = {
+  readonly contextToolsProfile?: ProducerContextToolsProfile;
   readonly producerReleaseId: string;
   readonly distributionKind: ProducerDistributionKind;
   readonly actionCommitSha: string;

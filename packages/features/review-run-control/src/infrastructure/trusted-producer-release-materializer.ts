@@ -35,14 +35,19 @@ export function createTrustedProducerReleaseMaterializer(input: {
 }): TrustedProducerReleaseMaterializerPort {
   return {
     async ensureRegistered(release: ProducerRelease): Promise<void> {
+      if (release.state !== ProducerReleaseState.Registered)
+        throw new Error("trusted_producer_release_revoked");
       const existing = await input.releaseQueries.findProducerReleaseById(
         release.producerReleaseId,
       );
-      if (
-        existing?.state === ProducerReleaseState.Registered &&
-        producerReleaseImmutableKey(existing) ===
+      if (existing) {
+        if (existing.state !== ProducerReleaseState.Registered)
+          throw new Error("trusted_producer_release_revoked");
+        if (
+          producerReleaseImmutableKey(existing) !==
           producerReleaseImmutableKey(release)
-      ) {
+        )
+          throw new Error("trusted_producer_release_conflict");
         return;
       }
       const sloProfile = {
@@ -108,6 +113,9 @@ export function createTrustedProducerReleaseMaterializer(input: {
             operationalSloProfileId: release.operationalSloProfileId,
             reviewInvestigationProfile: release.reviewInvestigationProfile,
             agentProfiles: release.agentProfiles ?? null,
+            ...(release.contextToolsProfile !== undefined
+              ? { contextToolsProfile: release.contextToolsProfile }
+              : {}),
           },
           expectedProtocolLimitsDigest: limitsDigest,
           expectedOperationalSloDigest: sloDigest,

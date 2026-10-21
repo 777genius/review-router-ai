@@ -306,7 +306,8 @@ function createReviewRunCheckout(
         throw new CheckoutFailure("checkout_unavailable", 403);
       const runtimeEnv = mapConfigToRuntimeEnv(configuration);
       if (snapshot.contextToolsPlanCanonicalJson !== undefined) {
-        runtimeEnv.REVIEW_ROUTER_CONTEXT_TOOLS_PLAN_JSON = snapshot.contextToolsPlanCanonicalJson;
+        runtimeEnv.REVIEW_ROUTER_CONTEXT_TOOLS_PLAN_JSON =
+          snapshot.contextToolsPlanCanonicalJson;
       }
       // Only the admitted agent definition is exported, never today's setting.
       runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON = canonicalJson(

@@ -115,7 +115,9 @@ export function parseReviewRunRuntimeSnapshot(
       "configurationCanonicalJson",
       "deadline",
       "gateway",
-      ...(Object.hasOwn(parsed, "contextToolsPlanCanonicalJson") ? ["contextToolsPlanCanonicalJson"] : []),
+      ...(Object.hasOwn(parsed, "contextToolsPlanCanonicalJson")
+        ? ["contextToolsPlanCanonicalJson"]
+        : []),
     ])
   )
     fail();
@@ -143,9 +145,21 @@ export function parseReviewRunRuntimeSnapshot(
     fail();
   const contextToolsPlanCanonicalJson = parsed.contextToolsPlanCanonicalJson;
   if (contextToolsPlanCanonicalJson !== undefined) {
-    if (typeof contextToolsPlanCanonicalJson !== "string" || new TextEncoder().encode(contextToolsPlanCanonicalJson).byteLength > 16_384) fail();
+    if (
+      typeof contextToolsPlanCanonicalJson !== "string" ||
+      new TextEncoder().encode(contextToolsPlanCanonicalJson).byteLength >
+        16_384
+    )
+      fail();
     const plan: unknown = JSON.parse(contextToolsPlanCanonicalJson);
-    if (!record(plan) || plan.version !== 1 || typeof plan.planDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(plan.planDigest) || canonicalJson(plan) !== contextToolsPlanCanonicalJson) fail();
+    if (
+      !record(plan) ||
+      plan.version !== 1 ||
+      typeof plan.planDigest !== "string" ||
+      !/^sha256:[a-f0-9]{64}$/.test(plan.planDigest) ||
+      canonicalJson(plan) !== contextToolsPlanCanonicalJson
+    )
+      fail();
   }
   const configurationCanonicalJson = parsed.configurationCanonicalJson;
   if (
@@ -276,7 +290,9 @@ export function parseReviewRunRuntimeSnapshot(
       runtimeCommitSha: String(producer.runtimeCommitSha),
     },
     configurationCanonicalJson,
-    ...(contextToolsPlanCanonicalJson !== undefined ? { contextToolsPlanCanonicalJson: String(contextToolsPlanCanonicalJson) } : {}),
+    ...(contextToolsPlanCanonicalJson !== undefined
+      ? { contextToolsPlanCanonicalJson: String(contextToolsPlanCanonicalJson) }
+      : {}),
     deadline,
     gateway,
   };

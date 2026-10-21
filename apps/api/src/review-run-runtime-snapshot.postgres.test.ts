@@ -343,6 +343,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       expect(await prisma.reviewRunAuthorization.count()).toBe(0);
       const producer = await prisma.producerRelease.findUniqueOrThrow({
         where: { producerReleaseId: harness.producerReleaseId },
+        select: { producerReleaseId: true, actionCommitSha: true, runtimeCommitSha: true, agentProfilesJson: true },
       });
       if (typeof producer.agentProfilesJson !== "string")
         throw new Error("signed_transport_producer_profiles_missing");
@@ -991,6 +992,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       });
       const producerRow = await prisma.producerRelease.findUniqueOrThrow({
         where: { producerReleaseId: harness.producerReleaseId },
+        select: { producerReleaseId: true, actionCommitSha: true, runtimeCommitSha: true, agentProfilesJson: true },
       });
       if (typeof producerRow.agentProfilesJson !== "string")
         throw new Error("c2c_producer_profiles_missing");

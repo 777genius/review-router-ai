@@ -1,46 +1,7 @@
 # Review context tools
 
-Context tools are optional and available only for OpenCodeReview through Account Gateway with Agentic context enabled and a compatible approved Action release. Selecting a tool makes its availability required for that review. An unavailable connection, missing secret, unsupported engine, or missing tool fails before inference; a later backend failure is reported as incomplete context. No tools are enabled by default.
+This package owns versioned workspace HTTPS connection metadata, encrypted Dashboard credentials, explicit GitHub-secret references, and captured OCR tool plans. Default selection is absent. Selected tools are required, and only an approved producer with the exact `contextToolsContract` descriptor may capture a plan.
 
-Workspace owners or admins create HTTPS connections in Dashboard → Context tools. Store the URL and explicit tool allowlist, then use either Dashboard credentials or named GitHub secrets. Dashboard credentials are encrypted separately from provider accounts and are delivered only to the parent broker for the live admitted run. Neither secret values nor remote headers enter the model or the native child environment.
+The customer configuration guide belongs to the public Action repository at `docs/https-mcp-context.md`. It documents Dashboard setup, the fixed `.reviewrouter.json` default-branch import, both header-template spellings, and the explicitly named `mcp_secrets_json` caller binding. The import returns a preview; the existing policy Save/CAS remains the write authority.
 
-Example connection definition:
-
-```json
-{
-  "id": "docs",
-  "url": "https://mcp.example.com/mcp",
-  "headers": {"Authorization": "Bearer {{ secrets.DOCS_TOKEN }}"},
-  "tools": ["search_docs"],
-  "credentials": {
-    "DOCS_TOKEN": {"source": "github-secret", "name": "DOCS_MCP_TOKEN"}
-  }
-}
-```
-
-`${{ secrets.DOCS_TOKEN }}` is also accepted in a header template. It names a logical broker key; arbitrary configuration does not cause a GitHub secret API lookup. For a Dashboard credential use `{"source":"dashboard-secret"}` and enter the value in the separate password field.
-
-Select the approved connection and tool subset in repository policy. Alternatively, commit this `.reviewrouter.json` to the repository's default branch and click **Import default-branch config**, inspect the preview, then save policy with the normal version check:
-
-```json
-{
-  "contextTools": {
-    "version": 1,
-    "builtinTools": ["github.issue.read"],
-    "mcp": [{"connection": "docs", "tools": ["search_docs"]}]
-  }
-}
-```
-
-The import reads a fixed file at the verified default-branch commit. PR-head URLs, headers, or credential definitions are never imported into execution authority. `github.issue.read` requires existing GitHub App issue-read permission and reads only linked issues in the admitted repository. `repository.docs.read` is optional and disabled by default; ordinary checkout file tools remain available independently.
-
-For GitHub-held credentials, the caller must explicitly bind the selected logical names to the exact approved GitHub secret names:
-
-```yaml
-secrets:
-  mcp_secrets_json: ${{ format('{{"DOCS_TOKEN":{0}}}', toJSON(secrets.DOCS_MCP_TOKEN)) }}
-```
-
-Only this opaque named bundle is forwarded through reusable workflow layers. Never use `secrets: inherit`, `toJSON(secrets)`, dynamic secret indexing, or a repository-wide secret dump. A caller with no MCP selection retains the original canonical bytes. Installing the compatible reusable workflow must precede enabling a secret-bearing selection; older approved producers do not gain MCP capability from sharing the same native binary.
-
-The broker accepts HTTPS only, rejects redirects and unsafe DNS/IP destinations, applies the selected tool allowlist and finite timeout/response/call limits, and treats every remote description and result as untrusted context. It does not accept arbitrary local commands or stdio servers.
+Dashboard secret delivery requires the normal live admitted-run bearer and current workspace connection revisions. GitHub secrets remain on the runner. The parent broker holds HTTPS credentials and passes only a loopback capability to the native OCR child; remote tool output remains untrusted. No native binary change or default tool activation is part of this package.

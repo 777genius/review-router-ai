@@ -1402,33 +1402,36 @@ async function DashboardSectionContent({
         .workspaceAccess(selectedWorkspace.workspace.id)
         .catch(() => null)
     : null;
-  const [data, modelOptions, accountsBootstrap, contextConnections] = await Promise.all([
-    loadDashboardSectionData(
-      selectedWorkspace,
-      selectedSection,
-      repositoryAccess,
-      supportAudit,
-      signedInActor ? dashboardMemoryActorInput(signedInActor) : null,
-    ),
-    selectedSection === "repositories" || selectedSection === "policy"
-      ? getReviewModelOptions()
-      : Promise.resolve([]),
-    selectedSection === "repositories" ||
-    selectedSection === "policy" ||
-    selectedSection === "diagnostics"
-      ? personal && personalAccess
-        ? personal
-            .models(selectedWorkspace.workspace.id)
-            .then(async (api) => ({
-              page: await api.list({ limit: 25 }),
-            }))
-            .catch(() => ({ page: { status: "unavailable" as const } }))
-        : loadAccountsBootstrap(selectedWorkspace.workspace.id)
-      : Promise.resolve(null),
-    selectedSection === "repositories" || selectedSection === "policy"
-      ? listDashboardContextConnections(selectedWorkspace.workspace.id).catch(() => [])
-      : Promise.resolve([]),
-  ]);
+  const [data, modelOptions, accountsBootstrap, contextConnections] =
+    await Promise.all([
+      loadDashboardSectionData(
+        selectedWorkspace,
+        selectedSection,
+        repositoryAccess,
+        supportAudit,
+        signedInActor ? dashboardMemoryActorInput(signedInActor) : null,
+      ),
+      selectedSection === "repositories" || selectedSection === "policy"
+        ? getReviewModelOptions()
+        : Promise.resolve([]),
+      selectedSection === "repositories" ||
+      selectedSection === "policy" ||
+      selectedSection === "diagnostics"
+        ? personal && personalAccess
+          ? personal
+              .models(selectedWorkspace.workspace.id)
+              .then(async (api) => ({
+                page: await api.list({ limit: 25 }),
+              }))
+              .catch(() => ({ page: { status: "unavailable" as const } }))
+          : loadAccountsBootstrap(selectedWorkspace.workspace.id)
+        : Promise.resolve(null),
+      selectedSection === "repositories" || selectedSection === "policy"
+        ? listDashboardContextConnections(selectedWorkspace.workspace.id).catch(
+            () => [],
+          )
+        : Promise.resolve([]),
+    ]);
   // Approved engine profiles for the Account Gateway provider row; derived
   // from the producer-release approved profile authority, never user input.
   const agentProfileOptions = loadGatewayAgentProfileOptions();
@@ -1776,7 +1779,9 @@ export function WorkspaceCard({
   readonly appInstallUrl: string | null;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
-  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -2048,8 +2053,12 @@ export function WorkspaceCard({
           />
         ) : null}
         <WorkspaceActionNotice params={params} orgRuleset={orgRuleset} />
-        {hasWorkspaceWideAccess && (selectedSection === "policy" || selectedSection === "repositories") ? (
-          <a className="inline-block text-sm text-cyan-200 underline" href={`/dashboard/context-tools?workspaceId=${encodeURIComponent(workspace.id)}`}>
+        {hasWorkspaceWideAccess &&
+        (selectedSection === "policy" || selectedSection === "repositories") ? (
+          <a
+            className="inline-block text-sm text-cyan-200 underline"
+            href={`/dashboard/context-tools?workspaceId=${encodeURIComponent(workspace.id)}`}
+          >
             Manage HTTPS MCP context connections
           </a>
         ) : null}
@@ -2837,7 +2846,9 @@ function RepositoryTable({
     | readonly GatewayAgentProfileOption[]
     | undefined;
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
-  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly claudeCodeProviderEnabled: boolean;
   readonly mutationsEnabled: boolean;
   readonly workspaceKey: string;

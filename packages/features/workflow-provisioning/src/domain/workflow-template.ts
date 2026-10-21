@@ -112,7 +112,12 @@ export function renderAccountGatewayWorkflow(options: {
     throw new Error("review_workflow_control_plane_url_invalid");
   }
   // A selected producer is server admission state, not an installation pin.
-  const content = renderReviewRouterCaller({ controlPlaneUrl: options.apiUrl, ...(options.mcpSecrets !== undefined ? { mcpSecrets: options.mcpSecrets } : {}) });
+  const content = renderReviewRouterCaller({
+    controlPlaneUrl: options.apiUrl,
+    ...(options.mcpSecrets !== undefined
+      ? { mcpSecrets: options.mcpSecrets }
+      : {}),
+  });
   if (options.githubRepositoryId === isolatedQualityWorkflowRepositoryId) {
     throw new Error("account_gateway_workflow_path_not_supported");
   }
@@ -150,14 +155,23 @@ export function readReviewRouterCallerSource(source: string): {
   let mcpSecrets: ReviewRouterMcpSecrets | undefined;
   if (job.secrets !== undefined) {
     const secrets = mapping(job.secrets);
-    if (Object.keys(secrets).length !== 1 || !("mcp_secrets_json" in secrets)) throw new Error("review_workflow_source_not_canonical");
+    if (Object.keys(secrets).length !== 1 || !("mcp_secrets_json" in secrets))
+      throw new Error("review_workflow_source_not_canonical");
     mcpSecrets = readMcpSecretsExpression(secrets.mcp_secrets_json);
   }
-  const expected = renderReviewRouterCaller({ runtimeRef, controlPlaneUrl, ...(mcpSecrets ? { mcpSecrets } : {}) });
+  const expected = renderReviewRouterCaller({
+    runtimeRef,
+    controlPlaneUrl,
+    ...(mcpSecrets ? { mcpSecrets } : {}),
+  });
   if (!areWorkflowDocumentsSemanticallyEqual(source, expected)) {
     throw new Error("review_workflow_source_not_canonical");
   }
-  return { runtimeRef, controlPlaneUrl: new URL(controlPlaneUrl).origin, ...(mcpSecrets ? { mcpSecrets } : {}) };
+  return {
+    runtimeRef,
+    controlPlaneUrl: new URL(controlPlaneUrl).origin,
+    ...(mcpSecrets ? { mcpSecrets } : {}),
+  };
 }
 
 /** Both canonical managed callers, retaining the source-selected transport. */

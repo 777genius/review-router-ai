@@ -18,6 +18,34 @@ import {
 
 export const reviewInvestigationCapabilityV1 = "review_investigation_v1";
 
+export type ProducerContextToolsProfile = Readonly<{
+  extensionId: "context-tools.v1";
+  descriptorDigest: string;
+}>;
+
+export function parseProducerContextToolsProfile(
+  value: unknown,
+): ProducerContextToolsProfile {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).sort().join(",") !== "descriptorDigest,extensionId"
+  )
+    invalid("producer_context_tools_profile_invalid");
+  const profile = value as Record<string, unknown>;
+  if (
+    profile.extensionId !== "context-tools.v1" ||
+    typeof profile.descriptorDigest !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/.test(profile.descriptorDigest)
+  )
+    invalid("producer_context_tools_profile_invalid");
+  return Object.freeze({
+    extensionId: "context-tools.v1",
+    descriptorDigest: profile.descriptorDigest,
+  });
+}
+
 export type ProducerReviewInvestigationProfile = Readonly<{
   readonly capability: typeof reviewInvestigationCapabilityV1;
   readonly coverageProfileHash: string;
@@ -66,6 +94,7 @@ export type ReviewOperationalSloProfileV2 = ReviewOperationalSloThresholds & {
 };
 
 export type ProducerRelease = {
+  readonly contextToolsProfile?: ProducerContextToolsProfile;
   readonly producerReleaseId: string;
   readonly distributionKind: ProducerDistributionKind;
   readonly actionCommitSha: string;
@@ -286,6 +315,13 @@ export function createProducerRelease(
       candidate.agentProfiles == null
         ? null
         : parseReviewAgentProfiles(candidate.agentProfiles),
+    ...(candidate.contextToolsProfile !== undefined
+      ? {
+          contextToolsProfile: parseProducerContextToolsProfile(
+            candidate.contextToolsProfile,
+          ),
+        }
+      : {}),
     schemaDigest: candidate.schemaDigest,
     capabilityProfile: candidate.capabilityProfile,
     protocolLimitsProfileId: candidate.protocolLimitsProfileId,
@@ -334,6 +370,13 @@ export function producerReleaseImmutableKey(
     reviewInvestigationPolicyHash:
       release.reviewInvestigationProfile?.policyHash ?? null,
     agentProfiles: release.agentProfiles ?? null,
+    ...(release.contextToolsProfile !== undefined
+      ? {
+          contextToolsProfile: parseProducerContextToolsProfile(
+            release.contextToolsProfile,
+          ),
+        }
+      : {}),
     schemaDigest: release.schemaDigest,
     capabilityProfile: release.capabilityProfile,
     protocolLimitsProfileId: release.protocolLimitsProfileId,
@@ -346,6 +389,13 @@ export function cloneProducerRelease(
 ): ProducerRelease {
   return {
     ...release,
+    ...(release.contextToolsProfile !== undefined
+      ? {
+          contextToolsProfile: parseProducerContextToolsProfile(
+            release.contextToolsProfile,
+          ),
+        }
+      : {}),
     agentProfiles:
       release.agentProfiles == null
         ? null

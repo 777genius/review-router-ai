@@ -1110,6 +1110,7 @@ model ReviewOperationalSloProfileV2 {
 }
 
 model ProducerRelease {
+  contextToolsProfile                     Json?
   agentProfilesJson                       String?
   producerReleaseId                      String                     @id
   distributionKind                       ProducerDistributionKindV2

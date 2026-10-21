@@ -1,3 +1,5 @@
+ALTER TABLE "ProducerRelease" ADD COLUMN "contextToolsProfile" JSONB;
+
 CREATE TABLE "ReviewContextConnection" (
     "workspaceId" TEXT NOT NULL,
     "connectionId" TEXT NOT NULL,
