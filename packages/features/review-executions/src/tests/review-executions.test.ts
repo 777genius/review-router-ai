@@ -518,6 +518,40 @@ describe("review execution domain", () => {
     );
   });
 
+  it("cancels a queued request when workspace eligibility changes before dispatch", async () => {
+    const intents = new InMemoryReviewRequestedIntentStore();
+    await intents.registerIntent({
+      candidate: intentCandidate("request-optout", "31", scope, revision),
+    });
+    const prepare = vi.fn();
+    const gateway = {
+      prepare,
+      findByRequestIdentity: vi.fn(),
+      inspectKnownRun: vi.fn(),
+      cancelKnownRun: vi.fn(),
+    };
+    const dispatcher = new DispatchDueReviewRequestedIntents(
+      intents,
+      intents,
+      gateway,
+      { now: () => baseTime },
+      { nextClaimId: () => "claim-optout", nextRequestId: () => "unused" },
+      {
+        digestUtf8: async (value) =>
+          createHash("sha256").update(value).digest("hex"),
+      },
+      undefined,
+      async () => false,
+    );
+    await expect(
+      dispatcher.execute({ ownerIdHash: hash("d"), limit: 10 }),
+    ).resolves.toMatchObject({ dispatched: 0, failed: 0 });
+    expect(prepare).not.toHaveBeenCalled();
+    await expect(
+      intents.findByRequestId("request-optout"),
+    ).resolves.toMatchObject({ state: ReviewRequestedIntentState.Superseded });
+  });
+
   it("reconciles a timeout-after-success without issuing a second POST", async () => {
     const intents = new InMemoryReviewRequestedIntentStore();
     await intents.registerIntent({

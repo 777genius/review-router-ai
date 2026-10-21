@@ -2,6 +2,11 @@ import { listDashboardContextConnections } from "../../src/server/context-tools"
 import type { ContextConnectionMetadata } from "@reviewrouter/features-review-context-tools";
 import { loadProviderUsage } from "../../src/server/provider-usage-report";
 import { ProviderUsageView } from "./provider-usage-view";
+import {
+  canMutateWorkspace,
+  PrismaWorkspaceAccessRepository,
+} from "@reviewrouter/features-auth";
+import { WorkspaceOtherSettings } from "./workspace-other-settings";
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import {
@@ -71,6 +76,7 @@ import {
   findReviewConfiguration,
   findRepositoryReviewConfigurations,
   PrismaReviewConfigurationRepository,
+  PrismaWorkspaceReviewSettings,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
 import {
@@ -354,6 +360,8 @@ type DashboardWorkspaceData = {
   entitlement: ReturnType<typeof freeBetaEntitlement>;
   reviewConfig: Awaited<ReturnType<typeof findReviewConfiguration>>;
   reviewConfigExpectedVersion: number | null;
+  reviewDraftPullRequests?: boolean;
+  canEditOtherSettings?: boolean;
   repositoryConfigs: readonly {
     readonly repositoryId: string;
     readonly config: Awaited<ReturnType<typeof findReviewConfiguration>>;
@@ -608,7 +616,30 @@ export async function loadDashboardSectionData(
           })
         )?.auditEvents ?? [])
       : [];
+  const otherSettings =
+    section === "other"
+      ? {
+          reviewDraftPullRequests: await new PrismaWorkspaceReviewSettings(
+            prisma,
+          ).reviewDrafts(workspace.id),
+          canEditOtherSettings: currentActor
+            ? canMutateWorkspace({
+                role: await new PrismaWorkspaceAccessRepository(
+                  prisma,
+                ).findWorkspaceRoleByUserId({
+                  workspaceId: workspace.id,
+                  userId: currentActor.userId,
+                }),
+                githubLogin: currentActor.githubLogin ?? "",
+                localAdminGithubLogins: readCsvEnv(
+                  "REVIEW_ROUTER_LOCAL_ADMIN_GITHUB_LOGINS",
+                ),
+              }).allowed
+            : false,
+        }
+      : {};
   return {
+    ...otherSettings,
     hasWorkspaceWideAccess,
     workspace: {
       id: workspace.id,
@@ -1647,6 +1678,24 @@ export function WorkspaceCard({
     return (
       <div id="dashboard-section-content" className="min-w-0 space-y-5">
         <ProviderUsageSection workspaceId={workspace.id} />
+      </div>
+    );
+  if (selectedSection === "other")
+    return (
+      <div
+        id="dashboard-section-content"
+        className="min-w-0 space-y-5 scroll-mt-28"
+      >
+        <DashboardActionToast
+          params={params}
+          selectedSection={selectedSection}
+        />
+        <DashboardSectionHeader selectedSection="other" />
+        <WorkspaceOtherSettings
+          workspaceId={workspace.id}
+          reviewDraftPullRequests={data.reviewDraftPullRequests === true}
+          canEdit={mutationsEnabled && data.canEditOtherSettings === true}
+        />
       </div>
     );
   const activeConfig = data.reviewConfig?.config;
