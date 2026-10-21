@@ -104,3 +104,13 @@ migrations. Независимый runtime критик также провер�
 `b4d8bd5` из main: оба feature sets сохранены, конфликт был только в generated
 source map и решён normal build. Behavioral gate: **77/77** плюс signed paired
 HTTP case. Актуальные identities, receipts и границы проверки — в отчёте.
+
+После следующего runtime main `98c442d` backend критик отдельно проверил узкий
+canonical-only перенос auxiliary contract: прежние identities и Skills bytes
+сохранены, SaaS product behavior не включён; `protocol:check`, 29 canonical tests
+и 7 export tests passed. Runtime критик затем проверил реальный merged source
+по шести границам интеграции и сверил 52 generated-file digests: **PASS**, без
+новых findings. Root завершил normal builds, private artifact parity,
+**252/252** affected runtime tests, full runtime typecheck и signed paired HTTP.
+Итоговый runtime commit `1381fa4` закреплён в SaaS CI; browser receipt остаётся
+на `35ec386`, поскольку последующие изменения не меняли frontend или Skills UX.

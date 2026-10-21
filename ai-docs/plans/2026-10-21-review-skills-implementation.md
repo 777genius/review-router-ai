@@ -111,8 +111,8 @@ pnpm action:artifact:check:smoke
 ## 5. Commit identities и CI
 
 - SaaS functional integration checkpoint после повторного ревью: `35ec3863c62b13095efdcc0083a180cea7ad6eba`. Историческая квалификация выше выполнена на `03c94f32ce4a5147336681502742e4385c1827d5`; новый receipt приведён ниже.
-- Paired runtime checkout: `cf7c7b154bd5e5d04efcfcdfcc35ddd188f6c014`; этот immutable SHA установлен только в paired CI lane. Published hosted-pool baseline и stable tags не перемещены.
-- Canonical contract source: `35ec3863c62b13095efdcc0083a180cea7ad6eba`; official handoff digest `af9020733c465e66d748b6b80da57e148e3fe0622231d29e829bf98b5ca1aca1`.
+- Paired runtime checkout: `1381fa481bfba3755bf9135b243486505b5c2563`; этот immutable SHA установлен только в paired CI lane. Published hosted-pool baseline и stable tags не перемещены.
+- Canonical contract source: `8626bae253410668557829b95d1b6a45c6e76adc`; official handoff digest `ca4fe0e788d97bb56a55bbbab434a0de6c6ca39d1fc0dc54031dc6618ffe5d4b`.
 - OCR Linux amd64 binary: `0553daafe39d7a9d7608f0d37b26d55c11d07b9d5bbfc5b36b0778f9cd9f3df5`, pinned upstream `8eb83340a487b1150af00701b94f01af97e4b4d6`, Go 1.26.9, rr.4 и десять patches.
 
 CI теперь содержит отдельную Skills PostgreSQL fixture, scoped tooling/native compiler gates и signed HTTP proof после verified paired checkout. Runtime CI собирает настоящий OCR в temporary directory, сравнивает полный manifest и запускает существующий Jest с required binary. Browser qualification остаётся явным локальным real-browser lane; автоматического browser CI pass этот документ не заявляет.
@@ -235,3 +235,21 @@ evidence canonicalization и release-manifest tests, **7/7** official export tes
 
 Root выполнил normal `action:build` и `action:artifact:check:smoke`; оба прошли.
 Tracked private bundles пересобраны из этого источника, source parity подтверждён.
+
+Official export из committed source `8626bae` сохранён в runtime перед merge
+`98c442d`. Merge commit `1381fa481bfba3755bf9135b243486505b5c2563` содержит обе
+фичи. Source conflicts не было; generated bundles/source map пересобраны обычной
+командой, сохранён combined official handoff. Независимый runtime критик сверил
+все 52 generated-file digests и шесть integration seams: capture до engine/cache,
+cache identity обоих движков, native finding/investigation prompts, OCR exact
+rules с очищенным background, отдельные description slots/canonicalizer и
+сосуществование contracts/profiles. Конкретных дефектов в этих границах не найдено.
+
+Финальный affected runtime batch — **252/252, восемь suites**: Skills, contract,
+rebuilt production entrypoint, OCR/native adapters, parent runner, description
+generation и control-plane adapter. Full typecheck, normal build и diff checks
+прошли. Signed paired HTTP на том же rebuilt runtime — **1 selected test passed**,
+четыре соседних cases намеренно отфильтрованы. Receipts:
+`tmp/skills-unified-main-paired-http.log` и runtime
+`tmp/skills-unified-main-{build,typecheck,tests}.log`. Paired CI pin обновлён
+на этот immutable merge commit; новый remote CI оценивается отдельно.
