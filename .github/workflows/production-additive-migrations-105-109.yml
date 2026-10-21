@@ -137,7 +137,7 @@ jobs:
           node-version: 26.11.1
 
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
       - name: Install pinned dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile

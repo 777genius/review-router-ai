@@ -369,7 +369,7 @@ describe("private-network PG17 workflow security contract", () => {
       expect(job).not.toContain("SUBSCRIPTION_RUNTIME_DEPLOY_KEY_B64");
       expect(job.match(/name: Install pnpm/gu)).toHaveLength(1);
       expect(job).toContain(
-        "run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0",
+        "run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7",
       );
       expect(job).not.toContain("corepack");
       expect(job.indexOf("name: Install pnpm")).toBeLessThan(
