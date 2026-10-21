@@ -233,7 +233,14 @@ function firstParagraph(body: string, locale: ReviewSummaryLocale): string {
     /\n\s*\|?\s*:?-{3,}/.test(first)
   )
     return "";
-  const paragraph = first.replace(/\s+/g, " ").trim();
+  const lines = first.split(/\r?\n/);
+  const interruption = lines.findIndex(
+    (line, index) => index > 0 && interruptsParagraph(line),
+  );
+  const paragraph = (interruption < 0 ? lines : lines.slice(0, interruption))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
   const chars = Array.from(paragraph);
   if (chars.length <= 320) return paragraph;
   const prefix = chars.slice(0, 319).join("");
@@ -266,6 +273,22 @@ function firstParagraph(body: string, locale: ReviewSummaryLocale): string {
       wordEnd = end;
   }
   return wordEnd > 0 ? `${paragraph.slice(0, wordEnd)}…` : "";
+}
+
+function interruptsParagraph(line: string): boolean {
+  const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (fence && (fence[1]![0] === "~" || !fence[2]!.includes("`"))) return true;
+  // Unlike indented code, fences, block quotes, headings and nonempty lists
+  // starting at 1 can interrupt an ordinary paragraph without a blank line.
+  if (/^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*][ \t]+\S|1[.)][ \t]+\S)/.test(line))
+    return true;
+  if (/^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/.test(line))
+    return true;
+  // CommonMark HTML block types 1-6 interrupt paragraphs. Inline/custom tags
+  // (type 7) do not, so a continued <span> remains part of the paragraph.
+  return /^ {0,3}<(?:!--|\?|!\[CDATA\[|![A-Z]|\/?(?:script|pre|style|textarea|address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t]|\/?>|$))/i.test(
+    line,
+  );
 }
 
 function safeBody(value: string): string {

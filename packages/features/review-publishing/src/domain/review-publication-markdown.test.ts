@@ -192,6 +192,41 @@ describe("compact summary contracts", () => {
   });
 
   it.each([
+    "```ts\nconst evidence = 42;\n```",
+    "~~~ts\nconst evidence = 42;\n~~~",
+    "<div>Detailed evidence</div>",
+    "<!-- Detailed evidence -->",
+    "## Detailed evidence",
+    "> Detailed evidence",
+    "- Detailed evidence",
+    "1. Detailed evidence",
+  ])(
+    "keeps an interrupting Markdown block out of the first paragraph preview: %s",
+    (block) => {
+      const paragraph =
+        "The authorization check is missing.\nOther users can read private data.";
+      const body = `${paragraph}\n${block}`;
+      const markdown = renderReviewSummaryMarkdown({
+        plan: planWith([finding("one", body)]),
+      });
+      const preview = markdown
+        .split("<details>")[0]!
+        .trim()
+        .split(/\n\n/)
+        .at(-1)!;
+      expect(preview).toBe(
+        "The authorization check is missing. Other users can read private data.",
+      );
+      expect(markdown.split("<details>")[1]).toContain(paragraph);
+      expect(markdown.split("<details>")[1]).toContain(
+        block.includes("const evidence")
+          ? "const evidence = 42;"
+          : "Detailed evidence",
+      );
+    },
+  );
+
+  it.each([
     {
       language: "Chinese",
       body: "权限检查缺失导致其他用户能够读取私人数据。".repeat(30),
