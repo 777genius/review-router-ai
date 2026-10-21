@@ -291,6 +291,13 @@ export function ReviewSkillsLibrary({
             setEditor(null);
             setRepositories(document);
             void invalidate();
+            if (document.sourceWorkspaceId !== workspaceId)
+              void client.invalidateQueries({
+                queryKey: reviewSkillsKeys.workspace(
+                  viewerId,
+                  document.sourceWorkspaceId,
+                ),
+              });
           }}
         />
       ) : null}

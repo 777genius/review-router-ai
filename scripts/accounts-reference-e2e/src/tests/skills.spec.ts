@@ -528,7 +528,16 @@ test.describe("Skills real Next and PostgreSQL", () => {
     const violations: string[] = [];
     await installLoopbackOnlyNetworkGuard(page, violations);
     await useViewerSession(context);
-    await openLibrary(page, "rr-e2e-org-bravo");
+    // Keep the source library cached while editing its original from a link.
+    await openLibrary(page);
+    await page
+      .getByRole("searchbox", { name: "Search skills" })
+      .fill("Canonical shared skill");
+    await expect(
+      page.getByRole("button", { name: "Canonical shared skill", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: /RR E2E Org Bravo/ }).click();
+    await expect(page).toHaveURL(/workspace=rr-e2e-org-bravo/);
     await page
       .getByRole("button", { name: "Add from workspace", exact: true })
       .click();
@@ -551,6 +560,76 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await expect(
       row.getByRole("link", { name: "Edit original" }),
     ).toHaveAttribute("href", /workspace=rr-e2e-ws-personal-viewer/);
+    await row
+      .getByRole("button", { name: "Canonical shared skill", exact: true })
+      .click();
+    const linkedEditor = page.getByRole("dialog", {
+      name: "Edit skill",
+      exact: true,
+    });
+    const sharedDescription = "The author updated this shared original.";
+    const sharedInstructions =
+      "Check the same ownership boundary in every linked workspace.";
+    await linkedEditor
+      .getByLabel("Description", { exact: false })
+      .fill(sharedDescription);
+    await linkedEditor
+      .getByLabel("Markdown instructions", { exact: false })
+      .fill(sharedInstructions);
+    await linkedEditor
+      .getByRole("button", { name: "Save", exact: true })
+      .click();
+    await page
+      .getByRole("dialog", {
+        name: "Assign skill to repositories",
+        exact: true,
+      })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await expect(row).toContainText(sharedDescription);
+    const savedHead = (
+      await sql<{
+        headRevisionId: string;
+        revisionNumber: number;
+        description: string;
+        instructions: string;
+      }>(
+        `SELECT s."headRevisionId", r."revisionNumber", r.description, r.instructions
+         FROM "ReviewSkill" s JOIN "ReviewSkillRevision" r ON r.id=s."headRevisionId"
+         WHERE s.id=$1`,
+        [SKILLS_SHARED_ID],
+      )
+    )[0]!;
+    expect(savedHead).toMatchObject({
+      revisionNumber: 2,
+      description: sharedDescription,
+      instructions: sharedInstructions,
+    });
+    await row.getByRole("link", { name: "Edit original", exact: true }).click();
+    const sourceEditor = page.getByRole("dialog", {
+      name: "Edit skill",
+      exact: true,
+    });
+    await expect(
+      sourceEditor.getByLabel("Markdown instructions", { exact: false }),
+    ).toHaveValue(sharedInstructions);
+    await sourceEditor
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await page
+      .getByRole("searchbox", { name: "Search skills" })
+      .fill("Canonical shared skill");
+    await expect(
+      page.getByRole("row").filter({ hasText: "Canonical shared skill" }),
+    ).toContainText(sharedDescription);
+    expect(
+      (
+        await sql<{ headRevisionId: string }>(
+          `SELECT "headRevisionId" FROM "ReviewSkill" WHERE id=$1`,
+          [SKILLS_SHARED_ID],
+        )
+      )[0]!.headRevisionId,
+    ).toBe(savedHead.headRevisionId);
     expect(
       (
         await sql<{ count: string }>(

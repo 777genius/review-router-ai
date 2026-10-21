@@ -58,7 +58,7 @@ export function SkillEditorDialog({
     mutationFn: () =>
       document
         ? requestReviewSkills("saveSkill", {
-            workspaceId,
+            workspaceId: document.sourceWorkspaceId,
             skillId: document.skillId,
             expectedRevisionId: revisionId,
             content: { name, description, instructions },
@@ -234,7 +234,7 @@ export function SkillEditorDialog({
           onClick={() => {
             if (document)
               void requestReviewSkills("loadSkill", {
-                workspaceId,
+                workspaceId: document.sourceWorkspaceId,
                 skillId: document.skillId,
               })
                 .then((current) => {

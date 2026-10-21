@@ -243,7 +243,8 @@ a genuine server-action replay by a different current source admin, all 125
 current repository IDs with mixed assignment counts, skill pagination and search
 selection, additive Add/Remove, the explicit 1001-target rejection, a committed
 Apply whose response is deliberately lost and then retried with the same delta,
-canonical cross-workspace linking, separate grant and destination acceptance,
+canonical cross-workspace linking, author edits opened from a linked name with
+source and destination library refresh, separate grant and destination acceptance,
 local usage isolation, and the repository-only
 writer removing a revoked dependency without seeing subsequent source changes.
 
