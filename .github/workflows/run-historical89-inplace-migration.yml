@@ -234,7 +234,7 @@ jobs:
           );
           NODE
 
-      - run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0 && pnpm install --frozen-lockfile
+      - run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7 && pnpm install --frozen-lockfile
       - name: Check database host reachability (no credentials printed)
         env:
           REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL: ${{ secrets.REVIEW_ROUTER_RELEASE_MIGRATION_DATABASE_URL }}

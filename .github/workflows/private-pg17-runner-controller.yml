@@ -43,7 +43,7 @@ jobs:
         with:
           node-version: 26.11.1
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - id: runs
@@ -76,7 +76,7 @@ jobs:
         with:
           node-version: 26.11.1
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - id: context
@@ -156,7 +156,7 @@ jobs:
         with:
           node-version: 26.11.1
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Dispatch the exact next bounded sweep window with bounded backoff
@@ -192,7 +192,7 @@ jobs:
         with:
           node-version: 26.11.1
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - id: context
@@ -272,7 +272,7 @@ jobs:
         with:
           node-version: 26.11.1
       - name: Install pnpm
-        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
       - id: context

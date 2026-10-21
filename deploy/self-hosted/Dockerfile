@@ -13,7 +13,7 @@ ENV CI=1 \
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates openssl postgresql-client \
   && rm -rf /var/lib/apt/lists/* \
-  && npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+  && npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
 FROM base AS build-prisma
 ARG REVIEW_ROUTER_WEB_URL

@@ -13,7 +13,7 @@ ENV CI=1 \
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
-  && npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+  && npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
 # Fetch the pinned public dependency over HTTPS in the build stage.
 COPY . .
@@ -43,7 +43,7 @@ ENV CI=1 \
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
-  && npm install --global --ignore-scripts --no-audit --no-fund pnpm@10.33.0
+  && npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
 COPY --from=build --chown=node:node /app /app
 COPY --chown=root:root deploy/render-runtime/entrypoint.sh /usr/local/bin/reviewrouter-runtime
