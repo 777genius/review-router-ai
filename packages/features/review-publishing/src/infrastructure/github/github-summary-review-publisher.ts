@@ -11,10 +11,14 @@ import {
   type ReviewPublicationPlan,
 } from "../../domain/review-publication";
 
+import type { ReviewSummaryState } from "../../domain/review-publication-summary";
+
 type FetchLike = typeof fetch;
 
 export type GitHubSummaryReviewPublisherOptions = {
   readonly token: string;
+  readonly bannerBaseUrl?: string | undefined;
+  readonly reviewState?: ReviewSummaryState | undefined;
   readonly apiBaseUrl?: string | undefined;
   readonly fetchImpl?: FetchLike | undefined;
   readonly tokenRefresh?: GitHubCommentTokenRefresh | undefined;
@@ -33,6 +37,8 @@ const defaultGitHubApiBaseUrl = "https://api.github.com";
 
 export class GitHubSummaryReviewPublisher implements ReviewPublisherPort {
   private token: string;
+  private readonly bannerBaseUrl: string | undefined;
+  private readonly reviewState: ReviewSummaryState | undefined;
   private readonly apiBaseUrl: string;
   private readonly fetchImpl: FetchLike;
   private readonly tokenRefresh: GitHubCommentTokenRefresh | null;
@@ -44,6 +50,8 @@ export class GitHubSummaryReviewPublisher implements ReviewPublisherPort {
       throw new Error("github_review_publisher_token_required");
     }
     this.token = token;
+    this.bannerBaseUrl = options.bannerBaseUrl;
+    this.reviewState = options.reviewState;
     this.apiBaseUrl = (options.apiBaseUrl ?? defaultGitHubApiBaseUrl).replace(
       /\/+$/,
       "",
@@ -72,7 +80,11 @@ export class GitHubSummaryReviewPublisher implements ReviewPublisherPort {
       repo,
       issueNumber,
       existingCommentId: existing?.id,
-      body: renderReviewSummaryMarkdown({ plan }),
+      body: renderReviewSummaryMarkdown({
+        plan,
+        bannerBaseUrl: this.bannerBaseUrl,
+        reviewState: this.reviewState,
+      }),
     });
 
     const skippedInlineFindings: ReviewPublicationSkippedInlineFinding[] = [];
