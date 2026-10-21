@@ -151,6 +151,37 @@ export const providerInvocationManifestV1CanonicalizerDescriptor =
     }),
   });
 
+const prDescriptionTaskKind = "pr_description" as const;
+
+/** Optional parent-stage language; the published review V1 descriptor is immutable. */
+export const prDescriptionInvocationManifestV1CanonicalizerDescriptor =
+  Object.freeze({
+    ...providerInvocationManifestV1CanonicalizerDescriptor,
+    canonicalizerId: "pr_description_invocation_manifest_v1",
+    typeName: "PrDescriptionInvocationManifestV1",
+    canonicalPreimageDomain: "rr.pr-description-invocation-manifest.v1\0",
+    fields: Object.freeze(
+      providerInvocationManifestV1CanonicalizerDescriptor.fields.map((field) =>
+        field.name === "taskKindSet"
+          ? Object.freeze({
+              ...field,
+              values: Object.freeze([prDescriptionTaskKind]),
+              minItems: 1,
+              maxItems: 1,
+            })
+          : field,
+      ),
+    ),
+    goldenVector: Object.freeze({
+      ...providerInvocationManifestV1CanonicalizerDescriptor.goldenVector,
+      input: Object.freeze({
+        ...providerInvocationManifestV1CanonicalizerDescriptor.goldenVector
+          .input,
+        taskKindSet: Object.freeze([prDescriptionTaskKind]),
+      }),
+    }),
+  });
+
 const maxRequestMessages = 128;
 const maxRequestMessageBytes = 2 * 1024 * 1024;
 const maxCanonicalRequestBytes = 4 * 1024 * 1024;

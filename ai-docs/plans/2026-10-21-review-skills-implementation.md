@@ -157,8 +157,9 @@ runtime критики независимо проверили исправле�
 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
 означает пустой source delta. Новый отдельный кластер PostgreSQL 17 применил все
 138 migrations без переиспользования cluster-level roles. Browser — Chromium
-153.0.8010.0 из закреплённого `@sparticuz/chromium@153.0.0`. Дальнейший commit
-обновляет только этот отчёт, review log и paired CI pin.
+153.0.8010.0 из закреплённого `@sparticuz/chromium@153.0.0`. Следующий checkpoint
+`6a62b57` обновил только этот отчёт, review log и paired CI pin. Последующая
+contract-only совместимость описана отдельно ниже; web/Skills UX код не менялся.
 
 Проверены реальные desktop/mobile экраны, включая 390×844, keyboard/focus,
 dirty close, Create continuation, Save/CAS и сохранение через linked original.
@@ -203,3 +204,34 @@ hydration. Та же сигнатура была в предыдущем baselin
 application style нет. Это известный screenshot-timing artifact harness,
 не дополнительное доказательство product markup defect. Новые продуктовые
 изменения для его скрытия не вносились.
+
+## 8. Совместимость с конкурентным runtime main
+
+Runtime main затем получил PR #299 (`98c442d`) с optional AI PR descriptions.
+Его public consumer уже использует auxiliary canonicalizer из SaaS source
+`929d0d883c59e33c86fdc16ca5195211116531db`, тогда как отдельный product PR #638
+ещё не входит в SaaS main. Чтобы новый официальный Skills export не удалял
+существующий runtime contract, перенесена только необходимая декларативная
+часть источника и генератора.
+
+Изоляция выполнена явно: private contract-only literal вместо изменения
+production `ReviewTaskKind`; domain/base normalizers по-прежнему отвергают
+`pr_description`. Не добавлены execution/publication policy, application
+services, UI, migrations или зависимости отдельной фичи. Runtime consumer
+получает оба контракта через обычный source export.
+
+Сравнение с предыдущими 51 generated files: 48 byte-identical, изменены только
+barrel/companion declarations/manifest, добавлены два auxiliary files, удалений
+нет. Все прежние manifest fields, schema/base/investigation/negotiation и golden
+digests сохранены. Auxiliary TypeScript, golden fixture и companion file точно
+совпадают с `929d0d`; Skills contract и supporting agent profile не менялись.
+Полный receipt — `tmp/review-skills-unified-protocol-identity-proof.json`.
+
+Независимый backend критик выполнил official `protocol:check` (две deterministic
+generations, protocol build, control-plane/API typechecks), **29/29** generated,
+evidence canonicalization и release-manifest tests, **7/7** official export tests.
+Проверки доказывают и сосуществование двух экспортов, и отсутствие enablement
+новой задачи в существующей SaaS domain normalization.
+
+Root выполнил normal `action:build` и `action:artifact:check:smoke`; оба прошли.
+Tracked private bundles пересобраны из этого источника, source parity подтверждён.

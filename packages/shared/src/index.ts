@@ -6,7 +6,13 @@ export * from "./scm/index";
 export * from "./time/index";
 export * from "./validation/index";
 export { reviewRouterApiUrlsMatch } from "./reviewrouter-service-origin";
-export { providerApiCheckoutCompanionContract } from "./review-action-companion-contracts";
+export {
+  providerApiCheckoutCompanionContract,
+  prDescriptionContract,
+  type GeneratedPrDescription,
+  type PrDescriptionGenerationProvenance,
+  type PrDescriptionStageOutcome,
+} from "./review-action-companion-contracts";
 export * from "./review-skills-contract";
 
 export {
