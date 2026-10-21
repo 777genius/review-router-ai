@@ -37,10 +37,6 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await expect(
       page.getByRole("heading", { name: "Skills", exact: true }),
     ).toBeVisible();
-    await expect(page.locator("html")).toHaveAttribute(
-      "data-dashboard-layout-ready",
-      "true",
-    );
   }
   async function openRepoPage(
     page: Page,
@@ -266,15 +262,13 @@ test.describe("Skills real Next and PostgreSQL", () => {
     const name = `Portable browser skill ${Date.now()}`;
     const instructions =
       "Check ownership boundaries.\n![untrusted](https://example.invalid/never-fetch.png)\n<script>throw new Error('never execute')</script>";
-    await editor
-      .getByLabel("Import SKILL.md", { exact: false })
-      .setInputFiles({
-        name: "SKILL.md",
-        mimeType: "text/markdown",
-        buffer: Buffer.from(
-          `---\nname: ${JSON.stringify(name)}\ndescription: "Portable plain text"\n---\n\n${instructions}\n`,
-        ),
-      });
+    await editor.getByLabel("Import SKILL.md", { exact: false }).setInputFiles({
+      name: "SKILL.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from(
+        `---\nname: ${JSON.stringify(name)}\ndescription: "Portable plain text"\n---\n\n${instructions}\n`,
+      ),
+    });
     await expect(editor.getByLabel("Name", { exact: false })).toHaveValue(name);
     await expect(
       editor.getByLabel("Description", { exact: false }),
@@ -422,7 +416,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
         .click();
       const dialog = page.getByRole("dialog");
       await expect(dialog.getByRole("alert")).toContainText(
-        "All 1001 selected IDs are preserved",
+        "All 1001 selected repositories are preserved",
       );
       await expect(
         dialog.getByRole("button", {

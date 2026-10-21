@@ -180,7 +180,7 @@ export function RepositorySkillsOperation({
           ? "Add skills to repositories"
           : "Remove skills from repositories"
       }
-      description={`${repositoryIds.length} repositories captured. ${mode === "add" ? "Adds missing assignments; all other assignments and existing path scopes stay in place." : "Removes only the checked skills; originals and unrelated assignments stay in place."}`}
+      description={`${repositoryIds.length} ${repositoryIds.length === 1 ? "repository" : "repositories"} selected. ${mode === "add" ? "Adds missing skills; other skills and existing path settings stay in place." : "Removes only the checked skills from these repositories."}`}
       footer={
         <Button
           type="button"
@@ -237,9 +237,9 @@ export function RepositorySkillsOperation({
       </div>
       {overLimit ? (
         <p role="alert" className="text-amber-100">
-          All {repositoryIds.length} selected IDs are preserved. One atomic
-          operation supports up to 1000 repositories. Close and narrow your
-          search or selection; no assignments have been submitted.
+          All {repositoryIds.length} selected repositories are preserved. You
+          can update up to 1000 repositories at once. Close and narrow your
+          search or selection; no changes have been submitted.
         </p>
       ) : (
         <>
@@ -252,7 +252,7 @@ export function RepositorySkillsOperation({
             <table className="w-full min-w-[36rem] border-collapse">
               <caption className="sr-only">
                 Skill operation choices; assigned counts cover all{" "}
-                {repositoryIds.length} captured repositories.
+                {repositoryIds.length} selected repositories.
               </caption>
               <thead>
                 <tr className="border-b border-cyan-200/20 text-slate-400">

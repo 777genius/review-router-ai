@@ -78,7 +78,7 @@ export function SkillAccessDialog({
       onClose={onClose}
       pending={grant.isPending || revoke.isPending}
       title="Manage skill access"
-      description={`Share the canonical original “${skill.name}”. Destination admins accept access in their Skills library. Revocation blocks new admissions; already admitted reviews keep their captured instructions.`}
+      description={`Share “${skill.name}” with another workspace. Its admins accept access in their Skills library. Revoking access blocks future reviews from using this skill; reviews already in progress keep the instructions they started with.`}
     >
       <label className="block text-sm">
         Destination workspace ID

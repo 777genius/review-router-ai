@@ -27,8 +27,8 @@ export async function ReviewSkillsSection({
           Skills
         </h2>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-          Create reusable instructions for future reviews, share a canonical
-          original across workspaces, and choose which repositories use it.
+          Write review instructions once, share them across workspaces, and
+          choose which repositories use them.
         </p>
         <p className="mt-3 break-all text-xs text-slate-500">
           Workspace ID: <code>{workspaceId}</code>

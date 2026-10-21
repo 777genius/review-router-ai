@@ -140,7 +140,7 @@ export function SkillEditorDialog({
       title={
         document ? (editable ? "Edit skill" : "View skill") : "Create skill"
       }
-      description="Save updates the original for future reviews in connected repositories. Already admitted reviews keep their captured instructions."
+      description="Save updates these instructions for future reviews in connected repositories. Reviews already in progress keep the instructions they started with."
       footer={
         <>
           {document ? (

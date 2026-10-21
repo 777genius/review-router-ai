@@ -120,7 +120,7 @@ export function ReviewSkillsLibrary({
           ) : null}
         </div>
         <p className="text-xs text-slate-500">
-          Web originals and accepted live links
+          Created here and shared from other workspaces
         </p>
       </div>
       <SkillSearch value={search} onChange={setSearch} />
@@ -167,7 +167,10 @@ export function ReviewSkillsLibrary({
                   </span>
                 </td>
                 <td className={`${skillCellClass} text-slate-400`}>
-                  <span>{skill.usedIn.length} repositories</span>
+                  <span>
+                    {skill.usedIn.length}{" "}
+                    {skill.usedIn.length === 1 ? "repository" : "repositories"}
+                  </span>
                   {skill.usedIn.length ? (
                     <details className="mt-1">
                       <summary className="cursor-pointer text-xs">

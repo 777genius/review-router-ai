@@ -148,6 +148,9 @@ describe("published Review Skills language", () => {
     "a**b",
     "**.ts",
     "C:/src",
+    "src/\u0000.ts",
+    "src/\u001f.ts",
+    "src/\u007f.ts",
   ])("rejects out-of-dialect scope %s", (pattern) => {
     expect(() =>
       parseReviewSkillScope({ includePaths: [pattern], excludePaths: [] }),

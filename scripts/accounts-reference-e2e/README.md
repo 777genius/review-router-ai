@@ -236,14 +236,22 @@ ACCOUNTS_REFERENCE_E2E_GREP='Skills real Next' \
   --skills-fixture
 ```
 
-The browser scenarios cover real creation and explicit Save, mobile navigation,
+The seven browser scenarios cover real creation and explicit Save, mobile navigation,
+dirty-close cancellation, portable text-only SKILL.md import and export,
 concurrent-editor CAS conflicts with retained draft and explicit reconciliation,
 a genuine server-action replay by a different current source admin, all 125
 current repository IDs with mixed assignment counts, skill pagination and search
 selection, additive Add/Remove, the explicit 1001-target rejection, a committed
 Apply whose response is deliberately lost and then retried with the same delta,
-canonical cross-workspace linking, local usage isolation, and the repository-only
+canonical cross-workspace linking, separate grant and destination acceptance,
+local usage isolation, and the repository-only
 writer removing a revoked dependency without seeing subsequent source changes.
+
+The lane captures populated library and bulk-dialog screenshots on desktop and
+at a 390×844 mobile viewport under its `browser-artifacts/` directory. Synthetic
+fixtures use UTC explicitly. A narrow fixture-only `RepositoryConnection`
+privilege grant reproduces the canonical schema owner's existing production
+access for the row-lock helper; it gives the web role no additional authority.
 
 `skills-github-requests.json` records only HTTP methods and paths, proving the App
 token and collaborator permission transport was exercised. Cookies, JWTs, private
