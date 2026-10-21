@@ -1,9 +1,9 @@
 import type { ProviderKind } from "../../domain/provider-catalog";
-import type { ReviewModelOption } from "../../domain/provider-models";
-
+import type { ProviderModelCatalogSnapshot } from "../../domain/provider-model-catalog";
 export interface ProviderModelCatalogPort {
   listModels(input: {
     readonly providerKind: ProviderKind;
     readonly signal?: AbortSignal;
-  }): Promise<readonly ReviewModelOption[]>;
+    readonly forceRefresh?: boolean;
+  }): Promise<ProviderModelCatalogSnapshot>;
 }

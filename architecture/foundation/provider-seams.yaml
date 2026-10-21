@@ -4,12 +4,14 @@ workspace:
   manifest: pnpm-workspace.yaml
 governedRoots:
   - packages/features/review-providers/src
+  - packages/features/provider-usage/src
 boundaries:
   - id: catalog.domain
     roots:
       - packages/features/review-providers/src/domain
     entrypoints:
       - packages/features/review-providers/src/domain/provider-catalog.ts
+      - packages/features/review-providers/src/domain/provider-model-catalog.ts
       - packages/features/review-providers/src/domain/provider-models.ts
       - packages/features/review-providers/src/domain/provider-runtime-plan.ts
     allow:
@@ -32,14 +34,31 @@ boundaries:
       runtimeReferences: []
   - id: catalog.infrastructure
     roots:
+      - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.ts
       - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.ts
     entrypoints:
+      - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.ts
       - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.ts
     allow:
       boundaries:
         - catalog.domain
         - catalog.application
       packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: catalog.composition
+    roots:
+      - packages/features/review-providers/src/composition/index.ts
+    entrypoints:
+      - packages/features/review-providers/src/composition/index.ts
+    allow:
+      boundaries:
+        - catalog.domain
+        - catalog.application
+        - catalog.infrastructure
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
       builtins: []
       runtimeReferences: []
   - id: catalog.public
@@ -58,6 +77,8 @@ boundaries:
   - id: catalog.tests
     roots:
       - packages/features/review-providers/src/tests
+      - packages/features/review-providers/src/composition/index.test.ts
+      - packages/features/review-providers/src/infrastructure/catalog/public-model-catalog.test.ts
       - packages/features/review-providers/src/infrastructure/openrouter/openrouter-model-catalog.test.ts
     entrypoints: []
     allow:
@@ -65,9 +86,111 @@ boundaries:
         - catalog.domain
         - catalog.application
         - catalog.infrastructure
+        - catalog.composition
         - catalog.public
       packages:
         - vitest
       builtins: []
+      runtimeReferences: []
+    dependencyMode: development
+  - id: usage.domain
+    roots:
+      - packages/features/provider-usage/src/domain
+    entrypoints:
+      - packages/features/provider-usage/src/domain/estimate-usage-cost.ts
+      - packages/features/provider-usage/src/domain/usage-price.ts
+      - packages/features/provider-usage/src/domain/usage.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: usage.application
+    roots:
+      - packages/features/provider-usage/src/application
+    entrypoints:
+      - packages/features/provider-usage/src/application/ingest-usage.ts
+      - packages/features/provider-usage/src/application/operator-report.ts
+      - packages/features/provider-usage/src/application/ports.ts
+      - packages/features/provider-usage/src/application/report-usage.ts
+    allow:
+      boundaries:
+        - usage.domain
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: usage.infrastructure
+    roots:
+      - packages/features/provider-usage/src/infrastructure/prisma-operator-usage-report-reader.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-store.ts
+      - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts
+    entrypoints:
+      - packages/features/provider-usage/src/infrastructure/prisma-operator-usage-report-reader.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-store.ts
+      - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+      packages:
+        - "@prisma/client"
+      builtins:
+        - node:crypto
+      runtimeReferences: []
+  - id: usage.composition
+    roots:
+      - packages/features/provider-usage/src/composition/index.ts
+    entrypoints:
+      - packages/features/provider-usage/src/composition/index.ts
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+        - usage.infrastructure
+      packages:
+        - "@get-modular/core"
+        - "@get-modular/assembly"
+      builtins: []
+      runtimeReferences: []
+  - id: usage.public
+    roots:
+      - packages/features/provider-usage/src/index.ts
+    entrypoints:
+      - packages/features/provider-usage/src/index.ts
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+        - usage.infrastructure
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: usage.tests
+    roots:
+      - packages/features/provider-usage/src/tests
+      - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.test.ts
+    entrypoints: []
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+        - usage.infrastructure
+        - usage.composition
+        - usage.public
+      packages:
+        - vitest
+        - "@prisma/client"
+        - "@prisma/adapter-pg"
+        - "@reviewrouter/platform-db"
+        - pg
+      builtins:
+        - node:crypto
+        - node:assert/strict
+        - node:child_process
+        - node:fs
+        - node:os
+        - node:path
       runtimeReferences: []
     dependencyMode: development

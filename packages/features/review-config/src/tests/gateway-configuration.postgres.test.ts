@@ -100,7 +100,7 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        expect(names).toHaveLength(138);
+        expect(names).toHaveLength(139);
         expect(names.at(-1)).toBe("000139_review_context_tools");
         let legacyBefore: unknown;
         for (const name of names) {

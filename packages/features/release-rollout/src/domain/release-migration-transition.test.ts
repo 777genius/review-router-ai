@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout138 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout139 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,9 +107,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(138);
+    expect(full).toHaveLength(139);
     expect(manifest(full)).toBe(
-      "sha256:22d2cb47f5ec96e2b154ac07a375a19682243b7378df7a00f891a4713408b56b",
+      "sha256:ecbb9d456aa70c06abbc301950005378b53afb25f2382f06d608589a4935a9dc",
     );
     const old125 = full
       .filter(
@@ -123,6 +123,7 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000132_review_policy_schema_v3" &&
           row.migrationName !== "000134_account_lifecycle" &&
           row.migrationName !== "000134_review_provider_kind_v2_ocr" &&
+          row.migrationName !== "000136_provider_usage" &&
           row.migrationName !== "000135_review_run_checkout_repository_lock" &&
           row.migrationName !== "000138_pr_description" &&
           row.migrationName !== "000139_review_context_tools" &&
@@ -149,7 +150,7 @@ describe("canonical release migration transition", () => {
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-30).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-31).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
@@ -178,6 +179,7 @@ describe("canonical release migration transition", () => {
       "000134_account_lifecycle",
       "000134_review_provider_kind_v2_ocr",
       "000135_review_run_checkout_repository_lock",
+      "000136_provider_usage",
       "000138_pr_description",
       "000139_review_context_tools",
     ]);

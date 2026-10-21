@@ -5,13 +5,15 @@ export type DashboardSection =
   | "memory"
   | "setup"
   | "policy"
-  | "diagnostics";
+  | "diagnostics"
+  | "usage";
 
 export const DASHBOARD_SECTIONS = [
   "repositories",
   "setup",
   "policy",
   "diagnostics",
+  "usage",
   "memory",
 ] as const satisfies readonly DashboardSection[];
 
@@ -50,6 +52,13 @@ export const dashboardSectionMeta: Record<
     description:
       "Choose provider auth, model, reasoning effort, context mode, and blocking severity.",
     navDescription: "Provider, model, gates",
+  },
+  usage: {
+    eyebrow: "Measured consumption",
+    title: "Usage",
+    description:
+      "Provider attempts, known tokens and cost, with source coverage.",
+    navDescription: "Provider usage and coverage",
   },
   diagnostics: {
     eyebrow: "Operations",

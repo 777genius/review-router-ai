@@ -1295,6 +1295,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000132_review_policy_schema_v3" &&
         name !== "000134_account_lifecycle" &&
         name !== "000134_review_provider_kind_v2_ocr" &&
+        name !== "000136_provider_usage" &&
         name !== "000135_review_run_checkout_repository_lock" &&
         name !== "000138_pr_description" &&
         name !== "000139_review_context_tools" &&
@@ -1352,9 +1353,9 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(138);
+    expect(migrationNames).toHaveLength(139);
     expect(migrationManifestIdentity(migrationNames)).toBe(
-      "sha256:22d2cb47f5ec96e2b154ac07a375a19682243b7378df7a00f891a4713408b56b",
+      "sha256:ecbb9d456aa70c06abbc301950005378b53afb25f2382f06d608589a4935a9dc",
     );
     expect(historicalCheckout).toHaveLength(124);
     expect(historicalMigrationManifestIdentity(historicalCheckout)).toBe(
@@ -1461,6 +1462,7 @@ describe("disposable dual-version rehearsal", () => {
       "000134_account_lifecycle",
       "000134_review_provider_kind_v2_ocr",
       "000135_review_run_checkout_repository_lock",
+      "000136_provider_usage",
       "000138_pr_description",
       "000139_review_context_tools",
     ]);
@@ -1671,6 +1673,7 @@ describe("disposable dual-version rehearsal", () => {
     "000134_account_lifecycle",
     "000134_review_provider_kind_v2_ocr",
     "000135_review_run_checkout_repository_lock",
+    "000136_provider_usage",
     "000138_pr_description",
     "000139_review_context_tools",
   ])(
@@ -1738,6 +1741,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000132_review_policy_schema_v3" &&
                 name !== "000134_account_lifecycle" &&
                 name !== "000134_review_provider_kind_v2_ocr" &&
+                name !== "000136_provider_usage" &&
                 name !== "000135_review_run_checkout_repository_lock" &&
                 name !== "000138_pr_description" &&
                 name !== "000139_review_context_tools" &&

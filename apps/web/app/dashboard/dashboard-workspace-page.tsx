@@ -1,5 +1,7 @@
 import { listDashboardContextConnections } from "../../src/server/context-tools";
 import type { ContextConnectionMetadata } from "@reviewrouter/features-review-context-tools";
+import { loadProviderUsage } from "../../src/server/provider-usage-report";
+import { ProviderUsageView } from "./provider-usage-view";
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import {
@@ -12,6 +14,7 @@ import {
   type GatewayAgentProfileOption,
 } from "../../src/server/gateway-agent-profile-options";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
+import { ProviderModelCatalogProvider } from "./provider-model-catalog";
 import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
 import { productionPersonalAccounts } from "../../src/server/personal-account-composition";
 import {
@@ -146,6 +149,7 @@ import { deriveDashboardProviderSetupReadiness } from "../../src/server/dashboar
 import { PrismaCodexRotatingSetupReadiness } from "../../src/server/prisma-codex-rotating-setup-readiness";
 import {
   getReviewModelOptions,
+  getProviderModelCatalogs,
   type ReviewModelOption,
 } from "../../src/server/openrouter-model-catalog";
 import { FormSubmitButton } from "../form-submit-button";
@@ -1402,36 +1406,44 @@ async function DashboardSectionContent({
         .workspaceAccess(selectedWorkspace.workspace.id)
         .catch(() => null)
     : null;
-  const [data, modelOptions, accountsBootstrap, contextConnections] =
-    await Promise.all([
-      loadDashboardSectionData(
-        selectedWorkspace,
-        selectedSection,
-        repositoryAccess,
-        supportAudit,
-        signedInActor ? dashboardMemoryActorInput(signedInActor) : null,
-      ),
-      selectedSection === "repositories" || selectedSection === "policy"
-        ? getReviewModelOptions()
-        : Promise.resolve([]),
-      selectedSection === "repositories" ||
-      selectedSection === "policy" ||
-      selectedSection === "diagnostics"
-        ? personal && personalAccess
-          ? personal
-              .models(selectedWorkspace.workspace.id)
-              .then(async (api) => ({
-                page: await api.list({ limit: 25 }),
-              }))
-              .catch(() => ({ page: { status: "unavailable" as const } }))
-          : loadAccountsBootstrap(selectedWorkspace.workspace.id)
-        : Promise.resolve(null),
-      selectedSection === "repositories" || selectedSection === "policy"
-        ? listDashboardContextConnections(selectedWorkspace.workspace.id).catch(
-            () => [],
-          )
-        : Promise.resolve([]),
-    ]);
+  const [
+    data,
+    modelOptions,
+    accountsBootstrap,
+    contextConnections,
+    modelCatalogSnapshots,
+  ] = await Promise.all([
+    loadDashboardSectionData(
+      selectedWorkspace,
+      selectedSection,
+      repositoryAccess,
+      supportAudit,
+      signedInActor ? dashboardMemoryActorInput(signedInActor) : null,
+    ),
+    selectedSection === "repositories" || selectedSection === "policy"
+      ? getReviewModelOptions()
+      : Promise.resolve([]),
+    selectedSection === "repositories" ||
+    selectedSection === "policy" ||
+    selectedSection === "diagnostics"
+      ? personal && personalAccess
+        ? personal
+            .models(selectedWorkspace.workspace.id)
+            .then(async (api) => ({
+              page: await api.list({ limit: 25 }),
+            }))
+            .catch(() => ({ page: { status: "unavailable" as const } }))
+        : loadAccountsBootstrap(selectedWorkspace.workspace.id)
+      : Promise.resolve(null),
+    selectedSection === "repositories" || selectedSection === "policy"
+      ? listDashboardContextConnections(selectedWorkspace.workspace.id).catch(
+          () => [],
+        )
+      : Promise.resolve([]),
+    selectedSection === "repositories" || selectedSection === "policy"
+      ? getProviderModelCatalogs()
+      : Promise.resolve([]),
+  ]);
   // Approved engine profiles for the Account Gateway provider row; derived
   // from the producer-release approved profile authority, never user input.
   const agentProfileOptions = loadGatewayAgentProfileOptions();
@@ -1451,26 +1463,32 @@ async function DashboardSectionContent({
       claudeCodeProviderEnabled={isClaudeCodeProviderEnabled()}
     />
   );
-  return personal && personalAccess ? (
-    <GatewayModelAccountsProvider
-      scope={`${personal.scope}:workspace:${selectedWorkspace.workspace.id}`}
-      api={{
-        list: listPersonalModelAccounts.bind(
-          null,
-          personal.scope,
-          selectedWorkspace.workspace.id,
-        ),
-        get: getPersonalModelAccount.bind(
-          null,
-          personal.scope,
-          selectedWorkspace.workspace.id,
-        ),
-      }}
-    >
-      {content}
-    </GatewayModelAccountsProvider>
-  ) : (
-    content
+  const wrappedContent =
+    personal && personalAccess ? (
+      <GatewayModelAccountsProvider
+        scope={`${personal.scope}:workspace:${selectedWorkspace.workspace.id}`}
+        api={{
+          list: listPersonalModelAccounts.bind(
+            null,
+            personal.scope,
+            selectedWorkspace.workspace.id,
+          ),
+          get: getPersonalModelAccount.bind(
+            null,
+            personal.scope,
+            selectedWorkspace.workspace.id,
+          ),
+        }}
+      >
+        {content}
+      </GatewayModelAccountsProvider>
+    ) : (
+      content
+    );
+  return (
+    <ProviderModelCatalogProvider snapshots={modelCatalogSnapshots}>
+      {wrappedContent}
+    </ProviderModelCatalogProvider>
   );
 }
 
@@ -1858,6 +1876,12 @@ export function WorkspaceCard({
             </p>
           </section>
         )}
+      </div>
+    );
+  if (selectedSection === "usage")
+    return (
+      <div id="dashboard-section-content" className="min-w-0 space-y-5">
+        <ProviderUsageSection workspaceId={workspace.id} />
       </div>
     );
   const activeConfig = data.reviewConfig?.config;
@@ -4090,4 +4114,27 @@ function dashboardMemoryModeHref(
   });
   if (workspaceKey) query.set("workspace", workspaceKey);
   return `/dashboard?${query.toString()}#dashboard-section-content`;
+}
+
+async function ProviderUsageSection({ workspaceId }: { workspaceId: string }) {
+  let report;
+  try {
+    report = await loadProviderUsage(workspaceId);
+  } catch (error) {
+    if (error instanceof Error && error.message === "usage_access_denied")
+      return (
+        <p>
+          Usage reports require workspace membership. Repository access alone
+          does not grant access to workspace usage.
+        </p>
+      );
+    throw error;
+  }
+  return (
+    <ProviderUsageView
+      key={workspaceId}
+      workspaceId={workspaceId}
+      initialReport={report}
+    />
+  );
 }

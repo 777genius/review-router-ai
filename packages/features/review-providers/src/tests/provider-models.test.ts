@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   codexModelSupportsReasoningEffort,
+  codexModelSupportsFastMode,
   listStaticReviewModelOptions,
 } from "../index";
 
@@ -12,6 +13,12 @@ describe("Codex model capabilities", () => {
       provider: "codex-mimo",
       description: "MiMo Token Plan public engine model.",
     });
+  });
+
+  it("does not grant fast mode to newly discovered models", () => {
+    expect(codexModelSupportsFastMode("gpt-5.6-sol")).toBe(true);
+    expect(codexModelSupportsFastMode("gpt-5.4")).toBe(true);
+    expect(codexModelSupportsFastMode("future-public-model")).toBe(false);
   });
 
   it.each(["max", "ultra"] as const)(

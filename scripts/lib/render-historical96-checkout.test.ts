@@ -32,6 +32,7 @@ const full = currentFull
       row.migrationName !== "000130_personal_canonical_operations" &&
       row.migrationName !== "000131_personal_canonical_unentered_claim" &&
       row.migrationName !== "000132_review_policy_schema_v3" &&
+      row.migrationName !== "000136_provider_usage" &&
       row.migrationName !== "000135_review_run_checkout_repository_lock" &&
       row.migrationName !== "000138_pr_description" &&
       row.migrationName !== "000139_review_context_tools" &&
@@ -166,6 +167,7 @@ describe("trusted historical96 checkout reader", () => {
         (row) =>
           row.migrationName !== "000131_personal_canonical_unentered_claim" &&
           row.migrationName !== "000132_review_policy_schema_v3" &&
+          row.migrationName !== "000136_provider_usage" &&
           row.migrationName !== "000135_review_run_checkout_repository_lock" &&
           row.migrationName !== "000138_pr_description" &&
           row.migrationName !== "000139_review_context_tools" &&
@@ -180,6 +182,7 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000130_personal_canonical_operations" &&
           row.migrationName !== "000131_personal_canonical_unentered_claim" &&
           row.migrationName !== "000132_review_policy_schema_v3" &&
+          row.migrationName !== "000136_provider_usage" &&
           row.migrationName !== "000135_review_run_checkout_repository_lock" &&
           row.migrationName !== "000138_pr_description" &&
           row.migrationName !== "000139_review_context_tools" &&

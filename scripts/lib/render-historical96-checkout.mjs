@@ -46,6 +46,7 @@ const checkoutOnlyMigrations = Object.freeze([
   "000134_account_lifecycle",
   "000134_review_provider_kind_v2_ocr",
   "000135_review_run_checkout_repository_lock",
+  "000136_provider_usage",
   "000138_pr_description",
   "000139_review_context_tools",
 ]);
@@ -64,7 +65,7 @@ export function readRenderHistorical96CheckoutInventory() {
     ![
       96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
       111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
-      126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137,
+      126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138,
     ].includes(
       checkout.filter(
         (row) =>

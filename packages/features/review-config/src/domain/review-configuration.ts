@@ -1,6 +1,7 @@
 import { contextToolsSelectionSchema } from "@reviewrouter/features-review-context-tools/selection";
 import {
   codexModelSupportsReasoningEffort,
+  codexModelSupportsFastMode,
   defaultProviderReasoningEffort,
   gatewayModelSchema,
   gatewayReferenceSchema,
@@ -67,6 +68,19 @@ export const reviewProviderConfigurationSchema = z
         code: "custom",
         path: ["reasoningEffort"],
         message: "review reasoning effort is unsupported for model",
+      });
+    }
+    if (
+      provider.kind === "codex" &&
+      provider.authMode !== "codex_account_gateway" &&
+      provider.fastMode &&
+      !codexModelSupportsFastMode(provider.model)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["fastMode"],
+        message:
+          "Fast mode is not verified for this model. Disable fast mode before saving.",
       });
     }
   });

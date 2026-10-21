@@ -228,6 +228,9 @@ importers:
       '@reviewrouter/features-provider-accounts':
         specifier: workspace:*
         version: link:../../packages/features/provider-accounts
+      '@reviewrouter/features-provider-usage':
+        specifier: workspace:*
+        version: link:../../packages/features/provider-usage
       '@reviewrouter/features-rate-limits':
         specifier: workspace:*
         version: link:../../packages/features/rate-limits
@@ -258,6 +261,9 @@ importers:
       '@reviewrouter/features-review-progress':
         specifier: workspace:*
         version: link:../../packages/features/review-progress
+      '@reviewrouter/features-review-providers':
+        specifier: workspace:*
+        version: link:../../packages/features/review-providers
       '@reviewrouter/features-review-publishing':
         specifier: workspace:*
         version: link:../../packages/features/review-publishing
@@ -360,6 +366,9 @@ importers:
       '@reviewrouter/features-provider-accounts':
         specifier: workspace:*
         version: link:../../packages/features/provider-accounts
+      '@reviewrouter/features-provider-usage':
+        specifier: workspace:*
+        version: link:../../packages/features/provider-usage
       '@reviewrouter/features-provider-setup':
         specifier: workspace:*
         version: link:../../packages/features/provider-setup
@@ -823,6 +832,31 @@ importers:
         specifier: ^4.4.2
         version: 4.4.2
 
+  packages/features/provider-usage:
+    dependencies:
+      '@get-modular/assembly':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@get-modular/core':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@prisma/client':
+        specifier: 7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
+    devDependencies:
+      '@prisma/adapter-pg':
+        specifier: 7.8.0
+        version: 7.8.0
+      '@reviewrouter/platform-db':
+        specifier: workspace:*
+        version: link:../../platform/db
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.23.1)(yaml@2.9.0))
+
   packages/features/rate-limits:
     dependencies:
       '@prisma/client':
@@ -997,6 +1031,12 @@ importers:
 
   packages/features/review-providers:
     dependencies:
+      '@get-modular/assembly':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@get-modular/core':
+        specifier: 0.2.0
+        version: 0.2.0
       zod:
         specifier: ^4.4.2
         version: 4.4.2

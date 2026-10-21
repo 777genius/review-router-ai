@@ -157,7 +157,8 @@ describe.skipIf(!enabled)(
   "public eligibility on actual PostgreSQL guards",
   () => {
     // The timestamptz decoder used to shift wall time by the session offset.
-    // These assertions run the real custody adapter, not a mocked Date query.
+    // The platform client normalizes every requested startup timezone to UTC;
+    // these assertions run the real custody adapter and expiry guard.
     it.each(["UTC", "Europe/Berlin", "America/New_York"])(
       "uses the actual database instant for mint authority in %s",
       async (timezone) => {
@@ -171,7 +172,7 @@ describe.skipIf(!enabled)(
           const setting = await timezoneCustody.$queryRaw<
             Array<{ timezone: string }>
           >`SELECT current_setting('TimeZone') AS timezone`;
-          expect(setting[0]?.timezone).toBe(timezone);
+          expect(setting[0]?.timezone).toBe("UTC");
           const fresh = await repositoryFixture("public");
           expect((await prepare(fresh, 1, timezoneCustody)).state).toBe(
             "prepared",
@@ -179,7 +180,7 @@ describe.skipIf(!enabled)(
           const restored = await timezoneCustody.$queryRaw<
             Array<{ timezone: string }>
           >`SELECT current_setting('TimeZone') AS timezone`;
-          expect(restored[0]?.timezone).toBe(timezone);
+          expect(restored[0]?.timezone).toBe("UTC");
 
           const expired = await repositoryFixture("public", 1_000);
           await new Promise((resolve) => setTimeout(resolve, 1_100));

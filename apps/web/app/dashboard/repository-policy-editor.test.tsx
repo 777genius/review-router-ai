@@ -2142,6 +2142,42 @@ describe("ReviewConfigForm", () => {
     ).toContain("XHigh");
   });
 
+  it("preserves unsupported effort and fast mode on a new public ID until explicitly corrected", () => {
+    renderReviewConfigForm();
+    fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
+    fireEvent.click(screen.getByRole("option", { name: /Ultra/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Fast mode" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Model" }), {
+      target: { value: "gpt-new-public" },
+    });
+    const model = screen.getByRole("textbox", { name: "Model" });
+    const form = model.closest("form")!;
+    expect(new FormData(form).get("providerReasoningEffort.0")).toBe("ultra");
+    expect(new FormData(form).get("providerFastMode.0")).toBe("true");
+    expect(
+      screen.getByText(/no verified fast mode or Max\/Ultra support/),
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Save workspace default",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Fast mode" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
+    fireEvent.click(
+      screen.getByRole("option", { name: /^HighDeeper review pass/ }),
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Save workspace default",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
   it("checks the Claude Code OAuth secret for a saved Claude provider", async () => {
     vi.mocked(checkProviderRepositorySecretClientAction).mockResolvedValue({
       status: "missing",
