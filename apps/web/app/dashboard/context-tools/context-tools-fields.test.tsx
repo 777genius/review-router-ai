@@ -77,12 +77,10 @@ it("imports a reviewable draft without saving the policy or connection", async (
     builtinTools: ["github.issue.read"],
     mcp: [{ connection: "docs", tools: ["search_docs"] }],
   };
-  const request = vi
-    .fn()
-    .mockResolvedValue({
-      ok: true,
-      json: async () => ({ selection, sourceCommit: "a".repeat(40) }),
-    });
+  const request = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ selection, sourceCommit: "a".repeat(40) }),
+  });
   vi.stubGlobal("fetch", request);
   const { container } = render(
     <ContextToolsSelectionField

@@ -16,14 +16,12 @@ const authorization = {
   pullRequestNumber: 7,
 } as ReviewRunAuthorization;
 function reader() {
-  mocks.mint
-    .mockReset()
-    .mockResolvedValue({
-      data: {
-        token: "server-only",
-        permissions: { issues: "read", pull_requests: "read" },
-      },
-    });
+  mocks.mint.mockReset().mockResolvedValue({
+    data: {
+      token: "server-only",
+      permissions: { issues: "read", pull_requests: "read" },
+    },
+  });
   mocks.request.mockReset();
   return createContextIssueReader({
     appId: "1",
@@ -76,11 +74,9 @@ describe("linked issue App read", () => {
       code: "context_issue_not_linked",
     });
     expect(mocks.request).toHaveBeenCalledTimes(1);
-    mocks.request
-      .mockReset()
-      .mockResolvedValueOnce({
-        data: { head: { sha: "b".repeat(40) }, title: "Fix #12", body: "" },
-      });
+    mocks.request.mockReset().mockResolvedValueOnce({
+      data: { head: { sha: "b".repeat(40) }, title: "Fix #12", body: "" },
+    });
     await expect(r.read(authorization, 12)).rejects.toMatchObject({
       code: "context_revision_changed",
     });

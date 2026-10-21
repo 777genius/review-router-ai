@@ -127,11 +127,9 @@ export async function registerContextToolsRoutes(
           return reply.code(200).send(result);
         } catch (error) {
           const allowed = error instanceof ContextToolsAccessFailure;
-          return reply
-            .code(allowed ? error.status : 503)
-            .send({
-              error: allowed ? error.code : "context_tools_unavailable",
-            });
+          return reply.code(allowed ? error.status : 503).send({
+            error: allowed ? error.code : "context_tools_unavailable",
+          });
         }
       },
     );
