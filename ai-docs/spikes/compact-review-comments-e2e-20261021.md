@@ -66,3 +66,43 @@ Native summary clicks opened details, images loaded, no nested disclosures or
 horizontal overflow occurred. Representative screenshots were inspected by hand.
 This checks the returned comment content and layout; it is not a screenshot of
 the authenticated GitHub page. Files and receipt: `tmp/compact-review-e2e/visual/`.
+
+## Normal runtime publication
+
+One normal reopened-event canary used the existing PR 2 and reviewed head above.
+[Run 39662320098](https://github.com/777genius/rr-selfhost-direct-v2-e2e-20260730t120036z/actions/runs/39662320098)
+resolved `workflow-v1` to the approved public189 commit `b4d8bd5676841b5a1967618bab460a5046bcbf30`.
+The server correlated one request, exact workflow run and reviewed head. The
+provider returned upstream HTTP502 before rendering, so successful model inference
+is not claimed. Its request effect stayed unknown and was not retried.
+
+The normal App publisher nevertheless completed its summary operation and
+released its publication claim. Authorization was revoked and the Gateway close
+operation applied. [The resulting comment](https://github.com/777genius/rr-selfhost-direct-v2-e2e-20260730t120036z/pull/2#issuecomment-6324985462)
+has 15682 UTF-8 bytes, one balanced nonnested Review details disclosure, visible
+incomplete/provider/coverage/previous-thread warnings, and no duplicate brand,
+Summary heading or footer. The fixture PR was closed again after terminal proof.
+The frozen v5 incomplete wrapper and stored operation hashes remain compatible;
+this formatting change does not rewrite previously frozen publication operations.
+Correlated receipts are in the Action checkout's
+`tmp/compact-review/normal-runtime-canary/e2e.actual.public.json` and
+`correlation.terminal.public.json`.
+
+## Preview and inline-code regressions
+
+Adjacent fenced code and other interrupting Markdown blocks now remain in full
+details, outside the first ordinary paragraph preview. Actual GitHub raw/HTML
+publication on existing PR 16 verified this case, stable upsert and cleanup of
+only its own comment6326880908. Receipt:
+`tmp/compact-review/action-191-live/receipt.json` in the Action checkout.
+Autolinks in soft-wrapped prose remain readable. Inline source such as
+`Promise<void>` and `a && b` retains literal characters instead of displaying
+HTML entity text; unmatched code delimiters still receive HTML escaping.
+Focused regressions and actual GitHub Markdown rendering cover these fixes.
+
+The final inline-code fix is [public PR304](https://github.com/777genius/review-router/pull/304),
+merged at `c2d2cc671949e3d6281459b55b98c45da9b4c4fc` for version1.0.192.
+Its exact-head CI passed and all review threads were resolved before merge.
+The paired control-plane CI pins this immutable Action commit. Public release,
+compatible producer adoption and matching private publication are separate gates;
+source merge alone does not prove their completion.
