@@ -110,9 +110,9 @@ pnpm action:artifact:check:smoke
 
 ## 5. Commit identities и CI
 
-- SaaS functional integration checkpoint: `03c94f32ce4a5147336681502742e4385c1827d5`.
-- Paired runtime checkout: `13b66b2414457cda6202513d26f6e7728c29daeb`; этот immutable SHA установлен только в paired CI lane. Published hosted-pool baseline и stable tags не перемещены.
-- Canonical contract source: `e8d083c20c9cb2a8a0262842940538afec636088`; official handoff digest `df098a0fdd988f56388a1cb613d122592e80a43ce14ed08590c3f91256243620`.
+- SaaS functional integration checkpoint после повторного ревью: `35ec3863c62b13095efdcc0083a180cea7ad6eba`. Историческая квалификация выше выполнена на `03c94f32ce4a5147336681502742e4385c1827d5`; новый receipt приведён ниже.
+- Paired runtime checkout: `cf7c7b154bd5e5d04efcfcdfcc35ddd188f6c014`; этот immutable SHA установлен только в paired CI lane. Published hosted-pool baseline и stable tags не перемещены.
+- Canonical contract source: `35ec3863c62b13095efdcc0083a180cea7ad6eba`; official handoff digest `af9020733c465e66d748b6b80da57e148e3fe0622231d29e829bf98b5ca1aca1`.
 - OCR Linux amd64 binary: `0553daafe39d7a9d7608f0d37b26d55c11d07b9d5bbfc5b36b0778f9cd9f3df5`, pinned upstream `8eb83340a487b1150af00701b94f01af97e4b4d6`, Go 1.26.9, rr.4 и десять patches.
 
 CI теперь содержит отдельную Skills PostgreSQL fixture, scoped tooling/native compiler gates и signed HTTP proof после verified paired checkout. Runtime CI собирает настоящий OCR в temporary directory, сравнивает полный manifest и запускает существующий Jest с required binary. Browser qualification остаётся явным локальным real-browser lane; автоматического browser CI pass этот документ не заявляет.
@@ -128,3 +128,78 @@ CI теперь содержит отдельную Skills PostgreSQL fixture, s
 Формат v1 — текст и ограниченные Markdown references. Нет запуска scripts, установки dependencies, новых tool permissions, transitive sharing, marketplace, ручного Publish/semver или двусторонней Git/web sync. Provenance подтверждает передачу инструкций, но не доказывает соблюдение каждой инструкции моделью.
 
 Production deployment, публикация release assets и регистрация новых qualified producer profiles выполняются существующим release process после review. Правильный порядок: additive DB/server → новый qualified runtime/profile → включение назначений для поддерживаемых репозиториев. Эти PR не выполняют merge/deploy и не изменяют production credentials.
+
+## 7. Повторное ревью, авторство и финальная визуальная квалификация
+
+По дополнительному запросу пользователя три независимых критика **GPT-6.1 Sol
+xhigh** проверили backend/authority, runtime/OCR и действующий frontend. Четыре
+P2 опубликованы inline в PR: partial repository discovery, потерянный shortcut
+Markdown reference, assignment после обычного Save и скрытый bulk feedback.
+Все четыре исправлены; подробности и pre-existing non-blocking наблюдение
+сохранены [в журнале ревью](./2026-10-21-review-skills-reviews.md). Backend и
+runtime критики независимо проверили исправления друг друга.
+
+Дополнительные выполненные проверки:
+
+| Проверка                                                                  | Результат                                                                                                                                          |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adapter и действующие dashboard permission guards                         | 26/26 passed                                                                                                                                       |
+| Actual PostgreSQL partial-proof regression                                | 1 выбранный case passed: только разрешённый target в discovery, bulk на два targets запрещён, 0 bindings; 7 соседних tests намеренно отфильтрованы |
+| Runtime parser, generated contract и rebuilt production artifact          | 16/16 passed после нового official handoff                                                                                                         |
+| Runtime после merge текущего main с compact review comments               | 77/77 Skills/contract/artifact/reviewer-summary tests; full typecheck и normal build passed                                                        |
+| Signed HTTP paired delivery после обновления runtime                      | 1 выбранный case passed, 4 соседних tests намеренно отфильтрованы                                                                                  |
+| Runtime full typecheck, changed-file lint/format, normal Action/CLI build | Passed; qualified Go binary и context-gateway bytes не изменялись                                                                                  |
+| Web и browser-harness TypeScript, formatting/diff checks                  | Passed                                                                                                                                             |
+| Финальный real-browser run `skills-visual-qualified-35ec386`              | **7/7, 0 failed, 0 skipped, 0 flaky**, 63.42 секунды                                                                                               |
+
+Последний browser receipt относится точно к
+`35ec3863c62b13095efdcc0083a180cea7ad6eba`; source delta SHA256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
+означает пустой source delta. Новый отдельный кластер PostgreSQL 17 применил все
+138 migrations без переиспользования cluster-level roles. Browser — Chromium
+153.0.8010.0 из закреплённого `@sparticuz/chromium@153.0.0`. Дальнейший commit
+обновляет только этот отчёт, review log и paired CI pin.
+
+Проверены реальные desktop/mobile экраны, включая 390×844, keyboard/focus,
+dirty close, Create continuation, Save/CAS и сохранение через linked original.
+При заполненной таблице selected count, success, unknown-result error и exact
+retry находятся в видимой закреплённой области. Root дополнительно просмотрел
+финальные screenshots success/retry/library, без генерации макетов.
+
+Canonical sharing проверен через UI и PostgreSQL: Alpha и Bravo содержат ссылки
+на один `rr-e2e-skill-shared`, автор редактирует его через destination, оба views
+получают revision 2. Следующий privacy case намеренно создаёт revision 3 и
+доказывает, что revoked consumer не видит новый private description. Итоговые
+63 original rows = 61 seed + 2 явных Create; linking не добавляет копий.
+
+Receipts и фактические screenshots:
+`tmp/accounts-reference-e2e/runs/skills-visual-qualified-35ec386/` — `result.json`,
+`playwright-result.json`, `migrations.log`, `post-run-db-proof.txt` и
+`browser-artifacts/`. Тестовые app/кластеры остановлены; generated `next-env.d.ts`
+возвращён к baseline, одноразовый exploratory spec удалён. Использованы реальные
+Next/session/actions/PostgreSQL и изолированный GitHub App HTTP fixture;
+production OAuth, live SCM и платный model inference не заявляются.
+
+Author/committer feature commits исправлены на подтверждённый GitHub identity
+владельца по его запросу; GitHub связывает новые commits и review comments с
+`777genius`. Metadata rewrite сохранил каждый исходный tree. Старые SHA в
+исторических receipts не заменены задним числом. Новый runtime handoff получен
+штатным export из reachable source, а не ручным редактированием generated files.
+Оба PR переведены в **Ready for review**. Полный runtime CI на предыдущем head
+`13b66b2` завершился успешно; статус новых remote runs проверяется отдельно.
+
+Во время финальной проверки runtime main продвинулся до `b4d8bd5` (compact
+review comments, версия 1.0.189). Его изменения сохранены merge commit
+`cf7c7b1`; единственный конфликт source map решён штатной пересборкой. Отдельный
+критик подтвердил сохранение обоих source sets и соответствие 13 embedded
+source-map entries исходникам. Первый повтор paired HTTP test остановился до
+сценария на SQLSTATE 53100 (shared disk full); после удаления наших package/build
+caches и сжатия остановленных TEST кластеров с сохранением полных архивов
+повтор прошёл. Это environment failure, не успешный initial run.
+
+Замеченный на одном desktop screenshot Next dev badge разобран по логу: лишний
+`caret-color: transparent` временно добавляет Playwright screenshot API во время
+hydration. Та же сигнатура была в предыдущем baseline; соответствующего
+application style нет. Это известный screenshot-timing artifact harness,
+не дополнительное доказательство product markup defect. Новые продуктовые
+изменения для его скрытия не вносились.

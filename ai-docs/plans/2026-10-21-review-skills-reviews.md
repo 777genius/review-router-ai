@@ -97,3 +97,10 @@ Backend и runtime критики дополнительно независим�
 в предыдущих разделах обозначают реально проверенные тогда версии. Новый
 handoff экспортируется штатным инструментом из reachable committed source, а
 paired CI pin обновляется после нового runtime commit.
+
+Финальный повтор после исправлений: browser **7/7, 0 skips, 0 flaky** на чистом
+`35ec3863c62b13095efdcc0083a180cea7ad6eba`, новый PostgreSQL 17 cluster и все 138
+migrations. Независимый runtime критик также проверил последующий merge
+`b4d8bd5` из main: оба feature sets сохранены, конфликт был только в generated
+source map и решён normal build. Behavioral gate: **77/77** плюс signed paired
+HTTP case. Актуальные identities, receipts и границы проверки — в отчёте.
