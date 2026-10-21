@@ -4,6 +4,7 @@ workspace:
   manifest: pnpm-workspace.yaml
 governedRoots:
   - packages/features/review-providers/src
+  - packages/features/provider-usage/src
 boundaries:
   - id: catalog.domain
     roots:
@@ -87,6 +88,74 @@ boundaries:
         - catalog.infrastructure
         - catalog.composition
         - catalog.public
+      packages:
+        - vitest
+      builtins: []
+      runtimeReferences: []
+    dependencyMode: development
+  - id: usage.domain
+    roots:
+      - packages/features/provider-usage/src/domain
+    entrypoints:
+      - packages/features/provider-usage/src/domain/estimate-usage-cost.ts
+      - packages/features/provider-usage/src/domain/usage-price.ts
+      - packages/features/provider-usage/src/domain/usage.ts
+    allow:
+      boundaries: []
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: usage.application
+    roots:
+      - packages/features/provider-usage/src/application
+    entrypoints:
+      - packages/features/provider-usage/src/application/ingest-usage.ts
+      - packages/features/provider-usage/src/application/operator-report.ts
+      - packages/features/provider-usage/src/application/ports.ts
+      - packages/features/provider-usage/src/application/report-usage.ts
+    allow:
+      boundaries:
+        - usage.domain
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: usage.infrastructure
+    roots:
+      - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts
+    entrypoints:
+      - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+      packages: []
+      builtins:
+        - node:crypto
+      runtimeReferences: []
+  - id: usage.public
+    roots:
+      - packages/features/provider-usage/src/index.ts
+    entrypoints:
+      - packages/features/provider-usage/src/index.ts
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+        - usage.infrastructure
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: usage.tests
+    roots:
+      - packages/features/provider-usage/src/tests
+      - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.test.ts
+    entrypoints: []
+    allow:
+      boundaries:
+        - usage.domain
+        - usage.application
+        - usage.infrastructure
+        - usage.public
       packages:
         - vitest
       builtins: []
