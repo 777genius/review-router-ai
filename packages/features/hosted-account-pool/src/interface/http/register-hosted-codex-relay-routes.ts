@@ -381,6 +381,22 @@ function sendSafeError(
   // Production API uses Fastify({ logger: false }); reply.log is a no-op there.
   console.log(`hosted_codex_rejected phase=${phase} code=${message}`);
   reply.log.warn({ phase, code: message }, "hosted_codex_rejected");
+  // Admission rejections carry a closed fact envelope: callers must be able to
+  // separate terminal request-budget exhaustion from transient lane saturation,
+  // which the flat phase error and the shared 429 status cannot express.
+  if (message.endsWith("concurrency_budget_exhausted")) {
+    return reply
+      .code(503)
+      .header("cache-control", "no-store")
+      .header("retry-after", "1")
+      .send({ error: { code: "lane_saturated", effect: "not_dispatched" } });
+  }
+  if (message.endsWith("request_budget_exhausted")) {
+    return reply
+      .code(429)
+      .header("cache-control", "no-store")
+      .send({ error: { code: "budget_exhausted", effect: "not_dispatched" } });
+  }
   const status = message.includes("disabled")
     ? 404
     : message.includes("budget") || message.includes("concurrency")
