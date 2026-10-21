@@ -234,6 +234,8 @@ describe("compact summary contracts", () => {
   it.each([
     "unbroken".repeat(60),
     `https://example.test/${"path".repeat(100)}`,
+    `https://example.test/${"私人数据".repeat(100)}`,
+    `www.example.test/${"認証情報".repeat(100)}`,
   ])("omits an oversized unspaced word or URL", (body) => {
     const markdown = renderReviewSummaryMarkdown({
       plan: { ...planWith([finding("one", body)]), outputLanguage: "Chinese" },
@@ -241,6 +243,20 @@ describe("compact summary contracts", () => {
     expect(markdown.split("<details>")[0]!.trim().split(/\n\n/)).toHaveLength(
       2,
     );
+    expect(markdown).toContain(body);
+  });
+
+  it("retains complete CJK prose before an oversized URL token", () => {
+    const body = `权限检查失败。https://example.test/${"私人数据".repeat(100)}`;
+    const markdown = renderReviewSummaryMarkdown({
+      plan: { ...planWith([finding("one", body)]), outputLanguage: "Chinese" },
+    });
+    const preview = markdown
+      .split("<details>")[0]!
+      .trim()
+      .split(/\n\n/)
+      .at(-1)!;
+    expect(preview).toBe("权限检查失败…");
     expect(markdown).toContain(body);
   });
 

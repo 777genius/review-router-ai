@@ -242,6 +242,10 @@ function firstParagraph(body: string, locale: ReviewSummaryLocale): string {
     )
   )
     return "";
+  const urlTokens = Array.from(
+    paragraph.matchAll(/\b(?:[a-z][a-z\d+.-]*:|www\.)\S+/giu),
+    (match) => ({ start: match.index, end: match.index + match[0].length }),
+  );
   let usedChars = 0;
   let wordEnd = 0;
   for (const segment of new Intl.Segmenter(locale, {
@@ -249,7 +253,12 @@ function firstParagraph(body: string, locale: ReviewSummaryLocale): string {
   }).segment(paragraph)) {
     usedChars += Array.from(segment.segment).length;
     if (usedChars > 319) break;
-    if (segment.isWordLike) wordEnd = segment.index + segment.segment.length;
+    const end = segment.index + segment.segment.length;
+    if (
+      segment.isWordLike &&
+      !urlTokens.some((url) => end > url.start && end < url.end)
+    )
+      wordEnd = end;
   }
   return wordEnd > 0 ? `${paragraph.slice(0, wordEnd)}…` : "";
 }
