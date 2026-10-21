@@ -2,7 +2,10 @@ import type {
   ReviewFinding,
   ReviewPublicationPlan,
 } from "./review-publication";
-import { renderFindingsSummaryMarkdown } from "./review-publication-summary";
+import {
+  renderFindingsSummaryMarkdown,
+  type ReviewSummaryState,
+} from "./review-publication-summary";
 
 const maxPublicationBodyBytes = 60_000;
 
@@ -19,6 +22,9 @@ export function reviewFindingMarker(input: {
 
 export function renderReviewSummaryMarkdown(input: {
   readonly plan: ReviewPublicationPlan;
+  readonly sourceBaseUrl?: string | undefined;
+  readonly bannerBaseUrl?: string | undefined;
+  readonly reviewState?: ReviewSummaryState | undefined;
 }): string {
   const marker = reviewSummaryMarker(input.plan.marker);
   const reservedBytes = Buffer.byteLength(`${marker}\n`, "utf8");
@@ -26,6 +32,10 @@ export function renderReviewSummaryMarkdown(input: {
     marker,
     renderFindingsSummaryMarkdown({
       language: input.plan.outputLanguage,
+      target: input.plan.target,
+      sourceBaseUrl: input.sourceBaseUrl,
+      bannerBaseUrl: input.bannerBaseUrl,
+      reviewState: input.reviewState,
       findings: input.plan.findings,
       maxBytes: maxPublicationBodyBytes - reservedBytes,
     }),
