@@ -470,6 +470,8 @@ function fromPrismaProviderKind(value: PrismaProviderKind): ReviewProviderKind {
 
 function toPrismaTaskKind(value: ReviewTaskKind): PrismaTaskKind {
   switch (value) {
+    case ReviewTaskKind.PrDescription:
+      throw new Error("review_observation_pr_description_unsupported");
     case ReviewTaskKind.FindingDiscovery:
       return PrismaTaskKind.finding_discovery;
     case ReviewTaskKind.LifecycleRevalidation:

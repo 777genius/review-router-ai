@@ -366,6 +366,8 @@ function payloadForOperation(
   operation: ReviewPublicationOperation,
 ): ReviewV2PublicationPayload | null {
   switch (operation.publicationKind) {
+    case ReviewPublicationKind.PrDescription:
+      throw new Error("review_publication_pr_description_unsupported");
     case ReviewPublicationKind.Summary:
       return operation.chunkIndex === 0 ? catalog.summary : null;
     case ReviewPublicationKind.ManagedCheck:

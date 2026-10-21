@@ -59,6 +59,7 @@ export enum ReviewPublicationOperationRole {
 }
 
 export enum ReviewPublicationKind {
+  PrDescription = "pr_description",
   Summary = "summary",
   ManagedCheck = "managed_check",
   PendingReviewCreate = "pending_review_create",
@@ -817,6 +818,7 @@ function assertOperationPolicy(
   operation: ReviewPublicationOperationPlan,
 ): void {
   switch (operation.publicationKind) {
+    case ReviewPublicationKind.PrDescription:
     case ReviewPublicationKind.Summary:
     case ReviewPublicationKind.ManagedCheck:
       if (

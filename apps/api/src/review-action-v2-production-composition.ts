@@ -2467,6 +2467,8 @@ function evidenceProvider(provider: EvidenceProviderKind): ReviewProviderKind {
 
 function evidenceTask(task: EvidenceTaskKind): ReviewTaskKind {
   switch (task) {
+    case EvidenceTaskKind.PrDescription:
+      throw new Error("review_action_v2_pr_description_unsupported");
     case EvidenceTaskKind.FindingDiscovery:
       return ReviewTaskKind.CodeReview;
     case EvidenceTaskKind.LifecycleRevalidation:
@@ -2493,6 +2495,8 @@ function executionEvidenceProvider(
 
 function executionEvidenceTask(task: ExecutionTaskKind): EvidenceTaskKind {
   switch (task) {
+    case ExecutionTaskKind.PrDescription:
+      throw new Error("review_action_v2_pr_description_unsupported");
     case ExecutionTaskKind.FindingDiscovery:
       return EvidenceTaskKind.FindingDiscovery;
     case ExecutionTaskKind.LifecycleRevalidation:
