@@ -170,7 +170,7 @@ export function readManagedReviewRouterCallerSource(source: string): {
   const job = root.jobs?.review;
   const runtimeRef =
     typeof job?.uses === "string"
-      ? /^777genius\/review-router\/\.github\/workflows\/reviewrouter-reusable\.yml@([a-f0-9]{40})$/.exec(
+      ? /^777genius\/review-router\/\.github\/workflows\/reviewrouter-execution-reusable\.yml@([a-f0-9]{40})$/.exec(
           job.uses,
         )?.[1]
       : undefined;

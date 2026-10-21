@@ -112,11 +112,15 @@ export function renderReviewRouterProviderApiCaller(options: {
   return (
     caller.replace(
       `${reviewRouterWorkflowContract.runtimePath}@${options.runtimeRef}`,
-      `.github/workflows/reviewrouter-reusable.yml@${options.runtimeRef}`,
+      `.github/workflows/reviewrouter-execution-reusable.yml@${options.runtimeRef}`,
     ) +
     `      runtime_ref: ${options.runtimeRef}
       runtime_config_mode: oidc
-      review_action_v2_mode: t0
+      review_action_lane: t0
+      api_url: ${JSON.stringify(new URL(options.controlPlaneUrl ?? reviewRouterWorkflowContract.controlPlaneUrl).origin)}
+      static_runtime_env_json: '{}'
+      review_timeout_minutes: 240
+      max_changed_lines: '0'
       workflow_schema_version: ${providerApiCheckoutCompanionContract.workflowSchemaVersion}
       provider_api_auth_mode: ${providerApiCheckoutCompanionContract.providerApiAuthMode}
     secrets:
