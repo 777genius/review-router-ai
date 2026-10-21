@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { parseCliOptions } from "./cli.ts";
 import {
   BASELINE_REVISION,
+  PROBE_FIXTURE_BOUNDARY,
   FIXTURES,
   type FixtureSecrets,
   type RuntimeDescriptor,
@@ -28,6 +29,9 @@ type TestSummary = {
 };
 
 async function main(): Promise<void> {
+  const fixtureBoundary = process.argv.includes("--probe-fixture")
+    ? PROBE_FIXTURE_BOUNDARY
+    : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
   await ensureWorkDir(options.workDir);
   const revision = await readRevision(options.repoRoot);
@@ -70,6 +74,8 @@ async function main(): Promise<void> {
       isolatedPglite: options.isolatedPglite,
     });
     gateway = await startGatewayFixture({
+      repoRoot: options.repoRoot,
+      databaseUrl: database.databaseUrl,
       workDir: options.workDir,
       secrets,
     });
@@ -98,8 +104,7 @@ async function main(): Promise<void> {
       baselineExpected: options.expectedRevision,
       secretsGenerated: true,
       externalNetworkAllowed: false,
-      fixtureBoundary:
-        "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof",
+      fixtureBoundary,
     };
     await writeJson(join(options.workDir, "runtime.json"), descriptor);
     const boot = await verifyBoot(app.url, viewer.header);
@@ -107,6 +112,7 @@ async function main(): Promise<void> {
     if (options.runBrowserTests) {
       summary = await runPlaywright({
         appUrl: app.url,
+        gatewayUrl: gateway.url,
         databaseUrl: database.databaseUrl,
         resultJson: join(options.workDir, "playwright-result.json"),
         viewerCookie: viewer.header,
@@ -131,8 +137,7 @@ async function main(): Promise<void> {
         ? "schema-only restored checked source roster; not fresh migration proof"
         : "fresh migrated",
     databaseMode: database?.descriptor.databaseMode ?? "unknown",
-    fixtureBoundary:
-      "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof",
+    fixtureBoundary,
     externalNetworkAllowed: false,
     secretsGenerated: true,
     secretsLogged: false,
@@ -204,6 +209,7 @@ async function verifyBoot(
 
 async function runPlaywright(input: {
   appUrl: string;
+  gatewayUrl: string;
   databaseUrl: string;
   resultJson: string;
   viewerCookie: string;
@@ -219,6 +225,10 @@ async function runPlaywright(input: {
         env: {
           ...process.env,
           ACCOUNTS_REFERENCE_E2E_BASE_URL: input.appUrl,
+          ACCOUNTS_REFERENCE_E2E_GATEWAY_URL: input.gatewayUrl,
+          ACCOUNTS_REFERENCE_E2E_PROBE: process.argv.includes("--probe-fixture")
+            ? "1"
+            : "0",
           ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL: input.databaseUrl,
           ACCOUNTS_REFERENCE_E2E_RESULT_JSON: input.resultJson,
           ACCOUNTS_REFERENCE_E2E_VIEWER_COOKIE: input.viewerCookie,

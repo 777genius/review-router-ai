@@ -73,6 +73,16 @@ only inside the repository-owned `tmp/`. They do not update the root lockfile.
 
 ## Local isolated run
 
+For the Model page connection test, add `--probe-fixture` and set
+`ACCOUNTS_REFERENCE_E2E_GREP='Gateway connection test'`. This opt-in lane drives
+the actual form, signed session, migrated database, authorization, SDK HTTP
+preparation/request/close and streamed progress through an isolated Gateway
+fixture. It checks shared-account consumption, desktop/mobile rendering,
+generation failure, cancellation, stale viewer context and cross-site denial.
+The fixture supplies synthetic model SSE; this is transport/UI E2E evidence,
+not a live sub2api/model-provider availability claim. The product button sends
+one real provider request and consumes account quota.
+
 This starts a fresh PGlite fixture, migrates it, starts the fixture Gateway and
 actual Next app on fresh loopback ports, then runs the browser suite:
 

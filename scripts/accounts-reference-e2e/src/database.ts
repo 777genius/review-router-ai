@@ -310,6 +310,7 @@ export function applicationEnvironment(input: {
     AUTH_TRUST_HOST: "true",
     NEXTAUTH_URL: input.appUrl,
     REVIEW_ROUTER_WEB_URL: input.appUrl,
+    REVIEW_ROUTER_API_URL: input.gatewayUrl,
     REVIEW_ROUTER_PUBLIC_WEB_URL: input.appUrl,
     REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: "1",
     REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED: "1",
