@@ -47,6 +47,52 @@ afterEach(() => {
 });
 
 describe("public Review Action v2 contract handoff", () => {
+  it("hands off the canonical usage v1 validator and dependency as managed digest-bound artifacts", async () => {
+    const fixture = createRepositories();
+    for (const file of [
+      "usage-v1.ts",
+      "usage-price-v1.ts",
+      "usage-producer-v1.ts",
+      "usage-responses-v1.ts",
+    ]) {
+      write(
+        join(fixture.saasRepo, sourceDirectory, file),
+        readFileSync(
+          join(
+            process.cwd(),
+            "packages/protocol-review-action-v2/src/generated",
+            file,
+          ),
+          "utf8",
+        ),
+      );
+    }
+    git(fixture.saasRepo, ["add", sourceDirectory]);
+    git(fixture.saasRepo, [
+      "commit",
+      "-m",
+      "test: add generated usage contract",
+    ]);
+    fixture.saasHead = head(fixture.saasRepo);
+    const result = await exportFixture(fixture, { write: true });
+    for (const file of [
+      "usage-v1.ts",
+      "usage-price-v1.ts",
+      "usage-producer-v1.ts",
+      "usage-responses-v1.ts",
+    ]) {
+      const contents = readFileSync(
+        join(fixture.actionRepo, PUBLIC_GENERATED_DIRECTORY, file),
+      );
+      expect(
+        contents.equals(
+          readFileSync(join(fixture.saasRepo, sourceDirectory, file)),
+        ),
+      ).toBe(true);
+      expect(JSON.stringify(result.handoff)).toContain(sha256Digest(contents));
+    }
+  });
+
   it("exports, commits, generates, and verifies one immutable release", async () => {
     const fixture = createRepositories();
     const exported = await exportFixture(fixture, { write: true });
