@@ -1,4 +1,7 @@
-import { parseReviewAgentProfiles } from "@reviewrouter/features-review-run-control";
+import {
+  parseProducerPrDescriptionProfile,
+  parseReviewAgentProfiles,
+} from "@reviewrouter/features-review-run-control";
 import {
   createRepositoryReleaseSelector,
   parseRepositoryReleaseBindings,
@@ -1263,7 +1266,15 @@ const releaseBundleCandidateKeys = Object.freeze([
 export function parseReviewV2ReleaseBundleCandidate(
   input: Record<string, unknown>,
 ): ReviewV2ReleaseBundleCandidate {
-  requireExactKeys(input, releaseBundleCandidateKeys, "candidate");
+  const hasPrDescriptionProfile = Object.hasOwn(input, "prDescriptionProfile");
+  requireExactKeys(
+    input,
+    [
+      ...releaseBundleCandidateKeys,
+      ...(hasPrDescriptionProfile ? ["prDescriptionProfile"] : []),
+    ],
+    "candidate",
+  );
   const distributionKind = requireEnum(
     input,
     "distributionKind",
@@ -1313,6 +1324,14 @@ export function parseReviewV2ReleaseBundleCandidate(
         };
 
   return {
+    ...(hasPrDescriptionProfile
+      ? {
+          prDescriptionProfile:
+            input.prDescriptionProfile === null
+              ? null
+              : parseProducerPrDescriptionProfile(input.prDescriptionProfile),
+        }
+      : {}),
     producerReleaseId: requireString(input, "producerReleaseId"),
     agentProfiles: parseReviewAgentProfiles(input.agentProfiles),
     distributionKind,

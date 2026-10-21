@@ -1,6 +1,7 @@
 import type { ReviewAgentProfile } from "../../domain/review-agent-profile";
 import type {
   ProducerRelease,
+  ProducerPrDescriptionProfile,
   ProducerReviewInvestigationProfile,
 } from "../../domain/producer-release";
 import type {
@@ -17,6 +18,7 @@ export type TrustedProducerReleaseAttestation = {
   readonly runtimeEntrypointDigest: string;
   readonly contextGatewayPolicyVersion: string | null;
   readonly contextGatewayEntrypointDigest: string | null;
+  readonly prDescriptionProfile?: ProducerPrDescriptionProfile | null;
   readonly agentProfiles?: readonly ReviewAgentProfile[] | null;
   readonly reviewInvestigationProfile?: ProducerReviewInvestigationProfile | null;
   readonly schemaDigest: string;

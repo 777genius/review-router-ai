@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { canonicalJson } from "../domain/review-run-control-types";
 import { parseReviewRunRuntimeSnapshot } from "../domain/review-run-runtime-snapshot";
@@ -29,6 +30,29 @@ const snapshot = {
   gateway: null,
 };
 describe("private runtime snapshot v3 codec", () => {
+  it("preserves historical capture bytes and captures only an exact optional extension", () => {
+    const legacy = parseReviewRunRuntimeSnapshot(canonicalJson(snapshot));
+    expect(Object.hasOwn(legacy!, "prDescriptionCapability")).toBe(false);
+    expect(
+      createHash("sha256").update(canonicalJson(legacy)).digest("hex"),
+    ).toBe("5e08ee1f44ee0f0c7737d77e5c4ebe51534314e1d0d65f22286d2e370905616b");
+    const current = {
+      ...snapshot,
+      prDescriptionCapability: {
+        extensionId: "pr-description.v1",
+        canonicalizerDigest: "e".repeat(64),
+      },
+    };
+    expect(parseReviewRunRuntimeSnapshot(canonicalJson(current))).toEqual(
+      current,
+    );
+    expect(() =>
+      parseReviewRunRuntimeSnapshot(
+        canonicalJson({ ...current, prDescriptionCapability: null }),
+      ),
+    ).toThrow();
+  });
+
   it("captures exact producer commits instead of a mutable channel hint", () => {
     expect(
       parseReviewRunRuntimeSnapshot(canonicalJson(snapshot))?.producer,

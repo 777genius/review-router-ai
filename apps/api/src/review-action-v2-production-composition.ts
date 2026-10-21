@@ -2422,9 +2422,11 @@ function executionProviderTask(
   return {
     providerKind: provider as unknown as ReviewProviderKind,
     taskKind:
-      task === ExecutionTaskKind.FindingDiscovery
-        ? ReviewTaskKind.CodeReview
-        : ReviewTaskKind.FindingRevalidation,
+      task === ExecutionTaskKind.PrDescription
+        ? ReviewTaskKind.PrDescription
+        : task === ExecutionTaskKind.FindingDiscovery
+          ? ReviewTaskKind.CodeReview
+          : ReviewTaskKind.FindingRevalidation,
   };
 }
 
@@ -2449,6 +2451,8 @@ function evidenceTask(task: EvidenceTaskKind): ReviewTaskKind {
       return ReviewTaskKind.CodeReview;
     case EvidenceTaskKind.LifecycleRevalidation:
       return ReviewTaskKind.FindingRevalidation;
+    case EvidenceTaskKind.PrDescription:
+      throw new Error("review_action_v2_auxiliary_task_is_not_evidence");
     case EvidenceTaskKind.Unknown:
       throw new Error("review_action_v2_evidence_task_unknown");
   }
@@ -2475,6 +2479,8 @@ function executionEvidenceTask(task: ExecutionTaskKind): EvidenceTaskKind {
       return EvidenceTaskKind.FindingDiscovery;
     case ExecutionTaskKind.LifecycleRevalidation:
       return EvidenceTaskKind.LifecycleRevalidation;
+    case ExecutionTaskKind.PrDescription:
+      return EvidenceTaskKind.PrDescription;
   }
 }
 

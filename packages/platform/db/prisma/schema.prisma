@@ -1110,6 +1110,7 @@ model ReviewOperationalSloProfileV2 {
 }
 
 model ProducerRelease {
+  prDescriptionProfile                    Json?
   agentProfilesJson                       String?
   producerReleaseId                      String                     @id
   distributionKind                       ProducerDistributionKindV2
@@ -3455,6 +3456,7 @@ enum ReviewProviderKindV2 {
 }
 
 enum ReviewTaskKindV2 {
+  pr_description
   finding_discovery
   lifecycle_revalidation
   code_review
@@ -3831,6 +3833,7 @@ enum ReviewPublicationClaimStateV2 {
 }
 
 enum ReviewPublicationKindV2 {
+  pr_description
   summary
   managed_check
   pending_review_create

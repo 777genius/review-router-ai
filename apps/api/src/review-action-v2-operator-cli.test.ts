@@ -174,9 +174,36 @@ describe("review action v2 operator CLI", () => {
   });
 
   it("parses the exact normalized producer release candidate shape", () => {
-    expect(parseReviewV2ReleaseBundleCandidate(releaseCandidate())).toEqual(
-      releaseCandidate(),
-    );
+    const parsed = parseReviewV2ReleaseBundleCandidate(releaseCandidate());
+    expect(parsed).toEqual(releaseCandidate());
+    expect(Object.hasOwn(parsed, "prDescriptionProfile")).toBe(false);
+  });
+
+  it("preserves and validates optional PR description approval in registration bundles", () => {
+    const profile = {
+      extensionId: "pr-description.v1",
+      canonicalizerDigest:
+        "aa043184eb0a1a0cf230d8fbb03c6a63a05b950c82c0107bee7d2533c386eed0",
+    };
+    const candidate = { ...releaseCandidate(), prDescriptionProfile: profile };
+    expect(parseReviewV2ReleaseBundleCandidate(candidate)).toEqual(candidate);
+    expect(
+      parseReviewV2ReleaseBundleCandidate({
+        ...candidate,
+        prDescriptionProfile: null,
+      }).prDescriptionProfile,
+    ).toBeNull();
+    for (const prDescriptionProfile of [
+      { ...profile, canonicalizerDigest: "invalid" },
+      { ...profile, enabled: true },
+    ]) {
+      expect(() =>
+        parseReviewV2ReleaseBundleCandidate({
+          ...candidate,
+          prDescriptionProfile,
+        }),
+      ).toThrow();
+    }
   });
 
   it("rejects registration without a qualified agent profile", () => {

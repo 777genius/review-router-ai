@@ -26141,6 +26141,18 @@ var providerApiCheckoutCompanionContract = Object.freeze({
   providerApiAuthMode: "openrouter-api",
   workflowSchemaVersion: 2
 });
+var prDescriptionContract = Object.freeze({
+  taskKind: "pr_description",
+  runtimeEnvKey: "UPDATE_PR_DESCRIPTION",
+  capabilityRuntimeEnvKey: "REVIEW_ROUTER_PR_DESCRIPTION_CAPABILITY_JSON",
+  promptVersion: "pr-description-v1",
+  outputSchemaVersion: 1,
+  maxPromptBytes: 32768,
+  maxGeneratedMarkdownBytes: 8192,
+  maxOutputTokens: 1200,
+  deadlineMs: 6e4,
+  attemptBudget: 1
+});
 
 var import_meta = {};
 async function A(A3 = {}) {

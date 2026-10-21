@@ -9,9 +9,15 @@ import {
   type ReviewAgentProfile,
 } from "./review-agent-profile";
 
+import {
+  parseProducerPrDescriptionProfile,
+  type ProducerPrDescriptionProfile,
+} from "./producer-release";
+
 /** Private admission data. Never included in public authorization claims/facts. */
 export type ReviewRunRuntimeSnapshot = {
   readonly snapshotVersion: 3;
+  readonly prDescriptionCapability?: ProducerPrDescriptionProfile;
   readonly configurationSource: "workspace" | "repository";
   readonly configurationVersion: number;
   readonly workspaceConfigurationVersion: number;
@@ -113,6 +119,9 @@ export function parseReviewRunRuntimeSnapshot(
       "configurationCanonicalJson",
       "deadline",
       "gateway",
+      ...("prDescriptionCapability" in parsed
+        ? ["prDescriptionCapability"]
+        : []),
     ])
   )
     fail();
@@ -248,8 +257,15 @@ export function parseReviewRunRuntimeSnapshot(
       limits: parseReviewRunGatewayLimits(row.limits),
     };
   }
+  const prDescriptionCapability =
+    "prDescriptionCapability" in parsed
+      ? parseProducerPrDescriptionProfile(parsed.prDescriptionCapability)
+      : undefined;
   if (canonicalJson(parsed) !== value) fail();
   return {
+    ...(prDescriptionCapability === undefined
+      ? {}
+      : { prDescriptionCapability }),
     snapshotVersion: 3,
     configurationSource,
     configurationVersion,

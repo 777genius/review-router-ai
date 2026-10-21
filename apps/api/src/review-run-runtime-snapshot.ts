@@ -18,6 +18,7 @@ import { assertOpenRouterDirectConfigurationSupported } from "@reviewrouter/feat
 import {
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
+  parseProducerPrDescriptionProfile,
   parseReviewAgentProfiles,
   selectReviewAgentProfile,
   selectProviderApiReviewAgentProfile,
@@ -295,6 +296,17 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     try {
       return parseReviewRunRuntimeSnapshot(
         canonicalJson({
+          ...(input.producerRelease.prDescriptionProfile != null &&
+          (gateway !== null ||
+            (modelTransport === "provider_api" &&
+              configuration.providers.length === 1 &&
+              configuration.providers[0]?.authMode === "openrouter_api_key"))
+            ? {
+                prDescriptionCapability: parseProducerPrDescriptionProfile(
+                  input.producerRelease.prDescriptionProfile,
+                ),
+              }
+            : {}),
           snapshotVersion: 3,
           configurationSource: current.source,
           configurationVersion: current.version,
@@ -429,6 +441,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         actionCommitSha: true,
         runtimeCommitSha: true,
         agentProfilesJson: true,
+        prDescriptionProfile: true,
       },
     });
     if (
@@ -457,7 +470,16 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           modelTransport: original.gateway ? "account_gateway" : "provider_api",
           deadline: candidate.maxExpiresAt,
           producerRelease: {
-            ...producer,
+            producerReleaseId: producer.producerReleaseId,
+            actionCommitSha: producer.actionCommitSha,
+            runtimeCommitSha: producer.runtimeCommitSha,
+            ...(producer.prDescriptionProfile == null
+              ? {}
+              : {
+                  prDescriptionProfile: parseProducerPrDescriptionProfile(
+                    producer.prDescriptionProfile,
+                  ),
+                }),
             agentProfiles: parseReviewAgentProfiles(
               JSON.parse(producer.agentProfilesJson),
             ),

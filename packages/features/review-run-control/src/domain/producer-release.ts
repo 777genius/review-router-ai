@@ -16,6 +16,41 @@ import {
   type ReviewAgentProfile,
 } from "./review-agent-profile";
 
+export const prDescriptionExtensionIdV1 = "pr-description.v1";
+
+export type ProducerPrDescriptionProfile = Readonly<{
+  readonly extensionId: typeof prDescriptionExtensionIdV1;
+  readonly canonicalizerDigest: string;
+}>;
+
+/** Approved extension identity, detached from caller-owned objects. */
+export function parseProducerPrDescriptionProfile(
+  value: unknown,
+): ProducerPrDescriptionProfile {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== 2 ||
+    !Object.hasOwn(value, "extensionId") ||
+    !Object.hasOwn(value, "canonicalizerDigest") ||
+    !("extensionId" in value) ||
+    !("canonicalizerDigest" in value) ||
+    value.extensionId !== prDescriptionExtensionIdV1 ||
+    typeof value.canonicalizerDigest !== "string"
+  ) {
+    invalid("pr_description_profile_invalid");
+  }
+  assertSha256(
+    value.canonicalizerDigest,
+    "pr_description_canonicalizer_digest",
+  );
+  return Object.freeze({
+    extensionId: prDescriptionExtensionIdV1,
+    canonicalizerDigest: value.canonicalizerDigest,
+  });
+}
+
 export const reviewInvestigationCapabilityV1 = "review_investigation_v1";
 
 export type ProducerReviewInvestigationProfile = Readonly<{
@@ -76,6 +111,7 @@ export type ProducerRelease = {
   readonly contextGatewayEntrypointDigest: string | null;
   readonly reviewInvestigationProfile: ProducerReviewInvestigationProfile | null;
   readonly agentProfiles: readonly ReviewAgentProfile[] | null;
+  readonly prDescriptionProfile?: ProducerPrDescriptionProfile | null;
   readonly schemaDigest: string;
   readonly capabilityProfile: ReviewCapabilityProfile;
   readonly protocolLimitsProfileId: string;
@@ -273,6 +309,13 @@ export function createProducerRelease(
     invalid("hosted_composite_wrapper_digest_required");
   }
   return {
+    ...(candidate.prDescriptionProfile == null
+      ? {}
+      : {
+          prDescriptionProfile: parseProducerPrDescriptionProfile(
+            candidate.prDescriptionProfile,
+          ),
+        }),
     producerReleaseId: candidate.producerReleaseId,
     distributionKind: candidate.distributionKind,
     actionCommitSha: candidate.actionCommitSha,
@@ -319,6 +362,13 @@ export function producerReleaseImmutableKey(
   release: ProducerRelease | ProducerReleaseCandidate,
 ): string {
   return canonicalJson({
+    ...(release.prDescriptionProfile == null
+      ? {}
+      : {
+          prDescriptionProfile: parseProducerPrDescriptionProfile(
+            release.prDescriptionProfile,
+          ),
+        }),
     distributionKind: release.distributionKind,
     actionCommitSha: release.actionCommitSha,
     runtimeCommitSha: release.runtimeCommitSha,
@@ -346,6 +396,13 @@ export function cloneProducerRelease(
 ): ProducerRelease {
   return {
     ...release,
+    ...(release.prDescriptionProfile == null
+      ? {}
+      : {
+          prDescriptionProfile: parseProducerPrDescriptionProfile(
+            release.prDescriptionProfile,
+          ),
+        }),
     agentProfiles:
       release.agentProfiles == null
         ? null

@@ -20,6 +20,7 @@ import {
 } from "@reviewrouter/features-review-config";
 import {
   canonicalJson,
+  parseProducerPrDescriptionProfile,
   type ReviewRunAuthorizationCandidate,
   type ReviewRunRuntimeSnapshot,
 } from "@reviewrouter/features-review-run-control";
@@ -81,6 +82,12 @@ describe.skipIf(process.env.RR_H_PERSONAL_CONSUMPTION_PG_TEST !== "1")(
         });
         const producerRelease = {
           ...producerRow,
+          prDescriptionProfile:
+            producerRow.prDescriptionProfile == null
+              ? null
+              : parseProducerPrDescriptionProfile(
+                  producerRow.prDescriptionProfile,
+                ),
           agentProfiles: parseReviewAgentProfiles(
             JSON.parse(producerRow.agentProfilesJson!),
           ),

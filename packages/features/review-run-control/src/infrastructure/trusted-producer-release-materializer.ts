@@ -108,6 +108,9 @@ export function createTrustedProducerReleaseMaterializer(input: {
             operationalSloProfileId: release.operationalSloProfileId,
             reviewInvestigationProfile: release.reviewInvestigationProfile,
             agentProfiles: release.agentProfiles ?? null,
+            ...(release.prDescriptionProfile == null
+              ? {}
+              : { prDescriptionProfile: release.prDescriptionProfile }),
           },
           expectedProtocolLimitsDigest: limitsDigest,
           expectedOperationalSloDigest: sloDigest,

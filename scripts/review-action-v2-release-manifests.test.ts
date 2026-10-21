@@ -84,6 +84,63 @@ describe("review Action v2 release manifests", () => {
     const expectedRelease = fixture("expected-release.json");
     expect(canonicalJson(release)).toBe(expectedRelease);
     expect(parseReleaseManifest(expectedRelease)).toEqual(release);
+    expect(Object.hasOwn(release, "prDescriptionProfile")).toBe(false);
+    expect(
+      Object.hasOwn(
+        buildReleaseRegistrationCandidateFields(release),
+        "prDescriptionProfile",
+      ),
+    ).toBe(false);
+  });
+
+  it("binds optional PR description approval without changing release version or base digests", () => {
+    const profile = {
+      extensionId: "pr-description.v1",
+      canonicalizerDigest:
+        "aa043184eb0a1a0cf230d8fbb03c6a63a05b950c82c0107bee7d2533c386eed0",
+    };
+    const generated = JSON.parse(fixture("contract-source/manifest.json"));
+    expect(
+      parseProtocolGenerationManifest(
+        JSON.stringify({ ...generated, auxiliaryExtensions: [profile] }),
+      ).prDescriptionProfile,
+    ).toEqual(profile);
+    const legacy = parseReleaseManifest(fixture("expected-release.json"));
+    const release = buildReleaseManifest({
+      ...legacy,
+      handoffManifest: parseHandoffManifest(fixture("expected-handoff.json")),
+      prDescriptionProfile: profile,
+    });
+    const { prDescriptionProfile, ...unchanged } = release;
+    expect(prDescriptionProfile).toEqual(profile);
+    expect(canonicalJson(unchanged)).toBe(fixture("expected-release.json"));
+    expect(parseReleaseManifest(canonicalJson(release))).toEqual(release);
+    expect(
+      buildReleaseRegistrationCandidateFields(release).prDescriptionProfile,
+    ).toEqual(profile);
+    for (const auxiliaryExtensions of [
+      null,
+      {},
+      [profile, profile],
+      [{ ...profile, extensionId: "unknown.v1" }],
+      [{ extensionId: "pr-description.v1" }],
+      [{ ...profile, canonicalizerDigest: "invalid" }],
+      [{ ...profile, enabled: true }],
+    ]) {
+      expect(() =>
+        parseProtocolGenerationManifest(
+          JSON.stringify({ ...generated, auxiliaryExtensions }),
+        ),
+      ).toThrow();
+    }
+    expect(() =>
+      parseReleaseManifest(
+        canonicalJson({
+          ...release,
+          prDescriptionProfile: { ...profile, enabled: true },
+        }),
+      ),
+    ).toThrow("fields must be exactly");
   });
 
   it("rejects non-canonical JSON and unknown fields", () => {

@@ -85,8 +85,13 @@ export function readReviewConfigurationForm(
   formData: FormData,
 ): ReviewConfiguration {
   const providers = readReviewProvidersForm(formData);
+  const updatePrDescription = readOptionalFormBoolean(
+    formData,
+    "updatePrDescription",
+  );
 
   return parseReviewConfigurationStrict({
+    ...(updatePrDescription === undefined ? {} : { updatePrDescription }),
     schemaVersion: 3,
     providers,
     execution: {
@@ -395,6 +400,8 @@ export function readRepositoryReviewPolicyForm(
   for (const [root, leaf] of fields) {
     if (root === "providers") {
       policy.providers = readReviewProvidersForm(formData);
+    } else if (root === "updatePrDescription") {
+      policy.updatePrDescription = readFormBoolean(formData, root);
     } else if (root === "reviewLanguage") {
       policy.reviewLanguage =
         readOptionalFormString(formData, "reviewLanguage") ?? null;

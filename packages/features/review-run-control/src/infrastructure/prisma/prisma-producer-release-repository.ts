@@ -1,5 +1,5 @@
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import type {
   ProducerRelease,
   ReviewOperationalSloProfileV2,
@@ -207,11 +207,19 @@ export class PrismaProducerReleaseRepository
           existingId: tupleOwner.producerReleaseId,
         };
       }
-      const { reviewInvestigationProfile, agentProfiles, ...releaseRecord } =
-        release;
+      const {
+        reviewInvestigationProfile,
+        agentProfiles,
+        prDescriptionProfile,
+        ...releaseRecord
+      } = release;
       const created = await transaction.producerRelease.create({
         data: {
           ...releaseRecord,
+          prDescriptionProfile:
+            prDescriptionProfile == null
+              ? Prisma.DbNull
+              : { ...prDescriptionProfile },
           agentProfilesJson:
             agentProfiles === null ? null : canonicalJson(agentProfiles),
           distributionKind: distributionKindToPersistence(
@@ -294,6 +302,12 @@ function sloComparable(profile: ReviewOperationalSloProfileV2): string {
 
 function producerReleaseTupleWhere(release: ProducerRelease) {
   return {
+    prDescriptionProfile: {
+      equals:
+        release.prDescriptionProfile == null
+          ? Prisma.DbNull
+          : { ...release.prDescriptionProfile },
+    },
     distributionKind: distributionKindToPersistence(release.distributionKind),
     actionCommitSha: release.actionCommitSha,
     runtimeCommitSha: release.runtimeCommitSha,

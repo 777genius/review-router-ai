@@ -16,6 +16,7 @@ import {
 } from "../domain/review-run-control-types";
 import {
   createProducerRelease,
+  parseProducerPrDescriptionProfile,
   producerReleaseImmutableKey,
   reviewInvestigationCapabilityV1,
 } from "../domain/producer-release";
@@ -43,7 +44,19 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
       if (entries.has(actionCommitSha)) {
         throw new Error("producer_release_attestation_action_commit_duplicate");
       }
-      entries.set(actionCommitSha, Object.freeze({ ...attestation }));
+      entries.set(
+        actionCommitSha,
+        Object.freeze({
+          ...attestation,
+          ...(attestation.prDescriptionProfile == null
+            ? {}
+            : {
+                prDescriptionProfile: parseProducerPrDescriptionProfile(
+                  attestation.prDescriptionProfile,
+                ),
+              }),
+        }),
+      );
     }
     this.byActionCommitSha = entries;
   }
@@ -83,6 +96,9 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
             reviewInvestigationProfile:
               configured.reviewInvestigationProfile ?? null,
             agentProfiles: configured.agentProfiles ?? null,
+            ...(configured.prDescriptionProfile == null
+              ? {}
+              : { prDescriptionProfile: configured.prDescriptionProfile }),
             schemaDigest: configured.schemaDigest,
             capabilityProfile: configured.capabilityProfile,
             protocolLimitsProfileId: configured.protocolLimitsProfileId,
@@ -149,7 +165,9 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
     "reviewInvestigationCoverageProfileHash",
     "reviewInvestigationPolicyHash",
   ].sort();
-  const actualKeys = Object.keys(value).sort();
+  const actualKeys = Object.keys(value)
+    .filter((key) => key !== "prDescriptionProfile")
+    .sort();
   const currentKeys = [...investigationKeys, "agentProfiles"].sort();
   if (
     canonicalJson(actualKeys) !== canonicalJson(currentKeys) &&
@@ -178,6 +196,13 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
     );
   }
   return {
+    ...(value.prDescriptionProfile == null
+      ? {}
+      : {
+          prDescriptionProfile: parseProducerPrDescriptionProfile(
+            value.prDescriptionProfile,
+          ),
+        }),
     producerReleaseId: requiredString(value.producerReleaseId),
     agentProfiles:
       value.agentProfiles == null
@@ -221,6 +246,8 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
 }
 
 function assertAttestation(value: TrustedProducerReleaseAttestation): void {
+  if (value.prDescriptionProfile != null)
+    parseProducerPrDescriptionProfile(value.prDescriptionProfile);
   assertIdentifier(value.producerReleaseId, "producer_release_id");
   assertCommitSha(value.actionCommitSha, "action_commit_sha");
   assertCommitSha(value.runtimeCommitSha, "runtime_commit_sha");
@@ -274,6 +301,13 @@ function configuredReleaseKey(
   configured: TrustedProducerReleaseAttestation,
 ): string {
   return canonicalJson({
+    ...(configured.prDescriptionProfile == null
+      ? {}
+      : {
+          prDescriptionProfile: parseProducerPrDescriptionProfile(
+            configured.prDescriptionProfile,
+          ),
+        }),
     agentProfiles: configured.agentProfiles ?? null,
     distributionKind: configured.distributionKind,
     actionCommitSha: configured.actionCommitSha,
