@@ -70,6 +70,50 @@ describe("reviewrouter-publish-review CLI", () => {
     ]);
   });
 
+  it.each([
+    { state: "complete", banner: true, incomplete: false },
+    { state: "incomplete", banner: true, incomplete: true },
+    { state: "unknown", banner: false, incomplete: false },
+    { state: undefined, banner: false, incomplete: false },
+  ])(
+    "uses only explicit valid coverage for optional GitHub banners: $state",
+    async ({ state, banner, incomplete }) => {
+      let posted = "";
+      const fetchImpl = vi.fn(
+        async (_url: string | URL, init?: RequestInit) => {
+          if (init?.method === "GET") return jsonResponse([]);
+          posted = JSON.parse(String(init?.body)).body;
+          return jsonResponse({ id: 1 });
+        },
+      ) as unknown as typeof fetch;
+      await runReviewPublisherCli({
+        argv: ["--provider", "github"],
+        env: {
+          GITHUB_TOKEN: "ghs-token",
+          GITHUB_REPOSITORY: "owner/repo",
+          PR_NUMBER: "1",
+          GITHUB_SHA: "a".repeat(40),
+          REVIEWROUTER_REVIEW_BANNER_BASE_URL: "https://public.example",
+          REVIEWROUTER_REVIEW_STATE: state,
+        },
+        fetchImpl,
+        readFileImpl: async () =>
+          stringifyReviewFindingsArtifact({
+            protocolVersion: 1,
+            generatedAt: "2026-05-30T12:00:00.000Z",
+            summaryMarkdown:
+              "<details>Untrusted model says all clear</details>",
+            findings: [],
+          }),
+        stdout: { write: () => undefined },
+      });
+      expect(posted.includes("<picture>")).toBe(banner);
+      expect(posted.includes("Review incomplete")).toBe(incomplete);
+      expect(posted).not.toContain("Untrusted model");
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("bounds GitHub comment token refresh latency", async () => {
     vi.useFakeTimers();
     const fetchImpl = vi.fn((url: string | URL, init?: RequestInit) => {
