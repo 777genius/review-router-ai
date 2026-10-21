@@ -1020,13 +1020,18 @@ describe("workflow setup readiness", () => {
   });
 });
 
-it.each(["current", "other-secret", "other-runtime"])(
+it.each(["current", "other-secret", "other-runtime", "old-wrapper"])(
   "attests the direct OpenRouter caller: %s",
   async (scenario) => {
     let source = renderProviderApiWorkflow({
       actionRef: versionedActionRef,
       apiUrl: "https://app.reviewrouter.dev",
     }).content;
+    if (scenario === "old-wrapper")
+      source = source.replace(
+        ".github/workflows/reviewrouter-execution-reusable.yml@",
+        ".github/workflows/reviewrouter-reusable.yml@",
+      );
     if (scenario === "other-secret")
       source = source.replace(
         "secrets.OPENROUTER_API_KEY",

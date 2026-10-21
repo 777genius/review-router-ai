@@ -36,6 +36,8 @@ it.each([
   ["secrets.OPENROUTER_API_KEY", "secrets.OTHER_KEY"],
   [`runtime_ref: ${runtimeRef}`, `runtime_ref: ${"b".repeat(40)}`],
   ["runtime_config_mode: oidc", "runtime_config_mode: static"],
+  ["review_action_lane: t0", "review_action_lane: legacy"],
+  ["reviewrouter-execution-reusable.yml@", "reviewrouter-reusable.yml@"],
 ])(
   "rejects a changed direct credential or authority contract (%s)",
   (before, after) => {

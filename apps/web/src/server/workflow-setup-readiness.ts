@@ -108,7 +108,7 @@ export async function isWorkflowSetupAlreadyCurrent(
       workflowPath: expected.path,
       expectedActionRef:
         input.providerApiAuthMode === "openrouter-api"
-          ? `${reviewRouterWorkflowContract.runtimeRepository}/.github/workflows/reviewrouter-reusable.yml@${readManagedReviewRouterCallerSource(expected.content).runtimeRef}`
+          ? `${reviewRouterWorkflowContract.runtimeRepository}/.github/workflows/reviewrouter-execution-reusable.yml@${readManagedReviewRouterCallerSource(expected.content).runtimeRef}`
           : `${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@${readReviewRouterCallerSource(expected.content).runtimeRef}`,
       expectedContentValidator: (workflow) =>
         areWorkflowDocumentsSemanticallyEqual(workflow, expected.content),
