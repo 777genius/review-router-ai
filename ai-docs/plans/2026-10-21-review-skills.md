@@ -1,38 +1,442 @@
-# Review Skills — implementation plan and delivery log
+# Review Skills — подробный план реализации
 
-Status: initial draft; implementation starts after three sequential multi-direction plan reviews.
-Owner: this isolated Review Skills delivery. Date: 2026-10-21.
+**Статус:** проект для раунда критики №1. Реализация feature ещё не начата.
+Дата: 2026-10-21. [SaaS PR #635](https://github.com/777genius/review-router-ai/pull/635) · [Runtime PR #297](https://github.com/777genius/review-router/pull/297).
+Ветка обоих репозиториев: `feat/review-skills-20261021`, отдельные worktrees.
 
-## Authorized product scope
+## 1. Пользовательский результат и границы
 
-- Workspace Skills library, three-field Markdown editor, and a Skills navigation section immediately before Memory.
-- Author-only content editing; source workspace custody and explicit direct grants to destination workspaces.
-- Live canonical links across workspaces, never independently editable copies.
-- Repository bulk Add/Remove operations as deltas, mixed assignment counts, and explicit selection of all current search matches.
-- Automatic immutable revisions on Save; captured instructions and assignments for each admitted review; new runs use current versions.
-- Mandatory managed OCR integration and the same engine-neutral input contract for the native reviewer.
-- Standard SKILL.md text and bounded Markdown references; Git-managed sources remain governed by Git permissions.
-- Detailed SOLID/Clean Architecture/DRY design within accepted feature-first DDD (ADR-005).
-- Use applicable Get Modular and Engineering Foundation capabilities without migrating unrelated hosts or creating an executable plugin framework.
-- Real persistence, authorization, runtime, and browser E2E verification; incremental commits and draft PRs.
+В workspace появляется **Skills непосредственно перед Memory**. Три поля редактора: название, описание, Markdown-инструкции; явный Save. В таблице видны источник, автор и репозитории текущего workspace, где используется скилл. Изменение одного оригинала применяется ко всем следующим ревью подключённых репозиториев.
 
-## Current source baseline
+В списке репозиториев: выбрать один/несколько/все текущие результаты → Manage skills → Add или Remove → таблица скиллов с пустыми operation checkboxes и отдельным Assigned k/N → Apply. Add добавляет недостающие связи, Remove снимает выбранные; другие связи не заменяются. В библиотеке обратный вход Repositories вызывает те же серверные команды.
 
-- SaaS/control plane: 777genius/review-router-ai @ bb277462bed5135a838b20d07eeae69034562bd8.
-- Public runtime: 777genius/review-router @ 9e494fb9b8809dc5c91c9f4159edcca13b89fbde.
-- Separate branch/worktrees: feat/review-skills-20261021.
-- OCR integration is merged in both repositories. The controlled-rule JSON builder still requires exact-parser qualification and correction.
+Из другого workspace подключается **живая canonical ссылка**. Содержание редактирует только исходный автор, пока он состоит в исходном workspace. Администраторы управляют разрешением использовать, а не получают право переписывать текст. Личный аккаунт и организация используют одну модель workspace.
 
-## Delivery sequence
+OCR — первый обязательный consumer. Native reviewer использует тот же neutral captured contract. Пользователь не настраивает формат под движок.
 
-1. Audit accepted architecture, module tooling, data custody, admission, runtime, repository selection, and existing browser fixtures.
-2. Expand this document into exact contracts, migration strategy, ownership, UX semantics, implementation steps, and acceptance checks.
-3. Run three sequential rounds of independent architecture/runtime/UX-and-authorization critics; resolve each substantive finding before implementation.
-4. Implement the feature-owned domain/application/persistence and Get Modular host composition; preserve authorization and existing run compatibility.
-5. Implement captured engine-neutral skills transport and both runtime projections; qualify the pinned OCR parser and prompts.
-6. Implement the actual Skills frontend and bulk/shared workflows, then verify persistence and permission failures in the browser.
-7. Run focused integration and E2E gates, independent implementation review, correct findings, and push evidence/status.
+### Включено
 
-## Working evidence
+- Web library, редактор, неизменяемые ревизии, CAS конфликт, import/export текстового SKILL.md.
+- Прямые source grants, destination links, revoke/unlink и назначения repository manager.
+- Capture целого набора перед новым admission; immutable retry; authorization до cache lookup.
+- Git Skills из явно подключённых корней `.reviewrouter/skills`, `.agents/skills`; bounded Markdown references из exact trusted base.
+- OCR real-parser fix, точные пути и inventory, native parity, cache identity и provenance.
+- Реальные PostgreSQL, Next/browser, OCR binary loopback проверки; общий generated contract; scoped Get Modular/Foundation gates.
 
-No implementation or verification success is claimed by this initial checkpoint. The detailed plan, review logs, commits, and test evidence will be appended as work progresses. Production rollout and stable release-tag movement are separate from this implementation PR.
+В первой версии нет scripts/dependency installation/MCP grants из скиллов, marketplace, транзитивного sharing, двусторонней Git/web sync, ручных Publish/semver, переноса авторства, архивирования и миграции всего проекта на новый framework.
+
+### Baseline
+
+| Область | Проверенная версия |
+| --- | --- |
+| SaaS main | bb277462bed5135a838b20d07eeae69034562bd8 |
+| Runtime main | 9e494fb9b8809dc5c91c9f4159edcca13b89fbde |
+| OCR upstream | 8eb83340a487b1150af00701b94f01af97e4b4d6; managed binary 1.13.1-rr.3 |
+| Get Modular | Core/Assembly0.7.0; Conformance0.5.0 |
+| Dev tools | Engineering Foundation2.1.0; Feature Module Standard0.2.2 |
+
+Registry availability проверена. Exact versions фиксируются lockfiles. Новый TS проверяется TS7.0.2 через существующий `scripts/local-checks/compiler-cli.ts --native`. **Root TS6 сохраняется для AST/transpile API инструментов**, включая architecture checker; без слепой замены. Node24.19 удовлетворяет требуемому floor24.18. Root pnpm10.33 сохраняется; отдельный Foundation tooling package использует свой pnpm11.25/lock.
+
+## 2. Архитектура: DDD, Clean Architecture, SOLID, DRY
+
+DDD/Clean Architecture уже приняты ADR-005. ADR-028 определяет ownership admission, operation-specific atomic commands и Published Language. ADR-001/data classification сохраняют code custody в execution runtime. ADR-030 — другая узкая WEB-host область, её не расширяем молча.
+
+Новый scoped ADR фиксирует:
+
+1. Web-authored Markdown — намеренно сохраняемый user-managed content, не raw prompt archive, Memory или репозиторный исходник.
+2. Git bodies/resources не сохраняются в CP. Там только exact base SHA и разрешённые descriptors.
+3. Bounded context `review-skills` владеет originals/revisions/grants/links/bindings. `review-run-control` владеет admission/run lifetime.
+4. App composition соединяет consumer ports существующей Serializable admission transaction. Generic cross-context Unit of Work не вводим.
+5. Engine adapters получают immutable neutral DTO. OCR-specific fields не проникают в domain.
+6. User skills — данные; Get Modular собирает приложение, а не исполняет каждый скилл.
+
+### 2.1 Структура нового context
+
+`packages/features/review-skills/src/`:
+
+| Слой | Ответственность | Не импортирует |
+| --- | --- | --- |
+| domain | инварианты, IDs, limits, author policy, scopes/delta | Prisma, HTTP, React, GM |
+| application | сценарии CRUD/sharing/assignment/capture; structured results | Next, Fastify, конкретную БД, OCR |
+| application/ports | narrow query/atomic command/actor ports | global service locator, generic transaction bag |
+| infrastructure/prisma | SQL, CAS, constraints, locking, projections | React, prompts |
+| composition | GM declarations/factory и borrowed host ports | executable user code |
+| public exports | curated DTO/application/composition surfaces | внутренние Prisma models |
+
+Не создавать класс для каждого поля, функцию-policy как GM module или пустые layers ради дерева каталогов. Маленькие cohesive файлы допустимы ADR-005.
+
+### 2.2 Практическое применение принципов
+
+- **SRP:** content, sharing, assignment, capture и engine projection имеют разные операции/владельцев.
+- **OCP:** новый engine меняет adapter, не original/revision/grant модель.
+- **LSP:** adapters принимают общий input; unsupported capability вызывает явный отказ, не silent omission.
+- **ISP:** web CRUD не получает run-token/checkout authority; runtime не получает библиотечный CRUD.
+- **DIP:** application зависит от consumer-owned ports; DB/session/clock/IDs внедряет host.
+- **DRY:** одна assignment command для двух UX; один scope matcher; один capture; один source wire contract с generated copy; одна common materialization до engine branch.
+- **DDD:** Skill aggregate защищает head revision; source и destination authority — отдельные понятия; run authorization хранит immutable snapshot, не живую ссылку.
+
+### 2.3 Get Modular/Foundation: реальная, ограниченная adoption
+
+Минимальный graph: borrowed Store + borrowed Access → Review Skills application root. Production/test hosts отличаются adapters. Используем public `defineContract`, `declareModule`, `input`, `implement`, `assemblyFor().prepare()`. Ports имеют own callable properties, class-prototype adapters оборачиваются. Actor передаётся на каждую операцию; construction не авторизует будущие запросы.
+
+Core/Assembly imports только composition/tests. Conformance dev-only в той же physical Assembly dependency graph; resources0.2.1 только dev peer если требуется Conformance. Не добавлять runtime Resources/Observation без owned lifecycle/telemetry задачи.
+
+Foundation/FMS — `scripts/review-skills-tooling`, отдельный private package, pnpm11.25 и lock. FMS public Node API `checkFeatureModuleOnDisk`/`formatNodeReport`; maps существующие domain/application/infrastructure/composition роли. Foundation scoped `architecture.source-dependencies` schemaVersion1: v2 требует полного closed workspace census и расширил бы задачу. Gate проверяет реальные запрещённые imports и rejecting mutation. Existing architecture gate и ADR-030 profile сохраняются. Не включаем global catalogs/presets/dependency migration.
+
+## 3. Модель данных, ownership и ACL
+
+### 3.1 Сущности
+
+| Сущность | Минимальные поля / ключ | Инвариант |
+| --- | --- | --- |
+| ReviewSkill | id, sourceWorkspaceId, authorUserId, headRevisionId, createdAt, deletedAt? | immutable source/author identity |
+| ReviewSkillRevision | id, skillId, revisionNumber, name, description, instructions, contentDigest, createdAt | append-only; unique(skillId,revisionNumber) |
+| ReviewSkillGrant | skillId, destinationWorkspaceId, grantedBy, grantedAt, revokedAt?, version | только direct source grant; unique(skill,destination) |
+| ReviewSkillLink | workspaceId, skillId, acceptedBy, acceptedAt, unlinkedAt? | canonical reference, не копия |
+| ReviewSkillBinding | repositoryConnectionId, skillId, includePaths, excludePaths, version | repository и local link принадлежат destination |
+| ReviewSkillRepositorySource | repositoryConnectionId, roots, version | только allowlisted roots, opt-in |
+| Authorization attachment | nullable skillsSnapshotCanonicalJson на ReviewRunAuthorization | null = historical absence, никогда capture latest |
+
+Local original доступен source workspace без self-grant. Destination требует одновременно active grant и active accepted link. Binding хранит canonical skillId. Одинаковые имена не сливаются. Composite FK/constraint запрещает head revision чужого skill.
+
+Additive migration: индексы source library, destination links, repo bindings, revisions. Нет cascade удаления captured content. User deletion не меняет author на администратора; сохраняем immutable identity по существующей retention policy.
+
+### 3.2 Матрица доступа
+
+| Операция | Серверное правило |
+| --- | --- |
+| List/read | current member активного workspace; original или local accepted link; только нужная текущая revision |
+| Create | current source member со стабильным User.id |
+| Save name/description/body | actorUserId == authorUserId и current source membership |
+| Grant/revoke | source owner/admin |
+| Accept/unlink | destination owner/admin |
+| Dual-admin Add | в одной transaction проверить обе authority и создать grant+link |
+| Bind/unbind/scope/Git opt-in | repository manager write/maintain/admin либо допустимый workspace admin path |
+| Delete original | author с source membership; нет local bindings/active grants |
+| New admission | active workspace/grant/link/binding; членство автора **не требуется** |
+| Admitted execution | existing run authorization + captured attachment; no live grant recheck |
+
+Не использовать mutable GitHub login для authorship. Actor из server session, не client payload. `canAdminWorkspace`/local override не дают author-only edit. Repo adapter использует `assertDashboardRepositoryMutationAllowed`, не direct_config guard (тот исключает write role). UI capabilities — presentation, server повторно проверяет.
+
+Автор ушёл из source → edit заморожен, текущая revision/grants продолжают работать. Пользователь — member A/admin B → не может экспортировать A только из-за права читать. Destination не может re-share canonical link.
+
+### 3.3 Privacy/lifecycle
+
+- Usage показывает только разрешённые repo names/counts текущего workspace. Source не читает destination results/private repo list.
+- Linking не открывает историю source revisions; target читает текущую доступную head и свои captured runs.
+- Audit/outbox/logs: IDs/digests/counts/safe reasons; без body/provider prompt.
+- Revoked dependency видна как unavailable. Пока assignment остаётся, new admission blocked; нельзя превратить это в green skipped review.
+- Revoke не отменяет admitted run; UI объясняет это. Остановка уже принятого run — отдельная destination операция.
+- Unlink с bindings требует явного снятия, не скрытой потери проверок.
+- Delete original = soft tombstone после проверки активных зависимостей. Revoked stale links не запрещают deletion навсегда; captured bytes сохраняются по run retention.
+- Delete original, Remove from workspace, Remove from repositories — отдельные подписи и последствия.
+
+## 4. Application API и операции
+
+Server-only Actor = { userId }. DTO не содержит actor login/admin flags, Prisma object или engine-specific JSON.
+
+```ts
+type Scope = { includePaths: readonly string[]; excludePaths: readonly string[] };
+type SaveSkill = {
+  workspaceId: string; skillId: string; expectedRevisionId: string;
+  name: string; description: string; instructions: string;
+};
+type AssignSkills = {
+  workspaceId: string; repositoryIds: readonly string[];
+  skillIds: readonly string[]; mode: "add" | "remove"; scope?: Scope;
+};
+```
+
+| Команда/query | Порядок / результат |
+| --- | --- |
+| listWorkspaceSkills(workspaceId,search,cursor) | server bootstrap, current head metadata, viewer capabilities, safe local usage |
+| loadSkill(workspaceId,skillId) | current allowed body и expectedRevisionId; не arbitrary ID reader |
+| createSkill | validate → member check → original+revision atomically; unassigned initially |
+| saveSkill | author/member check + expected head → append revision + CAS head в одной transaction |
+| listLinkableSkills(destination) | existing grants либо source admin authority; не вся доступная для чтения библиотека |
+| grant/revoke/accept/unlink | отдельные операции, repeated intent idempotent; dual-admin helper atomic |
+| listAssignmentChoices(workspace,repoIDs) | k/N по всему captured repo set, availability, current scopes |
+| applyAssignments | Add union missing / Remove subtract; прочие bindings и existing scopes сохраняются |
+| updateBindingScope | explicit one-binding command + expectedVersion; не побочный эффект Add |
+| setRepositorySources | opt-in только разрешённых roots, expectedVersion |
+| deleteSkill | safe dependency counts/reason при невозможности |
+
+Conflict Save возвращает current revisionId и safe metadata; UI сохраняет draft. No blind overwrite. Bulk **all-or-nothing**: exact IDs → все permissions/availability → bounded transaction. При forbidden target ни одного partial write; UI показывает исправимый отказ и позволяет изменить selection. No background-job/idempotency framework: повторная set delta сама no-op.
+
+### Limits
+
+| Объект | Лимит v1 |
+| --- | --- |
+| Web name / description | 120 / 1024 Unicode символа; name nonblank |
+| Web instructions / Git SKILL.md | 32 KiB UTF-8, nonblank |
+| Markdown reference | 16 KiB, максимум8 на skill |
+| Skills per repository/run | максимум32 web+materialized Git |
+| Scope | <=16 include +16 exclude, pattern<=256 bytes; default ["**"]/[] |
+| Captured/materialized bundle | <=256 KiB canonical UTF-8 |
+| Bulk | <=1000 exact repository IDs, <=100 skill IDs |
+| Library/choices page | 50; server cursor/search; selections сохраняются |
+
+No silent truncation. Size/count/path/unsupported errors останавливают применение до inference. UI подсказывает limits; server authoritative. 1000 ограничивает одну операцию, не задаёт future selection.
+
+## 5. Captured contract, admission и транспорт
+
+### 5.1 Published Language
+
+Pure source `packages/shared/src/review-skills-contract.ts`, deterministic generated runtime copy, TS export/check script с digest. Independent golden/rejecting fixtures. Existing runtime-config strict v1 и private runtime snapshot strict v3 сохраняют формы и byte limits.
+
+```ts
+type CapturedReviewSkills = {
+  schemaVersion: "reviewrouter.review-skills/v1";
+  baseSha: string;
+  webSkills: readonly {
+    skillId: string; revisionId: string; sourceWorkspaceId: string;
+    name: string; description: string; instructions: string;
+    includePaths: readonly string[]; excludePaths: readonly string[];
+  }[];
+  gitSources: readonly { root: ".reviewrouter/skills" | ".agents/skills" }[];
+  digest: string; // SHA-256 canonical payload без digest
+};
+```
+
+Canonicalization сортирует canonical IDs/roots/scopes, rejects unknown keys/duplicates, валидирует digest и bytes. Envelope baseSha равен authorization baseSha. Web identity учитывает revision/body/description/scopes; exact-base descriptor фиксирует Git content без CP custody. Explicit empty capture отличается от historical null. Старые hash preimages не меняются.
+
+### 5.2 Capability
+
+Optional `reviewSkillsVersion:1` в **registered ReviewAgentProfile**. Новый qualified profile/binary identity; registered historical records не переписываем. Existing producer immutable key уже включает agentProfiles.
+
+Profile без capability и без назначений сохраняет legacy execution. Nonempty bindings/Git sources с unsupported profile → actionable skills_engine_unsupported до inference. Client flag не заменяет registered capability. Supporting profile всегда получает captured empty/nonempty DTO; missing attachment — error.
+
+### 5.3 Admission последовательность
+
+1. Existing trusted repository/producer/run eligibility.
+2. Existing lookup original run/attempt **до чтения текущих Skills**.
+3. Original найден → его attachment, включая null; не capture latest.
+4. Для нового run после captured engine selection читать текущие bindings/grants/links/source roots и exact immutable revision bodies, проверить capability/bounds.
+5. Сформировать canonical candidate; Git содержит exact authorization.baseSha и roots, без blobs.
+6. Existing Serializable admission transaction: identity locks → replay lookup → runtime fence + Skills fence → authorization row/attachment + existing outbox.
+7. Fence повторно получает полный current set и сравнивает candidate. Нет набора из разных revisions/assignment moments.
+8. Cache/evidence reusable lookup только после successful new admission.
+
+Consumer `ReviewRunSkillsSnapshotPort` в review-run-control, app adapter вызывает context. TransactionClient только app/infrastructure, не generic UoW в application.
+
+Mutations/capture используют общий lock order: sorted destination/source workspaceIDs, затем repositoryIDs/skillIDs. Destination scope защищает от phantom added binding; source scope — Save/revoke. Serializable reads текущих workspace/membership + bounded retries на serialization failures. Внешний GitHub permission I/O перед короткой DB transaction; DB membership повторно внутри.
+
+**Не помещать new grant checks в runtimeSnapshots.isLive(), renewal или каждый provider call.** Revoke после admission commit оставляет bounded право этого run на snapshot. Author membership проверяется при edit, не consumption.
+
+### 5.4 Отдельный endpoint
+
+`POST /api/review-action/v2/skills`, existing review-run bearer, bounded empty request. Ответ captured DTO, Cache-Control:no-store. Endpoint resolves existing authorization, отдаёт только её attachment, валидирует scope/base/limits. Content не кладётся в env, claims, telemetry.
+
+Supporting runtime fetches до inference/cache, хранит immutable parsed DTO в execution input. Retry/token refresh не перечитывает latest; если повторяет fetch — сравнивает bytes/digest. Failure/missing/unsupported endpoint → blocked, без static fallback. Legacy unsupported profile не вызывает endpoint.
+
+Queue/retry/restore используют captured bytes до max authorization lifetime. New manual run получает current capture. Existing emergency producer/run revocations остаются своими проверками.
+
+## 6. Git Skills и materialization
+
+Простое explicit opt-in «Use skills from repository» с двумя known roots. Web Skills не требуют файлов. Не auto-load всех IDE rules/AGENTS.md/skills чужого назначения.
+
+После materializer.ensureAvailable и до engine branch:
+
+1. Сверить captured baseSha с verified authorization.baseSha.
+2. Читать exact commit через git tree/blob API, не рабочий HEAD.
+3. Обнаружить непосредственные <root>/<name>/SKILL.md, stable POSIX order.
+4. Regular blobs only; no symlink/gitlink; path containment/UTF-8/bytes.
+5. Agent Skills YAML frontmatter required name/description; supported text-only subset явно документирован.
+6. Локальные relative Markdown references внутри skill directory читаются из того же commit. Не делать remote fetch.
+7. Traversal/missing local md/cycles/recursion/unsupported mandatory resources/limits → explicit error. Scripts/tool instructions не исполняются и не расширяют authority.
+8. Neutral resolved item identity = git:root/name, revision=baseSha, resources+bytes/digests.
+9. Общие web+Git limits; materialized execution digest включает все bytes/scopes.
+10. Runtime provenance: IDs/revisions/origin и «instructions supplied», не гарантия исполнения каждой проверки.
+
+Изменение skill в проверяемом PR не меняет правила этого PR. После merge следующий trusted base включает изменение. Недоступный base можно получить existing authorized exact-SHA SCM reader; нельзя заменять HEAD.
+
+## 7. Движки, scope и identity
+
+### Common
+
+В `production-t0-review-runner.ts` один immutable effective bundle до `if(input.ocr)`. Case-sensitive POSIX scope matcher: include union минус excludes. Compose **все** подходящие skills на assigned path, stable order, dedupe canonical ID/revision. Не расширять inventory/tools. Порядок обеспечивает reproducibility, не решает семантические противоречия.
+
+### OCR
+
+Текущий builder передаёт id/content и top-level merge, которых pinned parser не использует. Реальная shape:
+```json
+{"rules":[{"path":"src/example.ts","rule":"ReviewRouter managed policy\n…","merge_system_rule":true}]}
+```
+
+- Precompose matching skills в один entry на path: upstream first match не суммирует rules.
+- Managed patch exact case-sensitive path matching; ordinary upstream glob mode сохраняется.
+- Managed assigned-inventory allowlist до model call; upstream include **не allowlist**.
+- Preserve SkipProjectRules/private HOME/sanitized env; не читать PR-head .opencodereview/rule.json.
+- Multiline inline wrapper не даёт loader принять строку за path к md.
+- merge_system_rule true на каждом entry сохраняет built-ins.
+- Assert main **и plan** requests; factual-only filter не переписываем.
+- Новый patch set → новая qualified binary/profile identity; rr.3 immutable.
+- Missing binary в required qualification lane = fail, не describe.skip green.
+
+### Native
+
+Shared PromptBuilder segments для finding/investigation и prepared path получают те же применимые captured instructions, с path labels. Late async enrichers не читают библиотеку. Existing file/context boundaries сохраняются.
+
+### Cache
+
+Skills-enabled incremental compatibility включает captured + execution digests, поскольку ранний completed-snapshot reuse может обойти prompt builder. OCR ruleText и native final prompt/contextManifestHash также включают effective text. Auth before cache остаётся отдельным условием.
+
+Legacy absence branch сохраняет byte-for-byte old hashes; не добавлять skills:null в preimage v1. Tests показывают изменение при revision/scope/resource и неизменность legacy fixture.
+
+## 8. Frontend, без лишней сложности
+
+### 8.1 Shell и read path
+
+- dashboard-section.ts: union/order/meta; skills сразу перед memory.
+- dashboard-section-tabs.tsx: icon для desktop/compact.
+- DashboardSectionContent делегирует отдельному server section до heavy account reads.
+- Новый `src/features/review-skills`: contracts/query-keys/client-adapter.
+- Server composition/dashboard adapter/actions отдельно от большого workspace-page.
+- First paint через server loader; interactive React Query keys workspace+viewer+selection identity, deliberate staleTime и точечная invalidation. Не дублировать fetched state в локальном useState.
+
+### 8.2 Library/editor
+
+Плоская таблица, source/author, local Used in, updated, действия. Empty: Create / Add from workspace. Три поля, explicit Save, hint «Updates future reviews in connected repositories». Read-only linked skill показывает source и причину.
+
+Dirty close — discard или продолжить. Conflict сохраняет draft, показывает fresh revision, explicit reload/reconcile; no blind overwrite. Create из empty bulk возвращает initial repo selection и отмечает созданный skill. Create из library предлагает Assign to repositories.
+
+Import SKILL.md — bounded local file → preview полей нового web original. Export — portable text-only format. Это не live Git sync. Git-managed content не редактируется в web; source settings объясняют trusted base.
+
+### 8.3 Sharing
+
+Add → Create / Import / From another workspace. Eligible originals показывают source/author/live link explanation.
+
+Dual admin: одно Add. Existing explicit grant: destination Accept. Source admin выдаёт/revokes direct grant выбранному workspace. No invites/email/public catalog. Unavailable row объясняет состояние и позволяет снять dependencies. Query не раскрывает workspace/repo metadata неавторизованному actor.
+
+### 8.4 Selection/bulk
+
+Existing gateway-repository-batch-controls содержит gateway targets/version/cap100. Extract neutral repo ID selection provider; Gateway adapter сохраняет свои eligibility/version/cap. Skills inventory допускает repo_manager и не наследует direct_config-only выборку.
+
+repository-live-search различает matchingIds/visibleIds. Select all N matching берёт matchingIds. Selection survives filters/pages; selected/hidden counters, Clear. Exact repoIDs фиксируются при открытии/apply, future repos не входят.
+
+Dialog: Add/Remove title/description/primary action различны. Checkboxes initially empty, Assigned k/N отдельный столбец. Skill selection survives pages/search. Add scope default all; advanced optional include/exclude. Existing scope не меняется Add; Paths для single repo — explicit versioned command. Remove доступен для unavailable binding.
+
+Bulk transaction all-or-nothing; pending prevents duplicate submit, safe rejection остаётся в dialog. Success invalidates usages+bindings. Library Repositories использует тот же API.
+
+### 8.5 Accessibility
+
+Shared Base UI Dialog/Button/Checkbox/Badge/SelectField; semantic labels/table/textarea без новой component framework. Focus trap/return, Esc+dirty behavior, keyboard; mobile scroll/max-height с доступным footer. Nav desktop/compact order E2E.
+
+## 9. Пошаговое исполнение и ownership
+
+Каждый coherent checkpoint commit/push в уже открытые draft PR. Root владеет git и интеграцией; agents не коммитят чужие файлы.
+
+### A. План и решения
+
+- [x] Worktrees, baselines, early draft PR, source audits, registry versions.
+- [ ] Три **последовательных** раунда нескольких критиков: architecture/data/tooling; runtime/OCR/protocol; UX/authorization/privacy.
+- [ ] После каждого: исправить план, finding→решение→acceptance в review log; следующий round читает новую revision.
+- [ ] Scoped ADR и точный contract.freeze; dependency/toolchain checks.
+- [ ] Только после round3 запуск параллельной implementation.
+
+### B. Domain/persistence — architecture lane
+
+1. Новый package/exports/build/test config.
+2. Domain limits/author policy/scopes/delta/structured errors.
+3. Additive Prisma models+migration/constraints/indexes, runtime DB ACL минимально необходимая.
+4. Operation-specific ports, Prisma atomic commands/CAS/locks/bounded retry.
+5. CRUD/grant/revoke/accept/unlink/linkable query/bulk/scope/Git opt-in.
+6. Capture/revalidation surface для app adapter; no Git bodies in CP.
+7. GM production/test composition, scoped Foundation/FMS rejecting gates.
+8. Domain tests и PG author/CAS/sharing/bulk/races.
+
+### C. CP admission/transport — root
+
+1. Pure published contract + generator/check + independent fixtures.
+2. Profile capability parser/export и new qualified identity; legacy absence preserved.
+3. Authorization attachment domain/Prisma mapping/migration, не public claims.
+4. Consumer capture port после engine selection, original restore first.
+5. App-owned transaction fence, no live grant checks on renew.
+6. Actionable unsupported/unavailable/oversize admission reasons.
+7. Authenticated no-store endpoint.
+8. PG empty/legacy/race/capture/cache-order tests.
+9. Release handoff/digest fixtures; no mutation old manifests.
+
+### D. Runtime — runtime lane, другой worktree
+
+1. Generated contract и capability; endpoint integration managed transports.
+2. Captured immutable execution input, refresh equality, no fallback.
+3. Exact-base Git reader/refs/bounds + pure scope projection.
+4. Common runner integration всех OCR/native/investigation/prepared paths.
+5. OCR parser shape/exact paths/allowlist patch; binary/profile qualification.
+6. Compatibility identity with legacy goldens.
+7. Real CLI loopback prompts, native parity, Git fixture, published contract parity.
+8. Text-only subset docs, safe provenance.
+
+### E. Web — frontend lane
+
+1. Server session/access composition + safe DTO adapters.
+2. Server section/first paint/actions/query keys.
+3. Library/editor/import/export/conflict/readonly.
+4. Sharing/accept/revoke/local usage.
+5. Neutral selection provider + Gateway regression.
+6. Bulk Add/Remove, all matching/kN/scopes/Git opt-in/reverse assignments.
+7. Nav before Memory.
+8. Actual Next/browser cases в existing accounts-reference-e2e harness.
+
+### F. Общие gates
+
+1. Dependency install/Prisma generate/build new packages.
+2. Focused tests/typecheck + existing relevant regressions.
+3. Foundation/FMS/GM independent oracle; запрещённый импорт действительно red.
+4. Real PostgreSQL17 acceptance migrations/transactions; PGlite только developer smoke.
+5. Real patched OCR binary+loopback Responses, main/plan actual prompt assertions.
+6. Existing browser harness расширить, без production auth bypass; actual Next actions/DB.
+7. Paired CP→runtime captured transport/projection/digest parity fixture.
+8. Independent implementation review, fixes, evidence with exact commands/SHAs.
+9. Final commits/push/update PR status; production deployment/stable tags отдельны.
+
+## 10. Acceptance matrix
+
+| ID | Сценарий | Проверяемый результат |
+| --- | --- | --- |
+| A01 | create/save/reopen | persisted head, append-only revision |
+| A02 | concurrent editors | один Save, второй conflict; draft intact |
+| A03 | nonauthor admin direct action | server forbidden |
+| A04 | author leaves source | edit denied, existing consumption valid |
+| S01 | dual admin link | один original, grant+link, no copy |
+| S02 | member A/admin B export | denied без source grant |
+| S03 | destination re-share | denied, no transitive grant |
+| S04 | usage privacy | нет чужих repo names/counts/results |
+| B01 | mixed Add | только missing, unrelated/scopes preserved |
+| B02 | Remove unavailable | selected bindings сняты, original intact |
+| B03 | >100 repos/multiple skill pages | exact matching selection survives filters/pages |
+| B04 | forbidden repo in bulk | no partial writes, actionable reason |
+| B05 | repeated delta | no-op safe |
+| R01 | Save/rebind после capture | byte-identical retry |
+| R02 | revoke before new admission/cache | blocked до reuse/inference |
+| R03 | revoke after admission | original run valid, next blocked |
+| R04 | concurrent Save/revoke/bind/admit | whole authorized old/new set, no torn snapshot |
+| R05 | historical null | no latest capture, same old hash |
+| R06 | unsupported registered profile | explicit failure, no ignore |
+| G01 | PR-head malicious Skill | exact trusted base content |
+| G02 | refs traversal/symlink/cycle/oversize | fail before model, no network |
+| G03 | missing base object | exact authorized fetch или fail, no HEAD |
+| E01 | real OCR main/plan | matching instructions + built-ins present |
+| E02 | case/metachar paths/inventory | no bleed, unassigned never sent |
+| E03 | native finding/investigation | same applicable captured content |
+| E04 | revision/scope/resource change | new cache key; old absence golden unchanged |
+| U01 | desktop/compact nav | Skills directly before Memory |
+| U02 | dirty/conflict/mobile/keyboard | draft/focus/action accessible |
+| U03 | empty bulk→create | original repo selection + new skill selected |
+| U04 | viewer/workspace switch | query cache isolation |
+| P01 | logs/health/outbox | no bodies/Git blobs/raw prompts |
+| M01 | missing/wrong provider/forbidden import | scoped gates fail |
+
+## 11. Rollout и совместимость
+
+Delivery заканчивается реализацией/квалификацией в PR. Production deploy/stable-tag movement не выполняются этим поручением. Не объявлять profile qualified до real binary proof.
+
+Совместимый порядок: additive DB+server readers → qualified new runtime/profile registration → assignment enablement для поддерживаемых repositories. Старый producer с назначениями явно требует update; не делает green ignored review. Старые empty/legacy runs сохраняются.
+
+Rollback code не удаляет revisions/attachments. Не rebind profileRef/binary identity к другим bytes. Captured data доступны supporting runtime до expiry. Deletion/retention следуют существующему operation policy, не новому бесконечному archive.
+
+## 12. Журнал исполнения
+
+Три раунда: [2026-10-21-review-skills-reviews.md](./2026-10-21-review-skills-reviews.md).
+Текущий checkpoint: PR/worktrees готовы, audits/registry проверены, dependencies установлены. Реализация и успешная квалификация ещё не заявлены; checklist обновляется только фактическим выполнением.
