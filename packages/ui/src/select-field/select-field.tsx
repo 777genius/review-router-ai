@@ -63,7 +63,7 @@ export function SelectField({
           <BaseSelect.Positioner
             sideOffset={8}
             alignItemWithTrigger={false}
-            className="z-50"
+            className="z-[70]"
           >
             <BaseSelect.Popup
               className="max-h-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-cyan-200/15 bg-[var(--rr-surface-menu)] p-1.5 text-cyan-50 shadow-[var(--rr-shadow-elevated),0_0_60px_-32px_rgba(0,240,255,0.9)] outline-none"

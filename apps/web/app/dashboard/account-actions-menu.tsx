@@ -51,7 +51,9 @@ export function AccountActionsMenu({
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [inDialog, setInDialog] = useState(false);
+  const [dialogContainer, setDialogContainer] = useState<HTMLElement | null>(
+    null,
+  );
   return (
     <MenuContext.Provider value={{ trigger, close: () => setOpen(false) }}>
       <DropdownMenu.Root
@@ -59,7 +61,9 @@ export function AccountActionsMenu({
         open={open}
         onOpenChange={(value) => {
           if (value)
-            setInDialog(Boolean(trigger.current?.closest('[role="dialog"]')));
+            setDialogContainer(
+              trigger.current?.closest<HTMLElement>('[role="dialog"]') ?? null,
+            );
           setOpen(value);
         }}
       >
@@ -75,7 +79,10 @@ export function AccountActionsMenu({
             )}
           </Button>
         </DropdownMenu.Trigger>
-        <DropdownMenu.Portal forceMount>
+        <DropdownMenu.Portal
+          container={dialogContainer ?? undefined}
+          forceMount
+        >
           <DropdownMenu.Content
             forceMount
             hidden={!open}
@@ -91,8 +98,11 @@ export function AccountActionsMenu({
                 event.preventDefault();
             }}
             align="end"
+            {...(dialogContainer
+              ? { collisionBoundary: dialogContainer, collisionPadding: 8 }
+              : {})}
             sideOffset={8}
-            className={`${inDialog ? "z-[70]" : "z-50"} data-[state=closed]:hidden grid min-w-56 max-w-[min(20rem,calc(100vw-2rem))] gap-1 rounded-xl border border-cyan-200/20 bg-[var(--rr-surface-menu)] p-2 text-cyan-50 shadow-lg shadow-black/40`}
+            className={`${dialogContainer ? "z-[70]" : "z-50"} data-[state=closed]:hidden grid min-w-56 max-w-[min(20rem,calc(100vw-2rem))] gap-1 rounded-xl border border-cyan-200/20 bg-[var(--rr-surface-menu)] p-2 text-cyan-50 shadow-lg shadow-black/40`}
           >
             {children}
           </DropdownMenu.Content>
