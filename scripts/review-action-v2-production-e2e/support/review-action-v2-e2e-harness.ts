@@ -253,6 +253,7 @@ export class ReviewActionV2E2EHarness {
       repo,
       pullRequestNumber,
       sourceRunId,
+      repositoryId: githubRepositoryId,
       installationId: githubInstallationId,
       appSlug: "reviewrouter-e2e",
       oidcKeyId,
@@ -387,6 +388,7 @@ export class ReviewActionV2E2EHarness {
     } = {},
   ): Promise<ReviewActionV2E2EAuthorization> {
     const runAttempt = input.sourceRunAttempt ?? "1";
+    this.fakeGitHub.sourceRunAttempt = runAttempt;
     const oidcExpiresAt =
       Math.floor(Date.now() / 1000) + this.oidcLifetimeSeconds;
     const oidcToken = await this.signOidcToken(
