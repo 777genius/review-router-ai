@@ -1002,62 +1002,77 @@ describe("Review Action v2 run-control composition", () => {
     },
   );
 
-  it("authorizes once and restores the exact OIDC/protocol replay", async () => {
-    const handlers = createReviewActionV2RunControlHandlers(dependencies);
-    const request = authorizeRequest();
+  it.each(["legacy", "direct"] as const)(
+    "authorizes and restores the exact %s OIDC/protocol replay",
+    async (route) => {
+      if (route === "direct")
+        facts = {
+          ...facts,
+          modelTransport: "provider_api",
+          providerApiAuthMode: "openrouter-api",
+        };
+      const handlers = createReviewActionV2RunControlHandlers(dependencies);
+      const request = authorizeRequest();
 
-    const first = await handlers.authorize!.execute(request);
-    const replay = await handlers.authorize!.execute(request);
+      const first = await handlers.authorize!.execute(request);
+      const replay = await handlers.authorize!.execute(request);
 
-    expect(first.statusCode).toBe(201);
-    expect(first.result.status).toBe(
-      ReviewRunAuthorizationResultStatus.Authorized,
-    );
-    expect(first.result.protocolLimitsCanonicalJson).toContain("maxWorkSlots");
-    const persisted = await kit.store.findReviewRunAuthorizationById(
-      first.result.authorizationId!,
-    );
-    expect(persisted).not.toBeNull();
-    expect(
-      JSON.parse(first.result.authorizationFactsCanonicalJson!)
-        .workflowIdentityHash,
-    ).toBe(persisted!.workflowIdentityHash);
-    expect(JSON.parse(first.result.authorizationFactsCanonicalJson!)).toEqual(
-      expect.objectContaining({
-        pullRequestNumber: 42,
-        baseSha: baseSha,
-        mergeBaseSha: mergeBaseSha,
-        headSha: headSha,
-        reviewRevisionHash: facts.reviewRevisionHash,
-        providerVoteLanes: [
-          expect.objectContaining({
-            providerKind: "codex",
-            providerVoteIdentityHash: expect.any(String),
-          }),
-        ],
-      }),
-    );
-    expect(replay.statusCode).toBe(200);
-    expect(replay.result.status).toBe(
-      ReviewRunAuthorizationResultStatus.Restored,
-    );
-    expect(replay.result.authorizationId).toBe(first.result.authorizationId);
-    expect(replay.result.authorizationFactsCanonicalJson).toBe(
-      first.result.authorizationFactsCanonicalJson,
-    );
-    expect(
-      JSON.parse(first.result.authorizationFactsCanonicalJson!),
-    ).not.toHaveProperty("reviewInvestigation");
-    expect(
-      await kit.digest.digestUtf8(
+      expect(first.statusCode).toBe(201);
+      expect(first.result.status).toBe(
+        ReviewRunAuthorizationResultStatus.Authorized,
+      );
+      expect(first.result.protocolLimitsCanonicalJson).toContain(
+        "maxWorkSlots",
+      );
+      const persisted = await kit.store.findReviewRunAuthorizationById(
+        first.result.authorizationId!,
+      );
+      expect(persisted).not.toBeNull();
+      const emittedFacts = JSON.parse(
         first.result.authorizationFactsCanonicalJson!,
-      ),
-    ).toBe(
-      await kit.digest.digestUtf8(
-        replay.result.authorizationFactsCanonicalJson!,
-      ),
-    );
-  });
+      );
+      if (route === "direct")
+        expect(emittedFacts.workflowIdentityHash).toBe(
+          persisted!.workflowIdentityHash,
+        );
+      else expect(emittedFacts).not.toHaveProperty("workflowIdentityHash");
+      expect(JSON.parse(first.result.authorizationFactsCanonicalJson!)).toEqual(
+        expect.objectContaining({
+          pullRequestNumber: 42,
+          baseSha: baseSha,
+          mergeBaseSha: mergeBaseSha,
+          headSha: headSha,
+          reviewRevisionHash: facts.reviewRevisionHash,
+          providerVoteLanes: [
+            expect.objectContaining({
+              providerKind: "codex",
+              providerVoteIdentityHash: expect.any(String),
+            }),
+          ],
+        }),
+      );
+      expect(replay.statusCode).toBe(200);
+      expect(replay.result.status).toBe(
+        ReviewRunAuthorizationResultStatus.Restored,
+      );
+      expect(replay.result.authorizationId).toBe(first.result.authorizationId);
+      expect(replay.result.authorizationFactsCanonicalJson).toBe(
+        first.result.authorizationFactsCanonicalJson,
+      );
+      expect(
+        JSON.parse(first.result.authorizationFactsCanonicalJson!),
+      ).not.toHaveProperty("reviewInvestigation");
+      expect(
+        await kit.digest.digestUtf8(
+          first.result.authorizationFactsCanonicalJson!,
+        ),
+      ).toBe(
+        await kit.digest.digestUtf8(
+          replay.result.authorizationFactsCanonicalJson!,
+        ),
+      );
+    },
+  );
 
   async function registerSelectedVariant() {
     const base = (await kit.store.findProducerReleaseById("release_v2"))!;

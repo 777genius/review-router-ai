@@ -31,7 +31,6 @@ import {
 } from "@reviewrouter/features-org-ruleset-provisioning";
 import {
   clearReviewConfiguration,
-  assertOpenRouterDirectConfigurationSupported,
   isOpenRouterDirectConfiguration,
   PrismaReviewConfigurationRepository,
   resolveReviewRuntimeEnv,
@@ -2961,8 +2960,7 @@ async function saveWorkspaceReviewConfigMutation(
       workspaceId,
     });
     const config = readReviewConfigurationForm(formData);
-    if (config.providers.some((provider) => provider.kind === "openrouter"))
-      assertOpenRouterDirectConfigurationSupported(config);
+    isOpenRouterDirectConfiguration(config);
     assertGatewayReviewAgentProfileContextAllowed(
       config,
       loadApprovedGatewayAgentProfiles,
@@ -3098,8 +3096,7 @@ async function saveRepositoryReviewConfigMutation(
       );
     const policy = readRepositoryReviewPolicyForm(formData);
     const config = resolveReviewPolicy(workspace.config, policy);
-    if (config.providers.some((provider) => provider.kind === "openrouter"))
-      assertOpenRouterDirectConfigurationSupported(config);
+    isOpenRouterDirectConfiguration(config);
     assertGatewayReviewAgentProfileContextAllowed(
       config,
       loadApprovedGatewayAgentProfiles,

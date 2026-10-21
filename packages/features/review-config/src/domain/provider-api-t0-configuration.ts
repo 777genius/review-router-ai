@@ -6,9 +6,9 @@ export const openRouterDirectPolicyIssue =
 export function isOpenRouterDirectConfiguration(
   configuration: Pick<ReviewConfiguration, "providers" | "execution">,
 ): boolean {
-  if (
-    !configuration.providers.some((provider) => provider.kind === "openrouter")
-  )
+  // Runtime authentication follows the primary provider. Secondary OpenRouter
+  // rows in an existing mixed policy do not turn it into the direct route.
+  if (configuration.providers[0]?.authMode !== "openrouter_api_key")
     return false;
   assertOpenRouterDirectConfigurationSupported(configuration);
   return true;

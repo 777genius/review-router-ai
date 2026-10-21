@@ -854,7 +854,9 @@ async function authorizeReviewRun(
         pullRequestNumber: success.authorization.pullRequestNumber,
         sourceRunId: success.authorization.sourceRunId,
         sourceRunAttempt: success.authorization.sourceRunAttempt,
-        workflowIdentityHash: success.authorization.workflowIdentityHash,
+        ...(resolved.facts.providerApiAuthMode === "openrouter-api"
+          ? { workflowIdentityHash: success.authorization.workflowIdentityHash }
+          : {}),
         baseSha: success.authorization.baseSha,
         mergeBaseSha: success.authorization.mergeBaseSha,
         headSha: success.authorization.headSha,
