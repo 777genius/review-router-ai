@@ -64,3 +64,36 @@ Reviewed commit: 3fbeabb00c3e320262365a4847139269f5297eb9. **Все три кр�
 Независимый runtime review: P0/P1 в проверенной области не осталось; 52/52 Skills/native/OCR adapter tests. Независимый frontend review проверил server authority, privacy, canonical linking, exact selection/retry и inert Markdown; обнаруженный author-edit UX исправлен. Отдельный release review подтвердил сохранение managed92/historical96 identities и отклонение шести повреждённых каталогов без изменения protected baseline.
 
 Финальный browser receipt на `03c94f32ce4a5147336681502742e4385c1827d5`: 7/7, без skips, с 138 свежими migrations. Полная таблица выполненных проверок, команды и честные пределы локального/удалённого evidence — [в отчёте](./2026-10-21-review-skills-implementation.md).
+
+## Повторное ревью и визуальная проверка по запросу пользователя
+
+Три независимых критика **GPT-6.1 Sol, xhigh** проверили backend/authority,
+runtime/OCR и реальный frontend. Замечания опубликованы отдельными inline review
+threads в PR #635 и #297 через аккаунт автора. Это AI-assisted review, не
+самостоятельное человеческое approval.
+
+| Finding                                                                                                              | Исправление                                                                                                                                                                                                                                | Проверка                                                                                                                         |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| P2: один read-only repository candidate обрывал весь список Repositories для участника с write к другому репозиторию | Только завершённый typed permission denial исключается из discovery. Transport/malformed/incomplete/identity ошибки продолжают прерывать запрос. Mutation по-прежнему требует proof для каждого selected repository под DB authority check | Adapter + dashboard guards 26/26; real PostgreSQL partial-proof case: разрешённый target виден, bulk по двум запрещён, записей 0 |
+| P2: used shortcut `[checks]` с `[checks]: required.md` молча терял обязательный Markdown reference                   | Явный bounded rejection unsupported local shortcut; определения без использования, external/anchor links и code examples остаются inert                                                                                                    | Runtime Skills suite 12/12; независимая перекрёстная проверка backend критиком                                                   |
+| P2: Save существующего Skill открывал новый assignment dialog                                                        | Continuation в Repositories только после Create; обычный Save закрывает редактор и показывает существующий ActionToast                                                                                                                     | Настоящий Next/PG/Chromium: Save/CAS/linked edit, screenshot после завершения анимации                                           |
+| P2: результат bulk operation, selected count и retry error были ниже длинной таблицы                                 | Feedback закреплён рядом с Apply/Close; используются существующие DialogFooter и feedback slot без нового framework                                                                                                                        | Actual browser: 125 repositories, populated table, desktop и 390×844; success и exact retry остаются в viewport                  |
+
+Backend и runtime критики дополнительно независимо проверили исправления друг
+друга: blockers в изменённых границах не нашли. Визуальный критик прошёл
+создание/редактирование, dirty close, canonical sharing, массовое назначение и
+мобильные диалоги. Bounded draft browser проверки прошли; окончательный receipt
+на committed source фиксируется отдельно в отчёте, без подмены dirty run.
+
+Вне diff обнаружено существовавшее до фичи ограничение в
+`manage-review-run-authorizations.ts`: denial при racing runtime recapture может
+временно обогнать перечитывание admitted winner. Уже сохранённый snapshot не
+заменяется; новый retry возвращает winner. Это pre-existing non-blocking finding,
+а не выполненное в этом PR исправление; scope и accepted ADR не расширялись.
+
+По запросу пользователя author/committer наших feature commits приведены к
+подтверждённому GitHub identity. Переписаны только metadata и цепочка родителей;
+каждый committed tree и незакоммиченные исправления сохранены. Исторические SHA
+в предыдущих разделах обозначают реально проверенные тогда версии. Новый
+handoff экспортируется штатным инструментом из reachable committed source, а
+paired CI pin обновляется после нового runtime commit.

@@ -181,6 +181,51 @@ export function RepositorySkillsOperation({
           : "Remove skills from repositories"
       }
       description={`${repositoryIds.length} ${repositoryIds.length === 1 ? "repository" : "repositories"} selected. ${mode === "add" ? "Adds missing skills; other skills and existing path settings stay in place." : "Removes only the checked skills from these repositories."}`}
+      feedback={
+        <>
+          {!overLimit ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p
+                className="text-xs leading-5 text-slate-400"
+                aria-live="polite"
+              >
+                {selected.size} skills checked for this {mode} operation.
+                Changing search keeps checked skills.
+              </p>
+              {selected.size > 0 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={controlsLocked}
+                  onClick={() => setSelected(new Set())}
+                >
+                  Clear checked skills
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          <SkillsError error={apply.error} />
+          {apply.isError ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={choices.isFetching}
+              onClick={() => {
+                void choices.refetch();
+              }}
+            >
+              Refresh assignment counts
+            </Button>
+          ) : null}
+          {success ? (
+            <p role="status" className="text-sm text-emerald-200">
+              {success}
+            </p>
+          ) : null}
+        </>
+      }
       footer={
         <Button
           type="button"
@@ -346,21 +391,6 @@ export function RepositorySkillsOperation({
               Create skill
             </Button>
           ) : null}
-          <p className="text-xs text-slate-400" aria-live="polite">
-            {selected.size} skills checked for this {mode} operation. Changing
-            search keeps checked skills.
-          </p>
-          {selected.size > 0 ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={controlsLocked}
-              onClick={() => setSelected(new Set())}
-            >
-              Clear checked skills
-            </Button>
-          ) : null}
           {mode === "add" ? (
             <details className="border-t border-cyan-200/15 pt-3">
               <summary className="cursor-pointer text-sm text-slate-300">
@@ -401,24 +431,6 @@ export function RepositorySkillsOperation({
           ) : null}
         </>
       )}
-      <SkillsError error={apply.error} />
-      {apply.isError ? (
-        <Button
-          type="button"
-          variant="outline"
-          disabled={choices.isFetching}
-          onClick={() => {
-            void choices.refetch();
-          }}
-        >
-          Refresh assignment counts
-        </Button>
-      ) : null}
-      {success ? (
-        <p role="status" className="text-sm text-emerald-200">
-          {success}
-        </p>
-      ) : null}
       {creating ? (
         <SkillEditorDialog
           workspaceId={workspaceId}

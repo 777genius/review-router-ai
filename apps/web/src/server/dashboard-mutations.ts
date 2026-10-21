@@ -531,11 +531,12 @@ async function assertRepositoryPermissionForActor(input: {
     .safeParse(response.data);
   if (!facts.success) throw new Error("repository_mutation_forbidden");
   const data = facts.data;
+  // Facts for another principal do not prove this actor's permission decision.
   if (
     String(data.user.id) !== githubActor.githubUserId ||
     data.user.login.toLowerCase() !== githubActor.githubLogin.toLowerCase()
   )
-    throw new DashboardMutationRefusedError("repository_mutation_forbidden");
+    throw new Error("repository_mutation_forbidden");
 
   const permission = data.permission;
   const roleName = data.role_name ?? "";

@@ -7,6 +7,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Button, Checkbox } from "@reviewrouter/ui";
+import { ActionToast } from "../action-toast";
 import type {
   ReviewSkillCapabilities,
   ReviewSkillDocument,
@@ -52,6 +53,7 @@ export function ReviewSkillsLibrary({
     null,
   );
   const [error, setError] = useState<unknown>(null);
+  const [savedRevisionId, setSavedRevisionId] = useState("");
   const client = useQueryClient();
   const library = useInfiniteQuery({
     queryKey: reviewSkillsKeys.library(viewerId, workspaceId, search),
@@ -102,6 +104,14 @@ export function ReviewSkillsLibrary({
   });
   return (
     <>
+      {savedRevisionId ? (
+        <ActionToast
+          key={savedRevisionId}
+          tone="success"
+          title="Skill saved"
+          body="Future reviews will use the updated instructions."
+        />
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           {capabilities.canCreate ? (
@@ -289,7 +299,8 @@ export function ReviewSkillsLibrary({
           onClose={() => setEditor(null)}
           onSaved={(document) => {
             setEditor(null);
-            setRepositories(document);
+            if (editor === "create") setRepositories(document);
+            else setSavedRevisionId(document.revisionId);
             void invalidate();
             if (document.sourceWorkspaceId !== workspaceId)
               void client.invalidateQueries({

@@ -53,6 +53,14 @@ test.describe("Skills real Next and PostgreSQL", () => {
       "true",
     );
   }
+  async function expectSavedFeedback(page: Page) {
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const toast = page
+      .locator("[data-sonner-toast]")
+      .filter({ hasText: "Skill saved" });
+    await expect(toast.getByText("Skill saved", { exact: true })).toBeVisible();
+    await expect(toast).toHaveCSS("opacity", "1");
+  }
   async function managerSession(context: BrowserContext) {
     const header = process.env.ACCOUNTS_REFERENCE_E2E_MANAGER_COOKIE ?? "";
     const index = header.indexOf("=");
@@ -119,6 +127,12 @@ test.describe("Skills real Next and PostgreSQL", () => {
     ).toBeEnabled();
     await editor.getByRole("button", { name: "Save", exact: true }).click();
     await expect(editor).not.toBeVisible();
+    await expect(
+      page.getByRole("dialog", {
+        name: "Assign skill to repositories",
+        exact: true,
+      }),
+    ).toBeVisible();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Close", exact: true })
@@ -172,6 +186,7 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await expect(
       second.getByRole("dialog", { name: "Edit skill", exact: true }),
     ).not.toBeVisible();
+    await expectSavedFeedback(second);
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Save", exact: true })
@@ -203,6 +218,10 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await expect(
       page.getByRole("dialog", { name: "Edit skill", exact: true }),
     ).not.toBeVisible();
+    await expectSavedFeedback(page);
+    await page.screenshot({
+      path: test.info().outputPath("skills-edit-saved-desktop.png"),
+    });
     const persisted = await sql<{ count: string }>(
       `SELECT count(*)::text FROM "ReviewSkillRevision" WHERE "skillId"=$1`,
       [created[0]!.id],
@@ -352,6 +371,17 @@ test.describe("Skills real Next and PostgreSQL", () => {
         exact: true,
       })
       .check();
+    const checkedSummary = dialog.getByText(
+      "2 skills checked for this add operation. Changing search keeps checked skills.",
+      { exact: true },
+    );
+    await expect(checkedSummary).toBeInViewport({ ratio: 1 });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(checkedSummary).toBeInViewport({ ratio: 1 });
+    await dialog.screenshot({
+      path: test.info().outputPath("skills-bulk-checked-mobile.png"),
+    });
+    await page.setViewportSize({ width: 1280, height: 900 });
     await dialog
       .getByRole("searchbox", { name: "Search skills" })
       .fill("no matching skill");
@@ -361,10 +391,25 @@ test.describe("Skills real Next and PostgreSQL", () => {
         { exact: true },
       ),
     ).toBeVisible();
+    await dialog.getByRole("searchbox", { name: "Search skills" }).fill("");
+    await expect(row).toBeVisible();
     await dialog
       .getByRole("button", { name: "Add selected skills", exact: true })
       .click();
     await expect(dialog.getByRole("status")).toContainText("249 added");
+    await expect(dialog.getByRole("status")).toBeInViewport({ ratio: 1 });
+    await dialog.screenshot({
+      path: test.info().outputPath("skills-bulk-result-desktop.png"),
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(dialog.getByRole("status")).toBeInViewport({ ratio: 1 });
+    await expect(
+      dialog.getByRole("button", { name: "Add selected skills", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    await dialog.screenshot({
+      path: test.info().outputPath("skills-bulk-result-mobile.png"),
+    });
+    await page.setViewportSize({ width: 1280, height: 900 });
     expect(
       (
         await sql<{ count: string }>(
@@ -490,6 +535,19 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await expect(dialog.getByRole("alert")).toContainText(
       "result could not be confirmed",
     );
+    await expect(dialog.getByRole("alert")).toBeInViewport({ ratio: 1 });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(dialog.getByRole("alert")).toBeInViewport({ ratio: 1 });
+    await expect(
+      dialog.getByRole("button", {
+        name: "Retry exact operation",
+        exact: true,
+      }),
+    ).toBeInViewport({ ratio: 1 });
+    await dialog.screenshot({
+      path: test.info().outputPath("skills-bulk-unknown-mobile.png"),
+    });
+    await page.setViewportSize({ width: 1280, height: 900 });
     expect(dropped).toBe(true);
     expect(
       (
@@ -579,13 +637,11 @@ test.describe("Skills real Next and PostgreSQL", () => {
     await linkedEditor
       .getByRole("button", { name: "Save", exact: true })
       .click();
-    await page
-      .getByRole("dialog", {
-        name: "Assign skill to repositories",
-        exact: true,
-      })
-      .getByRole("button", { name: "Close", exact: true })
-      .click();
+    await expect(linkedEditor).not.toBeVisible();
+    await expectSavedFeedback(page);
+    await page.screenshot({
+      path: test.info().outputPath("skills-linked-edit-saved-desktop.png"),
+    });
     await expect(row).toContainText(sharedDescription);
     const savedHead = (
       await sql<{

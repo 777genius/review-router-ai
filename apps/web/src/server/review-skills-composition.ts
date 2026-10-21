@@ -1,6 +1,7 @@
 import { createPrismaReviewSkillsService } from "@reviewrouter/features-review-skills/composition";
 import { getPrisma } from "./prisma";
 import { assertDashboardSkillsRepositoryManagementAllowed } from "./dashboard-mutations";
+import { DashboardMutationRefusedError } from "./dashboard-mutation-errors";
 
 /** Every request gets fresh identity/authority. Construction confers no access. */
 export async function productionReviewSkills() {
@@ -38,15 +39,25 @@ export async function productionReviewSkills() {
                 repository.installation.status !== "active"
               )
                 return null;
-              const current =
-                await assertDashboardSkillsRepositoryManagementAllowed(
-                  workspaceId,
-                  {
-                    ...repository,
-                    githubRepositoryId: repository.githubRepositoryId,
-                    installation: repository.installation,
-                  },
-                );
+              let current;
+              try {
+                current =
+                  await assertDashboardSkillsRepositoryManagementAllowed(
+                    workspaceId,
+                    {
+                      ...repository,
+                      githubRepositoryId: repository.githubRepositoryId,
+                      installation: repository.installation,
+                    },
+                  );
+              } catch (error) {
+                if (
+                  error instanceof DashboardMutationRefusedError &&
+                  error.message === "repository_mutation_forbidden"
+                )
+                  return null;
+                throw error;
+              }
               if (current.userId !== actor.userId)
                 throw new Error("review_skills_actor_changed");
               return repository.id;

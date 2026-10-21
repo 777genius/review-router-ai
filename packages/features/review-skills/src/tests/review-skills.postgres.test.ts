@@ -431,8 +431,27 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
     }
     const lost = await createPrismaReviewSkillsService({
       prisma,
-      repositoryAccess: { authorizeRepositoryManagement: async () => [] },
+      repositoryAccess: {
+        authorizeRepositoryManagement: async () => [repos[0]!],
+      },
     });
+    await prisma.workspaceMember.create({
+      data: { workspaceId: b, userId: author.userId, role: "member" },
+    });
+    try {
+      const targets = await lost.listSkillRepositoryTargets({
+        actor: author,
+        workspaceId: b,
+        skillId: skill.skillId,
+      });
+      expect(targets.items.map((target) => target.repositoryId)).toEqual([
+        repos[0],
+      ]);
+    } finally {
+      await prisma.workspaceMember.deleteMany({
+        where: { workspaceId: b, userId: author.userId },
+      });
+    }
     await expect(
       lost.applyAssignments({
         actor: writer,
@@ -442,6 +461,10 @@ describe.skipIf(!url)("Review Skills real PostgreSQL atomic boundaries", () => {
         mode: "add",
       }),
     ).rejects.toMatchObject({ code: "forbidden" });
+    const partialRows = await prisma.$queryRaw<
+      readonly { count: bigint }[]
+    >`SELECT count(*) FROM "ReviewSkillBinding" WHERE "skillId"=${skill.skillId}`;
+    expect(Number(partialRows[0]?.count)).toBe(0);
   });
   it("opposite-direction dual-admin sharing uses the same sorted workspace order", async () => {
     const left = await service.createSkill({

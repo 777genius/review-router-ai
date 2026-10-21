@@ -33,6 +33,7 @@ export function SkillsDialog({
   description,
   children,
   footer,
+  feedback,
   pending = false,
 }: {
   readonly open: boolean;
@@ -41,6 +42,7 @@ export function SkillsDialog({
   readonly description: string;
   readonly children: ReactNode;
   readonly footer?: ReactNode;
+  readonly feedback?: ReactNode;
   readonly pending?: boolean;
 }) {
   return (
@@ -72,17 +74,20 @@ export function SkillsDialog({
           <div className="min-h-0 space-y-4 overflow-y-auto p-5">
             {children}
           </div>
-          <DialogFooter className="m-0 shrink-0 border-t border-cyan-200/15 bg-[var(--rr-surface-menu)] p-4">
-            {footer}
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={pending}
-              onClick={onClose}
-            >
-              Close
-            </Button>
-          </DialogFooter>
+          <div className="shrink-0 border-t border-cyan-200/15 bg-[var(--rr-surface-menu)] p-4">
+            {feedback ? <div className="mb-3 space-y-2">{feedback}</div> : null}
+            <DialogFooter className="m-0">
+              {footer}
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={pending}
+                onClick={onClose}
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogPopup>
       </DialogPortal>
     </DialogRoot>
