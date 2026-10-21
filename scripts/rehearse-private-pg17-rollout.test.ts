@@ -1282,8 +1282,21 @@ describe("disposable dual-version rehearsal", () => {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
 
-    const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
-    const historicalCheckout = migrationNames.filter(
+    const currentMigrationNames = migrationNames;
+    const legacyMigrationNames = currentMigrationNames.filter(
+      (name) =>
+        name !== "000136_review_skills" &&
+        name !== "000137_review_skills_capture",
+    );
+    expect(currentMigrationNames).toHaveLength(138);
+    expect([...currentMigrationNames].sort().slice(-2)).toEqual([
+      "000136_review_skills",
+      "000137_review_skills_capture",
+    ]);
+    const exclusions = resolvePreReleaseMigrationExclusions(
+      currentMigrationNames,
+    );
+    const historicalCheckout = legacyMigrationNames.filter(
       (name) =>
         name !== "000125_hosted_codex_device_reconnect" &&
         name !== "000126_review_configuration_mimo_auth_kind" &&
@@ -1296,6 +1309,8 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000134_account_lifecycle" &&
         name !== "000134_review_provider_kind_v2_ocr" &&
         name !== "000135_review_run_checkout_repository_lock" &&
+        name !== "000136_review_skills" &&
+        name !== "000137_review_skills_capture" &&
         name !== "000133_allow_first_time_scm_identity_bind",
     );
     const withoutProviderKey = historicalCheckout.filter(
@@ -1350,8 +1365,8 @@ describe("disposable dual-version rehearsal", () => {
     ).toBe(
       "sha256:495a040aeb13c5fc43ea611546be10c9e5edcf519c67bc1f5e40d797f6c50538",
     );
-    expect(migrationNames).toHaveLength(136);
-    expect(migrationManifestIdentity(migrationNames)).toBe(
+    expect(legacyMigrationNames).toHaveLength(136);
+    expect(migrationManifestIdentity(legacyMigrationNames)).toBe(
       "sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8",
     );
     expect(historicalCheckout).toHaveLength(124);
@@ -1459,6 +1474,8 @@ describe("disposable dual-version rehearsal", () => {
       "000134_account_lifecycle",
       "000134_review_provider_kind_v2_ocr",
       "000135_review_run_checkout_repository_lock",
+      "000136_review_skills",
+      "000137_review_skills_capture",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1584,14 +1601,18 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000135_review_run_checkout_repository_lock";
+    const currentTail = "000137_review_skills_capture";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
+      names.filter((name) => name !== "000136_review_skills"),
+      names.filter(
+        (name) => name !== "000135_review_run_checkout_repository_lock",
+      ),
       names.filter((name) => name !== "000130_personal_canonical_operations"),
       names.filter((name) => name !== "000129_personal_run_snapshot_v2"),
       names.filter((name) => name !== "000127_owner_workspace_deletion"),
       [...names, currentTail],
-      names.map((name) => (name === currentTail ? "000135_relabelled" : name)),
+      names.map((name) => (name === currentTail ? "000137_relabelled" : name)),
       [...names, "000127_future_migration"],
       names.filter((name) => name !== "000125_hosted_codex_device_reconnect"),
       names.filter(
@@ -1664,6 +1685,8 @@ describe("disposable dual-version rehearsal", () => {
     "000134_account_lifecycle",
     "000134_review_provider_kind_v2_ocr",
     "000135_review_run_checkout_repository_lock",
+    "000136_review_skills",
+    "000137_review_skills_capture",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1730,6 +1753,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000134_account_lifecycle" &&
                 name !== "000134_review_provider_kind_v2_ocr" &&
                 name !== "000135_review_run_checkout_repository_lock" &&
+                name !== "000136_review_skills" &&
+                name !== "000137_review_skills_capture" &&
                 name !== "000133_allow_first_time_scm_identity_bind",
               "000102_sdk_growth_current_authority",
             ),

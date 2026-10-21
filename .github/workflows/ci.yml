@@ -61,7 +61,7 @@ env:
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: db6b28bb614e806fe2fc8ddf5c5305eaac8dd033
+  REVIEW_ROUTER_PAIRED_ACTION_REF: 4aae5bd7e1c62cfa6852209ca78799d2e5e14132
   REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
   REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
   REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
@@ -559,6 +559,8 @@ jobs:
         run: |
           pnpm skills:tooling:prepare
           pnpm skills:architecture
+          pnpm --dir scripts/local-checks/native install --ignore-workspace --frozen-lockfile
+          pnpm --dir packages/features/review-skills typecheck:native
           pnpm --dir packages/platform/db db:migrate:deploy
           pnpm skills:test
           pnpm exec vitest run apps/api/src/review-run-skills.postgres.test.ts
@@ -1157,6 +1159,14 @@ jobs:
         env:
           REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
         run: pnpm review-investigation:paired-e2e
+
+      - name: Captured Skills control plane to paired runtime HTTP proof
+        env:
+          REVIEW_SKILLS_ADMISSION_TEST_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          REVIEW_SKILLS_REQUIRE_ADMISSION_PG: "1"
+          REVIEW_SKILLS_REQUIRE_PAIRED: "1"
+          REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
+        run: pnpm exec vitest run apps/api/src/review-run-skills.postgres.test.ts --testNamePattern "delivers a signed captured snapshot"
 
       - name: Record paired Action release gate
         shell: bash

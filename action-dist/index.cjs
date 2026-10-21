@@ -26142,6 +26142,37 @@ var providerApiCheckoutCompanionContract = Object.freeze({
   workflowSchemaVersion: 2
 });
 
+// packages/shared/src/review-skills-contract.ts
+var reviewSkillsCompanionContract = Object.freeze({
+  method: "POST",
+  path: "/api/action/v2/skills",
+  requestMaxBytes: 1024,
+  responseMaxBytes: 256 * 1024,
+  schemaVersion: "reviewrouter.review-skills/v1"
+});
+var reviewSkillsLimits = Object.freeze({
+  nameCharacters: 120,
+  descriptionCharacters: 1024,
+  instructionsBytes: 32 * 1024,
+  referenceBytes: 16 * 1024,
+  referencesPerSkill: 8,
+  referenceDepth: 4,
+  skillsPerRun: 32,
+  patternsPerList: 16,
+  patternBytes: 256,
+  bundleBytes: 256 * 1024,
+  treeBytes: 1024 * 1024,
+  treeEntries: 4096,
+  repositoryIdsPerOperation: 1e3,
+  skillIdsPerOperation: 100,
+  pageSize: 50
+});
+var defaultReviewSkillScope = Object.freeze({
+  includePaths: Object.freeze(["**"]),
+  excludePaths: Object.freeze([])
+});
+var encoder = new TextEncoder();
+
 var import_meta = {};
 async function A(A3 = {}) {
   var I2, g2 = A3, C2 = !!globalThis.window, B2 = !!globalThis.WorkerGlobalScope, Q2 = (globalThis.process?.versions?.node && globalThis.process, import_meta.url);

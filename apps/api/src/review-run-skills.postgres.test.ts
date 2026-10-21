@@ -24,6 +24,11 @@ import { renderReviewRouterProviderApiCaller } from "@reviewrouter/protocol-revi
 const databaseUrl = process.env.REVIEW_SKILLS_ADMISSION_TEST_DATABASE_URL;
 const actionSourceDir = process.env.REVIEW_ROUTER_ACTION_SOURCE_DIR;
 const loopbackFetch = globalThis.fetch;
+if (
+  process.env.REVIEW_SKILLS_REQUIRE_PAIRED === "1" &&
+  (!databaseUrl || !actionSourceDir)
+)
+  throw new Error("review_skills_paired_database_and_action_source_required");
 if (!databaseUrl && process.env.REVIEW_SKILLS_REQUIRE_ADMISSION_PG === "1")
   throw new Error("review_skills_admission_postgresql_required");
 const legacy: ReviewAgentProfile = {

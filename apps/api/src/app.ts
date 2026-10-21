@@ -934,7 +934,10 @@ export async function createApiApp(
     await registerReviewRunControlV2Routes(app, reviewRunControlV2Dependencies);
   }
   if (productionReviewActionV2Dependencies?.reviewSkills) {
-    await registerReviewRunSkillsRoute(app, productionReviewActionV2Dependencies.reviewSkills);
+    await registerReviewRunSkillsRoute(
+      app,
+      productionReviewActionV2Dependencies.reviewSkills,
+    );
   }
   if (productionReviewActionV2Dependencies?.accountGatewayRelay) {
     // Selected production path: ReviewRouter -> Account Gateway -> Sub2API.

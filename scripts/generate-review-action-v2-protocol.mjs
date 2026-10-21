@@ -97,7 +97,10 @@ export async function generateReviewActionV2Protocol(input = {}) {
       await format(
         "// Generated from shared/src/review-skills-contract.ts. Do not edit.\n" +
           (await readFile(
-            join(repositoryRoot, "packages/shared/src/review-skills-contract.ts"),
+            join(
+              repositoryRoot,
+              "packages/shared/src/review-skills-contract.ts",
+            ),
             "utf8",
           )),
         { parser: "typescript" },

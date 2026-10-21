@@ -263,6 +263,22 @@ const checkoutExtensions = Object.freeze([
   }),
 ]);
 
+// Checkout-only Skills storage and its separate authorization attachment never
+// enter managed92 SQL or historical96 execution. Retain the exact prior source
+// manifest; pin only these new files instead of replacing protected baselines.
+export const renderReviewSkillsCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000136_review_skills",
+    checksum:
+      "ff5e720ea05be6dcfdfca134182d1c9da13bbc98426375b214fcaa3166d1af26",
+  }),
+  Object.freeze({
+    migrationName: "000137_review_skills_capture",
+    checksum:
+      "40c3734f9e0b46a700a92d6a3fc8a7da01276511daae84b573e415afb52ed766",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -275,6 +291,29 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  if (
+    catalog.some((row) =>
+      renderReviewSkillsCheckoutExtension.some(
+        (skill) => skill.migrationName === row.migrationName,
+      ),
+    )
+  ) {
+    const base = catalog.slice(0, -renderReviewSkillsCheckoutExtension.length);
+    const tail = catalog.slice(-renderReviewSkillsCheckoutExtension.length);
+    if (
+      base.length !== 136 ||
+      manifest(base) !==
+        "sha256:7a00ae60d98ffe6bdaf3bbb74a50eefed8ac60b94e55a443251cb480a47d48a8" ||
+      tail.some(
+        (row, index) =>
+          row.migrationName !==
+            renderReviewSkillsCheckoutExtension[index].migrationName ||
+          row.checksum !== renderReviewSkillsCheckoutExtension[index].checksum,
+      )
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(base);
+  }
   // The merged checkout136 retains both independently released134 extensions
   // and the scoped lock135. Only this exact union may reduce to checkout135.
   const accountLifecycleMigration = catalog.find(

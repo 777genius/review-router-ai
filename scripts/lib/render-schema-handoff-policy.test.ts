@@ -22,6 +22,7 @@ import {
   readRenderManagedCheckoutInventory,
   readRenderSchemaHandoffCatalog,
   renderSchemaHandoffCheckoutExtension,
+  renderReviewSkillsCheckoutExtension,
   renderSchemaHandoffMigrationContract as contract,
 } from "./render-schema-handoff-policy.mjs";
 
@@ -34,8 +35,19 @@ const identityBindMigrationName = "000133_allow_first_time_scm_identity_bind";
 const accountLifecycleMigrationName = "000134_account_lifecycle";
 const ocrProviderMigrationName = "000134_review_provider_kind_v2_ocr";
 const checkoutLockMigrationName = "000135_review_run_checkout_repository_lock";
+const withoutReviewSkills = <T extends { migrationName: string }>(
+  rows: readonly T[],
+) =>
+  rows.filter(
+    (row) =>
+      !renderReviewSkillsCheckoutExtension.some(
+        (skill) => row.migrationName === skill.migrationName,
+      ),
+  );
+const readCheckout135Inventory = () =>
+  withoutReviewSkills(readRenderManagedCheckoutInventory());
 const readPublishedCheckoutInventory = () =>
-  readRenderManagedCheckoutInventory().filter(
+  readCheckout135Inventory().filter(
     (row) =>
       row.migrationName !== accountLifecycleMigrationName &&
       row.migrationName !== identityBindMigrationName &&
@@ -66,6 +78,9 @@ const historicalMigration119Sql = correctedMigration119Sql.replaceAll(
 const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
     (name) =>
+      !renderReviewSkillsCheckoutExtension.some(
+        (row) => row.migrationName === name,
+      ) &&
       name !== accountLifecycleMigrationName &&
       name !== checkoutLockMigrationName &&
       name !== ocrProviderMigrationName &&
@@ -426,8 +441,40 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
+  it("admits only the exact additive Skills pair over unchanged checkout136 and managed92", () => {
+    const current = readRenderManagedCheckoutInventory();
+    const base = withoutReviewSkills(current);
+    expect(current).toHaveLength(138);
+    expect(current.slice(-2)).toEqual(renderReviewSkillsCheckoutExtension);
+    expect(base).toHaveLength(136);
+    expect(partitionRenderSchemaHandoffCheckout(current)).toEqual(
+      partitionRenderSchemaHandoffCheckout(base),
+    );
+    expect(partitionRenderSchemaHandoffCheckout(current)).toEqual(catalog);
+    for (const candidate of [
+      ...renderReviewSkillsCheckoutExtension.flatMap((skill) => [
+        current.filter((row) => row.migrationName !== skill.migrationName),
+        current.map((row) =>
+          row.migrationName === skill.migrationName
+            ? { ...row, checksum: "0".repeat(64) }
+            : row,
+        ),
+      ]),
+      current.filter((row) => row.migrationName !== checkoutLockMigrationName),
+      current.map((row, index) =>
+        index === 0 ? { ...row, checksum: "0".repeat(64) } : row,
+      ),
+      [
+        ...current,
+        { migrationName: "000138_unknown", checksum: "0".repeat(64) },
+      ],
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(candidate)).toThrow(
+        "checkout_extension",
+      );
+  });
   it("admits only the exact merged136 and preserves the independently published lifecycle134", () => {
-    const full = readRenderManagedCheckoutInventory();
+    const full = readCheckout135Inventory();
     const lifecycle134 = full.filter(
       (row) =>
         row.migrationName !== ocrProviderMigrationName &&
@@ -468,7 +515,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       ).toThrow("checkout_extension");
   });
   it("admits only the exact checkout lock135 over unchanged published134", () => {
-    const full = readRenderManagedCheckoutInventory().filter(
+    const full = readCheckout135Inventory().filter(
       (row) => row.migrationName !== accountLifecycleMigrationName,
     );
     expect(full).toHaveLength(135);
@@ -496,7 +543,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       );
   });
   it("admits only exact OCR134 over unchanged published133", () => {
-    const full = readRenderManagedCheckoutInventory().filter(
+    const full = readCheckout135Inventory().filter(
       (row) =>
         row.migrationName !== accountLifecycleMigrationName &&
         row.migrationName !== checkoutLockMigrationName,
@@ -526,7 +573,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       );
   });
   it("admits only exact identity bind133 over unchanged published132", () => {
-    const full = readRenderManagedCheckoutInventory().filter(
+    const full = readCheckout135Inventory().filter(
       (row) =>
         row.migrationName !== accountLifecycleMigrationName &&
         row.migrationName !== ocrProviderMigrationName &&
@@ -1708,6 +1755,8 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      for (const row of renderReviewSkillsCheckoutExtension)
+        rmSync(join(migrations, row.migrationName), { recursive: true });
       rmSync(join(migrations, accountLifecycleMigrationName), {
         recursive: true,
       });
@@ -1760,7 +1809,11 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(136);
+    expect(inventory).toHaveLength(138);
+    expect(fixture.read()).toEqual(catalog);
+    for (const row of renderReviewSkillsCheckoutExtension)
+      rmSync(join(fixture.migrations, row.migrationName), { recursive: true });
+    expect(readdirSync(fixture.migrations)).toHaveLength(136);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, accountLifecycleMigrationName), {
       recursive: true,
@@ -2097,10 +2150,9 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      // Removing only the lifecycle extension restores exact admitted135.
-      if (name === accountLifecycleMigrationName)
-        expect(fixture.read()).toEqual(catalog);
-      else expect(() => fixture.read()).toThrow();
+      // The Skills pair requires its complete136 predecessor. The earlier
+      // legacy-only fixture separately proves lifecycle134 can be peeled.
+      expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
       writeFileSync(sql, bytes);
     }

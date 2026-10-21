@@ -46,6 +46,8 @@ const checkoutOnlyMigrations = Object.freeze([
   "000134_account_lifecycle",
   "000134_review_provider_kind_v2_ocr",
   "000135_review_run_checkout_repository_lock",
+  "000136_review_skills",
+  "000137_review_skills_capture",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
@@ -63,6 +65,8 @@ export function readRenderHistorical96CheckoutInventory() {
       96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
       111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
       126, 127, 128, 129, 130, 131, 132, 133, 134, 135,
+      // Complete Skills checkout138, after excluding the provider-key addition.
+      137,
     ].includes(
       checkout.filter(
         (row) =>

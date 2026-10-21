@@ -429,7 +429,9 @@ export class ReviewActionV2E2EHarness {
     );
     return {
       result: response.result,
-      ...(input.providerApiAuthMode ? { providerApiAuthMode: input.providerApiAuthMode } : {}),
+      ...(input.providerApiAuthMode
+        ? { providerApiAuthMode: input.providerApiAuthMode }
+        : {}),
       sourceRunAttempt: runAttempt,
       oidcExpiresAt: new Date(oidcExpiresAt * 1000).toISOString(),
       authorizationId,

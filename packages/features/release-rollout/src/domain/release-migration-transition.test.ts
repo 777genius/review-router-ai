@@ -27,6 +27,7 @@ import {
   readRenderManagedCheckoutInventory,
   readReviewedRenderManagedContract,
   renderManagedMigrationPhases,
+  renderReviewSkillsCheckoutExtension,
 } from "../../../../../scripts/lib/render-schema-handoff-policy.mjs";
 
 import { readRenderHistorical96CheckoutInventory } from "../../../../../scripts/lib/render-historical96-checkout.mjs";
@@ -96,12 +97,20 @@ describe("canonical release migration transition", () => {
   it("keeps checkout135 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
-    const full = names.map((migrationName) => ({
+    const current = names.map((migrationName) => ({
       migrationName,
       checksum: sha256(
         readFileSync(`${migrationRoot}/${migrationName}/migration.sql`),
       ).slice(7),
     }));
+    expect(current).toHaveLength(138);
+    expect(current.slice(-2)).toEqual(renderReviewSkillsCheckoutExtension);
+    const full = current.filter(
+      (row) =>
+        !renderReviewSkillsCheckoutExtension.some(
+          (skill) => row.migrationName === skill.migrationName,
+        ),
+    );
     const manifest = (rows: readonly Row[]) =>
       sha256(
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
@@ -146,7 +155,7 @@ describe("canonical release migration transition", () => {
     expect(manifest(historicalFull)).toBe(
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
-    expect(full).toEqual(readRenderManagedCheckoutInventory());
+    expect(current).toEqual(readRenderManagedCheckoutInventory());
     expect(full.slice(-28).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",

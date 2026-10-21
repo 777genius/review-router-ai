@@ -24,7 +24,7 @@
     "protocol:release-manifest:check": "node scripts/check-public-review-action-v2-release-manifest.mjs",
     "protocol:handoff:test": "vitest run scripts/review-action-v2-release-manifests.test.ts scripts/export-public-review-action-v2-contract.test.ts",
     "skills:architecture": "node scripts/review-skills-tooling/check.ts",
-    "skills:tooling:prepare": "npx --yes pnpm@11.25.0 --dir scripts/review-skills-tooling install --ignore-workspace --ignore-scripts --frozen-lockfile",
+    "skills:tooling:prepare": "npx --yes pnpm@11.25.0 --dir scripts/review-skills-tooling install --ignore-scripts --frozen-lockfile",
     "skills:test": "vitest run packages/shared/src/review-skills-contract.test.ts packages/features/review-skills/src/tests scripts/review-skills-runtime-grants.test.ts scripts/review-skills-runtime-acl.postgres.test.ts",
     "typecheck": "turbo run typecheck && tsc --noEmit -p tsconfig.spikes.json && tsc --noEmit -p tsconfig.one-shot-test-handoff.json && node scripts/local-checks/compiler-cli.ts --legacy --noEmit -p tsconfig.tooling.json",
     "test": "vitest run",

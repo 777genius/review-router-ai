@@ -41,6 +41,7 @@
   "blockingCommands": [
     "node scripts/review-skills-tooling/check.ts",
     "pnpm --filter @reviewrouter/features-review-skills typecheck",
+    "pnpm --filter @reviewrouter/features-review-skills typecheck:native",
     "pnpm --filter @reviewrouter/features-review-skills test"
   ],
   "qualificationLimits": "Deterministic source/layout/wiring checks and explicit PostgreSQL fixtures; no physical host, deployment, plugin or whole-product claim"

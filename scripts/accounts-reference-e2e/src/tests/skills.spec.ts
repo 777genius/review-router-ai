@@ -755,11 +755,13 @@ test.describe("Skills real Next and PostgreSQL", () => {
       [SKILLS_SHARED_ID, FIXTURES.workspaces.orgAlpha],
     );
     await sql(
-      `INSERT INTO "ReviewSkillRevision" (id,"skillId","revisionNumber",name,description,instructions,"contentDigest") VALUES ('rr-e2e-private-revision-2',$1,2,'PRIVATE RENAMED AFTER REVOKE','PRIVATE DESCRIPTION','PRIVATE BODY',$2)`,
+      `INSERT INTO "ReviewSkillRevision" (id,"skillId","revisionNumber",name,description,instructions,"contentDigest")
+       SELECT 'rr-e2e-private-post-revoke-revision',$1,MAX("revisionNumber")+1,'PRIVATE RENAMED AFTER REVOKE','PRIVATE DESCRIPTION','PRIVATE BODY',$2
+       FROM "ReviewSkillRevision" WHERE "skillId"=$1`,
       [SKILLS_SHARED_ID, `sha256:${"f".repeat(64)}`],
     );
     await sql(
-      `UPDATE "ReviewSkill" SET "headRevisionId"='rr-e2e-private-revision-2' WHERE id=$1`,
+      `UPDATE "ReviewSkill" SET "headRevisionId"='rr-e2e-private-post-revoke-revision' WHERE id=$1`,
       [SKILLS_SHARED_ID],
     );
     await dialog.getByRole("button", { name: "Close", exact: true }).click();

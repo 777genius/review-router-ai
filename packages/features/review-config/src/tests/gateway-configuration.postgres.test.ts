@@ -100,8 +100,14 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        expect(names).toHaveLength(136);
-        expect(names.at(-1)).toBe("000135_review_run_checkout_repository_lock");
+        // Replay the complete current checkout while keeping its reviewed
+        // checkout135 boundary and the additive Skills tail explicit.
+        expect(names).toHaveLength(138);
+        expect(names.slice(-3)).toEqual([
+          "000135_review_run_checkout_repository_lock",
+          "000136_review_skills",
+          "000137_review_skills_capture",
+        ]);
         let legacyBefore: unknown;
         for (const name of names) {
           if (name === "000119_review_configuration_gateway_binding") {

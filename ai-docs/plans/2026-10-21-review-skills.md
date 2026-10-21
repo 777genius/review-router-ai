@@ -27,15 +27,15 @@ OCR — первый обязательный consumer. Native reviewer испо
 
 ### Baseline
 
-| Область | Проверенная версия |
-| --- | --- |
-| SaaS main | bb277462bed5135a838b20d07eeae69034562bd8 |
-| Runtime main | 9e494fb9b8809dc5c91c9f4159edcca13b89fbde |
+| Область      | Проверенная версия                                                   |
+| ------------ | -------------------------------------------------------------------- |
+| SaaS main    | bb277462bed5135a838b20d07eeae69034562bd8                             |
+| Runtime main | 9e494fb9b8809dc5c91c9f4159edcca13b89fbde                             |
 | OCR upstream | 8eb83340a487b1150af00701b94f01af97e4b4d6; managed binary 1.13.1-rr.3 |
-| Get Modular | Core/Assembly0.7.0; Conformance0.5.0 |
-| Dev tools | Engineering Foundation2.1.0; Feature Module Standard0.2.2 |
+| Get Modular  | Core/Assembly0.7.0; Conformance0.5.0                                 |
+| Dev tools    | Engineering Foundation2.1.0; Feature Module Standard0.2.2            |
 
-Registry availability проверена. Exact versions фиксируются lockfiles. Новый TS проверяется TS7.0.2 через существующий `scripts/local-checks/compiler-cli.ts --native`. **Root TS6 сохраняется для AST/transpile API инструментов**, включая architecture checker; без слепой замены. Node24.19 удовлетворяет требуемому floor24.18. Root pnpm10.33 сохраняется; отдельный Foundation tooling package использует свой pnpm11.25/lock.
+Registry availability проверена. Exact versions фиксируются lockfiles. Новый TS дополнительно проверяется TS7.0.2 через существующий `scripts/local-checks/compiler-cli.ts --native`; отдельный `typecheck:native` gate явно устанавливает pinned pilot compiler. Production build/typecheck сохраняют repository TS6.0.3, доступный в обычной установке и Docker, а AST/transpile API инструменты также остаются на TS6. Нет скрытой зависимости production build от локального opt-in install. Node24.19 удовлетворяет требуемому floor24.18. Root pnpm10.33 сохраняется; отдельный Foundation tooling workspace использует свой pnpm11.25/lock и существующие точные age-policy exceptions для четырёх проверенных версий. Его install выполняется без `--ignore-workspace`, чтобы эти настройки действительно применялись.
 
 ## 2. Архитектура: DDD, Clean Architecture, SOLID, DRY
 
@@ -54,14 +54,14 @@ DDD/Clean Architecture уже приняты ADR-005. ADR-028 определяе
 
 `packages/features/review-skills/src/`:
 
-| Слой | Ответственность | Не импортирует |
-| --- | --- | --- |
-| domain | инварианты, IDs, limits, author policy, scopes/delta | Prisma, HTTP, React, GM |
-| application | сценарии CRUD/sharing/assignment/capture; structured results | Next, Fastify, конкретную БД, OCR |
-| application/ports | narrow query/atomic command/actor ports | global service locator, generic transaction bag |
-| infrastructure/prisma | SQL, CAS, constraints, locking, projections | React, prompts |
-| composition | GM declarations/factory и borrowed host ports | executable user code |
-| public exports | curated DTO/application/composition surfaces | внутренние Prisma models |
+| Слой                  | Ответственность                                              | Не импортирует                                  |
+| --------------------- | ------------------------------------------------------------ | ----------------------------------------------- |
+| domain                | инварианты, IDs, limits, author policy, scopes/delta         | Prisma, HTTP, React, GM                         |
+| application           | сценарии CRUD/sharing/assignment/capture; structured results | Next, Fastify, конкретную БД, OCR               |
+| application/ports     | narrow query/atomic command/actor ports                      | global service locator, generic transaction bag |
+| infrastructure/prisma | SQL, CAS, constraints, locking, projections                  | React, prompts                                  |
+| composition           | GM declarations/factory и borrowed host ports                | executable user code                            |
+| public exports        | curated DTO/application/composition surfaces                 | внутренние Prisma models                        |
 
 Не создавать класс для каждого поля, функцию-policy как GM module или пустые layers ради дерева каталогов. Маленькие cohesive файлы допустимы ADR-005.
 
@@ -89,15 +89,15 @@ Foundation/FMS — `scripts/review-skills-tooling`, отдельный private p
 
 ### 3.1 Сущности
 
-| Сущность | Минимальные поля / ключ | Инвариант |
-| --- | --- | --- |
-| ReviewSkill | id, sourceWorkspaceId, authorUserId, headRevisionId, createdAt, deletedAt? | immutable source/author identity |
-| ReviewSkillRevision | id, skillId, revisionNumber, name, description, instructions, contentDigest, createdAt | append-only; unique(skillId,revisionNumber) |
-| ReviewSkillGrant | skillId, destinationWorkspaceId, grantedBy, grantedAt, revokedAt?, version | только direct source grant; unique(skill,destination) |
-| ReviewSkillLink | workspaceId, skillId, acceptedGrantVersion, acceptedBy, acceptedAt, unlinkedAt? | canonical reference, не копия |
-| ReviewSkillBinding | workspaceId, repositoryConnectionId, skillId, includePaths, excludePaths, version | repository и local link принадлежат destination |
-| ReviewSkillRepositorySource | repositoryConnectionId, roots, version | только allowlisted roots, opt-in |
-| Authorization attachment | nullable skillsSnapshotCanonicalJson на ReviewRunAuthorization | null = historical absence, никогда capture latest |
+| Сущность                    | Минимальные поля / ключ                                                                | Инвариант                                             |
+| --------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| ReviewSkill                 | id, sourceWorkspaceId, authorUserId, headRevisionId, createdAt, deletedAt?             | immutable source/author identity                      |
+| ReviewSkillRevision         | id, skillId, revisionNumber, name, description, instructions, contentDigest, createdAt | append-only; unique(skillId,revisionNumber)           |
+| ReviewSkillGrant            | skillId, destinationWorkspaceId, grantedBy, grantedAt, revokedAt?, version             | только direct source grant; unique(skill,destination) |
+| ReviewSkillLink             | workspaceId, skillId, acceptedGrantVersion, acceptedBy, acceptedAt, unlinkedAt?        | canonical reference, не копия                         |
+| ReviewSkillBinding          | workspaceId, repositoryConnectionId, skillId, includePaths, excludePaths, version      | repository и local link принадлежат destination       |
+| ReviewSkillRepositorySource | repositoryConnectionId, roots, version                                                 | только allowlisted roots, opt-in                      |
+| Authorization attachment    | nullable skillsSnapshotCanonicalJson на ReviewRunAuthorization                         | null = historical absence, никогда capture latest     |
 
 Grant generation: revoke и regrant увеличивают version. Link действителен только при acceptedGrantVersion == current active grant.version; Accept требует expectedGrantVersion. Regrant требует нового destination Accept, repeated active Grant/Accept — no-op. Dual-admin helper принимает точное поколение atomically.
 
@@ -109,18 +109,18 @@ Additive migration: индексы source library, destination links, repo bindi
 
 ### 3.2 Матрица доступа
 
-| Операция | Серверное правило |
-| --- | --- |
-| List/read | current member активного workspace; original или local accepted link; только нужная текущая revision |
-| Create | current source member со стабильным User.id |
-| Save name/description/body | actorUserId == authorUserId и current source membership |
-| Grant/revoke | source owner/admin |
-| Accept/unlink | destination owner/admin |
-| Dual-admin Add | в одной transaction проверить обе authority и создать grant+link |
+| Операция                     | Серверное правило                                                                                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| List/read                    | current member активного workspace; original или local accepted link; только нужная текущая revision                                                                      |
+| Create                       | current source member со стабильным User.id                                                                                                                               |
+| Save name/description/body   | actorUserId == authorUserId и current source membership                                                                                                                   |
+| Grant/revoke                 | source owner/admin                                                                                                                                                        |
+| Accept/unlink                | destination owner/admin                                                                                                                                                   |
+| Dual-admin Add               | в одной transaction проверить обе authority и создать grant+link                                                                                                          |
 | Bind/unbind/scope/Git opt-in | current destination owner/admin **или** подтверждённый SCM repository manager write/maintain/admin; active workspace обязателен, membership для второго пути не требуется |
-| Delete original | author с source membership; нет local bindings/active grants |
-| New admission | active workspace/grant/link/binding; членство автора **не требуется** |
-| Admitted execution | existing run authorization + captured attachment; no live grant recheck |
+| Delete original              | author с source membership; нет local bindings/active grants                                                                                                              |
+| New admission                | active workspace/grant/link/binding; членство автора **не требуется**                                                                                                     |
+| Admitted execution           | existing run authorization + captured attachment; no live grant recheck                                                                                                   |
 
 Не использовать mutable GitHub login для authorship. Actor из server session, не client payload. `canAdminWorkspace`/local override не дают author-only edit. Repo adapter сохраняет правила repo_manager (write/maintain/admin), но не принимает local-admin override как достаточную Skills authority: либо current DB owner/admin, либо реальная SCM проверка. Source grant/destination accept также требуют actual current DB role owner/admin, без override. UI capabilities — presentation, server повторно проверяет.
 
@@ -144,48 +144,58 @@ Repository-only actor получает отдельный listAssignmentChoices 
 Server-only Actor = { userId }. DTO не содержит actor login/admin flags, Prisma object или engine-specific JSON.
 
 ```ts
-type Scope = { includePaths: readonly string[]; excludePaths: readonly string[] };
+type Scope = {
+  includePaths: readonly string[];
+  excludePaths: readonly string[];
+};
 type SaveSkill = {
-  workspaceId: string; skillId: string; expectedRevisionId: string;
-  name: string; description: string; instructions: string;
+  workspaceId: string;
+  skillId: string;
+  expectedRevisionId: string;
+  name: string;
+  description: string;
+  instructions: string;
 };
 type AssignSkills = {
-  workspaceId: string; repositoryIds: readonly string[];
-  skillIds: readonly string[]; mode: "add" | "remove"; scope?: Scope;
+  workspaceId: string;
+  repositoryIds: readonly string[];
+  skillIds: readonly string[];
+  mode: "add" | "remove";
+  scope?: Scope;
 };
 ```
 
-| Команда/query | Порядок / результат |
-| --- | --- |
-| listWorkspaceSkills(workspaceId,search,cursor) | server bootstrap, current head metadata, viewer capabilities, safe local usage |
-| loadSkill(workspaceId,skillId) | current allowed body и expectedRevisionId; не arbitrary ID reader |
-| createSkill | validate → member check → original+revision atomically; unassigned initially |
-| saveSkill | author/member check + expected head → append revision + CAS head в одной transaction |
-| listLinkableSkills(destination) | existing grants либо source admin authority; не вся доступная для чтения библиотека |
-| grant/revoke/accept/unlink | отдельные операции, repeated intent idempotent; dual-admin helper atomic |
-| loadSkillAccess(workspace,skillId) | source-admin-only grants/status/current generations; destination name только если actor вправе его видеть, иначе opaque ID |
-| listSkillRepositoryTargets(workspace,skillId,search,cursor) | authorized local target IDs/names/assignment states через существующий repository query port |
-| loadRepositorySkillSettings(workspace,repositoryId) | same repo-manager authority, roots/current source version и bindings/scopes/versions |
-| listAssignmentChoices(workspace,repoIDs) | available candidates **и generic unavailable existing bindings** selected set; k/N по всему captured set, availability, current scopes |
-| applyAssignments | Add union missing / Remove subtract; прочие bindings и existing scopes сохраняются |
-| updateBindingScope | explicit one-binding command + expectedVersion; не побочный эффект Add |
-| setRepositorySources | opt-in только разрешённых roots, expectedVersion |
-| deleteSkill | safe dependency counts/reason при невозможности |
+| Команда/query                                               | Порядок / результат                                                                                                                    |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| listWorkspaceSkills(workspaceId,search,cursor)              | server bootstrap, current head metadata, viewer capabilities, safe local usage                                                         |
+| loadSkill(workspaceId,skillId)                              | current allowed body и expectedRevisionId; не arbitrary ID reader                                                                      |
+| createSkill                                                 | validate → member check → original+revision atomically; unassigned initially                                                           |
+| saveSkill                                                   | author/member check + expected head → append revision + CAS head в одной transaction                                                   |
+| listLinkableSkills(destination)                             | existing grants либо source admin authority; не вся доступная для чтения библиотека                                                    |
+| grant/revoke/accept/unlink                                  | отдельные операции, repeated intent idempotent; dual-admin helper atomic                                                               |
+| loadSkillAccess(workspace,skillId)                          | source-admin-only grants/status/current generations; destination name только если actor вправе его видеть, иначе opaque ID             |
+| listSkillRepositoryTargets(workspace,skillId,search,cursor) | authorized local target IDs/names/assignment states через существующий repository query port                                           |
+| loadRepositorySkillSettings(workspace,repositoryId)         | same repo-manager authority, roots/current source version и bindings/scopes/versions                                                   |
+| listAssignmentChoices(workspace,repoIDs)                    | available candidates **и generic unavailable existing bindings** selected set; k/N по всему captured set, availability, current scopes |
+| applyAssignments                                            | Add union missing / Remove subtract; прочие bindings и existing scopes сохраняются                                                     |
+| updateBindingScope                                          | explicit one-binding command + expectedVersion; не побочный эффект Add                                                                 |
+| setRepositorySources                                        | opt-in только разрешённых roots, expectedVersion                                                                                       |
+| deleteSkill                                                 | safe dependency counts/reason при невозможности                                                                                        |
 
 Conflict Save возвращает current revisionId и safe metadata; UI сохраняет draft. No blind overwrite. Bulk **all-or-nothing**: exact IDs → все permissions/availability → bounded transaction. При forbidden target ни одного partial write; UI показывает исправимый отказ и позволяет изменить selection. No background-job/idempotency framework: повторная set delta сама no-op.
 
 ### Limits
 
-| Объект | Лимит v1 |
-| --- | --- |
-| Web name / description | 120 / 1024 Unicode символа; name nonblank |
-| Web instructions / Git SKILL.md | 32 KiB UTF-8, nonblank |
-| Markdown reference | 16 KiB, максимум8 на skill |
-| Skills per repository/run | максимум32 web+materialized Git |
-| Scope | <=16 include +16 exclude, pattern<=256 bytes; default ["**"]/[] |
-| Captured/materialized bundle | <=256 KiB canonical UTF-8 |
-| Bulk | <=1000 exact repository IDs, <=100 skill IDs |
-| Library/choices page | 50; server cursor/search; selections сохраняются |
+| Объект                          | Лимит v1                                                        |
+| ------------------------------- | --------------------------------------------------------------- |
+| Web name / description          | 120 / 1024 Unicode символа; name nonblank                       |
+| Web instructions / Git SKILL.md | 32 KiB UTF-8, nonblank                                          |
+| Markdown reference              | 16 KiB, максимум8 на skill                                      |
+| Skills per repository/run       | максимум32 web+materialized Git                                 |
+| Scope                           | <=16 include +16 exclude, pattern<=256 bytes; default ["**"]/[] |
+| Captured/materialized bundle    | <=256 KiB canonical UTF-8                                       |
+| Bulk                            | <=1000 exact repository IDs, <=100 skill IDs                    |
+| Library/choices page            | 50; server cursor/search; selections сохраняются                |
 
 No silent truncation. Size/count/path/unsupported errors останавливают применение до inference. UI подсказывает limits; server authoritative. 1000 ограничивает одну операцию, не задаёт future selection.
 
@@ -200,9 +210,14 @@ type CapturedReviewSkills = {
   schemaVersion: "reviewrouter.review-skills/v1";
   baseSha: string;
   webSkills: readonly {
-    skillId: string; revisionId: string; sourceWorkspaceId: string;
-    name: string; description: string; instructions: string;
-    includePaths: readonly string[]; excludePaths: readonly string[];
+    skillId: string;
+    revisionId: string;
+    sourceWorkspaceId: string;
+    name: string;
+    description: string;
+    instructions: string;
+    includePaths: readonly string[];
+    excludePaths: readonly string[];
   }[];
   gitSources: readonly { root: ".reviewrouter/skills" | ".agents/skills" }[];
   digest: string; // SHA-256 canonical payload без digest
@@ -249,13 +264,13 @@ Queue/retry/restore используют captured bytes до max authorization l
 
 ### 5.5 Все runtime entrypoints
 
-| Seam | Обязательный trusted input |
-| --- | --- |
-| ProductionT0ReviewRunner.runInWorkspace | Supporting captured profile + attachment до compatibility/evidence lookup |
-| prepareSingleT0NativeInputs | После fresh receipt тот же attachment, exact-base materialization |
-| prepareSingleT0ReviewPlan | Уже materialized bundle и trusted captured profile/capability; omission при capability1 forbidden |
-| Native finding/investigation | Один projection для обеих веток |
-| Older/nonmanaged paths | Если admitted transport не умеет доставить Skills, new admission с назначениями explicitly denied до legacy cache reuse |
+| Seam                                    | Обязательный trusted input                                                                                              |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| ProductionT0ReviewRunner.runInWorkspace | Supporting captured profile + attachment до compatibility/evidence lookup                                               |
+| prepareSingleT0NativeInputs             | После fresh receipt тот же attachment, exact-base materialization                                                       |
+| prepareSingleT0ReviewPlan               | Уже materialized bundle и trusted captured profile/capability; omission при capability1 forbidden                       |
+| Native finding/investigation            | Один projection для обеих веток                                                                                         |
+| Older/nonmanaged paths                  | Если admitted transport не умеет доставить Skills, new admission с назначениями explicitly denied до legacy cache reuse |
 
 `provider_api` сам по себе не доказывает delivery: supporting profile предпочитается только для verified `providerApiAuthMode: "openrouter-api"`. GitHub Secrets/Hosted callers без admitted-input seam выбирают единственный retained legacy Codex profile; при bindings/Git sources получают `skills_engine_unsupported`. Если legacy candidate отсутствует или неоднозначен, admission fails, без supporting fallback. Gateway native сохраняет supporting selection.
 
@@ -287,8 +302,17 @@ Queue/retry/restore используют captured bytes до max authorization l
 ### OCR
 
 Текущий builder передаёт id/content и top-level merge, которых pinned parser не использует. Реальная shape:
+
 ```json
-{"rules":[{"path":"src/example.ts","rule":"ReviewRouter managed policy\n…","merge_system_rule":true}]}
+{
+  "rules": [
+    {
+      "path": "src/example.ts",
+      "rule": "ReviewRouter managed policy\n…",
+      "merge_system_rule": true
+    }
+  ]
+}
 ```
 
 - Precompose matching skills в один entry на path: upstream first match не суммирует rules.
@@ -359,10 +383,10 @@ Shared Base UI Dialog/Button/Checkbox/Badge/SelectField; semantic labels/table/t
 ### A. План и решения
 
 - [x] Worktrees, baselines, early draft PR, source audits, registry versions.
-- [ ] Три **последовательных** раунда нескольких критиков: architecture/data/tooling; runtime/OCR/protocol; UX/authorization/privacy.
-- [ ] После каждого: исправить план, finding→решение→acceptance в review log; следующий round читает новую revision.
-- [ ] Scoped ADR и точный contract.freeze; dependency/toolchain checks.
-- [ ] Только после round3 запуск параллельной implementation.
+- [x] Три **последовательных** раунда нескольких критиков: architecture/data/tooling; runtime/OCR/protocol; UX/authorization/privacy.
+- [x] После каждого: исправить план, finding→решение→acceptance в review log; следующий round читает новую revision.
+- [x] Scoped ADR и точный contract.freeze; dependency/toolchain checks.
+- [x] Только после round3 запуск параллельной implementation.
 
 ### B. Domain/persistence — architecture lane
 
@@ -423,47 +447,47 @@ Shared Base UI Dialog/Button/Checkbox/Badge/SelectField; semantic labels/table/t
 
 ## 10. Acceptance matrix
 
-| ID | Сценарий | Проверяемый результат |
-| --- | --- | --- |
-| A01 | create/save/reopen | persisted head, append-only revision |
-| A02 | concurrent editors | один Save, второй conflict; draft intact |
-| A03 | nonauthor admin direct action | server forbidden |
-| A04 | author leaves source | edit denied, existing consumption valid |
-| S01 | dual admin link | один original, grant+link, no copy |
-| S02 | member A/admin B export | denied без source grant |
-| S03 | destination re-share | denied, no transitive grant |
-| S04 | usage privacy | нет чужих repo names/counts/results |
-| B01 | mixed Add | только missing, unrelated/scopes preserved |
-| B02 | Remove unavailable | selected bindings сняты, original intact |
-| B03 | >100 repos/multiple skill pages | exact matching selection survives filters/pages |
-| B04 | forbidden repo in bulk | no partial writes, actionable reason |
-| B05 | repeated delta | no-op safe |
-| R01 | Save/rebind после capture | byte-identical retry |
-| R02 | revoke before new admission/cache | blocked до reuse/inference |
-| R03 | revoke after admission | original run valid, next blocked |
-| R04 | concurrent Save/revoke/bind/admit | whole authorized old/new set, no torn snapshot |
-| R05 | historical null | no latest capture, same old hash |
-| R06 | unsupported registered profile | explicit failure, no ignore |
-| G01 | PR-head malicious Skill | exact trusted base content |
-| G02 | refs traversal/symlink/cycle/oversize | fail before model, no network |
-| G03 | missing base object | exact authorized fetch или fail, no HEAD |
-| E01 | real OCR main/plan | matching instructions + built-ins present |
-| E02 | case/metachar paths/inventory | no bleed, unassigned never sent |
-| E03 | native finding/investigation | same applicable captured content |
-| E04 | revision/scope/resource change | new cache key; old absence golden unchanged |
-| U01 | desktop/compact nav | Skills directly before Memory |
-| U02 | dirty/conflict/mobile/keyboard | draft/focus/action accessible |
-| U03 | empty bulk→create | original repo selection + new skill selected |
-| U04 | viewer/workspace switch | query cache isolation |
-| P01 | logs/health/outbox | no bodies/Git blobs/raw prompts |
-| M01 | missing/wrong provider/forbidden import | scoped gates fail |
-| X01 | repo-only write actor | Add/Remove разрешены; content/share/чужой usage запрещены; role demotion/live permission loss/one forbidden selected repo → zero partial writes |
-| X02 | revoke→source rename | target не видит fresh source metadata/body |
-| X03 | revoke→regrant | нужен Accept current generation; stale Accept rejected |
-| X04 | 1001 selected / unknown transport | IDs retained, bounded error/no writes; no false outcome on lost response |
-| X05 | sourceID<destID concurrent admit/revoke | consistent prelock order, bounded retry, один row/outbox |
-| X06 | same-run two candidates + denial race | оба возвращают persisted winner; new run denied |
-| X07 | manifest/profile/legacy rr.3 | full capability roundtrip; old profile, ruleText и hashes unchanged |
+| ID  | Сценарий                                | Проверяемый результат                                                                                                                           |
+| --- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| A01 | create/save/reopen                      | persisted head, append-only revision                                                                                                            |
+| A02 | concurrent editors                      | один Save, второй conflict; draft intact                                                                                                        |
+| A03 | nonauthor admin direct action           | server forbidden                                                                                                                                |
+| A04 | author leaves source                    | edit denied, existing consumption valid                                                                                                         |
+| S01 | dual admin link                         | один original, grant+link, no copy                                                                                                              |
+| S02 | member A/admin B export                 | denied без source grant                                                                                                                         |
+| S03 | destination re-share                    | denied, no transitive grant                                                                                                                     |
+| S04 | usage privacy                           | нет чужих repo names/counts/results                                                                                                             |
+| B01 | mixed Add                               | только missing, unrelated/scopes preserved                                                                                                      |
+| B02 | Remove unavailable                      | selected bindings сняты, original intact                                                                                                        |
+| B03 | >100 repos/multiple skill pages         | exact matching selection survives filters/pages                                                                                                 |
+| B04 | forbidden repo in bulk                  | no partial writes, actionable reason                                                                                                            |
+| B05 | repeated delta                          | no-op safe                                                                                                                                      |
+| R01 | Save/rebind после capture               | byte-identical retry                                                                                                                            |
+| R02 | revoke before new admission/cache       | blocked до reuse/inference                                                                                                                      |
+| R03 | revoke after admission                  | original run valid, next blocked                                                                                                                |
+| R04 | concurrent Save/revoke/bind/admit       | whole authorized old/new set, no torn snapshot                                                                                                  |
+| R05 | historical null                         | no latest capture, same old hash                                                                                                                |
+| R06 | unsupported registered profile          | explicit failure, no ignore                                                                                                                     |
+| G01 | PR-head malicious Skill                 | exact trusted base content                                                                                                                      |
+| G02 | refs traversal/symlink/cycle/oversize   | fail before model, no network                                                                                                                   |
+| G03 | missing base object                     | exact authorized fetch или fail, no HEAD                                                                                                        |
+| E01 | real OCR main/plan                      | matching instructions + built-ins present                                                                                                       |
+| E02 | case/metachar paths/inventory           | no bleed, unassigned never sent                                                                                                                 |
+| E03 | native finding/investigation            | same applicable captured content                                                                                                                |
+| E04 | revision/scope/resource change          | new cache key; old absence golden unchanged                                                                                                     |
+| U01 | desktop/compact nav                     | Skills directly before Memory                                                                                                                   |
+| U02 | dirty/conflict/mobile/keyboard          | draft/focus/action accessible                                                                                                                   |
+| U03 | empty bulk→create                       | original repo selection + new skill selected                                                                                                    |
+| U04 | viewer/workspace switch                 | query cache isolation                                                                                                                           |
+| P01 | logs/health/outbox                      | no bodies/Git blobs/raw prompts                                                                                                                 |
+| M01 | missing/wrong provider/forbidden import | scoped gates fail                                                                                                                               |
+| X01 | repo-only write actor                   | Add/Remove разрешены; content/share/чужой usage запрещены; role demotion/live permission loss/one forbidden selected repo → zero partial writes |
+| X02 | revoke→source rename                    | target не видит fresh source metadata/body                                                                                                      |
+| X03 | revoke→regrant                          | нужен Accept current generation; stale Accept rejected                                                                                          |
+| X04 | 1001 selected / unknown transport       | IDs retained, bounded error/no writes; no false outcome on lost response                                                                        |
+| X05 | sourceID<destID concurrent admit/revoke | consistent prelock order, bounded retry, один row/outbox                                                                                        |
+| X06 | same-run two candidates + denial race   | оба возвращают persisted winner; new run denied                                                                                                 |
+| X07 | manifest/profile/legacy rr.3            | full capability roundtrip; old profile, ruleText и hashes unchanged                                                                             |
 
 ## 11. Rollout и совместимость
 
