@@ -272,7 +272,7 @@ describe("private dependency installer", () => {
     );
     writeFileSync(
       join(repository, "pnpm-workspace.yaml"),
-      `packages:\n  - packages/*\n\nallowBuilds:\n  \"prisma@7.8.0\": true\n${addition}`,
+      `packages:\n  - packages/*\n\nallowBuilds:\n  "prisma@7.8.0": true\n${addition}`,
     );
     expect(spawnSync("git", ["init", "-q"], { cwd: repository }).status).toBe(
       0,
