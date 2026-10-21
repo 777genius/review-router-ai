@@ -6,6 +6,8 @@ import {
   managedCodexWorkflowPath,
   managedInteractionWorkflowPath,
   renderReviewRouterCaller,
+  readMcpSecretsExpression,
+  type ReviewRouterMcpSecrets,
   renderReviewRouterProviderApiCaller,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
@@ -98,18 +100,19 @@ export const defaultSetupBranch = "reviewrouter/setup";
 export const reusableWorkflowRuntimeRepository = "777genius/review-router";
 export { validateAccountGatewayActionRef } from "@reviewrouter/features-codex-oauth-rotating";
 
-/** Keyless gateway caller; authority remains in server run admission. */
+/** Gateway caller; authority remains in server run admission. */
 export function renderAccountGatewayWorkflow(options: {
   readonly actionRef: string;
   readonly apiUrl: string;
   readonly githubRepositoryId: string;
   readonly reviewTimeoutMinutes?: number;
+  readonly mcpSecrets?: ReviewRouterMcpSecrets;
 }): ReviewRouterWorkflowUpsertFile {
   if (isLoopbackHostname(new URL(options.apiUrl).hostname)) {
     throw new Error("review_workflow_control_plane_url_invalid");
   }
   // A selected producer is server admission state, not an installation pin.
-  const content = renderReviewRouterCaller({ controlPlaneUrl: options.apiUrl });
+  const content = renderReviewRouterCaller({ controlPlaneUrl: options.apiUrl, ...(options.mcpSecrets !== undefined ? { mcpSecrets: options.mcpSecrets } : {}) });
   if (options.githubRepositoryId === isolatedQualityWorkflowRepositoryId) {
     throw new Error("account_gateway_workflow_path_not_supported");
   }
@@ -120,6 +123,7 @@ export function renderAccountGatewayWorkflow(options: {
 export function readReviewRouterCallerSource(source: string): {
   readonly runtimeRef: string;
   readonly controlPlaneUrl: string;
+  readonly mcpSecrets?: ReviewRouterMcpSecrets;
 } {
   const mapping = (value: unknown): Record<string, unknown> => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -143,11 +147,17 @@ export function readReviewRouterCallerSource(source: string): {
   ) {
     throw new Error("review_workflow_control_plane_url_invalid");
   }
-  const expected = renderReviewRouterCaller({ runtimeRef, controlPlaneUrl });
+  let mcpSecrets: ReviewRouterMcpSecrets | undefined;
+  if (job.secrets !== undefined) {
+    const secrets = mapping(job.secrets);
+    if (Object.keys(secrets).length !== 1 || !("mcp_secrets_json" in secrets)) throw new Error("review_workflow_source_not_canonical");
+    mcpSecrets = readMcpSecretsExpression(secrets.mcp_secrets_json);
+  }
+  const expected = renderReviewRouterCaller({ runtimeRef, controlPlaneUrl, ...(mcpSecrets ? { mcpSecrets } : {}) });
   if (!areWorkflowDocumentsSemanticallyEqual(source, expected)) {
     throw new Error("review_workflow_source_not_canonical");
   }
-  return { runtimeRef, controlPlaneUrl: new URL(controlPlaneUrl).origin };
+  return { runtimeRef, controlPlaneUrl: new URL(controlPlaneUrl).origin, ...(mcpSecrets ? { mcpSecrets } : {}) };
 }
 
 /** Both canonical managed callers, retaining the source-selected transport. */
@@ -155,6 +165,7 @@ export function readManagedReviewRouterCallerSource(source: string): {
   readonly runtimeRef: string;
   readonly controlPlaneUrl: string;
   readonly modelTransport: "account_gateway" | "provider_api";
+  readonly mcpSecrets?: ReviewRouterMcpSecrets;
 } {
   try {
     return {

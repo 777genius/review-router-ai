@@ -69,6 +69,8 @@ export type VerifiedScmRunIdentity = ReviewRunScope &
     readonly sourceRunId: string;
     readonly sourceRunAttempt: string;
     readonly workflowIdentityHash: string;
+    /** Named metadata from the signed canonical caller; never secret values. */
+    readonly contextToolGithubSecrets?: Readonly<Record<string, string>>;
     readonly trustDomain: ReviewTrustDomain;
   };
 
@@ -943,6 +945,7 @@ function snapshotVerifiedIdentity(
     sourceRunId: identity.sourceRunId,
     sourceRunAttempt: identity.sourceRunAttempt,
     workflowIdentityHash: identity.workflowIdentityHash,
+    ...(identity.contextToolGithubSecrets ? { contextToolGithubSecrets: { ...identity.contextToolGithubSecrets } } : {}),
     trustDomain: identity.trustDomain,
     baseSha: identity.baseSha,
     mergeBaseSha: identity.mergeBaseSha,

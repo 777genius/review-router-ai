@@ -26,6 +26,8 @@ export type ReviewRunRuntimeSnapshot = {
   }>;
   /** Opaque normalized safe configuration; production uses the shared strict parser. */
   readonly configurationCanonicalJson: string;
+  /** Non-secret canonical captured tool plan; absent preserves pre-MCP snapshots. */
+  readonly contextToolsPlanCanonicalJson?: string;
   readonly deadline: string;
   readonly gateway: ReviewRunGatewaySelection | null;
 };
@@ -113,6 +115,7 @@ export function parseReviewRunRuntimeSnapshot(
       "configurationCanonicalJson",
       "deadline",
       "gateway",
+      ...(Object.hasOwn(parsed, "contextToolsPlanCanonicalJson") ? ["contextToolsPlanCanonicalJson"] : []),
     ])
   )
     fail();
@@ -138,6 +141,12 @@ export function parseReviewRunRuntimeSnapshot(
     new Date(deadline).toISOString() !== deadline
   )
     fail();
+  const contextToolsPlanCanonicalJson = parsed.contextToolsPlanCanonicalJson;
+  if (contextToolsPlanCanonicalJson !== undefined) {
+    if (typeof contextToolsPlanCanonicalJson !== "string" || new TextEncoder().encode(contextToolsPlanCanonicalJson).byteLength > 16_384) fail();
+    const plan: unknown = JSON.parse(contextToolsPlanCanonicalJson);
+    if (!record(plan) || plan.version !== 1 || typeof plan.planDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(plan.planDigest) || canonicalJson(plan) !== contextToolsPlanCanonicalJson) fail();
+  }
   const configurationCanonicalJson = parsed.configurationCanonicalJson;
   if (
     typeof configurationCanonicalJson !== "string" ||
@@ -267,6 +276,7 @@ export function parseReviewRunRuntimeSnapshot(
       runtimeCommitSha: String(producer.runtimeCommitSha),
     },
     configurationCanonicalJson,
+    ...(contextToolsPlanCanonicalJson !== undefined ? { contextToolsPlanCanonicalJson: String(contextToolsPlanCanonicalJson) } : {}),
     deadline,
     gateway,
   };

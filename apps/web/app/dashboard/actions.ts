@@ -1,5 +1,7 @@
 "use server";
 
+import { assertDashboardContextSelectionAllowed } from "../../src/server/context-tools";
+
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
@@ -2960,6 +2962,7 @@ async function saveWorkspaceReviewConfigMutation(
       workspaceId,
     });
     const config = readReviewConfigurationForm(formData);
+    await assertDashboardContextSelectionAllowed(workspaceId, config.contextTools);
     isOpenRouterDirectConfiguration(config);
     assertGatewayReviewAgentProfileContextAllowed(
       config,
@@ -3096,6 +3099,7 @@ async function saveRepositoryReviewConfigMutation(
       );
     const policy = readRepositoryReviewPolicyForm(formData);
     const config = resolveReviewPolicy(workspace.config, policy);
+    await assertDashboardContextSelectionAllowed(workspaceId, config.contextTools);
     isOpenRouterDirectConfiguration(config);
     assertGatewayReviewAgentProfileContextAllowed(
       config,

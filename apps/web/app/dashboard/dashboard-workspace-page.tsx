@@ -1,3 +1,5 @@
+import { listDashboardContextConnections } from "../../src/server/context-tools";
+import type { ContextConnectionMetadata } from "@reviewrouter/features-review-context-tools";
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 import { Badge, LinkButton, SelectField } from "@reviewrouter/ui";
 import {
@@ -1400,7 +1402,7 @@ async function DashboardSectionContent({
         .workspaceAccess(selectedWorkspace.workspace.id)
         .catch(() => null)
     : null;
-  const [data, modelOptions, accountsBootstrap] = await Promise.all([
+  const [data, modelOptions, accountsBootstrap, contextConnections] = await Promise.all([
     loadDashboardSectionData(
       selectedWorkspace,
       selectedSection,
@@ -1423,6 +1425,9 @@ async function DashboardSectionContent({
             .catch(() => ({ page: { status: "unavailable" as const } }))
         : loadAccountsBootstrap(selectedWorkspace.workspace.id)
       : Promise.resolve(null),
+    selectedSection === "repositories" || selectedSection === "policy"
+      ? listDashboardContextConnections(selectedWorkspace.workspace.id).catch(() => [])
+      : Promise.resolve([]),
   ]);
   // Approved engine profiles for the Account Gateway provider row; derived
   // from the producer-release approved profile authority, never user input.
@@ -1439,6 +1444,7 @@ async function DashboardSectionContent({
       modelOptions={modelOptions}
       gatewayAccounts={accountsBootstrap?.page}
       agentProfileOptions={agentProfileOptions}
+      contextConnections={contextConnections}
       claudeCodeProviderEnabled={isClaudeCodeProviderEnabled()}
     />
   );
@@ -1758,6 +1764,7 @@ export function WorkspaceCard({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   claudeCodeProviderEnabled,
 }: {
   readonly data: DashboardWorkspaceData;
@@ -1769,6 +1776,7 @@ export function WorkspaceCard({
   readonly appInstallUrl: string | null;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -1917,6 +1925,7 @@ export function WorkspaceCard({
             modelOptions={modelOptions}
             gatewayAccounts={gatewayAccounts}
             agentProfileOptions={agentProfileOptions}
+            contextConnections={contextConnections}
             codexRotatingOAuthEnabled={isCodexRotatingOAuthAllowedForWorkspaceDefault()}
             claudeCodeProviderEnabled={claudeCodeProviderEnabled}
             mutationsEnabled={mutationsEnabled}
@@ -2039,6 +2048,11 @@ export function WorkspaceCard({
           />
         ) : null}
         <WorkspaceActionNotice params={params} orgRuleset={orgRuleset} />
+        {hasWorkspaceWideAccess && (selectedSection === "policy" || selectedSection === "repositories") ? (
+          <a className="inline-block text-sm text-cyan-200 underline" href={`/dashboard/context-tools?workspaceId=${encodeURIComponent(workspace.id)}`}>
+            Manage HTTPS MCP context connections
+          </a>
+        ) : null}
 
         {selectedSection === "repositories" ? (
           <>
@@ -2062,6 +2076,7 @@ export function WorkspaceCard({
               modelOptions={modelOptions}
               gatewayAccounts={gatewayAccounts}
               agentProfileOptions={agentProfileOptions}
+              contextConnections={contextConnections}
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               mutationsEnabled={mutationsEnabled}
               workspaceKey={workspaceKey}
@@ -2143,6 +2158,7 @@ export function WorkspaceCard({
                   modelOptions={modelOptions}
                   gatewayAccounts={gatewayAccounts}
                   agentProfileOptions={agentProfileOptions}
+                  contextConnections={contextConnections}
                   codexRotatingOAuthEnabled={isCodexRotatingOAuthAllowedForWorkspaceDefault()}
                   claudeCodeProviderEnabled={claudeCodeProviderEnabled}
                   mutationsEnabled={mutationsEnabled}
@@ -2235,6 +2251,7 @@ export function WorkspaceCard({
                         modelOptions={modelOptions}
                         gatewayAccounts={gatewayAccounts}
                         agentProfileOptions={agentProfileOptions}
+                        contextConnections={contextConnections}
                         codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
                           repository,
                         )}
@@ -2794,6 +2811,7 @@ function RepositoryTable({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   claudeCodeProviderEnabled,
   mutationsEnabled,
   workspaceKey,
@@ -2819,6 +2837,7 @@ function RepositoryTable({
     | readonly GatewayAgentProfileOption[]
     | undefined;
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
   readonly claudeCodeProviderEnabled: boolean;
   readonly mutationsEnabled: boolean;
   readonly workspaceKey: string;
@@ -3211,6 +3230,7 @@ function RepositoryTable({
                         modelOptions={modelOptions}
                         gatewayAccounts={gatewayAccounts}
                         agentProfileOptions={agentProfileOptions}
+                        contextConnections={contextConnections}
                         codexRotatingOAuthEnabled={isCodexRotatingOAuthEnabledForRepository(
                           repository,
                         )}

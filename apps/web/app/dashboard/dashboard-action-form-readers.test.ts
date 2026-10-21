@@ -33,6 +33,19 @@ describe("dashboard action form readers", () => {
     );
   });
 
+  it("preserves optional context selection and an explicit repository off override", () => {
+    const form = new FormData();
+    for (const field of repositoryPolicyFormFields)
+      form.set(`policyMode.${field.join(".")}`, "inherit");
+    form.set("policyMode.contextTools", "override");
+    expect(readRepositoryReviewPolicyForm(form)).toEqual({ schemaVersion: 3, contextTools: { version: 1, builtinTools: [], mcp: [] } });
+    const selection = { version: 1, builtinTools: ["github.issue.read"], mcp: [{ connection: "docs", tools: ["search_docs"] }] };
+    form.set("contextTools", JSON.stringify(selection));
+    expect(readRepositoryReviewPolicyForm(form).contextTools).toEqual(selection);
+    form.set("contextTools", JSON.stringify({ ...selection, rawSecret: "must-not-echo" }));
+    expect(() => readRepositoryReviewPolicyForm(form)).toThrow("context_connection_invalid");
+  });
+
   it("requires an explicit CAS version or create-only intent", () => {
     const form = new FormData();
     expect(() => readReviewPolicyExpectedVersion(form)).toThrow();

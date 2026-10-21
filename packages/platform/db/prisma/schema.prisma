@@ -4449,3 +4449,15 @@ model SdkGrowthFinalizedReportEvidence {
   evidence          SdkGrowthVerifierEvidence @relation(fields: [evidenceId], references: [evidenceId], onDelete: Restrict, onUpdate: Restrict)
 
 }
+
+model ReviewContextConnection {
+  workspaceId      String
+  connectionId     String
+  revision         Int
+  definition       Json
+  encryptedSecrets String?  @db.Text
+  enabled          Boolean @default(true)
+  updatedAt        DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@id([workspaceId, connectionId])
+}

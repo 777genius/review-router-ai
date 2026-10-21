@@ -1,3 +1,4 @@
+import { contextToolsSelectionSchema, type ContextToolsSelection } from "@reviewrouter/features-review-context-tools";
 import { repositoryPolicyFormFields } from "./review-policy-form-contract";
 import type { ProviderSecretScope } from "@reviewrouter/features-provider-setup";
 import type { ReviewRouterDiscussionMode } from "@reviewrouter/features-workflow-provisioning";
@@ -105,6 +106,7 @@ export function readReviewConfigurationForm(
       targetTokensPerBatch: readFormNumber(formData, "targetTokensPerBatch"),
     },
     reviewLanguage: readOptionalFormString(formData, "reviewLanguage") ?? null,
+    ...(readOptionalFormString(formData, "contextTools") ? { contextTools: readContextToolsSelection(formData) } : {}),
     investigationRollout: {
       recordingEnabled:
         readOptionalFormBoolean(
@@ -395,6 +397,8 @@ export function readRepositoryReviewPolicyForm(
   for (const [root, leaf] of fields) {
     if (root === "providers") {
       policy.providers = readReviewProvidersForm(formData);
+    } else if (root === "contextTools") {
+      policy.contextTools = readContextToolsSelection(formData);
     } else if (root === "reviewLanguage") {
       policy.reviewLanguage =
         readOptionalFormString(formData, "reviewLanguage") ?? null;
@@ -423,4 +427,13 @@ export function readReviewPolicyExpectedVersion(
   if (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value)))
     throw new Error("review_policy_expected_version_invalid");
   return Number(value);
+}
+
+function readContextToolsSelection(formData: FormData): ContextToolsSelection {
+  const raw = readOptionalFormString(formData, "contextTools");
+  try {
+    return contextToolsSelectionSchema.parse(raw ? JSON.parse(raw) : { version: 1, builtinTools: [], mcp: [] });
+  } catch {
+    throw new Error("context_connection_invalid");
+  }
 }

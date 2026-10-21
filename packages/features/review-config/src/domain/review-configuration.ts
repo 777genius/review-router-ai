@@ -1,3 +1,4 @@
+import { contextToolsSelectionSchema } from "@reviewrouter/features-review-context-tools";
 import {
   codexModelSupportsReasoningEffort,
   defaultProviderReasoningEffort,
@@ -170,6 +171,7 @@ export const reviewConfigurationSchema = z
     limits: limitsSchema,
     reviewLanguage: reviewLanguageSchema,
     investigationRollout: reviewInvestigationRolloutConfigurationSchema,
+    contextTools: contextToolsSelectionSchema.optional(),
   })
   .strict()
   .superRefine((configuration, context) => {
@@ -205,6 +207,7 @@ export const reviewRepositoryPolicyOverrideSchema = z
     investigationRollout: reviewInvestigationRolloutConfigurationSchema
       .partial()
       .optional(),
+    contextTools: contextToolsSelectionSchema.optional(),
   })
   .strict()
   .superRefine((override, context) => {
@@ -286,6 +289,9 @@ export function resolveReviewPolicy(
       parsedOverride.reviewLanguage !== undefined
         ? parsedOverride.reviewLanguage
         : parsedWorkspace.reviewLanguage,
+    ...((parsedOverride.contextTools ?? parsedWorkspace.contextTools) !== undefined
+      ? { contextTools: parsedOverride.contextTools ?? parsedWorkspace.contextTools }
+      : {}),
     investigationRollout: {
       ...parsedWorkspace.investigationRollout,
       ...definedOnly(parsedOverride.investigationRollout),

@@ -8,6 +8,7 @@ export const repositoryPolicyFormFields = [
   ["limits", "inlineMaxComments"],
   ["limits", "targetTokensPerBatch"],
   ["reviewLanguage"],
+  ["contextTools"],
   ["investigationRollout", "recordingEnabled"],
   ["investigationRollout", "shadowEnabled"],
   ["investigationRollout", "contextCriticEnabled"],

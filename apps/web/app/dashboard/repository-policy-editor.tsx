@@ -1,5 +1,7 @@
 "use client";
 
+import type { ContextConnectionMetadata } from "@reviewrouter/features-review-context-tools";
+import { ContextToolsSelectionField } from "./context-tools/context-tools-selection-field";
 import { Button, Dialog } from "@reviewrouter/ui";
 import { repositoryPolicyFormFields } from "./review-policy-form-contract";
 import { dashboardSectionHref } from "./dashboard-section";
@@ -833,6 +835,7 @@ export function RepositoryPolicyOverrideDetails({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   mutationsEnabled,
   editDisabledReason,
   codexRotatingOAuthEnabled = false,
@@ -846,6 +849,7 @@ export function RepositoryPolicyOverrideDetails({
   readonly configVersion: number;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -932,6 +936,7 @@ export function RepositoryPolicyOverrideDetails({
               modelOptions={modelOptions}
               gatewayAccounts={gatewayAccounts}
               agentProfileOptions={agentProfileOptions}
+              contextConnections={contextConnections}
               codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               hiddenFields={[
@@ -988,6 +993,7 @@ export function RepositoryPolicyEditor({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   mutationsEnabled,
   editDisabledReason,
   codexRotatingOAuthEnabled = false,
@@ -1001,6 +1007,7 @@ export function RepositoryPolicyEditor({
   readonly effectiveConfig: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -1097,6 +1104,7 @@ export function RepositoryPolicyEditor({
             modelOptions={modelOptions}
             gatewayAccounts={gatewayAccounts}
             agentProfileOptions={agentProfileOptions}
+            contextConnections={contextConnections}
             codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
             claudeCodeProviderEnabled={claudeCodeProviderEnabled}
             hiddenFields={[
@@ -1309,6 +1317,7 @@ export function WorkspaceReviewConfigForm({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   codexRotatingOAuthEnabled = false,
   claudeCodeProviderEnabled = true,
   mutationsEnabled,
@@ -1320,6 +1329,7 @@ export function WorkspaceReviewConfigForm({
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -1350,6 +1360,7 @@ export function WorkspaceReviewConfigForm({
         modelOptions={modelOptions}
         gatewayAccounts={gatewayAccounts}
         agentProfileOptions={agentProfileOptions}
+        contextConnections={contextConnections}
         codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
         claudeCodeProviderEnabled={claudeCodeProviderEnabled}
         hiddenFields={[
@@ -1373,6 +1384,7 @@ export function ReviewConfigForm({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   codexRotatingOAuthEnabled = false,
   claudeCodeProviderEnabled = true,
   hiddenFields,
@@ -1386,6 +1398,7 @@ export function ReviewConfigForm({
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?: readonly ContextConnectionMetadata[] | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -2531,6 +2544,13 @@ export function ReviewConfigForm({
             />
           </div>
         </section>
+
+        <ContextToolsSelectionField
+          value={config.contextTools}
+          repositoryTarget={repositorySecretCheckTarget}
+          connections={contextConnections}
+          disabled={!mutationsEnabled || Boolean(repositoryPolicy && overrideModes.contextTools !== "override")}
+        />
 
         <div className="flex min-w-0 items-end border-t border-cyan-200/10 pt-4">
           <FormSubmitButton

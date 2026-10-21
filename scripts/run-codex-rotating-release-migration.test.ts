@@ -749,6 +749,18 @@ describe("canonical exclusive release migration caller", () => {
     );
     const grants = runtimeGrantSql(configuration);
     expect(grants).toContain("BEGIN;");
+    // Context credentials are writable only by the Dashboard; run capture and
+    // delivery read them through API, while workers receive no table access.
+    expect(grants).toContain("'ReviewContextConnection'");
+    for (const role of ["api", "web", "worker"]) {
+      expect(grants).toContain(`'REVOKE ALL ON TABLE public.%I FROM %I', 'ReviewContextConnection', 'reviewrouter_${role}'`);
+    }
+    expect(grants).toContain("'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO %I', 'ReviewContextConnection', 'reviewrouter_web'");
+    expect(grants).toContain("'GRANT SELECT ON TABLE public.%I TO %I', 'ReviewContextConnection', 'reviewrouter_api'");
+    expect(grants).not.toMatch(/'GRANT [^'\n]+', 'ReviewContextConnection', 'reviewrouter_(?:worker|codex_effect_authority|comment_token_custody)'/u);
+    expect(grants).not.toMatch(/'GRANT (?:[^'\n]*(?:INSERT|UPDATE|DELETE))[^'\n]*', 'ReviewContextConnection', 'reviewrouter_api'/u);
+    expect(activationAuthorityProvisioningSql()).toContain("relname <> 'ReviewContextConnection' OR role_kind IN ('api','web')");
+    expect(activationAuthorityProvisioningSql()).toContain("relname <> 'ReviewContextConnection' OR role_kind = 'web'");
     // SQL127's invoker triggers call this helper during ordinary authorization
     // inserts. Keep the exact signature on app roles after function ACL reset;
     // effect/custody identities must not acquire the workspace admission gate.
