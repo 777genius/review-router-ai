@@ -299,7 +299,7 @@ describe("safe usage invariants", () => {
         c,
       ),
     ).toThrow("usage_report_expired");
-    const { originalEventNotBefore, ...legacy } = c;
+    const legacy = { ...c, originalEventNotBefore: undefined };
     expect(() => ingest.execute(f, legacy)).toThrow("usage_report_expired");
   });
   it("counts recovered native dispatch despite stale preparation and uses one cursor order", () => {

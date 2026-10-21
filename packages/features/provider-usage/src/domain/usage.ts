@@ -100,13 +100,19 @@ function exact(
   )
     invalid();
 }
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    if (value.charCodeAt(index) <= 31) return true;
+  }
+  return false;
+}
 function text(value: unknown, nullable = false): void {
   if (nullable && value === null) return;
   if (
     typeof value !== "string" ||
     !value.length ||
     value.length > 256 ||
-    /[\u0000-\u001f]/.test(value)
+    hasControlCharacter(value)
   )
     invalid();
 }
@@ -249,7 +255,7 @@ export function validateUsageFact(f: UsageFact): void {
       typeof s !== "string" ||
       s.length < 1 ||
       s.length > 256 ||
-      /[\u0000-\u001f]/.test(s)
+      hasControlCharacter(s)
     )
       invalid();
   }
