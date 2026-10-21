@@ -6,7 +6,10 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Button, Checkbox } from "@reviewrouter/ui";
-import { requestReviewSkills } from "../../src/features/review-skills/client-adapter";
+import {
+  requestReviewSkills,
+  ReviewSkillsClientError,
+} from "../../src/features/review-skills/client-adapter";
 import { reviewSkillsKeys } from "../../src/features/review-skills/query-keys";
 import { loadReviewSkillsClientContext } from "./review-skills-actions";
 import { useRepositorySelection } from "./repository-action-selection";
@@ -18,7 +21,10 @@ import {
   skillFieldClass,
 } from "./review-skills-ui";
 import { SkillEditorDialog } from "./skill-editor-dialog";
-import { RepositorySkillSettings } from "./repository-skill-settings";
+import {
+  RepositorySkillSettings,
+  SkillBindingPaths,
+} from "./repository-skill-settings";
 
 type CapturedSelection = {
   readonly viewerId: string;
@@ -153,6 +159,10 @@ export function RepositorySkillsOperation({
       });
     },
   });
+  const completionUnknown =
+    apply.error instanceof ReviewSkillsClientError &&
+    apply.error.code === "unknown";
+  const controlsLocked = apply.isPending || completionUnknown;
   const toggle = (id: string) =>
     setSelected((prior) => {
       const next = new Set(prior);
@@ -189,9 +199,11 @@ export function RepositorySkillsOperation({
         >
           {apply.isPending
             ? "Applying…"
-            : mode === "add"
-              ? "Add selected skills"
-              : "Remove selected skills"}
+            : completionUnknown
+              ? "Retry exact operation"
+              : mode === "add"
+                ? "Add selected skills"
+                : "Remove selected skills"}
         </Button>
       }
     >
@@ -210,7 +222,7 @@ export function RepositorySkillsOperation({
             key={value}
             type="button"
             variant={mode === value ? "solid" : "outline"}
-            disabled={apply.isPending}
+            disabled={controlsLocked}
             aria-pressed={mode === value}
             onClick={() => {
               setMode(value);
@@ -258,9 +270,13 @@ export function RepositorySkillsOperation({
                         aria-label={`Select skill ${row.name}`}
                         checked={selected.has(row.skillId)}
                         disabled={
-                          apply.isPending ||
-                          (mode === "add" && !row.available) ||
-                          (mode === "remove" && row.assignedCount === 0)
+                          controlsLocked ||
+                          (mode === "add" &&
+                            !row.available &&
+                            !selected.has(row.skillId)) ||
+                          (mode === "remove" &&
+                            row.assignedCount === 0 &&
+                            !selected.has(row.skillId))
                         }
                         onChange={() => toggle(row.skillId)}
                       />
@@ -272,6 +288,19 @@ export function RepositorySkillsOperation({
                           ? row.description
                           : "Unavailable — remove assignments to allow new reviews."}
                       </p>
+                      {repositoryIds.length === 1 &&
+                      row.available &&
+                      row.bindings[0] ? (
+                        <SkillBindingPaths
+                          key={`${row.skillId}:${row.bindings[0].version}`}
+                          workspaceId={workspaceId}
+                          repositoryId={repositoryIds[0]!}
+                          binding={row.bindings[0]}
+                          onSaved={() => {
+                            void choices.refetch();
+                          }}
+                        />
+                      ) : null}
                     </td>
                     <td className={`${skillCellClass} text-slate-400`}>
                       {row.authorName ?? "—"}
@@ -311,7 +340,7 @@ export function RepositorySkillsOperation({
             <Button
               type="button"
               variant="outline"
-              disabled={apply.isPending}
+              disabled={controlsLocked}
               onClick={() => setCreating(true)}
             >
               Create skill
@@ -321,6 +350,17 @@ export function RepositorySkillsOperation({
             {selected.size} skills checked for this {mode} operation. Changing
             search keeps checked skills.
           </p>
+          {selected.size > 0 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={controlsLocked}
+              onClick={() => setSelected(new Set())}
+            >
+              Clear checked skills
+            </Button>
+          ) : null}
           {mode === "add" ? (
             <details className="border-t border-cyan-200/15 pt-3">
               <summary className="cursor-pointer text-sm text-slate-300">
@@ -334,6 +374,7 @@ export function RepositorySkillsOperation({
                 Include paths
                 <textarea
                   className={`${skillFieldClass} my-2 font-mono`}
+                  disabled={controlsLocked}
                   value={include}
                   onChange={(event) => setInclude(event.target.value)}
                   rows={2}
@@ -343,6 +384,7 @@ export function RepositorySkillsOperation({
                 Exclude paths
                 <textarea
                   className={`${skillFieldClass} my-2 font-mono`}
+                  disabled={controlsLocked}
                   value={exclude}
                   onChange={(event) => setExclude(event.target.value)}
                   rows={2}

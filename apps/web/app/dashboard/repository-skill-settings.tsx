@@ -70,6 +70,18 @@ export function RepositorySkillSettings({
           <p role="status">Loading repository settings…</p>
         ) : null}
         <SkillsError error={settings.error ?? sources.error} />
+        {sources.isError ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={settings.isFetching}
+            onClick={() => {
+              void settings.refetch();
+            }}
+          >
+            Refresh repository settings
+          </Button>
+        ) : null}
         {settings.data ? (
           <>
             <fieldset disabled={sources.isPending} className="grid gap-3">
@@ -96,20 +108,9 @@ export function RepositorySkillSettings({
               )}
             </fieldset>
             <p className="text-xs text-slate-500">
-              Git sources: {settings.data.roots.length ? "enabled" : "disabled"}{" "}
-              · settings version {settings.data.sourceVersion}
+              Git sources:{" "}
+              {settings.data.roots.length ? "enabled" : "disabled"}{" "}
             </p>
-            {settings.data.bindings.map((binding) => (
-              <BindingPaths
-                key={`${binding.skillId}:${binding.version}`}
-                workspaceId={workspaceId}
-                repositoryId={repositoryId}
-                binding={binding}
-                onSaved={() => {
-                  void client.invalidateQueries({ queryKey: key, exact: true });
-                }}
-              />
-            ))}
             {settings.data.unavailable.map((item) => (
               <p key={item.skillId} className="text-sm text-amber-100">
                 Unavailable skill {item.skillId}. Use Remove to clear its
@@ -122,7 +123,7 @@ export function RepositorySkillSettings({
     </details>
   );
 }
-function BindingPaths({
+export function SkillBindingPaths({
   workspaceId,
   repositoryId,
   binding,
@@ -157,9 +158,7 @@ function BindingPaths({
   });
   return (
     <details className="border-t border-cyan-200/10 pt-3">
-      <summary className="cursor-pointer text-sm">
-        Paths · {binding.skillId}
-      </summary>
+      <summary className="cursor-pointer text-sm">Paths</summary>
       <div className="mt-3 space-y-3">
         <label className="block text-sm">
           Include paths

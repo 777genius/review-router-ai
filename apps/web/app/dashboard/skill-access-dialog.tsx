@@ -117,7 +117,6 @@ export function SkillAccessDialog({
                     ? "Accepted"
                     : "Awaiting destination acceptance"
                   : "Revoked"}{" "}
-                · grant {item.version}
               </p>
             </div>
             {item.active ? (

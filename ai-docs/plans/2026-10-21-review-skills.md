@@ -257,6 +257,8 @@ Queue/retry/restore используют captured bytes до max authorization l
 | Native finding/investigation | Один projection для обеих веток |
 | Older/nonmanaged paths | Если admitted transport не умеет доставить Skills, new admission с назначениями explicitly denied до legacy cache reuse |
 
+`provider_api` сам по себе не доказывает delivery: supporting profile предпочитается только для verified `providerApiAuthMode: "openrouter-api"`. GitHub Secrets/Hosted callers без admitted-input seam выбирают единственный retained legacy Codex profile; при bindings/Git sources получают `skills_engine_unsupported`. Если legacy candidate отсутствует или неоднозначен, admission fails, без supporting fallback. Gateway native сохраняет supporting selection.
+
 ## 6. Git Skills и materialization
 
 Простое explicit opt-in «Use skills from repository» с двумя known roots. Web Skills не требуют файлов. Не auto-load всех IDE rules/AGENTS.md/skills чужого назначения.

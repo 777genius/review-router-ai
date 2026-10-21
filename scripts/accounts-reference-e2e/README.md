@@ -202,3 +202,60 @@ The 200% sample emulates browser layout using a 640x400 CSS viewport at DPR 2,
 rendering a 1280x800 screenshot; CSS `zoom` stress is separate and does not emulate
 browser breakpoint changes. `ACCOUNTS_REFERENCE_E2E_GREP` selects a bounded failed
 scenario for follow-up without replaying successful mutation tests.
+
+## Review Skills integration lane
+
+`--skills-fixture` extends this same real Next/session/database harness with 61
+synthetic Skills, 125 source repositories, two destination repositories, and a
+repository-only GitHub writer. It starts a separate loopback GitHub App HTTP
+fixture. That fixture verifies the signed App JWT before minting its synthetic
+installation token, then returns exact collaborator identity and `write`
+permission facts only for the declared repository. The application still runs
+its ordinary session, live permission guard, feature service, and PostgreSQL
+transaction. Workspace-admin shortcuts cannot prove the writer scenario.
+
+The fixture transport is restricted to development, the explicit Skills E2E
+flag, the exact TEST database name, and loopback database/API hosts. Production
+configuration cannot activate it. A qualification-only Node preload prevents
+existing catalog fetches from leaving loopback; no live OAuth, SCM, or model
+provider is involved. Skills content and assignments use real persistence, not
+an HTTP fixture or an in-memory substitute.
+
+Run against a **fresh isolated PostgreSQL 17+ cluster** with the exact TEST
+database. Existing cluster-level release authority roles affect historical
+migration ownership requirements; use the project's separate disposable cluster
+rather than altering production migrations or weakening their guards.
+
+```bash
+ACCOUNTS_REFERENCE_E2E_GREP='Skills real Next' \
+  node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+  scripts/accounts-reference-e2e/src/run.ts \
+  --repo-root "$PWD" \
+  --database-url 'postgresql://test_user@127.0.0.1:55442/review_router_accounts_reference_e2e_test?schema=public' \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/skills" \
+  --skills-fixture
+```
+
+The browser scenarios cover real creation and explicit Save, mobile navigation,
+concurrent-editor CAS conflicts with retained draft and explicit reconciliation,
+a genuine server-action replay by a different current source admin, all 125
+current repository IDs with mixed assignment counts, skill pagination and search
+selection, additive Add/Remove, the explicit 1001-target rejection, a committed
+Apply whose response is deliberately lost and then retried with the same delta,
+canonical cross-workspace linking, local usage isolation, and the repository-only
+writer removing a revoked dependency without seeing subsequent source changes.
+
+`skills-github-requests.json` records only HTTP methods and paths, proving the App
+token and collaborator permission transport was exercised. Cookies, JWTs, private
+keys, request bodies, and database credentials are not printed by the harness.
+Use `--resume-own-fixtures` only for bounded follow-up against this exact synthetic
+fixture family; the final full lane should use fresh checked-in migrations.
+
+If the pinned Playwright browser download is unavailable, the existing
+`--browser-executable /absolute/path/to/chromium` option now reaches the actual
+Playwright launch configuration. Record the executable version and package pin
+in evidence; never count a missing browser as a pass. The implementation run used
+Chromium 153.0.8010.0 from the exact `@sparticuz/chromium@153.0.0` npm archive because
+the default Playwright 1.64.1 Chromium archive returned a zero-length invalid ZIP.
+That temporary browser package is stored under `tmp/` and is not a production or
+workspace dependency.

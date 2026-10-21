@@ -42,6 +42,7 @@ import {
   reviewInvestigationCapabilityV1,
   type ReviewOperationalSloThresholds,
   type ReviewProtocolLimits,
+  type ReviewAgentProfile,
 } from "../../../packages/features/review-run-control/src/index.js";
 import {
   createPrismaClient,
@@ -141,6 +142,7 @@ export type ReviewActionV2E2EFlow = Readonly<{
 
 export type ReviewActionV2E2EAuthorization = Readonly<{
   result: ReviewRunAuthorizeResult;
+  providerApiAuthMode?: "openrouter-api";
   sourceRunAttempt?: string;
   oidcExpiresAt?: string;
   authorizationId: string;
@@ -156,6 +158,8 @@ export type ReviewActionV2E2EInvestigationProfile = Readonly<{
 }>;
 
 export type ReviewActionV2E2EHarnessOptions = Readonly<{
+  /** Registered test producer definitions, shared by DB row and attestation. */
+  agentProfiles?: readonly ReviewAgentProfile[];
   /** Signed workflow identity; independent of the configured policy. */
   modelTransport?: "account_gateway" | "provider_api";
   /** Shorten only the synthetic mint, without changing server run authority. */
@@ -269,6 +273,9 @@ export class ReviewActionV2E2EHarness {
     };
     const env: Readonly<Record<string, string>> = Object.freeze({
       ...productionEnv({
+        ...(options.agentProfiles
+          ? { agentProfiles: options.agentProfiles }
+          : {}),
         appPrivateKey: appKeys.privateKey
           .export({ type: "pkcs8", format: "pem" })
           .toString(),
@@ -315,6 +322,9 @@ export class ReviewActionV2E2EHarness {
 
     try {
       await seedProductionControlPlane(prisma, {
+        ...(options.agentProfiles
+          ? { agentProfiles: options.agentProfiles }
+          : {}),
         prefix,
         workspaceId,
         repositoryConnectionId,
@@ -419,6 +429,7 @@ export class ReviewActionV2E2EHarness {
     );
     return {
       result: response.result,
+      ...(input.providerApiAuthMode ? { providerApiAuthMode: input.providerApiAuthMode } : {}),
       sourceRunAttempt: runAttempt,
       oidcExpiresAt: new Date(oidcExpiresAt * 1000).toISOString(),
       authorizationId,
@@ -442,6 +453,7 @@ export class ReviewActionV2E2EHarness {
       oidcToken: await this.signOidcToken(
         authorization.sourceRunAttempt ?? "1",
         Math.floor(Date.now() / 1000) + this.oidcLifetimeSeconds,
+        authorization.providerApiAuthMode,
       ),
       requestedTtlMs: 900_000,
     });
@@ -1583,6 +1595,7 @@ async function seedProductionControlPlane(
     operationalSloProfileId: string;
     investigationProfile?: ReviewActionV2E2EInvestigationProfile;
     protocolMaxAttemptsPerSlot?: number;
+    agentProfiles?: readonly ReviewAgentProfile[];
   }>,
 ): Promise<void> {
   const now = new Date();
@@ -1645,7 +1658,9 @@ async function seedProductionControlPlane(
       runtimeCommitSha,
       wrapperEntrypointDigest: null,
       runtimeEntrypointDigest: sha256("runtime-entrypoint"),
-      agentProfilesJson: JSON.stringify(approvedAgentProfilesFixture),
+      agentProfilesJson: JSON.stringify(
+        ids.agentProfiles ?? approvedAgentProfilesFixture,
+      ),
       contextGatewayPolicyVersion:
         ids.investigationProfile?.gatewayPolicyVersion ??
         "e2e-gateway-policy-v1",
@@ -1774,6 +1789,7 @@ async function seedProductionControlPlane(
 }
 
 function productionEnv(input: {
+  readonly agentProfiles?: readonly ReviewAgentProfile[];
   readonly appPrivateKey: string;
   readonly producerReleaseId: string;
   readonly protocolLimitsProfileId: string;
@@ -1807,7 +1823,7 @@ function productionEnv(input: {
         runtimeCommitSha,
         wrapperEntrypointDigest: null,
         runtimeEntrypointDigest: sha256("runtime-entrypoint"),
-        agentProfiles: approvedAgentProfilesFixture,
+        agentProfiles: input.agentProfiles ?? approvedAgentProfilesFixture,
         reviewInvestigationCapability: input.investigationProfile
           ? reviewInvestigationCapabilityV1
           : null,

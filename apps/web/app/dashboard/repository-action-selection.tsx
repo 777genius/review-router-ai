@@ -45,11 +45,13 @@ export function RepositorySelectionProvider({
 }): React.ReactElement {
   const [ids, setIds] = useState<readonly string[]>([]);
   const [operationLocked, setOperationLocked] = useState(false);
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     setIds([]);
     setOperationLocked(false);
+    setReady(true);
   }, [workspaceId]);
-  const locked = disabled || operationLocked;
+  const locked = disabled || operationLocked || !ready;
   const available = useMemo(
     () =>
       new Set(

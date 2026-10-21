@@ -21,6 +21,10 @@ import {
   canonicalReleaseMigrationEntries,
 } from "../packages/features/release-rollout/src/domain/release-migration-transition.ts";
 import { normalizeSecretSafePostgresArguments } from "./lib/secret-safe-command-boundary.mjs";
+import {
+  reviewSkillsRuntimeGrantStatements,
+  reviewSkillsRuntimeGateStatements,
+} from "./review-skills-runtime-grants.ts";
 import { effectivePrincipalInventorySql } from "../packages/features/release-rollout/src/adapters/effective-principal-postgres.mjs";
 import { fencedLiveV70V73CatalogDigestSql } from "../packages/features/release-rollout/src/adapters/live-v70-v72-catalog-digest.mjs";
 import {
@@ -5342,6 +5346,7 @@ GRANT EXECUTE ON FUNCTION public.hosted_codex_mutate_comment_token_mint(text,jso
   public.hosted_codex_claim_comment_token_delivery(text,text,text)
   TO reviewrouter_comment_token_custody;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
+${reviewSkillsRuntimeGrantStatements(configuration.roles)}
 `;
 }
 
@@ -5362,7 +5367,8 @@ export function runtimeAclGateStatements(
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public FROM ${username};
 REVOKE USAGE, UPDATE ON ALL SEQUENCES IN SCHEMA public FROM ${username};`,
     )
-    .join("\n")}`;
+    .join("\n")}
+${reviewSkillsRuntimeGateStatements(configuration.roles)}`;
 }
 
 /**

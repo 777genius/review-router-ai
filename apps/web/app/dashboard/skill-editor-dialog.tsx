@@ -236,10 +236,12 @@ export function SkillEditorDialog({
               void requestReviewSkills("loadSkill", {
                 workspaceId,
                 skillId: document.skillId,
-              }).then((current) => {
-                setComparison(current);
-                setReconciled(false);
-              });
+              })
+                .then((current) => {
+                  setComparison(current);
+                  setReconciled(false);
+                })
+                .catch(setImportError);
           }}
         >
           Keep draft and compare with current revision

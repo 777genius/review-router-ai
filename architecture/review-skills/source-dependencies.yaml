@@ -27,6 +27,6 @@ boundaries:
       boundaries:
         - review-skills.domain
       packages:
-        - '@reviewrouter/shared'
+        - "@reviewrouter/shared"
       builtins: []
       runtimeReferences: []

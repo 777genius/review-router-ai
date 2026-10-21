@@ -16,6 +16,64 @@ const profile = {
   cancellation: true,
 };
 describe("approved producer agent profiles", () => {
+  it("prefers the unique registered Skills producer while explicit legacy refs stay exact", () => {
+    const legacy = {
+      ...profile,
+      modelTransports: ["provider_api", "account_gateway"],
+    };
+    const supporting = {
+      ...legacy,
+      profileRef: "codex-skills-v1",
+      reviewSkillsVersion: 1,
+    };
+    expect(
+      selectProviderApiReviewAgentProfile([legacy, supporting], {
+        reviewSkillsDelivery: true,
+      }),
+    ).toEqual(supporting);
+    expect(
+      selectReviewAgentProfile(
+        [legacy, supporting],
+        legacy.profileRef,
+        "account_gateway",
+      ),
+    ).toEqual(legacy);
+    expect(() =>
+      selectProviderApiReviewAgentProfile(
+        [legacy, supporting, { ...supporting, profileRef: "other-skills" }],
+        { reviewSkillsDelivery: true },
+      ),
+    ).toThrow("review_agent_profile_unavailable");
+  });
+  it("keeps provider API callers without captured-input delivery on a unique legacy profile", () => {
+    const legacy = {
+      ...profile,
+      modelTransports: ["provider_api", "account_gateway"],
+    };
+    const supporting = {
+      ...legacy,
+      profileRef: "codex-skills-v1",
+      reviewSkillsVersion: 1,
+    };
+    expect(selectProviderApiReviewAgentProfile([legacy, supporting])).toEqual(
+      legacy,
+    );
+    expect(
+      selectProviderApiReviewAgentProfile([legacy, supporting], {
+        reviewSkillsDelivery: false,
+      }),
+    ).toEqual(legacy);
+    expect(() => selectProviderApiReviewAgentProfile([supporting])).toThrow(
+      "review_agent_profile_unavailable",
+    );
+    expect(() =>
+      selectProviderApiReviewAgentProfile([
+        legacy,
+        { ...legacy, profileRef: "another-legacy" },
+        supporting,
+      ]),
+    ).toThrow("review_agent_profile_unavailable");
+  });
   it("accepts exactly the reference grammar supported by the runtime", () => {
     expect(
       parseReviewAgentProfiles([{ ...profile, profileRef: "a".repeat(160) }])[0]

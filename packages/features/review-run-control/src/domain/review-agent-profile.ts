@@ -43,23 +43,30 @@ export function selectReviewAgentProfile(
   return selected;
 }
 
-/** Matches the Secret-backed runtime's bundled Codex selection contract. */
+/** Capability preference requires a transport that delivers the admitted input.
+ * Older Secrets/Hosted callers share provider_api but lack that companion seam. */
 export function selectProviderApiReviewAgentProfile(
   profiles: unknown,
+  options: Readonly<{ reviewSkillsDelivery?: boolean }> = {},
 ): ReviewAgentProfile {
-  return selectUniqueCodexProfile(profiles, "provider_api");
+  return selectUniqueCodexProfile(
+    profiles,
+    "provider_api",
+    options.reviewSkillsDelivery === true,
+  );
 }
 
 /** Preserve an implicit supplied-diff-only policy without enabling native tools. */
 export function selectSuppliedDiffReviewAgentProfile(
   profiles: unknown,
 ): ReviewAgentProfile {
-  return selectUniqueCodexProfile(profiles, "account_gateway");
+  return selectUniqueCodexProfile(profiles, "account_gateway", true);
 }
 
 function selectUniqueCodexProfile(
   profiles: unknown,
   transport: ReviewAgentProfile["modelTransports"][number],
+  reviewSkillsDelivery: boolean,
 ): ReviewAgentProfile {
   const candidates = parseReviewAgentProfiles(profiles).filter(
     (profile) =>
@@ -69,7 +76,11 @@ function selectUniqueCodexProfile(
   const supporting = candidates.filter(
     (profile) => profile.reviewSkillsVersion === 1,
   );
-  const preferred = supporting.length > 0 ? supporting : candidates;
+  const preferred = reviewSkillsDelivery
+    ? supporting.length > 0
+      ? supporting
+      : candidates
+    : candidates.filter((profile) => profile.reviewSkillsVersion === undefined);
   if (preferred.length !== 1) invalid("review_agent_profile_unavailable");
   return preferred[0]!;
 }

@@ -66,4 +66,45 @@ CREATE TRIGGER review_skill_revision_immutable BEFORE UPDATE OR DELETE ON "Revie
 CREATE TRIGGER review_skill_identity_immutable BEFORE UPDATE ON "ReviewSkill"
   FOR EACH ROW EXECUTE FUNCTION rr_review_skill_immutable();
 REVOKE ALL ON FUNCTION rr_review_skill_immutable() FROM PUBLIC;
+
+-- RepositoryConnection is SELECT-only for runtime roles. Keep the bounded row
+-- lock under the existing NOLOGIN schema owner, without granting column writes.
+CREATE FUNCTION public.rr_review_skills_repository_lock(
+  p_workspace_id text,
+  p_repository_connection_ids text[]
+)
+RETURNS TABLE(id text)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+  SELECT repository."id"
+  FROM public."RepositoryConnection" AS repository
+  WHERE cardinality(p_repository_connection_ids) BETWEEN 1 AND 1000
+    AND repository."workspaceId" = p_workspace_id
+    AND repository."id" = ANY(p_repository_connection_ids)
+    AND repository."selected" = true
+    AND repository."archived" = false
+  ORDER BY repository."id"
+  FOR SHARE OF repository
+$function$;
+
+DO $review_skills_repository_owner_handoff$
+DECLARE temporary_create boolean := false;
+BEGIN
+  IF NOT pg_catalog.has_schema_privilege(
+    'reviewrouter_release_schema_owner', 'public', 'CREATE') THEN
+    GRANT CREATE ON SCHEMA public TO reviewrouter_release_schema_owner;
+    temporary_create := true;
+  END IF;
+  ALTER FUNCTION public.rr_review_skills_repository_lock(text, text[])
+    OWNER TO reviewrouter_release_schema_owner;
+  IF temporary_create THEN
+    REVOKE CREATE ON SCHEMA public FROM reviewrouter_release_schema_owner;
+  END IF;
+END $review_skills_repository_owner_handoff$;
+
+REVOKE ALL ON FUNCTION public.rr_review_skills_repository_lock(text, text[])
+  FROM PUBLIC;
+-- Web-only EXECUTE is projected by canonical runtime ACL convergence.
 COMMIT;

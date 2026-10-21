@@ -245,7 +245,10 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
               modelTransport,
             )
           : modelTransport === "provider_api"
-            ? selectProviderApiReviewAgentProfile(agentProfiles)
+            ? selectProviderApiReviewAgentProfile(agentProfiles, {
+                reviewSkillsDelivery:
+                  input.providerApiAuthMode === "openrouter-api",
+              })
             : selected?.provider.agenticContext === false
               ? selectSuppliedDiffReviewAgentProfile(agentProfiles)
               : this.selectImplicitGatewayProfile(
@@ -440,6 +443,22 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     if (!original) return false;
     if (original.producer.producerReleaseId !== candidate.producerReleaseId)
       return false;
+    let providerApiAuthMode: "openrouter-api" | undefined;
+    // The fence replays the original delivery capability, never a fresh caller
+    // flag or configuration-only guess. A non-Gateway Skills profile was
+    // admitted only through the verified direct OpenRouter route.
+    if (!original.gateway && original.agent.reviewSkillsVersion === 1) {
+      try {
+        assertOpenRouterDirectConfigurationSupported(
+          parseReviewConfigurationStrict(
+            JSON.parse(original.configurationCanonicalJson),
+          ),
+        );
+      } catch {
+        return false;
+      }
+      providerApiAuthMode = "openrouter-api";
+    }
     const producer = await transaction.producerRelease.findUnique({
       where: { producerReleaseId: candidate.producerReleaseId },
       select: {
@@ -473,6 +492,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         {
           identity: candidate,
           modelTransport: original.gateway ? "account_gateway" : "provider_api",
+          ...(providerApiAuthMode ? { providerApiAuthMode } : {}),
           deadline: candidate.maxExpiresAt,
           producerRelease: {
             ...producer,
