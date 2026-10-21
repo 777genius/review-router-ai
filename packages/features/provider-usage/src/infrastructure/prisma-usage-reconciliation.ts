@@ -1,4 +1,4 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { type PrismaClient } from "@prisma/client";
 import { UsageError } from "../domain/usage";
 import type { UsageIngestContext, UsageSourcePage } from "../application/ports";
 import { PrismaUsageStore } from "./prisma-usage-store";
