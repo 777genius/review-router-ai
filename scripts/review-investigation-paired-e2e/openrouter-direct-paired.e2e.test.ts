@@ -1,12 +1,13 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import Fastify from "fastify";
 import { expect, it, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 import { registerReviewExecutionV2Routes } from "../../packages/features/action-control-plane/src/v2/interface/index.js";
 import {
   PrismaReviewConfigurationRepository,
@@ -29,6 +30,83 @@ if (enabled && (!databaseUrl || !actionSourceDir))
 const execFileAsync = promisify(execFile);
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
+
+// GitHub validates every reusable job's requested permissions before evaluating
+// its `if`. Validate the actual released workflow graph, including disabled jobs.
+(actionSourceDir ? it : it.skip)(
+  "starts the direct caller with read-only permissions and every required released-workflow input",
+  async () => {
+    type Workflow = {
+      permissions?: Record<string, string>;
+      on?: {
+        workflow_call?: {
+          inputs?: Record<string, { required?: boolean; type: string }>;
+        };
+      };
+      jobs: Record<
+        string,
+        {
+          permissions?: Record<string, string>;
+          uses?: string;
+          with?: Record<string, unknown>;
+        }
+      >;
+    };
+    const levels: Record<string, number> = { none: 0, read: 1, write: 2 };
+    async function verify(
+      source: string,
+      inherited: Record<string, string>,
+    ): Promise<void> {
+      const workflow = parseYaml(source) as Workflow;
+      for (const [name, job] of Object.entries(workflow.jobs)) {
+        const granted = job.permissions ?? workflow.permissions ?? inherited;
+        for (const [scope, level] of Object.entries(granted)) {
+          if ((levels[level] ?? 3) > (levels[inherited[scope] ?? "none"] ?? 0))
+            throw new Error(`${name} requires ${scope}:${level}`);
+        }
+        if (!job.uses) continue;
+        const reusable = job.uses.startsWith("./")
+          ? job.uses.slice(2)
+          : /^777genius\/review-router\/(.github\/workflows\/[^@]+)@[a-f0-9]{40}$/.exec(
+              job.uses,
+            )?.[1];
+        expect(reusable).toBeDefined();
+        const nestedSource = await readFile(
+          path.join(actionSourceDir!, reusable!),
+          "utf8",
+        );
+        const nested = parseYaml(nestedSource) as Workflow;
+        for (const input of Object.keys(job.with ?? {}))
+          expect(nested.on?.workflow_call?.inputs).toHaveProperty(input);
+        for (const [input, definition] of Object.entries(
+          nested.on?.workflow_call?.inputs ?? {},
+        )) {
+          if (definition.required)
+            expect(job.with, `${name} requires input ${input}`).toHaveProperty(
+              input,
+            );
+          const value = job.with?.[input];
+          if (
+            value !== undefined &&
+            !(typeof value === "string" && value.includes("${{"))
+          )
+            expect(typeof value, `${name} input ${input}`).toBe(
+              definition.type,
+            );
+        }
+        await verify(nestedSource, granted);
+      }
+    }
+    const caller = renderReviewRouterProviderApiCaller({
+      runtimeRef: "a".repeat(40),
+    });
+    await verify(caller, {
+      contents: "read",
+      "pull-requests": "read",
+      "id-token": "write",
+    });
+  },
+);
 
 // Contract proof with real public preparation and private handlers. The public
 // bootstrap/credential/execution tests qualify those separate runtime boundaries.
