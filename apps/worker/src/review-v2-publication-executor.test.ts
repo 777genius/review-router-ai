@@ -366,6 +366,76 @@ describe("protocol v2 publication executor", () => {
     expect(fixture.gateway.applyCalls).toBe(2);
   });
 
+  it("settles a persisted optional acknowledgement on retry without reopening completed required effects", async () => {
+    const fixture = await createFixture({
+      claimDurationMs: 1_000,
+      operations: [
+        operationPlan(),
+        {
+          ...operationPlan(),
+          publicationOperationId: "required-2",
+          chunkIndex: 1,
+          markerHash: hash("3"),
+          bodyHash: hash("4"),
+        },
+        {
+          ...operationPlan(),
+          publicationOperationId: "description",
+          publicationKind: ReviewPublicationKind.PrDescription,
+          required: false,
+          markerHash: hash("7"),
+          bodyHash: hash("8"),
+        },
+      ],
+    });
+    await fixture.executor.execute(executionCommand());
+    fixture.gateway.pages = [{ objects: [], nextCursor: null }];
+    await fixture.executor.execute(executionCommand("required-2"));
+    const required = await fixture.repository.findById("publication-1");
+    expect(required?.receipts).toHaveLength(2);
+    fixture.gateway.pages = [{ objects: [], nextCursor: null }];
+    fixture.freshness.onRead = () => {
+      if (fixture.gateway.applyCalls === 3) {
+        fixture.freshness.current = {
+          status: ReviewV2PublicationFreshnessReadStatus.Missing,
+          safeReason: "publication_live_tuple_not_current",
+        };
+      }
+    };
+    const terminalization = vi
+      .spyOn(fixture.application, "terminalizeUnknown")
+      .mockRejectedValueOnce(new Error("terminalization_ack_lost"));
+    await expect(
+      fixture.executor.execute(executionCommand("description")),
+    ).resolves.toMatchObject({
+      status: ReviewV2PublicationExecutionStatus.Retryable,
+      safeReason: "publication_terminal_outcome_ack_unknown",
+    });
+    fixture.clock.set(at("2026-07-23T12:00:02.000Z"));
+
+    await expect(
+      fixture.executor.execute(executionCommand("description")),
+    ).resolves.toMatchObject({
+      status: ReviewV2PublicationExecutionStatus.Terminalized,
+      terminalOutcome: ReviewPublicationTerminalOutcome.Succeeded,
+    });
+    const settled = await fixture.repository.findById("publication-1");
+    expect(settled?.attempt.state).toBe("terminal");
+    expect(settled?.receipts).toEqual(required?.receipts);
+    expect(settled?.effects).toEqual(
+      expect.arrayContaining([...required!.effects]),
+    );
+    expect(settled?.tombstones).toEqual([
+      expect.objectContaining({
+        publicationOperationId: "description",
+        finalOutcome: "stale_visible",
+      }),
+    ]);
+    expect(terminalization).toHaveBeenCalledTimes(2);
+    expect(fixture.gateway.applyCalls).toBe(3);
+    expect(fixture.gateway.compensationCalls).toBe(0);
+  });
+
   it("keeps an acknowledged optional body ambiguous when its marker is no longer visible", async () => {
     const fixture = await createFixture({
       operations: [

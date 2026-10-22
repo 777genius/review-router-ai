@@ -74,6 +74,16 @@ export async function beginGatewayOAuth(
     return { status: "unavailable" };
   }
 }
+export async function pollGatewayOAuth(
+  context: string,
+  nonce: string,
+): Promise<AccountsResult<AccountOperationView>> {
+  try {
+    return await (await accountsServerAdapter()).pollOAuth(context, nonce);
+  } catch {
+    return { status: "unavailable" };
+  }
+}
 export async function completeGatewayOAuth(
   context: string,
   intent: AccountOAuthCompletion,

@@ -275,6 +275,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Device sign-in adds only immutable enrollment method metadata. Admit the
+  // exact extension before reducing to the previously qualified checkout.
+  const oauthMethodMigration = catalog.find(
+    (row) => row.migrationName === "000140_personal_oauth_method",
+  );
+  if (oauthMethodMigration) {
+    if (
+      oauthMethodMigration.checksum !==
+        "aa1f8fb0d3bd5dffdcf7dd5435552f8aa846c6295d02fb2189b4e0e7356f0454" ||
+      manifest(catalog) !==
+        "sha256:12ec2343e5de125175e4fc8946a9ab177034f60af43883b7c4ec8ac91a26ce48"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== oauthMethodMigration),
+    );
+  }
   // MCP connection custody and its optional producer descriptor are checkout-only.
   // Admit exact SQL and the reviewed pre-usage or merged union before reducing it.
   const contextToolsMigration = catalog.find(
