@@ -1944,7 +1944,7 @@ function OAuthCompletionForm({
         const field = form.elements.namedItem(
           "callbackURL",
         ) as HTMLInputElement;
-        const callbackURL = field.value;
+        const callbackURL = field.value.trim();
         field.value = "";
         form.reset(); // Clear the uncontrolled secret BEFORE any await.
         void complete(callbackURL);
