@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaAccountLifecycleOperations } from "@reviewrouter/features-provider-accounts/synchronization";
+import {
+  PrismaPersonalAccountOperations,
+  PrismaAccountLifecycleOperations,
+} from "@reviewrouter/features-provider-accounts/synchronization";
+import { createAccountLimitsService } from "./account-limits-service";
 import { createAccountsOverview } from "./accounts-overview";
-import { accountGatewayWorkspaceOwnerRef } from "./account-gateway-accounts";
+import {
+  accountGatewayUserOwnerRef,
+  accountGatewayWorkspaceOwnerRef,
+} from "./account-gateway-accounts";
 function disposableDatabase() {
   const raw = process.env.RR_C2C_PG_TEST_URL ?? "";
   const url = new URL(raw);
@@ -153,6 +160,145 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
           },
         });
         expect((await store.read(actor, closed.id)).closureComplete).toBe(true);
+      } finally {
+        await db.$disconnect();
+      }
+    }, 30000);
+    it("omits a shared row revoked while an owned row awaits native quota", async () => {
+      const db = new PrismaClient({
+        adapter: new PrismaPg({ connectionString: disposableDatabase() }),
+      });
+      const prefix = `quota-inventory-${randomUUID()}`;
+      const viewer = `${prefix}-viewer`,
+        donor = `${prefix}-donor`,
+        workspaceId = `${prefix}-org`;
+      try {
+        await db.user.createMany({
+          data: [
+            { id: viewer },
+            {
+              id: donor,
+              githubLogin: "private-donor",
+              avatarUrl: "https://test.invalid/private-donor.png",
+            },
+          ],
+        });
+        await db.workspace.create({
+          data: {
+            id: workspaceId,
+            slug: workspaceId,
+            name: "TEST quota inventory",
+            members: {
+              create: [
+                { userId: viewer, role: "owner" },
+                { userId: donor, role: "admin" },
+              ],
+            },
+          },
+        });
+        await db.workspace.create({
+          data: {
+            id: `${prefix}-donor-personal`,
+            slug: `${prefix}-donor-personal`,
+            name: "TEST donor personal workspace",
+            personalOwnerUserId: donor,
+          },
+        });
+        const shared = await db.providerAccountConnection.create({
+          data: {
+            id: `${prefix}-a-shared`,
+            ownerUserId: donor,
+            gatewayAccountRef: `${prefix}-shared-native`,
+            profileRef: "profile",
+            displayName: "Private donor label",
+            state: "active",
+            authorizationEpochMirror: 1n,
+          },
+        });
+        const owned = await db.providerAccountConnection.create({
+          data: {
+            id: `${prefix}-b-owned`,
+            ownerWorkspaceId: workspaceId,
+            gatewayAccountRef: `${prefix}-owned-native`,
+            profileRef: "profile",
+            displayName: "Owned",
+            state: "active",
+            authorizationEpochMirror: 1n,
+          },
+        });
+        const binding = await db.workspaceAccountBinding.create({
+          data: {
+            id: `${prefix}-binding`,
+            workspaceId,
+            connectionId: shared.id,
+            state: "active",
+          },
+        });
+        const sharing = new PrismaPersonalAccountOperations(db);
+        const read = vi.fn(async () => {
+          await sharing.detachRecipientBinding({
+            actorUserId: viewer,
+            workspaceId,
+            bindingId: binding.id,
+            expectedBindingRevision: 1,
+          });
+          return { status: "unknown" as const };
+        });
+        const ownerRef = (
+          owner:
+            | { kind: "user"; userId: string }
+            | { kind: "workspace"; workspaceId: string },
+        ) =>
+          owner.kind === "user"
+            ? accountGatewayUserOwnerRef(owner.userId)
+            : accountGatewayWorkspaceOwnerRef(owner.workspaceId);
+        const get = vi.fn(async (ref: string) => {
+          const source = ref === shared.gatewayAccountRef ? shared : owned;
+          return {
+            accountRef: ref,
+            ownerRef: source.ownerUserId
+              ? accountGatewayUserOwnerRef(source.ownerUserId)
+              : accountGatewayWorkspaceOwnerRef(workspaceId),
+            profileId: "profile",
+            displayName: source.displayName,
+            state: "active" as const,
+            metadataRevision: 1,
+            authorizationEpoch: 1,
+          };
+        });
+        const overview = createAccountsOverview({
+          prisma: db,
+          cursorSecret: "TEST-only-cursor-secret",
+          profiles: [{ id: "profile", label: "TEST", authKind: "api_key" }],
+          authorize: async () => ({ workspaceId, userId: viewer }),
+          visibleRepositoryIds: async () => null,
+          ownerRef,
+          gateway: { get },
+          limits: createAccountLimitsService({
+            prisma: db,
+            reader: { read },
+            secret: "TEST-only-quota-secret",
+            authorize: async () => ({ workspaceId, userId: viewer }),
+            ownerRef,
+          }),
+        });
+        const result = await overview.list();
+        expect(read).toHaveBeenCalledOnce();
+        // The cached-reader boundary intentionally masks source errors. Confirm
+        // this controlled revoke actually completed rather than masking a bad fixture.
+        await expect(read.mock.results[0]!.value).resolves.toEqual({ status: "unknown" });
+        expect(result).toMatchObject({
+          status: "ok",
+          value: { accounts: [{ connectionId: owned.id }] },
+        });
+        if (result.status !== "ok")
+          throw new Error("fixture_expected_accounts");
+        expect(result.value.accounts).toHaveLength(1);
+        expect(JSON.stringify(result)).not.toMatch(
+          /Private donor label|private-donor/,
+        );
+        expect(read).toHaveBeenCalledOnce();
+        expect(get).toHaveBeenCalledTimes(2);
       } finally {
         await db.$disconnect();
       }

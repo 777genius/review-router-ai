@@ -24,6 +24,7 @@ import {
   type WorkspaceAccountActor,
   type WorkspaceBindingFenceRepositoryPort,
   type ScopedBindingFence,
+  type SafeBindingTuple,
 } from "@reviewrouter/features-provider-accounts";
 import {
   PrismaProviderAccountSynchronization,
@@ -687,6 +688,7 @@ export function createAccountsAdapter(input: {
       for (const account of page.accounts)
         verified(account, authority, catalogue);
       const rows: AccountView[] = [];
+      const operatorBindings = new Map<string, SafeBindingTuple>();
       for (const listed of page.accounts) {
         const prior = await accounts.findOwnedConnectionByGatewayRef({
           workspaceId: authority.workspaceId,
@@ -736,8 +738,9 @@ export function createAccountsAdapter(input: {
           )
             throw new Denied();
           if (grant.connection.state !== "active") continue;
+          let binding: SafeBindingTuple;
           try {
-            await resolveWorkspaceAccountBinding(
+            binding = await resolveWorkspaceAccountBinding(
               {
                 workspaceId: authority.workspaceId,
                 bindingId: grant.binding.id,
@@ -782,19 +785,53 @@ export function createAccountsAdapter(input: {
           if (
             projected.binding?.state === "active" &&
             !projected.binding.fencePending
-          )
+          ) {
             rows.push(projected);
+            operatorBindings.set(projected.connectionId, binding);
+          }
         }
         if (grants.length === 25)
           nextCursor = `rrgrant_${grants[24]!.binding.id}`;
       }
+      const canGrantOperatorUse = await isOperatorAdmin(authority);
+      const enriched = input.limits
+        ? await (await input.limits(context)).page(rows)
+        : rows;
+      const currentRows: AccountView[] = [];
+      // Limits may await other owned accounts. Recheck each operator grant's
+      // exact binding lifetime before releasing any of its private metadata.
+      for (const row of enriched) {
+        const original = operatorBindings.get(row.connectionId);
+        if (original) {
+          try {
+            const current = await resolveWorkspaceAccountBinding(
+              {
+                workspaceId: authority.workspaceId,
+                bindingId: original.bindingId,
+                actor: authority.actor,
+              },
+              bindingDependencies,
+            );
+            if (JSON.stringify(current) !== JSON.stringify(original)) continue;
+          } catch (error) {
+            if (
+              error instanceof ProviderAccountError &&
+              ["binding_unavailable", "connection_unavailable"].includes(
+                error.code,
+              )
+            )
+              continue;
+            throw error;
+          }
+        }
+        currentRows.push(row);
+      }
+      await client.reauthorize();
       return {
         status: "ok",
         value: {
-          canGrantOperatorUse: await isOperatorAdmin(authority),
-          accounts: input.limits
-            ? await (await input.limits(context)).page(rows)
-            : rows,
+          canGrantOperatorUse,
+          accounts: currentRows,
           profiles: catalogue,
           nextCursor,
         },
