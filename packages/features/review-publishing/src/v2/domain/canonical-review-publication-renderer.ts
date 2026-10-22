@@ -22,11 +22,15 @@ export const hiddenMarkerReviewProjectionPolicyVersion =
 export const currentReviewProjectionPolicyVersion =
   "review-projection-policy.v5-t0";
 
+export const comparisonReviewProjectionPolicyVersion =
+  "review-projection-policy.v6-comparison";
+
 export enum CanonicalReviewPublicationRenderPolicyVersion {
   LegacyV1 = 1,
   ClearPartialV2 = 2,
   HiddenMarkersV3 = 3,
   PreliminaryFindingsV4 = 4,
+  CompactComparisonV5 = 5,
 }
 
 export const legacyPartialReviewPublicationSummary =
@@ -150,6 +154,8 @@ export function resolveReviewPublicationRenderPolicyVersion(
       return CanonicalReviewPublicationRenderPolicyVersion.HiddenMarkersV3;
     case currentReviewProjectionPolicyVersion:
       return CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4;
+    case comparisonReviewProjectionPolicyVersion:
+      return CanonicalReviewPublicationRenderPolicyVersion.CompactComparisonV5;
     default:
       throw new Error(
         `review_publication_projection_policy_unsupported:${projectionPolicyVersion}`,
@@ -173,7 +179,9 @@ export function renderCanonicalReviewPublication(
 ): CanonicalReviewPublicationRendering {
   const verifiedOccurrenceCounts =
     input.renderPolicyVersion ===
-    CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4
+      CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4 ||
+    input.renderPolicyVersion ===
+      CanonicalReviewPublicationRenderPolicyVersion.CompactComparisonV5
       ? occurrenceCountsBoundToProjection(
           input.source.summary.occurrenceCounts,
           input.occurrenceStates,
@@ -342,6 +350,20 @@ function partialSummary(
     case CanonicalReviewPublicationRenderPolicyVersion.ClearPartialV2:
     case CanonicalReviewPublicationRenderPolicyVersion.HiddenMarkersV3:
       return partialReviewPublicationSummary;
+    case CanonicalReviewPublicationRenderPolicyVersion.CompactComparisonV5:
+      if (verifiedOccurrenceCounts === null) {
+        throw new Error("publication_occurrence_counts_invalid");
+      }
+      return [
+        "**Review incomplete.** Required coverage did not finish; this is not an approval.",
+        "",
+        removePartialAllClearClaims(source.summary.body.trim())
+          .replace(/^##\s+Review incomplete\b[^\n]*$/gim, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim(),
+      ]
+        .join("\n")
+        .trim();
     case CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4:
       if (verifiedOccurrenceCounts === null) {
         throw new Error("publication_occurrence_counts_invalid");
@@ -467,7 +489,9 @@ function markerForBody(
     (version !==
       CanonicalReviewPublicationRenderPolicyVersion.HiddenMarkersV3 &&
       version !==
-        CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4) ||
+        CanonicalReviewPublicationRenderPolicyVersion.PreliminaryFindingsV4 &&
+      version !==
+        CanonicalReviewPublicationRenderPolicyVersion.CompactComparisonV5) ||
     marker.trim().startsWith("<!--")
   ) {
     return marker;

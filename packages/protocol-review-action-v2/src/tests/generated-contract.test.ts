@@ -30,6 +30,7 @@ import {
   ReviewInvestigationPublishedRuntimeProfile,
   ReviewInvestigationPublishedState,
   ReviewInvestigationRestoreResultStatus,
+  ReviewSnapshotRestorePurpose,
   serializeProviderInvocationManifestV1CanonicalWireJson,
 } from "../index.js";
 import {
@@ -47,6 +48,51 @@ import {
 } from "../../../../scripts/generate-review-action-v2-protocol.mjs";
 
 describe("generated Review Action v2 negotiation contract", () => {
+  it.each([
+    { label: "omitted", fields: {}, expected: {} },
+    { label: "undefined", fields: { purpose: undefined }, expected: {} },
+    { label: "null", fields: { purpose: null }, expected: { purpose: null } },
+    {
+      label: "explicit comparison",
+      fields: { purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1 },
+      expected: { purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1 },
+    },
+  ])(
+    "canonicalizes snapshot restore with $label purpose",
+    ({ fields, expected }) => {
+      const operation = ReviewActionV2OperationId.ReviewSnapshotRestore;
+      const fixture = reviewActionV2GoldenFixtures[operation].request;
+      const request = {
+        ...Object.fromEntries(
+          Object.entries(fixture).filter(([key]) => key !== "purpose"),
+        ),
+        ...fields,
+      };
+      const parsed = parseReviewActionV2Request(operation, request);
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) throw new Error("snapshot_restore_fixture_invalid");
+      const result = canonicalizeReviewActionV2Request(operation, parsed.value);
+      expect(JSON.parse(result)).toEqual({
+        reviewRevisionHash: fixture.reviewRevisionHash,
+        ...expected,
+      });
+      expect(result).toBe(canonicalJson(JSON.parse(result)));
+    },
+  );
+
+  it("still rejects missing required fields when optional purpose is omitted", () => {
+    const operation = ReviewActionV2OperationId.ReviewSnapshotRestore;
+    const request = {
+      ...reviewActionV2GoldenFixtures[operation].request,
+      purpose: undefined,
+      reviewRevisionHash: undefined,
+    };
+    expect(parseReviewActionV2Request(operation, request)).toMatchObject({
+      ok: false,
+      issues: ["field_invalid:reviewRevisionHash"],
+    });
+  });
+
   it("publishes concrete request and response schemas for extension operations", async () => {
     for (const operationId of reviewInvestigationExtensionV1.operationIds) {
       const schema = JSON.parse(
@@ -186,10 +232,10 @@ describe("generated Review Action v2 negotiation contract", () => {
       ),
     ).toBe(reviewInvestigationExtensionV1.schemaDigest);
     expect(reviewActionV2PublishedSchemaDigest).toBe(
-      "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+      "71f316821909667e1b7cc704bed330ef6cfa7ac44cf51d58935ba3238ab92504",
     );
     expect(reviewActionV2CanonicalizerDigest).toBe(
-      "12408727c244f65242534d3060983b87221715f2086631ab743c2c6f6248629a",
+      "bf61d04d42e158b26e4b651b62700b10212496487d7e20ac6e705272dc1d6a5f",
     );
 
     for (const operation of reviewActionV2Operations) {

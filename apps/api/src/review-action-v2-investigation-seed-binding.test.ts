@@ -30,6 +30,7 @@ import {
   ReviewActionV2OperationId,
   ReviewInvestigationPublishedRuntimeProfile,
   canonicalizeReviewActionV2Request,
+  reviewActionV2CanonicalizerDigest,
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
   reviewInvestigationExtensionV1,
@@ -80,6 +81,8 @@ const authorization = Object.freeze({
   reviewRevisionHash: sha("revision"),
   producerReleaseId: "release-1",
   selectedProtocolVersion: "review_action_v2",
+  schemaDigest: reviewActionV2PublishedSchemaDigest,
+  canonicalizerDigest: reviewActionV2CanonicalizerDigest,
   reviewInvestigationAuthorizationDescriptorCanonicalJson: canonicalJson({
     authorizationDescriptorVersion: 3,
     capability: "review_investigation_v1",

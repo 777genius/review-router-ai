@@ -52,11 +52,11 @@ import {
 } from "@reviewrouter/features-review-run-control";
 import type { ReviewRunControlComposition } from "@reviewrouter/features-review-run-control/composition";
 import {
-  canonicalizeReviewActionV2Request,
-  reviewActionV2CanonicalizerDigest,
+  reviewActionV2SchemaSlot,
+  reviewActionV2CanonicalizerForSchema,
+  canonicalizeReviewActionV2RequestForSlot,
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
-  reviewInvestigationExtensionV1,
   ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
   ReviewRunAuthorizationResultStatus,
@@ -138,6 +138,7 @@ export interface ReviewActionV2RunAdmissionFactsPort {
     readonly scmRepositoryIdentityId: string;
     /** Server-resolved VALID token authorization; never a request field. */
     readonly renewalAuthorization?: ReviewRunAuthorization;
+    readonly protocolSchemaDigest?: string;
   }): Promise<ReviewActionV2ResolvedAdmission>;
 }
 
@@ -421,10 +422,20 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
           "review_request_revision_moved",
         );
       }
+      const canonicalizer = reviewActionV2CanonicalizerForSchema(
+        input.protocolSchemaDigest ?? reviewActionV2PublishedSchemaDigest,
+      );
+      if (!canonicalizer)
+        throw routeFailure(
+          403,
+          ReviewActionV2ProtocolErrorCode.Forbidden,
+          "producer_schema_slot_mismatch",
+        );
       const attestation = await dependencies.releaseAttestations.attest({
         actionCommitSha: producerActionCommitSha,
-        expectedSchemaDigest: reviewActionV2PublishedSchemaDigest,
-        expectedCanonicalizerDigest: reviewActionV2CanonicalizerDigest,
+        expectedSchemaDigest:
+          input.protocolSchemaDigest ?? reviewActionV2PublishedSchemaDigest,
+        expectedCanonicalizerDigest: canonicalizer,
       });
       if (attestation.status !== ProducerReleaseAttestationStatus.Attested) {
         throw producerReleaseAttestationFailure(attestation.status);
@@ -754,7 +765,18 @@ async function authorizeReviewRun(
   readonly result: ReviewRunAuthorizeResult;
 }> {
   assertPublishedOffer(request);
-  let resolved = await resolveVerifiedIdentity(request.oidcToken, dependencies);
+  let resolved = await resolveVerifiedIdentity(
+    request.oidcToken,
+    dependencies,
+    undefined,
+    request.schemaDigest,
+  );
+  if (resolved.producerRelease.schemaDigest !== request.schemaDigest)
+    throw routeFailure(
+      403,
+      ReviewActionV2ProtocolErrorCode.Forbidden,
+      "producer_schema_slot_mismatch",
+    );
   const attestedBaseRelease = resolved.producerRelease;
   const selectedRelease = await dependencies.repositoryReleaseSelector?.select({
     ...resolved.identity,
@@ -779,6 +801,12 @@ async function authorizeReviewRun(
       resolved.producerRelease,
     );
   }
+  if (resolved.producerRelease.schemaDigest !== request.schemaDigest)
+    throw routeFailure(
+      403,
+      ReviewActionV2ProtocolErrorCode.Forbidden,
+      "producer_schema_slot_mismatch",
+    );
   await assertRegisteredRelease(resolved.facts, dependencies);
   const resolvedReviewInvestigation =
     await dependencies.reviewInvestigationCapability?.resolve({
@@ -796,6 +824,7 @@ async function authorizeReviewRun(
     bindInvestigationCapabilityToAuthorization(
       resolvedReviewInvestigation,
       resolved.facts.providerVoteLanes,
+      request.schemaDigest,
     );
   const [protocolOfferHash, oidcReplayKeyHash] = await Promise.all([
     dependencies.digest.digestUtf8(canonicalProtocolOffer(request)),
@@ -843,8 +872,7 @@ async function authorizeReviewRun(
   );
   if (
     actualLimitsDigest !== protocolLimits.limitsDigest ||
-    success.authorization.schemaDigest !==
-      reviewActionV2PublishedSchemaDigest ||
+    success.authorization.schemaDigest !== request.schemaDigest ||
     success.authorization.protocolLimitsProfileId !==
       protocolLimits.protocolLimitsProfileId
   ) {
@@ -862,6 +890,7 @@ async function authorizeReviewRun(
     success.authorization
       .reviewInvestigationAuthorizationDescriptorCanonicalJson,
     success.authorization.providerVoteLanes,
+    success.authorization.schemaDigest,
   );
   return {
     statusCode:
@@ -908,7 +937,10 @@ async function authorizeReviewRun(
 function bindInvestigationCapabilityToAuthorization(
   capability: ReviewInvestigationAuthorizationCapability | null | undefined,
   providerVoteLanes: readonly ProviderVoteLane[],
+  schemaDigest: string,
 ): ReviewInvestigationAuthorizationCapability | null {
+  const extension =
+    reviewActionV2SchemaSlot(schemaDigest)?.reviewInvestigationExtensionV1;
   if (capability === null || capability === undefined) return null;
   if (
     !isRecord(capability) ||
@@ -929,11 +961,10 @@ function bindInvestigationCapabilityToAuthorization(
     capability.authorizationDescriptorVersion !== 3 ||
     capability.capability !== "review_investigation_v1" ||
     !isSha256(capability.coverageProfileHash) ||
-    capability.extensionId !== reviewInvestigationExtensionV1.extensionId ||
-    capability.extensionSchemaDigest !==
-      reviewInvestigationExtensionV1.schemaDigest ||
+    capability.extensionId !== extension?.extensionId ||
+    capability.extensionSchemaDigest !== extension?.schemaDigest ||
     capability.extensionCanonicalizerDigest !==
-      reviewInvestigationExtensionV1.canonicalizerDigest ||
+      extension?.canonicalizerDigest ||
     !isSha256(capability.policyHash)
   ) {
     return null;
@@ -1049,6 +1080,7 @@ function bindInvestigationProviderCapabilities(
 function restoreInvestigationCapabilitySnapshot(
   canonicalSnapshot: string | null,
   providerVoteLanes: readonly ProviderVoteLane[],
+  schemaDigest: string,
 ): ReviewInvestigationAuthorizationSnapshot | null {
   if (canonicalSnapshot === null) return null;
   let parsed: unknown;
@@ -1071,6 +1103,7 @@ function restoreInvestigationCapabilitySnapshot(
       : bindInvestigationCapabilityToAuthorization(
           parsed as ReviewInvestigationAuthorizationCapability,
           providerVoteLanes,
+          schemaDigest,
         );
   if (canonicalJson(parsed) !== canonicalSnapshot || bound === null) {
     throw routeFailure(
@@ -1088,12 +1121,14 @@ export function hasAuthorizedCodexInvestigationRecording(
     ReviewRunAuthorization,
     | "reviewInvestigationAuthorizationDescriptorCanonicalJson"
     | "providerVoteLanes"
+    | "schemaDigest"
   >,
 ): boolean {
   try {
     const snapshot = restoreInvestigationCapabilitySnapshot(
       authorization.reviewInvestigationAuthorizationDescriptorCanonicalJson,
       authorization.providerVoteLanes,
+      authorization.schemaDigest,
     );
     return (
       snapshot?.providerCapabilities.some(
@@ -1124,6 +1159,12 @@ async function renewReviewRun(
   if (token.status !== ReviewRunAuthorizationTokenResolutionStatus.Valid) {
     throw tokenResolutionFailure(token.status);
   }
+  if (token.authorization.schemaDigest !== request.schemaDigest)
+    throw routeFailure(
+      403,
+      ReviewActionV2ProtocolErrorCode.Forbidden,
+      "authorization_schema_slot_mismatch",
+    );
   if (token.authorization.authorizationId !== request.authorizationId) {
     throw routeFailure(
       403,
@@ -1135,7 +1176,14 @@ async function renewReviewRun(
     request.oidcToken,
     dependencies,
     token.authorization,
+    request.schemaDigest,
   );
+  if (resolved.producerRelease.schemaDigest !== request.schemaDigest)
+    throw routeFailure(
+      403,
+      ReviewActionV2ProtocolErrorCode.Forbidden,
+      "producer_schema_slot_mismatch",
+    );
   const renewalReplayKeyHash = await dependencies.digest.digestUtf8(
     canonicalJson({
       authorizationId: request.authorizationId,
@@ -1173,6 +1221,7 @@ async function resolveVerifiedIdentity(
   oidcToken: string,
   dependencies: ReviewActionV2RunControlHandlerDependencies,
   renewalAuthorization?: ReviewRunAuthorization,
+  protocolSchemaDigest?: string,
 ): Promise<{
   readonly claims: GitHubActionsOidcClaims;
   readonly identity: VerifiedScmRunIdentity;
@@ -1222,6 +1271,7 @@ async function resolveVerifiedIdentity(
   const admission = await dependencies.admissionFacts.resolve({
     claims,
     repository,
+    ...(protocolSchemaDigest === undefined ? {} : { protocolSchemaDigest }),
     scmRepositoryIdentityId: scmIdentity.scmRepositoryIdentityId,
     ...(renewalAuthorization ? { renewalAuthorization } : {}),
   });
@@ -1344,7 +1394,7 @@ async function assertRegisteredRelease(
     release.distributionKind !== ProducerDistributionKind.PublicReusable ||
     release.capabilityProfile !== ReviewCapabilityProfile.ExactRevisionV2 ||
     release.actionCommitSha !== facts.producerActionCommitSha.toLowerCase() ||
-    release.schemaDigest !== reviewActionV2PublishedSchemaDigest
+    reviewActionV2SchemaSlot(release.schemaDigest) === null
   ) {
     throw routeFailure(
       403,
@@ -1358,7 +1408,8 @@ function assertPublishedOffer(request: ReviewRunAuthorizeRequest): void {
   const offered = request.supportedProtocols.some(
     (offer) =>
       offer.protocolVersion === reviewActionV2PublishedProtocolVersion &&
-      offer.schemaDigest === reviewActionV2PublishedSchemaDigest,
+      offer.schemaDigest === request.schemaDigest &&
+      reviewActionV2SchemaSlot(offer.schemaDigest) !== null,
   );
   if (!offered) {
     throw routeFailure(
@@ -1373,7 +1424,7 @@ async function assertRequestBodyHash(
   request: ReviewRunRenewRequest,
   digest: Sha256DigestPort,
 ): Promise<void> {
-  const canonical = canonicalizeReviewActionV2Request(
+  const canonical = canonicalizeReviewActionV2RequestForSlot(
     ReviewActionV2OperationId.ReviewRunRenew,
     request,
   );

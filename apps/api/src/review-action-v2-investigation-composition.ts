@@ -133,7 +133,7 @@ import {
   ReviewInvestigationPublishedConclusion,
   ReviewInvestigationPublishedState,
   ReviewInvestigationRestoreResultStatus,
-  canonicalizeReviewActionV2Request,
+  canonicalizeReviewActionV2RequestForSlot,
   type ReviewActionV2RequestMap,
   type ReviewInvestigationConcludeRequest,
   type ReviewInvestigationLeaseAcquireRequest,
@@ -2797,7 +2797,7 @@ async function assertBodyHash<O extends ReviewActionV2OperationId>(
 ): Promise<void> {
   if (
     (await d.digest.digestUtf8(
-      canonicalizeReviewActionV2Request(operationId, request),
+      canonicalizeReviewActionV2RequestForSlot(operationId, request),
     )) !== (request as { requestBodyHash?: string }).requestBodyHash
   ) {
     throw failure(

@@ -50,6 +50,7 @@ import { ProductionHostedReviewPreleaseGate } from "./hosted-review-prelease-gat
 import { InvestigationRolloutCapability } from "@reviewrouter/features-review-investigation-operations";
 import {
   canonicalizeReviewActionV2Request,
+  reviewActionV2LegacySlot,
   reviewActionV2GoldenFixtures,
   reviewActionV2PublishedSchemaDigest,
   reviewInvestigationExtensionV1,
@@ -348,6 +349,77 @@ describe("Review Action v2 run-control composition", () => {
       authorizationTtlMs: 10 * 60_000,
       maxAuthorizationLifetimeMs: 60 * 60_000,
     };
+  });
+
+  it("authorizes and renews a historical slot against its immutable registered producer", async () => {
+    const release = await kit.store.findProducerReleaseById("release_v2");
+    if (!release) throw new Error("test_release_missing");
+    const legacy = {
+      ...release,
+      producerReleaseId: "release_legacy",
+      schemaDigest:
+        reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+    };
+    await kit.control.producerReleases.registerProducerRelease({
+      candidate: legacy,
+      expectedProtocolLimitsDigest:
+        (await kit.store.findProtocolLimitsProfileById(
+          release.protocolLimitsProfileId,
+        ))!.limitsDigest,
+      expectedOperationalSloDigest:
+        (await kit.store.findOperationalSloProfileById(
+          release.operationalSloProfileId,
+        ))!.sloDigest,
+    });
+    const legacyDependencies = {
+      ...dependencies,
+      admissionFacts: {
+        resolve: async () => ({
+          revision: { ...facts, producerReleaseId: legacy.producerReleaseId },
+          producerRelease: legacy,
+        }),
+      },
+    };
+    const handlers = createReviewActionV2RunControlHandlers(legacyDependencies);
+    const request = {
+      ...authorizeRequest(),
+      schemaDigest: legacy.schemaDigest,
+      supportedProtocols: [
+        { protocolVersion: "2", schemaDigest: legacy.schemaDigest },
+      ],
+    };
+    const authorized = await handlers.authorize!.execute(
+      request as unknown as ReviewRunAuthorizeRequest,
+    );
+    expect(
+      JSON.parse(authorized.result.authorizationFactsCanonicalJson!)
+        .schemaDigest,
+    ).toBe(legacy.schemaDigest);
+    const renewal = {
+      ...(await renewRequest(
+        authorized.result.authorizationId!,
+        authorized.result.authorizationToken!,
+        legacyDependencies,
+      )),
+      schemaDigest: legacy.schemaDigest,
+    };
+    renewal.requestBodyHash = await dependencies.digest.digestUtf8(
+      reviewActionV2LegacySlot.canonicalizeReviewActionV2Request(
+        reviewActionV2LegacySlot.ReviewActionV2OperationId.ReviewRunRenew,
+        renewal,
+      ),
+    );
+    await expect(
+      handlers.renew!.execute({
+        ...renewal,
+        schemaDigest: reviewActionV2PublishedSchemaDigest,
+      }),
+    ).rejects.toMatchObject({ issues: ["authorization_schema_slot_mismatch"] });
+    await expect(
+      handlers.renew!.execute(renewal as unknown as ReviewRunRenewRequest),
+    ).resolves.toMatchObject({
+      statusCode: 200,
+    });
   });
 
   it("stays disabled without requiring production-only admission dependencies", () => {
@@ -1508,43 +1580,58 @@ describe("Review Action v2 run-control composition", () => {
     );
   });
 
-  it("reuses the exact v2 investigation snapshot validator for hosted Codex reads", () => {
-    const descriptor = {
-      authorizationDescriptorVersion: 3,
-      capability: reviewInvestigationCapabilityV1,
-      coverageProfileHash: hash("5"),
-      extensionCanonicalizerDigest:
-        reviewInvestigationExtensionV1.canonicalizerDigest,
-      extensionId: reviewInvestigationExtensionV1.extensionId,
-      extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
-      policyHash: hash("6"),
-      providerCapabilities: [
-        {
-          providerKind: "codex",
-          capabilities: [InvestigationRolloutCapability.Recording],
-        },
-      ],
-    };
-    const authorization = {
-      providerVoteLanes: facts.providerVoteLanes,
-      reviewInvestigationAuthorizationDescriptorCanonicalJson:
-        canonicalJson(descriptor),
-    };
-    expect(hasAuthorizedCodexInvestigationRecording(authorization)).toBe(true);
-    expect(
-      hasAuthorizedCodexInvestigationRecording({
-        ...authorization,
+  it.each([
+    {
+      schemaDigest: reviewActionV2PublishedSchemaDigest,
+      extension: reviewInvestigationExtensionV1,
+    },
+    {
+      schemaDigest:
+        reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+      extension: reviewActionV2LegacySlot.reviewInvestigationExtensionV1,
+    },
+  ])(
+    "reuses the paired investigation snapshot validator for hosted Codex reads ($schemaDigest)",
+    ({ schemaDigest, extension }) => {
+      const descriptor = {
+        authorizationDescriptorVersion: 3,
+        capability: reviewInvestigationCapabilityV1,
+        coverageProfileHash: hash("5"),
+        extensionCanonicalizerDigest: extension.canonicalizerDigest,
+        extensionId: extension.extensionId,
+        extensionSchemaDigest: extension.schemaDigest,
+        policyHash: hash("6"),
+        providerCapabilities: [
+          {
+            providerKind: "codex",
+            capabilities: [InvestigationRolloutCapability.Recording],
+          },
+        ],
+      };
+      const authorization = {
+        schemaDigest,
+        providerVoteLanes: facts.providerVoteLanes,
         reviewInvestigationAuthorizationDescriptorCanonicalJson:
-          JSON.stringify(descriptor),
-      }),
-    ).toBe(false);
-    expect(
-      hasAuthorizedCodexInvestigationRecording({
-        ...authorization,
-        providerVoteLanes: [],
-      }),
-    ).toBe(false);
-  });
+          canonicalJson(descriptor),
+      };
+      expect(hasAuthorizedCodexInvestigationRecording(authorization)).toBe(
+        true,
+      );
+      expect(
+        hasAuthorizedCodexInvestigationRecording({
+          ...authorization,
+          reviewInvestigationAuthorizationDescriptorCanonicalJson:
+            JSON.stringify(descriptor),
+        }),
+      ).toBe(false);
+      expect(
+        hasAuthorizedCodexInvestigationRecording({
+          ...authorization,
+          providerVoteLanes: [],
+        }),
+      ).toBe(false);
+    },
+  );
 
   it("restores a persisted legacy V2 investigation snapshot across deployment", async () => {
     const legacyDescriptor = {
