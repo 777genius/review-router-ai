@@ -118146,9 +118146,15 @@ function exact(value, keys, optionalKeys2 = []) {
   ))
     invalid();
 }
+function hasControlCharacter(value) {
+  for (let index = 0; index < value.length; index++) {
+    if (value.charCodeAt(index) <= 31) return true;
+  }
+  return false;
+}
 function text(value, nullable2 = false) {
   if (nullable2 && value === null) return;
-  if (typeof value !== "string" || !value.length || value.length > 256 || /[\u0000-\u001f]/.test(value))
+  if (typeof value !== "string" || !value.length || value.length > 256 || hasControlCharacter(value))
     invalid();
 }
 function choice(value, choices) {
@@ -118274,7 +118280,7 @@ function validateUsageFact(f2) {
     f2.identity.attemptId,
     f2.identity.provider
   ]) {
-    if (typeof s2 !== "string" || s2.length < 1 || s2.length > 256 || /[\u0000-\u001f]/.test(s2))
+    if (typeof s2 !== "string" || s2.length < 1 || s2.length > 256 || hasControlCharacter(s2))
       invalid();
   }
   if (!/^\d{4}-\d\d-\d\dT.*Z$/.test(f2.identity.occurredAt) || !Number.isFinite(Date.parse(f2.identity.occurredAt)))
