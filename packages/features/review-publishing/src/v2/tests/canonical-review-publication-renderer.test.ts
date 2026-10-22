@@ -17,6 +17,35 @@ import {
 } from "../index";
 
 describe("canonical review publication renderer", () => {
+  it("accepts the comparison policy without changing stored v5 partial bytes", () => {
+    const version = resolveReviewPublicationRenderPolicyVersion(
+      "review-projection-policy.v6-comparison",
+    );
+    const rendered = renderCanonicalReviewPublication(
+      {
+        coverage: ReviewPublicationProjectionCoverage.Partial,
+        renderPolicyVersion: version,
+        targetCommitId: "a".repeat(40),
+        occurrenceStates: [ReviewPublicationOccurrenceState.New],
+        source: source({
+          summaryBody:
+            "## Review incomplete - 0 findings\n\nFull agent-readable context remains here.",
+        }),
+      },
+      primitives,
+    );
+    expect(rendered.summary.body).toContain("**Review incomplete.**");
+    expect(rendered.summary.body).toContain(
+      "Full agent-readable context remains here.",
+    );
+    expect(rendered.summary.body).not.toContain("### Partial review details");
+    expect(rendered.summary.body).not.toContain("ReviewRouter");
+    expect(rendered.summary.body).toContain("<!-- summary -->");
+    expect(rendered.managedCheck).toBeNull();
+    expect(rendered.inlineReviews).toEqual([]);
+    expect(rendered.lifecycle).toEqual([]);
+  });
+
   it("renders one conservative summary for partial coverage", () => {
     const rendered = renderCanonicalReviewPublication(
       {
