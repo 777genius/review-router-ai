@@ -41,7 +41,6 @@ export class PrismaOperatorUsageReportReader implements UsageOperatorReportReade
       if (q.bindingId) filters.push(Prisma.sql`u."bindingId"=${q.bindingId}`);
       if (q.runId) filters.push(Prisma.sql`u."runId"=${q.runId}`);
       if (q.purpose) filters.push(Prisma.sql`u."purpose"=${q.purpose}`);
-      if (q.provider) filters.push(Prisma.sql`u."provider"=${q.provider}`);
       const rows = await tx.$queryRaw<{ projection: UsageProjection }[]>(
         Prisma.sql`SELECT u."projection" FROM "UsageCall" u JOIN "Workspace" w ON w."id"=u."workspaceId" WHERE ${Prisma.join(filters, " AND ")} ORDER BY u."callId"`,
       );

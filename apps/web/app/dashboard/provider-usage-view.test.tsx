@@ -1,133 +1,526 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProviderUsageView } from "./provider-usage-view";
-import type { ProviderUsageReport } from "./provider-usage-model";
-import { fetchProviderUsage } from "./provider-usage-api";
-vi.mock("./provider-usage-api", async () => {
-  const original = await vi.importActual<typeof import("./provider-usage-api")>(
+import { ModelUsageTable } from "./provider-usage-tables";
+import type { ProviderUsageReport, UsageFilters } from "./provider-usage-model";
+import {
+  fetchProviderUsage,
+  ProviderUsageError,
+  providerUsageKey,
+} from "./provider-usage-api";
+vi.mock("./provider-usage-api", async () => ({
+  ...(await vi.importActual<typeof import("./provider-usage-api")>(
     "./provider-usage-api",
-  );
-  return { ...original, fetchProviderUsage: vi.fn() };
-});
-afterEach(cleanup);
+  )),
+  fetchProviderUsage: vi.fn(),
+}));
+// Exercise report orchestration independently of the shared popup's geometry.
+vi.mock("@reviewrouter/ui", async () => ({
+  ...(await vi.importActual<typeof import("@reviewrouter/ui")>(
+    "@reviewrouter/ui",
+  )),
+  SelectField: ({
+    label,
+    value,
+    options,
+    onValueChange,
+    disabled,
+  }: {
+    label: string;
+    value: string;
+    options: { value: string; label: string }[];
+    onValueChange: (value: string) => void;
+    disabled: boolean;
+  }) => (
+    <label>
+      {label}
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onValueChange(event.target.value)}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  ),
+}));
+const totals: ProviderUsageReport["totals"] = {
+  tokens: {
+    inputTotal: 900,
+    outputTotal: 100,
+    total: 1000,
+    cacheRead: null,
+    cacheWrite: null,
+    reasoning: null,
+  },
+  unknownTokenValues: 6,
+  unknownTotalTokenCount: 1,
+  partialCount: 0,
+  unknownCount: 1,
+  providerAttempts: 101,
+  logicalRuns: 2,
+  reportedSummaries: 0,
+  diagnosticCount: 0,
+  costs: [
+    { amount: "0.500000000001", currency: "USD", basis: "estimated" },
+    { amount: "0.4", currency: "EUR", basis: "source_reported" },
+  ],
+  unknownCostCount: 1,
+};
+const model = {
+  provider: "codex",
+  requestedModel: "requested-alpha",
+  route: "direct" as const,
+  totals,
+  observedModels: ["actual-beta"],
+  hasUnknownObservedModel: true,
+};
 const report: ProviderUsageReport = {
-  from: "2026-10-01T00:00:00.000Z",
-  to: "2026-10-21T00:00:00.000Z",
-  asOf: "2026-10-21T00:00:00.000Z",
+  from: "2026-09-21T12:00:00.000Z",
+  to: "2026-10-21T12:00:00.000Z",
+  asOf: "2026-10-21T12:00:00.000Z",
   coveredFrom: null,
   sourceLag: "unknown",
   sources: [],
   deliveryCoverage: [],
   unattributed: null,
-  rows: [
-    {
-      id: "row",
-      provider: "openai",
-      model: "test-model",
-      day: "2026-10-20",
-      route: "direct",
-      purpose: "review",
-      runId: "run",
-      granularity: "call",
-      total: null,
-      completeness: "unknown",
-      cost: null,
-      authority: null,
-      durationMs: null,
-      ttftMs: null,
-    },
-  ],
+  rows: [],
   attempts: 101,
   logicalRuns: 2,
   unknown: 1,
   partial: 0,
   unboundedSummaries: 0,
   hasMore: true,
-  nextCursor: "row",
+  nextCursor: "observation-page",
   groups: [],
-  totals: {
-    tokens: {
-      inputTotal: 900,
-      outputTotal: 100,
-      total: 1000,
-      cacheRead: null,
-      cacheWrite: null,
-      reasoning: null,
+  totals,
+  overview: {
+    daily: [{ day: "2026-10-20", provider: "codex", totals }],
+    models: [model],
+    topModels: {
+      tokens: [model],
+      requests: [model],
+      costs: [
+        { currency: "USD", basis: "estimated", models: [model] },
+        { currency: "EUR", basis: "source_reported", models: [model] },
+      ],
     },
-    unknownTokenValues: 6,
-    partialCount: 0,
-    unknownCount: 1,
-    providerAttempts: 101,
-    logicalRuns: 2,
-    reportedSummaries: 0,
-    diagnosticCount: 1,
-    costs: [
-      { amount: "0.5", currency: "USD", basis: "estimated" },
-      { amount: "0.4", currency: "EUR", basis: "source_reported" },
+    runs: [
+      {
+        runId: "entire-period-run",
+        firstOccurredAt: "2026-10-01T00:00:00Z",
+        lastOccurredAt: "2026-10-20T00:00:00Z",
+        identities: [model],
+        routes: ["direct"],
+        totals,
+        observedModels: ["actual-beta"],
+        hasUnknownObservedModel: true,
+      },
     ],
-    unknownCostCount: 1,
+    nextRunCursor: "run-page",
+    facets: { providers: ["codex", "mimo"], models: [model] },
+    hasDirectObservations: true,
+    observationsWithoutRunId: 1,
   },
 };
-function Harness({ workspaceId = "workspace" }: { workspaceId?: string }) {
+const initialFilters: UsageFilters = {
+  from: report.from,
+  to: report.to,
+  purpose: "review",
+};
+let client: QueryClient;
+function Harness({
+  workspaceId = "workspace",
+  seed = report,
+}: {
+  workspaceId?: string;
+  seed?: ProviderUsageReport;
+}) {
   return (
     <QueryClientProvider client={client}>
       <ProviderUsageView
-        key={workspaceId}
         workspaceId={workspaceId}
-        initialReport={report}
+        initialReport={seed}
+        initialFilters={{ ...initialFilters, from: seed.from, to: seed.to }}
       />
     </QueryClientProvider>
   );
 }
-let client: QueryClient;
-describe("provider usage interactive report", () => {
-  it("hydrates full-window totals and keeps unknown and currency authorities visible", () => {
-    client = new QueryClient();
-    render(<Harness />);
-    expect(screen.getByText(/101 measured attempts/)).toBeTruthy();
-    expect(screen.getByText("Provider, model and UTC day totals")).toBeTruthy();
-    expect(screen.getByText(/Period known token subtotal: 1,000/)).toBeTruthy();
-    expect(
-      screen.getByText(/0.5 USD \(estimated\).*0.4 EUR \(source_reported\)/),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/Account limits are shown in Accounts/),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/totals cover the entire selected period/),
-    ).toBeTruthy();
+const change = (label: string, value: string) =>
+  fireEvent.change(screen.getByLabelText(label), { target: { value } });
+beforeEach(() => {
+  vi.clearAllMocks();
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  it("sends typed route filters through the adapter and clears foreign workspace cache", async () => {
-    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    client.setQueryData(["provider-usage", "foreign", {}], report);
-    vi.mocked(fetchProviderUsage).mockResolvedValue(report);
-    const view = render(<Harness />);
-    fireEvent.change(screen.getByLabelText("Usage route"), {
-      target: { value: "gateway" },
-    });
-    await waitFor(() =>
-      expect(fetchProviderUsage).toHaveBeenCalledWith(
-        "workspace",
-        expect.objectContaining({ route: "gateway" }),
-        expect.any(AbortSignal),
-      ),
-    );
+  vi.mocked(fetchProviderUsage).mockResolvedValue(report);
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+});
+afterEach(() => {
+  cleanup();
+  client.clear();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+describe("provider usage interactive report", () => {
+  it("links account limits to the authorized Accounts page from usage details", () => {
+    const { container } = render(<Harness />);
+    fireEvent.click(screen.getByLabelText("Details"));
     expect(
-      client.getQueryData(["provider-usage", "foreign", {}]),
-    ).toBeUndefined();
-    view.rerender(<Harness workspaceId="other" />);
+      screen
+        .getByRole("link", { name: "Account limits are shown in Accounts" })
+        .getAttribute("href"),
+    ).toBe("/dashboard/setup?workspace=workspace");
+    expect(container.textContent).not.toContain("Quota / limits: unknown");
+  });
+  it("hydrates the exact review key and preserves exact currency/basis and requested/observed identities", () => {
+    render(<Harness />);
+    expect(fetchProviderUsage).not.toHaveBeenCalled();
+    expect(
+      client.getQueryData(providerUsageKey("workspace", initialFilters)),
+    ).toEqual(report);
+    expect(screen.getByRole("definition", { name: "1,000" })).toBeTruthy();
+    expect(screen.getByTitle("0.500000000001 USD (estimated)")).toBeTruthy();
+    expect(screen.getByTitle("0.4 EUR (source reported)")).toBeTruthy();
+    expect(
+      screen.getByRole("table", { name: "Requested model usage" }).textContent,
+    ).toContain("codex / requested-alpha");
+    expect(
+      screen.getByRole("table", { name: "Requested model usage" }).textContent,
+    ).toContain("Observed: actual-beta, Unknown");
+    fireEvent.click(screen.getByRole("button", { name: "Cost" }));
+    change("Cost bucket", JSON.stringify(["USD", "estimated"]));
+    expect(fetchProviderUsage).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("tab", { name: "Runs" }));
+    expect(
+      screen.getByRole("table", { name: "Review run usage" }).textContent,
+    ).toContain("entire-period-run");
+  });
+  it("clears both cursors on filters, resets requested model on provider change, and aborts obsolete requests", async () => {
+    const calls: { filters: UsageFilters; signal: AbortSignal }[] = [];
+    vi.mocked(fetchProviderUsage).mockImplementation(
+      (_workspace, filters, signal) => {
+        calls.push({ filters, signal: signal! });
+        return Promise.resolve(report);
+      },
+    );
+    render(<Harness />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Next observation page" }),
+    );
+    await waitFor(() =>
+      expect(calls.at(-1)?.filters.after).toBe("observation-page"),
+    );
+    fireEvent.click(await screen.findByRole("tab", { name: "Runs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next run page" }));
+    await waitFor(() =>
+      expect(calls.at(-1)?.filters.runAfter).toBe("run-page"),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("table", { name: "Review run usage" }),
+      ).toBeTruthy(),
+    );
+    change("Requested model", "requested-alpha");
+    await waitFor(() =>
+      expect(calls.at(-1)?.filters.model).toBe("requested-alpha"),
+    );
+    expect(calls.at(-1)?.filters.after).toBeUndefined();
+    expect(calls.at(-1)?.filters.runAfter).toBeUndefined();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("table", { name: "Review run usage" }),
+      ).toBeTruthy(),
+    );
+    change("Provider", "mimo");
+    await waitFor(() => expect(calls.at(-1)?.filters.provider).toBe("mimo"));
+    expect(calls.at(-1)?.filters.model).toBeUndefined();
+    vi.mocked(fetchProviderUsage).mockImplementation(
+      (_workspace, filters, signal) => {
+        calls.push({ filters, signal: signal! });
+        return new Promise(() => {});
+      },
+    );
+    change("Route", "gateway");
+    await waitFor(() => expect(calls.at(-1)?.filters.route).toBe("gateway"));
+    const obsolete = calls.at(-1)!;
+    expect(screen.queryByRole("definition", { name: "1,000" })).toBeNull();
+    change("Route", "direct");
+    await waitFor(() => expect(obsolete.signal.aborted).toBe(true));
+  });
+  it.each([401, 403])(
+    "purges every workspace cache variant on %s and never reuses the rejected SSR seed",
+    async (status) => {
+      client.setQueryData(
+        providerUsageKey("workspace", { ...initialFilters, provider: "mimo" }),
+        report,
+      );
+      render(<Harness />);
+      change("Route", "gateway");
+      await waitFor(() => expect(fetchProviderUsage).toHaveBeenCalledTimes(1));
+      await waitFor(() =>
+        expect(
+          (screen.getByRole("button", { name: "Refresh" }) as HTMLButtonElement)
+            .disabled,
+        ).toBe(false),
+      );
+      vi.mocked(fetchProviderUsage).mockRejectedValue(
+        new ProviderUsageError(status),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toContain(
+          "access is no longer available",
+        ),
+      );
+      await waitFor(() =>
+        expect(
+          client
+            .getQueryCache()
+            .findAll({ queryKey: ["provider-usage", "workspace"] }),
+        ).toHaveLength(0),
+      );
+      const countBefore = vi.mocked(fetchProviderUsage).mock.calls.length;
+      change("Route", "");
+      expect(screen.queryByRole("definition", { name: "1,000" })).toBeNull();
+      expect(fetchProviderUsage).toHaveBeenCalledTimes(countBefore);
+    },
+  );
+  it("uses one new captured interval for rolling Refresh and fixed inclusive custom dates for custom Refresh", async () => {
+    const now = new Date("2026-10-22T15:16:17.123Z");
+    vi.spyOn(Date, "now").mockReturnValue(now.getTime());
+    // Constructor-based interval capture is independently controlled without fake query timers.
+    const RealDate = Date;
+    vi.stubGlobal(
+      "Date",
+      class extends RealDate {
+        constructor(value?: string | number) {
+          super(value ?? now.getTime());
+        }
+      },
+    );
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(fetchProviderUsage).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(fetchProviderUsage).mock.calls[0]![1]).toEqual({
+      from: "2026-09-22T15:16:17.123Z",
+      to: now.toISOString(),
+      purpose: "review",
+    });
+    change("Period", "custom");
+    change("Usage from", "2026-10-01");
+    change("Usage to", "2026-10-01");
+    fireEvent.click(screen.getByRole("button", { name: "Apply dates" }));
+    await waitFor(() => expect(fetchProviderUsage).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(fetchProviderUsage).mock.calls[1]![1]).toEqual({
+      from: "2026-10-01T00:00:00.000Z",
+      to: "2026-10-02T00:00:00.000Z",
+      purpose: "review",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(fetchProviderUsage).toHaveBeenCalledTimes(3));
+    expect(vi.mocked(fetchProviderUsage).mock.calls[2]![1]).toEqual(
+      vi.mocked(fetchProviderUsage).mock.calls[1]![1],
+    );
+    change("Usage to", "2026-09-01");
+    expect(
+      (screen.getByRole("button", { name: "Apply dates" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(fetchProviderUsage).toHaveBeenCalledTimes(3);
+  });
+  it("resets local controls on workspace change and removes foreign cached reports", async () => {
+    const view = render(<Harness />);
+    change("Route", "gateway");
+    await waitFor(() => expect(fetchProviderUsage).toHaveBeenCalledTimes(1));
+    view.rerender(
+      <Harness
+        workspaceId="other"
+        seed={{
+          ...report,
+          totals: { ...totals, tokens: { ...totals.tokens, total: 7 } },
+        }}
+      />,
+    );
+    expect((screen.getByLabelText("Route") as HTMLSelectElement).value).toBe(
+      "",
+    );
+    expect(screen.getByRole("definition", { name: "7" })).toBeTruthy();
     expect(
       client
         .getQueryCache()
         .findAll({ queryKey: ["provider-usage", "workspace"] }),
     ).toHaveLength(0);
+  });
+  it("resets period and custom date drafts when a new authorized SSR report arrives in the same workspace", () => {
+    const view = render(<Harness />);
+    change("Period", "custom");
+    change("Usage from", "2026-09-01");
+    change("Usage to", "2026-09-02");
+    view.rerender(
+      <Harness
+        seed={{
+          ...report,
+          from: "2026-09-22T12:00:00.000Z",
+          to: "2026-10-22T12:00:00.000Z",
+        }}
+      />,
+    );
+    expect((screen.getByLabelText("Period") as HTMLSelectElement).value).toBe(
+      "30",
+    );
+    change("Period", "custom");
+    expect(
+      (screen.getByLabelText("Usage from") as HTMLInputElement).value,
+    ).toBe("2026-09-22");
+    expect((screen.getByLabelText("Usage to") as HTMLInputElement).value).toBe(
+      "2026-10-22",
+    );
+  });
+  it("retains full requested identity while omitting redundant observed labels and disclosing long mismatches", () => {
+    const longModel = "requested/" + "long-model-identity-".repeat(7);
+    const actual = "actual/" + "different-observed-model-".repeat(5);
+    const seed = {
+      ...report,
+      overview: {
+        ...report.overview,
+        models: [
+          {
+            ...model,
+            requestedModel: longModel,
+            observedModels: [longModel],
+            hasUnknownObservedModel: false,
+          },
+        ],
+      },
+    };
+    const view = render(<ModelUsageTable report={seed} />);
+    expect(screen.getByTitle(`codex / ${longModel}`).textContent).toBe(
+      `codex / ${longModel}`,
+    );
+    expect(
+      screen.getByRole("rowheader", { name: `codex / ${longModel}` }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Observed:/)).toBeNull();
+    view.rerender(
+      <ModelUsageTable
+        report={{
+          ...seed,
+          overview: {
+            ...seed.overview,
+            models: [
+              {
+                ...model,
+                requestedModel: longModel,
+                observedModels: [actual],
+                hasUnknownObservedModel: true,
+              },
+            ],
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText("Observed: different model, Unknown")).toBeTruthy();
+    const disclosure = screen
+      .getByText("Observed: different model, Unknown")
+      .closest("details")!;
+    fireEvent.click(screen.getByText("Observed: different model, Unknown"));
+    expect(disclosure.open).toBe(true);
+    expect(screen.getByText(`${actual}, Unknown`)).toBeTruthy();
+  });
+  it("keeps Details open when a new observation page replaces the loading context, then resets it for fresh SSR", async () => {
+    const firstRow: ProviderUsageReport["rows"][number] = {
+      id: "call-before",
+      provider: "codex",
+      requestedModel: "before-pagination",
+      model: "before-pagination",
+      day: "2026-10-20",
+      route: "direct",
+      purpose: "review",
+      runId: "run",
+      granularity: "call",
+      total: 10,
+      completeness: "complete",
+      cost: null,
+      authority: "runtime",
+      durationMs: null,
+      ttftMs: null,
+    };
+    const firstReport = { ...report, rows: [firstRow] };
+    let completePage!: (value: ProviderUsageReport) => void;
+    vi.mocked(fetchProviderUsage).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          completePage = resolve;
+        }),
+    );
+    const view = render(<Harness seed={firstReport} />);
+    fireEvent.click(screen.getByLabelText("Details"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Details").closest("details")!.open).toBe(
+        true,
+      ),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Next observation page" }),
+    );
+    await waitFor(() =>
+      expect(fetchProviderUsage).toHaveBeenCalledWith(
+        "workspace",
+        expect.objectContaining({ after: "observation-page" }),
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(screen.queryByText(/before-pagination/)).toBeNull();
+    await act(async () =>
+      completePage({
+        ...firstReport,
+        rows: [
+          {
+            ...firstRow,
+            id: "call-after",
+            requestedModel: "after-pagination",
+            model: "after-pagination",
+          },
+        ],
+        hasMore: false,
+        nextCursor: null,
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Details").closest("details")!.open).toBe(
+        true,
+      ),
+    );
+    expect(
+      screen.getByRole("table", { name: "Usage observations" }).textContent,
+    ).toContain("after-pagination");
+    view.rerender(<Harness seed={{ ...firstReport }} />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Details").closest("details")!.open).toBe(
+        false,
+      ),
+    );
   });
 });
