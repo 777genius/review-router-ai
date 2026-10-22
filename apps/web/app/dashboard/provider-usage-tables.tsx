@@ -49,37 +49,46 @@ export function UsageCosts({
   costs,
   selectedCurrency,
   basis,
+  unknownCostCount = 0,
 }: {
   costs: readonly { amount: string; currency: string; basis: string }[];
   selectedCurrency?: string | undefined;
   basis?: string | undefined;
+  unknownCostCount?: number | undefined;
 }) {
   const values = selectedCosts(costs, selectedCurrency, basis);
-  return values.length ? (
-    <div className="space-y-1">
-      {values.map((cost) => (
-        <p
-          key={JSON.stringify([cost.currency, cost.basis])}
-          className="break-words"
-          title={costLabel(cost)}
-        >
-          <span className="font-medium text-slate-100">
-            {cost.amount} {cost.currency}
-          </span>{" "}
-          <span
-            className={
-              cost.basis === "estimated"
-                ? "font-medium text-amber-300"
-                : "font-medium text-cyan-200"
-            }
-          >
-            {valuationLabel(cost.basis)}
-          </span>
-        </p>
-      ))}
+  return (
+    <div>
+      {values.length ? (
+        <div className="space-y-1">
+          {values.map((cost) => (
+            <p
+              key={JSON.stringify([cost.currency, cost.basis])}
+              className="break-words"
+              title={costLabel(cost)}
+            >
+              <span className="font-medium text-slate-100">
+                {cost.amount} {cost.currency}
+              </span>{" "}
+              <span
+                className={
+                  cost.basis === "estimated"
+                    ? "font-medium text-amber-300"
+                    : "font-medium text-cyan-200"
+                }
+              >
+                {valuationLabel(cost.basis)}
+              </span>
+            </p>
+          ))}
+        </div>
+      ) : (
+        <span>{currencyCostsLabel(costs, selectedCurrency, basis)}</span>
+      )}
+      {unknownCostCount > 0 ? (
+        <p className="mt-1 text-xs text-amber-300">Some cost unknown</p>
+      ) : null}
     </div>
-  ) : (
-    <span>{currencyCostsLabel(costs, selectedCurrency, basis)}</span>
   );
 }
 function ModelIdentity({ row }: { row: ModelRow }) {
@@ -187,6 +196,7 @@ function KeyMetrics({
         <dd>
           <UsageCosts
             costs={totals.costs}
+            unknownCostCount={totals.unknownCostCount}
             selectedCurrency={selectedCurrency}
           />
         </dd>
@@ -236,13 +246,9 @@ export function ModelUsageTable({
                 <td className={`${cell} min-w-36`}>
                   <UsageCosts
                     costs={row.totals.costs}
+                    unknownCostCount={row.totals.unknownCostCount}
                     selectedCurrency={selectedCurrency}
                   />
-                  {row.totals.unknownCostCount ? (
-                    <span className="mt-1 block text-amber-300">
-                      Some cost unknown
-                    </span>
-                  ) : null}
                 </td>
                 <td className={cell}>
                   <Coverage totals={row.totals} />
@@ -403,6 +409,7 @@ export function RunUsageTable({
                   <td className={`${cell} min-w-36`}>
                     <UsageCosts
                       costs={row.totals.costs}
+                      unknownCostCount={row.totals.unknownCostCount}
                       selectedCurrency={selectedCurrency}
                     />
                   </td>

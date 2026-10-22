@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { UsageTotals } from "@reviewrouter/features-provider-usage";
 import {
   chartNumber,
+  costAxisLabel,
   customInterval,
   costsLabel,
   intervalLabel,
@@ -31,6 +32,13 @@ const totals: UsageTotals = {
   reportedSummaries: 0,
 };
 describe("usage presentation invariants", () => {
+  it("keeps sub-cent cost axis ticks distinct from zero", () => {
+    expect(costAxisLabel(0)).toBe("0");
+    expect(costAxisLabel(0.001)).toBe("0.001");
+    expect(costAxisLabel(0.000000000001)).toBe("1E-12");
+    expect(costAxisLabel(0.012345)).toBe("0.0123");
+    expect(costAxisLabel(1500)).toBe("1.5K");
+  });
   it("does not treat optional token fields as missing totals, while preserving actual unknown and zero totals", () => {
     expect(metricLabel(totals, "tokens", undefined)).toBe("130");
     expect(

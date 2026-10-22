@@ -360,6 +360,14 @@ test("provider usage overview keeps complete period totals, charts, models and r
       await expectBreakdownCount(usage, "models", 6);
       if (width <= 1024) await expectSummaryMetrics(usage, "models");
       if (width === 390) {
+        const alphaSummary = usage
+          .getByRole("region", { name: "Model usage summaries", exact: true })
+          .getByRole("listitem")
+          .filter({ hasText: "codex / model-alpha" });
+        await expect(alphaSummary).toContainText("1.14 USD");
+        await expect(
+          alphaSummary.getByText("Some cost unknown", { exact: true }),
+        ).toBeVisible();
         const fullModel = usage
           .getByRole("region", { name: "Model usage summaries", exact: true })
           .locator("summary")
@@ -583,6 +591,10 @@ test("provider usage overview keeps complete period totals, charts, models and r
     const sharedRunSummary = runs
       .getByRole("listitem")
       .filter({ hasText: sharedRun });
+    await expect(sharedRunSummary).toContainText("0.2 EUR");
+    await expect(
+      sharedRunSummary.getByText("Some cost unknown", { exact: true }),
+    ).toBeVisible();
     const runDetails = sharedRunSummary
       .locator("summary")
       .filter({ hasText: /^Run details$/ });
@@ -777,6 +789,64 @@ test("provider usage overview keeps complete period totals, charts, models and r
     expect(customRefreshUrl.searchParams.get("to")).toBe(
       customUrl.searchParams.get("to"),
     );
+    // Reset dimensions and both cursors without losing the chosen UTC interval or purpose.
+    await chooseUsageOption(page, "Provider", "codex");
+    await chooseUsageOption(page, "Requested model", "model-alpha");
+    await chooseUsageOption(page, "Route", "Direct");
+    await expect(kpi("Known tokens")).toContainText("308");
+    await usage.getByRole("tab", { name: "Runs", exact: true }).click();
+    await usage
+      .getByRole("button", { name: "Next run page", exact: true })
+      .click();
+    await expectBreakdownCount(usage, "runs", 5);
+    await openUsageDetails(usage);
+    await usage
+      .getByRole("button", { name: "Next observation page", exact: true })
+      .click();
+    await expect(observations.getByRole("row")).toHaveCount(7);
+    await usage
+      .getByRole("button", { name: "Reset filters", exact: true })
+      .click();
+    await expect(kpi("Known tokens")).toContainText("858");
+    await expectBreakdownCount(usage, "runs", 100);
+    await openUsageDetails(usage);
+    await expect(observations.getByRole("row")).toHaveCount(101);
+    await expect(
+      usage.getByRole("combobox", { name: "Provider", exact: true }),
+    ).toContainText("All providers");
+    await expect(
+      usage.getByRole("combobox", { name: "Requested model", exact: true }),
+    ).toContainText("All models");
+    await expect(
+      usage.getByRole("combobox", { name: "Route", exact: true }),
+    ).toContainText("All routes");
+    await expect(
+      usage.getByRole("combobox", { name: "Period", exact: true }),
+    ).toContainText("Custom dates");
+    await expect(usage.getByLabel("Usage from", { exact: true })).toHaveValue(
+      firstDay,
+    );
+    await expect(usage.getByLabel("Usage to", { exact: true })).toHaveValue(
+      lastDay,
+    );
+    await expect(
+      usage.getByRole("combobox", { name: "Purpose", exact: true }),
+    ).toContainText("Review");
+    await chooseUsageOption(page, "Purpose", "Diagnostics");
+    await chooseUsageOption(page, "Provider", "codex");
+    await expect(kpi("Known tokens")).toContainText("777");
+    await usage
+      .getByRole("button", { name: "Reset filters", exact: true })
+      .click();
+    await expect(
+      usage.getByRole("combobox", { name: "Purpose", exact: true }),
+    ).toContainText("Diagnostics");
+    await expect(kpi("Known tokens")).toContainText("777");
+    await expect(
+      usage.getByRole("combobox", { name: "Period", exact: true }),
+    ).toContainText("Custom dates");
+    await chooseUsageOption(page, "Purpose", "Review");
+    await expect(kpi("Known tokens")).toContainText("858");
     await context.clearCookies();
     await useOtherSession(context);
     const member = await api();

@@ -13,6 +13,7 @@ import { UsageCosts } from "./provider-usage-tables";
 import type { ProviderUsageReport } from "./provider-usage-model";
 import {
   chartNumber,
+  costAxisLabel,
   compact,
   costKey,
   dayLabel,
@@ -126,7 +127,7 @@ export function UsageCharts({ report, metric, bucket }: Props) {
                 tickLine={false}
               />
               <YAxis
-                tickFormatter={compact}
+                tickFormatter={metric === "cost" ? costAxisLabel : compact}
                 width={48}
                 tick={{ fill: "var(--rr-color-text-subtle)", fontSize: 12 }}
                 axisLine={false}
@@ -311,6 +312,7 @@ export function UsageCharts({ report, metric, bucket }: Props) {
                       {metric === "cost" ? (
                         <UsageCosts
                           costs={row.totals.costs}
+                          unknownCostCount={row.totals.unknownCostCount}
                           selectedCurrency={bucket?.currency}
                           basis={bucket?.basis}
                         />
@@ -392,6 +394,7 @@ export function DailyUsageTable({
                     <td>
                       <UsageCosts
                         costs={row.totals.costs}
+                        unknownCostCount={row.totals.unknownCostCount}
                         selectedCurrency={selectedCurrency}
                         basis={bucket?.basis}
                       />
