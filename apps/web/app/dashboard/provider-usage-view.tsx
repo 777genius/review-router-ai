@@ -1,4 +1,5 @@
 "use client";
+import { dashboardSectionHref } from "./dashboard-section";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchProviderUsage, providerUsageKey } from "./provider-usage-api";
@@ -179,8 +180,14 @@ export function ProviderUsageView({
           <p className="text-sm text-slate-400">
             Source as of {data.asOf ?? "unknown"} · All reported source windows
             from {data.coveredFrom ?? "unknown"} · Source lag: {data.sourceLag}{" "}
-            · Quota / limits: unknown · Unattributed observations:{" "}
-            {data.unattributed ?? "unknown"}
+            ·{" "}
+            <a
+              className="underline"
+              href={dashboardSectionHref("setup", workspaceId)}
+            >
+              Account limits are shown in Accounts
+            </a>{" "}
+            · Unattributed observations: {data.unattributed ?? "unknown"}
           </p>
           <ul aria-label="Producer delivery coverage">
             {data.deliveryCoverage.map((source) => (

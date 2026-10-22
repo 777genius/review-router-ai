@@ -396,3 +396,123 @@ test("retains stale rows without actions on unavailable, then clears them on den
     ).toBeNull(),
   );
 });
+
+test("a refreshed same-scope bootstrap removes old limit figures and discarded inventory pages", async () => {
+  const f = fixture();
+  const row = {
+    ...account("quota-row"),
+    limits: {
+      status: "snapshot" as const,
+      scope: "account" as const,
+      fetchedAt: "2026-10-22T10:00:00.000Z",
+      displayToken: "old-generation",
+      refreshAvailable: false as const,
+      windows: [
+        {
+          label: "5h",
+          durationSeconds: 18000,
+          usedPercent: 37.5,
+          remainingPercent: 62.5,
+          progressPercent: 37.5,
+          observedAt: "2026-10-22T10:00:00.000Z",
+          resetAt: null,
+          stale: false,
+          reason: null,
+        },
+      ],
+    },
+  };
+  f.api.list.mockResolvedValue(page([row]));
+  const props = {
+    scope: "quota-viewer",
+    personalScope: "personal-quota.signature",
+    workspaceId: "org-x",
+    api: f.api,
+    canDetach: true,
+    detach: f.detach,
+  };
+  const { rerender } = render(
+    <WorkspacePersonalAccounts {...props} initialPage={page([row])} />,
+  );
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+    "37.5",
+  );
+  rerender(<WorkspacePersonalAccounts {...props} initialPage={page([])} />);
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  await waitFor(() =>
+    expect(screen.queryByRole("article", { name: row.label })).toBeNull(),
+  );
+  await waitFor(() => {
+    const cached = context.client?.getQueryData<
+      InfiniteData<AccountsResult<AccountsPage>, string | null>
+    >(["accounts-overview", props.scope]);
+    expect(cached?.pages).toHaveLength(1);
+    expect(cached?.pages[0]).toEqual(page([]));
+  });
+});
+
+test("a canceled old inventory read cannot overwrite a refreshed bootstrap limit projection", async () => {
+  const f = fixture();
+  let resolveOld!: (value: AccountsResult<AccountsPage>) => void;
+  f.api.list.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+  );
+  const oldRow: AccountView = {
+    ...account("quota-race"),
+    limits: {
+      status: "unknown",
+      reason: "missing_snapshot",
+      fetchedAt: "2026-10-22T10:00:00.000Z",
+      displayToken: "generation-a",
+      refreshAvailable: false,
+    },
+  };
+  const newRow: AccountView = {
+    ...oldRow,
+    limits: {
+      status: "unknown",
+      reason: "missing_snapshot",
+      fetchedAt: "2026-10-22T10:01:00.000Z",
+      displayToken: "generation-b",
+      refreshAvailable: false,
+    },
+  };
+  const props = {
+    scope: "quota-race-viewer",
+    personalScope: "personal-race.signature",
+    workspaceId: "org-x",
+    api: f.api,
+    canDetach: true,
+    detach: f.detach,
+  };
+  const { rerender } = render(
+    <WorkspacePersonalAccounts {...props} initialPage={page([oldRow])} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Refresh connections" }));
+  await waitFor(() => expect(f.api.list).toHaveBeenCalledTimes(1));
+  rerender(
+    <WorkspacePersonalAccounts {...props} initialPage={page([newRow])} />,
+  );
+  const key = [
+    "account-limits",
+    "workspace:org-x:personal-race",
+    oldRow.connectionId,
+  ] as const;
+  await waitFor(() =>
+    expect(context.client?.getQueryData(key)).toEqual({
+      status: "ok",
+      value: newRow.limits,
+    }),
+  );
+  await act(async () => {
+    resolveOld(page([oldRow]));
+    await Promise.resolve();
+  });
+  expect(context.client?.getQueryData(key)).toEqual({
+    status: "ok",
+    value: newRow.limits,
+  });
+});

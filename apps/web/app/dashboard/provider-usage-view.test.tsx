@@ -98,7 +98,9 @@ describe("provider usage interactive report", () => {
     expect(
       screen.getByText(/0.5 USD \(estimated\).*0.4 EUR \(source_reported\)/),
     ).toBeTruthy();
-    expect(screen.getByText(/Quota \/ limits: unknown/)).toBeTruthy();
+    expect(
+      screen.getByText(/Account limits are shown in Accounts/),
+    ).toBeTruthy();
     expect(
       screen.getByText(/totals cover the entire selected period/),
     ).toBeTruthy();

@@ -1,5 +1,7 @@
 "use client";
 
+import { removeAccountLimitsForConnection } from "./account-limits-query";
+
 import {
   useCallback,
   useEffect,
@@ -164,6 +166,7 @@ async function refreshScopes(
   connectionId: string,
   mode: "pending" | "refresh" | "deleted",
 ) {
+  await removeAccountLimitsForConnection(client, connectionId);
   const queries = accountQueries(client, viewerScope);
   await Promise.all(
     queries.map((query) =>

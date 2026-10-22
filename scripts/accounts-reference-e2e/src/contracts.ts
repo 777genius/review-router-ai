@@ -7,6 +7,9 @@ export const TEST_DATABASE_NAME =
 export const PROBE_FIXTURE_BOUNDARY =
   "Real browser and controlled Gateway HTTP inference transport; no live model provider or native lifecycle proof" as const;
 
+export const LIMITS_FIXTURE_BOUNDARY =
+  "Real browser and RR authorization/SSR over controlled Gateway cached-limits HTTP; no live native/provider quota proof" as const;
+
 export const FIXTURES = Object.freeze({
   users: {
     viewer: "rr-e2e-user-viewer-0001",
@@ -118,6 +121,7 @@ export type RuntimeDescriptor = {
   readonly secretsGenerated: true;
   readonly externalNetworkAllowed: false;
   readonly fixtureBoundary:
+    | typeof LIMITS_FIXTURE_BOUNDARY
     | typeof PROBE_FIXTURE_BOUNDARY
     | "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof"
     | "not-used";

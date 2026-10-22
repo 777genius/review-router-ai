@@ -1,12 +1,22 @@
 "use client";
 
 import {
+  AccountLimitsLine,
+  AccountLimitsReadContext,
+} from "./account-limits-line";
+import {
+  accountLimitsScope,
+  removeAccountLimitsForConnection,
+} from "./account-limits-query";
+
+import {
   AccountLifecycleControls,
   useAccountLifecycleActivities,
 } from "./account-lifecycle-controls";
 
 import {
   useCallback,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -222,6 +232,7 @@ function PersonalControls({
   managementActions: ((account: AccountView) => ReactNode) | undefined;
 }) {
   const client = useQueryClient();
+  const limitsContext = useContext(AccountLimitsReadContext);
   const lifecycleActivities = useAccountLifecycleActivities(client);
   const [selected, setSelected] = useState<
     readonly { sourceId: string; metadataRevision: number }[]
@@ -561,6 +572,7 @@ function PersonalControls({
     busyRef.current = true;
     setBusy(true);
     try {
+      await removeAccountLimitsForConnection(client, source.sourceId);
       await run(
         (nonce) =>
           mutation.mutateAsync({
@@ -759,6 +771,31 @@ function PersonalControls({
                         : {})}
                     />
                   </div>
+                  <AccountLimitsLine
+                    scope={
+                      limitsContext?.scope ??
+                      accountLimitsScope(bootstrap.scope)
+                    }
+                    context={limitsContext?.context ?? bootstrap.scope}
+                    connectionId={id}
+                    client={client}
+                    expectedDisplayToken={
+                      limitsContext?.projections?.get(id)?.displayToken
+                    }
+                    expectedStatus={limitsContext?.projections?.get(id)?.status}
+                    expectedFetchedAt={
+                      limitsContext?.projections?.get(id)?.fetchedAt
+                    }
+                    blocked={
+                      (limitsContext?.replacingBootstrap &&
+                        !limitsContext.allowed?.has(id)) ||
+                      limitsContext?.removed?.has(id) ||
+                      limitsContext?.denied ||
+                      lifecycleActivities.has(id) ||
+                      source?.sourceOperationPending ||
+                      account?.state === "tombstoned"
+                    }
+                  />
                   {source?.state === "disabled" ||
                   account?.state === "tombstoned" ? (
                     <p className="mt-2 text-xs text-slate-400">
