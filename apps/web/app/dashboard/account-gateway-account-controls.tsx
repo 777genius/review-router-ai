@@ -394,6 +394,9 @@ function Controls({
   const [deviceHandoffs, setDeviceHandoffs] = useState<
     Record<string, DeviceAuthorization>
   >({});
+  const [completionProviders, setCompletionProviders] = useState<
+    Record<string, "Claude" | "Codex">
+  >({});
   const lifecycleActivities = useAccountLifecycleActivities(client);
   const [completionHandoff, setCompletionHandoff] = useState<string | null>(
     null,
@@ -536,6 +539,22 @@ function Controls({
     if (!nonce) {
       tab?.close();
       return;
+    }
+    if (data?.status === "ok") {
+      const profileId =
+        "profileId" in intent
+          ? intent.profileId
+          : data.value.accounts.find(
+              (account) => account.connectionId === intent.connectionId,
+            )?.profileId;
+      const label = data.value.profiles.find(
+        (profile) => profile.id === profileId,
+      )?.label;
+      if (label === "Claude" || label === "Codex")
+        setCompletionProviders((previous) => ({
+          ...previous,
+          [nonce!]: label,
+        }));
     }
     submitting.current = true;
     setBusy(true);
@@ -1080,6 +1099,7 @@ function Controls({
                 refresh={refresh}
                 listFailed={page.isError || Boolean(failure)}
                 deviceAuthorization={deviceHandoffs[nonce]}
+                completionProvider={completionProviders[nonce]}
                 inline={connectOnly}
                 startAnother={() => setActiveNonce(null)}
                 autoOpenCompletion={completionHandoff === nonce}
@@ -1184,9 +1204,28 @@ function OAuthForm({
 }) {
   const menuReturnFocus = useAccountMenuReturnFocus();
   const [open, setOpen] = useState(false);
-  const [method, setMethod] = useState<"device_code" | "browser">(
-    "device_code",
+  const [profileId, setProfileId] = useState(
+    account?.profileId ?? profiles[0]?.id ?? "",
   );
+  const profile =
+    profiles.find((candidate) => candidate.id === profileId) ?? profiles[0];
+  const methods: readonly ("device_code" | "browser")[] =
+    profile?.oauthMethods ??
+    (profile?.provider === "claude"
+      ? (["browser"] as const)
+      : (["device_code", "browser"] as const));
+  const [chosenMethod, setMethod] = useState<"device_code" | "browser">(
+    methods[0] ?? "browser",
+  );
+  const method = methods.includes(chosenMethod)
+    ? chosenMethod
+    : (methods[0] ?? "browser");
+  const providerLabel = profile?.label ?? account?.profileLabel ?? "provider";
+  const connectText =
+    profiles.length > 1
+      ? "Connect with OAuth"
+      : `Connect ${providerLabel} OAuth`;
+  const reconnectText = `Refresh ${providerLabel} sign-in`;
   const fields = (
     <form
       className="mt-4 grid gap-4"
@@ -1207,7 +1246,7 @@ function OAuthForm({
               label:
                 String(values.get("label") ?? "").trim() ||
                 suggestedAccountLabel(
-                  profiles[0]?.label ?? "Codex",
+                  providerLabel,
                   accounts.map((a) => a.label),
                 ),
             };
@@ -1216,14 +1255,32 @@ function OAuthForm({
         void begin(intent);
       }}
     >
-      <OAuthMethodChoice method={method} change={setMethod} />
+      <OAuthMethodChoice
+        key={profile?.id}
+        method={method}
+        methods={methods}
+        claude={profile?.provider === "claude"}
+        change={setMethod}
+      />
       {!account ? (
         <>
           {!inline ? (
             <SelectField
               name="profileId"
               label="Provider profile"
-              defaultValue={profiles[0]?.id ?? ""}
+              defaultValue={profileId}
+              onValueChange={(id) => {
+                setProfileId(id);
+                const selected = profiles.find(
+                  (candidate) => candidate.id === id,
+                );
+                setMethod(
+                  selected?.oauthMethods?.[0] ??
+                    (selected?.provider === "claude"
+                      ? "browser"
+                      : "device_code"),
+                );
+              }}
               options={profiles.map((p) => ({
                 value: p.id,
                 label: `${p.label} · ${p.protocol}`,
@@ -1242,8 +1299,9 @@ function OAuthForm({
             <input
               className={inputClass}
               name="label"
+              key={profile?.id}
               defaultValue={suggestedAccountLabel(
-                profiles[0]?.label ?? "Codex",
+                providerLabel,
                 accounts.map((a) => a.label),
               )}
               maxLength={120}
@@ -1254,7 +1312,7 @@ function OAuthForm({
         <p className="text-sm text-slate-300">{account.label}</p>
       )}
       <Button type="submit" disabled={disabled}>
-        Sign in to Codex
+        Sign in to {providerLabel}
       </Button>
     </form>
   );
@@ -1273,20 +1331,19 @@ function OAuthForm({
             />
           }
         >
-          {account ? accountsCopy.reconnectOAuth : accountsCopy.connectOAuth}
+          {account ? reconnectText : connectText}
         </Dialog.Trigger>
       </AccountMenuItem>
       <Dialog.Portal>
         <Dialog.Backdrop />
         <Dialog.Popup finalFocus={menuReturnFocus}>
           <Dialog.Title>
-            {account
-              ? `${accountsCopy.reconnectOAuth} · ${account.label}`
-              : accountsCopy.connectOAuth}
+            {account ? `${reconnectText} · ${account.label}` : connectText}
           </Dialog.Title>
           <Dialog.Description>
-            Sign in with your OpenAI account. No API key is needed. Device code
-            is recommended; browser callback is available as a fallback.
+            {profile?.provider === "claude"
+              ? "Sign in with your Claude account. A browser tab opens; paste the authorization code shown after sign-in. No API key is needed."
+              : "Sign in with your OpenAI account. No API key is needed. Device code is recommended; browser callback is available as a fallback."}
             {account
               ? " Your existing connection is kept until sign-in is confirmed."
               : ""}
@@ -1303,9 +1360,13 @@ function OAuthForm({
 
 function OAuthMethodChoice({
   method,
+  methods,
+  claude,
   change,
 }: {
   method: "device_code" | "browser";
+  methods: readonly ("device_code" | "browser")[];
+  claude: boolean;
   change(value: "device_code" | "browser"): void;
 }) {
   return (
@@ -1316,15 +1377,21 @@ function OAuthMethodChoice({
         defaultValue={method}
         onValueChange={(value) => change(value as "device_code" | "browser")}
         options={[
-          {
-            value: "device_code",
-            label: "Device code",
-            description: "Recommended · enter a short code at OpenAI",
-          },
+          ...(methods.includes("device_code")
+            ? [
+                {
+                  value: "device_code",
+                  label: "Device code",
+                  description: "Recommended · enter a short code at OpenAI",
+                },
+              ]
+            : []),
           {
             value: "browser",
-            label: "Browser callback",
-            description: "Fallback · paste the authorization result address",
+            label: claude ? "Browser sign-in" : "Browser callback",
+            description: claude
+              ? "Paste the authorization code after sign-in"
+              : "Fallback · paste the authorization result address",
           },
         ]}
       />
@@ -1343,8 +1410,9 @@ function OAuthMethodChoice({
         </p>
       ) : (
         <p className="text-sm text-slate-400">
-          A browser tab opens for sign-in. Paste its final address here to
-          finish.
+          {claude
+            ? "A browser tab opens for sign-in. Paste the full authorization code (code#state) shown by Claude here to finish."
+            : "A browser tab opens for sign-in. Paste its final address here to finish."}
         </p>
       )}
     </div>
@@ -1357,6 +1425,7 @@ function OperationReadback({
   nonce,
   listFailed,
   deviceAuthorization,
+  completionProvider,
   inline = false,
   startAnother,
   dismiss,
@@ -1373,6 +1442,7 @@ function OperationReadback({
   listFailed: boolean;
   startAnother(): void;
   deviceAuthorization?: DeviceAuthorization | undefined;
+  completionProvider?: "Claude" | "Codex" | undefined;
   inline?: boolean;
   dismiss(): void;
   refresh(): Promise<void>;
@@ -1610,6 +1680,7 @@ function OperationReadback({
         <OAuthCompletionForm
           inline={inline}
           completeOAuth={api.completeGatewayOAuth}
+          provider={completionProvider}
           managementScope={managementScope}
           context={context}
           nonce={nonce}
@@ -1795,6 +1866,7 @@ function KeyUpdateContinuation({
 
 function OAuthCompletionForm({
   inline = false,
+  provider,
   context,
   nonce,
   autoOpen,
@@ -1807,6 +1879,7 @@ function OAuthCompletionForm({
   managementScope,
 }: {
   inline?: boolean;
+  provider?: "Claude" | "Codex" | undefined;
   context: string;
   nonce: string;
   autoOpen: boolean;
@@ -1827,17 +1900,20 @@ function OAuthCompletionForm({
     if (!spent) setOpen(true);
     consumeAutoOpen();
   }, [autoOpen, consumeAutoOpen, spent]);
-  async function complete(callbackURL: string) {
+  async function complete(authorizationResult: string) {
     if (submitting.current || spent) return;
     submitting.current = true;
     spend(); // The nonce owner retains this across child unmounts and stale polls.
     setBusy(true);
     setMessage("");
     try {
-      // A one-off server action is the only destination for the transient URL.
+      // Syntax selects the credential shape; the Gateway validates its original
+      // saved profile and state. Neither credential enters a cache or storage.
       const result = await completeOAuth(context, {
         nonce,
-        callbackURL,
+        ...(/^[^#]+#[0-9a-f]{64}$/.test(authorizationResult)
+          ? { authorizationCode: authorizationResult }
+          : { callbackURL: authorizationResult }),
       });
       if (result.status !== "ok") {
         // The server returns ok/unknown after sensitive ingress has entered.
@@ -1875,7 +1951,11 @@ function OAuthCompletionForm({
       }}
     >
       <label className="grid gap-2 text-sm">
-        Authorization result address
+        {provider === "Claude"
+          ? "Authorization code"
+          : provider === "Codex"
+            ? "Authorization result address"
+            : "Authorization result address or code"}
         <input
           className={inputClass}
           type="text"
@@ -1883,7 +1963,7 @@ function OAuthCompletionForm({
           autoComplete="off"
           spellCheck={false}
           required
-          maxLength={8192}
+          maxLength={16384}
           disabled={busy || spent}
         />
       </label>
@@ -1914,18 +1994,20 @@ function OAuthCompletionForm({
             />
           }
         >
-          Resume Codex authorization
+          Resume authorization
         </Dialog.Trigger>
       </AccountMenuItem>
       <Dialog.Portal>
         <Dialog.Backdrop />
         <Dialog.Popup>
-          <Dialog.Title>Complete Codex authorization</Dialog.Title>
+          <Dialog.Title>Complete authorization</Dialog.Title>
           <Dialog.Description>
-            Finish authorizing Codex in the browser tab opened for this
-            connection. If that tab cannot return here, copy its full web
-            address and paste it below. The address is cleared as soon as you
-            submit it.
+            {provider === "Claude"
+              ? "Finish sign-in in the browser tab and paste the full authorization code shown by Claude (code#state)."
+              : provider === "Codex"
+                ? "Finish sign-in in the browser tab. If the page cannot return here, copy its final address and paste it below."
+                : "Finish sign-in in the browser tab. Paste the full Claude authorization code (code#state), or the final address for Codex."}{" "}
+            The value is cleared as soon as you submit it.
           </Dialog.Description>
           {fields}
         </Dialog.Popup>

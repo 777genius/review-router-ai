@@ -135,7 +135,7 @@ function assertNoCallback() {
   for (const secret of [callbackURL, callbackCode, callbackState])
     expect(actual).not.toContain(secret);
   const field = screen.queryByLabelText(
-    "Authorization result address",
+    /Authorization result address(?: or code)?/,
   ) as HTMLInputElement | null;
   if (field) expect(field.value).toBe("");
 }
@@ -156,7 +156,9 @@ async function mount(
   });
   await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
   fireEvent.keyDown(add, { key: "ArrowDown" });
-  await screen.findByRole("menuitem", { name: "Connect Codex OAuth" });
+  await screen.findByRole("menuitem", {
+    name: /Connect (Codex OAuth|Claude OAuth|with OAuth)/,
+  });
   return view;
 }
 async function chooseBrowser(dialog: HTMLElement) {
@@ -415,10 +417,10 @@ test("personal OAuth injection preserves the existing one-off handoff and comple
   await waitFor(() => expect(api.beginGatewayOAuth).toHaveBeenCalledTimes(1));
   const nonce = api.beginGatewayOAuth.mock.calls[0]![1].nonce;
   const dialog = await screen.findByRole("dialog", {
-    name: "Complete Codex authorization",
+    name: "Complete authorization",
   });
   fireEvent.change(
-    within(dialog).getByLabelText("Authorization result address"),
+    within(dialog).getByLabelText(/Authorization result address(?: or code)?/),
     { target: { value: callbackURL } },
   );
   fireEvent.click(
@@ -462,7 +464,7 @@ test.each(["applied", "lost_ack"] as const)(
     await mount({ api, managementScope: "personal" });
     await screen.findByRole("button", { name: "Continue key update" });
     expect(
-      screen.queryByRole("button", { name: "Resume Codex authorization" }),
+      screen.queryByRole("button", { name: "Resume authorization" }),
     ).toBeNull();
     const client = [...clients][0]!;
     const queryKey = [
@@ -950,7 +952,7 @@ test("fresh OAuth handoff bypasses caches/storage and pending readback never reo
   ).toBe(true);
   await screen.findByText("Waiting for completion");
   const completionDialog = await screen.findByRole("dialog", {
-    name: "Complete Codex authorization",
+    name: "Complete authorization",
   });
   expect(within(completionDialog).getByText(/cannot return here/)).toBeTruthy();
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
@@ -1001,7 +1003,7 @@ test("fresh pending completion survives an unavailable Accounts refresh after it
   await mount();
   await startEnrollment();
   const dialog = await screen.findByRole("dialog", {
-    name: "Complete Codex authorization",
+    name: "Complete authorization",
   });
   await waitFor(() => expect(listGatewayAccounts).toHaveBeenCalledTimes(1));
   await act(async () => releasePage({ status: "unavailable" }));
@@ -1010,18 +1012,18 @@ test("fresh pending completion survives an unavailable Accounts refresh after it
       screen.queryByRole("button", { name: "Connect Codex OAuth" }),
     ).toBeNull(),
   );
-  expect(
-    screen.getByRole("dialog", { name: "Complete Codex authorization" }),
-  ).toBe(dialog);
+  expect(screen.getByRole("dialog", { name: "Complete authorization" })).toBe(
+    dialog,
+  );
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   fireEvent.keyDown(dialog, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   const resume = screen.getByRole("button", {
-    name: "Resume Codex authorization",
+    name: "Resume authorization",
   }) as HTMLButtonElement;
   expect(resume.disabled).toBe(false);
   fireEvent.click(resume);
-  await screen.findByRole("dialog", { name: "Complete Codex authorization" });
+  await screen.findByRole("dialog", { name: "Complete authorization" });
   expect(beginGatewayOAuth).toHaveBeenCalledTimes(1);
   expect(handoff).toHaveBeenCalledTimes(1);
   expect(reserved.location.replace).toHaveBeenCalledExactlyOnceWith(capability);
@@ -1045,20 +1047,18 @@ test("pending OAuth callback is cleared before ingress and lost ACK retains only
   await screen.findByText("Waiting for completion");
   const nonce = vi.mocked(beginGatewayOAuth).mock.calls[0]![1].nonce;
   const autoDialog = await screen.findByRole("dialog", {
-    name: "Complete Codex authorization",
+    name: "Complete authorization",
   });
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   fireEvent.keyDown(autoDialog, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  fireEvent.click(
-    screen.getByRole("button", { name: "Resume Codex authorization" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Resume authorization" }));
   const dialog = await screen.findByRole("dialog", {
-    name: "Complete Codex authorization",
+    name: "Complete authorization",
   });
   expect(within(dialog).getByText(/cannot return here/)).toBeTruthy();
   fireEvent.change(
-    within(dialog).getByLabelText("Authorization result address"),
+    within(dialog).getByLabelText(/Authorization result address(?: or code)?/),
     {
       target: { value: callbackURL },
     },
@@ -1076,7 +1076,7 @@ test("pending OAuth callback is cleared before ingress and lost ACK retains only
   await screen.findByText("Status unavailable");
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(
-    screen.queryByRole("button", { name: "Resume Codex authorization" }),
+    screen.queryByRole("button", { name: "Resume authorization" }),
   ).toBeNull();
   vi.mocked(readGatewayOperation).mockImplementation(
     async (_context, currentNonce) => safeOperation(currentNonce, "unknown"),
@@ -1088,7 +1088,7 @@ test("pending OAuth callback is cleared before ingress and lost ACK retains only
   );
   expect(readGatewayOperation).toHaveBeenLastCalledWith(context, nonce);
   expect(
-    screen.queryByRole("button", { name: "Resume Codex authorization" }),
+    screen.queryByRole("button", { name: "Resume authorization" }),
   ).toBeNull();
   expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual([nonce]);
   expect(handoff).toHaveBeenCalledTimes(1);
@@ -1126,12 +1126,10 @@ test("stale pending readback cannot rearm completion after a lost ACK", async ()
   await waitFor(() =>
     expect(readGatewayOperation).toHaveBeenCalledTimes(readsBeforeStatus + 1),
   );
-  fireEvent.click(
-    screen.getByRole("button", { name: "Resume Codex authorization" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Resume authorization" }));
   const dialog = await screen.findByRole("dialog");
   fireEvent.change(
-    within(dialog).getByLabelText("Authorization result address"),
+    within(dialog).getByLabelText(/Authorization result address(?: or code)?/),
     {
       target: { value: callbackURL },
     },
@@ -1157,7 +1155,7 @@ test("stale pending readback cannot rearm completion after a lost ACK", async ()
   expect(screen.getByText("Status unavailable")).toBeTruthy();
   expect(screen.queryByText("Waiting for completion")).toBeNull();
   expect(
-    screen.queryByRole("button", { name: "Resume Codex authorization" }),
+    screen.queryByRole("button", { name: "Resume authorization" }),
   ).toBeNull();
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(completeGatewayOAuth).toHaveBeenCalledTimes(1);
@@ -1175,12 +1173,10 @@ test("callback completion uses the saved nonce and stores only the safe acknowle
   );
   await mount();
   await screen.findByText("Waiting for completion");
-  fireEvent.click(
-    screen.getByRole("button", { name: "Resume Codex authorization" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Resume authorization" }));
   const dialog = await screen.findByRole("dialog");
   fireEvent.change(
-    within(dialog).getByLabelText("Authorization result address"),
+    within(dialog).getByLabelText(/Authorization result address(?: or code)?/),
     {
       target: { value: callbackURL },
     },
@@ -1194,7 +1190,7 @@ test("callback completion uses the saved nonce and stores only the safe acknowle
     callbackURL,
   });
   expect(
-    screen.queryByRole("button", { name: "Resume Codex authorization" }),
+    screen.queryByRole("button", { name: "Resume authorization" }),
   ).toBeNull();
   expect(beginGatewayOAuth).not.toHaveBeenCalled();
   expect(handoff).not.toHaveBeenCalled();
@@ -1475,7 +1471,7 @@ test("OAuth reconnect reuses the ordinary handoff and original account revisions
     expect(reserved.location.replace).toHaveBeenCalledTimes(1),
   );
   await screen.findByRole("dialog", {
-    name: "Complete Codex authorization",
+    name: "Complete authorization",
   });
   expect(submitGatewayApiKey).not.toHaveBeenCalled();
   assertNoCapability();
@@ -1677,3 +1673,93 @@ test("unavailable management refresh retains safe rows with disabled actions whi
   fireEvent.click(screen.getByRole("button", { name: "Refresh connections" }));
   await waitFor(() => expect(screen.queryByText("Workspace Codex")).toBeNull());
 });
+
+// Real primitives and cache custody: Claude must select browser-only enrollment
+// and send code#state through the one-off sensitive completion action.
+test.each(["workspace", "personal"] as const)(
+  "Claude %s sign-in defaults to browser and clears its code before completion settles",
+  async (managementScope) => {
+    const claudeProfileId = "anthropic-claude-oauth-messages-v1";
+    page.profiles = [
+      {
+        id: claudeProfileId,
+        label: "Claude",
+        provider: "claude",
+        authKind: "oauth",
+        canReconnect: true,
+        oauthMethods: ["browser"],
+        protocol: "openai-responses",
+        models: ["claude-sonnet-4-6"],
+      },
+    ];
+    page.accounts = [];
+    const api = personalApi();
+    api.readGatewayOperation.mockImplementation(async (_scope, nonce) =>
+      safeOperation(nonce),
+    );
+    let settle!: (result: AccountsResult<AccountOperationView>) => void;
+    api.completeGatewayOAuth.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settle = resolve;
+        }),
+    );
+    await mount({ api, managementScope });
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Connect Claude OAuth" }),
+    );
+    const enrollment = await screen.findByRole("dialog", {
+      name: "Connect Claude OAuth",
+    });
+    expect(
+      within(enrollment).getByRole("combobox", { name: "Sign-in method" })
+        .textContent,
+    ).toContain("Browser sign-in");
+    expect(within(enrollment).queryByText(/ChatGPT Settings/)).toBeNull();
+    fireEvent.click(
+      within(enrollment).getByRole("button", { name: "Sign in to Claude" }),
+    );
+    await waitFor(() => expect(api.beginGatewayOAuth).toHaveBeenCalledTimes(1));
+    const intent = api.beginGatewayOAuth.mock.calls[0]![1];
+    expect(intent).toMatchObject({
+      profileId: claudeProfileId,
+      method: "browser",
+      label: "Claude Account 1",
+    });
+    expect(handoff).toHaveBeenCalledTimes(1);
+    const completion = await screen.findByRole("dialog", {
+      name: "Complete authorization",
+    });
+    const field = within(completion).getByLabelText(
+      "Authorization code",
+    ) as HTMLInputElement;
+    const authorizationCode = `synthetic-claude-sensitive-code#${"d".repeat(64)}`;
+    fireEvent.change(field, { target: { value: authorizationCode } });
+    fireEvent.click(
+      within(completion).getByRole("button", {
+        name: "Complete authorization",
+      }),
+    );
+    await waitFor(() =>
+      expect(api.completeGatewayOAuth).toHaveBeenCalledWith(context, {
+        nonce: intent.nonce,
+        authorizationCode,
+      }),
+    );
+    expect(field.value).toBe("");
+    const custody = () =>
+      [
+        ...cacheSnapshots,
+        ...[...clients].map(caches),
+        JSON.stringify(storageWrites.mock.calls),
+        JSON.stringify({ ...sessionStorage, ...browserLocalStorage }),
+        document.body.innerHTML,
+      ].join("\n");
+    expect(custody()).not.toContain(authorizationCode);
+    expect(custody()).not.toContain("synthetic-claude-sensitive-code");
+    await act(async () => settle(safeOperation(intent.nonce, "applied")));
+    expect(custody()).not.toContain(authorizationCode);
+    expect(api.completeGatewayOAuth).toHaveBeenCalledTimes(1);
+    assertNoCapability();
+  },
+);

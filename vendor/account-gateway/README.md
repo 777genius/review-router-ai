@@ -1,19 +1,21 @@
 # Account Gateway SDK artifacts
 
 The current Accounts SDK is
-`agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz`.
-`account-limits-provenance.json` binds it to committed Gateway source
-`b36a5400b6747d2569ca236d868cd494ea0bd6a1` and native source
-`14383534b0b0cb3161f0b806270a65810d51dc4a` (migration 252), both retained in
-merged main ancestry. It adds `account-limits/v1` cached reads for qualified
-Codex observations. Quota-only refresh is unavailable. Profiles without qualified
-principal provenance, including Claude, do not receive invented quota values.
+`agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz`.
+`account-limits-provenance.json` binds it to committed Gateway and native source,
+including the Claude lifecycle migration. It carries `account-limits/v1` cached
+reads for qualified Codex and Claude observations, plus Claude's explicit browser
+code completion. Quota-only refresh remains unavailable.
 
-Independent installed consumers and actual native/Gateway/SDK/RR acceptance
-passed with controlled provider fixtures. Cached reads made zero provider calls.
-Gateway CI passed on Node 24/26; native GitHub Actions was unavailable (422),
-with exact-source hosted tests recorded separately. This archive is private,
-not an npm publication or evidence of production activation.
+Claude uses a separate qualified account/organization principal and encrypted
+credential lifecycle. A legacy admin account or an API key cannot manufacture
+subscription quota. Closed canonical windows keep global and model limits apart;
+missing observations remain unknown. Ordinary Accounts reads never call a provider.
+
+See [Claude account limits](../../ai-docs/architecture/61-claude-account-limits.md)
+for profile configuration, source ownership and operational scope. Controlled
+provider/PG/browser qualification does not prove production activation or a live
+Claude login. This archive is private and is not an npm publication.
 
 ## Historical lifecycle SDK checkpoint
 

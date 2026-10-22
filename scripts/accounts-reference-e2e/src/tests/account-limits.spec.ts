@@ -86,7 +86,20 @@ test("account limits are present in the first server paint with UTC observation 
         includeHidden: true,
       }),
     ).toHaveAttribute("aria-valuenow", "62.5");
+    const claudeRow = page
+      .locator("article")
+      .filter({ hasText: FIXTURES.sourceLabels.viewerClaude });
+    await expect(claudeRow).toContainText(/Claude\s*·\s*OAuth/);
+    await expect(
+      limitsFor(claudeRow).getByRole("progressbar", {
+        name: "5h remaining",
+        includeHidden: true,
+      }),
+    ).toHaveAttribute("aria-valuenow", "62.5");
     const reads = await stats(request);
+    expect(reads.readAccounts).toContain(
+      FIXTURES.gateway.accounts.viewerClaude,
+    );
     expect(reads.readAccounts).toContain(
       FIXTURES.gateway.accounts.viewerPrimary,
     );
@@ -414,5 +427,177 @@ test("account limits keep two windows compact with keyboard-accessible details",
   await limits.screenshot({
     path: info.outputPath("account-limits-details-mobile.png"),
   });
+  await expectNetworkViolations(violations);
+});
+
+// Actual Claude OAuth profile/connection through the real SSR+SDK cached reader;
+// the existing Codex fixture cases above remain independent regressions.
+test("Claude account limits distinguish all-model and model windows on desktop and mobile with keyboard details", async ({
+  page,
+  context,
+  request,
+}, info) => {
+  await configure(request, "claude-models");
+  await useViewerSession(context);
+  const violations: string[] = [];
+  await installLoopbackOnlyNetworkGuard(page, violations);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openAccounts(page, "rr-e2e-personal-viewer");
+  const row = sourceRow(page, FIXTURES.sourceLabels.viewerClaude);
+  await expect(row).toContainText(/Claude\s*·\s*OAuth/);
+  const limits = limitsFor(row);
+  for (const [label, remaining] of [
+    ["5h", "62.5"],
+    ["7d", "12"],
+    ["7d Sonnet", "27.75"],
+    ["7d Fable", "0"],
+  ] as const) {
+    await expect(
+      limits.getByRole("progressbar", {
+        name: `${label} remaining`,
+        exact: true,
+      }),
+    ).toHaveAttribute("aria-valuenow", remaining);
+  }
+  await page.waitForLoadState("networkidle");
+  const before = await stats(request);
+  expect(before.readAccounts).toContain(FIXTURES.gateway.accounts.viewerClaude);
+  expect(
+    browserRequestsFor(page).filter(
+      (item) => item.path === "/api/dashboard/accounts/limits",
+    ),
+  ).toEqual([]);
+  const summary = limits.getByText("Details", { exact: true });
+  await summary.focus();
+  await summary.press("Enter");
+  await expect(limits.locator("details")).toHaveAttribute("open", "");
+  await expect(limits).toContainText("72.25% used");
+  await expect(limits).toContainText("125% used");
+  await expect(limits.getByText(/^As of:/).first()).toBeVisible();
+  await expect(limits).toContainText(/UTC[+-]\d{2}:\d{2}/);
+  expect((await stats(request)).reads).toBe(before.reads);
+  await limits.screenshot({
+    path: info.outputPath("claude-limits-desktop-details.png"),
+  });
+  await summary.press("Enter");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await row.scrollIntoViewIfNeeded();
+  const bounds = (await limits.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await limits.screenshot({
+    path: info.outputPath("claude-limits-mobile-compact.png"),
+  });
+  await summary.focus();
+  await summary.press("Enter");
+  await expect(limits.getByText(/^As of:/).first()).toBeVisible();
+  const responseReady = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/dashboard/accounts/limits",
+  );
+  const read = limits.getByRole("button", {
+    name: "Reload saved limits",
+    exact: true,
+  });
+  await read.focus();
+  await read.press("Enter");
+  const response = await responseReady;
+  expect(response.headers()["cache-control"]).toContain("no-store");
+  const payload = await response.json();
+  expect(payload).toMatchObject({
+    status: "ok",
+    value: {
+      status: "snapshot",
+      windows: [
+        { label: "5h", remainingPercent: 62.5 },
+        { label: "7d", remainingPercent: 12 },
+        { label: "7d Sonnet", remainingPercent: 27.75 },
+        { label: "7d Fable", remainingPercent: 0 },
+      ],
+    },
+  });
+  expect(JSON.stringify(payload)).not.toMatch(
+    /claude-7d|physicalGeneration|principalVersion|ownerRef|accountRef|authorizationEpoch/,
+  );
+  expect((await stats(request)).reads).toBe(before.reads + 1);
+  await expectNetworkViolations(violations);
+});
+
+test("Claude account limits preserve unknown and stale observations on mobile without provider reads", async ({
+  page,
+  context,
+  request,
+}, info) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await useViewerSession(context);
+  const violations: string[] = [];
+  await installLoopbackOnlyNetworkGuard(page, violations);
+  for (const mode of ["unknown", "stale"] as const) {
+    await configure(request, mode);
+    await openAccounts(page, "rr-e2e-personal-viewer");
+    const row = sourceRow(page, FIXTURES.sourceLabels.viewerClaude);
+    await expect(row).toContainText(/Claude\s*·\s*OAuth/);
+    const limits = limitsFor(row);
+    if (mode === "unknown") {
+      await expect(limits).toContainText("No limits saved yet");
+      await expect(limits.getByRole("progressbar")).toHaveCount(0);
+      await expect(limits).not.toContainText(/100% left|unlimited/);
+    } else {
+      await expect(limits).toContainText("62.5% left");
+      await expect(limits).toContainText("Outdated");
+      await expect(limits).toContainText("Reset pending");
+      const summary = limits.getByText("Details", { exact: true });
+      await summary.focus();
+      await summary.press("Enter");
+      await expect(limits).toContainText("37.5% used");
+      await expect(limits.getByText(/^As of:/).first()).toBeVisible();
+    }
+    await page.waitForLoadState("networkidle");
+    const before = await stats(request);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    expect((await stats(request)).reads).toBe(before.reads);
+    expect(
+      browserRequestsFor(page).filter(
+        (item) => item.path === "/api/dashboard/accounts/limits",
+      ),
+    ).toEqual([]);
+    await limits.screenshot({
+      path: info.outputPath(`claude-limits-mobile-${mode}.png`),
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+  await expectNetworkViolations(violations);
+});
+
+test("Claude shared workspace rows do not inherit the owner's global quota", async ({
+  page,
+  context,
+  request,
+}) => {
+  await configure(request, "claude-models");
+  await useViewerSession(context);
+  const violations: string[] = [];
+  await installLoopbackOnlyNetworkGuard(page, violations);
+  await openAccounts(page, "rr-e2e-org-alpha");
+  const row = sourceRow(page, FIXTURES.sourceLabels.viewerClaude);
+  await expect(row).toContainText(/Claude\s*·\s*OAuth/);
+  const limits = limitsFor(row);
+  await expect(limits).toContainText("Limits visible to the owner only");
+  await expect(limits.getByRole("progressbar")).toHaveCount(0);
+  await expect(
+    limits.getByRole("button", { name: "Reload saved limits" }),
+  ).toHaveCount(0);
+  // The hidden personal-owner view may preload independently. No numeric
+  // Claude bucket may enter the active recipient workspace row or its controls.
+  await expect(limits).not.toContainText(/62.5% left|Sonnet|Fable/);
   await expectNetworkViolations(violations);
 });

@@ -16,7 +16,7 @@ export type AccountLimitsReason =
 
 export type AccountLimitsSourceWindow = {
   readonly id: string;
-  readonly family: "codex";
+  readonly family: "codex" | "claude";
   readonly durationSeconds: number | null;
   readonly usedPercent: number | null;
   readonly observedAt: string | null;
@@ -120,6 +120,15 @@ function durationLabel(seconds: number | null, index: number): string {
   return `${seconds}s`;
 }
 
+// Only qualified Claude dimensions may become general/model quota labels.
+// Canonical source IDs stay server-side; browser labels never echo arbitrary IDs.
+const claudeLabels: Readonly<Record<string, string>> = {
+  "claude-5h": "",
+  "claude-7d": "",
+  "claude-7d-sonnet": " Sonnet",
+  "claude-7d-fable": " Fable",
+};
+
 export function projectAccountLimits(
   result: AccountLimitsSourceResult,
   context: {
@@ -167,13 +176,16 @@ export function projectAccountLimits(
   )
     return invalid();
   const ids = new Set<string>();
+  const family = result.windows[0]?.family;
   for (const window of result.windows) {
     if (
       !window ||
       typeof window.id !== "string" ||
       !window.id ||
       ids.has(window.id) ||
-      window.family !== "codex" ||
+      !["codex", "claude"].includes(window.family) ||
+      window.family !== family ||
+      (window.family === "claude" && !Object.hasOwn(claudeLabels, window.id)) ||
       !["duration", "legacy_alias", "unknown"].includes(window.basis)
     )
       return invalid();
@@ -215,7 +227,7 @@ export function projectAccountLimits(
               ? "observation_expired"
               : null;
       return {
-        label: durationLabel(durationSeconds, index),
+        label: `${durationLabel(durationSeconds, index)}${window.family === "claude" ? claudeLabels[window.id] : ""}`,
         durationSeconds,
         usedPercent,
         remainingPercent:

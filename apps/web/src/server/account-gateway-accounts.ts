@@ -71,6 +71,7 @@ export type AccountProfileView = {
   // The authorized adapter always supplies both from its configured catalog.
   authKind?: c.Profile["authKinds"][number];
   canReconnect?: boolean;
+  oauthMethods?: readonly ("device_code" | "browser")[];
   // Trusted deployment binding to the Gateway's fixed profile, never a caller override.
   dedicatedBaseURL?: string;
 };
@@ -159,12 +160,7 @@ export type AccountOAuthReconnectIntent = {
   gatewayRevision: number;
   mirrorRevision: number;
 };
-export type AccountOAuthCompletion = Pick<
-  secretSubmission.OAuthComplete,
-  "callbackURL"
-> & {
-  nonce: string;
-};
+export type AccountOAuthCompletion = z.infer<typeof oauthCompletionSchema>;
 // A fresh Begin response is a one-off handoff, never list/operation/cache metadata.
 export type AccountOAuthBeginView = {
   operation: AccountOperationView;
@@ -210,6 +206,16 @@ const existing = {
   mirrorRevision,
 };
 const codexOAuthProfileId = "openai-codex-oauth-responses-v1";
+const claudeOAuthProfileId = "anthropic-claude-oauth-messages-v1";
+function oauthMethodFor(
+  profile: Pick<AccountProfileView, "oauthMethods">,
+  requested?: "device_code" | "browser",
+) {
+  const allowed = profile.oauthMethods ?? ["device_code", "browser"];
+  const method = requested ?? allowed[0];
+  if (!method || !allowed.includes(method)) throw new Denied();
+  return method;
+}
 const oauthIntentSchema = z.strictObject({
   nonce: uuid,
   profileId: c.reference,
@@ -226,12 +232,23 @@ const oauthBeginIntentSchema = z.union([
     method: z.enum(["device_code", "browser"]).optional(),
   }),
 ]);
-// The SDK owns the closed callback URL grammar. Snapshot its sensitive field
-// before any await; no URL/code/state is retained in an intent or safe view.
-const oauthCompletionSchema = z.strictObject({
-  nonce: uuid,
-  callbackURL: secretSubmission.oauthCallbackURL,
-});
+// The SDK owns both closed credential grammars. Snapshot before any await;
+// no URL/code/state is retained in an intent or safe view.
+const oauthCompletionSchema = z.union([
+  z.strictObject({
+    nonce: uuid,
+    callbackURL: secretSubmission.oauthCallbackURL,
+  }),
+  z.strictObject({
+    nonce: uuid,
+    authorizationCode: secretSubmission.claudeOAuthAuthorizationCode,
+  }),
+]);
+function oauthCompletionCredential(intent: AccountOAuthCompletion) {
+  return "authorizationCode" in intent
+    ? { authorizationCode: intent.authorizationCode }
+    : { callbackURL: intent.callbackURL };
+}
 export function snapshotOAuthCompletion(raw: AccountOAuthCompletion) {
   return oauthCompletionSchema.parse(raw);
 }
@@ -297,6 +314,7 @@ export function createAccountsAdapter(input: {
   apiKeyProfiles: ReadonlyMap<string, "MiMo" | "OpenRouter">;
   apiKeyProfileBaseURLs?: ReadonlyMap<string, string>;
   codexOAuthProfileId?: typeof codexOAuthProfileId;
+  claudeOAuthProfileId?: typeof claudeOAuthProfileId;
 }) {
   const { gateway, accounts, synchronization, bindingDependencies } = input;
   const approved = new Map<
@@ -307,7 +325,7 @@ export function createAccountsAdapter(input: {
         "label" | "authKind" | "canReconnect" | "provider"
       >
     > &
-      Pick<AccountProfileView, "dedicatedBaseURL">
+      Pick<AccountProfileView, "dedicatedBaseURL" | "oauthMethods">
   >(
     [...input.apiKeyProfiles].map(([id, name]) => [
       id,
@@ -335,6 +353,19 @@ export function createAccountsAdapter(input: {
       provider: "codex",
       authKind: "oauth",
       canReconnect: true,
+      oauthMethods: ["device_code", "browser"],
+    });
+  }
+  if (input.claudeOAuthProfileId !== undefined) {
+    z.literal(claudeOAuthProfileId).parse(input.claudeOAuthProfileId);
+    if (approved.has(claudeOAuthProfileId))
+      throw new Error("accounts_unavailable");
+    approved.set(claudeOAuthProfileId, {
+      label: "Claude",
+      provider: "claude",
+      authKind: "oauth",
+      canReconnect: true,
+      oauthMethods: ["browser"],
     });
   }
   async function deliverBindingFence(scope: {
@@ -1011,7 +1042,7 @@ export function createAccountsAdapter(input: {
         fresh = await client.beginOAuthReconnect(account.accountRef, {
           operationId: operationRef(authority.owner, intent.nonce),
           expectedMetadataRevision: account.metadataRevision,
-          ...(intent.method ? { method: intent.method } : {}),
+          method: oauthMethodFor(profile, intent.method),
         });
       } else {
         const profile = catalogue.find(
@@ -1024,7 +1055,7 @@ export function createAccountsAdapter(input: {
           ownerRef: authority.owner,
           profileId: intent.profileId,
           displayName: intent.label || suggestedAccountLabel(profile.label),
-          ...(intent.method ? { method: intent.method } : {}),
+          method: oauthMethodFor(profile, intent.method),
         });
       }
       const operation = await projectOperation(
@@ -1076,11 +1107,16 @@ export function createAccountsAdapter(input: {
         entered = true;
       });
       const catalogue = await profiles(client);
-      if (!catalogue.some((p) => p.authKind === "oauth")) throw new Denied();
+      const profileId =
+        "authorizationCode" in intent
+          ? claudeOAuthProfileId
+          : codexOAuthProfileId;
+      if (!catalogue.some((p) => p.id === profileId && p.authKind === "oauth"))
+        throw new Denied();
       const request = secretSubmission.oauthComplete.parse({
         operationId: operationRef(authority.owner, nonce),
         ownerRef: authority.owner,
-        callbackURL: intent.callbackURL,
+        ...oauthCompletionCredential(intent),
       });
       const original = await client.operation(request.operationId);
       if (original.operationRef !== request.operationId) throw new Denied();
@@ -1097,7 +1133,7 @@ export function createAccountsAdapter(input: {
         returned,
         catalogue,
         client,
-        { profileId: codexOAuthProfileId },
+        { profileId },
       );
       await client.reauthorize();
       return { status: "ok", value: result };
@@ -1570,6 +1606,9 @@ export function createDisabledPersonalAccountsAdapter(input: {
         original.intent.action !== "connect" ||
         original.intent.ingress !== "oauth-begin" ||
         profiles.get(original.intent.profileId) !== "oauth-begin" ||
+        (completion &&
+          (original.intent.profileId === claudeOAuthProfileId) !==
+            "authorizationCode" in safe) ||
         (completion
           ? original.intent.method === "device_code"
           : original.intent.method !== "device_code")
@@ -1612,8 +1651,7 @@ export function createDisabledPersonalAccountsAdapter(input: {
             client.completeOAuth(
               secretSubmission.oauthComplete.parse({
                 ...request,
-                callbackURL:
-                  "callbackURL" in safe ? safe.callbackURL : undefined,
+                ...oauthCompletionCredential(safe as AccountOAuthCompletion),
               }),
             ),
           );
@@ -1730,6 +1768,12 @@ export function createDisabledPersonalAccountsAdapter(input: {
         throw new ProviderAccountError("invalid_input");
       if (ingress === "oauth-begin" && key !== undefined)
         throw new ProviderAccountError("invalid_input");
+      if (
+        ingress === "oauth-begin" &&
+        safe.profileId === claudeOAuthProfileId &&
+        safe.method === "device_code"
+      )
+        throw new ProviderAccountError("invalid_input");
       const personalWorkspaceId =
         await input.store.resolvePersonalWorkspace(actorUserId);
       const intent = snapshotPersonalIntent({
@@ -1741,7 +1785,11 @@ export function createDisabledPersonalAccountsAdapter(input: {
         profileId: safe.profileId,
         displayName: safe.label,
         ingress,
-        ...(safe.method ? { method: safe.method } : {}),
+        ...(ingress === "oauth-begin" && safe.profileId === claudeOAuthProfileId
+          ? { method: "browser" as const }
+          : safe.method
+            ? { method: safe.method }
+            : {}),
       }) as PersonalAccountIntent & { action: "connect" };
       let authorizationURL: string | undefined;
       let deviceAuthorization: AccountOAuthBeginView["deviceAuthorization"];
@@ -1851,7 +1899,13 @@ export function accountGatewayProfilesConfiguration() {
     configuredOAuth === undefined || configuredOAuth === ""
       ? undefined
       : z.literal(codexOAuthProfileId).parse(configuredOAuth);
-  if (!apiKeyProfiles.size && !oauthProfile)
+  const configuredClaude =
+    process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CLAUDE_OAUTH_PROFILE_ID;
+  const claudeProfile =
+    configuredClaude === undefined || configuredClaude === ""
+      ? undefined
+      : z.literal(claudeOAuthProfileId).parse(configuredClaude);
+  if (!apiKeyProfiles.size && !oauthProfile && !claudeProfile)
     throw new Error("accounts_unavailable");
   // Operator pairs this public URL with the exact fixed Gateway service profile.
   // Missing binding preserves legacy ingress; it cannot advertise a URL option.
@@ -1876,6 +1930,7 @@ export function accountGatewayProfilesConfiguration() {
     apiKeyProfiles,
     apiKeyProfileBaseURLs,
     ...(oauthProfile ? { codexOAuthProfileId: oauthProfile } : {}),
+    ...(claudeProfile ? { claudeOAuthProfileId: claudeProfile } : {}),
   };
 }
 function configuration() {

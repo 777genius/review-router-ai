@@ -49,6 +49,7 @@ export const FIXTURES = Object.freeze({
   },
   sources: {
     viewerPrimary: "rr-e2e-source-viewer-primary",
+    viewerClaude: "rr-e2e-source-viewer-claude",
     viewerLegacyDisabled: "rr-e2e-source-viewer-legacy-disabled",
     viewerSuspendedCapable: "rr-e2e-source-viewer-suspended-capable",
     otherPrimary: "rr-e2e-source-other-primary",
@@ -57,6 +58,7 @@ export const FIXTURES = Object.freeze({
   },
   sourceLabels: {
     viewerPrimary: "RR E2E Viewer Primary",
+    viewerClaude: "RR E2E Claude OAuth",
     viewerLegacyDisabled: "RR E2E Legacy Disabled",
     viewerSuspendedCapable: "RR E2E Suspended Capable",
     otherPrimary: "RR E2E Other Person Primary",
@@ -65,8 +67,10 @@ export const FIXTURES = Object.freeze({
   },
   gateway: {
     profileId: "rr-e2e-profile-mimo",
+    claudeProfileId: "anthropic-claude-oauth-messages-v1",
     accounts: {
       viewerPrimary: "rr-e2e-account-viewer-primary",
+      viewerClaude: "rr-e2e-account-viewer-claude",
       viewerLegacyDisabled: "rr-e2e-account-viewer-legacy-disabled",
       viewerSuspendedCapable: "rr-e2e-account-viewer-suspended-capable",
       otherPrimary: "rr-e2e-account-other-primary",
@@ -76,6 +80,7 @@ export const FIXTURES = Object.freeze({
   },
   bindings: {
     viewerAlpha: "rr-e2e-binding-viewer-alpha",
+    viewerClaudeAlpha: "rr-e2e-binding-viewer-claude-alpha",
     viewerBravo: "rr-e2e-binding-viewer-bravo",
     otherAlpha: "rr-e2e-binding-other-alpha",
     orgAlpha: "rr-e2e-binding-org-alpha",
