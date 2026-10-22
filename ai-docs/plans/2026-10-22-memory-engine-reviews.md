@@ -118,3 +118,39 @@ The dedicated [Memory PostgreSQL/API workflow](https://github.com/777genius/revi
 passed 21/21 tests on commit `b46c3bf713df27ff5506bedae6c2a534ae560939`.
 Its clean PostgreSQL service executes the checked-in preparation script for both
 databases, then requires both suites to finish without skipped or todo cases.
+
+### Repository-wide validation checkpoint
+
+The full typecheck passed all 51 packages plus the spike, one-shot handoff and
+tooling configurations. Repository ESLint, Prettier and architecture checks
+passed; the architecture gate executed all ten positive/negative memory
+Foundation qualification cases.
+
+The full Vitest run completed with 11,174 passing, 24 failing and 605 skipped
+tests. Investigation separated three stale test fixtures from missing local
+prerequisites. The corrections preserve the existing strict assertions:
+
+- The API action-session fixture models the two exact, transaction-bound memory
+  startup ledger queries against an empty ledger. Production composition and
+  denied-request query assertions remain exercised.
+- The dashboard writer inventory uses the new paused-memory helper as its end
+  anchor; the complete preceding activation body and exact writer counts remain
+  covered.
+- The architecture script expectation now requires the added memory Foundation
+  qualifier alongside every existing gate.
+- The documented `pnpm protocol:bootstrap` prerequisite builds the contract
+  source modules used by three generated-protocol tests. No protocol source
+  correction was required.
+
+The affected four files then passed 138/138 tests, closing all 19 failures in
+those files. The five remaining local failures are four existing CertifiedFork
+PostgreSQL fixture files: the digest-pinned Docker base image is unavailable
+(`managed_pg17_fixture_image:base_missing`; no Docker executable in this
+environment). Their always-run requirements have not been skipped or weakened.
+The normal GitHub CI provisions that image; this local run is therefore not
+reported as a completely green full suite.
+
+At commit `9742beb314ff7c01edf03ccd5984d09dab20083c`, the Memory projections,
+Account Gateway S, Provider C1 and P115 GitHub workflows passed. Production
+build, final browser qualification and the main CI/review results are recorded
+in the final validation section when they finish.
