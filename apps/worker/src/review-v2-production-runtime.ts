@@ -115,6 +115,7 @@ import {
   ReviewCompletionPublicationContextAdapter,
   ReviewCompletionSnapshotContextAdapter,
   reviewPublicationReceiptSetHash,
+  reviewSnapshotSourceCoverage,
   type FinalizedArtifactIdentityQueryPort,
 } from "./review-v2-context-adapters";
 import {
@@ -1371,9 +1372,12 @@ class PrismaFinalizedArtifactIdentityQuery implements FinalizedArtifactIdentityQ
   }
 }
 
-class PrismaReviewSnapshotEligibility implements ReviewSnapshotCommitEligibilityPort {
+export class PrismaReviewSnapshotEligibility implements ReviewSnapshotCommitEligibilityPort {
   constructor(
-    private readonly executions: ReviewExecutionQueryPort,
+    private readonly executions: Pick<
+      ReviewExecutionQueryPort,
+      "findExecution"
+    >,
     private readonly attempts: ReviewPublicationAttemptQueryPort,
     private readonly artifactIdentities: FinalizedArtifactIdentityQueryPort,
   ) {}
@@ -1406,7 +1410,8 @@ class PrismaReviewSnapshotEligibility implements ReviewSnapshotCommitEligibility
       sourceRunId: snapshot.execution.sourceRunId,
       sourceRunAttempt: snapshot.execution.sourceRunAttempt,
       coverageState:
-        snapshot.artifact.coverageState === ReviewCoverageState.Completed
+        reviewSnapshotSourceCoverage(snapshot.artifact) ===
+        ReviewCoverageState.Completed
           ? SnapshotSourceCoverageState.Completed
           : SnapshotSourceCoverageState.Partial,
       effectivePublicationOutcome: mapSnapshotPublicationOutcome(outcome),

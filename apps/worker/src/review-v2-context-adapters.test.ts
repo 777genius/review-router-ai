@@ -35,7 +35,9 @@ import { canonicalJson } from "@reviewrouter/features-review-run-control";
 import {
   CommitReviewSnapshotV2Status,
   LineageHintEvictionReason,
+  LineageHintState,
   ReviewSnapshotV2CommitOutcome,
+  SnapshotSourceCoverageState,
   type CommitReviewSnapshotV2Command,
   type ReviewSnapshotV2Record,
 } from "@reviewrouter/features-review-snapshots/v2";
@@ -52,6 +54,8 @@ import {
   ReviewCompletionSnapshotContextAdapter,
   type ReviewCompletionProjectionMapperPort,
 } from "./review-v2-context-adapters";
+
+import { PrismaReviewSnapshotEligibility } from "./review-v2-production-runtime";
 
 const now = new Date("2026-07-22T12:00:00.000Z");
 const retainUntil = new Date("2026-08-22T12:00:00.000Z");
@@ -324,7 +328,10 @@ describe("review v2 worker context adapters", () => {
   });
 
   it("builds a deterministic snapshot command only from proven artifact and publication facts", async () => {
-    const snapshot = executionSnapshot();
+    let snapshot = executionSnapshot({
+      projectionPolicyVersion: "review-projection-policy.v6-comparison",
+      projectionCoverage: "complete",
+    });
     const command = await publicationRequestFactory().build(snapshot);
     const attempts = new FakePublicationAttempts();
     attempts.store(
@@ -396,6 +403,76 @@ describe("review v2 worker context adapters", () => {
       publicationAttemptId,
       outcome: ReviewCompletionSnapshotOutcome.Committed,
     });
+    const eligibility = new PrismaReviewSnapshotEligibility(
+      { findExecution: async () => snapshot },
+      attempts,
+      {
+        findIdentity: async () => ({
+          executionId: "execution-1",
+          finalizedArtifactId: "artifact-1",
+          artifactHash: hash("9"),
+        }),
+      },
+    );
+    await expect(
+      eligibility.resolve({
+        sourceExecutionId: "execution-1",
+        sourceArtifactHash: hash("9"),
+      }),
+    ).resolves.toMatchObject({
+      coverageState: SnapshotSourceCoverageState.Completed,
+    });
+    const completeBaseline = structuredClone(currentSnapshot);
+    expect(completeBaseline).toMatchObject({
+      payload: {
+        lineageHints: {
+          hints: [{ lineageId: "lineage-1", state: LineageHintState.Active }],
+        },
+        projectionEnvelope: {
+          snapshot: {
+            lineageHints: [{ lineageId: "lineage-1", active: true }],
+          },
+        },
+      },
+    });
+    for (const policy of [
+      "review-projection-policy.v5-t0",
+      "review-projection-policy.v6-comparison",
+    ]) {
+      // All required provider work completed, but OCR omitted lifecycle proof.
+      // The canonical projection is partial and intentionally has no hints.
+      snapshot = executionSnapshot({
+        projectionPolicyVersion: policy,
+        projectionCoverage: "partial",
+      });
+      await expect(
+        new ReviewCompletionExecutionContextAdapter({
+          findExecution: async () => snapshot,
+        }).findFinalized({
+          executionId: "execution-1",
+          finalizedArtifactId: "artifact-1",
+        }),
+      ).resolves.toMatchObject({
+        coverage: ReviewExecutionCompletionCoverage.Partial,
+      });
+      await expect(
+        eligibility.resolve({
+          sourceExecutionId: "execution-1",
+          sourceArtifactHash: hash("9"),
+        }),
+      ).resolves.toMatchObject({
+        coverageState: SnapshotSourceCoverageState.Partial,
+      });
+      await expect(
+        adapter.commit({
+          executionId: "execution-1",
+          finalizedArtifactId: "artifact-1",
+          publicationAttemptId,
+        }),
+      ).rejects.toThrow("review_completion_snapshot_partial_forbidden");
+      expect(currentSnapshot).toEqual(completeBaseline);
+      expect(committed).toHaveLength(2);
+    }
     expect(committed[0]).toEqual(committed[1]);
     expect(committed[0]).toMatchObject({
       candidate: {
@@ -405,7 +482,7 @@ describe("review v2 worker context adapters", () => {
         sourceExecutionId: "execution-1",
         sourceArtifactHash: hash("9"),
         payload: {
-          projectionEnvelope: { findings: [] },
+          projectionEnvelope: { coverage: { state: "complete" } },
           projectionHash: hash("4"),
         },
       },
@@ -716,7 +793,14 @@ function completionProjectionMapper(
     snapshotProjection: async () => ({
       occurrences: [],
       lineageHints: {
-        hints: [],
+        hints: [
+          {
+            lineageId: "lineage-1",
+            fingerprintHash: hash("8"),
+            state: LineageHintState.Active,
+            lastSeenAt: now,
+          },
+        ],
         eviction: {
           [LineageHintEvictionReason.Age]: 0,
           [LineageHintEvictionReason.Count]: 0,
@@ -756,6 +840,8 @@ function executionSnapshot(
   input: {
     readonly executionState?: ReviewExecutionState;
     readonly coverage?: ReviewCoverageState;
+    readonly projectionCoverage?: string;
+    readonly projectionPolicyVersion?: string;
   } = {},
 ): ReviewExecutionSnapshot {
   const scope = {
@@ -778,13 +864,25 @@ function executionSnapshot(
     reviewRevisionHash: revision.reviewRevisionHash,
     coverageState: input.coverage ?? ReviewCoverageState.Completed,
     projectionEnvelopeVersion: 2,
-    projectionEnvelopeJson: '{"findings":[]}',
+    projectionEnvelopeJson: input.projectionCoverage
+      ? canonicalJson({
+          envelopeVersion: "review_projection.v1",
+          coverage: { state: input.projectionCoverage },
+          snapshot: {
+            lineageHints:
+              input.projectionCoverage === "complete"
+                ? [{ lineageId: "lineage-1", active: true }]
+                : [],
+          },
+        })
+      : '{"findings":[]}',
     projectionHash: hash("4"),
     byteCount: 15,
     findingCount: 0,
     lifecycleStateHash: hash("a"),
     commandLedgerWatermark: 2n,
-    projectionPolicyVersion: "review-projection-policy.v3-t0",
+    projectionPolicyVersion:
+      input.projectionPolicyVersion ?? "review-projection-policy.v3-t0",
     publicationPermit: {
       ...scope,
       executionId: "execution-1",
