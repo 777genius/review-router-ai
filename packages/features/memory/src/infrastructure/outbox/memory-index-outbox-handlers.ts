@@ -5,7 +5,10 @@ import {
 } from "@reviewrouter/features-outbox";
 import type { MemoryItemSnapshot } from "../../domain/memory-item";
 import type { MemoryItemRepositoryPort } from "../../application/ports/memory-item-repository-port";
-import type { MemorySearchWriterPort } from "../../application/ports/memory-search-index-port";
+import {
+  safeMemoryIndexErrorCode,
+  type MemorySearchWriterPort,
+} from "../../application/ports/memory-search-index-port";
 
 export type MemoryIndexOutboxHandlerDependencies = {
   readonly memoryItems: Pick<
@@ -165,10 +168,10 @@ async function sanitizeProjectionFailure(
 ): Promise<void> {
   try {
     await operation();
-  } catch {
+  } catch (error) {
     throw new OutboxHandlerError(
       "Memory projection work needs reconciliation",
-      "memory_index_pending",
+      safeMemoryIndexErrorCode(error) ?? "memory_index_pending",
       true,
     );
   }

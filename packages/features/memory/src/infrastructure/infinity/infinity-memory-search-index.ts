@@ -11,6 +11,7 @@ import {
 } from "@infinity-context/sdk";
 import {
   MemoryIndexOperationError,
+  safeMemoryIndexErrorCode,
   type MemoryIndexDeleteInput,
   type MemoryIndexDocument,
   type MemoryIndexWriteResult,
@@ -45,18 +46,6 @@ const defaultWriteBudgetMs = 5_000;
 const cleanupBatchLimit = 10;
 const retryDelayMs = 60_000;
 const responseByteLimit = 262_144;
-
-const safeCodes = new Set([
-  "memory_index_pending",
-  "memory_index_unavailable",
-  "memory_index_conflict",
-  "memory_index_unknown_write",
-  "memory_index_identity_invalid",
-  "memory_index_document_invalid",
-  "memory_index_stale",
-  "memory_index_incomplete",
-  "memory_index_deadline",
-]);
 
 export type MemoryProjectionMaintenanceResult = {
   readonly processed: number;
@@ -811,9 +800,5 @@ function isNativeDocumentId(value: unknown): value is string {
 }
 
 function sanitize(error: unknown): MemoryIndexOperationError {
-  return failure(
-    error instanceof MemoryIndexOperationError && safeCodes.has(error.code)
-      ? error.code
-      : "memory_index_unavailable",
-  );
+  return failure(safeMemoryIndexErrorCode(error) ?? "memory_index_unavailable");
 }

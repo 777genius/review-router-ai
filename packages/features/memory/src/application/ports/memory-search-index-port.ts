@@ -103,3 +103,22 @@ export class MemoryIndexOperationError extends Error {
     this.name = "MemoryIndexOperationError";
   }
 }
+
+const safeMemoryIndexErrorCodes: ReadonlySet<string> = new Set([
+  "memory_index_pending",
+  "memory_index_unavailable",
+  "memory_index_conflict",
+  "memory_index_unknown_write",
+  "memory_index_identity_invalid",
+  "memory_index_document_invalid",
+  "memory_index_stale",
+  "memory_index_incomplete",
+  "memory_index_deadline",
+]);
+
+/** Never forward an arbitrary error code, message or cause across a boundary. */
+export function safeMemoryIndexErrorCode(error: unknown): string | null {
+  if (!(error instanceof MemoryIndexOperationError)) return null;
+  const code = error.code;
+  return safeMemoryIndexErrorCodes.has(code) ? code : null;
+}

@@ -2,13 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 import type { MemoryItemSnapshot } from "../domain/memory-item";
 import { MemoryItem } from "../domain/memory-item";
 import { createDashboardMemorySource } from "../domain/memory-source";
-import type { MemorySearchIndexPort } from "../application/ports/memory-search-index-port";
+import {
+  MemoryIndexOperationError,
+  type MemorySearchIndexPort,
+} from "../application/ports/memory-search-index-port";
 import {
   createMemoryEmbeddingDeleteRequestedHandler,
   createMemoryEmbeddingReindexRequestedHandler,
   createMemoryOutboxHandlers,
 } from "../infrastructure/outbox/memory-index-outbox-handlers";
-import type { OutboxEvent } from "@reviewrouter/features-outbox";
+import {
+  OutboxHandlerError,
+  type OutboxEvent,
+} from "@reviewrouter/features-outbox";
 
 const now = new Date("2026-05-12T12:00:00.000Z");
 
@@ -290,33 +296,114 @@ describe("memory outbox handlers", () => {
     expect(searchIndex.upserts).toEqual([]);
   });
 
-  it("never stores provider body/query/token errors in outbox failure metadata", async () => {
-    const item = memoryItem("mem_privacy", "Private confirmed body sentinel.");
-    const searchIndex = new CapturingSearchIndex();
-    const memoryItems = new StaticMemoryItems(new Map([[item.id, item]]));
-    vi.spyOn(searchIndex, "upsertDocument").mockRejectedValue(
-      new Error("BODY_SENTINEL QUERY_SENTINEL TOKEN_SENTINEL"),
-    );
-    const failure = await createMemoryEmbeddingReindexRequestedHandler({
-      memoryItems,
-      searchIndex,
-    })
-      .handle(
-        outboxEvent({
-          type: "memory.embedding.reindex.requested",
-          aggregateId: item.id,
-          payload: { bodyHash: item.bodyHash, bodyVersion: item.bodyVersion },
-        }),
-      )
-      .catch((error: unknown) => error);
-    expect(failure).toMatchObject({
-      code: "memory_index_pending",
-      retryable: true,
-    });
-    expect(String(failure)).not.toMatch(/SENTINEL/);
-    expect(JSON.stringify(failure)).not.toMatch(/SENTINEL/);
-    expect(memoryItems.indexingSucceeded).toEqual([]);
-  });
+  describe.each(["reindex", "delete"] as const)(
+    "%s failure diagnostics",
+    (operation) => {
+      async function rejectedByOutbox(providerFailure: unknown) {
+        const item = memoryItem(
+          "mem_privacy",
+          "Private confirmed body sentinel.",
+        );
+        const searchIndex = new CapturingSearchIndex();
+        const memoryItems = new StaticMemoryItems(
+          new Map(operation === "reindex" ? [[item.id, item]] : []),
+        );
+        const method =
+          operation === "reindex" ? "upsertDocument" : "deleteDocument";
+        vi.spyOn(searchIndex, method).mockRejectedValue(providerFailure);
+        const handler =
+          operation === "reindex"
+            ? createMemoryEmbeddingReindexRequestedHandler({
+                memoryItems,
+                searchIndex,
+              })
+            : createMemoryEmbeddingDeleteRequestedHandler({
+                memoryItems,
+                searchIndex,
+              });
+        const failure = await handler
+          .handle(
+            outboxEvent({
+              type: `memory.embedding.${operation}.requested`,
+              aggregateId: item.id,
+              payload: {
+                bodyHash: item.bodyHash,
+                bodyVersion: item.bodyVersion,
+              },
+            }),
+          )
+          .catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(OutboxHandlerError);
+        expect(failure).toMatchObject({
+          message: "Memory projection work needs reconciliation",
+          retryable: true,
+        });
+        expect(failure).not.toHaveProperty("cause");
+        expect(failure).not.toBe(providerFailure);
+        expect(String(failure)).not.toMatch(/SENTINEL/);
+        expect(JSON.stringify(failure)).not.toMatch(/SENTINEL/);
+        expect(memoryItems.indexingSucceeded).toEqual([]);
+        expect(memoryItems.indexingDeleted).toEqual([]);
+        return failure;
+      }
+
+      it.each([
+        "memory_index_conflict",
+        "memory_index_unknown_write",
+        "memory_index_deadline",
+      ])(
+        "preserves %s without forwarding provider text or cause",
+        async (code) => {
+          const providerFailure = Object.assign(
+            new MemoryIndexOperationError(code),
+            {
+              message: "BODY_SENTINEL QUERY_SENTINEL TOKEN_SENTINEL",
+              cause: new Error("CAUSE_SENTINEL"),
+            },
+          );
+          expect(await rejectedByOutbox(providerFailure)).toMatchObject({
+            code,
+          });
+        },
+      );
+
+      it.each([
+        {
+          name: "ordinary provider error",
+          error: () => new Error("BODY_SENTINEL QUERY_SENTINEL TOKEN_SENTINEL"),
+        },
+        {
+          name: "operation error with an arbitrary code",
+          error: () => new MemoryIndexOperationError("CODE_SENTINEL"),
+        },
+        {
+          name: "plain object spoofing a safe operation error",
+          error: () => ({
+            name: "MemoryIndexOperationError",
+            code: "memory_index_conflict",
+            message: "BODY_SENTINEL QUERY_SENTINEL TOKEN_SENTINEL",
+            cause: new Error("CAUSE_SENTINEL"),
+          }),
+        },
+        {
+          name: "provider error spoofing a safe operation code",
+          error: () =>
+            Object.assign(
+              new Error("BODY_SENTINEL QUERY_SENTINEL TOKEN_SENTINEL"),
+              {
+                name: "MemoryIndexOperationError",
+                code: "memory_index_deadline",
+                cause: new Error("CAUSE_SENTINEL"),
+              },
+            ),
+        },
+      ])("maps $name to generic pending", async ({ error }) => {
+        expect(await rejectedByOutbox(error())).toMatchObject({
+          code: "memory_index_pending",
+        });
+      });
+    },
+  );
 
   it("registers handlers for lifecycle events so worker does not dead-letter them", () => {
     expect(

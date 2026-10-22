@@ -90,9 +90,10 @@ approval or of a live Infinity deployment.
   creates the current Prisma schema and applies the actual affected projection
   and outbox-fencing SQL. This does not claim a full historical migration replay.
 
-Repository-wide gates and GitHub CI are recorded below when complete. The PR
-remains unmerged and no deployment or Infinity production activation is part of
-this delivery.
+Repository-wide checkpoints are recorded below. The latest gate and GitHub CI
+results are maintained in [PR #670](https://github.com/777genius/review-router-ai/pull/670).
+The PR remains unmerged and no deployment or Infinity production activation is
+part of this delivery.
 
 ### CI integration correction: exact migration inventory
 
@@ -152,5 +153,30 @@ reported as a completely green full suite.
 
 At commit `9742beb314ff7c01edf03ccd5984d09dab20083c`, the Memory projections,
 Account Gateway S, Provider C1 and P115 GitHub workflows passed. Production
-build, final browser qualification and the main CI/review results are recorded
-in the final validation section when they finish.
+build, final browser qualification and the latest main CI results are tracked in
+the PR validation section.
+
+### External PR review and upstream synchronization
+
+CodeRabbit completed its full review of 68 selected files at `9742beb3` and
+posted one [minor diagnostic-code finding](https://github.com/777genius/review-router-ai/pull/670#discussion_r4350611398).
+The outbox sanitizer discarded already-safe conflict, unknown-write and deadline
+codes. The correction moves the adapter's existing nine-code allowlist into a
+shared neutral helper: only an actual `MemoryIndexOperationError` with an allowed
+code is preserved. SDK and outbox retain their distinct generic fallback codes,
+and neither copies provider messages, causes or additional error properties.
+
+The post-review run passed all 72 cases: 21 outbox, 30 SDK wire, 17 real
+PostgreSQL receipt and four authenticated API/CLI tests, with no skipped cases.
+The regressions exercise both reindex and delete failures, including arbitrary
+codes, spoofed objects and body/query/token/cause sentinels. Focused ESLint and
+Prettier passed. A separate read-only critic confirmed the closed allowlist,
+privacy behavior and unchanged SDK failure semantics with no actionable findings.
+
+The upstream account-limits change `b786d7a6` was merged in `059822bb`. Its single
+Foundation root-list conflict was resolved by retaining both the account-limits
+and memory roots, all five account-limits boundaries and all nine memory
+boundaries. No memory restriction was removed. The locked dependency install and
+complete architecture gate passed after the merge, including all ten memory
+qualification cases. Final build/typecheck/browser evidence in the PR refers to
+the resulting source, rather than the interrupted pre-merge build.
