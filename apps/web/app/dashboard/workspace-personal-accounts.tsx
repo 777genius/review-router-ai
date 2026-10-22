@@ -21,6 +21,7 @@ import {
 import { GitHubAccountAvatar } from "../github-account-avatar";
 import { AccountIdentity } from "./account-identity";
 import { AccountUsageLine } from "./account-usage-line";
+import { readAccountResult } from "./account-read-result";
 import { useOwnAccountsView } from "./accounts-workspace-tabs";
 import { accountsGridColumns } from "./accounts-grid";
 import {
@@ -220,10 +221,12 @@ function WorkspacePersonalRows({
         ? { initialData: { pages: [initialPage], pageParams: [null] } }
         : {}),
       queryFn: ({ pageParam }) =>
-        api.list({
-          limit: 25,
-          ...(pageParam ? { afterBindingId: pageParam } : {}),
-        }),
+        readAccountResult(
+          api.list({
+            limit: 25,
+            ...(pageParam ? { afterBindingId: pageParam } : {}),
+          }),
+        ),
       getNextPageParam: (page) =>
         page.status === "ok" ? page.value.nextCursor : null,
       staleTime: 15000,
@@ -242,6 +245,9 @@ function WorkspacePersonalRows({
   );
   const fetched = pages.data?.pages ?? [];
   const failed = pages.isError || fetched.some((p) => p.status !== "ok");
+  const denied = fetched.some(
+    (page) => page.status !== "ok" && page.status !== "unavailable",
+  );
   const rows = fetched.flatMap((page) =>
     page.status === "ok" ? page.value.accounts : [],
   );
@@ -369,7 +375,7 @@ function WorkspacePersonalRows({
         <span>Status</span>
         <span />
       </div>
-      {(failed ? [] : accounts).map((row) => (
+      {(denied ? [] : accounts).map((row) => (
         <article
           key={row.connectionId}
           aria-label={row.label}
@@ -386,17 +392,20 @@ function WorkspacePersonalRows({
           <AccountOwner account={row} />
           <p className="text-sm text-slate-300">
             <AccountStatusLine
-              {...(lifecycleActivities.get(row.connectionId) === "delete"
-                ? { kind: "removing", text: pendingStatusCopy.removing }
-                : lifecycleActivities.has(row.connectionId)
-                  ? { kind: "confirming", text: pendingStatusCopy.confirming }
-                  : !row.binding && row.canManage
-                    ? { kind: "unknown", text: "Not added here" }
-                    : accountStatusInfo(row))}
+              {...(failed
+                ? { kind: "unknown", text: "Details could not be refreshed" }
+                : lifecycleActivities.get(row.connectionId) === "delete"
+                  ? { kind: "removing", text: pendingStatusCopy.removing }
+                  : lifecycleActivities.has(row.connectionId)
+                    ? { kind: "confirming", text: pendingStatusCopy.confirming }
+                    : !row.binding && row.canManage
+                      ? { kind: "unknown", text: "Not added here" }
+                      : accountStatusInfo(row))}
             />
           </p>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {!lifecycleActivities.has(row.connectionId) &&
+            {!failed &&
+            !lifecycleActivities.has(row.connectionId) &&
             row.readiness === "ready" &&
             row.binding?.state === "active" &&
             !row.binding.fencePending ? (
@@ -410,6 +419,7 @@ function WorkspacePersonalRows({
             <Button
               variant="outline"
               size="sm"
+              disabled={failed}
               onClick={() =>
                 setSelection({
                   label: row.label,
@@ -427,10 +437,11 @@ function WorkspacePersonalRows({
             >
               {accountsCopy.access}
             </Button>
-            {managementActions ||
-            canDetach ||
-            row.canManage ||
-            row.isOwnedByViewer ? (
+            {!failed &&
+            (managementActions ||
+              canDetach ||
+              row.canManage ||
+              row.isOwnedByViewer) ? (
               <AccountRowMenu
                 account={row}
                 lifecycleContext={personalScope ?? ""}

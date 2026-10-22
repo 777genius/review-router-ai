@@ -359,3 +359,40 @@ vi.mock("./account-lifecycle-actions", () => ({
   mutateAccountLifecycle: vi.fn(),
   readAccountLifecycleOperation: vi.fn(),
 }));
+
+// Regression boundary: a temporary read failure must not empty the account list,
+// while a denied read must remove names and all authority from stale rows.
+test("retains stale rows without actions on unavailable, then clears them on denied", async () => {
+  const f = fixture();
+  render(
+    <WorkspacePersonalAccounts
+      scope="org-x"
+      api={f.api}
+      canDetach
+      detach={f.detach}
+      initialPage={page([account("old-BX")])}
+    />,
+  );
+  expect(
+    await screen.findByRole("article", { name: "Canonical old-BX" }),
+  ).toBeTruthy();
+  f.api.list.mockResolvedValue({ status: "unavailable" });
+  fireEvent.click(screen.getByRole("button", { name: "Refresh connections" }));
+  await screen.findByText("Connections could not be refreshed. Try again.");
+  expect(
+    screen.getByRole("article", { name: "Canonical old-BX" }),
+  ).toBeTruthy();
+  expect(
+    (screen.getByRole("button", { name: "Access" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect(screen.queryByRole("link", { name: "Choose in Models" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Canonical old-BX" })).toBeNull();
+  f.api.list.mockResolvedValue({ status: "denied" });
+  fireEvent.click(screen.getByRole("button", { name: "Refresh connections" }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("article", { name: "Canonical old-BX" }),
+    ).toBeNull(),
+  );
+});

@@ -24,10 +24,13 @@ import {
   accountMenuItemClass,
   useAccountMenuReturnFocus,
 } from "./account-actions-menu";
-import { Plus, RefreshCw } from "lucide-react";
+import { Copy, ExternalLink, Plus, RefreshCw } from "lucide-react";
 import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
 import { dashboardSectionHref } from "./dashboard-section";
 import { accountsCopy } from "./accounts-copy";
+import { AccountIdentity, AccountProviderLogo } from "./account-identity";
+import { AccountStatusLine } from "./account-status-icon";
+import { readAccountResult } from "./account-read-result";
 import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
 import {
   canonicalMimoBaseURL,
@@ -48,6 +51,7 @@ import {
   bindGatewayAccount,
   beginGatewayOAuth,
   completeGatewayOAuth,
+  pollGatewayOAuth,
   detachGatewayAccount,
   listGatewayAccounts,
   mutateGatewayAccount,
@@ -63,7 +67,12 @@ export type AccountGatewayManagementApi = Pick<
   | "readGatewayOperation"
   | "beginGatewayOAuth"
   | "completeGatewayOAuth"
->;
+> & {
+  pollGatewayOAuth?: (
+    context: string,
+    nonce: string,
+  ) => Promise<AccountsResult<AccountOperationView>>;
+};
 const defaultManagementApi = {
   listGatewayAccounts,
   mutateGatewayAccount,
@@ -71,6 +80,7 @@ const defaultManagementApi = {
   readGatewayOperation,
   beginGatewayOAuth,
   completeGatewayOAuth,
+  pollGatewayOAuth,
 };
 export type AccountRowsRenderer = (
   accounts: readonly AccountView[],
@@ -96,6 +106,12 @@ function savedNonces(key: string): string[] {
     throw new Error();
   return [...new Set(saved as string[])];
 }
+type DeviceAuthorization = {
+  userCode: string;
+  verificationURL: string;
+  expiresAt: string;
+  intervalSeconds: number;
+};
 type OAuthFormIntent =
   | Omit<AccountOAuthIntent, "nonce">
   | Omit<AccountOAuthReconnectIntent, "nonce">;
@@ -172,6 +188,7 @@ export function AccountGatewayControls({
   return (
     <QueryClientProvider client={client}>
       <Controls
+        key={`${managementScope}:${bootstrap.context.split(".")[0]}`}
         bootstrap={bootstrap}
         api={api}
         managementScope={managementScope}
@@ -215,6 +232,10 @@ function Controls({
   const [ready, setReady] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [activeNonce, setActiveNonce] = useState<string | null>(null);
+  const [deviceHandoffs, setDeviceHandoffs] = useState<
+    Record<string, DeviceAuthorization>
+  >({});
   const lifecycleActivities = useAccountLifecycleActivities(client);
   const [completionHandoff, setCompletionHandoff] = useState<string | null>(
     null,
@@ -224,7 +245,8 @@ function Controls({
   const page = useInfiniteQuery({
     queryKey: pageKey(scope, null),
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) => api.listGatewayAccounts(context, pageParam),
+    queryFn: ({ pageParam }) =>
+      readAccountResult(api.listGatewayAccounts(context, pageParam)),
     initialData: { pages: [bootstrap.page], pageParams: [null] },
     getNextPageParam: (result) =>
       result.status === "ok" ? result.value.nextCursor : null,
@@ -234,7 +256,9 @@ function Controls({
   });
   useEffect(() => {
     try {
-      setNonces(savedNonces(storageKey));
+      const saved = savedNonces(storageKey);
+      setNonces(saved);
+      setActiveNonce(saved.at(-1) ?? null);
       setReady(true);
     } catch {
       setMessage(
@@ -279,6 +303,8 @@ function Controls({
       // Persist BEFORE request entry: a lost response/reload preserves the operation identity.
       sessionStorage.setItem(storageKey, JSON.stringify(next));
       setNonces(next);
+      setActiveNonce(nonce);
+      setMessage("");
       return nonce;
     } catch {
       setMessage(
@@ -292,6 +318,12 @@ function Controls({
       const next = savedNonces(storageKey).filter((n) => n !== nonce);
       sessionStorage.setItem(storageKey, JSON.stringify(next));
       setNonces(next);
+      if (activeNonce === nonce) setActiveNonce(null);
+      setDeviceHandoffs((previous) => {
+        const next = { ...previous };
+        delete next[nonce];
+        return next;
+      });
     } catch {
       setMessage("Could not update connection status.");
     }
@@ -307,30 +339,25 @@ function Controls({
     client.setQueryData(operationKey(scope, nonce), result);
     if (result.status !== "ok") dismiss(nonce); // Adapter proved no management mutation entered.
     setMessage(
-      result.status === "ok"
-        ? result.value.state === "applied"
-          ? personal
-            ? "The personal account request finished. Sharing and model selection remain separate actions."
-            : "The connection request finished. Workspace use may still require selecting an account."
-          : result.value.state === "rejected"
-            ? "The connection request was declined."
-            : "We could not confirm this connection request. Check its status later; it will not be submitted twice."
-        : statusText(result.status, managementScope),
+      result.status === "ok" ? "" : statusText(result.status, managementScope),
     );
     await refresh();
   }
   async function beginOAuth(intent: OAuthFormIntent) {
     if (submitting.current) return;
+    const method = intent.method ?? "device_code";
     let tab: Window | null = null;
     let nonce: string | null;
     try {
-      tab = window.open("about:blank", "_blank");
-      if (!tab) throw new Error();
-      tab.opener = null;
-      const referrer = tab.document.createElement("meta");
-      referrer.name = "referrer";
-      referrer.content = "no-referrer";
-      tab.document.head.append(referrer);
+      if (method === "browser") {
+        tab = window.open("about:blank", "_blank");
+        if (!tab) throw new Error();
+        tab.opener = null;
+        const referrer = tab.document.createElement("meta");
+        referrer.name = "referrer";
+        referrer.content = "no-referrer";
+        tab.document.head.append(referrer);
+      }
       nonce = reserveNonce();
     } catch {
       tab?.close();
@@ -340,7 +367,7 @@ function Controls({
       return;
     }
     if (!nonce) {
-      tab.close();
+      tab?.close();
       return;
     }
     submitting.current = true;
@@ -350,11 +377,18 @@ function Controls({
     try {
       // Direct ingress: neither the Begin response nor its temporary URL enters
       // a query/mutation cache, component state, storage or a readback request.
-      const fresh = await api.beginGatewayOAuth(context, { ...intent, nonce });
+      const fresh = await api.beginGatewayOAuth(context, {
+        ...intent,
+        method,
+        nonce,
+      });
       const safe: AccountsResult<AccountOperationView> =
         fresh.status === "ok"
           ? fresh.value.operation.nonce === nonce
-            ? { status: "ok", value: fresh.value.operation }
+            ? {
+                status: "ok",
+                value: { ...fresh.value.operation, oauthMethod: method },
+              }
             : {
                 status: "ok",
                 value: { nonce, state: "unknown", cleanup: "unresolved" },
@@ -368,6 +402,7 @@ function Controls({
         validAuthorizationURL(authorizationURL) &&
         fresh.value.operation.nonce === nonce &&
         fresh.value.operation.state === "pending" &&
+        tab &&
         !tab.closed
       ) {
         const link = tab.document.createElement("a");
@@ -382,11 +417,27 @@ function Controls({
         } finally {
           link.removeAttribute("href");
         }
-      } else tab.close();
+      } else tab?.close();
+      if (
+        fresh.status === "ok" &&
+        method === "device_code" &&
+        fresh.value.operation.nonce === nonce &&
+        fresh.value.operation.state === "pending" &&
+        fresh.value.deviceAuthorization &&
+        validAuthorizationURL(fresh.value.deviceAuthorization.verificationURL)
+      ) {
+        // Only the fresh, user-visible code is ephemeral; never cache the provider handoff.
+        const { userCode, verificationURL, expiresAt, intervalSeconds } =
+          fresh.value.deviceAuthorization;
+        setDeviceHandoffs((previous) => ({
+          ...previous,
+          [nonce!]: { userCode, verificationURL, expiresAt, intervalSeconds },
+        }));
+      }
       if (completionReady) offerCompletionHandoff(nonce);
       await accept(nonce, safe);
     } catch {
-      if (!navigated) tab.close();
+      if (!navigated) tab?.close();
       await accept(nonce, {
         status: "ok",
         value: { nonce, state: "unknown", cleanup: "unresolved" },
@@ -454,28 +505,30 @@ function Controls({
   });
   const loaded = page.data.pages.filter((result) => result.status === "ok");
   const failure = page.data.pages.find((result) => result.status !== "ok");
-  const data = loaded.length
-    ? {
-        status: "ok" as const,
-        value: {
-          ...loaded[0]!.value,
-          accounts: [
-            ...new Map(
-              loaded
-                .flatMap((result) => result.value.accounts)
-                .map((account) => [account.connectionId, account]),
-            ).values(),
-          ],
-          profiles: [
-            ...new Map(
-              loaded
-                .flatMap((result) => result.value.profiles)
-                .map((profile) => [profile.id, profile]),
-            ).values(),
-          ],
-        },
-      }
-    : failure;
+  const data = failure
+    ? failure
+    : loaded.length
+      ? {
+          status: "ok" as const,
+          value: {
+            ...loaded[0]!.value,
+            accounts: [
+              ...new Map(
+                loaded
+                  .flatMap((result) => result.value.accounts)
+                  .map((account) => [account.connectionId, account]),
+              ).values(),
+            ],
+            profiles: [
+              ...new Map(
+                loaded
+                  .flatMap((result) => result.value.profiles)
+                  .map((profile) => [profile.id, profile]),
+              ).values(),
+            ],
+          },
+        }
+      : failure;
 
   const detachMutation = useMutation({
     mutationFn: (account: AccountView) =>
@@ -499,6 +552,8 @@ function Controls({
     bindingMutation.isPending ||
     detachMutation.isPending ||
     page.isFetching ||
+    page.isError ||
+    Boolean(failure) ||
     data?.status !== "ok";
   function renderActions(account: AccountView) {
     if (data?.status !== "ok") return null;
@@ -602,8 +657,19 @@ function Controls({
   }
   return (
     <div className="space-y-4">
+      {connectOnly && data?.status === "ok" && !activeNonce ? (
+        <ConnectionForm
+          profiles={data.value.profiles}
+          accounts={data.value.accounts}
+          disabled={disabled}
+          managementScope={managementScope}
+          begin={beginOAuth}
+          submit={submit}
+        />
+      ) : null}
       <div className="flex flex-wrap gap-3">
-        {!hideConnect &&
+        {!connectOnly &&
+        !hideConnect &&
         data?.status === "ok" &&
         data.value.profiles.some(
           (p) => p.authKind === "api_key" || p.authKind === "oauth",
@@ -651,22 +717,24 @@ function Controls({
             ) : null}
           </AccountActionsMenu>
         ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label="Refresh connections"
-          disabled={!context || page.isFetching}
-          title={
-            !context
-              ? "The connection context is unavailable."
-              : page.isFetching
-                ? "The connection list is being refreshed."
-                : undefined
-          }
-          onClick={() => void refresh()}
-        >
-          <RefreshCw aria-hidden="true" className="size-4" />
-        </Button>
+        {!connectOnly || page.isError || failure ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Refresh connections"
+            disabled={!context || page.isFetching}
+            title={
+              !context
+                ? "The connection context is unavailable."
+                : page.isFetching
+                  ? "The connection list is being refreshed."
+                  : undefined
+            }
+            onClick={() => void refresh()}
+          >
+            <RefreshCw aria-hidden="true" className="size-4" />
+          </Button>
+        ) : null}
       </div>
       {message ? (
         <p role="status" className="text-sm text-slate-300">
@@ -677,6 +745,11 @@ function Controls({
         <p role="status">
           Connection details could not be refreshed. Workspace access remains
           separate.
+        </p>
+      ) : null}
+      {connectOnly && data?.status !== "ok" ? (
+        <p role="status" className="text-sm text-slate-400">
+          {statusText(data?.status ?? "unavailable", managementScope)}
         </p>
       ) : null}
       {connectOnly ? null : renderAccounts ? (
@@ -771,40 +844,117 @@ function Controls({
       ) : null}
       {nonces.length ? (
         <div className="space-y-2 border-t border-cyan-200/10 pt-4">
-          <h4 className="text-sm font-semibold text-cyan-50">
-            Connection status
-          </h4>
-          <p className="text-xs text-slate-400">
-            Track recent connection requests here. Pending Codex authorizations
-            can be resumed below. A request is never submitted twice, and
-            checking its status never opens a new authorization tab.
-          </p>
-          {nonces.map((nonce, index) => (
-            <OperationReadback
-              key={nonce}
-              context={context}
-              scope={scope}
-              nonce={nonce}
-              index={index + 1}
-              dismiss={() => dismiss(nonce)}
-              refresh={refresh}
-              autoOpenCompletion={completionHandoff === nonce}
-              consumeCompletionHandoff={() => consumeCompletionHandoff(nonce)}
-              oauthEnabled={
-                data?.status === "ok" &&
-                data.value.profiles.some((p) => p.authKind === "oauth")
-              }
-              api={api}
-              managementScope={managementScope}
-            />
-          ))}
+          {!connectOnly ? (
+            <h4 className="text-sm font-semibold text-cyan-50">
+              Connection status
+            </h4>
+          ) : null}
+          {!connectOnly ? (
+            <p className="text-xs text-slate-400">
+              Recent requests update automatically. You can close this view and
+              return to the same request.
+            </p>
+          ) : null}
+          {nonces
+            .filter((nonce) => !connectOnly || nonce === activeNonce)
+            .map((nonce) => (
+              <OperationReadback
+                key={nonce}
+                context={context}
+                scope={scope}
+                nonce={nonce}
+                dismiss={() => {
+                  dismiss(nonce);
+                  if (activeNonce === nonce) setActiveNonce(null);
+                }}
+                refresh={refresh}
+                listFailed={page.isError || Boolean(failure)}
+                deviceAuthorization={deviceHandoffs[nonce]}
+                inline={connectOnly}
+                startAnother={() => setActiveNonce(null)}
+                autoOpenCompletion={completionHandoff === nonce}
+                consumeCompletionHandoff={() => consumeCompletionHandoff(nonce)}
+                oauthEnabled={
+                  data?.status === "ok" &&
+                  data.value.profiles.some((p) => p.authKind === "oauth")
+                }
+                api={api}
+                managementScope={managementScope}
+              />
+            ))}
         </div>
       ) : null}
     </div>
   );
 }
 
+function ConnectionForm({
+  profiles,
+  accounts,
+  disabled,
+  managementScope,
+  begin,
+  submit,
+}: {
+  profiles: AccountProfileView[];
+  accounts: AccountView[];
+  disabled: boolean;
+  managementScope: ManagementScope;
+  begin(intent: OAuthFormIntent): Promise<void>;
+  submit(
+    intent: Omit<AccountIntent, "nonce">,
+    credential?: string,
+  ): Promise<void>;
+}) {
+  const ordered = [...profiles].sort(
+    (a, b) => Number(b.authKind === "oauth") - Number(a.authKind === "oauth"),
+  );
+  const [profileId, setProfileId] = useState(ordered[0]?.id ?? "");
+  const profile = profiles.find((row) => row.id === profileId);
+  return (
+    <div className="space-y-4">
+      <SelectField
+        name="connectionProvider"
+        label={
+          <span className="flex items-center gap-2">
+            <AccountProviderLogo profileLabel={profile?.label} />
+            Provider
+          </span>
+        }
+        defaultValue={profileId}
+        onValueChange={setProfileId}
+        options={ordered.map((row) => ({
+          value: row.id,
+          label: `${row.label} · ${row.authKind === "oauth" ? "Sign in" : "API key"}`,
+        }))}
+      />
+      {profile?.authKind === "oauth" ? (
+        <OAuthForm
+          key={profile.id}
+          inline
+          accounts={accounts}
+          profiles={[profile]}
+          disabled={disabled}
+          managementScope={managementScope}
+          begin={begin}
+        />
+      ) : profile ? (
+        <AccountForm
+          key={profile.id}
+          inline
+          accounts={accounts}
+          profiles={[profile]}
+          disabled={disabled}
+          managementScope={managementScope}
+          submit={submit}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function OAuthForm({
+  inline = false,
   account,
   accounts = [],
   profiles,
@@ -813,6 +963,7 @@ function OAuthForm({
   begin,
   managementScope = "workspace",
 }: {
+  inline?: boolean;
   account?: AccountView;
   accounts?: AccountView[];
   profiles: AccountProfileView[];
@@ -823,6 +974,81 @@ function OAuthForm({
 }) {
   const menuReturnFocus = useAccountMenuReturnFocus();
   const [open, setOpen] = useState(false);
+  const [method, setMethod] = useState<"device_code" | "browser">(
+    "device_code",
+  );
+  const fields = (
+    <form
+      className="mt-4 grid gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const values = new FormData(form);
+        const intent: OAuthFormIntent = account
+          ? {
+              method,
+              connectionId: account.connectionId,
+              gatewayRevision: account.gatewayRevision,
+              mirrorRevision: account.mirrorRevision,
+            }
+          : {
+              method,
+              profileId: String(values.get("profileId") ?? ""),
+              label:
+                String(values.get("label") ?? "").trim() ||
+                suggestedAccountLabel(
+                  profiles[0]?.label ?? "Codex",
+                  accounts.map((a) => a.label),
+                ),
+            };
+        form.reset();
+        setOpen(false);
+        void begin(intent);
+      }}
+    >
+      <OAuthMethodChoice method={method} change={setMethod} />
+      {!account ? (
+        <>
+          {!inline ? (
+            <SelectField
+              name="profileId"
+              label="Provider profile"
+              defaultValue={profiles[0]?.id ?? ""}
+              options={profiles.map((p) => ({
+                value: p.id,
+                label: `${p.label} · ${p.protocol}`,
+                description: p.models.join(", "),
+              }))}
+            />
+          ) : (
+            <input
+              type="hidden"
+              name="profileId"
+              value={profiles[0]?.id ?? ""}
+            />
+          )}
+          <label className="grid gap-2 text-sm">
+            Connection name
+            <input
+              className={inputClass}
+              name="label"
+              defaultValue={suggestedAccountLabel(
+                profiles[0]?.label ?? "Codex",
+                accounts.map((a) => a.label),
+              )}
+              maxLength={120}
+            />
+          </label>
+        </>
+      ) : (
+        <p className="text-sm text-slate-300">{account.label}</p>
+      )}
+      <Button type="submit" disabled={disabled}>
+        Sign in to Codex
+      </Button>
+    </form>
+  );
+  if (inline) return fields;
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <AccountMenuItem>
@@ -849,75 +1075,69 @@ function OAuthForm({
               : accountsCopy.connectOAuth}
           </Dialog.Title>
           <Dialog.Description>
-            Codex sign-in opens in a new browser tab. No API key is needed. The
-            connection stays pending until it is confirmed; if the outcome is
-            uncertain, wait for a status check. When reconnecting, the logical
-            account is kept until the new authorization is verified.
+            Sign in with your OpenAI account. No API key is needed. Device code
+            is recommended; browser callback is available as a fallback.
+            {account
+              ? " Your existing connection is kept until sign-in is confirmed."
+              : ""}
             {managementScope === "personal"
               ? " This is your canonical personal connection. Its name is visible wherever you explicitly share it; authentication is shared across all authorized uses."
               : ""}
           </Dialog.Description>
-          <form
-            className="mt-4 grid gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const form = event.currentTarget;
-              const values = new FormData(form);
-              const intent: OAuthFormIntent = account
-                ? {
-                    connectionId: account.connectionId,
-                    gatewayRevision: account.gatewayRevision,
-                    mirrorRevision: account.mirrorRevision,
-                  }
-                : {
-                    profileId: String(values.get("profileId") ?? ""),
-                    label:
-                      String(values.get("label") ?? "").trim() ||
-                      suggestedAccountLabel(
-                        profiles[0]?.label ?? "Codex",
-                        accounts.map((a) => a.label),
-                      ),
-                  };
-              form.reset();
-              setOpen(false);
-              void begin(intent);
-            }}
-          >
-            {!account ? (
-              <>
-                <SelectField
-                  name="profileId"
-                  label="Provider profile"
-                  defaultValue={profiles[0]?.id ?? ""}
-                  options={profiles.map((p) => ({
-                    value: p.id,
-                    label: `${p.label} · ${p.protocol}`,
-                    description: p.models.join(", "),
-                  }))}
-                />
-                <label className="grid gap-2 text-sm">
-                  Connection name
-                  <input
-                    className={inputClass}
-                    name="label"
-                    defaultValue={suggestedAccountLabel(
-                      profiles[0]?.label ?? "Codex",
-                      accounts.map((a) => a.label),
-                    )}
-                    maxLength={120}
-                  />
-                </label>
-              </>
-            ) : (
-              <p className="text-sm text-slate-300">{account.label}</p>
-            )}
-            <Button type="submit" disabled={disabled}>
-              Sign in to Codex
-            </Button>
-          </form>
+          {fields}
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+function OAuthMethodChoice({
+  method,
+  change,
+}: {
+  method: "device_code" | "browser";
+  change(value: "device_code" | "browser"): void;
+}) {
+  return (
+    <div className="space-y-3">
+      <SelectField
+        name="oauthMethod"
+        label="Sign-in method"
+        defaultValue={method}
+        onValueChange={(value) => change(value as "device_code" | "browser")}
+        options={[
+          {
+            value: "device_code",
+            label: "Device code",
+            description: "Recommended · enter a short code at OpenAI",
+          },
+          {
+            value: "browser",
+            label: "Browser callback",
+            description: "Fallback · paste the authorization result address",
+          },
+        ]}
+      />
+      {method === "device_code" ? (
+        <p className="text-sm text-slate-400">
+          First enable device code login at{" "}
+          <a
+            className="text-cyan-200 underline"
+            href="https://chatgpt.com/settings/security"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            ChatGPT Settings → Security
+          </a>{" "}
+          (at the bottom of the page).
+        </p>
+      ) : (
+        <p className="text-sm text-slate-400">
+          A browser tab opens for sign-in. Paste its final address here to
+          finish.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -925,7 +1145,10 @@ function OperationReadback({
   context,
   scope,
   nonce,
-  index,
+  listFailed,
+  deviceAuthorization,
+  inline = false,
+  startAnother,
   dismiss,
   refresh,
   oauthEnabled,
@@ -937,7 +1160,10 @@ function OperationReadback({
   context: string;
   scope: string;
   nonce: string;
-  index: number;
+  listFailed: boolean;
+  startAnother(): void;
+  deviceAuthorization?: DeviceAuthorization | undefined;
+  inline?: boolean;
   dismiss(): void;
   refresh(): Promise<void>;
   oauthEnabled: boolean;
@@ -947,7 +1173,8 @@ function OperationReadback({
   managementScope: ManagementScope;
 }) {
   const client = useQueryClient();
-  const [pollUntil] = useState(() => Date.now() + 60000);
+  const [pollUntil] = useState(() => Date.now() + 15 * 60000);
+  const promoted = useRef(false);
   const [completionOffered, setCompletionOffered] = useState(false);
   const [completionSpent, setCompletionSpent] = useState(false);
   const [keyContinuationSpent, setKeyContinuationSpent] = useState(false);
@@ -959,21 +1186,40 @@ function OperationReadback({
   const [keyContinuationBusy, setKeyContinuationBusy] = useState(false);
   const operation = useQuery({
     queryKey: operationKey(scope, nonce),
-    queryFn: () => api.readGatewayOperation(context, nonce),
+    queryFn: () => {
+      const known = client.getQueryData<AccountsResult<AccountOperationView>>(
+        operationKey(scope, nonce),
+      );
+      return readAccountResult(
+        known?.status === "ok" &&
+          known.value.oauthMethod === "device_code" &&
+          known.value.state === "pending" &&
+          api.pollGatewayOAuth
+          ? api.pollGatewayOAuth(context, nonce)
+          : api.readGatewayOperation(context, nonce),
+      );
+    },
     staleTime: 3000,
     retry: false,
     refetchOnWindowFocus: false,
+    refetchIntervalInBackground: true,
     refetchInterval: (query) =>
       query.state.data?.status === "ok" &&
       query.state.data.value.state === "pending" &&
-      Date.now() < pollUntil
-        ? 3000
+      Date.now() <
+        (deviceAuthorization
+          ? Date.parse(deviceAuthorization.expiresAt)
+          : pollUntil)
+        ? Math.max(3000, (deviceAuthorization?.intervalSeconds ?? 3) * 1000)
         : false,
   });
   const data = operation.data;
   const state = data?.status === "ok" ? data.value.state : "unresolved";
   useEffect(() => {
-    if (state === "applied") void refresh();
+    if (state === "applied" && !promoted.current) {
+      promoted.current = true;
+      void refresh();
+    }
   }, [state, refresh]); // refresh exact account pages after promotion
   const keyResume =
     managementScope === "personal" && data?.status === "ok"
@@ -1029,6 +1275,8 @@ function OperationReadback({
     try {
       const checked = await operation.refetch();
       const fresh = checked.data;
+      if (fresh?.status === "ok" && fresh.value.state === "applied")
+        await refresh();
       const resume = fresh?.status === "ok" ? fresh.value.resume : undefined;
       const original = originalKeyResume.current;
       if (
@@ -1057,28 +1305,86 @@ function OperationReadback({
   }
   const terminal = state === "applied" || state === "rejected";
   return (
-    <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
-      <span>
-        Connection {index} · {operationStateText(state)}
-        {data?.status === "ok" && data.value.account
-          ? ` · ${data.value.account.label}`
-          : ""}
-      </span>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={operation.isFetching || keyContinuationBusy}
-        onClick={() => void checkStatus()}
-      >
-        Check status
-      </Button>
+    <div className="space-y-4 text-sm text-slate-300">
+      <div role="status" className="space-y-3">
+        {data?.status === "ok" && data.value.account ? (
+          <AccountIdentity
+            label={data.value.account.label}
+            profileLabel={data.value.account.profileLabel}
+            authKind={data.value.account.authKind}
+          />
+        ) : data?.status === "ok" && data.value.oauthMethod ? (
+          <div className="flex items-center gap-3 font-medium text-cyan-50">
+            <AccountProviderLogo profileLabel="OpenAI Codex" />
+            <span>Codex sign-in</span>
+          </div>
+        ) : (
+          <p className="font-medium text-cyan-50">Account connection</p>
+        )}
+        <div className={state === "applied" ? "text-emerald-300" : undefined}>
+          <AccountStatusLine
+            kind={
+              state === "applied"
+                ? "ready"
+                : state === "pending"
+                  ? "confirming"
+                  : state === "rejected"
+                    ? "attention"
+                    : "unknown"
+            }
+            text={operationStateText(state)}
+          />
+        </div>
+        {state === "applied" ? (
+          <p className="text-sm text-slate-400">
+            {data?.status === "ok" && data.value.oauthMethod
+              ? "Sign-in complete."
+              : "Request completed."}{" "}
+            {managementScope === "personal"
+              ? "Organization access can be granted separately via Access."
+              : "Availability for reviews depends on workspace access and model selection."}
+          </p>
+        ) : state === "pending" ? (
+          <p className="text-sm text-slate-400">
+            Waiting for provider confirmation. This page checks automatically;
+            you can close it and return to this request.
+          </p>
+        ) : state === "unknown" ? (
+          <p className="text-sm text-slate-400">
+            The result is not confirmed yet. Check this request before starting
+            again.
+          </p>
+        ) : null}
+      </div>
+      {state === "pending" &&
+      data?.status === "ok" &&
+      data.value.oauthMethod === "device_code" ? (
+        <DeviceCodeHandoff authorization={deviceAuthorization} />
+      ) : null}
+      {operation.isError ? (
+        <p role="status" className="text-sm text-slate-400">
+          Status could not be refreshed. The last confirmed result is shown.
+        </p>
+      ) : null}
+      {!terminal || listFailed || operation.isError ? (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={operation.isFetching || keyContinuationBusy}
+          onClick={() => void checkStatus()}
+        >
+          {state === "applied" ? "Refresh account details" : "Check status"}
+        </Button>
+      ) : null}
       {state === "pending" && keyResume && !keyContinuationSpent ? (
         <KeyUpdateContinuation submit={continueKeyUpdate} />
       ) : null}
       {state === "pending" &&
       !keyResume &&
+      !(data?.status === "ok" && data.value.oauthMethod === "device_code") &&
       (oauthEnabled || autoOpenCompletion || completionOffered) ? (
         <OAuthCompletionForm
+          inline={inline}
           completeOAuth={api.completeGatewayOAuth}
           managementScope={managementScope}
           context={context}
@@ -1101,11 +1407,94 @@ function OperationReadback({
           }}
         />
       ) : null}
-      {terminal || state === "unknown" ? (
+      {inline && terminal ? (
+        <Button variant="outline" size="sm" onClick={startAnother}>
+          Add another account
+        </Button>
+      ) : null}
+      {(terminal && !inline) || state === "unknown" ? (
         <Button variant="outline" size="sm" onClick={dismiss}>
           {state === "unknown" ? "Hide" : "Dismiss"}
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+function DeviceCodeHandoff({
+  authorization,
+}: {
+  authorization: DeviceAuthorization | undefined;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [expired, setExpired] = useState(
+    () => !!authorization && Date.now() >= Date.parse(authorization.expiresAt),
+  );
+  useEffect(() => {
+    if (!authorization) return;
+    const timer = window.setTimeout(
+      () => setExpired(true),
+      Math.max(0, Date.parse(authorization.expiresAt) - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [authorization]);
+  if (expired)
+    return (
+      <p role="status" className="text-sm text-amber-200">
+        This code has expired. Check status to confirm the result before
+        starting another sign-in.
+      </p>
+    );
+  if (!authorization)
+    return (
+      <p className="text-sm text-slate-400">
+        Waiting for OpenAI. If you already entered the code, keep this page
+        open. For a new code, wait for this request to expire before starting
+        again.
+      </p>
+    );
+  return (
+    <div className="space-y-4 border-y border-cyan-200/10 py-4">
+      <p>Enter this one-time code at OpenAI:</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="select-all font-mono text-2xl font-semibold tracking-[0.18em] text-cyan-50">
+          {authorization.userCode}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void (async () => {
+              try {
+                await navigator.clipboard.writeText(authorization.userCode);
+                setCopied(true);
+              } catch {
+                setCopied(false);
+              }
+            })();
+          }}
+        >
+          <Copy aria-hidden="true" className="size-4" />
+          {copied ? "Copied" : "Copy code"}
+        </Button>
+      </div>
+      <a
+        className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-cyan-300 px-4 font-medium text-slate-950"
+        href={authorization.verificationURL}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Open OpenAI
+        <ExternalLink aria-hidden="true" className="size-4" />
+      </a>
+      <p className="text-xs text-slate-400">
+        Keep this page open while you sign in. The code expires at{" "}
+        {new Date(authorization.expiresAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
+        .
+      </p>
     </div>
   );
 }
@@ -1181,6 +1570,7 @@ function KeyUpdateContinuation({
 }
 
 function OAuthCompletionForm({
+  inline = false,
   context,
   nonce,
   autoOpen,
@@ -1192,6 +1582,7 @@ function OAuthCompletionForm({
   completeOAuth,
   managementScope,
 }: {
+  inline?: boolean;
   context: string;
   nonce: string;
   autoOpen: boolean;
@@ -1244,6 +1635,41 @@ function OAuthCompletionForm({
       setBusy(false);
     }
   }
+  const fields = (
+    <form
+      className="mt-4 grid gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const field = form.elements.namedItem(
+          "callbackURL",
+        ) as HTMLInputElement;
+        const callbackURL = field.value;
+        field.value = "";
+        form.reset(); // Clear the uncontrolled secret BEFORE any await.
+        void complete(callbackURL);
+      }}
+    >
+      <label className="grid gap-2 text-sm">
+        Authorization result address
+        <input
+          className={inputClass}
+          type="text"
+          name="callbackURL"
+          autoComplete="off"
+          spellCheck={false}
+          required
+          maxLength={8192}
+          disabled={busy || spent}
+        />
+      </label>
+      {message ? <p role="status">{message}</p> : null}
+      <Button type="submit" disabled={busy || spent}>
+        Complete authorization
+      </Button>
+    </form>
+  );
+  if (inline) return fields;
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <AccountMenuItem>
@@ -1277,38 +1703,7 @@ function OAuthCompletionForm({
             address and paste it below. The address is cleared as soon as you
             submit it.
           </Dialog.Description>
-          <form
-            className="mt-4 grid gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const form = event.currentTarget;
-              const field = form.elements.namedItem(
-                "callbackURL",
-              ) as HTMLInputElement;
-              const callbackURL = field.value;
-              field.value = "";
-              form.reset(); // Clear the uncontrolled secret BEFORE any await.
-              void complete(callbackURL);
-            }}
-          >
-            <label className="grid gap-2 text-sm">
-              Authorization result address
-              <input
-                className={inputClass}
-                type="text"
-                name="callbackURL"
-                autoComplete="off"
-                spellCheck={false}
-                required
-                maxLength={8192}
-                disabled={busy || spent}
-              />
-            </label>
-            {message ? <p role="status">{message}</p> : null}
-            <Button type="submit" disabled={busy || spent}>
-              Complete authorization
-            </Button>
-          </form>
+          {fields}
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
@@ -1316,6 +1711,7 @@ function OAuthCompletionForm({
 }
 
 function AccountForm({
+  inline = false,
   account,
   accounts = [],
   mode = "connect",
@@ -1325,6 +1721,7 @@ function AccountForm({
   submit,
   managementScope = "workspace",
 }: {
+  inline?: boolean;
   account?: AccountView;
   accounts?: AccountView[];
   mode?: "connect" | "rename" | "reconnect";
@@ -1361,6 +1758,158 @@ function AccountForm({
       : mode === "reconnect"
         ? accountsCopy.reconnectKey
         : accountsCopy.connectKey;
+  const fields = (
+    <form
+      className="mt-4 grid gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const values = new FormData(form);
+        const credential =
+          mode === "rename"
+            ? undefined
+            : String(values.get("credential") ?? "");
+        const intent: Omit<AccountIntent, "nonce"> = account
+          ? {
+              kind: mode,
+              connectionId: account.connectionId,
+              gatewayRevision: account.gatewayRevision,
+              mirrorRevision: account.mirrorRevision,
+              ...(mode === "rename"
+                ? { label: String(values.get("label") ?? "") }
+                : {}),
+            }
+          : {
+              kind: "connect",
+              profileId: String(values.get("profileId") ?? ""),
+              label:
+                String(values.get("label") ?? "").trim() ||
+                suggestion(selected),
+              ...(needsMimoURL ? { baseURL } : {}),
+            };
+        form.reset();
+        values.delete("credential");
+        setOpen(false);
+        void submit(intent, credential);
+      }}
+    >
+      {mode === "connect" && !inline ? (
+        <SelectField
+          name="profileId"
+          label="Provider profile"
+          defaultValue={profiles[0]?.id ?? ""}
+          onValueChange={(value) => {
+            const profile = profiles.find((p) => p.id === value);
+            setSelectedId(value);
+            setBaseURL(profile?.dedicatedBaseURL ?? "");
+            setManualURL(false);
+            if (automaticLabel) setLabelValue(suggestion(profile));
+          }}
+          options={profiles.map((p) => ({
+            value: p.id,
+            label: `${p.label} · ${p.protocol}`,
+            description: p.models.join(", "),
+          }))}
+        />
+      ) : null}
+      {inline ? (
+        <input type="hidden" name="profileId" value={profiles[0]?.id ?? ""} />
+      ) : null}
+      {needsMimoURL ? (
+        <>
+          <SelectField
+            key={selectedId}
+            name="endpointPreset"
+            label="Dedicated Base URL"
+            defaultValue={selected.dedicatedBaseURL ?? "manual"}
+            options={[
+              ...mimoTokenPlanEndpoints.map((endpoint) => ({
+                value: endpoint.baseURL,
+                label: endpoint.label,
+                description:
+                  endpoint.baseURL === selected.dedicatedBaseURL
+                    ? endpoint.baseURL
+                    : "Not available here yet",
+                disabled: endpoint.baseURL !== selected.dedicatedBaseURL,
+              })),
+              { value: "manual", label: "Enter URL manually" },
+            ]}
+            onValueChange={(value) => {
+              setManualURL(value === "manual");
+              if (value !== "manual") setBaseURL(value);
+            }}
+          />
+          {manualURL ? (
+            <label className="grid gap-2 text-sm">
+              Base URL from your Token Plan
+              <input
+                className={inputClass}
+                type="url"
+                value={baseURL}
+                onChange={(event) => setBaseURL(event.target.value)}
+                maxLength={2048}
+                required
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+          ) : null}
+          <p className="text-xs text-slate-400">
+            Copy your dedicated API key and OpenAI Base URL from your{" "}
+            <a
+              className="underline"
+              href="https://platform.xiaomimimo.com/console/plan-manage"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              MiMo Token Plan
+            </a>
+            . Token Plan and pay-as-you-go keys use different endpoints.
+            {!selected.dedicatedBaseURL
+              ? " URL setup is not available here yet."
+              : !endpointValid
+                ? " Use the enabled regional URL; other regions are not available here yet."
+                : ""}
+          </p>
+        </>
+      ) : null}
+      {mode !== "reconnect" ? (
+        <label className="grid gap-2 text-sm">
+          Connection name{mode === "connect" ? " (optional)" : ""}
+          <input
+            className={inputClass}
+            name="label"
+            required={mode === "rename"}
+            maxLength={120}
+            value={labelValue}
+            placeholder={suggestion(selected)}
+            onChange={(event) => {
+              setLabelValue(event.target.value);
+              setAutomaticLabel(!event.target.value.trim());
+            }}
+          />
+        </label>
+      ) : null}
+      {mode !== "rename" ? (
+        <label className="grid gap-2 text-sm">
+          API key
+          <input
+            className={inputClass}
+            name="credential"
+            type="password"
+            required
+            maxLength={16384}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+      ) : null}
+      <Button type="submit" disabled={disabled || !endpointValid}>
+        {mode === "connect" ? "Connect account" : "Confirm"}
+      </Button>
+    </form>
+  );
+  if (inline) return fields;
   return (
     <Dialog.Root
       open={open}
@@ -1408,152 +1957,7 @@ function AccountForm({
                 : " The canonical name is visible in every organization where you explicitly share this account."
               : ""}
           </Dialog.Description>
-          <form
-            className="mt-4 grid gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const form = event.currentTarget;
-              const values = new FormData(form);
-              const credential =
-                mode === "rename"
-                  ? undefined
-                  : String(values.get("credential") ?? "");
-              const intent: Omit<AccountIntent, "nonce"> = account
-                ? {
-                    kind: mode,
-                    connectionId: account.connectionId,
-                    gatewayRevision: account.gatewayRevision,
-                    mirrorRevision: account.mirrorRevision,
-                    ...(mode === "rename"
-                      ? { label: String(values.get("label") ?? "") }
-                      : {}),
-                  }
-                : {
-                    kind: "connect",
-                    profileId: String(values.get("profileId") ?? ""),
-                    label:
-                      String(values.get("label") ?? "").trim() ||
-                      suggestion(selected),
-                    ...(needsMimoURL ? { baseURL } : {}),
-                  };
-              form.reset();
-              values.delete("credential");
-              setOpen(false);
-              void submit(intent, credential);
-            }}
-          >
-            {mode === "connect" ? (
-              <SelectField
-                name="profileId"
-                label="Provider profile"
-                defaultValue={profiles[0]?.id ?? ""}
-                onValueChange={(value) => {
-                  const profile = profiles.find((p) => p.id === value);
-                  setSelectedId(value);
-                  setBaseURL(profile?.dedicatedBaseURL ?? "");
-                  setManualURL(false);
-                  if (automaticLabel) setLabelValue(suggestion(profile));
-                }}
-                options={profiles.map((p) => ({
-                  value: p.id,
-                  label: `${p.label} · ${p.protocol}`,
-                  description: p.models.join(", "),
-                }))}
-              />
-            ) : null}
-            {needsMimoURL ? (
-              <>
-                <SelectField
-                  key={selectedId}
-                  name="endpointPreset"
-                  label="Dedicated Base URL"
-                  defaultValue={selected.dedicatedBaseURL ?? "manual"}
-                  options={[
-                    ...mimoTokenPlanEndpoints.map((endpoint) => ({
-                      value: endpoint.baseURL,
-                      label: endpoint.label,
-                      description:
-                        endpoint.baseURL === selected.dedicatedBaseURL
-                          ? endpoint.baseURL
-                          : "Not available here yet",
-                      disabled: endpoint.baseURL !== selected.dedicatedBaseURL,
-                    })),
-                    { value: "manual", label: "Enter URL manually" },
-                  ]}
-                  onValueChange={(value) => {
-                    setManualURL(value === "manual");
-                    if (value !== "manual") setBaseURL(value);
-                  }}
-                />
-                {manualURL ? (
-                  <label className="grid gap-2 text-sm">
-                    Base URL from your Token Plan
-                    <input
-                      className={inputClass}
-                      type="url"
-                      value={baseURL}
-                      onChange={(event) => setBaseURL(event.target.value)}
-                      maxLength={2048}
-                      required
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                  </label>
-                ) : null}
-                <p className="text-xs text-slate-400">
-                  Copy your dedicated API key and OpenAI Base URL from your{" "}
-                  <a
-                    className="underline"
-                    href="https://platform.xiaomimimo.com/console/plan-manage"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    MiMo Token Plan
-                  </a>
-                  . Token Plan and pay-as-you-go keys use different endpoints.
-                  {!selected.dedicatedBaseURL
-                    ? " URL setup is not available here yet."
-                    : !endpointValid
-                      ? " Use the enabled regional URL; other regions are not available here yet."
-                      : ""}
-                </p>
-              </>
-            ) : null}
-            {mode !== "reconnect" ? (
-              <label className="grid gap-2 text-sm">
-                Connection name{mode === "connect" ? " (optional)" : ""}
-                <input
-                  className={inputClass}
-                  name="label"
-                  required={mode === "rename"}
-                  maxLength={120}
-                  value={labelValue}
-                  placeholder={suggestion(selected)}
-                  onChange={(event) => {
-                    setLabelValue(event.target.value);
-                    setAutomaticLabel(!event.target.value.trim());
-                  }}
-                />
-              </label>
-            ) : null}
-            {mode !== "rename" ? (
-              <label className="grid gap-2 text-sm">
-                API key
-                <input
-                  className={inputClass}
-                  name="credential"
-                  type="password"
-                  required
-                  maxLength={16384}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              </label>
-            ) : null}
-            <Button type="submit" disabled={disabled || !endpointValid}>
-              Confirm
-            </Button>
-          </form>
+          {fields}
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

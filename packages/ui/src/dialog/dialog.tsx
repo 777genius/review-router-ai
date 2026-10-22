@@ -26,7 +26,7 @@ export function DialogBackdrop(
 }
 
 export function DialogPopup(
-  props: React.ComponentPropsWithoutRef<typeof BaseDialog.Popup>,
+  props: React.ComponentPropsWithRef<typeof BaseDialog.Popup>,
 ): React.ReactElement {
   return (
     <BaseDialog.Popup

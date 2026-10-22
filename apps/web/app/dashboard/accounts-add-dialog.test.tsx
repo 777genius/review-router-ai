@@ -47,45 +47,43 @@ function Connect() {
   );
 }
 
-test("keeps connection actions inside the owner modal and returns to it after the key form", async () => {
+test("uses one Add dialog and preserves provider fields when closed and reopened", async () => {
+  const direct = (
+    <SelectField
+      name="profile"
+      label="Provider"
+      defaultValue="codex"
+      options={[
+        { value: "codex", label: "Codex" },
+        { value: "mimo", label: "MiMo" },
+      ]}
+    />
+  );
   render(
     <AccountsAddDialog
       workspaceName="Test workspace"
       own={<p>Existing connections</p>}
-      personalConnect={<Connect />}
-      organizationConnect={<Connect />}
+      personalConnect={direct}
+      organizationConnect={<p>Organization connection</p>}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Add account" }));
-  const owner = await screen.findByRole("dialog", { name: "Add account" });
-  fireEvent.keyDown(
-    within(owner).getByRole("button", { name: "Connect account" }),
-    { key: "ArrowDown" },
-  );
-  const menu = await screen.findByRole("menu");
-  // A body portal escapes Base UI's modal focus/inert boundary even at z70.
-  expect(owner.contains(menu)).toBe(true);
-  fireEvent.click(
-    within(menu).getByRole("menuitem", { name: "Connect with API key" }),
-  );
-  const form = await screen.findByRole("dialog", {
-    name: "Connect with API key",
-  });
-  const provider = within(form).getByRole("combobox", {
-    name: "Provider profile",
-  });
+  const dialog = await screen.findByRole("dialog", { name: "Add account" });
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  const provider = within(dialog).getByRole("combobox", { name: "Provider" });
   fireEvent.click(provider);
-  const option = await screen.findByRole("option", { name: "OpenRouter" });
+  const option = await screen.findByRole("option", { name: "MiMo" });
   fireEvent.mouseMove(option);
   fireEvent.click(option);
-  await waitFor(() => expect(provider.textContent).toContain("OpenRouter"));
-  fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
-  await waitFor(() =>
-    expect(
-      screen.queryByRole("dialog", { name: "Connect with API key" }),
-    ).toBeNull(),
-  );
-  expect(screen.getByRole("dialog", { name: "Add account" })).toBe(owner);
+  await waitFor(() => expect(provider.textContent).toContain("MiMo"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "Add account" }));
+  expect(
+    within(await screen.findByRole("dialog")).getByRole("combobox", {
+      name: "Provider",
+    }).textContent,
+  ).toContain("MiMo");
 });
 
 test("keeps standalone account actions portaled outside their trigger container", async () => {
@@ -94,4 +92,38 @@ test("keeps standalone account actions portaled outside their trigger container"
     key: "ArrowDown",
   });
   expect(view.container.contains(await screen.findByRole("menu"))).toBe(false);
+});
+
+test("clears unsubmitted credentials when hiding the retained connection form", async () => {
+  render(
+    <AccountsAddDialog
+      workspaceName="Test workspace"
+      own={null}
+      organizationConnect={null}
+      personalConnect={
+        <>
+          <label>
+            API key
+            <input type="password" />
+          </label>
+          <label>
+            Callback
+            <input name="callbackURL" />
+          </label>
+        </>
+      }
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add account" }));
+  const dialog = await screen.findByRole("dialog");
+  const key = within(dialog).getByLabelText("API key") as HTMLInputElement;
+  const callback = within(dialog).getByLabelText(
+    "Callback",
+  ) as HTMLInputElement;
+  fireEvent.change(key, { target: { value: "unsubmitted-key" } });
+  fireEvent.change(callback, { target: { value: "unsubmitted-callback" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(key.value).toBe("");
+  expect(callback.value).toBe("");
 });
