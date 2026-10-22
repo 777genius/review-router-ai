@@ -218,7 +218,8 @@ describe.skipIf(!adminUrl || !actionRoot)(
       await registerProviderUsageRoutes(app, api);
       apiOrigin = await app.listen({ host: "127.0.0.1", port: 0 });
       upstream = createServer(async (req, res) => {
-        for await (const _ of req) {
+        for await (const chunk of req) {
+          void chunk;
         }
         requests++;
         if (mode === "failure") {
