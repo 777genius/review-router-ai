@@ -1,0 +1,25 @@
+name: Setup PostgreSQL client
+description: Install PostgreSQL 17 client from the official signed PGDG repository
+runs:
+  using: composite
+  steps:
+    - name: Install PostgreSQL client
+      shell: bash
+      run: |
+        timeout --signal=TERM --kill-after=15s 5m bash <<'BASH'
+        set -euo pipefail
+        for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+          if [[ -f "$source" ]]; then
+            sudo sed -i -E 's#https?://azure[.]archive[.]ubuntu[.]com/ubuntu(/?)([[:space:]]|$)#https://archive.ubuntu.com/ubuntu\1\2#g' "$source"
+          fi
+        done
+        apt_options=(-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=2 -o DPkg::Lock::Timeout=30)
+        sudo apt-get "${apt_options[@]}" update
+        sudo apt-get "${apt_options[@]}" install -y --no-install-recommends ca-certificates curl
+        sudo install -d /usr/share/postgresql-common/pgdg
+        sudo curl -fsSL --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 2 --retry-max-time 60 -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        . /etc/os-release
+        echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+        sudo apt-get "${apt_options[@]}" update
+        sudo apt-get "${apt_options[@]}" install -y --no-install-recommends postgresql-client-17
+        BASH

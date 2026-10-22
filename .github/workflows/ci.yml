@@ -340,15 +340,7 @@ jobs:
         run: corepack enable
 
       - name: Install PostgreSQL client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ca-certificates curl
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          . /etc/os-release
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client-17
+        uses: ./.github/actions/setup-postgresql-client
 
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
@@ -490,15 +482,7 @@ jobs:
         run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
       - name: Install PostgreSQL client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ca-certificates curl
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          . /etc/os-release
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client-17
+        uses: ./.github/actions/setup-postgresql-client
 
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
@@ -641,15 +625,7 @@ jobs:
         run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
       - name: Install PostgreSQL client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ca-certificates curl
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          . /etc/os-release
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client-17
+        uses: ./.github/actions/setup-postgresql-client
 
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
@@ -941,15 +917,7 @@ jobs:
         run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
 
       - name: Install PostgreSQL client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ca-certificates curl
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          . /etc/os-release
-          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client-17
+        uses: ./.github/actions/setup-postgresql-client
 
       - name: Install dependencies
         run: node scripts/install-private-dependencies.mjs --frozen-lockfile
