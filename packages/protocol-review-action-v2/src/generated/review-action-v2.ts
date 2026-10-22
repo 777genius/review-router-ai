@@ -4051,8 +4051,8 @@ export const reviewActionV2Operations = [
         type: "hash",
       },
       {
-        optional: true,
         name: "purpose",
+        optional: true,
         type: "nullable_enum",
         enumTypeName: "ReviewSnapshotRestorePurpose",
         enumValues: ["comparison_baseline.v1"],
