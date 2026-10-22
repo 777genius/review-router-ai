@@ -108,6 +108,7 @@ export enum ReviewTaskKind {
   CodeReview = "code_review",
   FindingRevalidation = "finding_revalidation",
   ConflictReview = "conflict_review",
+  PrDescription = "pr_description",
 }
 
 export enum ReviewRunControlErrorCode {

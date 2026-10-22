@@ -11,6 +11,12 @@ import {
 } from "@reviewrouter/platform-signed-capabilities";
 import {
   ReviewCoverageState,
+  ReviewExecutionProviderKind,
+  ReviewInvocationLeasePurpose,
+  ReviewInvocationLeaseState,
+  ReviewTaskKind,
+  type ReviewExecutionQueryPort,
+  type ReviewInvocationLease,
   type FinalizedReviewProjectionArtifact,
   type ReviewExecutionSnapshot,
 } from "@reviewrouter/features-review-executions";
@@ -47,6 +53,7 @@ import {
   ProducerReleaseState,
   ReviewCapabilityProfile,
   ReviewProtocolVersion,
+  ReviewProviderKind,
   ReviewRunAuthorizationState,
   ReviewRunAuthorizationTokenResolutionStatus,
   ReviewTrustDomain,
@@ -65,7 +72,17 @@ import {
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
   type ReviewPublicationRequest,
+  prDescriptionExtensionV1,
+  providerInvocationManifestV1GoldenFixture,
 } from "@reviewrouter/protocol-review-action-v2";
+import {
+  normalizeProviderInvocationManifest,
+  ReviewTaskKind as EvidenceTaskKind,
+} from "@reviewrouter/features-review-evidence";
+import {
+  workspacePolicyFixture,
+  workspaceProviderFixture,
+} from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { ReviewActionV2ExecutionEvidenceCapabilityAdapter } from "./review-action-v2-execution-evidence-capabilities.js";
 import {
   createProductionPublicationLifecyclePort,
@@ -143,6 +160,280 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
         publicationAttemptId,
       },
     });
+  });
+
+  it.each([
+    "Generated prose\n<!-- review-router-summary:end -->\nInjected text",
+    "Generated prose\n<!-- ai-robot-review-summary:end -->\nInjected text",
+    "😀".repeat(2049),
+  ])(
+    "rejects marker injection or oversized generated prose before enqueue",
+    async (generatedMarkdown) => {
+      const source = {
+        ...publishing,
+        prDescription: {
+          generatedMarkdown,
+          generationProvenance: {
+            leaseId: "description-lease",
+            providerIndex: 0,
+            requestedModel: "primary-model",
+            actualModel: "primary-model",
+            providerRequestEnvelopeHash: hash("9"),
+          },
+        },
+      };
+      const finalizedArtifact = finalizedArtifactWithPublishing(
+        source,
+        hash("a"),
+      );
+      const publicationRepository = new InMemoryReviewPublicationRepository();
+      const routes = createRoutes(
+        publicationRepository,
+        { assertCurrentPolicy: vi.fn() },
+        finalizedArtifact,
+      );
+      const publicationPermit =
+        await capabilityAdapter().issuePublicationPermit(
+          finalizedArtifact.publicationPermit,
+          now,
+        );
+      await expect(
+        routes.publication.request!.execute(
+          await publicationRequest(
+            publicationPermit,
+            canonicalJson(source),
+            finalizedArtifact.projectionHash,
+          ),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        issues: ["pr_description_markdown_invalid"],
+      });
+      await expect(
+        publicationRepository.findByPermitIdentity(
+          finalizedArtifact.publicationPermit,
+        ),
+      ).resolves.toBeNull();
+    },
+  );
+
+  it("requires the real auxiliary lease query for a generated description before enqueue", async () => {
+    const source = {
+      ...publishing,
+      prDescription: {
+        generatedMarkdown: "## Changes\n\nGenerated narrative",
+        generationProvenance: {
+          leaseId: "description-lease",
+          providerIndex: 0,
+          requestedModel: "primary-model",
+          actualModel: "primary-model",
+          providerRequestEnvelopeHash: hash("9"),
+        },
+      },
+    };
+    const finalizedArtifact = finalizedArtifactWithPublishing(
+      source,
+      hash("a"),
+    );
+    const publicationRepository = new InMemoryReviewPublicationRepository();
+    const routes = createRoutes(
+      publicationRepository,
+      { assertCurrentPolicy: vi.fn() },
+      finalizedArtifact,
+    );
+    const publicationPermit = await capabilityAdapter().issuePublicationPermit(
+      finalizedArtifact.publicationPermit,
+      now,
+    );
+    await expect(
+      routes.publication.request!.execute(
+        await publicationRequest(
+          publicationPermit,
+          canonicalJson(source),
+          finalizedArtifact.projectionHash,
+        ),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      issues: ["pr_description_lease_query_unavailable"],
+    });
+    await expect(
+      publicationRepository.findByPermitIdentity(
+        finalizedArtifact.publicationPermit,
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("accepts required source at its captured byte budget when bounded optional prose exceeds remaining capacity", async () => {
+    const voteHash = hash("a");
+    const configuration = {
+      ...workspacePolicyFixture,
+      providers: [
+        {
+          ...workspaceProviderFixture,
+          authMode: "codex_account_gateway",
+          gatewayBindingId: "binding-1",
+          gatewayProfileRef: "profile-1",
+        },
+      ],
+    };
+    const capturedAuthorization: ReviewRunAuthorization = {
+      ...authorization,
+      providerVoteLanes: [
+        {
+          providerKind: ReviewProviderKind.Codex,
+          providerVoteIdentityHash: voteHash,
+        },
+      ],
+      runtimeSnapshotCanonicalJson: canonicalJson({
+        snapshotVersion: 3,
+        configurationSource: "repository",
+        configurationVersion: 1,
+        workspaceConfigurationVersion: 1,
+        repositoryConfigurationVersion: 1,
+        effectivePolicyDigest: `sha256:${hash("a")}`,
+        agent: {
+          profileRef: "codex-default",
+          agentKind: "codex",
+          binarySha256: hash("a"),
+          packageVersion: "0.147.0",
+          modelTransports: ["account_gateway"],
+          contextGateway: true,
+          cancellation: true,
+        },
+        agentProfileDigest: hash("b"),
+        producer: {
+          producerReleaseId: authorization.producerReleaseId,
+          actionCommitSha: producerRelease.actionCommitSha,
+          runtimeCommitSha: producerRelease.runtimeCommitSha,
+        },
+        configurationCanonicalJson: canonicalJson(configuration),
+        deadline: authorization.expiresAt.toISOString(),
+        gateway: null,
+        prDescriptionCapability: prDescriptionExtensionV1,
+      }),
+    };
+    const slot = {
+      workSlotId: "description",
+      taskKind: ReviewTaskKind.PrDescription,
+      providerKind: ReviewExecutionProviderKind.Codex,
+      providerVoteIdentityHash: voteHash,
+      shardKey: "description",
+      required: false,
+      attemptBudget: 1,
+      retryPolicyVersion: "description-v1",
+    };
+    const manifest = normalizeProviderInvocationManifest({
+      ...providerInvocationManifestV1GoldenFixture.input,
+      taskKindSet: [EvidenceTaskKind.PrDescription],
+      requestedModel: workspaceProviderFixture.model,
+      providerPolicyVersion: "pr-description-provider-policy.v1",
+    });
+    const source = {
+      ...publishing,
+      prDescription: {
+        generatedMarkdown: "A".repeat(1000),
+        generationProvenance: {
+          leaseId: "description-lease",
+          providerIndex: 0,
+          requestedModel: workspaceProviderFixture.model,
+          actualModel: workspaceProviderFixture.model,
+          providerRequestEnvelopeHash: manifest.providerRequestEnvelopeHash,
+        },
+      },
+    };
+    const finalizedArtifact = finalizedArtifactWithPublishing(
+      source,
+      hash("a"),
+    );
+    const lease: ReviewInvocationLease = {
+      ...publicationScope(),
+      leaseId: "description-lease",
+      workSlotId: slot.workSlotId,
+      providerInvocationKey: "description-invocation",
+      providerVoteIdentityHash: voteHash,
+      preparedManifestCanonicalJson: canonicalJson(manifest),
+      preparedManifestKey: "description-manifest",
+      purpose: ReviewInvocationLeasePurpose.ProviderExecution,
+      state: ReviewInvocationLeaseState.Released,
+      authorizationId: authorization.authorizationId,
+      producerReleaseId: authorization.producerReleaseId,
+      reviewRevisionHash: authorization.reviewRevisionHash,
+      mutationEpoch: authorization.mutationEpoch,
+      leaseSafetyDecisionHash: hash("1"),
+      attemptId: null,
+      sourceObservationId: null,
+      attemptOrdinal: 1,
+      acquireRequestIdHash: hash("2"),
+      acquireRequestHash: hash("3"),
+      lastRenewRequestIdHash: null,
+      lastRenewRequestHash: null,
+      ownerIdHash: hash("4"),
+      leaseCapabilityId: "description-capability",
+      capabilitySigningKeyId: "test-key",
+      fencingToken: 1n,
+      executionId: finalizedArtifact.executionId,
+      executionGeneration: finalizedArtifact.generation,
+      acquiredAt: now,
+      renewedAt: now,
+      expiresAt: authorization.expiresAt,
+      resultReportUntil: authorization.expiresAt,
+      retainUntil: finalizedArtifact.retainUntil,
+    };
+    const lookup = vi.fn(async () => lease);
+    const requiredSourceBytes = Buffer.byteLength(
+      canonicalJson(publishing),
+      "utf8",
+    );
+    expect(Buffer.byteLength(canonicalJson(source), "utf8")).toBeGreaterThan(
+      requiredSourceBytes,
+    );
+    const repository = new InMemoryReviewPublicationRepository();
+    const routes = createRoutes(
+      repository,
+      { assertCurrentPolicy: vi.fn() },
+      finalizedArtifact,
+      {},
+      {
+        authorization: capturedAuthorization,
+        limits: {
+          ...protocolLimits,
+          maxPublicationBodyBytes: requiredSourceBytes,
+        },
+        executions: {
+          async findExecution() {
+            return {
+              artifact: finalizedArtifact,
+              execution: {
+                executionId: finalizedArtifact.executionId,
+                workSlots: [slot],
+              },
+            } as unknown as ReviewExecutionSnapshot;
+          },
+          findLease: lookup,
+        },
+      },
+    );
+    const permit = await capabilityAdapter().issuePublicationPermit(
+      finalizedArtifact.publicationPermit,
+      now,
+    );
+    const accepted = await routes.publication.request!.execute(
+      await publicationRequest(
+        permit,
+        canonicalJson(source),
+        finalizedArtifact.projectionHash,
+      ),
+    );
+    expect(accepted.statusCode).toBe(201);
+    expect(lookup).toHaveBeenCalledWith(lease.leaseId);
+    const stored = await repository.findById(
+      accepted.result.publicationAttemptId!,
+    );
+    expect(
+      stored?.attempt.operations.map((operation) => operation.publicationKind),
+    ).toEqual(["summary", "managed_check"]);
+    expect(finalizedArtifact.projectionEnvelopeJson).toContain("prDescription");
   });
 
   it("preserves structured preliminary finding counts in a partial publication operation", async () => {
@@ -1139,6 +1430,12 @@ function createRoutes(
   contextPolicy = { assertCurrentPolicy: vi.fn() },
   finalizedArtifact: FinalizedReviewProjectionArtifact = artifact,
   decisionOverrides: Partial<ReviewPublicationDecisionPorts> = {},
+  overrides: {
+    readonly authorization?: ReviewRunAuthorization;
+    readonly executions?: Pick<ReviewExecutionQueryPort, "findExecution"> &
+      Partial<Pick<ReviewExecutionQueryPort, "findLease">>;
+    readonly limits?: ReviewProtocolLimitsV2;
+  } = {},
 ) {
   const publicationApplication = createReviewPublicationV2Application({
     clock: { now: () => now },
@@ -1177,11 +1474,11 @@ function createRoutes(
       async resolveReviewRunAuthorizationToken() {
         return {
           status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
-          authorization,
+          authorization: overrides.authorization ?? authorization,
         };
       },
     },
-    executions: {
+    executions: overrides.executions ?? {
       async findExecution() {
         return {
           artifact: finalizedArtifact,
@@ -1193,7 +1490,7 @@ function createRoutes(
         return producerRelease;
       },
       async findProtocolLimitsProfileById() {
-        return protocolLimits;
+        return overrides.limits ?? protocolLimits;
       },
     },
     snapshots: {

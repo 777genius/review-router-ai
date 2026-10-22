@@ -133337,6 +133337,64 @@ var providerApiCheckoutCompanionContract = Object.freeze({
   providerApiAuthMode: "openrouter-api",
   workflowSchemaVersion: 2
 });
+var prDescriptionContract = Object.freeze({
+  taskKind: "pr_description",
+  runtimeEnvKey: "UPDATE_PR_DESCRIPTION",
+  capabilityRuntimeEnvKey: "REVIEW_ROUTER_PR_DESCRIPTION_CAPABILITY_JSON",
+  promptVersion: "pr-description-v1",
+  outputSchemaVersion: 1,
+  maxPromptBytes: 32768,
+  maxGeneratedMarkdownBytes: 8192,
+  maxOutputTokens: 1200,
+  deadlineMs: 6e4,
+  attemptBudget: 1
+});
+var contextToolsContract = Object.freeze({
+  extensionId: "context-tools.v1",
+  version: 1,
+  planVersion: 1,
+  engine: "ocr",
+  modelTransport: "account_gateway",
+  availability: "required",
+  credentialDelivery: "explicit-run-scoped",
+  maxPlanBytes: 16384,
+  maxServers: 4,
+  maxToolsPerServer: 20,
+  maxHeadersPerServer: 16,
+  maxHeaderValueChars: 4096,
+  maxCredentialBindingsPerServer: 16,
+  maxCredentialBytes: 8192,
+  maxCredentialMapBytes: 65536,
+  headerNamePattern: "^[A-Za-z][!#$%&'*+.^_`|~0-9A-Za-z-]{0,63}$",
+  forbiddenHeaderNames: [
+    "host",
+    "connection",
+    "content-length",
+    "content-type",
+    "content-encoding",
+    "accept",
+    "transfer-encoding",
+    "te",
+    "trailer",
+    "upgrade",
+    "origin",
+    "referer",
+    "forwarded",
+    "via"
+  ],
+  forbiddenHeaderPrefixPattern: "^(proxy-|mcp-|x-forwarded-|x-real-|x-http-method|x-original-|x-rewrite-|x-host|x-proxy|x-mcp-)",
+  runtimeEnvKey: "REVIEW_ROUTER_CONTEXT_TOOLS_PLAN_JSON",
+  credentialsPath: "/api/action/v2/context-tools/credentials",
+  githubIssuePath: "/api/action/v2/context-tools/github-issue",
+  workflowSecret: "mcp_secrets_json",
+  runnerSecretEnvKey: "REVIEWROUTER_MCP_CREDENTIALS_JSON",
+  limits: {
+    startupTimeoutMs: 3e4,
+    callTimeoutMs: 3e4,
+    responseBytes: 1048576,
+    maxCalls: 128
+  }
+});
 
 var import_meta = {};
 async function A(A3 = {}) {

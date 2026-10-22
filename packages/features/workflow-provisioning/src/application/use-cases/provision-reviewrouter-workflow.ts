@@ -60,6 +60,12 @@ export async function provisionReviewRouterWorkflow(
   const providerApiSelected = saved
     ? isOpenRouterDirectConfiguration(saved.config)
     : false;
+  if (
+    !gatewaySelected &&
+    input.mcpSecrets &&
+    Object.keys(input.mcpSecrets).length
+  )
+    throw new Error("mcp_secrets_gateway_workflow_required");
   if (input.providerApiAuthMode && !providerApiSelected)
     throw new Error("openrouter_direct_requires_single_provider");
   if (
@@ -121,6 +127,9 @@ export async function provisionReviewRouterWorkflow(
         actionRef: input.actionRef,
         apiUrl: input.apiUrl,
         githubRepositoryId: dependencies.trustedGithubRepositoryId!,
+        ...(input.mcpSecrets !== undefined
+          ? { mcpSecrets: input.mcpSecrets }
+          : {}),
       })
     : providerApiSelected
       ? renderProviderApiWorkflow({

@@ -158,6 +158,45 @@ const gatewayInput: ProvisionWorkflowInput = {
   runtimeConfigMode: "oidc",
   codexSessionMode: "account-gateway",
 };
+
+it("preserves explicit MCP GitHub bindings through repository setup to the canonical caller", async () => {
+  const setupGateway = new CapturingSetupGateway();
+  await provisionRepositoryReviewRouterWorkflow(
+    { ...gatewayInput, mcpSecrets: { DOCS_KEY: "ORG_DOCS_TOKEN" } },
+    {
+      targets: new StaticWorkflowProvisioningTarget(activeTarget),
+      setupGateway,
+      provisioning: new CapturingProvisioningRepository(),
+      configurations: savedConfigurations(),
+      trustedGithubRepositoryId: "123456",
+    },
+  );
+  const file = setupGateway.input?.workflowFiles.find(
+    (file) =>
+      file.path === ".github/workflows/reviewrouter-review.yml" &&
+      file.operation !== "delete",
+  );
+  expect(
+    parse(file && "content" in file ? file.content : "").jobs.review.secrets,
+  ).toEqual({
+    mcp_secrets_json:
+      "${{ format('{{\"DOCS_KEY\":{0}}}', toJSON(secrets.ORG_DOCS_TOKEN)) }}",
+  });
+});
+
+it("rejects MCP bindings on other workflow modes before creating an attempt", async () => {
+  const setupGateway = new CapturingSetupGateway();
+  const provisioning = new CapturingProvisioningRepository();
+  await expect(
+    provisionReviewRouterWorkflow(
+      { ...gatewayInput, mcpSecrets: { DOCS_KEY: "ORG_DOCS_TOKEN" } },
+      { setupGateway, provisioning },
+    ),
+  ).rejects.toThrow("mcp_secrets_gateway_workflow_required");
+  expect(provisioning.attempts).toBe(0);
+  expect(setupGateway.input).toBeNull();
+});
+
 function savedConfigurations(
   selection = "repository",
 ): ReviewConfigurationRepositoryPort {

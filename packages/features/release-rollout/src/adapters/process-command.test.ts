@@ -1,8 +1,11 @@
+import { dirname } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   RedactedProcessCommandAdapter,
   assertSafeProcessBoundary,
 } from "./process-command";
+
+const nodePath = `${dirname(process.execPath)}:/usr/local/bin:/usr/bin:/bin`;
 
 describe("redacted process command diagnostics", () => {
   it("does not cross stdout, stderr, argv, env, or nested process errors", () => {
@@ -23,7 +26,7 @@ describe("redacted process command diagnostics", () => {
         ],
         {
           env: {
-            PATH: "/usr/local/bin:/usr/bin:/bin",
+            PATH: nodePath,
             LANG: "C.UTF-8",
           },
         },
@@ -32,6 +35,7 @@ describe("redacted process command diagnostics", () => {
       caught = error;
     }
     expect(caught).toBeDefined();
+    expect(JSON.stringify(caught)).toContain('"code":23');
     for (const output of [String(caught), JSON.stringify(caught)]) {
       expect(output.length).toBeLessThan(768);
       for (const canary of canaries) expect(output).not.toContain(canary);
@@ -88,7 +92,7 @@ describe("redacted process command diagnostics", () => {
           "process.stderr.write('timeout-secret-canary');setInterval(()=>{},1000)",
         ],
         {
-          env: { PATH: "/usr/local/bin:/usr/bin:/bin" },
+          env: { PATH: nodePath },
           timeoutMs: 20,
         },
       );

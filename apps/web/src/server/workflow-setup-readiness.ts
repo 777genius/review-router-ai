@@ -21,6 +21,7 @@ import {
   codexWorkflowPathForRepository,
   isolatedQualityWorkflowPath,
   type ReviewRouterDiscussionMode,
+  type ReviewRouterMcpSecrets,
   renderAccountGatewayWorkflow,
   renderProviderApiWorkflow,
   renderReviewRouterSecretsCaller,
@@ -40,6 +41,7 @@ export type WorkflowSetupReadinessInput = {
   readonly defaultBranch: string;
   readonly actionRef: string;
   readonly codexSessionMode?: "account-gateway";
+  readonly mcpSecrets?: ReviewRouterMcpSecrets;
   readonly providerApiAuthMode?: "openrouter-api";
   readonly providerKind?: ProviderKind;
   readonly discussionMode?: ReviewRouterDiscussionMode;
@@ -61,6 +63,12 @@ export async function isWorkflowSetupAlreadyCurrent(
     readonly resolvePublicApiUrl?: () => string;
   },
 ): Promise<boolean> {
+  if (
+    input.codexSessionMode !== "account-gateway" &&
+    input.mcpSecrets &&
+    Object.keys(input.mcpSecrets).length
+  )
+    return false;
   if (input.discussionMode === "suggest") {
     return false;
   }
@@ -130,6 +138,9 @@ export async function isWorkflowSetupAlreadyCurrent(
                 dependencies.resolvePublicApiUrl?.() ??
                 resolveWorkflowPublicApiUrl(),
               githubRepositoryId: input.githubRepositoryId,
+              ...(input.mcpSecrets !== undefined
+                ? { mcpSecrets: input.mcpSecrets }
+                : {}),
             });
     } catch {
       return false;

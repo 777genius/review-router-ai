@@ -1,5 +1,7 @@
 "use client";
 
+import type { ContextConnectionMetadata } from "@reviewrouter/features-review-context-tools";
+import { ContextToolsSelectionField } from "./context-tools/context-tools-selection-field";
 import { Button, Dialog } from "@reviewrouter/ui";
 import { repositoryPolicyFormFields } from "./review-policy-form-contract";
 import { dashboardSectionHref } from "./dashboard-section";
@@ -374,6 +376,8 @@ const fieldHelp = {
     "Number of providers that should agree before an inline finding is treated as agreed.",
   requiredHealthy:
     "Required providers must pass health checks and return valid review output. They do not need to produce findings.",
+  updatePrDescription:
+    "Adds an AI-generated summary through a supported review runtime while preserving the author's text.",
   reviewLanguage:
     "Natural language for inline comments and the main reviewer summary (free text, e.g. Russian). Leave empty to inherit the workspace default, which is English.",
 } as const;
@@ -839,6 +843,7 @@ export function RepositoryPolicyOverrideDetails({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   mutationsEnabled,
   editDisabledReason,
   codexRotatingOAuthEnabled = false,
@@ -852,6 +857,9 @@ export function RepositoryPolicyOverrideDetails({
   readonly configVersion: number;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -938,6 +946,7 @@ export function RepositoryPolicyOverrideDetails({
               modelOptions={modelOptions}
               gatewayAccounts={gatewayAccounts}
               agentProfileOptions={agentProfileOptions}
+              contextConnections={contextConnections}
               codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
               claudeCodeProviderEnabled={claudeCodeProviderEnabled}
               hiddenFields={[
@@ -994,6 +1003,7 @@ export function RepositoryPolicyEditor({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   mutationsEnabled,
   editDisabledReason,
   codexRotatingOAuthEnabled = false,
@@ -1007,6 +1017,9 @@ export function RepositoryPolicyEditor({
   readonly effectiveConfig: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -1103,6 +1116,7 @@ export function RepositoryPolicyEditor({
             modelOptions={modelOptions}
             gatewayAccounts={gatewayAccounts}
             agentProfileOptions={agentProfileOptions}
+            contextConnections={contextConnections}
             codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
             claudeCodeProviderEnabled={claudeCodeProviderEnabled}
             hiddenFields={[
@@ -1315,6 +1329,7 @@ export function WorkspaceReviewConfigForm({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   codexRotatingOAuthEnabled = false,
   claudeCodeProviderEnabled = true,
   mutationsEnabled,
@@ -1326,6 +1341,9 @@ export function WorkspaceReviewConfigForm({
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -1356,6 +1374,7 @@ export function WorkspaceReviewConfigForm({
         modelOptions={modelOptions}
         gatewayAccounts={gatewayAccounts}
         agentProfileOptions={agentProfileOptions}
+        contextConnections={contextConnections}
         codexRotatingOAuthEnabled={codexRotatingOAuthEnabled}
         claudeCodeProviderEnabled={claudeCodeProviderEnabled}
         hiddenFields={[
@@ -1379,6 +1398,7 @@ export function ReviewConfigForm({
   modelOptions,
   gatewayAccounts,
   agentProfileOptions = [],
+  contextConnections = [],
   codexRotatingOAuthEnabled = false,
   claudeCodeProviderEnabled = true,
   hiddenFields,
@@ -1392,6 +1412,9 @@ export function ReviewConfigForm({
   readonly config: ReviewConfiguration;
   readonly modelOptions: readonly ReviewModelOption[];
   readonly gatewayAccounts?: AccountsResult<AccountsPage> | undefined;
+  readonly contextConnections?:
+    | readonly ContextConnectionMetadata[]
+    | undefined;
   readonly agentProfileOptions?:
     | readonly GatewayAgentProfileOption[]
     | undefined;
@@ -1434,6 +1457,14 @@ export function ReviewConfigForm({
     ),
   );
   const [providers, setProviders] = useState(initialProviders);
+  const [updatePrDescription, setUpdatePrDescription] = useState(
+    config.updatePrDescription !== false,
+  );
+  const primaryAuthMode = providers[0]?.authMode;
+  const aiPrDescriptionUnavailable =
+    primaryAuthMode !== undefined &&
+    primaryAuthMode !== "codex_account_gateway" &&
+    primaryAuthMode !== "openrouter_api_key";
   // Gateway's serialized engine kind remains codex. Vendor is a display choice
   // resolved from trusted profiles until the user explicitly changes it.
   const [selectedProviders, setSelectedProviders] = useState<
@@ -2598,12 +2629,42 @@ export function ReviewConfigForm({
             Output
           </div>
           <div className="grid gap-4 md:grid-cols-3 md:gap-x-8">
+            <DashboardSwitchField
+              name="updatePrDescription"
+              label="Update PR description"
+              helpText={fieldHelp.updatePrDescription}
+              checked={updatePrDescription}
+              disabled={
+                !mutationsEnabled ||
+                (repositoryPolicy !== undefined &&
+                  overrideModes.updatePrDescription !== "override")
+              }
+              onCheckedChange={setUpdatePrDescription}
+            />
             <DashboardReviewLanguageField
               defaultValue={config.reviewLanguage ?? ""}
               disabled={!mutationsEnabled}
             />
           </div>
+          {aiPrDescriptionUnavailable ? (
+            <p className="text-sm leading-6 text-slate-400">
+              AI PR descriptions are unavailable for this connection method.
+              Reviews continue normally.
+            </p>
+          ) : null}
         </section>
+
+        <ContextToolsSelectionField
+          value={config.contextTools}
+          repositoryTarget={repositorySecretCheckTarget}
+          connections={contextConnections}
+          disabled={
+            !mutationsEnabled ||
+            Boolean(
+              repositoryPolicy && overrideModes.contextTools !== "override",
+            )
+          }
+        />
 
         <div className="flex min-w-0 items-end border-t border-cyan-200/10 pt-4">
           <FormSubmitButton

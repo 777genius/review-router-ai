@@ -51,6 +51,52 @@ const versionedActionRef =
   "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
 const versionedProviderInstanceId = "codex-rotating:123456";
 
+it.each(["current", "missing", "renamed", "extra"])(
+  "checks the exact expected MCP secret mapping for Gateway readiness: %s",
+  async (scenario) => {
+    const expected = { DOCS_KEY: "ORG_DOCS_TOKEN" };
+    let actual: Record<string, string> | undefined = expected;
+    if (scenario === "missing") actual = undefined;
+    if (scenario === "renamed") actual = { DOCS_KEY: "OTHER_DOCS_TOKEN" };
+    if (scenario === "extra") actual = { ...expected, EXTRA: "OTHER_TOKEN" };
+    const source = renderAccountGatewayWorkflow({
+      actionRef: versionedActionRef,
+      apiUrl: "https://app.reviewrouter.dev",
+      githubRepositoryId: readinessInput.githubRepositoryId,
+      ...(actual ? { mcpSecrets: actual } : {}),
+    }).content;
+    const current = await isWorkflowSetupAlreadyCurrent(
+      {
+        ...readinessInput,
+        actionRef: versionedActionRef,
+        codexSessionMode: "account-gateway",
+        mcpSecrets: expected,
+      },
+      {
+        resolvePublicApiUrl: () => "https://app.reviewrouter.dev",
+        workflowProbe: new OctokitRepositoryWorkflowProbe({
+          createRequester: async () => ({
+            request: async (_route, parameters) => {
+              if (
+                parameters?.path !== ".github/workflows/reviewrouter-review.yml"
+              )
+                throw Object.assign(new Error("missing"), { status: 404 });
+              return {
+                data: {
+                  type: "file",
+                  encoding: "base64",
+                  content: Buffer.from(source).toString("base64"),
+                },
+              };
+            },
+          }),
+        }),
+      },
+    );
+    expect(current).toBe(scenario === "current");
+  },
+);
+
 it.each([
   "current",
   "wrong-mode",
