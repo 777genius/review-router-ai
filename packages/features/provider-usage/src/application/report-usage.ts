@@ -8,6 +8,11 @@ import {
 export { aggregateUsage } from "./usage-totals";
 export type { UsageTotals, UsageCostSubtotal } from "./usage-totals";
 import { buildUsageOverview, type UsageOverview } from "./usage-overview";
+export type {
+  UsageOverview,
+  UsageModelAggregate,
+  UsageRequestedIdentity,
+} from "./usage-overview";
 export interface UsagePeriodReport {
   overview: UsageOverview;
   unattributedCount: number | null;
