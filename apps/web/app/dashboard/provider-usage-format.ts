@@ -10,6 +10,17 @@ export const compact = (value: number | null) =>
         notation: "compact",
         maximumFractionDigits: 2,
       }).format(value);
+/** Keep positive sub-cent tick values distinguishable from a measured zero. */
+export const costAxisLabel = (value: number) =>
+  new Intl.NumberFormat("en-US", {
+    maximumSignificantDigits: 3,
+    notation:
+      Math.abs(value) >= 1000
+        ? "compact"
+        : value !== 0 && Math.abs(value) < 0.001
+          ? "scientific"
+          : "standard",
+  }).format(value);
 export const basisLabel = (basis: string) =>
   basis === "source_reported" ? "source reported" : basis;
 export const costKey = (cost: CostBucket) =>

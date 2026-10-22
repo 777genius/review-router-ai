@@ -781,4 +781,103 @@ describe("provider usage interactive report", () => {
       screen.getByText(/No measured observations for this interval/),
     ).toBeTruthy();
   });
+  it("resets dimension filters and both cursors while preserving interval, purpose, currency and period", async () => {
+    const selectedFilters: UsageFilters = {
+      ...initialFilters,
+      purpose: "diagnostic",
+      provider: "codex",
+      model: "requested-alpha",
+      route: "direct",
+      after: "old-call-cursor",
+      runAfter: "old-run-cursor",
+    };
+    let complete!: (value: ProviderUsageReport) => void;
+    vi.mocked(fetchProviderUsage).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    render(
+      <QueryClientProvider client={client}>
+        <ProviderUsageView
+          workspaceId="workspace"
+          initialReport={report}
+          initialFilters={selectedFilters}
+        />
+      </QueryClientProvider>,
+    );
+    change("Period", "custom");
+    change("Cost currency", "EUR");
+    fireEvent.click(screen.getByRole("button", { name: "Reset filters" }));
+    await waitFor(() => expect(fetchProviderUsage).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(fetchProviderUsage).mock.calls[0]![1]).toEqual({
+      ...initialFilters,
+      purpose: "diagnostic",
+    });
+    expect(screen.queryByRole("button", { name: "Reset filters" })).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Refreshing…" })
+        .getAttribute("aria-busy"),
+    ).toBe("true");
+    expect(screen.queryByLabelText("Period usage summary")).toBeNull();
+    await act(async () => complete(report));
+    expect(
+      (await screen.findByRole("button", { name: "Refresh" })).getAttribute(
+        "aria-busy",
+      ),
+    ).toBe("false");
+    expect((screen.getByLabelText("Period") as HTMLSelectElement).value).toBe(
+      "custom",
+    );
+    expect((screen.getByLabelText("Purpose") as HTMLSelectElement).value).toBe(
+      "diagnostic",
+    );
+    expect(
+      (screen.getByLabelText("Cost currency") as HTMLSelectElement).value,
+    ).toBe("EUR");
+    expect(
+      (screen.getByLabelText("Usage from") as HTMLInputElement).value,
+    ).toBe("2026-09-21");
+    expect((screen.getByLabelText("Usage to") as HTMLInputElement).value).toBe(
+      "2026-10-21",
+    );
+  });
+  it.each(["unknownCostCount", "unknownTotalTokenCount"] as const)(
+    "polls when %s is the only incomplete metric and stops after full measurements",
+    async (field) => {
+      const incomplete = {
+        ...report,
+        unknown: 0,
+        partial: 0,
+        totals: {
+          ...totals,
+          unknownCount: 0,
+          partialCount: 0,
+          unknownCostCount: 0,
+          unknownTotalTokenCount: 0,
+          [field]: 1,
+        },
+      };
+      const complete = {
+        ...incomplete,
+        totals: { ...incomplete.totals, [field]: 0 },
+      };
+      vi.mocked(fetchProviderUsage).mockResolvedValue(complete);
+      vi.useFakeTimers();
+      render(<Harness seed={incomplete} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(fetchProviderUsage).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(fetchProviderUsage).mock.calls[0]![1]).toEqual(
+        initialFilters,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(fetchProviderUsage).toHaveBeenCalledTimes(1);
+    },
+  );
 });

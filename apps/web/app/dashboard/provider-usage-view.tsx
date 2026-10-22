@@ -26,6 +26,15 @@ import {
   type UsageMetric,
 } from "./provider-usage-format";
 
+function hasUnknownUsage(report: ProviderUsageReport): boolean {
+  return (
+    report.unknown > 0 ||
+    report.partial > 0 ||
+    report.totals.unknownCostCount > 0 ||
+    report.totals.unknownTotalTokenCount > 0
+  );
+}
+
 type Props = {
   workspaceId: string;
   initialReport: ProviderUsageReport;
@@ -82,7 +91,7 @@ function ProviderUsageContext({
       ) && failureCount < 2,
     refetchInterval: (query) => {
       const data = query.state.data;
-      return data && (data.unknown > 0 || data.partial > 0) ? 30_000 : false;
+      return data && hasUnknownUsage(data) ? 30_000 : false;
     },
     refetchIntervalInBackground: false,
   });
@@ -153,12 +162,7 @@ function ProviderUsageContext({
     setDetailsOpen(false);
   }, [initialReport, initialFilters]);
   const unavailable = denied || accessFailure;
-  const hasUnknown =
-    data &&
-    (data.unknown > 0 ||
-      data.partial > 0 ||
-      data.totals.unknownCostCount > 0 ||
-      data.totals.unknownTotalTokenCount > 0);
+  const hasUnknown = data && hasUnknownUsage(data);
   return (
     <section aria-label="Provider usage" className="min-w-0 space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-5">
@@ -257,10 +261,16 @@ function ProviderUsageContext({
             size="sm"
             className="rounded-xl"
             disabled={unavailable || query.isFetching}
+            aria-busy={query.isFetching}
             onClick={refresh}
           >
-            <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            Refresh
+            <RefreshCw
+              className={`h-4 w-4${query.isFetching ? " animate-spin" : ""}`}
+              aria-hidden="true"
+            />
+            <span aria-live="polite">
+              {query.isFetching ? "Refreshing…" : "Refresh"}
+            </span>
           </Button>
         </div>
       </header>
@@ -304,6 +314,22 @@ function ProviderUsageContext({
           </div>
         ) : data && currency ? (
           <p className="text-xs text-slate-400">Cost currency: {currency}</p>
+        ) : null}
+        {filters.provider || filters.model || filters.route ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={unavailable}
+            onClick={() =>
+              applyFilters({
+                provider: undefined,
+                model: undefined,
+                route: undefined,
+              })
+            }
+          >
+            Reset filters
+          </Button>
         ) : null}
       </div>
       {period === "custom" ? (
