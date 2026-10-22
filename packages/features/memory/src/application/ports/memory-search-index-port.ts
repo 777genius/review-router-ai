@@ -17,6 +17,13 @@ export type MemorySearchIndexInput = {
   readonly safeQuery: string;
   readonly limit: number;
   readonly includeUserPrefs: boolean;
+  readonly allowedScopes: readonly MemoryScope[];
+};
+
+/** One absolute deadline is shared by capability discovery and retrieval. */
+export type MemorySearchRequestControls = {
+  readonly deadlineAtMs: number;
+  readonly signal?: AbortSignal;
 };
 
 export type MemorySearchIndexScoreParts = {
@@ -29,9 +36,11 @@ export type MemorySearchIndexScoreParts = {
 
 export type MemorySearchIndexResult = {
   readonly memoryItemId: string;
+  readonly bodyVersion: number;
+  readonly bodyHash: string;
   readonly score: number;
   readonly scope: MemoryScope;
-  readonly scoreParts: MemorySearchIndexScoreParts;
+  readonly scoreParts?: MemorySearchIndexScoreParts;
   readonly explanationCode: "lexical_match" | "semantic_match" | "fallback";
 };
 
@@ -48,14 +57,48 @@ export type MemoryIndexDocument = {
   readonly updatedAt: Date;
 };
 
-export interface MemorySearchIndexPort {
-  supports(): Promise<MemorySearchIndexCapabilities>;
+export type MemoryIndexWriteResult = {
+  readonly status: "indexed" | "superseded";
+};
+
+export type MemoryIndexDeleteInput = {
+  readonly workspaceId: string;
+  readonly memoryItemId: string;
+  readonly target:
+    | { readonly kind: "item" }
+    | {
+        readonly kind: "revision";
+        readonly bodyVersion: number;
+        readonly bodyHash: string;
+      };
+};
+
+export interface MemorySearchReaderPort {
+  supports(
+    controls?: MemorySearchRequestControls,
+  ): Promise<MemorySearchIndexCapabilities>;
   search(
     input: MemorySearchIndexInput,
+    controls?: MemorySearchRequestControls,
   ): Promise<readonly MemorySearchIndexResult[]>;
-  upsertDocument(input: MemoryIndexDocument): Promise<void>;
-  deleteDocument(input: {
-    readonly workspaceId: string;
-    readonly memoryItemId: string;
-  }): Promise<void>;
+}
+
+export interface MemorySearchWriterPort {
+  /** Opaque deployment identity; backfill events must reach this same index. */
+  readonly indexIdentity: string;
+  /** Indexed means queryable; acceptance or an uncertain acknowledgement is insufficient. */
+  upsertDocument(input: MemoryIndexDocument): Promise<MemoryIndexWriteResult>;
+  /** Removes obsolete derived copies, never canonical memory. Unknown outcomes reject. */
+  deleteDocument(input: MemoryIndexDeleteInput): Promise<void>;
+}
+
+export interface MemorySearchIndexPort
+  extends MemorySearchReaderPort, MemorySearchWriterPort {}
+
+/** Safe across outbox/log boundaries: never include a provider message or cause. */
+export class MemoryIndexOperationError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = "MemoryIndexOperationError";
+  }
 }

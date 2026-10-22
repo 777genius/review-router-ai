@@ -102,12 +102,12 @@ import {
   EntitlementMemoryQuotaPolicy,
   PrismaMemoryItemRepository,
   PrismaMemoryPermission,
-  PrismaMemorySearchIndex,
   PrismaMemorySuggestionRepository,
   PrismaMemoryTransaction,
   PrismaMemoryUsageEventRepository,
   readMemoryServiceEnabled,
 } from "@reviewrouter/features-memory";
+import { createMemorySearchRuntime } from "@reviewrouter/features-memory/composition";
 import { PrismaEntitlementRepository } from "@reviewrouter/features-entitlements";
 import {
   assertHostedCodexProductionReadiness,
@@ -1108,7 +1108,9 @@ export async function createApiApp(
             memoryTransaction: new PrismaMemoryTransaction(prisma),
             clock: actionControlPlaneDependencies.clock,
           },
-          memorySearchIndex: new PrismaMemorySearchIndex(prisma),
+          memorySearchIndex: (
+            await createMemorySearchRuntime({ prisma, env: process.env })
+          ).searchIndex,
           ...(actionControlPlaneDependencies.entitlements
             ? { entitlements: actionControlPlaneDependencies.entitlements }
             : {}),

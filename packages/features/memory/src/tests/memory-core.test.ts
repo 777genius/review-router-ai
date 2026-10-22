@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Clock } from "@reviewrouter/shared";
 import { memoryActorRef, type MemoryActor } from "../domain/memory-actor";
 import {
@@ -760,6 +760,7 @@ class CapturingUsageEvents
 }
 
 class StubSearchIndex implements MemorySearchIndexPort {
+  readonly indexIdentity = "prisma";
   readonly inputs: MemorySearchIndexInput[] = [];
 
   constructor(
@@ -784,9 +785,11 @@ class StubSearchIndex implements MemorySearchIndexPort {
     return this.hits;
   }
 
-  async upsertDocument(input: MemoryIndexDocument): Promise<void> {
+  async upsertDocument(
+    input: MemoryIndexDocument,
+  ): ReturnType<MemorySearchIndexPort["upsertDocument"]> {
     void input;
-    return undefined;
+    return { status: "indexed" };
   }
 
   async deleteDocument(input: {
@@ -3108,14 +3111,34 @@ describe("memory core", () => {
       }),
     );
 
+    const activeRevision = deps.memoryItems.items.get(active.id)!;
+    await deps.memoryItems.markIndexingSucceeded({
+      workspaceId: activeRevision.workspaceId,
+      itemId: activeRevision.id,
+      bodyHash: activeRevision.bodyHash,
+      bodyVersion: activeRevision.bodyVersion,
+    });
+
     const searchIndex = new StubSearchIndex(
       [
-        searchHit(wrongWorkspace.id, "repository", 30),
-        searchHit(wrongRepository.id, "repository", 25),
-        searchHit(wrongUserPrefs.id, "user_prefs", 22),
-        searchHit(disabled.id, "repository", 20),
-        searchHit(deleted.id, "repository", 15),
-        searchHit(active.id, "repository", 10),
+        searchHit(
+          deps.memoryItems.items.get(wrongWorkspace.id)!,
+          "repository",
+          30,
+        ),
+        searchHit(
+          deps.memoryItems.items.get(wrongRepository.id)!,
+          "repository",
+          25,
+        ),
+        searchHit(
+          deps.memoryItems.items.get(wrongUserPrefs.id)!,
+          "user_prefs",
+          22,
+        ),
+        searchHit(deps.memoryItems.items.get(disabled.id)!, "repository", 20),
+        searchHit(deps.memoryItems.items.get(deleted.id)!, "repository", 15),
+        searchHit(deps.memoryItems.items.get(active.id)!, "repository", 10),
         searchHit("missing_from_canonical_store", "repository", 5),
       ],
       { capabilities: ["semantic_vector"] },
@@ -3142,6 +3165,168 @@ describe("memory core", () => {
     expect(bundle.items.map((item) => item.body)).toEqual([
       "Run dashboard memory changes through browser layout checks.",
     ]);
+  });
+
+  it("rejects a matching item ID with an obsolete revision and returns fresh canonical fallback", async () => {
+    const deps = createHarness({
+      "user_maintainer:repository": { allowed: true },
+    });
+    const created = await rememberMemoryDirectly(
+      memoryInput("repository", "Fresh approved memory body."),
+      deps,
+    );
+    if (created.status !== "created") throw new Error("fixture_missing");
+    const item = deps.memoryItems.items.get(created.id)!;
+    await deps.memoryItems.markIndexingSucceeded({
+      workspaceId: item.workspaceId,
+      itemId: item.id,
+      bodyHash: item.bodyHash,
+      bodyVersion: item.bodyVersion,
+    });
+    const searchIndex = new StubSearchIndex([
+      { ...searchHit(item, item.scope, 10), bodyHash: "stale_hash" },
+    ]);
+    const bundle = await buildActionMemoryBundle(
+      {
+        workspaceId: item.workspaceId,
+        repositoryId: "repo_1",
+        userId: null,
+        safeRetrievalQuery: "approved",
+      },
+      { ...deps, memorySearchIndex: searchIndex },
+    );
+    expect(bundle).toMatchObject({
+      degraded: true,
+      reason: "memory_search_index_stale",
+      items: [{ body: item.body }],
+    });
+  });
+
+  it("does not send disabled scopes to the engine and falls back when every hit is disallowed", async () => {
+    const deps = createHarness({
+      "user_maintainer:repository": { allowed: true },
+      "user_maintainer:workspace": { allowed: true },
+    });
+    await rememberMemoryDirectly(
+      memoryInput("repository", "Allowed repository guidance."),
+      deps,
+    );
+    const created = await rememberMemoryDirectly(
+      memoryInput("workspace", "Disabled workspace guidance."),
+      deps,
+    );
+    if (created.status !== "created") throw new Error("fixture_missing");
+    const blocked = deps.memoryItems.items.get(created.id)!;
+    const searchIndex = new StubSearchIndex([
+      searchHit(blocked, blocked.scope, 10),
+    ]);
+    const bundle = await buildActionMemoryBundle(
+      {
+        workspaceId: "workspace_1",
+        repositoryId: "repo_1",
+        userId: null,
+        safeRetrievalQuery: "guidance",
+      },
+      {
+        ...deps,
+        memorySearchIndex: searchIndex,
+        memoryPolicyConfig: new StaticMemoryPolicyConfig({
+          allowedScopes: { workspace: false },
+        }),
+      },
+    );
+    expect(searchIndex.inputs[0]?.allowedScopes).toEqual(["repository"]);
+    expect(bundle).toMatchObject({
+      degraded: true,
+      reason: "memory_search_index_stale",
+      items: [{ body: "Allowed repository guidance." }],
+    });
+  });
+
+  it("rechecks expiry after provider IO before search success and fallback", async () => {
+    const deps = createHarness({
+      "user_maintainer:repository": { allowed: true },
+    });
+    const created = await rememberMemoryDirectly(
+      memoryInput(
+        "repository",
+        "Memory may expire while retrieval is pending.",
+      ),
+      deps,
+    );
+    if (created.status !== "created") throw new Error("fixture_missing");
+    const item = deps.memoryItems.items.get(created.id)!;
+    deps.memoryItems.items.set(item.id, {
+      ...item,
+      expiresAt: new Date(now.getTime() + 1000),
+      indexState: "indexed",
+      indexVersion: item.bodyVersion,
+    });
+    let elapsed = 0;
+    const searchIndex = new StubSearchIndex([]);
+    vi.spyOn(searchIndex, "search").mockImplementation(async () => {
+      elapsed = 2000;
+      return [searchHit(item, item.scope, 10)];
+    });
+    const bundle = await buildActionMemoryBundle(
+      {
+        workspaceId: item.workspaceId,
+        repositoryId: "repo_1",
+        userId: null,
+        safeRetrievalQuery: "expire",
+      },
+      {
+        ...deps,
+        memorySearchIndex: searchIndex,
+        clock: { now: () => new Date(now.getTime() + elapsed) },
+      },
+    );
+    expect(bundle).toMatchObject({
+      degraded: true,
+      reason: "memory_search_index_stale",
+      items: [],
+    });
+  });
+
+  it("bounds even a noncooperative adapter and cancels the shared retrieval deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createHarness({
+        "user_maintainer:repository": { allowed: true },
+      });
+      await rememberMemoryDirectly(
+        memoryInput("repository", "Fallback after a stalled engine."),
+        deps,
+      );
+      const searchIndex = new StubSearchIndex([]);
+      let signal: AbortSignal | undefined;
+      vi.spyOn(searchIndex, "supports").mockImplementation(
+        (controls?: { signal?: AbortSignal }) => {
+          signal = controls?.signal;
+          return new Promise(() => undefined);
+        },
+      );
+      const pending = buildActionMemoryBundle(
+        {
+          workspaceId: "workspace_1",
+          repositoryId: "repo_1",
+          userId: null,
+          safeRetrievalQuery: "fallback",
+        },
+        { ...deps, memorySearchIndex: searchIndex },
+      );
+      await vi.advanceTimersByTimeAsync(2_001);
+      expect(await pending).toMatchObject({
+        degraded: true,
+        reason: "memory_search_index_unavailable",
+        items: [{ body: "Fallback after a stalled engine." }],
+      });
+      expect(signal?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(searchIndex.inputs).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("falls back to canonical bundle when search index is unavailable or stale", async () => {
@@ -3534,12 +3719,14 @@ function memoryUsageEvent(
 }
 
 function searchHit(
-  memoryItemId: string,
+  memory: MemoryItemSnapshot | string,
   scope: MemoryScope,
   score: number,
 ): MemorySearchIndexResult {
   return {
-    memoryItemId,
+    memoryItemId: typeof memory === "string" ? memory : memory.id,
+    bodyVersion: typeof memory === "string" ? 1 : memory.bodyVersion,
+    bodyHash: typeof memory === "string" ? "missing_hash" : memory.bodyHash,
     scope,
     score,
     scoreParts: {

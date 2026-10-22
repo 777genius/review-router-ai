@@ -774,6 +774,7 @@ class CapturingMemoryUsageEvents implements MemoryUsageEventPort {
 }
 
 class CapturingMemorySearchIndex implements MemorySearchIndexPort {
+  readonly indexIdentity = "prisma";
   public readonly inputs: MemorySearchIndexInput[] = [];
 
   constructor(private readonly results: readonly MemorySearchIndexResult[]) {}
@@ -789,8 +790,8 @@ class CapturingMemorySearchIndex implements MemorySearchIndexPort {
     return this.results;
   }
 
-  async upsertDocument(): Promise<void> {
-    return undefined;
+  async upsertDocument(): ReturnType<MemorySearchIndexPort["upsertDocument"]> {
+    return { status: "indexed" };
   }
 
   async deleteDocument(): Promise<void> {
@@ -1173,7 +1174,8 @@ function actionMemorySnapshot(
     id: overrides.id ?? "mem_1",
     schemaVersion: 1,
     workspaceId: overrides.workspaceId ?? "workspace_1",
-    repositoryId: overrides.repositoryId ?? "repo_1",
+    repositoryId:
+      overrides.repositoryId !== undefined ? overrides.repositoryId : "repo_1",
     userId: overrides.userId ?? null,
     scope: overrides.scope ?? "repository",
     status: overrides.status ?? "active",
@@ -2167,6 +2169,10 @@ describe("API app", () => {
     const searchIndex = new CapturingMemorySearchIndex([
       {
         memoryItemId: "mem_browser",
+        bodyVersion: 1,
+        bodyHash: createMemoryBodyHash(
+          "Run dashboard memory changes through browser layout checks.",
+        ),
         scope: "repository",
         score: 10,
         scoreParts: {

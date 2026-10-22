@@ -37,9 +37,10 @@ import {
   PrismaMemoryItemRepository,
   PrismaMemorySuggestionRepository,
   PrismaMemoryUsageEventRepository,
-  PrismaMemorySearchIndex,
   PrismaMemoryTransaction,
+  type MemorySearchWriterPort,
 } from "@reviewrouter/features-memory";
+import { createMemorySearchRuntime } from "@reviewrouter/features-memory/composition";
 import {
   PrismaRateLimitStore,
   pruneExpiredRateLimitBuckets,
@@ -82,6 +83,10 @@ import {
   createMemoryUsageTelemetryMaintenance,
 } from "./memory-maintenance";
 import {
+  createMemoryProjectionMaintenance,
+  readMemoryProjectionMaintenanceConfig,
+} from "./memory-projection-maintenance";
+import {
   runOutboxWorkerLoop,
   safeWorkerErrorSummary,
   sleep,
@@ -118,6 +123,18 @@ async function main(): Promise<void> {
   const prisma = createPrismaClient();
   try {
     const clock = new SystemClock();
+    const memoryRuntime = await createMemorySearchRuntime({
+      prisma,
+      env: process.env,
+    });
+    const reconcileMemoryProjections = createMemoryProjectionMaintenance(
+      readMemoryProjectionMaintenanceConfig(process.env),
+      {
+        clock,
+        logger,
+        reconcile: (input) => memoryRuntime.maintenance(input),
+      },
+    );
     const reviewV2Worker = createReviewV2WorkerFeature({
       env: process.env,
       createEnabledRuntime: () => {
@@ -145,7 +162,7 @@ async function main(): Promise<void> {
       ...(sdkGrowthPrivateKey ? { githubPrivateKey: sdkGrowthPrivateKey } : {}),
     });
     const handlers = [
-      ...createOutboxHandlers(prisma, clock),
+      ...createOutboxHandlers(prisma, clock, memoryRuntime.searchIndex),
       ...reviewV2Worker.handlers,
       ...sdkGrowthPublication.handlers,
     ];
@@ -219,6 +236,7 @@ async function main(): Promise<void> {
       await expireActiveMemoryItems();
       await pruneTerminalMemoryItems();
       await pruneMemoryUsageTelemetry();
+      await reconcileMemoryProjections();
       await reviewV2Worker.runMaintenance();
       return result;
     };
@@ -289,10 +307,11 @@ const knownOutboxHandlers = [
 function createOutboxHandlers(
   prisma: ReturnType<typeof createPrismaClient>,
   clock: SystemClock,
+  memorySearchIndex: MemorySearchWriterPort,
 ): readonly OutboxHandler[] {
   const memoryHandlers = createMemoryOutboxHandlers({
     memoryItems: new PrismaMemoryItemRepository(prisma),
-    searchIndex: new PrismaMemorySearchIndex(prisma),
+    searchIndex: memorySearchIndex,
   });
   const appId = process.env.GITHUB_APP_ID;
   const privateKey = readGitHubAppPrivateKey();

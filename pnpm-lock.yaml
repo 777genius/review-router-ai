@@ -119,6 +119,9 @@ importers:
       '@types/node':
         specifier: ^22.19.0
         version: 22.19.17
+      '@types/pg':
+        specifier: 8.23.1
+        version: 8.23.1
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14
@@ -143,6 +146,9 @@ importers:
       pg:
         specifier: 8.23.0
         version: 8.23.0
+      playwright-core:
+        specifier: 1.64.1
+        version: 1.64.1
       prettier:
         specifier: ^3.8.3
         version: 3.8.3
@@ -748,6 +754,15 @@ importers:
 
   packages/features/memory:
     dependencies:
+      '@get-modular/assembly':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@get-modular/core':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@infinity-context/sdk':
+        specifier: https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz
+        version: https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz
       '@prisma/client':
         specifier: ^7.8.0
         version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
@@ -760,6 +775,13 @@ importers:
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
+    devDependencies:
+      '@reviewrouter/platform-db':
+        specifier: workspace:*
+        version: link:../../platform/db
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.23.1)(yaml@2.9.0))
 
   packages/features/org-ruleset-provisioning:
     dependencies:
@@ -2035,6 +2057,12 @@ packages:
     engines: {node: '>=20.9.0'}
     cpu: [x64]
     os: [win32]
+
+  '@infinity-context/sdk@https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz':
+    resolution: {integrity: sha512-PpLM+eW84DRsNhYDvX02Y+v5hOCuQJMHJoNinyUwclHtizmpDEh4aBcRsCEvgqyQqYh2pD+zsu3VAZdKfbjKAg==, tarball: https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz}
+    version: 0.2.4
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@isaacs/cliui@8.0.2':
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
@@ -3471,9 +3499,6 @@ packages:
 
   '@types/node@25.9.9':
     resolution: {integrity: sha512-b4e2xxj/yMeT2hNlD6x7zNFiQK2Dlmkb9CQ6v3/1G2RezKN4YS2lcEv8lzGm1mhs4f2lM4yNAMI/zUDBZBBt7w==}
-
-  '@types/pg@8.20.0':
-    resolution: {integrity: sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow==}
 
   '@types/pg@8.23.1':
     resolution: {integrity: sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==}
@@ -5205,9 +5230,6 @@ packages:
     peerDependencies:
       pg: '>=8.0'
 
-  pg-protocol@1.13.0:
-    resolution: {integrity: sha512-zzdvXfS6v89r6v7OcFCHfHlyG/wvry1ALxZo4LqgUoy7W9xhBDMaqOuMiF3qEV45VqsN6rdlcehHrfDtlCPc8w==}
-
   pg-protocol@1.16.0:
     resolution: {integrity: sha512-sILXutLVjCLjcDuOmvhX5e2Z4cS5qG/6Bu3VkpFwdf/633ElGLpEh9bgmuI5I4sqKqkifQiGyiCcx1HdtrK7tg==}
 
@@ -5254,6 +5276,11 @@ packages:
 
   pkg-types@2.3.1:
     resolution: {integrity: sha512-y+ichcgc2LrADuhLNAx8DFjVfgz91pRxfZdI3UDhxHvcVEZsenLO+7XaU5vOp0u/7V/wZ+plyuQxtrDlZJ+yeg==}
+
+  playwright-core@1.64.1:
+    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
@@ -7054,6 +7081,8 @@ snapshots:
   '@img/sharp-win32-x64@0.35.3':
     optional: true
 
+  '@infinity-context/sdk@https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz': {}
+
   '@isaacs/cliui@8.0.2':
     dependencies:
       string-width: 5.1.2
@@ -7576,7 +7605,7 @@ snapshots:
   '@prisma/adapter-pg@7.8.0':
     dependencies:
       '@prisma/driver-adapter-utils': 7.8.0
-      '@types/pg': 8.20.0
+      '@types/pg': 8.23.1
       pg: 8.23.0
       postgres-array: 3.0.4
     transitivePeerDependencies:
@@ -8309,12 +8338,6 @@ snapshots:
   '@types/node@25.9.9':
     dependencies:
       undici-types: 7.24.6
-
-  '@types/pg@8.20.0':
-    dependencies:
-      '@types/node': 22.20.1
-      pg-protocol: 1.13.0
-      pg-types: 2.2.0
 
   '@types/pg@8.23.1':
     dependencies:
@@ -10182,8 +10205,6 @@ snapshots:
     dependencies:
       pg: 8.23.0
 
-  pg-protocol@1.13.0: {}
-
   pg-protocol@1.16.0: {}
 
   pg-types@2.2.0:
@@ -10241,6 +10262,8 @@ snapshots:
       confbox: 0.2.4
       exsolve: 1.0.8
       pathe: 2.0.3
+
+  playwright-core@1.64.1: {}
 
   possible-typed-array-names@1.1.0: {}
 

@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   entitlement: vi.fn(),
   audit: vi.fn(),
   revalidate: vi.fn(),
-  redirect: vi.fn((_: string) => {
+  redirect: vi.fn<(target: string) => never>(() => {
     throw new Error("paused-action-redirect");
   }),
 }));

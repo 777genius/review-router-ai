@@ -5,11 +5,12 @@ import {
   type MemoryBundlePolicy,
 } from "../../domain/memory-bundle-policy";
 import type { MemoryItemSnapshot } from "../../domain/memory-item";
+import type { ListActiveMemoryForBundleInput } from "../ports/memory-item-repository-port";
 import type {
   MemorySearchCapability,
-  MemorySearchIndexPort,
+  MemorySearchReaderPort,
+  MemorySearchRequestControls,
 } from "../ports/memory-search-index-port";
-import type { MemoryAllowedScopePolicy } from "../ports/memory-policy-config-port";
 import type { MemoryUseCaseDependencies } from "./memory-use-case-types";
 
 export type BuildActionMemoryBundleInput = {
@@ -20,14 +21,21 @@ export type BuildActionMemoryBundleInput = {
   readonly policy?: Partial<MemoryBundlePolicy>;
 };
 
+type BundleDependencies = Pick<
+  MemoryUseCaseDependencies,
+  "memoryItems" | "memoryPolicyConfig"
+> &
+  Partial<Pick<MemoryUseCaseDependencies, "clock">> & {
+    readonly memorySearchIndex?: MemorySearchReaderPort;
+  };
+
+// This budget covers capability discovery and retrieval together. Canonical
+// fallback remains available even if an adapter ignores its cancellation signal.
+const retrievalBudgetMs = 2_000;
+
 export async function buildActionMemoryBundle(
   input: BuildActionMemoryBundleInput,
-  dependencies: Pick<
-    MemoryUseCaseDependencies,
-    "memoryItems" | "memoryPolicyConfig"
-  > & {
-    readonly memorySearchIndex?: MemorySearchIndexPort;
-  },
+  dependencies: BundleDependencies,
 ): Promise<ActionMemoryBundle> {
   const policyConfig = await dependencies.memoryPolicyConfig.getPolicy({
     workspaceId: input.workspaceId,
@@ -44,118 +52,182 @@ export async function buildActionMemoryBundle(
       reason: "memory_disabled",
     });
   }
+  const allowedScopes = (["repository", "workspace", "user_prefs"] as const)
+    .filter((scope) => policyConfig.allowedScopes[scope])
+    .filter(
+      (scope) =>
+        scope !== "user_prefs" ||
+        (policy.includeUserPrefs && input.userId !== null),
+    );
+  if (allowedScopes.length === 0) return buildMemoryBundle([], policy);
+  const selection: ListActiveMemoryForBundleInput = {
+    workspaceId: input.workspaceId,
+    repositoryId: input.repositoryId,
+    userId: input.userId,
+    allowedScopes,
+    activeAt: currentTime(dependencies),
+    limit: policy.maxItems * 5,
+  };
+  let degradedReason: string | null = null;
   const safeQuery = normalizeSafeRetrievalQuery(input.safeRetrievalQuery);
   if (safeQuery && dependencies.memorySearchIndex) {
-    const searched = await searchBundleCandidates(input, dependencies, policy);
+    const searched = await searchBundleCandidates(
+      safeQuery,
+      selection,
+      dependencies,
+      policy,
+    );
     if (searched.status === "found") {
-      return buildMemoryBundle(
-        filterItemsByAllowedScopes(searched.items, policyConfig.allowedScopes),
-        policy,
-        {
-          preserveInputOrder: true,
-        },
-      );
+      return buildMemoryBundle(searched.items, policy, {
+        preserveInputOrder: true,
+      });
     }
-    if (searched.status === "degraded") {
-      return buildFallbackBundle(
-        input,
-        dependencies,
-        policy,
-        searched.reason,
-        policyConfig.allowedScopes,
-      );
-    }
+    if (searched.status === "degraded") degradedReason = searched.reason;
   }
 
-  return buildFallbackBundle(
-    input,
-    dependencies,
+  const fallbackSelection = {
+    ...selection,
+    activeAt: currentTime(dependencies),
+  };
+  const items =
+    await dependencies.memoryItems.listActiveForBundle(fallbackSelection);
+  return buildMemoryBundle(
+    items.filter((item) =>
+      isAuthorizedCurrentItem(item, {
+        ...fallbackSelection,
+        activeAt: currentTime(dependencies),
+      }),
+    ),
     policy,
-    null,
-    policyConfig.allowedScopes,
+    { degraded: degradedReason !== null, reason: degradedReason },
   );
 }
 
 async function searchBundleCandidates(
-  input: BuildActionMemoryBundleInput,
-  dependencies: Pick<MemoryUseCaseDependencies, "memoryItems"> & {
-    readonly memorySearchIndex?: MemorySearchIndexPort;
-  },
+  safeQuery: string,
+  selection: ListActiveMemoryForBundleInput,
+  dependencies: BundleDependencies,
   policy: MemoryBundlePolicy,
 ): Promise<
   | { readonly status: "found"; readonly items: readonly MemoryItemSnapshot[] }
   | { readonly status: "empty" }
   | { readonly status: "degraded"; readonly reason: string }
 > {
-  const safeQuery = normalizeSafeRetrievalQuery(input.safeRetrievalQuery);
   const searchIndex = dependencies.memorySearchIndex;
-  if (!safeQuery || !searchIndex) return { status: "empty" };
-
+  if (!searchIndex) return { status: "empty" };
   try {
-    const capabilities = await searchIndex.supports();
-    if (!supportsRuntimeRetrieval(capabilities.capabilities)) {
-      return { status: "degraded", reason: "memory_search_index_unavailable" };
-    }
-    const hits = await searchIndex.search({
-      workspaceId: input.workspaceId,
-      repositoryId: input.repositoryId,
-      userId: input.userId,
-      safeQuery,
-      includeUserPrefs: policy.includeUserPrefs,
-      limit: policy.maxItems * 5,
+    return await withinRetrievalDeadline(async (controls) => {
+      const capabilities = await searchIndex.supports(controls);
+      controls.signal?.throwIfAborted();
+      if (!supportsRuntimeRetrieval(capabilities.capabilities)) {
+        return {
+          status: "degraded",
+          reason: "memory_search_index_unavailable",
+        };
+      }
+      const hits = await searchIndex.search(
+        {
+          workspaceId: selection.workspaceId,
+          repositoryId: selection.repositoryId,
+          userId: selection.userId,
+          allowedScopes: selection.allowedScopes,
+          safeQuery,
+          includeUserPrefs: policy.includeUserPrefs,
+          limit: selection.limit,
+        },
+        controls,
+      );
+      controls.signal?.throwIfAborted();
+      if (hits.length === 0) return { status: "empty" };
+      // Bound untrusted adapter output before touching the canonical repository.
+      const boundedHits = hits.slice(0, selection.limit);
+      const itemIds = [...new Set(boundedHits.map((hit) => hit.memoryItemId))];
+      const canonical = await dependencies.memoryItems.listActiveByIdsForBundle(
+        {
+          ...selection,
+          activeAt: currentTime(dependencies),
+          itemIds,
+        },
+      );
+      controls.signal?.throwIfAborted();
+      const byId = new Map(canonical.map((item) => [item.id, item]));
+      const finalSelection = {
+        ...selection,
+        activeAt: currentTime(dependencies),
+      };
+      const selected = new Map<string, MemoryItemSnapshot>();
+      for (const hit of boundedHits) {
+        const item = byId.get(hit.memoryItemId);
+        if (
+          item &&
+          isAuthorizedCurrentItem(item, finalSelection) &&
+          item.scope === hit.scope &&
+          item.bodyVersion === hit.bodyVersion &&
+          item.bodyHash === hit.bodyHash &&
+          item.indexState === "indexed" &&
+          item.indexVersion === item.bodyVersion
+        )
+          selected.set(item.id, item);
+      }
+      if (selected.size === 0) {
+        return { status: "degraded", reason: "memory_search_index_stale" };
+      }
+      return { status: "found", items: [...selected.values()] };
     });
-    if (hits.length === 0) return { status: "empty" };
-
-    const rankedIds = [...new Set(hits.map((hit) => hit.memoryItemId))];
-    const canonical = await dependencies.memoryItems.listActiveByIdsForBundle({
-      workspaceId: input.workspaceId,
-      repositoryId: input.repositoryId,
-      userId: input.userId,
-      itemIds: rankedIds,
-      limit: policy.maxItems * 3,
-    });
-    const byId = new Map(canonical.map((item) => [item.id, item]));
-    const rankedCanonical = rankedIds
-      .map((id) => byId.get(id))
-      .filter((item): item is MemoryItemSnapshot => item !== undefined);
-
-    if (rankedCanonical.length === 0) {
-      return { status: "degraded", reason: "memory_search_index_stale" };
-    }
-    return { status: "found", items: rankedCanonical };
   } catch {
+    // Provider errors can contain the body, query or credentials. Only this
+    // application-owned code crosses the public bundle/log boundary.
     return { status: "degraded", reason: "memory_search_index_unavailable" };
   }
 }
 
-async function buildFallbackBundle(
-  input: BuildActionMemoryBundleInput,
-  dependencies: Pick<MemoryUseCaseDependencies, "memoryItems">,
-  policy: MemoryBundlePolicy,
-  degradedReason: string | null,
-  allowedScopes: MemoryAllowedScopePolicy,
-): Promise<ActionMemoryBundle> {
-  const items = await dependencies.memoryItems.listActiveForBundle({
-    workspaceId: input.workspaceId,
-    repositoryId: input.repositoryId,
-    userId: input.userId,
-    limit: policy.maxItems * 3,
-  });
-  return buildMemoryBundle(
-    filterItemsByAllowedScopes(items, allowedScopes),
-    policy,
-    {
-      degraded: degradedReason !== null,
-      reason: degradedReason,
-    },
+function currentTime(dependencies: BundleDependencies): Date {
+  return dependencies.clock?.now() ?? new Date();
+}
+
+function isAuthorizedCurrentItem(
+  item: MemoryItemSnapshot,
+  selection: ListActiveMemoryForBundleInput,
+): boolean {
+  if (
+    item.workspaceId !== selection.workspaceId ||
+    item.status !== "active" ||
+    !selection.allowedScopes.includes(item.scope) ||
+    (item.expiresAt !== null && item.expiresAt <= selection.activeAt)
+  )
+    return false;
+  if (item.scope === "workspace")
+    return item.repositoryId === null && item.userId === null;
+  if (item.scope === "repository")
+    return item.repositoryId === selection.repositoryId && item.userId === null;
+  return (
+    selection.userId !== null &&
+    item.repositoryId === null &&
+    item.userId === selection.userId
   );
 }
 
-function filterItemsByAllowedScopes(
-  items: readonly MemoryItemSnapshot[],
-  allowedScopes: MemoryAllowedScopePolicy,
-): readonly MemoryItemSnapshot[] {
-  return items.filter((item) => allowedScopes[item.scope]);
+async function withinRetrievalDeadline<T>(
+  operation: (controls: MemorySearchRequestControls) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const controls = {
+    deadlineAtMs: Date.now() + retrievalBudgetMs,
+    signal: controller.signal,
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error("memory_search_deadline"));
+    }, retrievalBudgetMs);
+  });
+  try {
+    return await Promise.race([operation(controls), timeout]);
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
 }
 
 function normalizeSafeRetrievalQuery(value: string | null | undefined): string {

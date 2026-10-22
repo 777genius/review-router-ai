@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import type {
+  ListActiveMemoryForBundleInput,
   ListExpiredActiveMemoryItemsInput,
   ListMemoryItemsForExportInput,
   ListMemoryItemsForExportResult,
@@ -30,6 +31,8 @@ import {
   toMemoryItemSnapshot,
   toPrismaJson,
 } from "./prisma-memory-mappers";
+
+import { memoryBundleWhere } from "./memory-bundle-where";
 
 export class PrismaMemoryItemRepository implements MemoryItemRepositoryPort {
   constructor(private readonly prisma: MemoryPrismaClient) {}
@@ -115,72 +118,29 @@ export class PrismaMemoryItemRepository implements MemoryItemRepositoryPort {
     });
   }
 
-  async listActiveForBundle(input: {
-    readonly workspaceId: string;
-    readonly repositoryId: string;
-    readonly userId: string | null;
-    readonly limit: number;
-  }): Promise<readonly MemoryItemSnapshot[]> {
-    const record = await this.prisma.memoryItem.findMany({
-      where: {
-        workspaceId: input.workspaceId,
-        status: "active",
-        OR: [
-          { scope: "workspace", repositoryId: null, userId: null },
-          {
-            scope: "repository",
-            repositoryId: input.repositoryId,
-            userId: null,
-          },
-          ...(input.userId
-            ? [
-                {
-                  scope: "user_prefs" as const,
-                  repositoryId: null,
-                  userId: input.userId,
-                },
-              ]
-            : []),
-        ],
-      },
+  async listActiveForBundle(
+    input: ListActiveMemoryForBundleInput,
+  ): Promise<readonly MemoryItemSnapshot[]> {
+    const records = await this.prisma.memoryItem.findMany({
+      where: memoryBundleWhere(input),
       orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
       take: input.limit,
     });
-    return record.map(toMemoryItemSnapshot);
+    return records.map(toMemoryItemSnapshot);
   }
 
-  async listActiveByIdsForBundle(input: {
-    readonly workspaceId: string;
-    readonly repositoryId: string;
-    readonly userId: string | null;
-    readonly itemIds: readonly string[];
-    readonly limit: number;
-  }): Promise<readonly MemoryItemSnapshot[]> {
-    const itemIds = [...new Set(input.itemIds)].slice(0, input.limit);
+  async listActiveByIdsForBundle(
+    input: ListActiveMemoryForBundleInput & {
+      readonly itemIds: readonly string[];
+    },
+  ): Promise<readonly MemoryItemSnapshot[]> {
+    const itemIds = [...new Set(input.itemIds)];
     if (itemIds.length === 0) return [];
 
     const records = await this.prisma.memoryItem.findMany({
       where: {
-        workspaceId: input.workspaceId,
-        status: "active",
+        ...memoryBundleWhere(input),
         id: { in: itemIds },
-        OR: [
-          { scope: "workspace", repositoryId: null, userId: null },
-          {
-            scope: "repository",
-            repositoryId: input.repositoryId,
-            userId: null,
-          },
-          ...(input.userId
-            ? [
-                {
-                  scope: "user_prefs" as const,
-                  repositoryId: null,
-                  userId: input.userId,
-                },
-              ]
-            : []),
-        ],
       },
       take: input.limit,
     });
@@ -363,6 +323,7 @@ export class PrismaMemoryItemRepository implements MemoryItemRepositoryPort {
         AND "status" = 'active'::"MemoryItemStatus"
         AND "bodyHash" = ${input.bodyHash}
         AND "bodyVersion" = ${input.bodyVersion}
+        AND ("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)
       RETURNING "id"
     `;
     return { updatedCount: updated.length };
