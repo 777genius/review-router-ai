@@ -46,11 +46,12 @@ describe("review evidence canonicalization", () => {
 
   it("isolates the optional description language from original review V1 bytes", () => {
     const auxiliary = manifest({ taskKindSet: [ReviewTaskKind.PrDescription] });
+    const canonical = new TextDecoder().decode(
+      canonicalizeProviderInvocationManifest(auxiliary),
+    );
     expect(
-      new TextDecoder().decode(
-        canonicalizeProviderInvocationManifest(auxiliary),
-      ),
-    ).toMatch(/^rr\.pr-description-invocation-manifest\.v1\u0000/);
+      canonical.startsWith("rr.pr-description-invocation-manifest.v1\u0000"),
+    ).toBe(true);
     expect(() =>
       canonicalizeProviderInvocationManifest(
         manifest({

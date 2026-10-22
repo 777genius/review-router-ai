@@ -106,14 +106,12 @@ function fixture(source = secretsWorkflow()) {
           actor: { id: 77 },
         },
   }));
-  const issueTrustedActionSessionGrant = vi.fn(
-    async (_scope: unknown, _key: string) => ({
-      grantId: "g",
-      grantToken: "usage-token",
-      expiresAt: principal.expiresAt.toISOString(),
-      scope: { purpose: "review" },
-    }),
-  );
+  const issueTrustedActionSessionGrant = vi.fn(async () => ({
+    grantId: "g",
+    grantToken: "usage-token",
+    expiresAt: principal.expiresAt.toISOString(),
+    scope: { purpose: "review" },
+  }));
   const issuer = createProviderUsageActionSessionIssuer({
     prisma: prisma as unknown as PrismaClient,
     api: {
