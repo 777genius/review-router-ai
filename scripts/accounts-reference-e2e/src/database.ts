@@ -155,6 +155,9 @@ async function startPgliteFixture(dataDir: string): Promise<{
 }> {
   await mkdir(dataDir, { recursive: true });
   const db = await PGlite.create({ dataDir });
+  // PGlite inherits the host zone and its socket ignores PostgreSQL startup
+  // options. Match the real adapter's UTC session contract before serving it.
+  await db.exec("SET TIME ZONE 'UTC'");
   const socket = new PGLiteSocketServer({
     db,
     host: "127.0.0.1",
@@ -313,6 +316,10 @@ export function applicationEnvironment(input: {
     REVIEW_ROUTER_API_URL: input.gatewayUrl,
     REVIEW_ROUTER_PUBLIC_WEB_URL: input.appUrl,
     REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: "1",
+    // Synthetic operator authority for the isolated usage acceptance lane only.
+    ...(process.env.ACCOUNTS_REFERENCE_E2E_GREP?.includes("provider usage")
+      ? { ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID: FIXTURES.workspaces.orgAlpha }
+      : {}),
     ...(process.argv.includes("--catalog-fixture")
       ? { REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH: "1" }
       : {}),
