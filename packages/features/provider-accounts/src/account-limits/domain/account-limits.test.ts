@@ -177,6 +177,101 @@ describe("canonical account limits display", () => {
       reason: "future_observation",
     });
   });
+  it("keeps Claude all/model windows distinct without exposing native dimensions or inferring durations", () => {
+    const source = snapshot();
+    const result = projectAccountLimits(
+      {
+        ...source,
+        windows: [
+          { ...source.windows[0]!, family: "claude", id: "claude-5h" },
+          {
+            ...source.windows[0]!,
+            family: "claude",
+            id: "claude-7d",
+            durationSeconds: 604800,
+            usedPercent: 88,
+          },
+          {
+            ...source.windows[0]!,
+            family: "claude",
+            id: "claude-7d-sonnet",
+            durationSeconds: 604800,
+            usedPercent: null,
+            observedAt: null,
+            resetAt: null,
+          },
+          {
+            ...source.windows[0]!,
+            family: "claude",
+            id: "claude-7d-fable",
+            durationSeconds: null,
+            usedPercent: 125,
+            resetAt: now.toISOString(),
+          },
+        ],
+      },
+      context,
+    );
+    expect(result).toMatchObject({
+      status: "snapshot",
+      windows: [
+        { label: "5h", remainingPercent: 62.5, stale: false },
+        { label: "7d", remainingPercent: 12, stale: false },
+        { label: "7d Sonnet", remainingPercent: null, stale: true },
+        {
+          label: "Window 4, duration unknown Fable",
+          usedPercent: 125,
+          remainingPercent: 0,
+          progressPercent: 100,
+          stale: true,
+        },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toMatch(
+      /claude-7d|physicalGeneration|principalVersion|private-/,
+    );
+    expect(
+      window({
+        family: "claude",
+        id: "claude-7d-sonnet",
+        durationSeconds: 3600,
+      }),
+    ).toMatchObject({ label: "1h Sonnet", durationSeconds: 3600 });
+  });
+  it("rejects mixed provider windows for one physical account without exposing either observation", () => {
+    const source = snapshot();
+    const codex = source.windows[0]!;
+    const claude = { ...codex, family: "claude" as const, id: "claude-5h" };
+    for (const windows of [
+      [codex, claude],
+      [claude, codex],
+    ]) {
+      const result = projectAccountLimits({ ...source, windows }, context);
+      expect(result).toMatchObject({
+        status: "unavailable",
+        reason: "invalid_snapshot",
+      });
+      expect(result).not.toHaveProperty("windows");
+    }
+  });
+  it("rejects unqualified Claude buckets rather than displaying them as general quota", () => {
+    const source = snapshot();
+    for (const id of ["private-model-bucket", "claude-7d-opus", "toString"]) {
+      expect(
+        projectAccountLimits(
+          {
+            ...source,
+            windows: [{ ...source.windows[0]!, family: "claude", id }],
+          },
+          context,
+        ),
+      ).toMatchObject({ status: "unavailable", reason: "invalid_snapshot" });
+    }
+    // A similarly named Codex identifier cannot acquire a Claude model label.
+    expect(
+      window({ id: "claude-7d-sonnet", durationSeconds: 604800 }),
+    ).toMatchObject({ label: "7d" });
+  });
   it("rejects noncanonical dates and invalid envelopes, retaining valid partial fields", () => {
     expect(
       window({ resetAt: 1792674000, observedAt: "2026-02-30T12:00:00Z" }),

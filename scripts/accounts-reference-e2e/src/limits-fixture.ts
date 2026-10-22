@@ -1,4 +1,5 @@
 // Controlled Gateway HTTP fixture. This proves RR integration, not live native quota.
+import { FIXTURES } from "./contracts.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
 type Account = {
@@ -13,7 +14,9 @@ type Mode =
   | "partial"
   | "unknown"
   | "unsupported"
-  | "unavailable";
+  | "unavailable"
+  | "stale"
+  | "claude-models";
 const modes: readonly string[] = [
   "fresh",
   "two-windows",
@@ -21,6 +24,8 @@ const modes: readonly string[] = [
   "unknown",
   "unsupported",
   "unavailable",
+  "stale",
+  "claude-models",
 ];
 
 export function createLimitsFixture(accounts: readonly Account[]) {
@@ -49,8 +54,12 @@ export function createLimitsFixture(accounts: readonly Account[]) {
       completed = 0;
       readAccounts.length = 0;
       completedAccounts.length = 0;
-      observedAt = new Date(Date.now() - 60_000).toISOString();
-      resetAt = new Date(Date.now() + 60_000).toISOString();
+      observedAt = new Date(
+        Date.now() - (mode === "stale" ? 360_000 : 60_000),
+      ).toISOString();
+      resetAt = new Date(
+        Date.now() + (mode === "stale" ? -60_000 : 60_000),
+      ).toISOString();
     },
     stats: () => ({
       reads,
@@ -100,6 +109,10 @@ export function createLimitsFixture(accounts: readonly Account[]) {
       readAccounts.push(account.accountRef);
       // Capture before waiting so a scope change races an actual old response.
       const capturedMode = mode;
+      const family =
+        account.profileId === FIXTURES.gateway.claudeProfileId
+          ? "claude"
+          : "codex";
       const snapshot = {
         status: "snapshot",
         physicalGeneration: `fixture-generation-${account.accountRef}`,
@@ -108,8 +121,8 @@ export function createLimitsFixture(accounts: readonly Account[]) {
         scope: "account",
         windows: [
           {
-            id: "codex-5h",
-            family: "codex",
+            id: `${family}-5h`,
+            family,
             durationSeconds: 18000,
             usedPercent: capturedMode === "partial" ? null : 37.5,
             observedAt,
@@ -118,10 +131,10 @@ export function createLimitsFixture(accounts: readonly Account[]) {
           },
         ],
       };
-      if (capturedMode === "two-windows") {
+      if (capturedMode === "two-windows" || capturedMode === "claude-models") {
         snapshot.windows.push({
-          id: "codex-7d",
-          family: "codex",
+          id: `${family}-7d`,
+          family,
           durationSeconds: 604800,
           usedPercent: 88,
           observedAt,
@@ -129,13 +142,25 @@ export function createLimitsFixture(accounts: readonly Account[]) {
           basis: "duration",
         });
       }
+      if (family === "claude" && capturedMode === "claude-models") {
+        snapshot.windows.push(
+          {
+            ...snapshot.windows[1]!,
+            id: "claude-7d-sonnet",
+            usedPercent: 72.25,
+          },
+          { ...snapshot.windows[1]!, id: "claude-7d-fable", usedPercent: 125 },
+        );
+      }
       if (delayMs) await delay(delayMs);
       completed++;
       completedAccounts.push(account.accountRef);
       if (
         capturedMode === "fresh" ||
         capturedMode === "partial" ||
-        capturedMode === "two-windows"
+        capturedMode === "two-windows" ||
+        capturedMode === "stale" ||
+        capturedMode === "claude-models"
       )
         return { status: 200, body: snapshot };
       return {

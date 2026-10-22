@@ -85,6 +85,18 @@ export async function startGatewayFixture(input: {
       "active",
       1,
     ),
+    ...(process.argv.includes("--limits-fixture")
+      ? [
+          wire(
+            FIXTURES.gateway.accounts.viewerClaude,
+            ownerForUser(FIXTURES.users.viewer),
+            FIXTURES.sourceLabels.viewerClaude,
+            "active",
+            1,
+            FIXTURES.gateway.claudeProfileId,
+          ),
+        ]
+      : []),
   ];
   const limits = process.argv.includes("--limits-fixture")
     ? createLimitsFixture(accounts)
@@ -388,6 +400,16 @@ export async function startGatewayFixture(input: {
             modelIds: ["rr-e2e-model"],
             authKinds: ["api_key"],
           },
+          ...(limits
+            ? [
+                {
+                  profileId: FIXTURES.gateway.claudeProfileId,
+                  protocol: "openai-responses",
+                  modelIds: ["claude-sonnet-4-6"],
+                  authKinds: ["oauth"],
+                },
+              ]
+            : []),
         ],
       });
       return;
@@ -493,11 +515,12 @@ function wire(
   displayName: string,
   state: WireAccount["state"],
   metadataRevision: number,
+  profileId: string = FIXTURES.gateway.profileId,
 ): WireAccount {
   return {
     accountRef,
     ownerRef,
-    profileId: FIXTURES.gateway.profileId,
+    profileId,
     displayName,
     state,
     metadataRevision: state === "suspended" ? 2 : metadataRevision,

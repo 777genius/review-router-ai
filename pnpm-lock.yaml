@@ -99,7 +99,7 @@ importers:
         version: 4.4.2
       zustand:
         specifier: ^5.0.12
-        version: 5.0.12(@types/react@19.2.14)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
+        version: 5.0.12(@types/react@19.2.14)(immer@11.2.6)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
     devDependencies:
       '@agent-teams/engineering-foundation':
         specifier: 2.1.0
@@ -325,8 +325,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -461,7 +461,7 @@ importers:
         version: 4.4.2
       zustand:
         specifier: ^5.0.12
-        version: 5.0.12(@types/react@19.2.14)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
+        version: 5.0.12(@types/react@19.2.14)(immer@11.2.6)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
     devDependencies:
       '@electric-sql/pglite':
         specifier: 0.4.1
@@ -1296,6 +1296,11 @@ packages:
 
   '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz':
     resolution: {integrity: sha512-O1KJh9UJ+XCvNCO8XKTK6/ABBp3HeOkZi2LlhycW/RqK11z6rwk26FCjDMvxbPCnSEsZN3i0lUqUxJs5LP16jA==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz}
+    version: 0.1.0
+    engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
+
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz':
+    resolution: {integrity: sha512-2m6yfYE3VPAtlBPUrowOauDsHsoBwl1oIB8ph10Cvw4kFU8nzhV+msgUrHj9StUEzcGTEZFvKb6AB7vX6rMxgw==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -6423,6 +6428,12 @@ snapshots:
   '@actions/io@3.0.2': {}
 
   '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-account-limits-c41b9e7d.tgz':
+    dependencies:
+      '@get-modular/assembly': 0.2.0
+      '@get-modular/core': 0.2.0
+      zod: 4.6.5
+
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-claude-limits-ef19e228.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0
@@ -11576,8 +11587,9 @@ snapshots:
 
   zod@4.6.5: {}
 
-  zustand@5.0.12(@types/react@19.2.14)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5)):
+  zustand@5.0.12(@types/react@19.2.14)(immer@11.2.6)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5)):
     optionalDependencies:
       '@types/react': 19.2.14
+      immer: 11.2.6
       react: 19.2.5
       use-sync-external-store: 1.6.0(react@19.2.5)

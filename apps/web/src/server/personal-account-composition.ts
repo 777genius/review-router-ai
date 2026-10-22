@@ -113,6 +113,16 @@ export async function productionPersonalAccounts() {
       provider: "codex",
       authKind: "oauth",
       canReconnect: false,
+      oauthMethods: ["device_code", "browser"],
+    });
+  if (settings.claudeOAuthProfileId)
+    profiles.push({
+      id: settings.claudeOAuthProfileId,
+      label: "Claude",
+      provider: "claude",
+      authKind: "oauth",
+      canReconnect: false,
+      oauthMethods: ["browser"],
     });
   const ingress = new Map(
     profiles.map((profile) => [

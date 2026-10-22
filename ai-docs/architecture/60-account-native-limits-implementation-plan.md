@@ -5,15 +5,19 @@
 Применён `q`: ответственность `provider-accounts`, отдельная capability чтения,
 существующие composition/UI seams. Документ не разрешает деплой или вход в аккаунты.
 
-Реализация 2026-10-22: native [PR 61](https://github.com/agent-teams-ai/sub2api/pull/61)
+Исходный Codex checkpoint 2026-10-22: native [PR 61](https://github.com/agent-teams-ai/sub2api/pull/61)
 и Gateway [PR 67](https://github.com/agent-teams-ai/account-gateway/pull/67) merged.
 [SDK provenance](../../vendor/account-gateway/account-limits-provenance.json)
 закрепляет source commits, migration 252, archive SHA/SRI и controlled joined
 native → Gateway → SDK → RR acceptance. Cached reads не делают provider/inference
-вызовов. Gateway CI прошёл; native GitHub Actions возвращает 422 disabled, поэтому
-его exact-source hosted gates записаны отдельно, без заявления о GitHub CI.
+вызовов. Gateway CI этого checkpoint прошёл; native GitHub Actions тогда возвращал 422
+disabled, поэтому его exact-source hosted gates записаны отдельно, без заявления
+о GitHub CI. Актуальные сведения о Claude и его проверках — в документе 61
+и текущем SDK provenance.
 
-L3 не включён: `quotaOnlyRefresh=false`. Claude и остальные профили без qualified
+L3 не включён: `quotaOnlyRefresh=false`. Расширение для Claude описано в
+[Claude account limits](61-claude-account-limits.md): оно использует отдельный
+qualified OAuth lifecycle и пассивный источник. Остальные профили без qualified
 principal lifecycle остаются unsupported. Legacy native extra без provenance
 остаётся unknown; RR connection без подтверждённого authorization epoch остаётся
 unavailable. Эти состояния не заменяются предположениями из credentials или stats.

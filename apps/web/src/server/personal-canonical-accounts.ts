@@ -73,6 +73,7 @@ type Dependencies = {
     provider?: NonNullable<AccountProfileView["provider"]>;
     authKind: "api_key" | "oauth";
     canReconnect?: boolean;
+    oauthMethods?: NonNullable<AccountProfileView["oauthMethods"]>;
     dedicatedBaseURL?: string;
   }[];
   personalAdapterFactory(input: {
@@ -136,6 +137,9 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
     label: profile.label,
     ...(profile.provider ? { provider: profile.provider } : {}),
     authKind: profile.authKind,
+    ...(profile.oauthMethods
+      ? { oauthMethods: [...profile.oauthMethods] }
+      : {}),
     canReconnect:
       profile.authKind === "api_key" && profile.canReconnect === true,
     ...(profile.dedicatedBaseURL
@@ -555,7 +559,8 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         (request.label !== undefined && intent.displayName !== request.label) ||
         intent.ingress !==
           (credential === undefined ? "oauth-begin" : "api-key-create") ||
-        (intent.method ?? "browser") !== (request.method ?? "browser")
+        (request.method !== undefined &&
+          (intent.method ?? "browser") !== request.method)
       )
         throw new ProviderAccountError("operation_conflict");
       if (
@@ -568,7 +573,11 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         return { operation: await scope.personal.operation(request.nonce) };
       // A positively unentered reservation may still use C2's single claim.
       // Preserve its original default label if configuration copy has changed.
-      request = { ...request, label: intent.displayName };
+      request = {
+        ...request,
+        label: intent.displayName,
+        ...(intent.method ? { method: intent.method } : {}),
+      };
     }
     const profile = (await scope.catalogue()).find(
       (profile) => profile.id === request.profileId,
@@ -580,18 +589,27 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         : profile.authKind !== "oauth")
     )
       throw new Denied();
+    if (
+      credential === undefined &&
+      profile.oauthMethods &&
+      !profile.oauthMethods.includes(request.method ?? profile.oauthMethods[0]!)
+    )
+      throw new Denied();
     if (request.baseURL !== undefined) {
       const baseURL = canonicalMimoBaseURL(request.baseURL);
       if (!baseURL || baseURL !== profile.dedicatedBaseURL)
         throw new z.ZodError([]);
     }
+    const method = request.method ?? profile.oauthMethods?.[0];
     retain();
     return scope.personal.connect(
       {
         nonce: request.nonce,
         profileId: profile.id,
         label: request.label ?? suggestedAccountLabel(profile.label),
-        ...(request.method ? { method: request.method } : {}),
+        ...(profile.authKind === "oauth" && method !== undefined
+          ? { method }
+          : {}),
       },
       credential,
     );
