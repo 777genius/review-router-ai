@@ -80,8 +80,9 @@ export class PrismaUsageSourceRedrive implements UsageSourceRedrivePort {
             disabledAt: Date | null;
             leaseActive: boolean;
             failureCount: number;
+            lastErrorCode: string | null;
           }[]
-        >`SELECT "fence","deadLetteredAt","disabledAt","failureCount",COALESCE("leaseUntil">statement_timestamp(),false) AS "leaseActive" FROM "UsageSourceCheckpoint" WHERE "sourceInstance"=${q.sourceInstance} AND "workspaceId"=${q.workspaceId} FOR UPDATE`;
+        >`SELECT "fence","deadLetteredAt","disabledAt","failureCount","lastErrorCode",COALESCE("leaseUntil">statement_timestamp(),false) AS "leaseActive" FROM "UsageSourceCheckpoint" WHERE "sourceInstance"=${q.sourceInstance} AND "workspaceId"=${q.workspaceId} FOR UPDATE`;
         const row = rows[0];
         if (
           !row ||
@@ -128,6 +129,7 @@ export class PrismaUsageSourceRedrive implements UsageSourceRedrivePort {
               previousFence: row.fence.toString(),
               queuedFence,
               previousFailureCount: row.failureCount,
+              previousLastErrorCode: row.lastErrorCode,
               previousDeadLetteredAt: row.deadLetteredAt.toISOString(),
               cursorAndCoveragePreserved: true,
             },

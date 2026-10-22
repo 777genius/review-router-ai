@@ -1,5 +1,11 @@
 /** Reviewed operator command; no HTTP exposure or schema change. */
-import { lstatSync, readFileSync } from "node:fs";
+import {
+  constants,
+  openSync,
+  fstatSync,
+  readFileSync,
+  closeSync,
+} from "node:fs";
 import { pathToFileURL } from "node:url";
 import { createPrismaClient } from "../packages/platform/db/src/index";
 import { RedriveUsageSource } from "../packages/features/provider-usage/src/application/redrive-usage-source";
@@ -9,17 +15,23 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.length !== 2 || args[0] !== "--request-file")
     throw new Error("usage_redrive_request_file_required");
-  const stat = lstatSync(args[1]!);
-  if (
-    !stat.isFile() ||
-    stat.isSymbolicLink() ||
-    stat.nlink !== 1 ||
-    stat.uid !== process.getuid?.() ||
-    (stat.mode & 0o777) !== 0o600 ||
-    stat.size > 8192
-  )
-    throw new Error("usage_redrive_request_file_custody");
-  const input = JSON.parse(readFileSync(args[1]!, "utf8")) as {
+  const fd = openSync(args[1]!, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let request: string;
+  try {
+    const stat = fstatSync(fd);
+    if (
+      !stat.isFile() ||
+      stat.nlink !== 1 ||
+      stat.uid !== process.getuid?.() ||
+      (stat.mode & 0o777) !== 0o600 ||
+      stat.size > 8192
+    )
+      throw new Error("usage_redrive_request_file_custody");
+    request = readFileSync(fd, "utf8");
+  } finally {
+    closeSync(fd);
+  }
+  const input = JSON.parse(request) as {
     operationId: string;
     operatorWorkspaceId: string;
     actorId: string;

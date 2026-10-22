@@ -111,6 +111,13 @@ describe.skipIf(!adminUrl)("audited source redrive real PostgreSQL", () => {
     expect(
       await prisma.auditEvent.count({ where: { targetId: q.sourceInstance } }),
     ).toBe(1);
+    expect(
+      (
+        await prisma.auditEvent.findUniqueOrThrow({
+          where: { id: results[0]!.auditId },
+        })
+      ).metadata,
+    ).toMatchObject({ previousLastErrorCode: "native_source_unavailable" });
     const after = await prisma.usageSourceCheckpoint.findUniqueOrThrow({
       where: { sourceInstance: q.sourceInstance },
     });
