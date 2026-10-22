@@ -184,6 +184,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("provider usage interactive report", () => {
+  it("links account limits to the authorized Accounts page from usage details", () => {
+    const { container } = render(<Harness />);
+    fireEvent.click(screen.getByLabelText("Details"));
+    expect(
+      screen
+        .getByRole("link", { name: "Account limits are shown in Accounts" })
+        .getAttribute("href"),
+    ).toBe("/dashboard/setup?workspace=workspace#dashboard-section-content");
+    expect(container.textContent).not.toContain("Quota / limits: unknown");
+  });
   it("hydrates the exact review key and preserves exact currency/basis and requested/observed identities", () => {
     render(<Harness />);
     expect(fetchProviderUsage).not.toHaveBeenCalled();
