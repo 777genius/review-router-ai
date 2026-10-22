@@ -106,13 +106,22 @@ export async function buildCodexRotatingAction({
               pluginData: resolved.path,
             };
           };
-          actionBuild.onResolve({ filter: /.*/, namespace: "file" }, resolveDependency);
-          actionBuild.onResolve({ filter: /.*/, namespace: "pinned-dependency" }, resolveDependency);
-          actionBuild.onLoad({ filter: /.*/, namespace: "pinned-dependency" }, async args => ({
-            contents: await readFile(args.pluginData, "utf8"),
-            loader: args.pluginData.endsWith(".json") ? "json" : "js",
-            resolveDir: dirname(args.pluginData),
-          }));
+          actionBuild.onResolve(
+            { filter: /.*/, namespace: "file" },
+            resolveDependency,
+          );
+          actionBuild.onResolve(
+            { filter: /.*/, namespace: "pinned-dependency" },
+            resolveDependency,
+          );
+          actionBuild.onLoad(
+            { filter: /.*/, namespace: "pinned-dependency" },
+            async (args) => ({
+              contents: await readFile(args.pluginData, "utf8"),
+              loader: args.pluginData.endsWith(".json") ? "json" : "js",
+              resolveDir: dirname(args.pluginData),
+            }),
+          );
         },
       },
     ],
