@@ -255,6 +255,42 @@ const conflictPostingStatusBodySchema = z
   })
   .strict();
 
+// Optional telemetry stays outside the legacy strict exchange/prelease JSON body.
+function usageRegistrationPublicKey(
+  header: unknown,
+  bodyKey: string | undefined,
+): string | undefined {
+  if (header === undefined) return bodyKey;
+  const encoded = z
+    .string()
+    .min(43)
+    .max(2731)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .parse(header);
+  const bytes = Buffer.from(encoded, "base64url");
+  const key = z
+    .string()
+    .min(32)
+    .max(2048)
+    .regex(
+      /^-----BEGIN PUBLIC KEY-----\n[A-Za-z0-9+/=\n]+-----END PUBLIC KEY-----\n?$/,
+    )
+    .parse(bytes.toString("utf8"));
+  if (
+    bytes.toString("base64url") !== encoded ||
+    (bodyKey !== undefined && bodyKey !== key)
+  ) {
+    throw new z.ZodError([
+      {
+        code: "custom",
+        path: ["usagePublicKey"],
+        message: "Invalid or conflicting usage registration key",
+      },
+    ]);
+  }
+  return key;
+}
+
 type ActionErrorFormat = "legacy" | "v1";
 
 export async function registerActionControlPlaneRoutes(
@@ -274,6 +310,10 @@ export async function registerActionControlPlaneRoutes(
       }
       try {
         const body = exchangeBodySchema.parse(request.body);
+        const usagePublicKey = usageRegistrationPublicKey(
+          request.headers["x-reviewrouter-usage-public-key"],
+          body.usagePublicKey,
+        );
         const audience = resolveServerOwnedOidcAudience(
           body.audience,
           dependencies.oidcAudience,
@@ -282,9 +322,7 @@ export async function registerActionControlPlaneRoutes(
           {
             oidcToken: body.oidcToken,
             audience,
-            ...(body.usagePublicKey
-              ? { usagePublicKey: body.usagePublicKey }
-              : {}),
+            ...(usagePublicKey ? { usagePublicKey } : {}),
             ...(body.conflictDispatch
               ? { conflictDispatchPayload: body.conflictDispatch }
               : {}),
@@ -330,6 +368,10 @@ export async function registerActionControlPlaneRoutes(
       let stage: PreleaseFailureStage = "request_body_validation";
       try {
         const body = codexRotatingPreleaseBodySchema.parse(request.body);
+        const usagePublicKey = usageRegistrationPublicKey(
+          request.headers["x-reviewrouter-usage-public-key"],
+          body.usagePublicKey,
+        );
         stage = "use_case_rejection";
         const audience = resolveServerOwnedOidcAudience(
           body.audience,
@@ -341,9 +383,7 @@ export async function registerActionControlPlaneRoutes(
             audience,
             providerInstanceId: body.providerInstanceId,
             workflowSchemaVersion: body.workflowSchemaVersion,
-            ...(body.usagePublicKey
-              ? { usagePublicKey: body.usagePublicKey }
-              : {}),
+            ...(usagePublicKey ? { usagePublicKey } : {}),
           },
           dependencies as PreleaseCodexRotatingOAuthDependencies,
         );
