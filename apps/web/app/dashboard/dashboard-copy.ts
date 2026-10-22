@@ -286,6 +286,7 @@ export function isMemoryError(error: string): boolean {
     "contains_prompt_injection",
     "contains_secret_like_text",
     "memory_active_item_quota_exceeded",
+    "memory_dashboard_in_development",
     "memory_disabled",
     "memory_not_found",
     "memory_pending_suggestion_quota_exceeded",
@@ -562,6 +563,8 @@ export function dashboardErrorText(error: string): string {
       return "This repository is not available for memory changes. It may be archived, unselected, or outside the workspace.";
     case "memory_active_item_quota_exceeded":
       return "Workspace memory quota is full. Disable or delete older memory before saving or confirming new memory.";
+    case "memory_dashboard_in_development":
+      return "The memory dashboard is in development. No memory was changed.";
     case "memory_disabled":
       return "Balanced Memory is disabled for this workspace or environment. Existing memory can still be reviewed and removed by authorized admins.";
     case "memory_pending_suggestion_quota_exceeded":

@@ -1,5 +1,8 @@
 import type {
   MemoryIndexDocument,
+  MemoryIndexDeleteInput,
+  MemoryIndexWriteResult,
+  MemorySearchIndexScoreParts,
   MemorySearchIndexInput,
   MemorySearchIndexPort,
   MemorySearchIndexResult,
@@ -7,18 +10,24 @@ import type {
 import type { MemoryScope } from "../../domain/memory-scope-policy";
 import type { MemoryPrismaClient } from "./prisma-memory-mappers";
 
+import { memoryBundleWhere } from "./memory-bundle-where";
+
 type SearchCandidate = {
   readonly id: string;
   readonly scope: string;
   readonly repositoryId: string | null;
   readonly userId: string | null;
   readonly body: string;
+  readonly bodyVersion: number;
+  readonly bodyHash: string;
   readonly tags: unknown;
   readonly updatedAt: Date;
   readonly lastUsedAt: Date | null;
 };
 
 export class PrismaMemorySearchIndex implements MemorySearchIndexPort {
+  readonly indexIdentity = "prisma";
+
   constructor(private readonly prisma: MemoryPrismaClient) {}
 
   async supports(): ReturnType<MemorySearchIndexPort["supports"]> {
@@ -33,28 +42,14 @@ export class PrismaMemorySearchIndex implements MemorySearchIndexPort {
 
     const candidates = await this.prisma.memoryItem.findMany({
       where: {
-        workspaceId: input.workspaceId,
-        status: "active",
         AND: [
-          {
-            OR: [
-              { scope: "workspace", repositoryId: null, userId: null },
-              {
-                scope: "repository",
-                repositoryId: input.repositoryId,
-                userId: null,
-              },
-              ...(input.includeUserPrefs && input.userId
-                ? [
-                    {
-                      scope: "user_prefs" as const,
-                      repositoryId: null,
-                      userId: input.userId,
-                    },
-                  ]
-                : []),
-            ],
-          },
+          memoryBundleWhere({
+            ...input,
+            allowedScopes: input.allowedScopes.filter(
+              (scope) => scope !== "user_prefs" || input.includeUserPrefs,
+            ),
+            activeAt: new Date(),
+          }),
           {
             OR: tokens.map((token) => ({
               body: { contains: token, mode: "insensitive" as const },
@@ -74,15 +69,14 @@ export class PrismaMemorySearchIndex implements MemorySearchIndexPort {
       .slice(0, input.limit);
   }
 
-  async upsertDocument(input: MemoryIndexDocument): Promise<void> {
+  async upsertDocument(
+    input: MemoryIndexDocument,
+  ): Promise<MemoryIndexWriteResult> {
     void input;
-    return undefined;
+    return { status: "indexed" };
   }
 
-  async deleteDocument(input: {
-    readonly workspaceId: string;
-    readonly memoryItemId: string;
-  }): Promise<void> {
+  async deleteDocument(input: MemoryIndexDeleteInput): Promise<void> {
     void input;
     return undefined;
   }
@@ -111,7 +105,7 @@ function isAllowedCandidate(
 function scoreCandidate(
   candidate: SearchCandidate,
   tokens: readonly string[],
-): MemorySearchIndexResult {
+): LexicalSearchResult {
   const searchable =
     `${candidate.body} ${toTagText(candidate.tags)}`.toLowerCase();
   const matchedTokens = tokens.filter((token) => searchable.includes(token));
@@ -124,6 +118,8 @@ function scoreCandidate(
   const semanticScore = 0;
   return {
     memoryItemId: candidate.id,
+    bodyVersion: candidate.bodyVersion,
+    bodyHash: candidate.bodyHash,
     scope: candidate.scope as MemoryScope,
     score:
       lexicalScore * 10 +
@@ -174,9 +170,13 @@ function scopeScoreFor(scope: string): number {
   return 0.1;
 }
 
+type LexicalSearchResult = MemorySearchIndexResult & {
+  readonly scoreParts: MemorySearchIndexScoreParts;
+};
+
 function compareSearchResults(
-  left: MemorySearchIndexResult,
-  right: MemorySearchIndexResult,
+  left: LexicalSearchResult,
+  right: LexicalSearchResult,
 ): number {
   if (left.score !== right.score) return right.score - left.score;
   if (left.scoreParts.scopeScore !== right.scoreParts.scopeScore) {

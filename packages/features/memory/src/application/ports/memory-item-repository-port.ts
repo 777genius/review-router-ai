@@ -89,6 +89,15 @@ export type ListMemoryItemsForExportResult = {
   readonly excludedDeletedCount: number;
 };
 
+export type ListActiveMemoryForBundleInput = {
+  readonly workspaceId: string;
+  readonly repositoryId: string;
+  readonly userId: string | null;
+  readonly allowedScopes: readonly MemoryScope[];
+  readonly activeAt: Date;
+  readonly limit: number;
+};
+
 export interface MemoryItemRepositoryPort {
   save(
     item: MemoryItem,
@@ -114,20 +123,15 @@ export interface MemoryItemRepositoryPort {
     readonly workspaceId: string;
   }): Promise<number>;
 
-  listActiveForBundle(input: {
-    readonly workspaceId: string;
-    readonly repositoryId: string;
-    readonly userId: string | null;
-    readonly limit: number;
-  }): Promise<readonly MemoryItemSnapshot[]>;
+  listActiveForBundle(
+    input: ListActiveMemoryForBundleInput,
+  ): Promise<readonly MemoryItemSnapshot[]>;
 
-  listActiveByIdsForBundle(input: {
-    readonly workspaceId: string;
-    readonly repositoryId: string;
-    readonly userId: string | null;
-    readonly itemIds: readonly string[];
-    readonly limit: number;
-  }): Promise<readonly MemoryItemSnapshot[]>;
+  listActiveByIdsForBundle(
+    input: ListActiveMemoryForBundleInput & {
+      readonly itemIds: readonly string[];
+    },
+  ): Promise<readonly MemoryItemSnapshot[]>;
 
   listForDashboard(input: {
     readonly workspaceId: string;

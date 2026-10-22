@@ -38,8 +38,13 @@ const usageMigrationName = "000136_provider_usage";
 const prDescriptionMigrationName = "000138_pr_description";
 const contextToolsMigrationName = "000139_review_context_tools";
 const oauthMethodMigrationName = "000140_personal_oauth_method";
-const readPriorFullCheckoutInventory = () =>
+const memoryProjectionMigrationName = "000141_memory_search_projections";
+const readOauthMethodCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
+    (row) => row.migrationName !== memoryProjectionMigrationName,
+  );
+const readPriorFullCheckoutInventory = () =>
+  readOauthMethodCheckoutInventory().filter(
     (row) => row.migrationName !== oauthMethodMigrationName,
   );
 const readDescriptionCheckoutInventory = () =>
@@ -84,6 +89,7 @@ const historicalMigration119Sql = correctedMigration119Sql.replaceAll(
 const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
     (name) =>
+      name !== memoryProjectionMigrationName &&
       name !== oauthMethodMigrationName &&
       name !== usageMigrationName &&
       name !== contextToolsMigrationName &&
@@ -448,8 +454,50 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("admits only the exact OAuth-method140 checkout and preserves managed92", () => {
+  it("admits only the exact memory-projection141 checkout and preserves managed92", () => {
     const full = readRenderManagedCheckoutInventory();
+    expect(full).toHaveLength(141);
+    expect(full.at(-1)).toEqual({
+      migrationName: memoryProjectionMigrationName,
+      checksum:
+        "4169d5f18ff4bafe6ce316060c06d569d108f4e13704b7c66692514221723c3e",
+    });
+    expect(
+      createHash("sha256")
+        .update(
+          full.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
+        )
+        .digest("hex"),
+    ).toBe("f57efc9ec8fd5f1efcd8f9cea07586957e5bd4bf983f02f252b30dc474a67ec8");
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    expect(
+      partitionRenderSchemaHandoffCheckout(readOauthMethodCheckoutInventory()),
+    ).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === memoryProjectionMigrationName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === memoryProjectionMigrationName
+          ? { ...row, migrationName: "000141_relabelled" }
+          : row,
+      ),
+      full.map((row, index) =>
+        index === 0 ? { ...row, checksum: "0".repeat(64) } : row,
+      ),
+      full.filter((row) => row.migrationName !== oauthMethodMigrationName),
+      full.filter((row) => row.migrationName !== contextToolsMigrationName),
+      [...full, { migrationName: "000142_unknown", checksum: "0".repeat(64) }],
+      [...full, full.at(-1)!],
+      [...full].reverse(),
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow();
+  });
+
+  it("admits only the exact OAuth-method140 checkout and preserves managed92", () => {
+    const full = readOauthMethodCheckoutInventory();
     expect(full).toHaveLength(140);
     expect(full.at(-1)).toEqual({
       migrationName: oauthMethodMigrationName,
@@ -1905,6 +1953,9 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      rmSync(join(migrations, memoryProjectionMigrationName), {
+        recursive: true,
+      });
       rmSync(join(migrations, oauthMethodMigrationName), { recursive: true });
       rmSync(join(migrations, usageMigrationName), { recursive: true });
       rmSync(join(migrations, contextToolsMigrationName), { recursive: true });
@@ -1959,11 +2010,15 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads current checkout140 through old125, historical124 and key-free123 as identical frozen92 rows", async () => {
+  it("reads current checkout141 through old125, historical124 and key-free123 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(140);
+    expect(inventory).toHaveLength(141);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, memoryProjectionMigrationName), {
+      recursive: true,
+    });
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, oauthMethodMigrationName), {
       recursive: true,
@@ -2315,7 +2370,7 @@ describe("complete filesystem checkout inventory", () => {
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
       // Only removing the current tail restores an independently admitted catalog.
-      if (name === oauthMethodMigrationName)
+      if (name === memoryProjectionMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
