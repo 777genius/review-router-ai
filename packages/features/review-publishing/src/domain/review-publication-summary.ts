@@ -149,7 +149,7 @@ export function renderFindingsSummaryMarkdown(input: {
           : "⚪";
   const lines = [`${icon} **${heading}**`];
   if (input.reviewState === "incomplete") lines.push("", copy.incomplete);
-  const banner = renderBanner(input, counts, locale);
+  const banner = renderBanner(input, counts);
   if (banner) lines.push("", banner);
   const sorted = [...input.findings].sort(compareFindings);
   let omitted = 0;
@@ -434,7 +434,6 @@ function renderBanner(
     readonly reviewState?: ReviewSummaryState | undefined;
   },
   counts: SeverityCounts,
-  locale: ReviewSummaryLocale,
 ): string {
   const base = safeHttpsBase(input.bannerBaseUrl ?? "");
   if (
@@ -446,19 +445,29 @@ function renderBanner(
     )
   )
     return "";
-  const url = (theme: "light" | "dark") => {
+  const url = (theme: "light" | "dark", layout: "wide" | "compact") => {
     const query = new URLSearchParams({
       state: input.reviewState!,
+      variant: "first",
       critical: String(counts.critical),
       major: String(counts.major),
       minor: String(counts.minor),
       info: String(counts.info),
-      lang: locale,
       theme,
+      layout,
     });
-    return escapeHtml(`${base}/review-banner/v1.svg?${query}`);
+    return escapeHtml(`${base}/review-banner/v2.svg?${query}`);
   };
-  return `<picture>\n<source media="(prefers-color-scheme: dark)" srcset="${url("dark")}">\n<img src="${url("light")}" alt="ReviewRouter" width="640" height="110">\n</picture>`;
+  const alt =
+    input.reviewState === "complete" ? "Review complete" : "Review incomplete";
+  return [
+    "<picture>",
+    `<source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="${url("dark", "compact")}">`,
+    `<source media="(max-width: 600px)" srcset="${url("light", "compact")}">`,
+    `<source media="(prefers-color-scheme: dark)" srcset="${url("dark", "wide")}">`,
+    `<img src="${url("light", "wide")}" alt="${alt}" width="100%">`,
+    "</picture>",
+  ].join("\n");
 }
 
 function safeHttpsBase(value: string): string | null {
