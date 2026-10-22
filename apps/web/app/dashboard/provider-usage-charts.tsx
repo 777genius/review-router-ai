@@ -14,6 +14,7 @@ import {
   chartNumber,
   compact,
   costKey,
+  costsLabel,
   dayLabel,
   metricLabel,
   metricValue,
@@ -55,12 +56,13 @@ export function UsageCharts({ report, metric, bucket }: Props) {
           (cost) => bucket && costKey(cost) === costKey(bucket),
         )?.models ?? [])
       : report.overview.topModels[metric];
-  const max = Math.max(
-    1,
-    ...top.map(
-      (row) => chartNumber(metricValue(row.totals, metric, bucket)) ?? 0,
-    ),
-  );
+  const max =
+    Math.max(
+      0,
+      ...top.map(
+        (row) => chartNumber(metricValue(row.totals, metric, bucket)) ?? 0,
+      ),
+    ) || 1;
   const costUnavailable = metric === "cost" && !bucket;
   return (
     <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)]">
@@ -296,7 +298,15 @@ export function UsageCharts({ report, metric, bucket }: Props) {
   );
 }
 
-export function DailyUsageTable({ report }: { report: ProviderUsageReport }) {
+export function DailyUsageTable({
+  report,
+  selectedCurrency,
+  bucket,
+}: {
+  report: ProviderUsageReport;
+  selectedCurrency?: string | undefined;
+  bucket?: CostBucket | undefined;
+}) {
   return (
     <div className="max-w-full overflow-x-auto">
       <table
@@ -345,12 +355,7 @@ export function DailyUsageTable({ report }: { report: ProviderUsageReport }) {
                     <td>{metricLabel(row.totals, "tokens", undefined)}</td>
                     <td>{row.totals.providerAttempts}</td>
                     <td>
-                      {row.totals.costs
-                        .map(
-                          (cost) =>
-                            `${cost.amount} ${cost.currency} (${cost.basis})`,
-                        )
-                        .join(" · ") || "Unknown"}
+                      {costsLabel(row.totals, selectedCurrency, bucket?.basis)}
                     </td>
                     <td>
                       {row.totals.unknownCount} unknown /{" "}

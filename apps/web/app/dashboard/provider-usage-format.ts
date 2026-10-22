@@ -16,8 +16,29 @@ export const costKey = (cost: CostBucket) =>
   JSON.stringify([cost.currency, cost.basis]);
 export const costLabel = (cost: CostBucket & { amount: string }) =>
   `${cost.amount} ${cost.currency} (${basisLabel(cost.basis)})`;
-export const costsLabel = (totals: UsageTotals) =>
-  totals.costs.map(costLabel).join(" · ") || "Unknown";
+export function currencyCostsLabel(
+  costs: readonly (CostBucket & { amount: string })[],
+  currency?: string,
+  basis?: string,
+): string {
+  const selected = costs.filter(
+    (cost) =>
+      (!currency || cost.currency === currency) &&
+      (!basis || cost.basis === basis),
+  );
+  if (selected.length) return selected.map(costLabel).join(" · ");
+  if (!costs.length) return "Unknown";
+  if (currency && !costs.some((cost) => cost.currency === currency))
+    return `No ${currency} amount`;
+  return currency && basis
+    ? `No ${currency} ${basisLabel(basis)} amount`
+    : "Unknown";
+}
+export const costsLabel = (
+  totals: UsageTotals,
+  currency?: string,
+  basis?: string,
+) => currencyCostsLabel(totals.costs, currency, basis);
 export function metricValue(
   totals: UsageTotals,
   metric: UsageMetric,
@@ -36,9 +57,9 @@ export function metricLabel(
   bucket: CostBucket | undefined,
 ): string {
   const value = metricValue(totals, metric, bucket);
-  if (value === null) return "Unknown";
   if (metric === "cost" && bucket)
-    return costLabel({ ...bucket, amount: String(value) });
+    return costsLabel(totals, bucket.currency, bucket.basis);
+  if (value === null) return "Unknown";
   return (
     count(Number(value)) +
     (metric === "tokens" && totals.unknownTotalTokenCount > 0

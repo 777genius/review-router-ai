@@ -3,6 +3,7 @@ import { Button } from "@reviewrouter/ui";
 import type { ProviderUsageReport } from "./provider-usage-model";
 import {
   costsLabel,
+  currencyCostsLabel,
   count,
   observedLabel,
   providerColor,
@@ -84,7 +85,13 @@ function ModelObserved({
     </p>
   );
 }
-export function ModelUsageTable({ report }: { report: ProviderUsageReport }) {
+export function ModelUsageTable({
+  report,
+  selectedCurrency,
+}: {
+  report: ProviderUsageReport;
+  selectedCurrency?: string | undefined;
+}) {
   return (
     <div className="max-w-full overflow-x-auto">
       <table aria-label="Requested model usage" className={tableClass}>
@@ -131,7 +138,7 @@ export function ModelUsageTable({ report }: { report: ProviderUsageReport }) {
               <td className={cell}>{count(row.totals.tokens.inputTotal)}</td>
               <td className={cell}>{count(row.totals.tokens.outputTotal)}</td>
               <td className={`${cell} min-w-36`}>
-                {costsLabel(row.totals)}
+                {costsLabel(row.totals, selectedCurrency)}
                 {row.totals.unknownCostCount ? (
                   <span className="mt-1 block text-amber-300">
                     Some cost unknown
@@ -160,9 +167,11 @@ export function ModelUsageTable({ report }: { report: ProviderUsageReport }) {
 export function RunUsageTable({
   report,
   onNext,
+  selectedCurrency,
 }: {
   report: ProviderUsageReport;
   onNext: () => void;
+  selectedCurrency?: string | undefined;
 }) {
   return (
     <>
@@ -206,7 +215,9 @@ export function RunUsageTable({
                 <td className={cell}>{row.routes.join(", ")}</td>
                 <td className={cell}>{count(row.totals.providerAttempts)}</td>
                 <td className={cell}>{count(row.totals.tokens.total)}</td>
-                <td className={cell}>{costsLabel(row.totals)}</td>
+                <td className={cell}>
+                  {costsLabel(row.totals, selectedCurrency)}
+                </td>
                 <td className={cell}>
                   <Coverage
                     unknown={row.totals.unknownCount}
@@ -241,9 +252,11 @@ export function RunUsageTable({
 export function ObservationTable({
   report,
   onNext,
+  selectedCurrency,
 }: {
   report: ProviderUsageReport;
   onNext: () => void;
+  selectedCurrency?: string | undefined;
 }) {
   return (
     <>
@@ -284,9 +297,10 @@ export function ObservationTable({
                   {count(row.total)} ({row.granularity})
                 </td>
                 <td className={cell}>
-                  {row.cost
-                    ? `${row.cost.amount} ${row.cost.currency} (${row.cost.basis})`
-                    : "Unknown"}
+                  {currencyCostsLabel(
+                    row.cost ? [row.cost] : [],
+                    selectedCurrency,
+                  )}
                 </td>
                 <td className={cell}>
                   {row.completeness} / {row.authority ?? "unavailable"}

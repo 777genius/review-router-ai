@@ -24,6 +24,11 @@ test("provider usage overview keeps complete period totals, charts, models and r
   await db.connect();
   const violations: string[] = [];
   const pageErrors: string[] = [];
+  const reportRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/dashboard/provider-usage")
+      reportRequests.push(request.url());
+  });
   page.on("pageerror", (error) => pageErrors.push(error.message));
   const days = [-2, -1, 0].map((offset) => {
     const date = new Date();
@@ -141,9 +146,13 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(kpi("Known tokens")).toContainText("858");
     await expect(kpi("Provider requests")).toContainText("111");
     await expect(kpi("Review runs")).toContainText("107");
-    await expect(kpi("Known cost")).toContainText("1.14");
-    await expect(kpi("Known cost")).toContainText("0.25");
-    await expect(kpi("Known cost")).toContainText("0.3");
+    await expect(
+      usage.getByRole("combobox", { name: "Cost currency", exact: true }),
+    ).toContainText("USD");
+    await expect(kpi("Known cost")).toContainText("1.14 USD");
+    await expect(kpi("Known cost")).toContainText("0.3 USD");
+    await expect(kpi("Known cost")).not.toContainText("EUR");
+    await expect(kpi("Known cost")).not.toContainText("0.25");
     const query = new URLSearchParams({
       workspace: FIXTURES.workspaces.orgAlpha,
       purpose: "review",
@@ -293,6 +302,44 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(
       usage.getByRole("table", { name: "Requested model usage", exact: true }),
     ).toContainText("Unknown requested model");
+    const models = usage.getByRole("table", {
+      name: "Requested model usage",
+      exact: true,
+    });
+    await expect(models).not.toContainText(/\bEUR\b/);
+    await expect(models).toContainText("No USD amount");
+    const requestsBeforeCurrency = reportRequests.length;
+    await chooseUsageOption(page, "Cost currency", "EUR");
+    await expect(kpi("Known cost")).toContainText("0.25 EUR");
+    await expect(kpi("Known cost")).not.toContainText("USD");
+    await expect(models).toContainText("0.05 EUR");
+    await expect(models).toContainText("0.2 EUR");
+    await expect(models).not.toContainText(/\bUSD\b/);
+    await expect(models.getByRole("row")).toHaveCount(7);
+    await expect(kpi("Known tokens")).toContainText("858");
+    await expect(kpi("Provider requests")).toContainText("111");
+    await expect(kpi("Review runs")).toContainText("107");
+    await settleCurrencyPresentation(page);
+    expect(reportRequests).toHaveLength(requestsBeforeCurrency);
+    // A still-available currency survives a real server filter change.
+    await chooseUsageOption(page, "Route", "Direct");
+    await expect(kpi("Known tokens")).toContainText("658");
+    await expect(kpi("Provider requests")).toContainText("110");
+    await expect(
+      usage.getByRole("combobox", { name: "Cost currency", exact: true }),
+    ).toContainText("EUR");
+    await expect(kpi("Known cost")).toContainText("0.05 EUR");
+    await chooseUsageOption(page, "Route", "All routes");
+    await expect(kpi("Known tokens")).toContainText("858");
+    await expect(
+      usage.getByRole("combobox", { name: "Cost currency", exact: true }),
+    ).toContainText("EUR");
+    const requestsBeforeUsd = reportRequests.length;
+    await chooseUsageOption(page, "Cost currency", "USD");
+    await expect(kpi("Known cost")).toContainText("1.14 USD");
+    await expect(kpi("Known cost")).toContainText("0.3 USD");
+    await settleCurrencyPresentation(page);
+    expect(reportRequests).toHaveLength(requestsBeforeUsd);
     await expect(
       usage.getByLabel("Daily usage chart", { exact: true }),
     ).toBeVisible();
@@ -379,20 +426,73 @@ test("provider usage overview keeps complete period totals, charts, models and r
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
     await usage.getByRole("button", { name: "Cost", exact: true }).click();
+    const costBasis = usage.getByRole("combobox", {
+      name: "Cost basis",
+      exact: true,
+    });
+    await expect(costBasis).toBeVisible();
+    await costBasis.click();
+    await expect(page.getByRole("option")).toHaveCount(2);
     await expect(
-      usage.getByRole("combobox", { name: "Cost bucket", exact: true }),
+      page.getByRole("option", { name: "estimated", exact: true }),
     ).toBeVisible();
-    await chooseUsageOption(page, "Cost bucket", "USD · estimated");
+    await expect(
+      page.getByRole("option", { name: "source reported", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole("option", { name: /EUR/ })).toHaveCount(0);
+    await page.getByRole("option", { name: "estimated", exact: true }).click();
     await expect(
       usage.getByLabel("Requested models chart", { exact: true }),
     ).toContainText("0.3 USD (estimated)");
-    await page.evaluate(() =>
-      window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
-    );
-    await page.screenshot({
-      path: info.outputPath("usage-cost-mixed.png"),
-      fullPage: true,
-    });
+    for (const currency of ["USD", "EUR"] as const) {
+      if (currency === "EUR")
+        await chooseUsageOption(page, "Cost currency", currency);
+      await expect(kpi("Known cost")).toContainText(
+        currency === "USD" ? "1.14 USD" : "0.25 EUR",
+      );
+      await expect(kpi("Known cost")).not.toContainText(
+        currency === "USD" ? "EUR" : "USD",
+      );
+      await expect(kpi("Known tokens")).toContainText("858");
+      await expect(kpi("Provider requests")).toContainText("111");
+      await expect(kpi("Review runs")).toContainText("107");
+      if (currency === "EUR") {
+        await expect(costBasis).toHaveCount(0);
+        await expect(
+          usage.getByLabel("Requested models chart", { exact: true }),
+        ).toContainText("0.25 EUR (source reported)");
+        await dailyChart.focus();
+        for (let index = 0; index < 30; index++)
+          await dailyChart.press("ArrowRight");
+        await dailyChart.press("ArrowLeft");
+        await expect(usage.getByRole("status")).toContainText(
+          `${secondDay} UTC`,
+        );
+        await expect(usage.getByRole("status")).toContainText("0.25 EUR");
+        await expect(usage.getByRole("status")).not.toContainText("USD");
+        await page.getByRole("heading", { name: "Usage", exact: true }).click();
+      }
+      for (const [width, height] of [
+        [1440, 1000],
+        [390, 844],
+      ] as const) {
+        await page.setViewportSize({ width, height });
+        await expect
+          .poll(() =>
+            page.evaluate(
+              () => document.documentElement.scrollWidth <= window.innerWidth,
+            ),
+          )
+          .toBe(true);
+        await page.evaluate(() =>
+          window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
+        );
+        await page.screenshot({
+          path: info.outputPath(`usage-cost-${currency}-${width}.png`),
+          fullPage: true,
+        });
+      }
+    }
     await usage.getByRole("tab", { name: "Runs", exact: true }).click();
     await expect(
       usage
@@ -408,6 +508,23 @@ test("provider usage overview keeps complete period totals, charts, models and r
         .getByRole("row"),
     ).toHaveCount(8);
     await expect(kpi("Known tokens")).toContainText("858");
+    const runs = usage.getByRole("table", {
+      name: "Review run usage",
+      exact: true,
+    });
+    await expect(runs).toContainText("0.2 EUR");
+    await expect(runs).toContainText("0.05 EUR");
+    await expect(runs).not.toContainText(/\bUSD\b/);
+    const requestsBeforeRunCurrency = reportRequests.length;
+    await chooseUsageOption(page, "Cost currency", "USD");
+    await expect(runs).toContainText("0.1 USD");
+    await expect(runs).toContainText("0.3 USD");
+    await expect(runs).not.toContainText(/\bEUR\b/);
+    await expect(runs.getByRole("row")).toHaveCount(8);
+    await chooseUsageOption(page, "Cost currency", "EUR");
+    await expect(runs).toContainText("0.2 EUR");
+    await settleCurrencyPresentation(page);
+    expect(reportRequests).toHaveLength(requestsBeforeRunCurrency);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() =>
       window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
@@ -437,6 +554,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(kpi("Known tokens")).toContainText("777");
     await expect(kpi("Runs")).toContainText("1");
     await chooseUsageOption(page, "Purpose", "Review");
+    await chooseUsageOption(page, "Cost currency", "EUR");
     await usage.getByLabel("Details", { exact: true }).click();
     await expect(
       usage.getByRole("table", { name: "Daily usage data", exact: true }),
@@ -455,6 +573,30 @@ test("provider usage overview keeps complete period totals, charts, models and r
         .getByRole("row"),
     ).toHaveCount(12);
     await expect(kpi("Known tokens")).toContainText("858");
+    const dailyValues = usage.getByRole("table", {
+      name: "Daily usage data",
+      exact: true,
+    });
+    const observations = usage.getByRole("table", {
+      name: "Usage observations",
+      exact: true,
+    });
+    await expect(dailyValues).toContainText("0.25 EUR");
+    await expect(dailyValues).not.toContainText(/\bUSD\b/);
+    await expect(observations).toContainText("0.2 EUR");
+    await expect(observations).toContainText("0.05 EUR");
+    await expect(observations).not.toContainText(/\bUSD\b/);
+    const requestsBeforeDetailCurrency = reportRequests.length;
+    await chooseUsageOption(page, "Cost currency", "USD");
+    await expect(observations).toContainText("0.1 USD");
+    await expect(observations).toContainText("0.3 USD");
+    await expect(observations).not.toContainText(/\bEUR\b/);
+    await expect(dailyValues).not.toContainText(/\bEUR\b/);
+    await expect(observations.getByRole("row")).toHaveCount(12);
+    await chooseUsageOption(page, "Cost currency", "EUR");
+    await expect(dailyValues).toContainText("0.25 EUR");
+    await settleCurrencyPresentation(page);
+    expect(reportRequests).toHaveLength(requestsBeforeDetailCurrency);
     await page.evaluate(() =>
       window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
     );
@@ -543,6 +685,10 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(kpi("Known tokens")).toContainText("50");
     expect(violations).toEqual([]);
     expect(pageErrors).toEqual([]);
+    for (const url of reportRequests) {
+      expect(new URL(url).searchParams.has("currency")).toBe(false);
+      expect(new URL(url).searchParams.has("costCurrency")).toBe(false);
+    }
   } finally {
     await db.query(
       `DELETE FROM "UsageCall" WHERE "callId" LIKE 'rr-e2e-usage-overview-%'`,
@@ -971,4 +1117,13 @@ async function chooseUsageOption(page: Page, label: string, option: string) {
 async function openUsageDetails(usage: Locator) {
   if ((await usage.locator("details").getAttribute("open")) === null)
     await usage.getByLabel("Details", { exact: true }).click();
+}
+
+async function settleCurrencyPresentation(page: Page) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
 }

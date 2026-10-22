@@ -3,6 +3,7 @@ import type { UsageTotals } from "@reviewrouter/features-provider-usage";
 import {
   chartNumber,
   customInterval,
+  costsLabel,
   intervalLabel,
   metricLabel,
   utcDays,
@@ -61,7 +62,18 @@ describe("usage presentation invariants", () => {
         currency: "USD",
         basis: "source_reported",
       }),
-    ).toBe("Unknown");
+    ).toBe("No USD source reported amount");
+    expect(costsLabel(totals, "EUR")).toBe("No EUR amount");
+    expect(costsLabel({ ...totals, costs: [] }, "USD")).toBe("Unknown");
+    expect(
+      costsLabel(
+        {
+          ...totals,
+          costs: [{ currency: "USD", basis: "estimated", amount: "0" }],
+        },
+        "USD",
+      ),
+    ).toBe("0 USD (estimated)");
     expect(chartNumber("1e400")).toBeNull();
   });
   it("adapts inclusive UTC calendar dates independently of DST and rejects invalid or excessive intervals", () => {

@@ -2,15 +2,20 @@ import type { ReactNode } from "react";
 import type { ProviderUsageReport } from "./provider-usage-model";
 import { DailyUsageTable } from "./provider-usage-charts";
 import { ObservationTable } from "./provider-usage-tables";
+import type { CostBucket } from "./provider-usage-format";
 
 export function UsageDetails({
   report,
   controls,
   onNext,
+  selectedCurrency,
+  bucket,
 }: {
   report: ProviderUsageReport;
   controls: ReactNode;
   onNext: () => void;
+  selectedCurrency?: string | undefined;
+  bucket?: CostBucket | undefined;
 }) {
   return (
     <div className="space-y-5 border-t border-slate-700/50 pt-5 text-xs text-slate-400">
@@ -71,13 +76,21 @@ export function UsageDetails({
         <h3 className="mb-2 text-sm font-medium text-slate-200">
           Daily values
         </h3>
-        <DailyUsageTable report={report} />
+        <DailyUsageTable
+          report={report}
+          selectedCurrency={selectedCurrency}
+          bucket={bucket}
+        />
       </div>
       <div>
         <h3 className="mb-2 text-sm font-medium text-slate-200">
           Raw observations
         </h3>
-        <ObservationTable report={report} onNext={onNext} />
+        <ObservationTable
+          report={report}
+          onNext={onNext}
+          selectedCurrency={selectedCurrency}
+        />
       </div>
     </div>
   );
