@@ -1110,6 +1110,8 @@ model ReviewOperationalSloProfileV2 {
 }
 
 model ProducerRelease {
+  contextToolsProfile                     Json?
+  prDescriptionProfile                    Json?
   agentProfilesJson                       String?
   producerReleaseId                      String                     @id
   distributionKind                       ProducerDistributionKindV2
@@ -3455,6 +3457,7 @@ enum ReviewProviderKindV2 {
 }
 
 enum ReviewTaskKindV2 {
+  pr_description
   finding_discovery
   lifecycle_revalidation
   code_review
@@ -3831,6 +3834,7 @@ enum ReviewPublicationClaimStateV2 {
 }
 
 enum ReviewPublicationKindV2 {
+  pr_description
   summary
   managed_check
   pending_review_create
@@ -4448,6 +4452,18 @@ model SdkGrowthFinalizedReportEvidence {
   createdAt         DateTime                  @default(now()) @db.Timestamptz(3)
   evidence          SdkGrowthVerifierEvidence @relation(fields: [evidenceId], references: [evidenceId], onDelete: Restrict, onUpdate: Restrict)
 
+}
+
+model ReviewContextConnection {
+  workspaceId      String
+  connectionId     String
+  revision         Int
+  definition       Json
+  encryptedSecrets String?  @db.Text
+  enabled          Boolean @default(true)
+  updatedAt        DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@id([workspaceId, connectionId])
 }
 
 // Provider usage facts are immutable. JSON holds only the versioned safe RR DTO.

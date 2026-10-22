@@ -2,7 +2,6 @@
 export * from "./generated/review-action-v2-negotiation.js";
 export * from "./generated/review-action-v2.js";
 export * from "./generated/provider-invocation-manifest-v1.js";
-export * from "./generated/usage-v1.js";
 export {
   normalizePrDescriptionInvocationManifestV1,
   canonicalizePrDescriptionInvocationManifestV1,
@@ -10,3 +9,4 @@ export {
   prDescriptionInvocationManifestV1CanonicalizerDescriptor,
   prDescriptionExtensionV1,
 } from "./generated/pr-description-invocation-manifest-v1.js";
+export * from "./generated/usage-v1.js";

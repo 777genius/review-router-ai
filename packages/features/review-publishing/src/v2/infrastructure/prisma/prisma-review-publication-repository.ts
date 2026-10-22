@@ -19,6 +19,8 @@ import {
   assertReviewPublicationAttemptCandidate,
   claimCapabilityFacts,
   hasEveryRequiredCanonicalReceipt,
+  hasPendingPrDescriptionContinuation,
+  isOptionalPrDescriptionContinuation,
   hasPublicationExternalEffectRisk,
   isActiveReviewPublicationOperation,
   isAttemptLevelNoEffectOutcome,
@@ -1194,10 +1196,13 @@ export class PrismaReviewPublicationRepository
       const receipts = await transaction.reviewPublicationReceiptV2.findMany({
         where: { publicationAttemptId: command.publicationAttemptId },
       });
-      const allRequiredCompleted = hasEveryRequiredCanonicalReceipt({
+      const requiredReceiptsComplete = hasEveryRequiredCanonicalReceipt({
         operations: operations.map(toDomainOperation),
         receipts: receipts.map(toDomainReceipt),
       });
+      const allRequiredCompleted =
+        requiredReceiptsComplete &&
+        !hasPendingPrDescriptionContinuation(operations.map(toDomainOperation));
       await exactAttemptUpdate(transaction, {
         publicationAttemptId: command.publicationAttemptId,
         expectedVersion: command.expectedAttemptVersion,
@@ -1209,10 +1214,10 @@ export class PrismaReviewPublicationRepository
           terminalOutcome: allRequiredCompleted
             ? DbTerminalOutcome.succeeded
             : null,
-          activeClaimId: allRequiredCompleted ? null : command.claimId,
+          activeClaimId: requiredReceiptsComplete ? null : command.claimId,
         },
       });
-      if (allRequiredCompleted) {
+      if (requiredReceiptsComplete) {
         await transaction.reviewPublicationClaimTermV2.updateMany({
           where: {
             claimId: command.claimId,
@@ -1329,12 +1334,21 @@ export class PrismaReviewPublicationRepository
       );
       const domainEffects = effectRows.map(toDomainEffect);
       const domainReceipts = receiptRows.map(toDomainReceipt);
+      const optionalDescription = isOptionalPrDescriptionContinuation({
+        publicationOperationId: command.publicationOperationId,
+        operations: domainOperations,
+        receipts: domainReceipts,
+      });
       const riskOperations = publicationOperationsWithExternalEffectRisk({
         operations: domainOperations,
         operationAttempts: domainOperationAttempts,
         effects: domainEffects,
         receipts: domainReceipts,
-      });
+      }).filter(
+        (candidate) =>
+          !optionalDescription ||
+          candidate.publicationOperationId === command.publicationOperationId,
+      );
       if (
         finalOutcome === ReviewPublicationTerminalOutcome.TerminalUnknown &&
         [toDomainOperation(operationRow), ...riskOperations].some(
@@ -1345,12 +1359,14 @@ export class PrismaReviewPublicationRepository
       }
       if (
         isAttemptLevelNoEffectOutcome(finalOutcome) &&
-        hasPublicationExternalEffectRisk({
-          operations: domainOperations,
-          operationAttempts: domainOperationAttempts,
-          effects: domainEffects,
-          receipts: domainReceipts,
-        })
+        (optionalDescription
+          ? riskOperations.length > 0
+          : hasPublicationExternalEffectRisk({
+              operations: domainOperations,
+              operationAttempts: domainOperationAttempts,
+              effects: domainEffects,
+              receipts: domainReceipts,
+            }))
       ) {
         return {
           status: TerminalizeUnknownReviewPublicationStatus.ExternalEffectRisk,
@@ -1548,7 +1564,9 @@ export class PrismaReviewPublicationRepository
           version: { increment: 1n },
           activeClaimId: null,
           state: DbAttemptState.terminal,
-          terminalOutcome: toDbTerminalOutcome(finalOutcome),
+          terminalOutcome: optionalDescription
+            ? DbTerminalOutcome.succeeded
+            : toDbTerminalOutcome(finalOutcome),
         },
       });
       return {

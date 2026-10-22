@@ -10,6 +10,13 @@ import {
   createProviderUsageApi,
   type ProviderUsageApi,
 } from "./provider-usage-routes.js";
+import { decryptServerToken } from "@reviewrouter/features-auth";
+import {
+  PrismaContextConnectionStore,
+  deliverContextCredentials,
+} from "@reviewrouter/features-review-context-tools";
+import { createContextIssueReader } from "./github/context-issue-read.js";
+import type { ContextToolsRunAccess } from "./review-context-tools.js";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
@@ -142,6 +149,7 @@ import {
   ReviewMutationLaneKind,
   ReviewMutationMode,
   ReviewRunAuthorizationState as RunAuthorizationState,
+  ReviewRunAuthorizationTokenResolutionStatus,
   ReviewSafetyDecisionKind,
   ReviewSafetyPolicyScope,
   ResolveReviewSafetyPolicy,
@@ -307,6 +315,7 @@ export type ReviewActionV2ProductionRoutes = Readonly<{
   providerUsageRecovery?: ReturnType<
     typeof createProviderUsageArtifactRecovery
   >;
+  contextTools?: ContextToolsRunAccess;
   accountGatewayRelay?: ReviewRunGatewayRelay;
   accountGatewayCheckout?: ReviewRunGatewayCheckout;
   providerApiCheckout?: ReviewRunGatewayCheckout;
@@ -1307,6 +1316,53 @@ export function composeReviewActionV2ProductionRoutes(input: {
       return null;
     return target;
   };
+  const issueReader = createContextIssueReader({
+    appId: githubAppId,
+    privateKey: githubAppPrivateKey,
+    resolveRepository: resolveCheckoutRepository,
+  });
+  const contextTools: ContextToolsRunAccess = {
+    authorize: async (token) => {
+      try {
+        const resolved =
+          await runControl.authorizations.resolveReviewRunAuthorizationToken({
+            token,
+          });
+        if (
+          resolved.status !== ReviewRunAuthorizationTokenResolutionStatus.Valid
+        )
+          return null;
+        const authorization = resolved.authorization;
+        if (
+          authorization.state !== RunAuthorizationState.Active ||
+          authorization.expiresAt <= clock.now() ||
+          authorization.maxExpiresAt <= clock.now()
+        )
+          return null;
+        const target = await resolveCheckoutRepository(authorization);
+        return target &&
+          (await confirmAccountGatewayAuthority(token, authorization, target))
+          ? authorization
+          : null;
+      } catch {
+        return null;
+      }
+    },
+    deliver: (workspaceId, plan) =>
+      deliverContextCredentials(workspaceId, plan, {
+        store: new PrismaContextConnectionStore(prisma),
+        crypto: {
+          encrypt: () => {
+            throw new Error("context_encrypt_not_allowed");
+          },
+          decrypt: (value) => decryptServerToken(value, input.env),
+        },
+      }),
+    assertIssueAccess: (authorization) =>
+      issueReader.assertAvailable(authorization),
+    readIssue: (authorization, issueNumber) =>
+      issueReader.read(authorization, issueNumber),
+  };
   const providerApiCheckout = createReviewRunProviderApiCheckout({
     lifecycleObservationAuthors: [
       ...trustedReviewCommandLedgerAuthorsFromEnv(input.env),
@@ -1374,6 +1430,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
       privateKey: githubAppPrivateKey,
     }),
     providerApiCheckout,
+    contextTools,
     ...(accountGatewayRelay ? { accountGatewayRelay } : {}),
     ...(accountGatewayCheckout ? { accountGatewayCheckout } : {}),
     hostedV4,
@@ -2496,9 +2553,11 @@ function executionProviderTask(
   return {
     providerKind: provider as unknown as ReviewProviderKind,
     taskKind:
-      task === ExecutionTaskKind.FindingDiscovery
-        ? ReviewTaskKind.CodeReview
-        : ReviewTaskKind.FindingRevalidation,
+      task === ExecutionTaskKind.PrDescription
+        ? ReviewTaskKind.PrDescription
+        : task === ExecutionTaskKind.FindingDiscovery
+          ? ReviewTaskKind.CodeReview
+          : ReviewTaskKind.FindingRevalidation,
   };
 }
 
@@ -2519,12 +2578,12 @@ function evidenceProvider(provider: EvidenceProviderKind): ReviewProviderKind {
 
 function evidenceTask(task: EvidenceTaskKind): ReviewTaskKind {
   switch (task) {
-    case EvidenceTaskKind.PrDescription:
-      throw new Error("review_action_v2_pr_description_unsupported");
     case EvidenceTaskKind.FindingDiscovery:
       return ReviewTaskKind.CodeReview;
     case EvidenceTaskKind.LifecycleRevalidation:
       return ReviewTaskKind.FindingRevalidation;
+    case EvidenceTaskKind.PrDescription:
+      throw new Error("review_action_v2_auxiliary_task_is_not_evidence");
     case EvidenceTaskKind.Unknown:
       throw new Error("review_action_v2_evidence_task_unknown");
   }
@@ -2547,12 +2606,12 @@ function executionEvidenceProvider(
 
 function executionEvidenceTask(task: ExecutionTaskKind): EvidenceTaskKind {
   switch (task) {
-    case ExecutionTaskKind.PrDescription:
-      throw new Error("review_action_v2_pr_description_unsupported");
     case ExecutionTaskKind.FindingDiscovery:
       return EvidenceTaskKind.FindingDiscovery;
     case ExecutionTaskKind.LifecycleRevalidation:
       return EvidenceTaskKind.LifecycleRevalidation;
+    case ExecutionTaskKind.PrDescription:
+      return EvidenceTaskKind.PrDescription;
   }
 }
 

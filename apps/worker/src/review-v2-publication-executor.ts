@@ -13,6 +13,8 @@ import {
   ReviewPublicationReceiptStatus,
   ReviewPublicationTerminalOutcome,
   TerminalizeUnknownReviewPublicationStatus,
+  hasEveryRequiredCanonicalReceipt,
+  isOptionalPrDescriptionOperation,
   operationCapabilityFacts,
   planPublicationSiblingTerminalizations,
   publicationOperationsWithExternalEffectRisk,
@@ -103,7 +105,21 @@ export class ExecuteReviewV2PublicationOperation {
       view,
       requestedCommand.publicationOperationId,
     );
-    const riskOperations = externalEffectRiskOperations(view);
+    if (
+      isOptionalPrDescriptionOperation(requestedOperation) &&
+      !hasEveryRequiredCanonicalReceipt({
+        operations: view.attempt.operations,
+        receipts: view.receipts,
+      })
+    ) {
+      return retryable("pr_description_awaiting_required_publication");
+    }
+    const riskOperations = externalEffectRiskOperations(view).filter(
+      (operation) =>
+        !isOptionalPrDescriptionOperation(requestedOperation) ||
+        operation.publicationOperationId ===
+          requestedOperation.publicationOperationId,
+    );
     const requestedOperationHasRisk = riskOperations.some(
       (candidate) =>
         candidate.publicationOperationId ===
@@ -377,6 +393,19 @@ export class ExecuteReviewV2PublicationOperation {
           gateway: mutationSession.gateway,
           inventory,
           effectKind: ReviewPublicationExternalEffectKind.MarkerReconciled,
+        });
+      }
+
+      if (
+        potentialEffect &&
+        begun.operation.publicationKind === ReviewPublicationKind.PrDescription
+      ) {
+        return this.terminalizeKnownAmbiguity({
+          command,
+          operation: begun.operation,
+          claim,
+          finalReason: "pr_description_prior_write_unreconciled",
+          lastErrorCode: "pr_description_write_outcome_unknown",
         });
       }
 
@@ -874,6 +903,22 @@ export class ExecuteReviewV2PublicationOperation {
         };
       }
       if (!hasCurrentOperationObject(inventory, input.operation)) {
+        if (
+          input.operation.publicationKind ===
+          ReviewPublicationKind.PrDescription
+        ) {
+          return {
+            settled: true,
+            result: await this.terminalizeOrRetry({
+              command: input.command,
+              view: input.view,
+              operation: input.operation,
+              claim,
+              finalReason: "pr_description_prior_write_unreconciled",
+              lastErrorCode: "pr_description_write_outcome_unknown",
+            }),
+          };
+        }
         const freshness = await this.readFreshness(
           input.command.provider,
           input.view.attempt.permit,
@@ -946,6 +991,13 @@ export class ExecuteReviewV2PublicationOperation {
             lastErrorCode: input.error.safeCode,
             noEffectCapability: input.capability,
           });
+    }
+    if (
+      input.operation.publicationKind === ReviewPublicationKind.PrDescription &&
+      input.error instanceof ReviewV2ScmMutationError &&
+      input.error.safeCode === "github_pr_description_post_write_conflict"
+    ) {
+      return manual(input.error.safeCode);
     }
     const errorCode =
       input.error instanceof ReviewV2ScmMutationError
@@ -1252,6 +1304,15 @@ export class ExecuteReviewV2PublicationOperation {
     >;
     readonly lastErrorCode: string;
   }): Promise<ReviewV2PublicationExecutionResult> {
+    if (isOptionalPrDescriptionOperation(input.operation)) {
+      return this.terminalizeKnownAmbiguity({
+        command: input.command,
+        operation: input.operation,
+        claim: input.claim,
+        finalReason: "optional_pr_description_stale_visible",
+        lastErrorCode: input.lastErrorCode,
+      });
+    }
     const objects = normalizeInventory(input.inventory, input.operation);
     const currentObjects = currentOperationObjects(objects, input.operation);
     if (input.freshness.status === "changed" && input.freshness.snapshot) {
@@ -1545,7 +1606,8 @@ export class ExecuteReviewV2PublicationOperation {
         return {
           status: ReviewV2PublicationExecutionStatus.Terminalized,
           safeReason: input.finalReason,
-          terminalOutcome: input.finalOutcome,
+          terminalOutcome:
+            terminalized.attempt.terminalOutcome ?? input.finalOutcome,
         };
       case TerminalizeUnknownReviewPublicationStatus.VersionConflict:
       case TerminalizeUnknownReviewPublicationStatus.StaleClaim:
@@ -1605,7 +1667,9 @@ export class ExecuteReviewV2PublicationOperation {
         return {
           status: ReviewV2PublicationExecutionStatus.Terminalized,
           safeReason: input.finalReason,
-          terminalOutcome: ReviewPublicationTerminalOutcome.SupersededNoEffect,
+          terminalOutcome:
+            terminalized.attempt.terminalOutcome ??
+            ReviewPublicationTerminalOutcome.SupersededNoEffect,
         };
       case TerminalizeUnknownReviewPublicationStatus.VersionConflict:
       case TerminalizeUnknownReviewPublicationStatus.StaleClaim:
@@ -1664,6 +1728,16 @@ export class ExecuteReviewV2PublicationOperation {
     switch (terminalized.status) {
       case TerminalizeUnknownReviewPublicationStatus.Terminalized:
       case TerminalizeUnknownReviewPublicationStatus.Restored:
+        if (
+          terminalized.attempt.terminalOutcome ===
+          ReviewPublicationTerminalOutcome.Succeeded
+        ) {
+          return {
+            status: ReviewV2PublicationExecutionStatus.Terminalized,
+            safeReason: "optional_pr_description_closed",
+            terminalOutcome: ReviewPublicationTerminalOutcome.Succeeded,
+          };
+        }
         return {
           status: ReviewV2PublicationExecutionStatus.TerminalUnknown,
           safeReason: "publication_terminal_unknown_manual_review_required",
@@ -2189,6 +2263,20 @@ function inspectTerminal(
     };
   }
   if (view.attempt.state === ReviewPublicationAttemptState.Terminal) {
+    const operation = view.attempt.operations.find(
+      (row) => row.publicationOperationId === operationId,
+    );
+    if (
+      operation &&
+      isOptionalPrDescriptionOperation(operation) &&
+      view.tombstones.some((row) => row.publicationOperationId === operationId)
+    ) {
+      return {
+        status: ReviewV2PublicationExecutionStatus.Terminalized,
+        safeReason: "optional_pr_description_closed",
+        terminalOutcome: ReviewPublicationTerminalOutcome.Succeeded,
+      };
+    }
     return manual("publication_attempt_terminal_without_operation_receipt");
   }
   return null;

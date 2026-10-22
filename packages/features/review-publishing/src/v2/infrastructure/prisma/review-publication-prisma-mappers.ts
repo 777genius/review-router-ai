@@ -263,7 +263,7 @@ export function toDbPublicationKind(
 ): DbPublicationKind {
   switch (value) {
     case ReviewPublicationKind.PrDescription:
-      throw new Error("review_publication_pr_description_unsupported");
+      return DbPublicationKind.pr_description;
     case ReviewPublicationKind.Summary:
       return DbPublicationKind.summary;
     case ReviewPublicationKind.ManagedCheck:
@@ -417,6 +417,8 @@ function toDomainPublicationKind(
   value: DbPublicationKind,
 ): ReviewPublicationKind {
   switch (value) {
+    case DbPublicationKind.pr_description:
+      return ReviewPublicationKind.PrDescription;
     case DbPublicationKind.summary:
       return ReviewPublicationKind.Summary;
     case DbPublicationKind.managed_check:

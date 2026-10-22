@@ -96,6 +96,7 @@ export type PublishedReviewProjectionPublicationEnvelope = {
   readonly renderPolicyVersion: number;
   readonly publicationNotAfter: Date;
   readonly summary: PublishedReviewSummary;
+  readonly prDescription?: CanonicalReviewPublicationBodyFacts;
   readonly managedCheck: PublishedReviewManagedCheck | null;
   readonly inlineReviews: readonly PublishedInlineReview[];
   readonly lifecycle: readonly PublishedReviewLifecycleMutation[];
@@ -170,6 +171,7 @@ export function planReviewPublicationOperations(input: {
     readonly effectStrategy: ReviewPublicationEffectStrategy;
     readonly role: ReviewPublicationOperationRole;
     readonly dependsOnOperationId: string | null;
+    readonly required?: boolean;
   }): ReviewPublicationOperationPlan => {
     assertCanonicalBodyFacts(input.facts);
     if (markers.has(input.facts.markerHash)) {
@@ -196,7 +198,7 @@ export function planReviewPublicationOperations(input: {
       renderPolicyVersion: envelope.renderPolicyVersion,
       targetCommitId: envelope.targetCommitId,
       reviewRevisionHash: envelope.reviewRevisionHash,
-      required: true,
+      required: input.required ?? true,
       dependsOnOperationId: input.dependsOnOperationId,
       reconcileUntil,
     };
@@ -287,6 +289,28 @@ export function planReviewPublicationOperations(input: {
     fail(ReviewPublicationPlanningErrorCode.BodyLimitExceeded);
   }
 
+  if (envelope.prDescription !== undefined) {
+    assertCanonicalBodyFacts(envelope.prDescription);
+    // Optional prose must fit the capacity left by the valid required plan.
+    // Subtraction keeps the byte comparison safe before append sums the facts.
+    if (
+      operations.length < limits.maxPublicationOperations &&
+      chunkCount < limits.maxPublicationChunks &&
+      envelope.prDescription.bodyByteCount <=
+        limits.maxPublicationBodyBytes - totalBodyBytes
+    ) {
+      append({
+        publicationKind: ReviewPublicationKind.PrDescription,
+        required: false,
+        chunkIndex: 0,
+        facts: envelope.prDescription,
+        effectStrategy: ReviewPublicationEffectStrategy.MutableSingleton,
+        role: ReviewPublicationOperationRole.Standalone,
+        dependsOnOperationId: null,
+      });
+    }
+  }
+
   return operations.map(cloneOperationPlan);
 }
 
@@ -332,6 +356,9 @@ export function assertPublishedReviewProjectionPublicationEnvelopeIdentity(
   if (
     !isRecord(envelope) ||
     !isRecord(envelope.summary) ||
+    !(
+      envelope.prDescription === undefined || isRecord(envelope.prDescription)
+    ) ||
     !(envelope.managedCheck === null || isRecord(envelope.managedCheck)) ||
     !Array.isArray(envelope.inlineReviews) ||
     !envelope.inlineReviews.every(isRecord) ||
@@ -444,6 +471,7 @@ function assertCoveragePolicy(
         envelope.summary.semantic !==
           ReviewPublicationSummarySemantic.PartialCoverage ||
         envelope.managedCheck !== null ||
+        envelope.prDescription !== undefined ||
         envelope.inlineReviews.length > 0 ||
         envelope.lifecycle.length > 0
       ) {

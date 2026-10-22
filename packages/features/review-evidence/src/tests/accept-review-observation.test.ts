@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ReviewTaskKind,
   AcceptReviewObservation,
   AcceptReviewObservationRejectionReason,
   AcceptReviewObservationStatus,
@@ -66,6 +67,25 @@ describe("AcceptReviewObservation", () => {
       "password=[REDACTED]",
     );
     expect(first.observation?.evidenceWriteSafetyDecisionHash).toBe(hash("f"));
+  });
+
+  it("never accepts auxiliary prose as finding evidence or a vote", async () => {
+    const fixture = setup();
+    const facts = attemptFacts();
+    fixture.attempts.put({
+      ...facts,
+      manifest: {
+        ...facts.manifest,
+        taskKindSet: [ReviewTaskKind.PrDescription],
+      },
+    });
+    const result = await fixture.useCase.execute(command());
+    expect(result).toMatchObject({
+      status: AcceptReviewObservationStatus.Rejected,
+      reason:
+        AcceptReviewObservationRejectionReason.AuxiliaryTaskNotReviewEvidence,
+    });
+    expect(fixture.store.all()).toHaveLength(0);
   });
 
   it("detects a different successful payload for the same attempt as conflict", async () => {
