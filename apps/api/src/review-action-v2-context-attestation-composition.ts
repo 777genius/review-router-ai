@@ -102,7 +102,7 @@ import {
   canonicalizeReviewContextReplayEvent,
   canonicalizeReviewContextReplayHandle,
   canonicalizeReviewContextSearchQuery,
-  canonicalizeReviewActionV2Request,
+  canonicalizeReviewActionV2RequestForSlot,
   type ReviewActionV2RequestMap,
   type ReviewContextGatewayOpenRequest,
   type ReviewContextGatewaySealRequest,
@@ -3564,7 +3564,7 @@ async function assertBodyHash<O extends ReviewActionV2OperationId>(
 ) {
   if (
     (await digest.digestUtf8(
-      canonicalizeReviewActionV2Request(operation, request),
+      canonicalizeReviewActionV2RequestForSlot(operation, request),
     )) !== (request as { requestBodyHash?: string }).requestBodyHash
   ) {
     throw failure(

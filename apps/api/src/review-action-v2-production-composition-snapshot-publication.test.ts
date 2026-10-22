@@ -4,7 +4,10 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
-import { registerReviewPublicationRequestV2Routes } from "@reviewrouter/features-action-control-plane/v2";
+import {
+  registerReviewSnapshotReadV2Routes,
+  registerReviewPublicationRequestV2Routes,
+} from "@reviewrouter/features-action-control-plane/v2";
 import {
   ConfiguredCapabilityKeyRing,
   JoseRotatingCapabilityCodec,
@@ -39,6 +42,8 @@ import {
   type ReviewPublicationRenderingSource,
   type RequestReviewPublicationCommand,
   type ReviewPublicationDecisionPorts,
+  type ReviewPublicationAttemptView,
+  type ReviewPublicationAttemptQueryPort,
 } from "@reviewrouter/features-review-publishing/v2";
 import {
   createReviewPublicationV2Application,
@@ -61,8 +66,13 @@ import {
   type ReviewProtocolLimitsV2,
   type ReviewRunAuthorization,
 } from "@reviewrouter/features-review-run-control";
-import { LineageHintEvictionReason } from "@reviewrouter/features-review-snapshots/v2";
 import {
+  type ReviewSnapshotV2Record,
+  LineageHintEvictionReason,
+} from "@reviewrouter/features-review-snapshots/v2";
+import {
+  reviewActionV2LegacySlot,
+  ReviewSnapshotRestorePurpose,
   ReviewSnapshotRestoreResultStatus,
   ReviewPublicationRequestResultStatus,
   ReviewPublicationStatusResultStatus,
@@ -120,6 +130,252 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
         sourceExecutionGeneration: "2",
       },
     });
+  });
+
+  it("serves an auth-scoped empty comparison baseline on the new slot and preserves the old route contract", async () => {
+    const prior = {
+      ...snapshot,
+      sourceReviewRevisionHash: hash("b"),
+      payload: {
+        ...snapshot.payload,
+        projectionEnvelope: {
+          envelopeVersion: "review_projection.v1",
+          projectionPolicyVersion: "review-projection-policy.v6-comparison",
+          scope: {
+            scmRepositoryIdentityId: snapshot.scmRepositoryIdentityId,
+            pullRequestNumber: snapshot.pullRequestNumber,
+            baseSha: snapshot.sourceBaseSha,
+            reviewedHeadSha: snapshot.sourceReviewedHeadSha,
+            reviewRevisionHash: hash("b"),
+          },
+          coverage: { state: "complete" },
+          snapshot: { lineageHints: [] },
+        },
+      },
+    };
+    const routes = createRoutes(undefined, undefined, undefined, undefined, {
+      snapshot: prior,
+    });
+    const app = Fastify({ logger: false });
+    await registerReviewSnapshotReadV2Routes(app, routes.snapshot);
+    const payload = {
+      ...envelope("baseline"),
+      authorizationToken: "authorization-token",
+      reviewRevisionHash: authorization.reviewRevisionHash,
+      purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
+    };
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/review-snapshots/restore",
+      payload,
+    });
+    expect(response.statusCode).toBe(200);
+    const result = response.json().result;
+    expect(result).toMatchObject({
+      status: "found",
+      restoreMode: "comparison_baseline.v1",
+      snapshotVersion: 3,
+      sourceExecutionGeneration: "2",
+    });
+    expect(JSON.parse(result.payloadCanonicalJson)).toMatchObject({
+      priorLineageHints: [],
+      sourceReviewRevisionHash: hash("b"),
+      sourceExecutionGeneration: "2",
+    });
+    const old = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/review-snapshots/restore",
+      payload: {
+        ...payload,
+        schemaDigest:
+          reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+      },
+    });
+    expect(old.statusCode).toBe(400);
+    const { purpose, ...exact } = payload;
+    expect(purpose).toBe(ReviewSnapshotRestorePurpose.ComparisonBaselineV1);
+    const legacy = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/review-snapshots/restore",
+      payload: {
+        ...exact,
+        schemaDigest:
+          reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+      },
+    });
+    expect(legacy.statusCode).toBe(200);
+    expect(legacy.json().schemaDigest).toBe(
+      reviewActionV2LegacySlot.reviewActionV2PublishedSchemaDigest,
+    );
+    expect(legacy.json().result.status).toBe("revision_changed");
+    await app.close();
+  });
+
+  it("joins a source artifact to its successful native lifecycle receipt before returning applied resolutions", async () => {
+    const lineageId = `rrl_${"a".repeat(32)}`;
+    const targetId = `rrt_${"d".repeat(16)}`;
+    const threadId = "PRRT_thread";
+    const projection = {
+      envelopeVersion: "review_projection.v1",
+      projectionPolicyVersion: "review-projection-policy.v6-comparison",
+      scope: {
+        scmRepositoryIdentityId: snapshot.scmRepositoryIdentityId,
+        pullRequestNumber: snapshot.pullRequestNumber,
+        baseSha: snapshot.sourceBaseSha,
+        reviewedHeadSha: snapshot.sourceReviewedHeadSha,
+        reviewRevisionHash: snapshot.sourceReviewRevisionHash,
+      },
+      coverage: { state: "complete" },
+      snapshot: {
+        lineageHints: [
+          {
+            lineageId,
+            category: "correctness",
+            normalizedFailureModeHash: hash("c"),
+            severity: "major",
+            title: "Prior issue",
+            message: "Full message",
+            filePath: "src/a.ts",
+            firstSeenHeadSha: snapshot.sourceReviewedHeadSha,
+            lastSeenHeadSha: snapshot.sourceReviewedHeadSha,
+            active: true,
+          },
+        ],
+      },
+      publishing: {
+        lifecycle: [
+          {
+            lineageId,
+            targetId,
+            threadId,
+            markerFingerprint: lineageId,
+            verdict: "resolved",
+            mutationEligible: true,
+          },
+        ],
+      },
+    };
+    const prior = {
+      ...snapshot,
+      payload: { ...snapshot.payload, projectionEnvelope: projection },
+    };
+    const sourceArtifact = {
+      ...artifact,
+      executionId: prior.sourceExecutionId,
+      generation: BigInt(prior.sourceExecutionGeneration),
+      reviewedHeadSha: prior.sourceReviewedHeadSha,
+      reviewRevisionHash: prior.sourceReviewRevisionHash,
+      projectionHash: prior.payload.projectionHash,
+      projectionEnvelopeJson: canonicalJson(projection),
+      publicationPermit: {
+        ...artifact.publicationPermit,
+        executionId: prior.sourceExecutionId,
+        generation: BigInt(prior.sourceExecutionGeneration),
+        projectionHash: prior.payload.projectionHash,
+      },
+    };
+    const sha = (value: string) =>
+      createHash("sha256").update(value).digest("hex");
+    const markerHash = sha(`reviewrouter-lifecycle:${targetId}:resolved`);
+    const bodyHash = sha(canonicalJson({ resolve: true, threadId }));
+    const externalObjectId = `thread:${threadId}`;
+    const view = {
+      attempt: {
+        permit: sourceArtifact.publicationPermit,
+        state: "terminal",
+        terminalOutcome: "succeeded",
+        operations: [
+          {
+            publicationOperationId: "op",
+            publicationKind: "thread_lifecycle",
+            state: "completed",
+            markerHash,
+            bodyHash,
+            targetCommitId: prior.sourceReviewedHeadSha,
+            reviewRevisionHash: prior.sourceReviewRevisionHash,
+          },
+        ],
+      },
+      receipts: [
+        {
+          publicationOperationId: "op",
+          status: "succeeded",
+          canonicalEffectId: "effect",
+          canonicalExternalObjectId: externalObjectId,
+        },
+      ],
+      effects: [
+        {
+          effectId: "effect",
+          publicationOperationId: "op",
+          externalObjectId,
+          observedObjectHash: sha(
+            canonicalJson({ externalObjectId, markerHash, bodyHash }),
+          ),
+          effectKind: "mutation_acknowledged",
+          observedAt: now,
+        },
+      ],
+      corrections: [],
+      tombstones: [],
+    } as unknown as ReviewPublicationAttemptView;
+    const findByPermitIdentity = vi.fn(async () => view);
+    const routes = createRoutes(
+      undefined,
+      undefined,
+      sourceArtifact,
+      undefined,
+      {
+        snapshot: prior,
+        publications: { findByPermitIdentity, findById: async () => null },
+      },
+    );
+    const response = await routes.snapshot.restore!.execute({
+      ...envelope("receipt-baseline"),
+      authorizationToken: "authorization-token",
+      reviewRevisionHash: authorization.reviewRevisionHash,
+      purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
+    });
+    expect(response.result.status).toBe("found");
+    expect(
+      JSON.parse(response.result.payloadCanonicalJson!).appliedResolutions,
+    ).toEqual([
+      {
+        lineageId,
+        targetId,
+        threadId,
+        markerFingerprint: lineageId,
+        resolvedAt: now.toISOString(),
+      },
+    ]);
+    expect(findByPermitIdentity).toHaveBeenCalledWith(
+      sourceArtifact.publicationPermit,
+    );
+  });
+
+  it("rejects malformed, unsupported and out-of-scope comparison snapshots without throwing", async () => {
+    for (const changed of [
+      {
+        ...snapshot,
+        payload: {
+          ...snapshot.payload,
+          projectionEnvelope: { snapshot: null },
+        },
+      },
+      { ...snapshot, workspaceId: "other-workspace" },
+    ]) {
+      const routes = createRoutes(undefined, undefined, undefined, undefined, {
+        snapshot: changed,
+      });
+      await expect(
+        routes.snapshot.restore!.execute({
+          ...envelope("bad-baseline"),
+          authorizationToken: "authorization-token",
+          reviewRevisionHash: authorization.reviewRevisionHash,
+          purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
+        }),
+      ).resolves.toMatchObject({ result: { status: "trust_rejected" } });
+    }
   });
 
   it("validates a signed finalized permit and enqueues immutable publication operations", async () => {
@@ -1431,6 +1687,8 @@ function createRoutes(
   finalizedArtifact: FinalizedReviewProjectionArtifact = artifact,
   decisionOverrides: Partial<ReviewPublicationDecisionPorts> = {},
   overrides: {
+    readonly snapshot?: ReviewSnapshotV2Record;
+    readonly publications?: ReviewPublicationAttemptQueryPort;
     readonly authorization?: ReviewRunAuthorization;
     readonly executions?: Pick<ReviewExecutionQueryPort, "findExecution"> &
       Partial<Pick<ReviewExecutionQueryPort, "findLease">>;
@@ -1495,10 +1753,10 @@ function createRoutes(
     },
     snapshots: {
       async findCurrent() {
-        return snapshot;
+        return overrides.snapshot ?? snapshot;
       },
     },
-    publications: publicationRepository,
+    publications: overrides.publications ?? publicationRepository,
     requestPublication: publicationApplication.request,
     capabilities: capabilityAdapter(),
     digest,

@@ -186,10 +186,10 @@ describe("generated Review Action v2 negotiation contract", () => {
       ),
     ).toBe(reviewInvestigationExtensionV1.schemaDigest);
     expect(reviewActionV2PublishedSchemaDigest).toBe(
-      "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+      "71f316821909667e1b7cc704bed330ef6cfa7ac44cf51d58935ba3238ab92504",
     );
     expect(reviewActionV2CanonicalizerDigest).toBe(
-      "12408727c244f65242534d3060983b87221715f2086631ab743c2c6f6248629a",
+      "5f4c0b37b363a8dcfb1447ac093bd6fda1da7938cd887afe36f17236d2dee437",
     );
 
     for (const operation of reviewActionV2Operations) {

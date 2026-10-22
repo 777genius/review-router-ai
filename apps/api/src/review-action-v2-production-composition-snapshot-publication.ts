@@ -1,3 +1,5 @@
+import { appliedComparisonResolutions } from "./review-comparison-baseline-resolutions.js";
+import { buildReviewComparisonBaseline } from "./review-comparison-baseline.js";
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import type {
@@ -79,7 +81,7 @@ import {
 import { PrismaReviewSnapshotV2Repository } from "@reviewrouter/features-review-snapshots/v2/composition";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
-  canonicalizeReviewActionV2Request,
+  canonicalizeReviewActionV2RequestForSlot,
   ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
   ReviewPublicationRequestResultStatus,
@@ -221,6 +223,8 @@ export function createReviewActionV2SnapshotPublicationRoutes(input: {
           restoreSnapshot(request, {
             authorizations: input.authorizations,
             snapshots: input.snapshots,
+            executions: input.executions,
+            publications: input.publications,
             now: input.now,
           }),
       },
@@ -260,6 +264,8 @@ async function restoreSnapshot(
   dependencies: {
     readonly authorizations: ReviewActionV2AuthorizationResolverPort;
     readonly snapshots: ReviewSnapshotV2QueryPort;
+    readonly executions: FinalizedExecutionQueries;
+    readonly publications: ReviewPublicationAttemptQueryPort;
     readonly now: () => Date;
   },
 ) {
@@ -272,6 +278,84 @@ async function restoreSnapshot(
       statusCode: 200,
       result: { status: ReviewSnapshotRestoreResultStatus.RevisionChanged },
     } as const;
+  }
+  if (request.purpose === "comparison_baseline.v1") {
+    const record = await dependencies.snapshots.findCurrent(
+      authorizationScope(authorization),
+    );
+    if (
+      !record ||
+      record.schemaVersion !== 2 ||
+      record.expiresAt <= dependencies.now()
+    ) {
+      return {
+        statusCode: 200,
+        result: {
+          status: !record
+            ? ReviewSnapshotRestoreResultStatus.Missing
+            : record.schemaVersion !== 2
+              ? ReviewSnapshotRestoreResultStatus.LegacyUntrusted
+              : ReviewSnapshotRestoreResultStatus.Expired,
+        },
+      } as const;
+    }
+    const scope = authorizationScope(authorization);
+    const scoped =
+      record.workspaceId === scope.workspaceId &&
+      record.repositoryConnectionId === scope.repositoryConnectionId &&
+      record.scmRepositoryIdentityId === scope.scmRepositoryIdentityId &&
+      record.pullRequestNumber === scope.pullRequestNumber;
+    let payload = scoped ? buildReviewComparisonBaseline(record) : null;
+    if (payload !== null) {
+      try {
+        const previous = await dependencies.executions.findExecution(
+          record.sourceExecutionId,
+        );
+        const artifact = previous?.artifact;
+        const permit = artifact?.publicationPermit;
+        if (
+          artifact &&
+          permit &&
+          artifact.executionId === record.sourceExecutionId &&
+          artifact.generation === BigInt(record.sourceExecutionGeneration) &&
+          artifact.reviewedHeadSha === record.sourceReviewedHeadSha &&
+          artifact.reviewRevisionHash === record.sourceReviewRevisionHash &&
+          artifact.projectionHash === record.payload.projectionHash &&
+          canonicalJson(JSON.parse(artifact.projectionEnvelopeJson)) ===
+            canonicalJson(record.payload.projectionEnvelope) &&
+          permit.workspaceId === record.workspaceId &&
+          permit.repositoryConnectionId === record.repositoryConnectionId &&
+          permit.scmRepositoryIdentityId === record.scmRepositoryIdentityId &&
+          permit.pullRequestNumber === record.pullRequestNumber
+        ) {
+          const view =
+            await dependencies.publications.findByPermitIdentity(permit);
+          payload = buildReviewComparisonBaseline(
+            record,
+            view && canonicalJson(view.attempt.permit) === canonicalJson(permit)
+              ? appliedComparisonResolutions(record, view)
+              : [],
+          );
+        }
+      } catch {
+        // Unavailable or malformed receipt evidence never confirms a resolution.
+      }
+    }
+    return payload === null
+      ? ({
+          statusCode: 200,
+          result: { status: ReviewSnapshotRestoreResultStatus.TrustRejected },
+        } as const)
+      : ({
+          statusCode: 200,
+          result: {
+            status: ReviewSnapshotRestoreResultStatus.Found,
+            restoreMode: "comparison_baseline.v1",
+            snapshotVersion: record.version,
+            sourceExecutionGeneration: String(record.sourceExecutionGeneration),
+            payloadCanonicalJson: payload,
+          },
+        } as const);
   }
   const restored = await restoreReviewSnapshotV2(
     {
@@ -1393,7 +1477,7 @@ async function assertRequestBodyHash(
   digest: ReviewActionV2DigestPort,
 ) {
   const actual = await digest.digestUtf8(
-    canonicalizeReviewActionV2Request(
+    canonicalizeReviewActionV2RequestForSlot(
       ReviewActionV2OperationId.ReviewPublicationRequest,
       request,
     ),

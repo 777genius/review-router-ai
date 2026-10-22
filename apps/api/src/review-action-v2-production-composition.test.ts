@@ -618,6 +618,7 @@ describe("Review Action v2 production composition", () => {
           providerVoteLanes: [{ providerKind: "codex" }],
         } as never,
         producerRelease: {
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: {
             capability: "review_investigation_v1",
             coverageProfileHash: "a".repeat(64),
@@ -706,6 +707,7 @@ describe("Review Action v2 production composition", () => {
           providerVoteLanes: testCase.providerVoteLanes,
         } as never,
         producerRelease: {
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: testCase.profile,
         } as never,
       }),
@@ -736,6 +738,7 @@ describe("Review Action v2 production composition", () => {
           providerVoteLanes: [{ providerKind: "codex" }],
         } as never,
         producerRelease: {
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: {
             capability: "review_investigation_v1",
             coverageProfileHash: "a".repeat(64),
@@ -771,6 +774,7 @@ describe("Review Action v2 production composition", () => {
           providerVoteLanes: [{ providerKind: "codex" }],
         } as never,
         producerRelease: {
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: null,
         } as never,
       })
@@ -889,6 +893,7 @@ describe("Review Action v2 production composition", () => {
           ],
         } as never,
         producerRelease: {
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
           reviewInvestigationProfile: {
             capability: "review_investigation_v1",
             coverageProfileHash: "a".repeat(64),
