@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
@@ -68,10 +69,63 @@ test("SSR includes observed usage and UTC timestamps without reading the network
   vi.stubGlobal("fetch", fetch);
   const { props } = fixture();
   const html = renderToString(<AccountLimitsLine {...props} />);
-  expect(html).toContain("used 37.5%; remaining 62.5%");
+  expect(html).toContain("62.5% left");
+  expect(html).toContain("37.5% used");
   expect(html).toContain("2026-10-22 10:00:00 UTC+00:00");
-  expect(html).toContain('aria-valuenow="37.5"');
+  expect(html).toContain('aria-label="5h remaining"');
+  expect(html).toContain('aria-valuenow="62.5"');
   expect(fetch).not.toHaveBeenCalled();
+});
+
+test("remaining and reset stay in the compact summary, with saved observations in Details", () => {
+  const value = snapshot();
+  if (value.status !== "snapshot") throw new Error();
+  const { props } = fixture({
+    ...value,
+    windows: [{ ...value.windows[0]!, resetAt: "2026-10-22T12:15:00.000Z" }],
+  });
+  render(<AccountLimitsLine {...props} />);
+  const details = screen.getByText("Details").closest("details");
+  expect(details?.open).toBe(false);
+  expect(screen.getByText("62.5% left").closest("details")).toBeNull();
+  expect(screen.getByText("Resets in 2h 15m").closest("details")).toBeNull();
+  expect(
+    screen.getByRole("progressbar", { name: "5h remaining" }),
+  ).toBeTruthy();
+  const reload = screen.getByRole("button", { name: "Reload saved limits" });
+  expect(reload.getAttribute("title")).toContain(
+    "Does not contact the provider",
+  );
+  fireEvent.click(screen.getByText("Details"));
+  expect(details?.open).toBe(true);
+  expect(screen.getByText(/37.5% used/)).toBeTruthy();
+  expect(screen.getByText(/^As of:/)).toBeTruthy();
+  expect(screen.getByText(/shared across all activity/)).toBeTruthy();
+});
+
+test("over-limit observations keep reported usage while showing no remaining quota", () => {
+  const value = snapshot();
+  if (value.status !== "snapshot") throw new Error();
+  const { props } = fixture({
+    ...value,
+    windows: [
+      {
+        ...value.windows[0]!,
+        usedPercent: 127.5,
+        remainingPercent: 0,
+        progressPercent: 100,
+      },
+    ],
+  });
+  render(<AccountLimitsLine {...props} />);
+  expect(screen.getByText("0% left")).toBeTruthy();
+  const progress = screen.getByRole("progressbar", { name: "5h remaining" });
+  expect(progress.getAttribute("aria-valuenow")).toBe("0");
+  expect(progress.getAttribute("aria-valuetext")).toBe(
+    "0% remaining; 127.5% used",
+  );
+  fireEvent.click(screen.getByText("Details"));
+  expect(screen.getByText(/127.5% used/)).toBeTruthy();
 });
 
 test("reset and age become stale locally, without zeroing usage or fetching on mount/focus", async () => {
@@ -81,13 +135,17 @@ test("reset and age become stale locally, without zeroing usage or fetching on m
   vi.stubGlobal("fetch", fetch);
   const { props } = fixture();
   render(<AccountLimitsLine {...props} />);
-  expect(screen.queryByText(/stale/)).toBeNull();
+  expect(screen.queryByText("Outdated")).toBeNull();
   await act(async () => {
     vi.advanceTimersByTime(60_000);
   });
   fireEvent.focus(window);
-  expect(screen.getByText(/Awaiting an observation after reset/)).toBeTruthy();
-  expect(screen.getByText(/used 37.5%; remaining 62.5%.*stale/)).toBeTruthy();
+  expect(screen.getByText("Reset pending")).toBeTruthy();
+  expect(screen.getByText("Outdated")).toBeTruthy();
+  expect(screen.getByText("62.5% left")).toBeTruthy();
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe(
+    "62.5% remaining; 37.5% used",
+  );
   expect(fetch).not.toHaveBeenCalled();
 });
 
@@ -104,7 +162,7 @@ test("observation age becomes stale at five minutes without a reset", async () =
   await act(async () => {
     vi.advanceTimersByTime(300_000);
   });
-  expect(screen.getByText(/Last known observation \(stale\)/)).toBeTruthy();
+  expect(screen.getByText("Outdated")).toBeTruthy();
 });
 
 test("unknown, unsupported, restricted and partial windows never imply free quota", () => {
@@ -119,7 +177,7 @@ test("unknown, unsupported, restricted and partial windows never imply free quot
       }}
     />,
   );
-  expect(screen.getByText(/no observations yet/)).toBeTruthy();
+  expect(screen.getByText("No limits saved yet")).toBeTruthy();
   expect(screen.queryByRole("progressbar")).toBeNull();
   // Changing account identity gives each state its own query, as real rows do.
   rerender(
@@ -133,7 +191,21 @@ test("unknown, unsupported, restricted and partial windows never imply free quot
       }}
     />,
   );
-  expect(screen.getByText(/profile does not report/)).toBeTruthy();
+  expect(screen.getByText("Limits not supported")).toBeTruthy();
+  expect(screen.queryByRole("button")).toBeNull();
+  rerender(
+    <AccountLimitsLine
+      {...props}
+      connectionId="unavailable"
+      initialData={{
+        ...snapshot(),
+        status: "unavailable",
+        reason: "source_unavailable",
+      }}
+    />,
+  );
+  expect(screen.getByText("Limits source unavailable")).toBeTruthy();
+  expect(screen.queryByRole("progressbar")).toBeNull();
   rerender(
     <AccountLimitsLine
       {...props}
@@ -167,7 +239,8 @@ test("unknown, unsupported, restricted and partial windows never imply free quot
       }}
     />,
   );
-  expect(screen.getByText(/used unknown; remaining unknown/)).toBeTruthy();
+  expect(screen.getByText("Remaining unknown")).toBeTruthy();
+  expect(screen.getByText(/Used unknown/)).toBeTruthy();
   expect(screen.getByText("As of: unknown")).toBeTruthy();
   expect(screen.queryByRole("progressbar")).toBeNull();
 });
@@ -183,16 +256,17 @@ test("only explicit saved read fetches, preserves observation on failure, and de
   vi.stubGlobal("fetch", fetch);
   const { props } = fixture();
   render(<AccountLimitsLine {...props} />);
-  fireEvent.click(screen.getByRole("button", { name: "Read saved limits" }));
+  fireEvent.click(screen.getByRole("button", { name: "Reload saved limits" }));
   expect(
-    await screen.findByText(/Saved limits could not be read/),
+    await screen.findByText("Could not reload saved limits."),
   ).toBeTruthy();
   expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
-    "37.5",
+    "62.5",
   );
-  fireEvent.click(screen.getByRole("button", { name: "Read saved limits" }));
+  fireEvent.click(screen.getByRole("button", { name: "Reload saved limits" }));
   expect(await screen.findByText(/visible to the owner/)).toBeTruthy();
   expect(screen.queryByRole("progressbar")).toBeNull();
+  expect(screen.queryByRole("button")).toBeNull();
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 
@@ -207,7 +281,7 @@ test("scope switch aborts an old read and removes its cached figures", async () 
   );
   const { props, client } = fixture();
   const { rerender } = render(<AccountLimitsLine {...props} />);
-  fireEvent.click(screen.getByRole("button", { name: "Read saved limits" }));
+  fireEvent.click(screen.getByRole("button", { name: "Reload saved limits" }));
   rerender(
     <AccountLimitsLine
       {...props}
@@ -262,10 +336,13 @@ test("two rapid saved-read clicks share one request", async () => {
   vi.stubGlobal("fetch", fetch);
   const { props } = fixture();
   render(<AccountLimitsLine {...props} />);
-  const button = screen.getByRole("button", { name: "Read saved limits" });
+  const button = screen.getByRole("button", { name: "Reload saved limits" });
   fireEvent.click(button);
   fireEvent.click(button);
   expect(fetch).toHaveBeenCalledTimes(1);
+  await waitFor(() => {
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
 });
 
 test("a new authenticated bootstrap token hides old figures before hydration effects", () => {
@@ -281,9 +358,10 @@ test("a new authenticated bootstrap token hides old figures before hydration eff
       expectedStatus="restricted"
     />,
   );
-  expect(html).toContain("Account limits are visible to the owner");
+  expect(html).toContain("Limits visible to the owner only");
   expect(html).not.toContain("37.5");
   expect(html).not.toContain("progressbar");
+  expect(html).not.toContain("Reload saved limits");
 });
 
 test("an authenticated client observation newer than SSR crosses the bootstrap token gate", () => {
@@ -305,6 +383,7 @@ test("an authenticated client observation newer than SSR crosses the bootstrap t
       expectedStatus="snapshot"
     />,
   );
-  expect(html).toContain("used 37.5%; remaining 62.5%");
+  expect(html).toContain("62.5% left");
+  expect(html).toContain("37.5% used");
   expect(html).toContain("progressbar");
 });
