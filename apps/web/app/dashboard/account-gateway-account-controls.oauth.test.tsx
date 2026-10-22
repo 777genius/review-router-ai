@@ -663,6 +663,102 @@ test("late fence permits key reentry only after an explicit fresh ready check on
   expect(retained).not.toContain("synthetic-after-ack-key");
 });
 
+test("key continuation reports an unconfirmed submission instead of silently dropping the entered key", async () => {
+  const personalStorage = "rr-c3-account-operations:personal:workspace-user";
+  sessionStorage.setItem(personalStorage, JSON.stringify([savedNonce]));
+  const resume = {
+    kind: "reconnect" as const,
+    connectionId: "own-source",
+    profileId: "mimo",
+    gatewayRevision: 17,
+    mirrorRevision: 4,
+  };
+  const api = personalApi();
+  api.readGatewayOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      resume,
+    },
+  });
+  api.submitGatewayApiKey.mockRejectedValue(new Error("synthetic_lost_ack"));
+  await mount({ api, managementScope: "personal" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Continue key update" }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Continue key update",
+  });
+  const secret = "synthetic-unconfirmed-continuation-key";
+  fireEvent.change(within(dialog).getByLabelText("API key"), {
+    target: { value: secret },
+  });
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Continue update" }),
+  );
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toMatch(/not confirmed as saved/i);
+  expect(alert.textContent).not.toContain(secret);
+  expect(alert.textContent).not.toContain("synthetic_lost_ack");
+  const client = [...clients][0]!;
+  await waitFor(() =>
+    expect(
+      client.getQueryData([
+        "gateway-accounts",
+        "personal:workspace-user",
+        "operation",
+        savedNonce,
+      ]),
+    ).toMatchObject({
+      status: "ok",
+      value: { nonce: savedNonce, state: "unknown" },
+    }),
+  );
+});
+test("key continuation reports the server rejection reason for an unsaved key", async () => {
+  const personalStorage = "rr-c3-account-operations:personal:workspace-user";
+  sessionStorage.setItem(personalStorage, JSON.stringify([savedNonce]));
+  const resume = {
+    kind: "reconnect" as const,
+    connectionId: "own-source",
+    profileId: "mimo",
+    gatewayRevision: 17,
+    mirrorRevision: 4,
+  };
+  const api = personalApi();
+  api.readGatewayOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      resume,
+    },
+  });
+  api.submitGatewayApiKey.mockResolvedValue({ status: "conflict" });
+  await mount({ api, managementScope: "personal" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Continue key update" }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Continue key update",
+  });
+  const secret = "synthetic-conflict-continuation-key";
+  fireEvent.change(within(dialog).getByLabelText("API key"), {
+    target: { value: secret },
+  });
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Continue update" }),
+  );
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("The key was not saved.");
+  expect(alert.textContent).toContain(
+    "The account changed. Refresh Accounts before trying again.",
+  );
+  expect(document.body.innerHTML).not.toContain(secret);
+});
 afterEach(() => {
   cleanup();
   for (const client of clients) client.clear();
