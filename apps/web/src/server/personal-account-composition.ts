@@ -1,3 +1,5 @@
+import { createAccountLimitsService } from "./account-limits-service";
+import { accountLimitsReader } from "./account-limits-composition";
 import { createAccountLifecycleReader } from "./account-lifecycle-reader";
 import { createHash } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
@@ -219,7 +221,49 @@ export async function productionPersonalAccounts() {
       );
     },
   });
+  function limits(workspaceId?: string, management = false) {
+    let cachedReader: ReturnType<typeof accountLimitsReader> | undefined;
+    const reader = {
+      async read(
+        target: Parameters<
+          import("@reviewrouter/features-provider-accounts").AccountLimitsReader["read"]
+        >[0],
+      ) {
+        const settings = management
+          ? {
+              role: "management" as const,
+              origin:
+                process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ??
+                "",
+              token:
+                process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ??
+                "",
+            }
+          : controlSettings;
+        cachedReader ??= accountLimitsReader(settings);
+        return (await cachedReader).read(target);
+      },
+    };
+    return createAccountLimitsService({
+      prisma,
+      reader,
+      secret: settings.contextKey,
+      ...(settings.operatorWorkspaceId
+        ? { operatorWorkspaceId: settings.operatorWorkspaceId }
+        : {}),
+      authorize: async () => {
+        await authorizeUser();
+        if (workspaceId) await workspaceAccess(workspaceId);
+        return { userId, ...(workspaceId ? { workspaceId } : {}) };
+      },
+      ownerRef: (owner) =>
+        owner.kind === "user"
+          ? accountGatewayUserOwnerRef(owner.userId)
+          : accountGatewayWorkspaceOwnerRef(owner.workspaceId),
+    });
+  }
   const canonical = createPersonalCanonicalAccounts({
+    limits: limits(),
     authorizeUser,
     store,
     canonical: canonicalStore,
@@ -396,6 +440,7 @@ export async function productionPersonalAccounts() {
       }),
     });
     return createAccountsOverview({
+      limits: limits(workspaceId, true),
       prisma,
       cursorSecret: controlSettings.token,
       gateway: overviewReader,
@@ -596,6 +641,7 @@ export async function productionPersonalAccounts() {
       })(request, emit, signal);
   }
   return {
+    limits,
     sharing,
     canonical,
     scope,
