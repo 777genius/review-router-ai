@@ -25,6 +25,7 @@ const originalHistory = readRenderManagedCheckoutInventory()
       row.migrationName !== "000135_review_run_checkout_repository_lock" &&
       row.migrationName !== "000138_pr_description" &&
       row.migrationName !== "000139_review_context_tools" &&
+      row.migrationName !== "000140_personal_oauth_method" &&
       row.migrationName !== "000133_allow_first_time_scm_identity_bind",
   )
   .map((row) =>

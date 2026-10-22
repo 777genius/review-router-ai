@@ -25,6 +25,7 @@ export type PersonalAccountIntent =
           readonly profileId: string;
           readonly displayName: string;
           readonly ingress: "api-key-create" | "oauth-begin";
+          readonly method?: "device_code" | "browser";
         }
       | {
           readonly action: "attach";
@@ -74,7 +75,10 @@ export function snapshotPersonalIntent(
     });
     if (
       Buffer.byteLength(displayName, "utf8") > 400 ||
-      !["api-key-create", "oauth-begin"].includes(input.ingress)
+      !["api-key-create", "oauth-begin"].includes(input.ingress) ||
+      (input.method !== undefined &&
+        (input.ingress !== "oauth-begin" ||
+          !["device_code", "browser"].includes(input.method)))
     )
       throw new ProviderAccountError("invalid_input");
     return Object.freeze({
@@ -84,6 +88,9 @@ export function snapshotPersonalIntent(
       profileId: input.profileId,
       displayName,
       ingress: input.ingress,
+      ...(input.method === "device_code"
+        ? { method: "device_code" as const }
+        : {}),
     });
   }
   // Keep this legacy binding projection explicitly limited to target-scoped intents.
