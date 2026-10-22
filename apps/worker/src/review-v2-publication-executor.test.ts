@@ -422,7 +422,9 @@ describe("protocol v2 publication executor", () => {
     const settled = await fixture.repository.findById("publication-1");
     expect(settled?.attempt.state).toBe("terminal");
     expect(settled?.receipts).toEqual(required?.receipts);
-    expect(settled?.effects).toEqual(expect.arrayContaining(required!.effects));
+    expect(settled?.effects).toEqual(
+      expect.arrayContaining([...required!.effects]),
+    );
     expect(settled?.tombstones).toEqual([
       expect.objectContaining({
         publicationOperationId: "description",
