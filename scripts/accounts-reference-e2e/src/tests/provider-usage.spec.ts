@@ -368,7 +368,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await page.setViewportSize({ width: 1440, height: 1000 });
     await usage.getByRole("button", { name: "Cost", exact: true }).click();
     await expect(
-      usage.getByLabel("Cost bucket", { exact: true }),
+      usage.getByRole("combobox", { name: "Cost bucket", exact: true }),
     ).toBeVisible();
     await chooseUsageOption(page, "Cost bucket", "USD · estimated");
     await expect(
@@ -438,6 +438,27 @@ test("provider usage overview keeps complete period totals, charts, models and r
       path: info.outputPath("usage-details-mobile.png"),
       fullPage: true,
     });
+    await usage.getByLabel("Usage run", { exact: true }).fill(sharedRun);
+    await expect(kpi("Known tokens")).toContainText("600");
+    await expect(kpi("Provider requests")).toContainText("4");
+    await expect(
+      usage
+        .getByRole("table", { name: "Usage observations", exact: true })
+        .getByRole("row"),
+    ).toHaveCount(5);
+    await openUsageDetails(usage);
+    await usage.getByLabel("Usage run", { exact: true }).fill("");
+    await expect(kpi("Known tokens")).toContainText("858");
+    await openUsageDetails(usage);
+    await usage
+      .getByLabel("Usage binding", { exact: true })
+      .fill("rr-e2e-no-matching-binding");
+    await expect(
+      usage.getByText("No measured observations", { exact: false }),
+    ).toBeVisible();
+    await openUsageDetails(usage);
+    await usage.getByLabel("Usage binding", { exact: true }).fill("");
+    await expect(kpi("Known tokens")).toContainText("858");
     const refreshed = page.waitForResponse(
       (response) =>
         response.url().includes("/api/dashboard/provider-usage") &&
@@ -920,4 +941,9 @@ function usageKpi(usage: Locator, name: string) {
 async function chooseUsageOption(page: Page, label: string, option: string) {
   await page.getByRole("combobox", { name: label, exact: true }).click();
   await page.getByRole("option", { name: option, exact: true }).click();
+}
+
+async function openUsageDetails(usage: Locator) {
+  if ((await usage.locator("details").getAttribute("open")) === null)
+    await usage.getByLabel("Details", { exact: true }).click();
 }

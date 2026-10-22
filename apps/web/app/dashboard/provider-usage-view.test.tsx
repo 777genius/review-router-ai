@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProviderUsageView } from "./provider-usage-view";
+import { ModelUsageTable } from "./provider-usage-tables";
 import type { ProviderUsageReport, UsageFilters } from "./provider-usage-model";
 import {
   fetchProviderUsage,
@@ -385,5 +386,56 @@ describe("provider usage interactive report", () => {
     expect((screen.getByLabelText("Usage to") as HTMLInputElement).value).toBe(
       "2026-10-22",
     );
+  });
+  it("retains full requested identity while omitting redundant observed labels and disclosing long mismatches", () => {
+    const longModel = "requested/" + "long-model-identity-".repeat(7);
+    const actual = "actual/" + "different-observed-model-".repeat(5);
+    const seed = {
+      ...report,
+      overview: {
+        ...report.overview,
+        models: [
+          {
+            ...model,
+            requestedModel: longModel,
+            observedModels: [longModel],
+            hasUnknownObservedModel: false,
+          },
+        ],
+      },
+    };
+    const view = render(<ModelUsageTable report={seed} />);
+    expect(screen.getByTitle(`codex / ${longModel}`).textContent).toBe(
+      `codex / ${longModel}`,
+    );
+    expect(
+      screen.getByRole("rowheader", { name: `codex / ${longModel}` }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Observed:/)).toBeNull();
+    view.rerender(
+      <ModelUsageTable
+        report={{
+          ...seed,
+          overview: {
+            ...seed.overview,
+            models: [
+              {
+                ...model,
+                requestedModel: longModel,
+                observedModels: [actual],
+                hasUnknownObservedModel: true,
+              },
+            ],
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText("Observed: different model, Unknown")).toBeTruthy();
+    const disclosure = screen
+      .getByText("Observed: different model, Unknown")
+      .closest("details")!;
+    fireEvent.click(screen.getByText("Observed: different model, Unknown"));
+    expect(disclosure.open).toBe(true);
+    expect(screen.getByText(`${actual}, Unknown`)).toBeTruthy();
   });
 });

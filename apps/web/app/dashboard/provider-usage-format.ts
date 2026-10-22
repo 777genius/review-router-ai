@@ -126,3 +126,17 @@ export function utcDays(from: string, to: string) {
     });
   return days;
 }
+
+export function intervalLabel(
+  from: string | undefined,
+  to: string | undefined,
+): string {
+  if (!from || !to) return "Selected UTC period";
+  const dates = new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `${dates.formatRange(new Date(from), new Date(Date.parse(to) - 1))} UTC`;
+}

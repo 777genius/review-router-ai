@@ -20,6 +20,7 @@ import {
   costLabel,
   count,
   customInterval,
+  intervalLabel,
   rollingInterval,
   type UsageMetric,
 } from "./provider-usage-format";
@@ -246,17 +247,19 @@ function ProviderUsageContext({
           </Button>
         </div>
       </header>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <p className="min-w-0 break-words text-[11px] text-slate-500">
-          UTC interval [{filters.from}, {filters.to})
-          {period !== "custom"
-            ? " · Current UTC day is partial"
-            : " · End boundary is exclusive"}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <p
+          className="min-w-0 text-xs text-slate-400"
+          title={`UTC interval [${filters.from}, ${filters.to})`}
+        >
+          {intervalLabel(filters.from, filters.to)}
+          {period !== "custom" ? " · Current UTC day is partial" : ""}
         </p>
-        <div className="w-40">
+        <div className="w-36">
           <SelectField
             name="usage-purpose"
             label="Purpose"
+            className="[&>span]:sr-only"
             value={filters.purpose ?? "review"}
             disabled={unavailable}
             options={[

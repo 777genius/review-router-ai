@@ -45,6 +45,45 @@ function Coverage({
     </span>
   );
 }
+function ModelObserved({
+  row,
+}: {
+  row: ProviderUsageReport["overview"]["models"][number];
+}) {
+  if (
+    !row.hasUnknownObservedModel &&
+    row.observedModels.length === 1 &&
+    row.observedModels[0] === row.requestedModel
+  )
+    return null;
+  const observed = observedLabel(
+    row.observedModels,
+    row.hasUnknownObservedModel,
+  );
+  if (observed.length > 80 || row.observedModels.length > 2)
+    return (
+      <details className="mt-1 text-[11px] text-slate-500">
+        <summary className="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300">
+          Observed:{" "}
+          {row.observedModels.length === 1
+            ? row.observedModels[0] === row.requestedModel
+              ? "1 model"
+              : "different model"
+            : `${row.observedModels.length} models`}
+          {row.hasUnknownObservedModel ? ", Unknown" : ""}
+        </summary>
+        <p className="mt-1 break-words">{observed}</p>
+      </details>
+    );
+  return (
+    <p
+      className="mt-1 line-clamp-2 break-words text-[11px] text-slate-500"
+      title={`Observed: ${observed}`}
+    >
+      Observed: {observed}
+    </p>
+  );
+}
 export function ModelUsageTable({ report }: { report: ProviderUsageReport }) {
   return (
     <div className="max-w-full overflow-x-auto">
@@ -77,16 +116,13 @@ export function ModelUsageTable({ report }: { report: ProviderUsageReport }) {
                     style={{ backgroundColor: providerColor(row.provider) }}
                   />
                   <div className="min-w-0">
-                    <span className="break-words text-slate-100">
+                    <span
+                      className="line-clamp-2 break-words text-slate-100"
+                      title={`${row.provider} / ${requestedModelLabel(row.requestedModel)}`}
+                    >
                       {row.provider} / {requestedModelLabel(row.requestedModel)}
                     </span>
-                    <p className="mt-1 break-words text-[11px] text-slate-500">
-                      Observed:{" "}
-                      {observedLabel(
-                        row.observedModels,
-                        row.hasUnknownObservedModel,
-                      )}
-                    </p>
+                    <ModelObserved row={row} />
                   </div>
                 </div>
               </th>

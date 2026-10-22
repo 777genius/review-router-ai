@@ -14,6 +14,10 @@ export function UsageDetails({
 }) {
   return (
     <div className="space-y-5 border-t border-slate-700/50 pt-5 text-xs text-slate-400">
+      <p className="break-words">
+        UTC interval [{report.from}, {report.to}), inclusive start and exclusive
+        end.
+      </p>
       <p>
         Source windows below are source-wide checkpoints; they do not prove
         completeness for a selected model, route or UTC day. Known usage is not
