@@ -107,7 +107,7 @@ function fixture(source = secretsWorkflow()) {
         },
   }));
   const issueTrustedActionSessionGrant = vi.fn(
-    async (_scope: unknown, _key: string) => ({
+    async () => ({
       grantId: "g",
       grantToken: "usage-token",
       expiresAt: principal.expiresAt.toISOString(),
