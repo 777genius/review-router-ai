@@ -1,0 +1,128 @@
+import type { UsageTotals } from "@reviewrouter/features-provider-usage";
+export type UsageMetric = "tokens" | "requests" | "cost";
+export type CostBucket = { currency: string; basis: string };
+export const count = (value: number | null) =>
+  value === null ? "Unknown" : value.toLocaleString("en-US");
+export const compact = (value: number | null) =>
+  value === null
+    ? "Unknown"
+    : new Intl.NumberFormat("en-US", {
+        notation: "compact",
+        maximumFractionDigits: 2,
+      }).format(value);
+export const basisLabel = (basis: string) =>
+  basis === "source_reported" ? "source reported" : basis;
+export const costKey = (cost: CostBucket) =>
+  JSON.stringify([cost.currency, cost.basis]);
+export const costLabel = (cost: CostBucket & { amount: string }) =>
+  `${cost.amount} ${cost.currency} (${basisLabel(cost.basis)})`;
+export const costsLabel = (totals: UsageTotals) =>
+  totals.costs.map(costLabel).join(" · ") || "Unknown";
+export function metricValue(
+  totals: UsageTotals,
+  metric: UsageMetric,
+  bucket: CostBucket | undefined,
+): string | number | null {
+  if (metric === "tokens") return totals.tokens.total;
+  if (metric === "requests") return totals.providerAttempts;
+  return (
+    totals.costs.find((c) => bucket && costKey(c) === costKey(bucket))
+      ?.amount ?? null
+  );
+}
+export function metricLabel(
+  totals: UsageTotals,
+  metric: UsageMetric,
+  bucket: CostBucket | undefined,
+): string {
+  const value = metricValue(totals, metric, bucket);
+  if (value === null) return "Unknown";
+  if (metric === "cost" && bucket)
+    return costLabel({ ...bucket, amount: String(value) });
+  return (
+    count(Number(value)) +
+    (metric === "tokens" && totals.unknownTotalTokenCount > 0
+      ? " (known part; some total tokens unknown)"
+      : "")
+  );
+}
+export function chartNumber(value: string | number | null): number | null {
+  if (value === null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+export function providerColor(provider: string): string {
+  const name = provider.toLowerCase();
+  if (/unknown|unavailable/.test(name)) return "var(--rr-chart-neutral)";
+  if (/codex|openai/.test(name)) return "var(--rr-chart-cyan)";
+  if (/mimo/.test(name)) return "var(--rr-chart-purple)";
+  if (/openrouter/.test(name)) return "var(--rr-chart-green)";
+  const hash = [...provider].reduce(
+    (n, ch) => (n * 31 + ch.charCodeAt(0)) >>> 0,
+    0,
+  );
+  return [
+    "var(--rr-chart-cyan)",
+    "var(--rr-chart-purple)",
+    "var(--rr-chart-green)",
+    "var(--rr-chart-amber)",
+    "var(--rr-chart-pink)",
+  ][hash % 5]!;
+}
+export const requestedModelLabel = (value: string | null) =>
+  value ?? "Unknown requested model";
+export const observedLabel = (models: readonly string[], unknown: boolean) =>
+  [...models, ...(unknown ? ["Unknown"] : [])].join(", ") || "Unknown";
+export const dayLabel = (day: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(day));
+const DAY = 86_400_000;
+export function rollingInterval(days: 7 | 30 | 90, now = new Date()) {
+  return {
+    from: new Date(now.getTime() - days * DAY).toISOString(),
+    to: now.toISOString(),
+  };
+}
+export function customInterval(
+  from: string,
+  through: string,
+): { from: string; to: string } | { error: string } {
+  const start = Date.parse(`${from}T00:00:00.000Z`);
+  const end = Date.parse(`${through}T00:00:00.000Z`) + DAY;
+  if (
+    !from ||
+    !through ||
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    new Date(start).toISOString().slice(0, 10) !== from ||
+    new Date(end - DAY).toISOString().slice(0, 10) !== through
+  )
+    return { error: "Choose valid start and end dates." };
+  if (end <= start)
+    return { error: "End date must be on or after start date." };
+  if (end - start > 366 * DAY)
+    return { error: "Choose a period of 366 days or less." };
+  return {
+    from: new Date(start).toISOString(),
+    to: new Date(end).toISOString(),
+  };
+}
+/** Presentation calendar only. Values and authority remain feature-owned. */
+export function utcDays(from: string, to: string) {
+  const start = Date.parse(from),
+    end = Date.parse(to);
+  const days: { day: string; partial: boolean }[] = [];
+  for (
+    let value = Math.floor(start / DAY) * DAY;
+    value < end && days.length < 367;
+    value += DAY
+  )
+    days.push({
+      day: new Date(value).toISOString().slice(0, 10),
+      partial: value < start || value + DAY > end,
+    });
+  return days;
+}
