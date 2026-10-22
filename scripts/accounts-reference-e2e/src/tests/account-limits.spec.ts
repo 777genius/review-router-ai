@@ -253,12 +253,19 @@ test("account limits restrict shared rows before native reads and fence a delaye
   // source SDK completes within its 3s deadline, even if navigation compiles.
   let captureResponse!: (response: APIResponse) => void;
   let rejectResponse!: (error: unknown) => void;
-  const responseReady = new Promise<APIResponse>((resolve, reject) => { captureResponse = resolve; rejectResponse = reject; });
+  const responseReady = new Promise<APIResponse>((resolve, reject) => {
+    captureResponse = resolve;
+    rejectResponse = reject;
+  });
   let releaseResponse!: () => void;
-  const barrier = new Promise<void>((resolve) => { releaseResponse = resolve; });
+  const barrier = new Promise<void>((resolve) => {
+    releaseResponse = resolve;
+  });
   let deliveryDone!: () => void;
   let deliveryStarted = false;
-  const delivery = new Promise<void>((resolve) => { deliveryDone = resolve; });
+  const delivery = new Promise<void>((resolve) => {
+    deliveryDone = resolve;
+  });
   await page.route("**/api/dashboard/accounts/limits?*", async (route) => {
     deliveryStarted = true;
     try {
@@ -269,17 +276,32 @@ test("account limits restrict shared rows before native reads and fence a delaye
     } catch (error) {
       rejectResponse(error);
       throw error;
-    } finally { deliveryDone(); }
+    } finally {
+      deliveryDone();
+    }
   });
   try {
     await owned.getByRole("button", { name: "Read saved limits" }).click();
     const response = await responseReady;
     expect(response.status()).toBe(200);
-    expect(await response.json()).toMatchObject({ status: "ok", value: { status: "snapshot", windows: [{ usedPercent: 37.5 }] } });
-    expect((await stats(request)).completedAccounts.filter((account) => account === FIXTURES.gateway.accounts.orgAlpha)).toHaveLength(1);
-    await expect(owned.getByRole("button", { name: "Read saved limits" })).toBeDisabled();
+    expect(await response.json()).toMatchObject({
+      status: "ok",
+      value: { status: "snapshot", windows: [{ usedPercent: 37.5 }] },
+    });
+    expect(
+      (await stats(request)).completedAccounts.filter(
+        (account) => account === FIXTURES.gateway.accounts.orgAlpha,
+      ),
+    ).toHaveLength(1);
+    await expect(
+      owned.getByRole("button", { name: "Read saved limits" }),
+    ).toBeDisabled();
     await page.getByRole("tab", { name: /RR E2E Org Bravo/ }).click();
-    await expect(page.getByText("Connections available for RR E2E Org Bravo.", { exact: false })).toBeVisible();
+    await expect(
+      page.getByText("Connections available for RR E2E Org Bravo.", {
+        exact: false,
+      }),
+    ).toBeVisible();
   } finally {
     releaseResponse();
     if (deliveryStarted) await delivery;
@@ -289,12 +311,14 @@ test("account limits restrict shared rows before native reads and fence a delaye
   );
   // The viewer's own limits remain authorized in the hidden personal-access
   // dialog. Only the active workspace must reject the old organization result.
-  await expect(page.locator('[aria-label="Account limits"]:visible').filter({
-    hasText: /used 37.5%; remaining 62.5%/,
-  })).toHaveCount(0);
+  await expect(
+    page.locator('[aria-label="Account limits"]:visible').filter({
+      hasText: /used 37.5%; remaining 62.5%/,
+    }),
+  ).toHaveCount(0);
   await expect(sourceRow(page, FIXTURES.sourceLabels.orgAlpha)).toHaveCount(0);
-  await expect(limitsFor(sourceRow(page, FIXTURES.sourceLabels.viewerPrimary))).toContainText(
-    "Account limits are visible to the owner",
-  );
+  await expect(
+    limitsFor(sourceRow(page, FIXTURES.sourceLabels.viewerPrimary)),
+  ).toContainText("Account limits are visible to the owner");
   await expectNetworkViolations(violations);
 });
