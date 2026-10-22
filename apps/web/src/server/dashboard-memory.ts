@@ -8,8 +8,10 @@ import {
   PrismaMemoryTransaction,
   PrismaMemoryUsageEventRepository,
   readMemoryServiceEnabled,
-  type MemoryActor,
-  type MemoryUseCaseDependencies,
+} from "@reviewrouter/features-memory/infrastructure";
+import type {
+  MemoryActor,
+  MemoryUseCaseDependencies,
 } from "@reviewrouter/features-memory";
 import { PrismaEntitlementRepository } from "@reviewrouter/features-entitlements";
 import type { PrismaClient } from "@reviewrouter/platform-db";

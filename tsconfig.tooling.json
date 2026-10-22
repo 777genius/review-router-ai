@@ -10,7 +10,9 @@
     "scripts/local-checks/compiler-*.ts",
     "scripts/local-checks/compiler-*.mts",
     "scripts/local-checks/lint-format-*.ts",
-    "scripts/local-checks/lint-format-*.mts"
+    "scripts/local-checks/lint-format-*.mts",
+    "scripts/memory-foundation/**/*.ts",
+    "scripts/memory-e2e/**/*.ts"
   ],
   "exclude": ["node_modules", "dist", ".next"]
 }
