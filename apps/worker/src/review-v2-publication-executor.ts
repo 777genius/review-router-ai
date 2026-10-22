@@ -1305,6 +1305,40 @@ export class ExecuteReviewV2PublicationOperation {
     readonly lastErrorCode: string;
   }): Promise<ReviewV2PublicationExecutionResult> {
     if (isOptionalPrDescriptionOperation(input.operation)) {
+      // Closing inference can revoke the run while its accepted body write is
+      // returning. Settle that known effect without authorizing another write.
+      try {
+        const view = await this.dependencies.attempts.findById(
+          input.command.publicationAttemptId,
+        );
+        const visible = currentOperationObjects(
+          await this.loadInventory(input.gateway, input.operation),
+          input.operation,
+        );
+        const effect = view
+          ? canonicalVisibleEffect(view, input.operation, visible)
+          : null;
+        if (
+          effect?.effectKind ===
+            ReviewPublicationExternalEffectKind.MutationAcknowledged &&
+          visible.some(
+            (object) =>
+              object.externalObjectId === effect.externalObjectId &&
+              object.observedObjectHash === effect.observedObjectHash,
+          )
+        ) {
+          return this.terminalizeKnownOutcome({
+            command: input.command,
+            operation: input.operation,
+            claim: input.claim,
+            finalOutcome: ReviewPublicationTerminalOutcome.StaleVisible,
+            finalReason: "optional_pr_description_stale_visible",
+            lastErrorCode: input.lastErrorCode,
+          });
+        }
+      } catch {
+        // Missing readback remains ambiguous; never replay the body mutation.
+      }
       return this.terminalizeKnownAmbiguity({
         command: input.command,
         operation: input.operation,
