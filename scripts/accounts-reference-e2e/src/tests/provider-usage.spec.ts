@@ -804,24 +804,9 @@ test("provider usage overview keeps complete period totals, charts, models and r
       .getByRole("button", { name: "Next observation page", exact: true })
       .click();
     await expect(observations.getByRole("row")).toHaveCount(7);
-    const resetResponse = page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/dashboard/provider-usage") &&
-        response.request().method() === "GET",
-    );
     await usage
       .getByRole("button", { name: "Reset filters", exact: true })
       .click();
-    const resetUrl = new URL((await resetResponse).url());
-    for (const key of ["provider", "model", "route", "after", "runAfter"])
-      expect(resetUrl.searchParams.has(key)).toBe(false);
-    expect(resetUrl.searchParams.get("purpose")).toBe("review");
-    expect(resetUrl.searchParams.get("from")).toBe(
-      customUrl.searchParams.get("from"),
-    );
-    expect(resetUrl.searchParams.get("to")).toBe(
-      customUrl.searchParams.get("to"),
-    );
     await expect(kpi("Known tokens")).toContainText("858");
     await expectBreakdownCount(usage, "runs", 100);
     await openUsageDetails(usage);
@@ -838,6 +823,15 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(
       usage.getByRole("combobox", { name: "Period", exact: true }),
     ).toContainText("Custom dates");
+    await expect(usage.getByLabel("Usage from", { exact: true })).toHaveValue(
+      firstDay,
+    );
+    await expect(usage.getByLabel("Usage to", { exact: true })).toHaveValue(
+      lastDay,
+    );
+    await expect(
+      usage.getByRole("combobox", { name: "Purpose", exact: true }),
+    ).toContainText("Review");
     await chooseUsageOption(page, "Purpose", "Diagnostics");
     await chooseUsageOption(page, "Provider", "codex");
     await expect(kpi("Known tokens")).toContainText("777");
