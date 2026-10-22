@@ -1,5 +1,10 @@
 "use server";
 
+import {
+  assertDashboardContextSelectionAllowed,
+  contextToolsWorkflowSecrets,
+} from "../../src/server/context-tools";
+
 import { readReviewPolicyHeadVersions } from "../../src/server/review-policy-heads";
 
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
@@ -1246,6 +1251,12 @@ async function createSetupPullRequestMutation(
     const accountGateway = isAccountGatewayConfiguration(
       resolvedRuntime.config,
     );
+    const mcpSecrets = accountGateway
+      ? await contextToolsWorkflowSecrets(
+          workspaceId,
+          resolvedRuntime.config.contextTools,
+        )
+      : undefined;
     const openRouterDirect = isOpenRouterDirectConfiguration(
       resolvedRuntime.config,
     );
@@ -1358,7 +1369,10 @@ async function createSetupPullRequestMutation(
         actionRef,
         discussionMode,
         ...(accountGateway
-          ? { codexSessionMode: "account-gateway" as const }
+          ? {
+              codexSessionMode: "account-gateway" as const,
+              ...(mcpSecrets ? { mcpSecrets } : {}),
+            }
           : openRouterDirect
             ? { providerApiAuthMode: "openrouter-api" as const }
             : {}),
@@ -1451,7 +1465,10 @@ async function createSetupPullRequestMutation(
               apiUrl: resolveWorkflowPublicApiUrl(),
               runtimeConfigMode: "oidc",
               ...(accountGateway
-                ? { codexSessionMode: "account-gateway" as const }
+                ? {
+                    codexSessionMode: "account-gateway" as const,
+                    ...(mcpSecrets ? { mcpSecrets } : {}),
+                  }
                 : openRouterDirect
                   ? { providerApiAuthMode: "openrouter-api" as const }
                   : { staticRuntimeEnv: resolvedRuntime.runtimeEnv }),
@@ -1702,6 +1719,12 @@ async function confirmSetupPullRequestMergedMutation(
     const accountGateway = isAccountGatewayConfiguration(
       resolvedRuntime.config,
     );
+    const mcpSecrets = accountGateway
+      ? await contextToolsWorkflowSecrets(
+          workspaceId,
+          resolvedRuntime.config.contextTools,
+        )
+      : undefined;
     const openRouterDirect = isOpenRouterDirectConfiguration(
       resolvedRuntime.config,
     );
@@ -1973,7 +1996,10 @@ async function confirmSetupPullRequestMergedMutation(
             defaultBranch: setupBaseBranch,
             actionRef: verifiedWorkflowActionRef,
             ...(accountGateway
-              ? { codexSessionMode: "account-gateway" as const }
+              ? {
+                  codexSessionMode: "account-gateway" as const,
+                  ...(mcpSecrets ? { mcpSecrets } : {}),
+                }
               : openRouterDirect
                 ? { providerApiAuthMode: "openrouter-api" as const }
                 : {}),
@@ -2960,6 +2986,10 @@ async function saveWorkspaceReviewConfigMutation(
       workspaceId,
     });
     const config = readReviewConfigurationForm(formData);
+    await assertDashboardContextSelectionAllowed(
+      workspaceId,
+      config.contextTools,
+    );
     isOpenRouterDirectConfiguration(config);
     assertGatewayReviewAgentProfileContextAllowed(
       config,
@@ -3096,6 +3126,10 @@ async function saveRepositoryReviewConfigMutation(
       );
     const policy = readRepositoryReviewPolicyForm(formData);
     const config = resolveReviewPolicy(workspace.config, policy);
+    await assertDashboardContextSelectionAllowed(
+      workspaceId,
+      config.contextTools,
+    );
     isOpenRouterDirectConfiguration(config);
     assertGatewayReviewAgentProfileContextAllowed(
       config,

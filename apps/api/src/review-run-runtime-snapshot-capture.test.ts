@@ -228,6 +228,65 @@ function readerFor(policyJson: string) {
   });
 }
 
+describe("PR description capture availability", () => {
+  it.each([
+    ["codex_account_gateway", true, true],
+    ["openrouter_api_key", true, true],
+    ["codex_subscription_oauth_rotating", true, false],
+    ["codex_account_gateway", false, false],
+  ] as const)(
+    "captures approved capability for %s with producer approval=%s",
+    async (authMode, approved, available) => {
+      const configuration = parseReviewConfigurationStrict(
+        JSON.parse(gatewayPolicyJson({})),
+      );
+      if (authMode !== "codex_account_gateway") {
+        configuration.providers = [
+          {
+            kind: authMode === "openrouter_api_key" ? "openrouter" : "codex",
+            authMode,
+            model:
+              authMode === "openrouter_api_key" ? "openai/gpt-5.4" : "gpt-5.4",
+            reasoningEffort: "high",
+            agenticContext: true,
+            fastMode: false,
+            requiredHealthy: true,
+          },
+        ];
+      }
+      const prDescriptionProfile = {
+        extensionId: "pr-description.v1" as const,
+        canonicalizerDigest: "e".repeat(64),
+      };
+      const captured = await snapshotSource().capture(
+        {
+          ...captureInput(),
+          modelTransport:
+            authMode === "codex_account_gateway"
+              ? "account_gateway"
+              : "provider_api",
+          producerRelease: {
+            ...captureInput().producerRelease,
+            agentProfiles: parseReviewAgentProfiles([codexDefaultProfile]),
+            ...(approved ? { prDescriptionProfile } : {}),
+          },
+        },
+        readerFor(canonicalJson(configuration)),
+      );
+      expect(captured).not.toBeNull();
+      expect(captured).not.toHaveProperty("captureDenied");
+      if (available) {
+        expect(captured).toHaveProperty(
+          "prDescriptionCapability",
+          prDescriptionProfile,
+        );
+      } else {
+        expect(captured).not.toHaveProperty("prDescriptionCapability");
+      }
+    },
+  );
+});
+
 describe("ProductionReviewRunRuntimeSnapshot explicit agentProfileRef capture", () => {
   it("treats a stale workflow transport as changed facts before resolving an explicit engine", async () => {
     expect(

@@ -484,6 +484,7 @@ export const runtimeAuthorityReadOnlyTables = Object.freeze([
 
 export const workerOwnedMaintenanceCheckpointTable =
   "ReviewInvestigationMaintenanceCheckpoint";
+export const dashboardOwnedContextConnectionTable = "ReviewContextConnection";
 
 export const providerRuntimeUpdateColumns = Object.freeze([
   "state",
@@ -2767,7 +2768,7 @@ BEGIN
         'HostedCodexRuntimeClosure','HostedCodexCommentTokenMint',
         'HostedCodexCommentTokenRevocationProof','HostedCodexCommentRefreshCapability',
         'HostedCodexCommentRefreshUse','ReviewProviderScopeConcurrencyControl',
-        'ProviderAccountConnection','WorkspaceAccountBinding'
+        'ProviderAccountConnection','WorkspaceAccountBinding','${dashboardOwnedContextConnectionTable}'
       ) AND attribute.attnum>0 AND NOT attribute.attisdropped
     ), sequence_facts AS (
       SELECT role_name, role_kind, relname,
@@ -2814,6 +2815,7 @@ BEGIN
            AND relname NOT IN ('CodexOAuthDatabaseAuthorityKey','CodexOAuthDatabaseAuthorityReceipt',
              'HostedCodexCommentTokenMint','HostedCodexCommentTokenRevocationProof','RuntimeGenerationWitnessProof','RuntimeCanaryChallenge','RuntimeCanaryChallengeProof')
            AND (relname <> 'CodexOAuthWorkflowCompatibility' OR role_kind IN ('api','web'))
+           AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind IN ('api','web'))
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_insert IS DISTINCT FROM (CASE WHEN role_kind='custody' THEN relname='HostedCodexCommentRefreshUse'
          WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
@@ -2825,6 +2827,7 @@ BEGIN
            AND relname NOT IN ('HostedCodexRuntimeGate','HostedCodexRuntimeClosure',
              'ReviewProviderScopeConcurrencyControl')
            AND relname <> 'HostedCodexCommentTokenMint'
+           AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind = 'web')
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_update IS DISTINCT FROM (CASE WHEN role_kind='custody' THEN false
          WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
@@ -2836,8 +2839,10 @@ BEGIN
            AND relname NOT IN ('HostedCodexRuntimeGate','HostedCodexRuntimeClosure',
              'ReviewProviderScopeConcurrencyControl')
            AND relname <> 'HostedCodexCommentTokenMint'
+           AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind = 'web')
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_delete IS DISTINCT FROM (role_kind NOT IN ('effect-authority','custody')
+           AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind = 'web')
            AND NOT (role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding'))
            AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine','CodexOAuthLease',
@@ -5117,6 +5122,7 @@ export function runtimeGrantStatements(
     ...fullyProtectedRuntimeTables,
     ...runtimeAuthorityReadOnlyTables,
     workerOwnedMaintenanceCheckpointTable,
+    dashboardOwnedContextConnectionTable,
   ]
     .map((table) => `'${table}'`)
     .join(",");
@@ -5275,6 +5281,14 @@ ${
     ? `GRANT SELECT, INSERT, UPDATE ON TABLE public."${workerOwnedMaintenanceCheckpointTable}" TO ${username};`
     : ""
 }
+DO $context_connection_acl$
+BEGIN
+  IF to_regclass('public."${dashboardOwnedContextConnectionTable}"') IS NOT NULL THEN
+    EXECUTE format('REVOKE ALL ON TABLE public.%I FROM %I', '${dashboardOwnedContextConnectionTable}', '${username}');
+    ${role === "web" ? `EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO %I', '${dashboardOwnedContextConnectionTable}', '${username}');` : role === "api" ? `EXECUTE format('GRANT SELECT ON TABLE public.%I TO %I', '${dashboardOwnedContextConnectionTable}', '${username}');` : ""}
+  END IF;
+END
+$context_connection_acl$;
 ${role === "api" ? accountAdmissionApiGrantStatements() : ""}
 REVOKE TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM ${username};
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ${username};

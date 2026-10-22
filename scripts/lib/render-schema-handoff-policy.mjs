@@ -275,6 +275,44 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // MCP connection custody and its optional producer descriptor are checkout-only.
+  // Admit exact SQL and the reviewed pre-usage or merged union before reducing it.
+  const contextToolsMigration = catalog.find(
+    (row) => row.migrationName === "000139_review_context_tools",
+  );
+  if (contextToolsMigration) {
+    if (
+      contextToolsMigration.checksum !==
+        "b2ac7d2121b0869dcfa77ee37ff85a86fe3947dad4a88ed595d73492a5eafed4" ||
+      ![
+        "sha256:22d2cb47f5ec96e2b154ac07a375a19682243b7378df7a00f891a4713408b56b",
+        "sha256:ecbb9d456aa70c06abbc301950005378b53afb25f2382f06d608589a4935a9dc",
+      ].includes(manifest(catalog))
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== contextToolsMigration),
+    );
+  }
+  // Optional PR-description enum/profile storage is checkout-only. Admit its
+  // exact SQL and pre-usage or merged union; historical managed SQL stays unchanged.
+  const prDescriptionMigration = catalog.find(
+    (row) => row.migrationName === "000138_pr_description",
+  );
+  if (prDescriptionMigration) {
+    if (
+      prDescriptionMigration.checksum !==
+        "4b41af195d5dd00df952d25d6c4999a64abf6cbc36351c2bd14d41f114cfe4e4" ||
+      ![
+        "sha256:af9bf892b5ec0e5817c9b1707869b8023ae5ce740af6e60b08c5aba328ec2694",
+        "sha256:c9fd4bb76d56166a80ec52fd9f54156d5951d375d47ed57bd02fd7dd40f7ccd0",
+      ].includes(manifest(catalog))
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== prDescriptionMigration),
+    );
+  }
   // Usage is an additive checkout-only extension. Preserve the managed92
   // authority and admit only this exact reviewed SQL and complete checkout137.
   const usageMigration = catalog.find(

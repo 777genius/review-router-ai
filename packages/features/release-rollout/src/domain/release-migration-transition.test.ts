@@ -93,7 +93,7 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps checkout135 source admission separate from historical96 and managed92 authority", () => {
+  it("keeps checkout139 source admission separate from historical96 and managed92 authority", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
     const full = names.map((migrationName) => ({
@@ -107,9 +107,9 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
-    expect(full).toHaveLength(137);
+    expect(full).toHaveLength(139);
     expect(manifest(full)).toBe(
-      "sha256:ed3d27f7417f66b56acf823358933d67ef6c3fae0cbcc88ed89a79cb4a1e27b5",
+      "sha256:ecbb9d456aa70c06abbc301950005378b53afb25f2382f06d608589a4935a9dc",
     );
     const old125 = full
       .filter(
@@ -125,6 +125,8 @@ describe("canonical release migration transition", () => {
           row.migrationName !== "000134_review_provider_kind_v2_ocr" &&
           row.migrationName !== "000136_provider_usage" &&
           row.migrationName !== "000135_review_run_checkout_repository_lock" &&
+          row.migrationName !== "000138_pr_description" &&
+          row.migrationName !== "000139_review_context_tools" &&
           row.migrationName !== "000133_allow_first_time_scm_identity_bind",
         "000132_review_policy_schema_v3",
       )
@@ -148,7 +150,7 @@ describe("canonical release migration transition", () => {
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
     expect(full).toEqual(readRenderManagedCheckoutInventory());
-    expect(full.slice(-29).map((row) => row.migrationName)).toEqual([
+    expect(full.slice(-31).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",
       "000111_sdk_growth_source_binding",
@@ -178,6 +180,8 @@ describe("canonical release migration transition", () => {
       "000134_review_provider_kind_v2_ocr",
       "000135_review_run_checkout_repository_lock",
       "000136_provider_usage",
+      "000138_pr_description",
+      "000139_review_context_tools",
     ]);
     const withoutProviderKey = historicalFull.filter(
       (row) =>

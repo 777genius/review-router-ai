@@ -16,6 +16,7 @@ export enum ReviewExecutionProviderKind {
 export enum ReviewTaskKind {
   FindingDiscovery = "finding_discovery",
   LifecycleRevalidation = "lifecycle_revalidation",
+  PrDescription = "pr_description",
 }
 
 export enum ReviewExecutionState {

@@ -69,6 +69,8 @@ export type VerifiedScmRunIdentity = ReviewRunScope &
     readonly sourceRunId: string;
     readonly sourceRunAttempt: string;
     readonly workflowIdentityHash: string;
+    /** Named metadata from the signed canonical caller; never secret values. */
+    readonly contextToolGithubSecrets?: Readonly<Record<string, string>>;
     readonly trustDomain: ReviewTrustDomain;
   };
 
@@ -94,6 +96,7 @@ export enum ReviewRunAuthorizationDenialReason {
   AdmissionFactsChanged = "admission_facts_changed",
   AgentProfileUnavailable = "agent_profile_unavailable",
   AgentProfileIncompatible = "agent_profile_incompatible",
+  ContextToolsUnavailable = "context_tools_unavailable",
   ProviderVoteLaneUnavailable = "provider_vote_lane_unavailable",
   ReviewInvestigationIncompatible = "review_investigation_incompatible",
 }
@@ -915,6 +918,8 @@ function captureDenialReason(
       return ReviewRunAuthorizationDenialReason.AgentProfileUnavailable;
     case "agent_profile_incompatible":
       return ReviewRunAuthorizationDenialReason.AgentProfileIncompatible;
+    case "context_tools_unavailable":
+      return ReviewRunAuthorizationDenialReason.ContextToolsUnavailable;
   }
 }
 
@@ -943,6 +948,9 @@ function snapshotVerifiedIdentity(
     sourceRunId: identity.sourceRunId,
     sourceRunAttempt: identity.sourceRunAttempt,
     workflowIdentityHash: identity.workflowIdentityHash,
+    ...(identity.contextToolGithubSecrets
+      ? { contextToolGithubSecrets: { ...identity.contextToolGithubSecrets } }
+      : {}),
     trustDomain: identity.trustDomain,
     baseSha: identity.baseSha,
     mergeBaseSha: identity.mergeBaseSha,

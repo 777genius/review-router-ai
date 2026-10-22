@@ -84,40 +84,230 @@ describe("protocol v2 publication executor", () => {
     expect(fixture.gateway.applyCalls).toBe(1);
   });
 
-  it("reconciles every marker page before retry and does not duplicate an ambiguous write", async () => {
-    const fixture = await createFixture();
+  it.each([ReviewPublicationKind.Summary, ReviewPublicationKind.PrDescription])(
+    "reconciles every marker page before retry and does not duplicate an ambiguous %s write",
+    async (publicationKind) => {
+      const fixture = await createFixture({
+        operations: [{ ...operationPlan(), publicationKind }],
+      });
+      fixture.gateway.applyError = new ReviewV2ScmMutationError(
+        "scm_timeout",
+        ReviewV2ScmMutationFailureOutcome.EffectMayExist,
+        true,
+      );
+
+      await expect(
+        fixture.executor.execute(executionCommand()),
+      ).resolves.toEqual({
+        status: ReviewV2PublicationExecutionStatus.Retryable,
+        safeReason: "scm_timeout",
+      });
+      expect(fixture.gateway.applyCalls).toBe(1);
+
+      fixture.gateway.applyError = null;
+      fixture.gateway.pages = [
+        { objects: [], nextCursor: "page-2" },
+        { objects: [gatewayObject("object-recovered")], nextCursor: null },
+      ];
+      await expect(
+        fixture.executor.execute(executionCommand()),
+      ).resolves.toEqual({
+        status: ReviewV2PublicationExecutionStatus.Completed,
+        safeReason: "publication_operation_completed",
+        receiptStatus: ReviewPublicationReceiptStatus.Succeeded,
+      });
+      expect(fixture.gateway.applyCalls).toBe(1);
+      expect(fixture.credentials.purposes).toEqual([
+        ReviewV2ScmCredentialPurpose.Mutate,
+        ReviewV2ScmCredentialPurpose.ReconcileOnly,
+      ]);
+      expect(fixture.gateway.requestedCursors).toContain("page-2");
+    },
+  );
+
+  it("never replays an unknown PR body write when marker reconciliation is still empty", async () => {
+    const fixture = await createFixture({
+      operations: [
+        {
+          ...operationPlan(),
+          publicationKind: ReviewPublicationKind.PrDescription,
+        },
+      ],
+    });
     fixture.gateway.applyError = new ReviewV2ScmMutationError(
       "scm_timeout",
       ReviewV2ScmMutationFailureOutcome.EffectMayExist,
       true,
     );
-
-    await expect(fixture.executor.execute(executionCommand())).resolves.toEqual(
-      {
-        status: ReviewV2PublicationExecutionStatus.Retryable,
-        safeReason: "scm_timeout",
-      },
-    );
-    expect(fixture.gateway.applyCalls).toBe(1);
-
+    await fixture.executor.execute(executionCommand());
     fixture.gateway.applyError = null;
-    fixture.gateway.pages = [
-      { objects: [], nextCursor: "page-2" },
-      { objects: [gatewayObject("object-recovered")], nextCursor: null },
-    ];
-    await expect(fixture.executor.execute(executionCommand())).resolves.toEqual(
-      {
-        status: ReviewV2PublicationExecutionStatus.Completed,
-        safeReason: "publication_operation_completed",
-        receiptStatus: ReviewPublicationReceiptStatus.Succeeded,
-      },
-    );
+    await fixture.executor.execute(executionCommand());
     expect(fixture.gateway.applyCalls).toBe(1);
     expect(fixture.credentials.purposes).toEqual([
       ReviewV2ScmCredentialPurpose.Mutate,
       ReviewV2ScmCredentialPurpose.ReconcileOnly,
     ]);
-    expect(fixture.gateway.requestedCursors).toContain("page-2");
+  });
+
+  it("surfaces a PR body readback conflict for manual reconciliation", async () => {
+    const fixture = await createFixture({
+      operations: [
+        {
+          ...operationPlan(),
+          publicationKind: ReviewPublicationKind.PrDescription,
+        },
+      ],
+    });
+    fixture.gateway.applyError = new ReviewV2ScmMutationError(
+      "github_pr_description_post_write_conflict",
+      ReviewV2ScmMutationFailureOutcome.EffectMayExist,
+      false,
+    );
+    await expect(fixture.executor.execute(executionCommand())).resolves.toEqual(
+      {
+        status: ReviewV2PublicationExecutionStatus.ManualRequired,
+        safeReason: "github_pr_description_post_write_conflict",
+      },
+    );
+    expect(fixture.gateway.applyCalls).toBe(1);
+    expect(fixture.gateway.compensationCalls).toBe(0);
+  });
+
+  it("keeps completed summary, check and inline publication successful when the optional description conflicts", async () => {
+    const required = [
+      operationPlan(),
+      {
+        ...operationPlan(),
+        publicationOperationId: "check",
+        publicationKind: ReviewPublicationKind.ManagedCheck,
+        markerHash: hash("3"),
+        bodyHash: hash("4"),
+      },
+      {
+        ...operationPlan(),
+        publicationOperationId: "inline",
+        publicationKind: ReviewPublicationKind.SubmittedReview,
+        effectStrategy:
+          ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt,
+        markerHash: hash("5"),
+        bodyHash: hash("6"),
+      },
+    ];
+    const description = {
+      ...operationPlan(),
+      publicationOperationId: "description",
+      publicationKind: ReviewPublicationKind.PrDescription,
+      required: false,
+      markerHash: hash("7"),
+      bodyHash: hash("8"),
+    };
+    const fixture = await createFixture({
+      operations: [...required, description],
+    });
+    await expect(
+      fixture.executor.execute(executionCommand("description")),
+    ).resolves.toMatchObject({
+      status: ReviewV2PublicationExecutionStatus.Retryable,
+      safeReason: "pr_description_awaiting_required_publication",
+    });
+    expect(fixture.gateway.applyCalls).toBe(0);
+    for (const operation of required) {
+      fixture.gateway.pages = [{ objects: [], nextCursor: null }];
+      await expect(
+        fixture.executor.execute(
+          executionCommand(operation.publicationOperationId),
+        ),
+      ).resolves.toMatchObject({
+        status: ReviewV2PublicationExecutionStatus.Completed,
+      });
+    }
+    const before = await fixture.repository.findById("publication-1");
+    expect(before?.attempt.state).toBe("publishing");
+    expect(before?.receipts).toHaveLength(3);
+    fixture.gateway.pages = [{ objects: [], nextCursor: null }];
+    fixture.gateway.applyError = new ReviewV2ScmMutationError(
+      "github_pr_description_body_conflict",
+      ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+      false,
+    );
+    await expect(
+      fixture.executor.execute(executionCommand("description")),
+    ).resolves.toMatchObject({
+      status: ReviewV2PublicationExecutionStatus.Terminalized,
+      terminalOutcome: ReviewPublicationTerminalOutcome.Succeeded,
+    });
+    const after = await fixture.repository.findById("publication-1");
+    expect(after?.attempt).toMatchObject({
+      state: "terminal",
+      terminalOutcome: "succeeded",
+    });
+    expect(after?.receipts).toEqual(before?.receipts);
+    expect(after?.effects).toEqual(before?.effects);
+    expect(
+      after?.attempt.operations
+        .filter((operation) => operation.required)
+        .every((operation) => operation.state === "completed"),
+    ).toBe(true);
+    expect(after?.tombstones).toEqual([
+      expect.objectContaining({
+        publicationOperationId: "description",
+        finalOutcome: "failed_no_effect",
+        lastErrorCode: "github_pr_description_body_conflict",
+      }),
+    ]);
+    expect(fixture.gateway.compensationCalls).toBe(0);
+    expect(fixture.gateway.applyCalls).toBe(4);
+  });
+
+  it("preserves required success when the fresh optional continuation claim is rejected", async () => {
+    const description = {
+      ...operationPlan(),
+      publicationOperationId: "description",
+      publicationKind: ReviewPublicationKind.PrDescription,
+      required: false,
+      markerHash: hash("7"),
+      bodyHash: hash("8"),
+    };
+    const fixture = await createFixture({
+      operations: [operationPlan(), description],
+    });
+    await expect(
+      fixture.executor.execute(executionCommand()),
+    ).resolves.toMatchObject({
+      status: ReviewV2PublicationExecutionStatus.Completed,
+    });
+    const before = await fixture.repository.findById("publication-1");
+    expect(before?.attempt).toMatchObject({
+      state: "publishing",
+      activeClaimId: null,
+    });
+    expect(before?.activeClaim).toBeNull();
+    const claim = vi
+      .spyOn(fixture.application, "claim")
+      .mockRejectedValueOnce(new Error("publication_claim_gate_rejected"));
+    await expect(
+      fixture.executor.execute(executionCommand("description")),
+    ).resolves.toMatchObject({
+      status: ReviewV2PublicationExecutionStatus.Terminalized,
+      terminalOutcome: ReviewPublicationTerminalOutcome.Succeeded,
+    });
+    expect(claim).toHaveBeenCalledTimes(1);
+    const after = await fixture.repository.findById("publication-1");
+    expect(after?.attempt).toMatchObject({
+      state: "terminal",
+      terminalOutcome: "succeeded",
+    });
+    expect(after?.receipts).toEqual(before?.receipts);
+    expect(after?.effects).toEqual(before?.effects);
+    expect(after?.tombstones).toEqual([
+      expect.objectContaining({
+        publicationOperationId: "description",
+        finalOutcome: "superseded_no_effect",
+        lastErrorCode: "publication_claim_gate_rejected",
+      }),
+    ]);
+    expect(fixture.gateway.applyCalls).toBe(1);
+    expect(fixture.gateway.compensationCalls).toBe(0);
   });
 
   it("publishes the current mutable singleton when stale marker inventory exists", async () => {

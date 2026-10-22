@@ -111,7 +111,12 @@ export function ensurePg17FixtureImage(run: DockerRun) {
       pg17FixtureDockerfile,
       120_000,
     );
-    if (built.status !== 0 || built.error)
+    // Parallel suites may both miss the tag before either build exports it.
+    // Adopt the winner only through the same label/dependency qualification below.
+    if (
+      (built.status !== 0 || built.error) &&
+      run(["image", "inspect", pg17FixtureImage]).status !== 0
+    )
       throw new Error(
         `managed_pg17_fixture_image:build:${boundedDiagnostic(built)}`,
       );

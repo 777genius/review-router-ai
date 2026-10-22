@@ -1,3 +1,9 @@
+import {
+  captureContextToolsPlan,
+  PrismaContextConnectionStore,
+  supportsContextToolsV1,
+  type ContextToolsPlan,
+} from "@reviewrouter/features-review-context-tools";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createHash } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
@@ -18,7 +24,9 @@ import { assertOpenRouterDirectConfigurationSupported } from "@reviewrouter/feat
 import {
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
+  parseProducerPrDescriptionProfile,
   parseReviewAgentProfiles,
+  parseProducerContextToolsProfile,
   selectReviewAgentProfile,
   selectProviderApiReviewAgentProfile,
   selectSuppliedDiffReviewAgentProfile,
@@ -37,7 +45,8 @@ import { reviewRunGatewayMaxResponseBytes } from "./account-gateway-run-access";
 type RuntimeReader = Pick<
   PrismaClient,
   "reviewConfiguration" | "workspaceAccountBinding"
->;
+> &
+  Partial<Pick<PrismaClient, "reviewContextConnection" | "producerRelease">>;
 
 // Exact profile identity is resolved against the admitted producer, never guessed.
 const defaultReviewAgentProfileRef = "ocr-managed-v2";
@@ -143,7 +152,16 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     reader: RuntimeReader = this.prisma,
   ): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null> {
     // Retain primitives across all reads; never retain the caller's nested identity.
-    const identity = { ...input.identity };
+    const identity = {
+      ...input.identity,
+      ...(input.identity.contextToolGithubSecrets
+        ? {
+            contextToolGithubSecrets: {
+              ...input.identity.contextToolGithubSecrets,
+            },
+          }
+        : {}),
+    };
     const modelTransport = input.modelTransport;
     const deadline = new Date(input.deadline).toISOString();
     const producer = {
@@ -248,6 +266,28 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       selected?.provider.agenticContext === false
     )
       return { captureDenied: "agent_profile_incompatible" };
+    let contextToolsPlan: ContextToolsPlan | undefined;
+    try {
+      contextToolsPlan = await captureTools(
+        configuration,
+        identity.workspaceId,
+        reader,
+      );
+      if (contextToolsPlan && agent.agentKind !== "ocr")
+        return { captureDenied: "agent_profile_incompatible" };
+      if (
+        contextToolsPlan &&
+        !supportsContextToolsV1(input.producerRelease.contextToolsProfile)
+      )
+        return { captureDenied: "context_tools_unavailable" };
+      if (contextToolsPlan)
+        assertContextGithubBindings(
+          contextToolsPlan,
+          identity.contextToolGithubSecrets,
+        );
+    } catch {
+      return { captureDenied: "context_tools_unavailable" };
+    }
     const agentProfileDigest = createHash("sha256")
       .update(canonicalJson(agent))
       .digest("hex");
@@ -295,6 +335,17 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     try {
       return parseReviewRunRuntimeSnapshot(
         canonicalJson({
+          ...(input.producerRelease.prDescriptionProfile != null &&
+          (gateway !== null ||
+            (modelTransport === "provider_api" &&
+              configuration.providers.length === 1 &&
+              configuration.providers[0]?.authMode === "openrouter_api_key"))
+            ? {
+                prDescriptionCapability: parseProducerPrDescriptionProfile(
+                  input.producerRelease.prDescriptionProfile,
+                ),
+              }
+            : {}),
           snapshotVersion: 3,
           configurationSource: current.source,
           configurationVersion: current.version,
@@ -305,6 +356,9 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           agent,
           agentProfileDigest,
           configurationCanonicalJson: canonicalJson(configuration),
+          ...(contextToolsPlan
+            ? { contextToolsPlanCanonicalJson: canonicalJson(contextToolsPlan) }
+            : {}),
           deadline,
           gateway,
         }),
@@ -343,6 +397,41 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     );
     if (canonicalJson(configuration) !== snapshot.configurationCanonicalJson)
       return false;
+    try {
+      const plan = await captureTools(
+        configuration,
+        identity.workspaceId,
+        reader,
+      );
+      if (
+        (plan ? canonicalJson(plan) : undefined) !==
+        snapshot.contextToolsPlanCanonicalJson
+      )
+        return false;
+      if (plan) {
+        const producer = await reader.producerRelease?.findUnique({
+          where: { producerReleaseId: snapshot.producer.producerReleaseId },
+          select: {
+            state: true,
+            actionCommitSha: true,
+            runtimeCommitSha: true,
+            contextToolsProfile: true,
+          },
+        });
+        if (
+          !producer ||
+          producer.state !== "registered" ||
+          producer.actionCommitSha !== snapshot.producer.actionCommitSha ||
+          producer.runtimeCommitSha !== snapshot.producer.runtimeCommitSha ||
+          !supportsContextToolsV1(
+            parseProducerContextToolsProfile(producer.contextToolsProfile),
+          )
+        )
+          return false;
+      }
+    } catch {
+      return false;
+    }
     const gatewayProviders = configuration.providers.filter(
       (provider) => provider.authMode === "codex_account_gateway",
     );
@@ -429,6 +518,8 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         actionCommitSha: true,
         runtimeCommitSha: true,
         agentProfilesJson: true,
+        contextToolsProfile: true,
+        prDescriptionProfile: true,
       },
     });
     if (
@@ -457,7 +548,23 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
           modelTransport: original.gateway ? "account_gateway" : "provider_api",
           deadline: candidate.maxExpiresAt,
           producerRelease: {
-            ...producer,
+            producerReleaseId: producer.producerReleaseId,
+            actionCommitSha: producer.actionCommitSha,
+            runtimeCommitSha: producer.runtimeCommitSha,
+            ...(producer.contextToolsProfile == null
+              ? {}
+              : {
+                  contextToolsProfile: parseProducerContextToolsProfile(
+                    producer.contextToolsProfile,
+                  ),
+                }),
+            ...(producer.prDescriptionProfile == null
+              ? {}
+              : {
+                  prDescriptionProfile: parseProducerPrDescriptionProfile(
+                    producer.prDescriptionProfile,
+                  ),
+                }),
             agentProfiles: parseReviewAgentProfiles(
               JSON.parse(producer.agentProfilesJson),
             ),
@@ -505,4 +612,48 @@ export function reviewRunGatewayPreparationIdentity(
     attemptId: digest("attempt", attempt),
     operationId: digest("prepare", attempt),
   };
+}
+
+async function captureTools(
+  configuration: ReviewConfiguration,
+  workspaceId: string,
+  reader: RuntimeReader,
+): Promise<ContextToolsPlan | undefined> {
+  const selected = configuration.contextTools;
+  if (!selected || selected.builtinTools.length + selected.mcp.length === 0)
+    return undefined;
+  if (selected.mcp.length && !reader.reviewContextConnection)
+    throw new Error("context_store_unavailable");
+  const store = reader.reviewContextConnection
+    ? new PrismaContextConnectionStore({
+        reviewContextConnection: reader.reviewContextConnection,
+      })
+    : null;
+  const connections = await Promise.all(
+    selected.mcp.map(async ({ connection }) => {
+      const row = await store!.find(workspaceId, connection);
+      if (!row) throw new Error("context_connection_unavailable");
+      return row;
+    }),
+  );
+  return captureContextToolsPlan(selected, connections);
+}
+
+/** The workflow source, rather than runner input, names every selected GH secret. */
+export function assertContextGithubBindings(
+  plan: ContextToolsPlan,
+  actual: Readonly<Record<string, string>> | undefined,
+): void {
+  const expected = Object.fromEntries(
+    plan.servers.flatMap((server) =>
+      Object.entries(server.credentials)
+        .filter(([, value]) => value.source === "github-secret")
+        .map(([name, value]) => [
+          name,
+          value.source === "github-secret" ? value.name : "",
+        ]),
+    ),
+  );
+  if (canonicalJson(expected) !== canonicalJson(actual ?? {}))
+    throw new Error("context_workflow_secret_binding_mismatch");
 }

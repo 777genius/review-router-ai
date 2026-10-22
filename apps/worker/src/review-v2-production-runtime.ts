@@ -1492,6 +1492,7 @@ class PrismaReviewV2PublicationWorkFeed implements ReviewV2PublicationWorkFeed {
         nextEligibleAt: { lte: input.now },
       },
       orderBy: [
+        { required: "desc" },
         { nextEligibleAt: "asc" },
         { reconcileUntil: "asc" },
         { publicationOperationId: "asc" },

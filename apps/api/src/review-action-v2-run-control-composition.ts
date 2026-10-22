@@ -77,6 +77,7 @@ export type ReviewActionV2ResolvedRevision = {
   readonly producerActionCommitSha: string;
   readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
   readonly providerApiAuthMode?: "openrouter-api";
+  readonly contextToolGithubSecrets?: Readonly<Record<string, string>>;
   readonly providerVoteLanes: readonly ProviderVoteLane[];
 };
 
@@ -161,8 +162,11 @@ export type ServerOwnedReviewActionV2AdmissionDependencies = {
       readonly owner: string;
       readonly workflowPath: string;
       readonly workflowSha: string;
-      readonly expectedProviderApiActionCommitSha: string;
-    }): Promise<{ readonly compatible: boolean }>;
+      readonly expectedProviderApiActionCommitSha?: string;
+    }): Promise<{
+      readonly compatible: boolean;
+      readonly mcpSecrets?: Readonly<Record<string, string>>;
+    }>;
   };
   readonly revisionResolver: CanonicalReviewRevisionResolverPort;
   readonly releaseAttestations: ProducerReleaseAttestationPort;
@@ -343,6 +347,31 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
         modelTransport,
         providerApiAuthMode,
       } = producerExecutionFromClaims(input.claims);
+      let contextToolGithubSecrets:
+        | Readonly<Record<string, string>>
+        | undefined;
+      if (
+        !providerApiAuthMode &&
+        input.claims.workflow_ref.startsWith(
+          `${input.claims.repository}/${reviewRouterWorkflowContract.callerPath}@`,
+        ) &&
+        input.claims.workflow_sha &&
+        isCommitSha(input.claims.workflow_sha)
+      ) {
+        const source =
+          await dependencies.providerApiSource?.verifyManagedV2SessionBootstrapSource(
+            {
+              githubInstallationId: input.repository.githubInstallationId,
+              githubRepositoryId: input.repository.githubRepositoryId,
+              repositoryFullName: input.repository.fullName,
+              owner: input.repository.owner,
+              workflowPath: reviewRouterWorkflowContract.callerPath,
+              workflowSha: input.claims.workflow_sha,
+            },
+          );
+        if (source?.compatible && source.mcpSecrets)
+          contextToolGithubSecrets = { ...source.mcpSecrets };
+      }
       if (providerApiAuthMode) {
         const source =
           input.claims.workflow_sha && isCommitSha(input.claims.workflow_sha)
@@ -457,6 +486,7 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
           producerActionCommitSha,
           modelTransport,
           ...(providerApiAuthMode ? { providerApiAuthMode } : {}),
+          ...(contextToolGithubSecrets ? { contextToolGithubSecrets } : {}),
           providerVoteLanes: dependencies.providerVoteLanes.map((lane) => ({
             ...lane,
           })),
@@ -1266,6 +1296,9 @@ async function resolveVerifiedIdentity(
       sourceRunId: claims.run_id,
       sourceRunAttempt: claims.run_attempt,
       workflowIdentityHash,
+      ...(facts.contextToolGithubSecrets
+        ? { contextToolGithubSecrets: { ...facts.contextToolGithubSecrets } }
+        : {}),
       baseSha: facts.baseSha.toLowerCase(),
       mergeBaseSha: facts.mergeBaseSha.toLowerCase(),
       headSha: facts.headSha.toLowerCase(),
@@ -1432,6 +1465,7 @@ function denialFailure(
     // actionable configuration errors discovered before any inference.
     case ReviewRunAuthorizationDenialReason.AgentProfileUnavailable:
     case ReviewRunAuthorizationDenialReason.AgentProfileIncompatible:
+    case ReviewRunAuthorizationDenialReason.ContextToolsUnavailable:
     case ReviewRunAuthorizationDenialReason.ProviderVoteLaneUnavailable:
     case ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible:
       return routeFailure(

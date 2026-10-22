@@ -1,3 +1,4 @@
+import { registerContextToolsRoutes } from "./review-context-tools.js";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import {
   productionDashboardGatewayProbeAccess,
@@ -932,6 +933,12 @@ export async function createApiApp(
 
   if (reviewRunControlV2Dependencies) {
     await registerReviewRunControlV2Routes(app, reviewRunControlV2Dependencies);
+  }
+  if (productionReviewActionV2Dependencies?.contextTools) {
+    await registerContextToolsRoutes(
+      app,
+      productionReviewActionV2Dependencies.contextTools,
+    );
   }
   if (productionReviewActionV2Dependencies?.accountGatewayRelay) {
     // Selected production path: ReviewRouter -> Account Gateway -> Sub2API.
