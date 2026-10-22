@@ -347,6 +347,37 @@ export function createAccountsOverview(input: {
         )
           ? await workspaceOwnerAvatar(input.prisma, who.workspaceId)
           : null;
+        const pendingAccounts = projections.map(({ account }) => account);
+        // Enrich before the final authorization observation: quota/usage awaits
+        // must not retain a row whose shared binding is revoked in the meantime.
+        if (pendingAccounts.length) {
+          const visibleRepositoryIds = await input
+            .visibleRepositoryIds()
+            .catch(() => new Set<string>());
+          const usage = await readWorkspaceAccountUsage(input.prisma, {
+            workspaceId: who.workspaceId,
+            profiles: input.profiles,
+            visibleRepositoryIds,
+            rows: pendingAccounts.map((account) => ({
+              key: account.connectionId,
+              bindingId: account.binding?.id ?? null,
+              profileId: account.profileId,
+            })),
+          }).catch(() => new Map<string, AccountUsageView>());
+          for (const account of pendingAccounts) {
+            const facts = usage.get(account.connectionId);
+            if (facts) account.usage = facts;
+          }
+        }
+        const limited = input.limits
+          ? await input.limits.page(pendingAccounts)
+          : pendingAccounts;
+        const current = await input.authorize();
+        if (
+          current.userId !== who.userId ||
+          current.workspaceId !== who.workspaceId
+        )
+          return { status: "denied" };
         const accounts: AccountView[] = [];
         // Authorization is repeated after all remote reads with one revalidation
         // query, compared per row: current donor role and exact binding lifetime,
@@ -360,7 +391,11 @@ export function createAccountsOverview(input: {
             )
           : [];
         const liveById = new Map(liveRows.map((row) => [row.id, row]));
-        for (const { source, account } of projections) {
+        const enriched = new Map(
+          limited.map((account) => [account.connectionId, account]),
+        );
+        for (const { source, account: original } of projections) {
+          const account = enriched.get(original.connectionId)!;
           const live = liveById.get(source.id);
           if (
             !live ||
@@ -384,40 +419,10 @@ export function createAccountsOverview(input: {
           }
           accounts.push(account);
         }
-        // Usage is display-only and stays outside the row revalidation compare:
-        // it never grants authority and a stale fact is conservative, not fatal.
-        if (accounts.length) {
-          const visibleRepositoryIds = await input
-            .visibleRepositoryIds()
-            .catch(() => new Set<string>());
-          const usage = await readWorkspaceAccountUsage(input.prisma, {
-            workspaceId: who.workspaceId,
-            profiles: input.profiles,
-            visibleRepositoryIds,
-            rows: accounts.map((account) => ({
-              key: account.connectionId,
-              bindingId: account.binding?.id ?? null,
-              profileId: account.profileId,
-            })),
-          }).catch(() => new Map<string, AccountUsageView>());
-          for (const account of accounts) {
-            const facts = usage.get(account.connectionId);
-            if (facts) account.usage = facts;
-          }
-        }
-        const limited = input.limits
-          ? await input.limits.page(accounts)
-          : accounts;
-        const current = await input.authorize();
-        if (
-          current.userId !== who.userId ||
-          current.workspaceId !== who.workspaceId
-        )
-          return { status: "denied" };
         return {
           status: "ok",
           value: {
-            accounts: limited,
+            accounts,
             profiles: [],
             nextCursor:
               candidates.length > limit
