@@ -14,7 +14,8 @@ import { UsageCharts } from "./provider-usage-charts";
 import { ModelUsageTable, RunUsageTable } from "./provider-usage-tables";
 import { UsageDetails } from "./provider-usage-details";
 import {
-  basisLabel,
+  valuationLabel,
+  humanUtc,
   compact,
   costKey,
   costLabel,
@@ -49,6 +50,7 @@ function ProviderUsageContext({
   const [tab, setTab] = useState<"models" | "runs">("models");
   const [metric, setMetric] = useState<UsageMetric>("tokens");
   const [costSelection, setCostSelection] = useState("");
+  const [currencySelection, setCurrencySelection] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
   // A rejected SSR seed must remain unusable across every filter and page key.
   const [deniedSeed, setDeniedSeed] = useState<ProviderUsageReport | null>(
@@ -97,10 +99,22 @@ function ProviderUsageContext({
       );
   }, [accessFailure, client, workspaceId, initialReport]);
   const data = denied || accessFailure ? undefined : query.data;
+  const currencies = [
+    ...new Set(data?.totals.costs.map((cost) => cost.currency) ?? []),
+  ].sort();
+  const currency = currencies.includes(currencySelection)
+    ? currencySelection
+    : currencies.includes("USD")
+      ? "USD"
+      : currencies[0];
   const buckets =
     data?.totals.costs
-      .slice()
+      .filter((cost) => cost.currency === currency)
       .sort((a, b) => costKey(a).localeCompare(costKey(b))) ?? [];
+  useEffect(() => {
+    if (currency && currency !== currencySelection)
+      setCurrencySelection(currency);
+  }, [currency, currencySelection]);
   const bucket =
     buckets.find((cost) => costKey(cost) === costSelection) ?? buckets[0];
   // Preserve the last valid bucket, including while the report is loading.
@@ -135,6 +149,7 @@ function ProviderUsageContext({
     setTab("models");
     setMetric("tokens");
     setCostSelection("");
+    setCurrencySelection("");
     setDetailsOpen(false);
   }, [initialReport, initialFilters]);
   const unavailable = denied || accessFailure;
@@ -273,6 +288,23 @@ function ProviderUsageContext({
             }
           />
         </div>
+        {data && currencies.length > 1 ? (
+          <div className="flex items-center gap-2">
+            <span aria-hidden="true" className="text-xs text-slate-400">
+              Cost currency
+            </span>
+            <SelectField
+              name="usage-currency"
+              label="Cost currency"
+              className="w-24 [&>span]:sr-only"
+              value={currency ?? ""}
+              options={currencies.map((value) => ({ value, label: value }))}
+              onValueChange={setCurrencySelection}
+            />
+          </div>
+        ) : data && currency ? (
+          <p className="text-xs text-slate-400">Cost currency: {currency}</p>
+        ) : null}
       </div>
       {period === "custom" ? (
         <div className="flex flex-wrap items-end gap-3 border-b border-slate-700/50 pb-4">
@@ -345,7 +377,10 @@ function ProviderUsageContext({
               interval.
             </p>
           ) : null}
-          <dl className="grid grid-cols-2 gap-y-6 md:grid-cols-4">
+          <dl
+            aria-label="Period usage summary"
+            className="grid grid-cols-2 gap-y-6 md:grid-cols-4"
+          >
             <Kpi
               label="Known tokens"
               value={compact(data.totals.tokens.total)}
@@ -373,8 +408,8 @@ function ProviderUsageContext({
             <div className="min-w-0 border-l border-slate-600/60 pl-4 sm:pl-5">
               <dt className="text-sm font-medium text-slate-200">Known cost</dt>
               <dd className="mt-2 space-y-1 text-lg font-semibold tabular-nums text-slate-50">
-                {data.totals.costs.length
-                  ? data.totals.costs.map((cost) => (
+                {buckets.length
+                  ? buckets.map((cost) => (
                       <div
                         key={costKey(cost)}
                         className="break-words"
@@ -383,20 +418,28 @@ function ProviderUsageContext({
                         <span>
                           {cost.amount} {cost.currency}
                         </span>
-                        <span className="ml-1 text-[10px] font-normal text-slate-400">
-                          {basisLabel(cost.basis)}
+                        <span className="ml-1 text-xs font-normal text-slate-400">
+                          {valuationLabel(cost.basis)}
                         </span>
                       </div>
                     ))
                   : "Unknown"}
               </dd>
               <p className="mt-1 text-xs text-slate-500">
-                {data.totals.unknownCostCount
-                  ? "Excludes unknown cost"
-                  : "Reported or estimated subtotal"}
+                {currency
+                  ? `${currency} only · no currency conversion`
+                  : "No known cost amounts"}
+                {data.totals.unknownCostCount ? " · Excludes unknown cost" : ""}
               </p>
             </div>
           </dl>
+          {buckets.length ? (
+            <p className="text-xs text-slate-400">
+              Reported is a provider-supplied valuation; Estimated is a
+              calculated valuation. Neither is an invoice. Bases stay separate;
+              no currency conversion.
+            </p>
+          ) : null}
           {!data.overview.daily.length ? (
             <p className="text-sm text-slate-400">
               No measured observations for this interval. Telemetry and coverage
@@ -431,11 +474,11 @@ function ProviderUsageContext({
                 <div className="w-64">
                   <SelectField
                     name="usage-cost"
-                    label="Cost bucket"
+                    label="Cost basis"
                     value={bucket ? costKey(bucket) : ""}
                     options={buckets.map((cost) => ({
                       value: costKey(cost),
-                      label: `${cost.currency} · ${basisLabel(cost.basis)}`,
+                      label: valuationLabel(cost.basis),
                     }))}
                     onValueChange={setCostSelection}
                   />
@@ -492,10 +535,11 @@ function ProviderUsageContext({
               tabIndex={0}
             >
               {tab === "models" ? (
-                <ModelUsageTable report={data} />
+                <ModelUsageTable report={data} selectedCurrency={currency} />
               ) : (
                 <RunUsageTable
                   report={data}
+                  selectedCurrency={currency}
                   onNext={() =>
                     setFilters((current) => ({
                       ...current,
@@ -522,8 +566,10 @@ function ProviderUsageContext({
                   ? "△ Some usage is unknown or partial"
                   : "Reported observations; coverage is not guaranteed"}
               </span>
-              <span className="ml-auto text-slate-500">
-                Updated {data.asOf ?? "unknown"} UTC
+              <span className="ml-auto text-slate-400">
+                {data.asOf
+                  ? `Updated ${humanUtc(data.asOf)}`
+                  : "Freshness unavailable"}
               </span>
               <span className="text-cyan-200">Details ⌄</span>
             </summary>
@@ -531,6 +577,8 @@ function ProviderUsageContext({
               <UsageDetails
                 workspaceId={workspaceId}
                 report={data}
+                selectedCurrency={currency}
+                bucket={metric === "cost" ? bucket : undefined}
                 onNext={() =>
                   setFilters((current) => ({
                     ...current,
