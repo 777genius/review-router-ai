@@ -316,8 +316,9 @@ export function applicationEnvironment(input: {
     REVIEW_ROUTER_API_URL: input.gatewayUrl,
     REVIEW_ROUTER_PUBLIC_WEB_URL: input.appUrl,
     REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: "1",
-    // Synthetic operator authority for the isolated usage acceptance lane only.
-    ...(process.env.ACCOUNTS_REFERENCE_E2E_GREP?.includes("provider usage")
+    // Synthetic operator authority for usage acceptance, including full-suite runs.
+    ...(!process.env.ACCOUNTS_REFERENCE_E2E_GREP ||
+    process.env.ACCOUNTS_REFERENCE_E2E_GREP.includes("provider usage")
       ? { ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID: FIXTURES.workspaces.orgAlpha }
       : {}),
     ...(process.argv.includes("--catalog-fixture")
