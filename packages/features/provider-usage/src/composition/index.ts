@@ -167,3 +167,4 @@ export { PrismaUsageAttributionReader } from "../infrastructure/prisma-usage-sto
 
 export { PrismaOperatorUsageReportReader } from "../infrastructure/prisma-operator-usage-report-reader";
 export { PublicModelPriceSnapshotReader } from "../infrastructure/public-model-price-snapshot";
+export { PrismaUsageSourceRedrive } from "../infrastructure/prisma-usage-source-redrive";
