@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DashboardWorkspaceLayout,
+  DashboardSectionContent,
   listDashboardRepositoryAccess,
   loadDashboardSectionData,
   WorkspaceCard,
@@ -780,44 +781,63 @@ describe("dashboard server loading boundaries", () => {
     },
   );
 
-  it("loads Memory only for the selected workspace", async () => {
-    await loadDashboardSectionData(workspace, "memory", access);
-    expect(spies.memoryItems).toHaveBeenCalledWith(
-      { workspaceId: "workspace-a", limit: 25 },
-      expect.anything(),
-    );
-    expect(spies.memorySuggestions).toHaveBeenCalledOnce();
-    expect(spies.memoryPolicy).toHaveBeenCalledExactlyOnceWith({
-      workspaceId: "workspace-a",
-    });
-    expect(spies.hostedPool).toHaveBeenCalledWith(
-      expect.objectContaining({ featureEnabled: false }),
-    );
-  });
+  it.each([true, false])(
+    "cannot load memory through the retired section loader (workspace admin %s)",
+    async (hasWorkspaceWideAccess) => {
+      await loadDashboardSectionData(
+        { ...workspace, hasWorkspaceWideAccess },
+        "memory",
+        access,
+      );
+      expect(spies.memoryItems).not.toHaveBeenCalled();
+      expect(spies.memorySuggestions).not.toHaveBeenCalled();
+      expect(spies.memoryPolicy).not.toHaveBeenCalled();
+      expect(spies.memorySimulation).not.toHaveBeenCalled();
+    },
+  );
 
-  it("restricts Memory reads to repositories visible to a scoped actor", async () => {
-    await loadDashboardSectionData(
-      { ...workspace, hasWorkspaceWideAccess: false },
-      "memory",
-      access,
-    );
-    expect(spies.memoryItems).toHaveBeenCalledWith(
-      {
-        workspaceId: "workspace-a",
-        repositoryIds: ["repo-a"],
-        limit: 25,
-      },
-      expect.anything(),
-    );
-    expect(spies.memorySuggestions).toHaveBeenCalledWith(
-      {
-        workspaceId: "workspace-a",
-        repositoryIds: ["repo-a"],
-        limit: 25,
-      },
-      expect.anything(),
-    );
-  });
+  it.each(["knowledge", "suggestions", "table"])(
+    "renders the paused Memory route without any section IO for old mode %s",
+    async (memoryMode) => {
+      const content = await DashboardSectionContent({
+        context: {
+          mutationStatus: {
+            enabled: true,
+            signedIn: true,
+            sourceProvider: "github",
+            externalUserId: "github-user-a",
+            sourceLogin: "owner",
+            sourceAvatarUrl: null,
+            githubUserId: "github-user-a",
+            githubLogin: "owner",
+            githubAvatarUrl: null,
+            reason: "ready",
+          },
+          workspaceScope: { kind: "all", reason: "local_admin_override" },
+          signedInActor: null,
+          repositoryAccess: access,
+          workspaces: [workspace],
+        },
+        selectedWorkspace: workspace,
+        selectedSection: "memory",
+        params: {
+          memory_mode: memoryMode,
+          status: "pending",
+          notice: "memory_saved",
+          memory: "previous-item",
+        },
+        workspaceKey: "acme",
+      });
+      const html = renderToStaticMarkup(content);
+      expect(html).toContain("In development");
+      expect(html).toContain("This section is not available yet.");
+      expect(html).not.toMatch(/<(?:form|button|input|select|textarea|a)\b/u);
+      expect(html).not.toContain("previous-item");
+      for (const spy of Object.values(spies)) {
+        expect(spy).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("keeps selected-workspace audit and support diagnostics in Diagnostics", async () => {
     const data = await loadDashboardSectionData(

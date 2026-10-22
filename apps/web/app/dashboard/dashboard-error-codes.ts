@@ -132,6 +132,7 @@ export function safeDashboardErrorCode(error: unknown): string {
       "contains_prompt_injection",
       "contains_secret_like_text",
       "memory_active_item_quota_exceeded",
+      "memory_dashboard_in_development",
       "memory_not_found",
       "memory_pending_suggestion_quota_exceeded",
       "memory_safety_blocked",

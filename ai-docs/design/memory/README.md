@@ -1,7 +1,32 @@
 # Balanced Memory Design References
 
-These PNG files are the design source of truth for the Balanced Memory dashboard
-until a Figma file replaces them.
+These PNG files retain the approved design for the Balanced Memory manager.
+The manager is temporarily paused as described below; the PNGs and accepted
+ADR-025 are preserved as historical design authority for its future return.
+
+## Current product state — 2026-10-22
+
+The owner explicitly requested a static under-development Memory section while
+the memory engine adapters are integrated. This temporarily supersedes ADR-025's
+active manager layout, without rewriting the accepted decision or its reference
+images. See [the implementation plan](../../plans/2026-10-22-memory-engine-adapters.md).
+
+- The authenticated dashboard and guarded preview share one server-rendered
+  development notice. They expose no memory records, forms, mock controls,
+  mode links or export link. Old mode/status parameters do not restore them.
+- Dashboard memory reads and the policy simulator are not executed. All stale
+  server/client memory mutation actions authenticate their workspace and then
+  refuse the request without changing memory or revalidating the dashboard.
+- Existing canonical records, internal lifecycle/recovery paths and the
+  protected backend export remain available. This is a dashboard pause, not a
+  runtime memory service flag or a deletion of existing records.
+- Current browser QA covers the actual dashboard, old query parameters and the
+  guarded preview at 1440x1000, 900x1100 and 390x844. The notice must have no
+  controls or clipped content. Captures belong in ignored
+  `tmp/design-verification/memory/`; record actual results in delivery evidence.
+
+The manager layout and verification matrix below describe the retained design,
+not the currently available UI.
 
 ## Files
 
@@ -12,7 +37,7 @@ until a Figma file replaces them.
 | `suggestion-inbox-reference.png`      | 1096x1640 | Pending suggestions: review queue, risk flags, approve/reject/edit flow        |
 | `operational-table-reference.png`     | 1312x1640 | Admin mode: dense table, filters, row actions, pagination                      |
 
-## Implementation Contract
+## Retained manager contract (paused)
 
 - The first viewport must be the working memory manager, not a landing page.
 - Preserve the split-dashboard feel: filters, list/table and detail surfaces are
@@ -25,7 +50,7 @@ until a Figma file replaces them.
 - If implementation discovers a better UX, update this README or the PNG
   reference in the same change as the code.
 
-## Verification
+## Retained manager verification (paused)
 
 Before the UI is considered done, capture screenshots for:
 
@@ -60,7 +85,7 @@ Suggested artifact paths:
 
 ## Implementation Notes
 
-2026-05-12 verification pass:
+Historical 2026-05-12 verification pass (before the dashboard pause):
 
 - Preview URL: `/dashboard/memory-preview`.
 - Preview guard: `REVIEW_ROUTER_ENABLE_MEMORY_PREVIEW=1`; without the flag the
