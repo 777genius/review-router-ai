@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { build } from "esbuild";
+import ts from "typescript";
 
 const thirdPartyNotices = await readFile(
   new URL("../codex-rotating-action-third-party-licenses.txt", import.meta.url),
@@ -131,11 +132,61 @@ export async function buildCodexRotatingAction({
     },
   });
   const bundle = await readFile(outfile, "utf8");
-  const reproducibleBundle = bundle.replace(
-    /^\/\/ (?:.*\/)?node_modules\/[^\r\n]*(?:\r?\n|$)/gmu,
-    "",
+  const reproducibleBundle = normalizeDependencyWrapperLabels(
+    bundle.replace(/^\/\/ (?:.*\/)?node_modules\/[^\r\n]*(?:\r?\n|$)/gmu, ""),
   );
   if (reproducibleBundle !== bundle) {
     await writeFile(outfile, reproducibleBundle);
   }
+}
+
+export function normalizeDependencyWrapperLabels(bundle) {
+  const source = ts.createSourceFile(
+    "action.cjs",
+    bundle,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.JS,
+  );
+  const edits = [];
+  // Only top-level esbuild wrapper descriptors contain diagnostic keys.
+  // Physical module resolution and source string values remain untouched.
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      const initializer = declaration.initializer;
+      if (
+        !initializer ||
+        !ts.isCallExpression(initializer) ||
+        !ts.isIdentifier(initializer.expression) ||
+        !/^__(?:commonJS|esm)$/.test(initializer.expression.text)
+      )
+        continue;
+      const descriptor = initializer.arguments[0];
+      if (!descriptor || !ts.isObjectLiteralExpression(descriptor)) continue;
+      for (const property of descriptor.properties) {
+        if (
+          !ts.isMethodDeclaration(property) ||
+          !ts.isStringLiteral(property.name)
+        )
+          continue;
+        const label = property.name.text;
+        if (!/^(?:node_modules\/|pinned-dependency:)/.test(label)) continue;
+        const offset = label.lastIndexOf("node_modules/");
+        if (offset <= 0) continue;
+        edits.push({
+          start: property.name.getStart(source),
+          end: property.name.end,
+          label: label.slice(offset),
+        });
+      }
+    }
+  }
+  for (const edit of edits.reverse()) {
+    bundle =
+      bundle.slice(0, edit.start) +
+      JSON.stringify(edit.label) +
+      bundle.slice(edit.end);
+  }
+  return bundle;
 }
