@@ -293,6 +293,7 @@ export class PairedActionSaasE2EHarness {
       repo,
       pullRequestNumber,
       sourceRunId,
+      repositoryId: githubRepositoryId,
       installationId: githubInstallationId,
       appSlug: "reviewrouter-paired-e2e",
       oidcKeyId,

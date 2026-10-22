@@ -18,8 +18,13 @@ export function createProviderUsageActorResolver(
     const [owner, repo] = target.repositoryFullName.split("/");
     if (!owner || !repo) return null;
     const { data } = await octokit.request(
-      "GET /repos/{owner}/{repo}/actions/runs/{run_id}",
-      { owner, repo, run_id: Number(auth.sourceRunId) },
+      "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}",
+      {
+        owner,
+        repo,
+        run_id: Number(auth.sourceRunId),
+        attempt_number: Number(auth.sourceRunAttempt),
+      },
     );
     if (
       String(data.id) !== auth.sourceRunId ||

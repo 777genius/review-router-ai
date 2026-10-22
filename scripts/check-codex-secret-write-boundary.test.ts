@@ -41,6 +41,88 @@ describe("Codex rotating secret write boundary", () => {
     );
   });
 
+  const endpointCatalogue = `const endpoints = {
+    actions: { createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"] },
+    codespaces: { createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/codespaces/secrets/{secret_name}"] },
+    dependabot: { "createOrUpdateRepoSecret": ["PUT /repos/{owner}/{repo}/dependabot/secrets/{secret_name}"] }
+  };`;
+
+  it("accepts static Octokit endpoint descriptors in a bundled SDK", () => {
+    const root = mkdtempSync(join(tmpdir(), "rr-write-boundary-catalogue-"));
+    mkdirSync(join(root, "action-dist"), { recursive: true });
+    writeFileSync(join(root, "action-dist/index.cjs"), endpointCatalogue);
+
+    expect(checkCodexSecretWriteBoundary(root)).toMatchObject({
+      status: "pass",
+    });
+  });
+
+  it.each([
+    ["direct call", "octokit.rest.actions.createOrUpdateRepoSecret({});"],
+    ["computed call", 'octokit.rest.actions["createOrUpdateRepoSecret"]({});'],
+    [
+      "aliased method",
+      "const write = octokit.rest.actions.createOrUpdateRepoSecret; write({});",
+    ],
+    [
+      "destructured method",
+      "const { createOrUpdateRepoSecret: write } = octokit.rest.actions; write({});",
+    ],
+    [
+      "descriptor used as a request",
+      "octokit.request(...endpoints.actions.createOrUpdateRepoSecret);",
+    ],
+    [
+      "executable descriptor initializer",
+      'const rogue = { createOrUpdateRepoSecret: [octokit.request("PUT /repos/x/y/actions/secrets/SECRET")] };',
+    ],
+    [
+      "invoked descriptor initializer",
+      'const rogue = { createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"]({}) };',
+    ],
+    ["unparseable bundle", "const broken = ;"],
+    [
+      "catalogue-looking string",
+      `const text = '{ createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"] }';`,
+    ],
+    [
+      "catalogue-looking template",
+      'const text = `{ createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"] }`;',
+    ],
+    [
+      "catalogue-looking comment",
+      '/* { createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"] } */',
+    ],
+    [
+      "catalogue-looking regular expression",
+      'const pattern = /[{ createOrUpdateRepoSecret: ["PUT /repos/{owner}/{repo}/actions/secrets/{secret_name}"] }]/;',
+    ],
+  ])("rejects %s alongside a static endpoint catalogue", (_, mutation) => {
+    const root = mkdtempSync(join(tmpdir(), "rr-write-boundary-bundle-"));
+    mkdirSync(join(root, "action-dist"), { recursive: true });
+    writeFileSync(
+      join(root, "action-dist/index.cjs"),
+      `${endpointCatalogue}\n${mutation}`,
+    );
+
+    expect(() => checkCodexSecretWriteBoundary(root)).toThrow(
+      "direct Octokit secret PUT outside audited gateway",
+    );
+  });
+
+  it("rejects a direct provider route alongside a static endpoint catalogue", () => {
+    const root = mkdtempSync(join(tmpdir(), "rr-write-boundary-route-"));
+    mkdirSync(join(root, "action-dist"), { recursive: true });
+    writeFileSync(
+      join(root, "action-dist/index.cjs"),
+      `${endpointCatalogue}\noctokit.request("PUT /repos/x/y/actions/secrets/SECRET");`,
+    );
+
+    expect(() => checkCodexSecretWriteBoundary(root)).toThrow(
+      "provider secret PUT outside audited adapter",
+    );
+  });
+
   it.each([
     [
       "second rotating gh provider writer",

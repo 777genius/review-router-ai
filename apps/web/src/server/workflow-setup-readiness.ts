@@ -24,6 +24,7 @@ import {
   type ReviewRouterMcpSecrets,
   renderAccountGatewayWorkflow,
   renderProviderApiWorkflow,
+  renderReviewRouterSecretsCaller,
   readManagedReviewRouterCallerSource,
   readReviewRouterCallerSource,
   reviewRouterWorkflowContract,
@@ -31,6 +32,7 @@ import {
 import { resolveWorkflowPublicApiUrl } from "./workflow-public-api-url";
 
 export type WorkflowSetupReadinessInput = {
+  readonly secretsRuntimeActionRef?: string;
   readonly githubInstallationId: string;
   readonly githubRepositoryId: string;
   readonly repositoryFullName: string;
@@ -69,6 +71,38 @@ export async function isWorkflowSetupAlreadyCurrent(
     return false;
   if (input.discussionMode === "suggest") {
     return false;
+  }
+  if (
+    input.secretsRuntimeActionRef &&
+    !input.codexSessionMode &&
+    !input.providerApiAuthMode &&
+    !input.codexRotatingProviderInstanceId &&
+    !input.conflictReviewFallbackEnabled &&
+    !input.forkAgenticSandboxEnabled
+  ) {
+    const expected = renderReviewRouterSecretsCaller({
+      actionRef: input.secretsRuntimeActionRef,
+      apiUrl:
+        dependencies.resolvePublicApiUrl?.() ?? resolveWorkflowPublicApiUrl(),
+    });
+    const check = await dependencies.workflowProbe.probeWorkflow({
+      githubInstallationId: input.githubInstallationId,
+      owner: input.owner,
+      name: input.name,
+      defaultBranch: input.defaultBranch,
+      workflowPath: defaultWorkflowPath,
+      expectedActionRef: input.secretsRuntimeActionRef.replace(
+        "@",
+        "/.github/workflows/reviewrouter-secrets-runtime.yml@",
+      ),
+      expectedContentValidator: (workflow) =>
+        areWorkflowDocumentsSemanticallyEqual(workflow, expected),
+    });
+    return (
+      check.status === "present" &&
+      check.expectedActionRefFound &&
+      check.expectedContentMarkersFound === true
+    );
   }
 
   if (

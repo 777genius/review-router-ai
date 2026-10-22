@@ -1245,6 +1245,45 @@ describe("action control plane", () => {
     });
   });
 
+  it.each([
+    ["a".repeat(40), true],
+    ["refs/tags/v1", false],
+    ["refs/heads/main", false],
+    ["main", false],
+    ["A".repeat(40), false],
+    ["a".repeat(39), false],
+    ["a".repeat(41), false],
+  ])(
+    "authenticates the secrets runtime only at an immutable lowercase commit: %s",
+    async (ref, accepted) => {
+      const sessions = new StaticSessionTokenService();
+      const exchange = exchangeGitHubOidcToken(
+        { oidcToken: "oidc", audience: defaultActionOidcAudience },
+        {
+          oidcVerifier: new StaticOidcVerifier(
+            githubOidcClaims({
+              workflow_ref:
+                "777genius/example/.github/workflows/reviewrouter.yml@refs/pull/1/merge",
+              job_workflow_ref: `777genius/review-router/.github/workflows/reviewrouter-secrets-runtime.yml@${ref}`,
+            }),
+          ),
+          repositories: new InMemoryActionControlPlaneRepository(),
+          sessions,
+          clock,
+        },
+      );
+      if (accepted) {
+        await exchange;
+        expect(sessions.signedClaims).toMatchObject({
+          repository: "777genius/example",
+        });
+      } else {
+        await expect(exchange).rejects.toThrow("workflow_ref_not_allowed");
+        expect(sessions.signedClaims).toBeNull();
+      }
+    },
+  );
+
   it("rejects conflict reusable workflow refs outside repository_dispatch", async () => {
     await expect(
       exchangeGitHubOidcToken(
@@ -3919,3 +3958,68 @@ function stripUndefined<T extends Record<string, unknown>>(
     Object.entries(input).filter(([, value]) => value !== undefined),
   );
 }
+
+describe("optional report grants on existing ActionSession exchange", () => {
+  it("passes only the admitted principal and saved runtime configuration to telemetry", async () => {
+    const repositories = new InMemoryActionControlPlaneRepository();
+    let called = 0;
+    const result = await exchangeGitHubOidcToken(
+      {
+        oidcToken: "oidc",
+        audience: defaultActionOidcAudience,
+        usagePublicKey: "ephemeral-key",
+      },
+      {
+        oidcVerifier: new StaticOidcVerifier(githubOidcClaims()),
+        repositories,
+        sessions: new StaticSessionTokenService(),
+        clock,
+        actionSessionUsageGrants: {
+          issue: async (input) => {
+            called++;
+            expect(input.configuration.config).toEqual(
+              repositories.runtimeConfig,
+            );
+            expect(input.session.githubRunId).toBe("1001");
+            expect(input.publicKey).toBe("ephemeral-key");
+            return [
+              {
+                grantId: "usage",
+                grantToken: "report-only",
+                expiresAt: input.expiresAt.toISOString(),
+                scope: { purpose: "review" },
+              },
+            ];
+          },
+        },
+      },
+    );
+    expect(called).toBe(1);
+    expect(result).toHaveProperty(
+      "providerUsageGrants.0.grantToken",
+      "report-only",
+    );
+  });
+  it("keeps a valid session when report grant issuance is unavailable", async () => {
+    const result = await exchangeGitHubOidcToken(
+      {
+        oidcToken: "oidc",
+        audience: defaultActionOidcAudience,
+        usagePublicKey: "ephemeral-key",
+      },
+      {
+        oidcVerifier: new StaticOidcVerifier(githubOidcClaims()),
+        repositories: new InMemoryActionControlPlaneRepository(),
+        sessions: new StaticSessionTokenService(),
+        clock,
+        actionSessionUsageGrants: {
+          issue: async () => {
+            throw new Error("telemetry unavailable");
+          },
+        },
+      },
+    );
+    expect(result.sessionToken).toBe("signed-session-token");
+    expect(result).not.toHaveProperty("providerUsageGrants");
+  });
+});

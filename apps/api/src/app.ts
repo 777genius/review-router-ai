@@ -1,3 +1,6 @@
+import { createProviderUsageSessionComposition } from "./provider-usage-session-composition.js";
+import { registerProviderUsageRecovery } from "./provider-usage-artifact-recovery.js";
+import { registerProviderUsageRoutes } from "./provider-usage-routes.js";
 import { registerContextToolsRoutes } from "./review-context-tools.js";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import {
@@ -852,10 +855,6 @@ export async function createApiApp(
         })()
       : undefined);
 
-  if (actionControlPlaneDependencies) {
-    await registerActionControlPlaneRoutes(app, actionControlPlaneDependencies);
-  }
-
   const disabledReviewActionV2RuntimeDependencies = prisma
     ? {
         readServerTime: () => readDatabaseServerTime(prisma),
@@ -918,6 +917,43 @@ export async function createApiApp(
             }),
         })
       : undefined;
+  const standaloneUsagePrivateKey =
+    !productionReviewActionV2Dependencies?.providerUsage &&
+    prisma &&
+    actionControlPlaneDependencies
+      ? readGitHubAppPrivateKey(reviewActionV2Env)
+      : undefined;
+  const providerUsageDependencies =
+    productionReviewActionV2Dependencies?.providerUsage
+      ? productionReviewActionV2Dependencies
+      : prisma &&
+          actionControlPlaneDependencies &&
+          reviewActionV2Env.GITHUB_APP_ID &&
+          standaloneUsagePrivateKey
+        ? createProviderUsageSessionComposition({
+            prisma,
+            appId: reviewActionV2Env.GITHUB_APP_ID,
+            privateKey: standaloneUsagePrivateKey,
+            env: reviewActionV2Env,
+          })
+        : undefined;
+  if (actionControlPlaneDependencies) {
+    await registerActionControlPlaneRoutes(app, {
+      ...actionControlPlaneDependencies,
+      ...(providerUsageDependencies?.providerUsageActionSession
+        ? {
+            actionSessionUsageGrants:
+              providerUsageDependencies.providerUsageActionSession,
+          }
+        : {}),
+      ...(providerUsageDependencies?.providerUsageBootstrap
+        ? {
+            bootstrapUsageGrants:
+              providerUsageDependencies.providerUsageBootstrap,
+          }
+        : {}),
+    });
+  }
   const reviewRunControlV2Dependencies =
     options.reviewRunControlV2Dependencies ??
     productionReviewActionV2Dependencies?.runControl ??
@@ -933,6 +969,29 @@ export async function createApiApp(
 
   if (reviewRunControlV2Dependencies) {
     await registerReviewRunControlV2Routes(app, reviewRunControlV2Dependencies);
+  }
+  if (
+    providerUsageDependencies?.providerUsageRecovery ||
+    providerUsageDependencies?.providerUsageNative
+  ) {
+    const usage = providerUsageDependencies;
+    registerProviderUsageRecovery(app, {
+      runBatch: async () =>
+        Promise.allSettled([
+          ...(usage.providerUsageRecovery
+            ? [usage.providerUsageRecovery.runBatch()]
+            : []),
+          ...(usage.providerUsageNative
+            ? [usage.providerUsageNative.runBatch()]
+            : []),
+        ]),
+    });
+  }
+  if (providerUsageDependencies?.providerUsage) {
+    await registerProviderUsageRoutes(
+      app,
+      providerUsageDependencies.providerUsage,
+    );
   }
   if (productionReviewActionV2Dependencies?.contextTools) {
     await registerContextToolsRoutes(

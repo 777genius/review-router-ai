@@ -55,6 +55,7 @@ import {
 } from "@reviewrouter/features-memory";
 import type { ProviderKind } from "@reviewrouter/features-review-providers";
 import type { PrismaClient } from "@reviewrouter/platform-db";
+import { resolveApprovedSecretsRuntimeActionRef } from "../../src/server/workflow-provisioning/approved-secrets-action-ref";
 import {
   CodexDeviceAuthGateway,
   PrismaHostedCodexDeviceLoginStore,
@@ -1349,6 +1350,43 @@ async function createSetupPullRequestMutation(
       managedReview || codexRotatingProviderInstanceId
         ? false
         : isConflictReviewFallbackAllowedForRepository(repository.fullName);
+    const secretsRuntimeActionRef =
+      !managedReview &&
+      !codexRotatingProviderInstanceId &&
+      !conflictReviewFallbackAllowed &&
+      workflowStyle === "reusable"
+        ? await resolveApprovedSecretsRuntimeActionRef(actionRef, {
+            isRegistered: async (commitSha) =>
+              !!(await prisma.producerRelease.findFirst({
+                where: {
+                  actionCommitSha: commitSha,
+                  distributionKind: "public_reusable",
+                  state: "registered",
+                  revokedAt: null,
+                },
+                select: { producerReleaseId: true },
+              })),
+            hasSecretsRuntime: async (commitSha) => {
+              try {
+                const result = await octokit.request(
+                  "GET /repos/{owner}/{repo}/contents/{path}",
+                  {
+                    owner: "777genius",
+                    repo: "review-router",
+                    path: ".github/workflows/reviewrouter-secrets-runtime.yml",
+                    ref: commitSha,
+                    request: { timeout: 15000 },
+                  },
+                );
+                return (
+                  !Array.isArray(result.data) && result.data.type === "file"
+                );
+              } catch {
+                return false;
+              }
+            },
+          })
+        : undefined;
     const workflowPath = managedReview
       ? reviewRouterWorkflowContract.callerPath
       : codexRotatingProviderInstanceId
@@ -1359,6 +1397,7 @@ async function createSetupPullRequestMutation(
         : defaultWorkflowPath;
     const workflowReady = await isWorkflowSetupAlreadyCurrent(
       {
+        ...(secretsRuntimeActionRef ? { secretsRuntimeActionRef } : {}),
         githubInstallationId:
           githubRepository.installation.githubInstallationId.toString(),
         githubRepositoryId: githubRepository.githubRepositoryId.toString(),
@@ -1488,6 +1527,7 @@ async function createSetupPullRequestMutation(
             },
             {
               targets: new PrismaWorkflowProvisioningTarget(prisma),
+              ...(secretsRuntimeActionRef ? { secretsRuntimeActionRef } : {}),
               configurations: new PrismaReviewConfigurationRepository(prisma),
               trustedGithubRepositoryId:
                 githubRepository.githubRepositoryId.toString(),

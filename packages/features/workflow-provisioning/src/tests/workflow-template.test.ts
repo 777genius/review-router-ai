@@ -21,6 +21,7 @@ import {
   getCodexRotatingWorkflowSetupContentMarkerGroups,
   getWorkflowProviderContentMarkerGroups,
   getWorkflowSetupContentMarkerGroups,
+  renderReviewRouterSecretsCaller,
   renderReviewRouterInteractionWorkflow,
   renderReviewRouterReusableInteractionWorkflow,
   renderReviewRouterReusableWorkflow,
@@ -2048,4 +2049,96 @@ it("keeps compatible producer and execution setting changes out of the caller", 
       githubRepositoryId: "1228051727",
     }),
   ).toThrow("account_gateway_workflow_path_not_supported");
+});
+
+describe("immutable Secrets runtime caller", () => {
+  const actionRef = `777genius/review-router@${"a".repeat(40)}`;
+  it.each(["codex", "claude", "openrouter", "codex-mimo"] as const)(
+    "preserves server-selected %s provider support",
+    (providerKind) => {
+      const workflowYaml = renderReviewRouterSecretsCaller({
+        actionRef,
+        apiUrl: "https://api.reviewrouter.org",
+      });
+      expect(
+        analyzeWorkflowProviderCompatibility({
+          workflowYaml,
+          providerKind,
+          expectedActionRef: actionRef,
+        }).supported,
+      ).toBe(true);
+      expect(workflowYaml).not.toContain("runtime_ref:");
+      expect(workflowYaml).toContain(
+        "reviewrouter-secrets-runtime.yml@" + "a".repeat(40),
+      );
+      expect(
+        analyzeWorkflowProviderCompatibility({
+          workflowYaml: workflowYaml.replace("a".repeat(40), "main"),
+          providerKind,
+          expectedActionRef: actionRef,
+        }).supported,
+      ).toBe(false);
+      expect(
+        analyzeWorkflowProviderCompatibility({
+          workflowYaml: workflowYaml.replace(
+            "contents: read",
+            "contents: write",
+          ),
+          providerKind,
+          expectedActionRef: actionRef,
+        }).supported,
+      ).toBe(false);
+    },
+  );
+  it("rejects a mutable producer instead of embedding it", () => {
+    expect(() =>
+      renderReviewRouterSecretsCaller({
+        actionRef: "777genius/review-router@v1",
+        apiUrl: "https://api.reviewrouter.org",
+      }),
+    ).toThrow("immutable");
+  });
+});
+
+it("uses the Secrets profile only for a qualified normal reusable setup", () => {
+  const actionRef = `777genius/review-router@${"a".repeat(40)}`;
+  const base = {
+    actionRef,
+    apiUrl: "https://api.reviewrouter.org",
+    runtimeConfigMode: "oidc" as const,
+    workflowStyle: "reusable" as const,
+  };
+  const source = (
+    options: typeof base & { secretsRuntimeActionRef?: string },
+  ) =>
+    renderReviewRouterWorkflowFiles(options)
+      .filter((file) => "content" in file)
+      .map((file) => ("content" in file ? file.content : ""))
+      .join("\n");
+  expect(source(base)).not.toContain("reviewrouter-secrets-runtime.yml");
+  expect(source({ ...base, secretsRuntimeActionRef: actionRef })).toContain(
+    "reviewrouter-secrets-runtime.yml",
+  );
+  expect(
+    renderReviewRouterWorkflowFiles({
+      ...base,
+      runtimeConfigMode: "static",
+      secretsRuntimeActionRef: actionRef,
+    }).some(
+      (file) =>
+        "content" in file &&
+        file.content.includes("reviewrouter-secrets-runtime.yml"),
+    ),
+  ).toBe(false);
+  expect(
+    renderReviewRouterWorkflowFiles({
+      ...base,
+      conflictReviewFallbackEnabled: true,
+      secretsRuntimeActionRef: actionRef,
+    }).some(
+      (file) =>
+        "content" in file &&
+        file.content.includes("reviewrouter-secrets-runtime.yml"),
+    ),
+  ).toBe(false);
 });

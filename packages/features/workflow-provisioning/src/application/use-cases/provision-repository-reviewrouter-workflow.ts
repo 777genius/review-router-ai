@@ -44,6 +44,7 @@ export type ProvisionRepositoryReviewRouterWorkflowInput = {
 export async function provisionRepositoryReviewRouterWorkflow(
   input: ProvisionRepositoryReviewRouterWorkflowInput,
   dependencies: {
+    readonly secretsRuntimeActionRef?: string;
     readonly targets: WorkflowProvisioningTargetPort;
     readonly setupGateway: WorkflowSetupGatewayPort;
     readonly provisioning: WorkflowProvisioningRepositoryPort;
@@ -157,6 +158,9 @@ export async function provisionRepositoryReviewRouterWorkflow(
         : {}),
     },
     {
+      ...(dependencies.secretsRuntimeActionRef
+        ? { secretsRuntimeActionRef: dependencies.secretsRuntimeActionRef }
+        : {}),
       setupGateway: dependencies.setupGateway,
       provisioning: dependencies.provisioning,
       ...(dependencies.configurations

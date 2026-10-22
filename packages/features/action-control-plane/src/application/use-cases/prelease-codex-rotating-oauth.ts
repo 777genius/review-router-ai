@@ -1,3 +1,7 @@
+import type {
+  BootstrapUsageGrantPort,
+  BootstrapUsageGrant,
+} from "../ports/bootstrap-usage-grant-port.js";
 import {
   codexRotatingOidcClaimsSchema,
   assertCanonicalCodexRotatingProviderId,
@@ -24,6 +28,7 @@ import {
 import type { HostedReviewPreleaseGatePort } from "../ports/hosted-review-prelease-gate-port.js";
 
 export type PreleaseCodexRotatingOAuthDependencies = {
+  readonly bootstrapUsageGrants?: BootstrapUsageGrantPort;
   readonly oidcVerifier: GitHubActionsOidcTokenVerifierPort;
   readonly repositories: ActionControlPlaneRepositoryPort;
   readonly codexRotatingOAuth: CodexRotatingOAuthRepositoryPort;
@@ -43,6 +48,7 @@ export type PreleaseCodexRotatingOAuthDependencies = {
 };
 
 type CodexRotatingPreleaseInput = {
+  readonly usagePublicKey?: string;
   readonly oidcToken: string;
   readonly audience: string;
   readonly providerInstanceId: string;
@@ -50,6 +56,7 @@ type CodexRotatingPreleaseInput = {
 };
 
 export type CodexRotatingPreleaseLeaseResponse = {
+  readonly bootstrapUsageGrant?: BootstrapUsageGrant;
   readonly protocolVersion: 1;
   readonly leaseId: string;
   readonly providerInstanceId: string;
@@ -252,7 +259,24 @@ export async function preleaseCodexRotatingOAuth(
   if (lease.status === "conflict") {
     throw new Error("codex_rotating_lease_conflict");
   }
+  // Analytics cannot turn an admitted bootstrap into a new inference permission,
+  // nor fail the existing refresh path when its delivery service is unavailable.
+  const bootstrapUsageGrant =
+    input.usagePublicKey && dependencies.bootstrapUsageGrants
+      ? await dependencies.bootstrapUsageGrants
+          .issue({
+            publicKey: input.usagePublicKey,
+            claims,
+            repository,
+            leaseId: lease.leaseId,
+            leaseExpiresAt: lease.expiresAt,
+            actionRef: verifiedWorkflow.binding.actionRef,
+            workflowPath: verifiedWorkflow.binding.workflowPath,
+          })
+          .catch(() => undefined)
+      : undefined;
   return {
+    ...(bootstrapUsageGrant ? { bootstrapUsageGrant } : {}),
     protocolVersion: 1,
     leaseId: lease.leaseId,
     providerInstanceId: canonicalProviderInstanceId,

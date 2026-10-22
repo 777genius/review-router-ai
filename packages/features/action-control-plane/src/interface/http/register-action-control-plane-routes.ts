@@ -130,6 +130,7 @@ export type RegisterActionControlPlaneRoutesDependencies =
 
 const exchangeBodySchema = z
   .object({
+    usagePublicKey: z.string().min(32).max(2048).optional(),
     oidcToken: z.string().min(1),
     audience: z.string().min(1).optional(),
     conflictDispatch: actionConflictReviewDispatchPayloadSchema.optional(),
@@ -138,6 +139,7 @@ const exchangeBodySchema = z
 
 const codexRotatingPreleaseBodySchema = z
   .object({
+    usagePublicKey: z.string().min(32).max(2048).optional(),
     oidcToken: z.string().min(1),
     audience: z.string().min(1).optional(),
     providerInstanceId: z.string().min(8).max(160),
@@ -280,6 +282,9 @@ export async function registerActionControlPlaneRoutes(
           {
             oidcToken: body.oidcToken,
             audience,
+            ...(body.usagePublicKey
+              ? { usagePublicKey: body.usagePublicKey }
+              : {}),
             ...(body.conflictDispatch
               ? { conflictDispatchPayload: body.conflictDispatch }
               : {}),
@@ -336,6 +341,9 @@ export async function registerActionControlPlaneRoutes(
             audience,
             providerInstanceId: body.providerInstanceId,
             workflowSchemaVersion: body.workflowSchemaVersion,
+            ...(body.usagePublicKey
+              ? { usagePublicKey: body.usagePublicKey }
+              : {}),
           },
           dependencies as PreleaseCodexRotatingOAuthDependencies,
         );

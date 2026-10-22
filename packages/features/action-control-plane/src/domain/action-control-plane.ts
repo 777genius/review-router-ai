@@ -90,7 +90,7 @@ export function isManagedV2SessionBootstrapSource(input: {
   );
 }
 export const trustedReviewRouterReusableWorkflowRefPattern =
-  /^777genius\/review-router\/\.github\/workflows\/(?:reviewrouter(?:-interaction)?-reusable\.ya?ml@(refs\/tags\/v1(?:\.[0-9]+\.[0-9]+)?|refs\/heads\/main|[a-fA-F0-9]{40})|reviewrouter-execution-reusable\.ya?ml@[a-fA-F0-9]{40})$/i;
+  /^777genius\/review-router\/\.github\/workflows\/(?:reviewrouter(?:-interaction)?-reusable\.ya?ml@(refs\/tags\/v1(?:\.[0-9]+\.[0-9]+)?|refs\/heads\/main|[a-fA-F0-9]{40})|reviewrouter-execution-reusable\.ya?ml@[a-fA-F0-9]{40}|reviewrouter-secrets-runtime\.yml@[a-f0-9]{40})$/;
 
 export const allowedActionEvents = [
   "pull_request",
