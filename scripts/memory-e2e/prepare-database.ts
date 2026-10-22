@@ -14,8 +14,11 @@ const names = new Set([
   "/reviewrouter_memory_browser_test",
 ]);
 if (
+  !["postgres:", "postgresql:"].includes(url.protocol) ||
   !["127.0.0.1", "localhost"].includes(url.hostname) ||
-  !names.has(url.pathname)
+  !names.has(url.pathname) ||
+  url.search !== "" ||
+  url.hash !== ""
 ) {
   throw new Error("memory_e2e_requires_named_loopback_test_database");
 }
