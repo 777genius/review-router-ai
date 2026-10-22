@@ -34,6 +34,8 @@ export interface UsageReportQuery {
   runId?: string;
   purpose?: "review" | "diagnostic";
   provider?: string;
+  model?: string;
+  runAfter?: string;
   limit?: number;
   after?: string;
 }
@@ -67,6 +69,16 @@ export function validateReportQuery(q: UsageReportQuery): void {
   const duration = q.to.getTime() - q.from.getTime();
   if (
     !q.workspaceId ||
+    [q.provider, q.model, q.runAfter].some(
+      (id) =>
+        id !== undefined &&
+        (!id.length ||
+          id.length > 256 ||
+          [...id].some((character) => {
+            const code = character.charCodeAt(0);
+            return code < 32 || (code >= 127 && code <= 159);
+          })),
+    ) ||
     !Number.isFinite(duration) ||
     duration <= 0 ||
     duration > 366 * 86400000 ||

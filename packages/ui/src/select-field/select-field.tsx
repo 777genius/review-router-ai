@@ -14,17 +14,20 @@ export type SelectFieldOption = {
 export type SelectFieldProps = {
   readonly name: string;
   readonly label: ReactNode;
-  readonly defaultValue: string;
   readonly options: readonly SelectFieldOption[];
   readonly disabled?: boolean;
   readonly onValueChange?: (value: string) => void;
   readonly className?: string;
-};
+} & (
+  | { readonly value: string; readonly defaultValue?: never }
+  | { readonly value?: never; readonly defaultValue: string }
+);
 
 export function SelectField({
   name,
   label,
   defaultValue,
+  value,
   options,
   disabled,
   onValueChange,
@@ -39,7 +42,7 @@ export function SelectField({
       </span>
       <BaseSelect.Root
         name={name}
-        defaultValue={defaultValue}
+        {...(value === undefined ? { defaultValue } : { value })}
         disabled={disabled}
         onValueChange={(value) => {
           if (value !== null) onValueChange?.(value);

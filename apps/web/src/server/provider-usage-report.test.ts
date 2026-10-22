@@ -19,6 +19,8 @@ describe("usage report request bounds", () => {
   });
   it.each([
     { from: "invalid" },
+    { from: "2026-02-30", to: "2026-03-02" },
+    { from: "2026-10-21T24:00:00Z", to: "2026-10-23" },
     { from: "2024-01-01", to: "2026-01-01" },
     { from: "2026-10-21", to: "2026-10-20" },
     { route: "forged" },

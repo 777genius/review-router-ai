@@ -13,10 +13,12 @@ export async function GET(request: NextRequest) {
     "bindingId",
     "runId",
     "provider",
+    "model",
+    "runAfter",
     "after",
   ] as const) {
     const value = params.get(key);
-    if (value) Object.assign(filters, { [key]: value });
+    if (value !== null) Object.assign(filters, { [key]: value });
   }
   try {
     return NextResponse.json(await loadOperatorProviderUsage(filters), {
