@@ -133,6 +133,9 @@ export {
   type RestoredForkHistory,
 } from "./infrastructure/proofs/restore-certified-fork-checkpoint.js";
 
-export type { BootstrapUsageGrantPort, BootstrapUsageGrant } from "./application/ports/bootstrap-usage-grant-port.js";
+export type {
+  BootstrapUsageGrantPort,
+  BootstrapUsageGrant,
+} from "./application/ports/bootstrap-usage-grant-port.js";
 
 export type { ActionSessionUsageGrantPort } from "./application/ports/action-session-usage-grant-port.js";
