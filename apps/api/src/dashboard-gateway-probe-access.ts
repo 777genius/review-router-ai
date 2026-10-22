@@ -184,8 +184,22 @@ export function createDashboardGatewayProbeAccess(input: {
         JSON.stringify(original) !== JSON.stringify(await resolve())
       )
         throw new Error("denied");
-      if(minted.operation.state!=="applied"||minted.operation.result?.kind!=="execution")throw new Error("denied");
-      await createGatewayUsageRecorder(input.prisma).diagnostic({workspaceId:request.workspaceId,actorId:request.userId,bindingId:request.bindingId,invocationId:intent.invocationRef,attemptId:intent.attemptRef,executionRef:minted.operation.result.executionRef,requestRef:id("request"),model:request.model,deadline:new Date(request.deadline)});
+      if (
+        minted.operation.state !== "applied" ||
+        minted.operation.result?.kind !== "execution"
+      )
+        throw new Error("denied");
+      await createGatewayUsageRecorder(input.prisma).diagnostic({
+        workspaceId: request.workspaceId,
+        actorId: request.userId,
+        bindingId: request.bindingId,
+        invocationId: intent.invocationRef,
+        attemptId: intent.attemptRef,
+        executionRef: minted.operation.result.executionRef,
+        requestRef: id("request"),
+        model: request.model,
+        deadline: new Date(request.deadline),
+      });
       return { status: 200, body: minted };
     } catch (error) {
       if (
