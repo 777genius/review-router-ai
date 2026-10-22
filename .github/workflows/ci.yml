@@ -551,6 +551,8 @@ jobs:
           pnpm local:check
 
       - name: Unit tests
+        env:
+          USAGE_REDRIVE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
         run: pnpm test
 
       - name: Architecture boundaries
