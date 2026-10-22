@@ -7,9 +7,16 @@ type Account = {
   readonly profileId: string;
   readonly authorizationEpoch: number;
 };
-type Mode = "fresh" | "partial" | "unknown" | "unsupported" | "unavailable";
+type Mode =
+  | "fresh"
+  | "two-windows"
+  | "partial"
+  | "unknown"
+  | "unsupported"
+  | "unavailable";
 const modes: readonly string[] = [
   "fresh",
+  "two-windows",
   "partial",
   "unknown",
   "unsupported",
@@ -111,10 +118,25 @@ export function createLimitsFixture(accounts: readonly Account[]) {
           },
         ],
       };
+      if (capturedMode === "two-windows") {
+        snapshot.windows.push({
+          id: "codex-7d",
+          family: "codex",
+          durationSeconds: 604800,
+          usedPercent: 88,
+          observedAt,
+          resetAt: new Date(Date.parse(observedAt) + 86_400_000).toISOString(),
+          basis: "duration",
+        });
+      }
       if (delayMs) await delay(delayMs);
       completed++;
       completedAccounts.push(account.accountRef);
-      if (capturedMode === "fresh" || capturedMode === "partial")
+      if (
+        capturedMode === "fresh" ||
+        capturedMode === "partial" ||
+        capturedMode === "two-windows"
+      )
         return { status: 200, body: snapshot };
       return {
         status: 200,

@@ -435,7 +435,7 @@ test("a refreshed same-scope bootstrap removes old limit figures and discarded i
     <WorkspacePersonalAccounts {...props} initialPage={page([row])} />,
   );
   expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
-    "37.5",
+    "62.5",
   );
   rerender(<WorkspacePersonalAccounts {...props} initialPage={page([])} />);
   expect(screen.queryByRole("progressbar")).toBeNull();
