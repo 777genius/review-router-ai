@@ -93,3 +93,28 @@ approval or of a live Infinity deployment.
 Repository-wide gates and GitHub CI are recorded below when complete. The PR
 remains unmerged and no deployment or Infinity production activation is part of
 this delivery.
+
+### CI integration correction: exact migration inventory
+
+The existing Account Gateway PostgreSQL CI exposed an exact-current-checkout
+assertion that still expected 140 migrations. The additive projection table is
+migration 141. The correction updates the current inventory and its admission
+policy together: the exact new SQL checksum and full checkout141 manifest are
+validated before reduction to the previously admitted checkout140. Historical
+managed92 and historical96 inventories, hashes, roles, and SQL execution bounds
+remain unchanged. The historical fixtures explicitly exclude the new
+checkout-only migration.
+
+Seven focused migration/admission test files passed all 332 unique cases.
+The first run found two old filesystem-fixture assumptions; after their
+correction, only that affected file was rerun (105/105). The other six files had
+already passed 227/227. Negative cases retain rejection of altered, missing,
+renamed, duplicated, reordered, and unexpected migrations. An independent
+read-only critic verified all 11 changed files and recomputed both new hashes,
+reporting no actionable P1/P2. This is an exact additive admission, not a change
+to historical migration authority.
+
+The dedicated [Memory PostgreSQL/API workflow](https://github.com/777genius/review-router-ai/actions/runs/39805372854)
+passed 21/21 tests on commit `b46c3bf713df27ff5506bedae6c2a534ae560939`.
+Its clean PostgreSQL service executes the checked-in preparation script for both
+databases, then requires both suites to finish without skipped or todo cases.
