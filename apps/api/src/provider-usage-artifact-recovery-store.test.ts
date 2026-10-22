@@ -26,7 +26,9 @@ function fixture(
     bootstrapScope: options.bootstrap ? { purpose: "diagnostic" } : null,
     actionSessionScope: options.actionSession ? { purpose: "review" } : null,
   };
-  const updateMany = vi.fn(async (_input: Record<string, unknown>) => ({
+  const updateMany = vi.fn<
+    (input: Record<string, unknown>) => Promise<{ count: number }>
+  >(async () => ({
     count: options.claimed === false ? 0 : 1,
   }));
   const prisma = {
