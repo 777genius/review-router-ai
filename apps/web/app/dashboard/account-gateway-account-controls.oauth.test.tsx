@@ -1734,19 +1734,19 @@ test.each(["workspace", "personal"] as const)(
       "Authorization code",
     ) as HTMLInputElement;
     const authorizationCode = `synthetic-claude-sensitive-code#${"d".repeat(64)}`;
-    fireEvent.change(field, { target: { value: authorizationCode } });
+    fireEvent.change(field, { target: { value: `  ${authorizationCode}\t ` } });
     fireEvent.click(
       within(completion).getByRole("button", {
         name: "Complete authorization",
       }),
     );
+    expect(field.value).toBe("");
     await waitFor(() =>
       expect(api.completeGatewayOAuth).toHaveBeenCalledWith(context, {
         nonce: intent.nonce,
         authorizationCode,
       }),
     );
-    expect(field.value).toBe("");
     const custody = () =>
       [
         ...cacheSnapshots,
