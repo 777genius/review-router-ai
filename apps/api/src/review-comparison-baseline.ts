@@ -1,5 +1,6 @@
 import type { AppliedComparisonResolution } from "./review-comparison-baseline-resolutions.js";
 import { z } from "zod";
+import { canonicalJson } from "@reviewrouter/features-review-run-control";
 import type { ReviewSnapshotV2Record } from "@reviewrouter/features-review-snapshots/v2";
 
 const text = z
@@ -89,7 +90,7 @@ export function buildReviewComparisonBaseline(
     record.version <= 0
   )
     return null;
-  const result = canonical({
+  const result = canonicalJson({
     schemaVersion: "comparison_baseline.v1",
     sourceReviewedHeadSha: record.sourceReviewedHeadSha,
     sourceReviewRevisionHash: record.sourceReviewRevisionHash,
@@ -101,13 +102,4 @@ export function buildReviewComparisonBaseline(
     appliedResolutions,
   });
   return Buffer.byteLength(result) <= 2_000_000 ? result : null;
-}
-function canonical(value: unknown): string {
-  return JSON.stringify(value, (_key, item) =>
-    item && typeof item === "object" && !Array.isArray(item)
-      ? Object.fromEntries(
-          Object.entries(item).sort(([a], [b]) => a.localeCompare(b)),
-        )
-      : item,
-  );
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { canonicalJson } from "@reviewrouter/features-review-run-control";
 import type { ReviewSnapshotV2Record } from "@reviewrouter/features-review-snapshots/v2";
 import { buildReviewComparisonBaseline } from "./review-comparison-baseline.js";
 
@@ -48,6 +49,11 @@ function record(
   } as unknown as ReviewSnapshotV2Record;
 }
 describe("trusted comparison baseline projection", () => {
+  it("returns shared canonical response bytes with mixed-case provenance keys", () => {
+    const payload = buildReviewComparisonBaseline(record())!;
+    expect(payload).toBe(canonicalJson(JSON.parse(payload)));
+  });
+
   it.each([
     "review-projection-policy.v5-t0",
     "review-projection-policy.v6-comparison",

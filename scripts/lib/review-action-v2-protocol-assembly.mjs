@@ -307,7 +307,11 @@ export function createPublishedProtocolArtifacts(contract, canonicalJson) {
     }),
   );
   const canonicalizerDescriptor = {
-    canonicalizerVersion: 1,
+    canonicalizerVersion: 2,
+    optionalRequestFields: {
+      omittedOrUndefined: "omit",
+      explicitNull: "preserve",
+    },
     publishedCanonicalizers: contract.canonicalizers,
     operations: baseContract.operations.map((operation) => ({
       operationId: operation.operationId,
@@ -817,7 +821,9 @@ export function canonicalizeReviewActionV2Request<Operation extends ReviewAction
   if (!parsed.ok) throw new Error(\`review_action_v2_request_invalid:\${parsed.issues.join(",")}\`);
   const descriptor = reviewActionV2Operations.find((item) => item.operationId === operationId);
   if (!descriptor) throw new Error("review_action_v2_operation_unknown");
-  const body = Object.fromEntries(descriptor.requestFields.map((field) => [field.name, (request as Record<string, unknown>)[field.name]]));
+  const body = Object.fromEntries(descriptor.requestFields
+    .filter((field) => !("optional" in field && field.optional && (request as Record<string, unknown>)[field.name] === undefined))
+    .map((field) => [field.name, (request as Record<string, unknown>)[field.name]]));
   return canonicalJson(body);
 }
 

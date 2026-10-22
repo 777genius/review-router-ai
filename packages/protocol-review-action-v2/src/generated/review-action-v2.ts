@@ -5,13 +5,13 @@ export const reviewActionV2PublishedProtocolVersion = "2" as const;
 export const reviewActionV2PublishedSchemaDigest =
   "71f316821909667e1b7cc704bed330ef6cfa7ac44cf51d58935ba3238ab92504" as const;
 export const reviewActionV2CanonicalizerDigest =
-  "5f4c0b37b363a8dcfb1447ac093bd6fda1da7938cd887afe36f17236d2dee437" as const;
+  "bf61d04d42e158b26e4b651b62700b10212496487d7e20ac6e705272dc1d6a5f" as const;
 export const reviewInvestigationExtensionV1 = {
   extensionId: "review-investigation-shadow.v1",
   schemaDigest:
     "0a53623b20bfbef7dbe222dea7aed44ae3237d2f0c7facb72bb99086ef9bc5f2",
   canonicalizerDigest:
-    "635f5db62a446f01f5059f973ce4ae815c10b653a7870d438eaf91e2345d9cf9",
+    "ccaf3515f1c04bc31ba1bcf7084d414221f61cb4b24b440a4ecad121ccdaa378",
   operationIds: [
     "review_investigation_open_v2",
     "review_investigation_lease_acquire",
@@ -5556,10 +5556,19 @@ export function canonicalizeReviewActionV2Request<
   );
   if (!descriptor) throw new Error("review_action_v2_operation_unknown");
   const body = Object.fromEntries(
-    descriptor.requestFields.map((field) => [
-      field.name,
-      (request as Record<string, unknown>)[field.name],
-    ]),
+    descriptor.requestFields
+      .filter(
+        (field) =>
+          !(
+            "optional" in field &&
+            field.optional &&
+            (request as Record<string, unknown>)[field.name] === undefined
+          ),
+      )
+      .map((field) => [
+        field.name,
+        (request as Record<string, unknown>)[field.name],
+      ]),
   );
   return canonicalJson(body);
 }
