@@ -601,3 +601,47 @@ test("personal selection requires stable actor and live role, with P owner isola
     7,
   );
 });
+
+// A method switch must conflict under the same nonce without changing legacy browser digests.
+test("personal OAuth intent snapshots method and preserves legacy browser identity", async () => {
+  const { snapshotPersonalIntent, personalIntentDigest } =
+    await import("../src/application/use-cases/personal-account-operations");
+  const original = {
+    action: "connect" as const,
+    actorUserId: "actor-device",
+    personalWorkspaceId: "personal-device",
+    clientOperationId: "nonce-device",
+    proposedSourceId: "source-device",
+    profileId: "codex-device",
+    displayName: "Codex",
+    ingress: "oauth-begin" as const,
+  };
+  assert.deepEqual(
+    snapshotPersonalIntent({ ...original, method: "browser" }),
+    original,
+  );
+  assert.equal(
+    personalIntentDigest(original),
+    personalIntentDigest({ ...original, method: "browser" }),
+  );
+  const mutable = {
+    ...original,
+    method: "device_code" as "device_code" | "browser",
+  };
+  const snapshot = snapshotPersonalIntent(mutable);
+  mutable.method = "browser";
+  assert.equal(snapshot.action === "connect" && snapshot.method, "device_code");
+  assert.notEqual(
+    personalIntentDigest(snapshot),
+    personalIntentDigest(original),
+  );
+  assert.throws(
+    () =>
+      snapshotPersonalIntent({
+        ...original,
+        ingress: "api-key-create",
+        method: "device_code",
+      }),
+    denied("invalid_input"),
+  );
+});

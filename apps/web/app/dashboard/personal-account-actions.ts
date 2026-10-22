@@ -136,6 +136,11 @@ export async function beginPersonalGatewayOAuth(
     canonical.beginGatewayOAuth(context, request),
   );
 }
+export async function pollPersonalGatewayOAuth(context: string, nonce: string) {
+  return invoke(context, ({ canonical }) =>
+    canonical.pollGatewayOAuth(context, nonce),
+  );
+}
 export async function completePersonalGatewayOAuth(
   context: string,
   request: AccountOAuthCompletion,
