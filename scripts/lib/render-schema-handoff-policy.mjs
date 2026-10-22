@@ -275,6 +275,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Memory projection receipts are checkout-only. Admit the exact SQL and
+  // complete checkout141 before reducing to the previously qualified checkout.
+  const memoryProjectionMigration = catalog.find(
+    (row) => row.migrationName === "000141_memory_search_projections",
+  );
+  if (memoryProjectionMigration) {
+    if (
+      memoryProjectionMigration.checksum !==
+        "4169d5f18ff4bafe6ce316060c06d569d108f4e13704b7c66692514221723c3e" ||
+      manifest(catalog) !==
+        "sha256:f57efc9ec8fd5f1efcd8f9cea07586957e5bd4bf983f02f252b30dc474a67ec8"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== memoryProjectionMigration),
+    );
+  }
   // Device sign-in adds only immutable enrollment method metadata. Admit the
   // exact extension before reducing to the previously qualified checkout.
   const oauthMethodMigration = catalog.find(
