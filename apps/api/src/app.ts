@@ -1,6 +1,7 @@
 import { createProviderUsageSessionComposition } from "./provider-usage-session-composition.js";
 import { registerProviderUsageRecovery } from "./provider-usage-artifact-recovery.js";
 import { registerProviderUsageRoutes } from "./provider-usage-routes.js";
+import { registerContextToolsRoutes } from "./review-context-tools.js";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import {
   productionDashboardGatewayProbeAccess,
@@ -990,6 +991,12 @@ export async function createApiApp(
     await registerProviderUsageRoutes(
       app,
       providerUsageDependencies.providerUsage,
+    );
+  }
+  if (productionReviewActionV2Dependencies?.contextTools) {
+    await registerContextToolsRoutes(
+      app,
+      productionReviewActionV2Dependencies.contextTools,
     );
   }
   if (productionReviewActionV2Dependencies?.accountGatewayRelay) {

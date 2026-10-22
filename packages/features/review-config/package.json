@@ -26,7 +26,8 @@
     "@reviewrouter/features-provider-accounts": "workspace:*",
     "@reviewrouter/features-review-providers": "workspace:*",
     "@reviewrouter/shared": "workspace:*",
-    "zod": "^4.4.2"
+    "zod": "^4.4.2",
+    "@reviewrouter/features-review-context-tools": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

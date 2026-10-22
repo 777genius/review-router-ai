@@ -1,3 +1,5 @@
+import { captureContextToolsPlan } from "@reviewrouter/features-review-context-tools";
+import { assertContextGithubBindings } from "../review-run-runtime-snapshot";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
@@ -54,6 +56,71 @@ vi.mock("@octokit/request", () => ({
 }));
 
 describe("OctokitCodexRotatingGitHubSecretGateway", () => {
+  it("joins the canonical rendered named bundle at signed workflow SHA to captured GitHub refs", async () => {
+    const source = renderReviewRouterCaller({
+      mcpSecrets: { DOCS_TOKEN: "DOCS_MCP_TOKEN" },
+    });
+    mocks.auth.mockResolvedValueOnce({
+      token: "fixture-read",
+      expiresAt: "2126-01-01T00:00:00.000Z",
+      permissions: { contents: "read" },
+    });
+    mocks.request.mockResolvedValueOnce(fileContent(source));
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "fixture-key",
+      trustedActionRefs: [],
+    });
+    const actual = await gateway.verifyManagedV2SessionBootstrapSource({
+      githubInstallationId: "123",
+      githubRepositoryId: "456",
+      repositoryFullName: "owner/repo",
+      owner: "owner",
+      workflowPath: reviewRouterWorkflowContract.callerPath,
+      workflowSha: "a".repeat(40),
+    });
+    expect(actual).toEqual({
+      compatible: true,
+      mcpSecrets: { DOCS_TOKEN: "DOCS_MCP_TOKEN" },
+    });
+    const plan = captureContextToolsPlan(
+      {
+        version: 1,
+        builtinTools: [],
+        mcp: [{ connection: "docs", tools: ["search"] }],
+      },
+      [
+        {
+          workspaceId: "w",
+          version: 1,
+          enabled: true,
+          encryptedSecrets: null,
+          definition: {
+            id: "docs",
+            url: "https://mcp.example.com",
+            headers: { Authorization: "Bearer {{ secrets.DOCS_TOKEN }}" },
+            tools: ["search"],
+            credentials: {
+              DOCS_TOKEN: { source: "github-secret", name: "DOCS_MCP_TOKEN" },
+            },
+          },
+        },
+      ],
+    );
+    expect(() =>
+      assertContextGithubBindings(plan, actual.mcpSecrets),
+    ).not.toThrow();
+    expect(() =>
+      assertContextGithubBindings(plan, { DOCS_TOKEN: "GITHUB_TOKEN" }),
+    ).toThrow("context_workflow_secret_binding_mismatch");
+    expect(mocks.request).toHaveBeenCalledWith(
+      "GET /repos/{owner}/{repo}/contents/{path}",
+      expect.objectContaining({
+        ref: "a".repeat(40),
+        path: reviewRouterWorkflowContract.callerPath,
+      }),
+    );
+  });
   it.each([
     ["canonical channel", renderReviewRouterCaller(), true],
     [

@@ -601,7 +601,10 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly workflowPath: string;
     readonly workflowSha: string;
     readonly expectedProviderApiActionCommitSha?: string;
-  }): Promise<{ readonly compatible: boolean }> {
+  }): Promise<{
+    readonly compatible: boolean;
+    readonly mcpSecrets?: Readonly<Record<string, string>>;
+  }> {
     if (input.workflowPath === reviewRouterWorkflowContract.callerPath) {
       let source: string | null;
       try {
@@ -627,6 +630,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
         // Source proves the installation ABI, never the executed release.
         // Signed executable SHA and registry state are checked by admission.
         return {
+          ...(caller.mcpSecrets ? { mcpSecrets: caller.mcpSecrets } : {}),
           compatible:
             (input.expectedProviderApiActionCommitSha !== undefined
               ? caller.modelTransport === "provider_api" &&

@@ -19,3 +19,4 @@ export * from "./application/use-cases/prove-review-publication-no-effect";
 export * from "./application/use-cases/request-review-publication";
 export * from "./application/use-cases/resolve-current-publication-lifecycle";
 export * from "./application/use-cases/terminalize-unknown-review-publication";
+export * from "./domain/review-pr-description";

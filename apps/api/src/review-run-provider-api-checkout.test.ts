@@ -100,9 +100,13 @@ it("exports only frozen direct settings and scoped checkout with no Gateway rela
     REVIEW_AUTH_MODE: "openrouter-api",
     REVIEW_PROVIDERS: "openrouter/openai/gpt-5.3-codex",
     CODEX_REASONING_EFFORT: "high",
+    UPDATE_PR_DESCRIPTION: "true",
   });
   expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
     "OPENROUTER_API_KEY",
+  );
+  expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
+    "REVIEW_ROUTER_PR_DESCRIPTION_CAPABILITY_JSON",
   );
   expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
     "REVIEW_ROUTER_GATEWAY_BINDING_ID",

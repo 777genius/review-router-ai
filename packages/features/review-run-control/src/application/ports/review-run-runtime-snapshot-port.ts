@@ -8,7 +8,8 @@ import type { ReviewAgentProfile } from "../../domain/review-agent-profile";
 export type ReviewRunRuntimeCaptureDenial = Readonly<{
   readonly captureDenied:
     | "agent_profile_unavailable"
-    | "agent_profile_incompatible";
+    | "agent_profile_incompatible"
+    | "context_tools_unavailable";
 }>;
 
 export interface ReviewRunRuntimeSnapshotPort {
@@ -24,6 +25,8 @@ export interface ReviewRunRuntimeSnapshotPort {
       | "actionCommitSha"
       | "runtimeCommitSha"
       | "agentProfiles"
+      | "contextToolsProfile"
+      | "prDescriptionProfile"
     >;
   }): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null>;
   /** Recheck original binding, never today's repository configuration. */

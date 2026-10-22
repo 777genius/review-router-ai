@@ -539,7 +539,7 @@ export function providerKindToPrisma(
 export function taskKindToPrisma(value: ReviewTaskKind): PrismaTaskKind {
   switch (value) {
     case ReviewTaskKind.PrDescription:
-      throw new Error("review_execution_pr_description_unsupported");
+      return PrismaTaskKind.pr_description;
     case ReviewTaskKind.FindingDiscovery:
       return PrismaTaskKind.finding_discovery;
     case ReviewTaskKind.LifecycleRevalidation:
@@ -755,6 +755,8 @@ function providerKindFromPrisma(
 
 function taskKindFromPrisma(value: PrismaTaskKind): ReviewTaskKind {
   switch (value) {
+    case PrismaTaskKind.pr_description:
+      return ReviewTaskKind.PrDescription;
     case PrismaTaskKind.finding_discovery:
       return ReviewTaskKind.FindingDiscovery;
     case PrismaTaskKind.lifecycle_revalidation:
