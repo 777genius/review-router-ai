@@ -261,3 +261,24 @@ passed 18/18, including the four new cases. The earlier combined follow-up
 regression passed 329/329 tests without skips. These overlapping counts are not
 additive; final browser, build and current-head CI evidence is maintained in the
 PR validation section.
+
+The authenticated API/outbox follow-up passed another 25/25 cases, completing
+76/76 focused checks for the batch-budget correction. CodeRabbit inspected
+`84e2d8ff`, [accepted the bounded-pass alternative](https://github.com/777genius/review-router-ai/pull/670#discussion_r4351434468)
+and resolved its thread. Both external inline findings are addressed.
+
+Upstream `0e5e0f88` added a compact dashboard footer. After merging it without
+conflicts, the browser qualifier selects that semantic footer and hashes its
+source. The complete merged-source matrix passed 30/30 cases; all twelve
+screenshots were reviewed independently and by the integrator. Light mobile
+surfaces now match the applied tokens, and the minimum measured notice text
+contrast is 7.2882:1. Fixture cleanup passed, with no memory API requests,
+external browser requests or browser errors. The accepted historical manager
+references remain unchanged.
+
+Sequential typechecking passed all 51 workspace packages. The separate spike
+configuration found one old relative import of concrete adapters through the
+core barrel; it now imports the explicit infrastructure entrypoint. Spike,
+one-shot handoff and tooling typechecks then passed, and an independent reviewer
+confirmed this import-only correction. The earlier parallel compiler process
+was terminated by the shared environment's memory limit; no gate was removed.

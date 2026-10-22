@@ -59,6 +59,7 @@ const sourceFiles = [
   "apps/web/app/dashboard/actions.ts",
   "apps/web/app/globals.css",
   "apps/web/app/layout.tsx",
+  "apps/web/app/dashboard-aware-footer.tsx",
   "apps/web/app/theme-toggle.tsx",
   "packages/ui/src/tokens/tokens.css",
   "packages/platform/db/prisma/schema.prisma",
@@ -518,7 +519,9 @@ async function assertMemoryColors(
   const paint = await page.evaluate(() => {
     const rootStyle = getComputedStyle(document.documentElement);
     const notice = document.getElementById("dashboard-section-content");
-    const footer = document.querySelector(".site-footer");
+    const footer = document.querySelector(
+      'footer[aria-label="Dashboard footer"]',
+    );
     if (!notice || !footer) throw new Error("Missing Memory page surfaces.");
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 1;

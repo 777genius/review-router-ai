@@ -73,7 +73,7 @@ match their resolved theme tokens. The result records these colors and notice
 contrast ratios. This catches a mobile stylesheet overriding the light surface
 even when theme attributes and `color-scheme` are correct.
 
-Source hashes in the result identify the UI, global stylesheet, theme
+Source hashes in the result identify the UI, dashboard footer, global stylesheet, theme
 implementation, tokens, and schema bytes checked; concurrent changes to those
 bytes fail the run.
 
@@ -97,6 +97,7 @@ the Memory render path never calls memory dependencies, and
 preserve authorization and refuse effects.
 
 The contrast check covers the flat Memory notice, including its alpha badge
-background. The footer has a separate gradient overlay, so its base-color check
-is a theme regression guard, not a measurement of every rendered footer pixel.
-Inspect all screenshots in both themes; this is not a full accessibility audit.
+background. The compact dashboard footer is checked for a theme-consistent
+background and inspected visually; its text is not part of the numeric contrast
+assertion. Inspect all screenshots in both themes; this is not a full
+accessibility audit.

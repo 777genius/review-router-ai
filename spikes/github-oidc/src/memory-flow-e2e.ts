@@ -12,13 +12,15 @@ import {
   createMemoryBodyHash,
   deletedMemoryBodyPlaceholder,
   exportMemoryItems,
+  StaticMemoryPolicyConfig,
+} from "../../../packages/features/memory/src/index.ts";
+import {
   PrismaMemoryItemRepository,
   PrismaMemoryPermission,
   PrismaMemorySearchIndex,
   PrismaMemorySuggestionRepository,
   PrismaMemoryTransaction,
-  StaticMemoryPolicyConfig,
-} from "../../../packages/features/memory/src/index.ts";
+} from "../../../packages/features/memory/src/infrastructure/index.ts";
 import {
   freeBetaEntitlement,
   PrismaEntitlementRepository,

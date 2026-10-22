@@ -14,6 +14,9 @@ images. See [the implementation plan](../../plans/2026-10-22-memory-engine-adapt
 - The authenticated dashboard and guarded preview share one server-rendered
   development notice. They expose no memory records, forms, mock controls,
   mode links or export link. Old mode/status parameters do not restore them.
+  The notice uses the existing Badge and icon, one page heading, a short purpose
+  statement and a clear availability message, without nested cards or setup
+  controls.
 - Dashboard memory reads and the policy simulator are not executed. All stale
   server/client memory mutation actions authenticate their workspace and then
   refuse the request without changing memory or revalidating the dashboard.
@@ -21,13 +24,18 @@ images. See [the implementation plan](../../plans/2026-10-22-memory-engine-adapt
   protected backend export remain available. This is a dashboard pause, not a
   runtime memory service flag or a deletion of existing records.
 - Current browser QA covers the actual dashboard, old query parameters and the
-  guarded preview at 1440x1000, 900x1100 and 390x844. On 2026-10-22,
-  `pnpm memory:qualify-browser` passed all 15 route/viewport cases with a signed
-  test session and real database membership authorization. The application's
-  temporary read-only role had no privileges on any of the four Memory tables.
-  There were no memory API requests, browser errors, forms or horizontal page
-  overflow. The six desktop/tablet/mobile dashboard and preview captures were
-  visually checked: the notice is readable without clipped content or controls.
+  guarded preview at 1440x1000, 900x1100 and 390x844 in both dark and light themes.
+  On 2026-10-22, `pnpm memory:qualify-browser` passed all 30 cases with a signed
+  test session and real database membership authorization, including the compact
+  dashboard footer merged from main. The application's temporary read-only role
+  had no privileges on any of the four Memory tables. There were no memory API
+  requests, external browser requests, browser errors, forms or horizontal page
+  overflow. All twelve captures were visually checked: the notice is readable
+  without clipped content or controls. Visual review found and corrected a
+  mobile stylesheet forcing dark colors in light mode. The qualifier now checks
+  actual theme surfaces and the notice's composited text colors; its minimum
+  measured contrast was 7.2882:1. This is focused notice QA, not a full
+  accessibility audit.
   See [the reproducible browser harness](../../../scripts/memory-e2e/browser-README.md)
   for commands, artifact locations and the development-server/schema-preparation
   limits of this evidence.
