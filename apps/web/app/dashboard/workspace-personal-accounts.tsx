@@ -1,11 +1,22 @@
 "use client";
 
 import {
+  AccountLimitsLine,
+  AccountLimitsReadContext,
+} from "./account-limits-line";
+import {
+  accountLimitsScope,
+  extractAccountLimits,
+  releaseAccountLimits,
+  removeAccountLimits,
+} from "./account-limits-query";
+
+import {
   AccountLifecycleControls,
   useAccountLifecycleActivities,
 } from "./account-lifecycle-controls";
 
-import { useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import {
   QueryClient,
   useInfiniteQuery,
@@ -202,6 +213,49 @@ function WorkspacePersonalRows({
   client,
 }: Props & { api: GatewayModelAccountsApi; client: QueryClient }) {
   const lifecycleActivities = useAccountLifecycleActivities(client);
+  const inheritedLimits = useContext(AccountLimitsReadContext);
+  const limitsContext = inheritedLimits?.context ?? personalScope ?? "";
+  const limitsScope =
+    inheritedLimits?.scope ?? accountLimitsScope(limitsContext, workspaceId);
+  useEffect(
+    () => () => {
+      releaseAccountLimits(client, limitsScope);
+    },
+    [client, limitsScope],
+  );
+  const hydratedBootstrap = useRef(initialPage);
+  const removedByBootstrap = new Set(
+    hydratedBootstrap.current?.status === "ok" && initialPage?.status === "ok"
+      ? hydratedBootstrap.current.value.accounts
+          .filter(
+            (old) =>
+              !initialPage.value.accounts.some(
+                (row) => row.connectionId === old.connectionId,
+              ),
+          )
+          .map((row) => row.connectionId)
+      : [],
+  );
+  useEffect(() => {
+    if (!initialPage || hydratedBootstrap.current === initialPage) return;
+    let current = true;
+    void (async () => {
+      await client.cancelQueries({
+        queryKey: ["accounts-overview", scope],
+        exact: true,
+      });
+      await removeAccountLimits(client, limitsScope);
+      if (!current) return;
+      const first = extractAccountLimits(client, limitsScope, initialPage);
+      hydratedBootstrap.current = initialPage;
+      client.setQueryData<
+        InfiniteData<AccountsResult<AccountsPage>, string | null>
+      >(["accounts-overview", scope], { pages: [first], pageParams: [null] });
+    })();
+    return () => {
+      current = false;
+    };
+  }, [client, limitsScope, initialPage, scope]);
   const pageKey = ["accounts-overview", scope] as const;
   const [selection, setSelection] = useState<{
     label: string;
@@ -218,15 +272,24 @@ function WorkspacePersonalRows({
       queryKey: pageKey,
       initialPageParam: null as string | null,
       ...(initialPage
-        ? { initialData: { pages: [initialPage], pageParams: [null] } }
+        ? {
+            initialData: () => ({
+              pages: [extractAccountLimits(client, limitsScope, initialPage)],
+              pageParams: [null],
+            }),
+          }
         : {}),
-      queryFn: ({ pageParam }) =>
+      queryFn: ({ pageParam, signal }) =>
         readAccountResult(
           api.list({
             limit: 25,
             ...(pageParam ? { afterBindingId: pageParam } : {}),
           }),
-        ),
+        ).then((result) => {
+          if (signal.aborted)
+            throw new Error("Account inventory read canceled");
+          return extractAccountLimits(client, limitsScope, result);
+        }),
       getNextPageParam: (page) =>
         page.status === "ok" ? page.value.nextCursor : null,
       staleTime: 15000,
@@ -243,7 +306,10 @@ function WorkspacePersonalRows({
     },
     client,
   );
-  const fetched = pages.data?.pages ?? [];
+  const fetched =
+    initialPage && hydratedBootstrap.current !== initialPage
+      ? [initialPage]
+      : (pages.data?.pages ?? []);
   const failed = pages.isError || fetched.some((p) => p.status !== "ok");
   const denied = fetched.some(
     (page) => page.status !== "ok" && page.status !== "unavailable",
@@ -303,6 +369,10 @@ function WorkspacePersonalRows({
         client.cancelQueries({ queryKey: detailKey, exact: true }),
       ]);
       if (result.status === "ok") {
+        for (const row of accounts.filter(
+          (account) => account.binding?.id === original.bindingId,
+        ))
+          await removeAccountLimits(client, limitsScope, row.connectionId);
         for (const listKey of [pageKey, modelPageKey])
           client.setQueryData<
             InfiniteData<AccountsResult<AccountsPage>, string | null>
@@ -388,6 +458,47 @@ function WorkspacePersonalRows({
               authKind={row.authKind}
             />
             <AccountUsageLine usage={row.usage} />
+            <AccountLimitsLine
+              scope={limitsScope}
+              context={limitsContext}
+              connectionId={row.connectionId}
+              workspaceId={workspaceId}
+              client={client}
+              expectedDisplayToken={
+                initialPage?.status === "ok"
+                  ? initialPage.value.accounts.find(
+                      (account) => account.connectionId === row.connectionId,
+                    )?.limits?.displayToken
+                  : inheritedLimits?.projections?.get(row.connectionId)
+                      ?.displayToken
+              }
+              expectedFetchedAt={
+                initialPage?.status === "ok"
+                  ? initialPage.value.accounts.find(
+                      (account) => account.connectionId === row.connectionId,
+                    )?.limits?.fetchedAt
+                  : inheritedLimits?.projections?.get(row.connectionId)
+                      ?.fetchedAt
+              }
+              expectedStatus={
+                initialPage?.status === "ok"
+                  ? initialPage.value.accounts.find(
+                      (account) => account.connectionId === row.connectionId,
+                    )?.limits?.status
+                  : inheritedLimits?.projections?.get(row.connectionId)?.status
+              }
+              blocked={
+                removedByBootstrap.has(row.connectionId) ||
+                inheritedLimits?.removed?.has(row.connectionId) ||
+                inheritedLimits?.denied ||
+                (initialPage !== undefined &&
+                  initialPage.status !== "ok" &&
+                  initialPage.status !== "unavailable") ||
+                denied ||
+                lifecycleActivities.has(row.connectionId) ||
+                row.state === "tombstoned"
+              }
+            />
           </div>
           <AccountOwner account={row} />
           <p className="text-sm text-slate-300">

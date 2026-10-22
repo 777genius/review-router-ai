@@ -151,9 +151,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(kpi("Known cost")).not.toContainText("EUR");
     await expect(kpi("Known cost")).not.toContainText("0.25");
     await expect(
-      usage.getByText(
-        /^Updated [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2} UTC$/,
-      ),
+      usage.getByText("Freshness unavailable", { exact: true }),
     ).toBeVisible();
     const query = new URLSearchParams({
       workspace: FIXTURES.workspaces.orgAlpha,
@@ -646,9 +644,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
       }),
     ).toHaveCount(0);
     await expect(
-      usage.getByText(
-        /^Updated [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2} UTC$/,
-      ),
+      usage.getByText("Freshness unavailable", { exact: true }),
     ).toBeVisible();
     expect(
       await usage
@@ -957,6 +953,9 @@ test("provider usage renders native lag and partial producer coverage truthfully
       name: "Provider usage",
       exact: true,
     });
+    await expect(
+      usage.getByText(`Updated ${expectedHumanUtc(asOf)}`, { exact: true }),
+    ).toBeVisible();
     await usage.getByLabel("Details", { exact: true }).click();
     await expect(
       usage.getByText(/Source lag: [\d.]+s \(native reconciliation\)/),
@@ -976,7 +975,9 @@ test("provider usage renders native lag and partial producer coverage truthfully
     await expect(
       usageKpi(usage, "Known tokens").filter({ hasText: /^42\b/ }),
     ).toBeVisible();
-    await expect(usage.getByText(/Quota \/ limits: unknown/)).toBeVisible();
+    await expect(
+      usage.getByRole("link", { name: "Account limits are shown in Accounts" }),
+    ).toBeVisible();
     await expect(usage.getByLabel("Usage source coverage")).toContainText(
       "reported observations only; transport completeness varies",
     );

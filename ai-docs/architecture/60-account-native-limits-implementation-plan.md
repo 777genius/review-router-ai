@@ -1,9 +1,22 @@
 # Нативные лимиты аккаунтов: реализация в Accounts
 
-Статус: отдельная запланированная фаза; реализация не начата.
-База RR: `origin/main` `7656c0ef3fcfc415d486dd767e525df49444b0bc`, 2026-10-22.
+Статус: L1/L2 реализованы для qualified Codex cached-read; production не активирован.
+База планирования RR: `origin/main` `7656c0ef3fcfc415d486dd767e525df49444b0bc`, 2026-10-22.
 Применён `q`: ответственность `provider-accounts`, отдельная capability чтения,
 существующие composition/UI seams. Документ не разрешает деплой или вход в аккаунты.
+
+Реализация 2026-10-22: native [PR 61](https://github.com/agent-teams-ai/sub2api/pull/61)
+и Gateway [PR 67](https://github.com/agent-teams-ai/account-gateway/pull/67) merged.
+[SDK provenance](../../vendor/account-gateway/account-limits-provenance.json)
+закрепляет source commits, migration 252, archive SHA/SRI и controlled joined
+native → Gateway → SDK → RR acceptance. Cached reads не делают provider/inference
+вызовов. Gateway CI прошёл; native GitHub Actions возвращает 422 disabled, поэтому
+его exact-source hosted gates записаны отдельно, без заявления о GitHub CI.
+
+L3 не включён: `quotaOnlyRefresh=false`. Claude и остальные профили без qualified
+principal lifecycle остаются unsupported. Legacy native extra без provenance
+остаётся unknown; RR connection без подтверждённого authorization epoch остаётся
+unavailable. Эти состояния не заменяются предположениями из credentials или stats.
 
 ## Результат и scope
 
@@ -310,8 +323,8 @@ upstream response body, auth headers, email, account IDs или других ten
 
 | Checkpoint    | Самостоятельный результат                                                         | Зависимости / статус                                              |
 | ------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| L1            | Source-owned cached-read contract, безопасные raw snapshots, SDK fixtures/archive | Новая работа native/Gateway; не доказана текущим SDK              |
-| L2            | RR normalized reader, authorization и Accounts cached UI                          | L1; самостоятельный полезный checkpoint                           |
+| L1            | Source-owned cached-read contract, безопасные raw snapshots, SDK fixtures/archive | Source merged; archive и joined acceptance квалифицированы        |
+| L2            | RR normalized reader, authorization и Accounts cached UI                          | Реализовано; PostgreSQL, UI/browser и joined acceptance прошли    |
 | L3 (optional) | Quota-only native refresh + RR owner action и acceptance                          | Отдельная safe capability, L1/L2; не использовать старые handlers |
 
 Каждый checkpoint начинается от актуального main, обычный PR/CI, около 2 000 changed
@@ -353,7 +366,7 @@ Focused Vitest + scoped provider-accounts/web typecheck, `pnpm architecture:chec
 имеют source-owned contract tests. Docs-only PR проверяет формат, ссылки и diff;
 новые unit-тесты ради документа не добавлять. Тяжёлые проверки выполнять hosted.
 
-Ориентир оставшейся реализации без generated/lockfiles:
+Исходная оценка реализации до этой фазы, без generated/lockfiles:
 
 | Scope                      | RR production / tests | Native/Gateway/SDK production / tests | Всего handwritten |
 | -------------------------- | --------------------- | ------------------------------------- | ----------------- |

@@ -1,3 +1,4 @@
+import { dashboardSectionHref } from "./dashboard-section";
 import type { ReactNode } from "react";
 import type { ProviderUsageReport } from "./provider-usage-model";
 import { DailyUsageTable } from "./provider-usage-charts";
@@ -6,12 +7,14 @@ import { humanUtc } from "./provider-usage-format";
 import type { CostBucket } from "./provider-usage-format";
 
 export function UsageDetails({
+  workspaceId,
   report,
   controls,
   onNext,
   selectedCurrency,
   bucket,
 }: {
+  workspaceId: string;
   report: ProviderUsageReport;
   controls: ReactNode;
   onNext: () => void;
@@ -27,7 +30,13 @@ export function UsageDetails({
       <p>
         Source windows below are source-wide checkpoints; they do not prove
         completeness for a selected model, route or UTC day. Known usage is not
-        a provider billing statement. Quota / limits: unknown.
+        a provider billing statement.{" "}
+        <a
+          className="text-cyan-200 underline"
+          href={dashboardSectionHref("setup", workspaceId)}
+        >
+          Account limits are shown in Accounts
+        </a>
       </p>
       <p>
         {report.unknown} unknown · {report.partial} partial ·{" "}

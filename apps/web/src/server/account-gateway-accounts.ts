@@ -24,6 +24,7 @@ import {
   type WorkspaceAccountActor,
   type WorkspaceBindingFenceRepositoryPort,
   type ScopedBindingFence,
+  type SafeBindingTuple,
 } from "@reviewrouter/features-provider-accounts";
 import {
   PrismaProviderAccountSynchronization,
@@ -44,6 +45,13 @@ import {
   suggestedAccountLabel,
 } from "../features/account-gateway/connection-options";
 import type { AccountUsageView } from "./account-usage";
+import type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
+export type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
+import {
+  createAccountLimitsService,
+  type AccountLimitsService,
+} from "./account-limits-service";
+import { accountLimitsReader } from "./account-limits-composition";
 
 // This module is imported at runtime only by RSC/server actions. Client imports are type-only.
 export type AccountsResult<T> =
@@ -115,6 +123,7 @@ export type AccountView = {
   } | null;
   // Optional display projection; older safe bootstrap consumers may omit it.
   usage?: AccountUsageView;
+  limits?: AccountLimitsView;
 };
 export type AccountsPage = {
   canGrantOperatorUse?: boolean;
@@ -278,6 +287,7 @@ function safeFailure(error: unknown): AccountsResult<never> {
  * No credential/intent ledger. Actual HTTP effects are performed only by the pinned SDK.
  */
 export function createAccountsAdapter(input: {
+  limits?(context: string): Promise<AccountLimitsService>;
   authorize(context: string): Promise<Authority>;
   gateway: ManagementClient;
   accounts: ProviderAccountAccountsQueryPort;
@@ -678,6 +688,7 @@ export function createAccountsAdapter(input: {
       for (const account of page.accounts)
         verified(account, authority, catalogue);
       const rows: AccountView[] = [];
+      const operatorBindings = new Map<string, SafeBindingTuple>();
       for (const listed of page.accounts) {
         const prior = await accounts.findOwnedConnectionByGatewayRef({
           workspaceId: authority.workspaceId,
@@ -727,8 +738,9 @@ export function createAccountsAdapter(input: {
           )
             throw new Denied();
           if (grant.connection.state !== "active") continue;
+          let binding: SafeBindingTuple;
           try {
-            await resolveWorkspaceAccountBinding(
+            binding = await resolveWorkspaceAccountBinding(
               {
                 workspaceId: authority.workspaceId,
                 bindingId: grant.binding.id,
@@ -773,17 +785,53 @@ export function createAccountsAdapter(input: {
           if (
             projected.binding?.state === "active" &&
             !projected.binding.fencePending
-          )
+          ) {
             rows.push(projected);
+            operatorBindings.set(projected.connectionId, binding);
+          }
         }
         if (grants.length === 25)
           nextCursor = `rrgrant_${grants[24]!.binding.id}`;
       }
+      const canGrantOperatorUse = await isOperatorAdmin(authority);
+      const enriched = input.limits
+        ? await (await input.limits(context)).page(rows)
+        : rows;
+      const currentRows: AccountView[] = [];
+      // Limits may await other owned accounts. Recheck each operator grant's
+      // exact binding lifetime before releasing any of its private metadata.
+      for (const row of enriched) {
+        const original = operatorBindings.get(row.connectionId);
+        if (original) {
+          try {
+            const current = await resolveWorkspaceAccountBinding(
+              {
+                workspaceId: authority.workspaceId,
+                bindingId: original.bindingId,
+                actor: authority.actor,
+              },
+              bindingDependencies,
+            );
+            if (JSON.stringify(current) !== JSON.stringify(original)) continue;
+          } catch (error) {
+            if (
+              error instanceof ProviderAccountError &&
+              ["binding_unavailable", "connection_unavailable"].includes(
+                error.code,
+              )
+            )
+              continue;
+            throw error;
+          }
+        }
+        currentRows.push(row);
+      }
+      await client.reauthorize();
       return {
         status: "ok",
         value: {
-          canGrantOperatorUse: await isOperatorAdmin(authority),
-          accounts: rows,
+          canGrantOperatorUse,
+          accounts: currentRows,
           profiles: catalogue,
           nextCursor,
         },
@@ -1404,6 +1452,18 @@ export function createAccountsAdapter(input: {
     }
   }
   return {
+    async limits(
+      context: string,
+      connectionId: string,
+    ): Promise<AccountsResult<AccountLimitsView>> {
+      try {
+        await authorize(context);
+        if (!input.limits) return { status: "unavailable" };
+        return (await input.limits(context)).read(connectionId);
+      } catch (error) {
+        return safeFailure(error);
+      }
+    },
     list,
     mutate,
     beginOAuth,
@@ -1847,6 +1907,37 @@ async function production() {
     readPersonalAccountSharingEnabled(process.env),
   );
   const access = new PrismaWorkspaceAccessRepository(prisma);
+  async function authorizeContext(context: string) {
+    const [body, signature, extra] = context.split(".");
+    if (!body || !signature || extra || !/^[A-Za-z0-9_-]+$/.test(body))
+      throw new Denied();
+    const expected = Buffer.from(contextSignature(body, settings.contextKey));
+    const actual = Buffer.from(signature);
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
+      throw new Denied();
+    const saved = z
+      .strictObject({ workspaceId: c.reference, userId: c.reference })
+      .parse(JSON.parse(Buffer.from(body, "base64url").toString("utf8")));
+    const currentActor = await getDashboardSignedInActor();
+    if (!currentActor || currentActor.userId !== saved.userId)
+      throw new Denied();
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: saved.workspaceId },
+      select: { id: true, personalOwnerUserId: true },
+    });
+    if (!workspace || workspace.personalOwnerUserId !== null)
+      throw new Denied();
+    const actor = await assertDashboardWorkspaceAdminAllowed(workspace.id);
+    if (actor.userId !== saved.userId) throw new Denied();
+    return {
+      workspaceId: workspace.id,
+      actor: {
+        userId: actor.userId,
+        githubUserId: actor.githubUserId ?? "",
+        githubLogin: actor.githubLogin ?? "",
+      },
+    };
+  }
   const adapter = createAccountsAdapter({
     ...settings,
     accounts,
@@ -1866,39 +1957,33 @@ async function production() {
         .map((v) => v.trim())
         .filter(Boolean),
     },
-    async authorize(context) {
-      const [body, signature, extra] = context.split(".");
-      if (!body || !signature || extra || !/^[A-Za-z0-9_-]+$/.test(body))
-        throw new Denied();
-      const expected = Buffer.from(contextSignature(body, settings.contextKey));
-      const actual = Buffer.from(signature);
-      if (
-        actual.length !== expected.length ||
-        !timingSafeEqual(actual, expected)
-      )
-        throw new Denied();
-      const saved = z
-        .strictObject({ workspaceId: c.reference, userId: c.reference })
-        .parse(JSON.parse(Buffer.from(body, "base64url").toString("utf8")));
-      const currentActor = await getDashboardSignedInActor();
-      if (!currentActor || currentActor.userId !== saved.userId)
-        throw new Denied();
-      const workspace = await prisma.workspace.findUnique({
-        where: { id: saved.workspaceId },
-        select: { id: true, personalOwnerUserId: true },
-      });
-      if (!workspace || workspace.personalOwnerUserId !== null)
-        throw new Denied();
-      const actor = await assertDashboardWorkspaceAdminAllowed(workspace.id);
-      if (actor.userId !== saved.userId) throw new Denied();
-      return {
-        workspaceId: workspace.id,
-        actor: {
-          userId: actor.userId,
-          githubUserId: actor.githubUserId ?? "",
-          githubLogin: actor.githubLogin ?? "",
+    authorize: authorizeContext,
+    async limits(context) {
+      return createAccountLimitsService({
+        prisma,
+        secret: settings.contextKey,
+        reader: await accountLimitsReader({
+          role: "management",
+          origin:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
+          token:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
+        }),
+        ...(settings.operatorWorkspaceId
+          ? { operatorWorkspaceId: settings.operatorWorkspaceId }
+          : {}),
+        ownerRef: (owner) =>
+          owner.kind === "user"
+            ? accountGatewayUserOwnerRef(owner.userId)
+            : accountGatewayWorkspaceOwnerRef(owner.workspaceId),
+        authorize: async () => {
+          const current = await authorizeContext(context);
+          return {
+            userId: current.actor.userId,
+            workspaceId: current.workspaceId,
+          };
         },
-      };
+      });
     },
   });
   return { adapter, settings, assertDashboardWorkspaceAdminAllowed, prisma };
