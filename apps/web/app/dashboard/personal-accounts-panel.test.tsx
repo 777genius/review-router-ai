@@ -26,6 +26,7 @@ vi.mock("./account-gateway-account-actions", () => ({
   readGatewayOperation: vi.fn(),
   beginGatewayOAuth: vi.fn(),
   completeGatewayOAuth: vi.fn(),
+  pollGatewayOAuth: vi.fn(),
   bindGatewayAccount: vi.fn(),
   detachGatewayAccount: vi.fn(),
   changeGatewayOperatorGrant: vi.fn(),
