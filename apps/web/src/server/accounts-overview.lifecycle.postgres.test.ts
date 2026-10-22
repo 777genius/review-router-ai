@@ -286,7 +286,9 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
         expect(read).toHaveBeenCalledOnce();
         // The cached-reader boundary intentionally masks source errors. Confirm
         // this controlled revoke actually completed rather than masking a bad fixture.
-        await expect(read.mock.results[0]!.value).resolves.toEqual({ status: "unknown" });
+        await expect(read.mock.results[0]!.value).resolves.toEqual({
+          status: "unknown",
+        });
         expect(result).toMatchObject({
           status: "ok",
           value: { accounts: [{ connectionId: owned.id }] },
