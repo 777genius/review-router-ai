@@ -3,6 +3,9 @@
 Статус: план реализации, после отдельного прохода `plan-improve` и `q`.
 База: `origin/main` `bb277462bed5135a838b20d07eeae69034562bd8`, 2026-10-21.
 Отдельный план: [публичный каталог моделей](58-public-provider-model-catalog-plan.md).
+Новая самостоятельная фаза: [нативные лимиты аккаунтов в Accounts](60-account-native-limits-implementation-plan.md).
+Она имеет собственную приёмку и оценку остатка; не расширяет исходную приёмку
+ledger/двух транспортов этого плана и не входит в каталог моделей.
 
 ## Результат и границы
 
@@ -338,6 +341,12 @@ logical runs и число provider attempts, не считать accepted turns
 Quota/limits, если их сообщает native facade, показываются отдельным as-of
 снимком с scope (ключ/аккаунт/подписка) и reset; без источника - «неизвестно».
 Реализация полного reader subscription entitlements не prerequisite ledger.
+Конкретный reader, доступ владельца, UI Accounts и безопасное обновление
+определены в [плане 60](60-account-native-limits-implementation-plan.md).
+Workspace usage report не имеет единого процента account quota: общий аккаунт
+может обслуживать несколько workspace и внешние обращения. Его текущую строку
+`Quota / limits: unknown` заменить переходом к разрешённым Accounts только при
+реализации плана 60, без вывода quota из ledger totals.
 
 Workspace owner/admin видят полный отчёт своего workspace; member - только
 свои атрибутированные запуски. Общий upstream account не открывает данные

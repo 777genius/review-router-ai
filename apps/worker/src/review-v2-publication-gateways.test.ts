@@ -1239,6 +1239,7 @@ describe("GitHub App PR description publication", () => {
     } = {},
   ) {
     let body = input.body ?? "Author context\r\n";
+    let headSha = input.headSha ?? hash("a");
     let reads = 0;
     const writes: Readonly<Record<string, unknown>>[] = [];
     const octokit: GitHubInstallationClient = {
@@ -1249,7 +1250,7 @@ describe("GitHub App PR description publication", () => {
             body = input.secondBody;
           if (reads === 3 && input.readbackBody !== undefined)
             body = input.readbackBody;
-          return { data: { body, head: { sha: input.headSha ?? hash("a") } } };
+          return { data: { body, head: { sha: headSha } } };
         }
         if (route === "PATCH /repos/{owner}/{repo}/pulls/{pull_number}") {
           writes.push(parameters);
@@ -1263,7 +1264,14 @@ describe("GitHub App PR description publication", () => {
         throw new Error("unexpected_graphql");
       },
     };
-    return { client: githubPublicationClient(octokit, payload), writes };
+    return {
+      client: githubPublicationClient(octokit, payload),
+      writes,
+      setCurrent(value: { body: string; headSha: string }) {
+        body = value.body;
+        headSha = value.headSha;
+      },
+    };
   }
 
   it("merges the fetched legacy body, preserves author bytes, and is idempotent", async () => {
@@ -1290,6 +1298,49 @@ describe("GitHub App PR description publication", () => {
       capability: capability(),
     });
     expect(fixtureState.writes).toHaveLength(1);
+  });
+
+  it("uses the same visible-object hash for acknowledgement and unchanged readback", async () => {
+    const state = fixture();
+    const acknowledged = await state.client.applyOperation({
+      operation: descriptionOperation(),
+      capability: capability(),
+    });
+    const read = () =>
+      state.client.findAllByMarker({
+        operation: descriptionOperation(),
+        cursor: null,
+      });
+    const unchanged = await read();
+    expect(unchanged.objects).toMatchObject([
+      {
+        externalObjectId: acknowledged.externalObjectId,
+        markerHash: acknowledged.markerHash,
+        bodyHash: acknowledged.bodyHash,
+        observedObjectHash: acknowledged.observedObjectHash,
+      },
+    ]);
+
+    state.setCurrent({
+      body: "Changed author context\n\n" + block,
+      headSha: hash("a"),
+    });
+    const changedAuthor = await read();
+    expect(changedAuthor.objects[0]?.bodyHash).toBe(acknowledged.bodyHash);
+    expect(changedAuthor.objects[0]?.observedObjectHash).not.toBe(
+      acknowledged.observedObjectHash,
+    );
+
+    state.setCurrent({
+      body: String(state.writes[0]?.body),
+      headSha: hash("b"),
+    });
+    const changedHead = await read();
+    expect(changedHead.objects[0]?.bodyHash).toBe(acknowledged.bodyHash);
+    expect(changedHead.objects[0]?.observedObjectHash).not.toBe(
+      acknowledged.observedObjectHash,
+    );
+    expect(state.writes).toHaveLength(1);
   });
 
   it.each([
