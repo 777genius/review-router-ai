@@ -138,5 +138,9 @@ export function intervalLabel(
     day: "numeric",
     year: "numeric",
   });
-  return `${dates.formatRange(new Date(from), new Date(Date.parse(to) - 1))} UTC`;
+  // Node and browsers can use different ICU spacing for the same UTC range.
+  const range = dates
+    .formatRange(new Date(from), new Date(Date.parse(to) - 1))
+    .replace(/\s+/gu, " ");
+  return `${range} UTC`;
 }

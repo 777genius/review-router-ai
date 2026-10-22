@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -437,5 +438,79 @@ describe("provider usage interactive report", () => {
     fireEvent.click(screen.getByText("Observed: different model, Unknown"));
     expect(disclosure.open).toBe(true);
     expect(screen.getByText(`${actual}, Unknown`)).toBeTruthy();
+  });
+  it("keeps Details open when a new observation page replaces the loading context, then resets it for fresh SSR", async () => {
+    const firstRow: ProviderUsageReport["rows"][number] = {
+      id: "call-before",
+      provider: "codex",
+      requestedModel: "before-pagination",
+      model: "before-pagination",
+      day: "2026-10-20",
+      route: "direct",
+      purpose: "review",
+      runId: "run",
+      granularity: "call",
+      total: 10,
+      completeness: "complete",
+      cost: null,
+      authority: "runtime",
+      durationMs: null,
+      ttftMs: null,
+    };
+    const firstReport = { ...report, rows: [firstRow] };
+    let completePage!: (value: ProviderUsageReport) => void;
+    vi.mocked(fetchProviderUsage).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          completePage = resolve;
+        }),
+    );
+    const view = render(<Harness seed={firstReport} />);
+    fireEvent.click(screen.getByLabelText("Details"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Details").closest("details")!.open).toBe(
+        true,
+      ),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Next observation page" }),
+    );
+    await waitFor(() =>
+      expect(fetchProviderUsage).toHaveBeenCalledWith(
+        "workspace",
+        expect.objectContaining({ after: "observation-page" }),
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(screen.queryByText(/before-pagination/)).toBeNull();
+    await act(async () =>
+      completePage({
+        ...firstReport,
+        rows: [
+          {
+            ...firstRow,
+            id: "call-after",
+            requestedModel: "after-pagination",
+            model: "after-pagination",
+          },
+        ],
+        hasMore: false,
+        nextCursor: null,
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Details").closest("details")!.open).toBe(
+        true,
+      ),
+    );
+    expect(
+      screen.getByRole("table", { name: "Usage observations" }).textContent,
+    ).toContain("after-pagination");
+    view.rerender(<Harness seed={{ ...firstReport }} />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Details").closest("details")!.open).toBe(
+        false,
+      ),
+    );
   });
 });

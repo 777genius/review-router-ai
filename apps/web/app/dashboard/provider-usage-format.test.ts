@@ -3,6 +3,7 @@ import type { UsageTotals } from "@reviewrouter/features-provider-usage";
 import {
   chartNumber,
   customInterval,
+  intervalLabel,
   metricLabel,
   utcDays,
 } from "./provider-usage-format";
@@ -74,5 +75,10 @@ describe("usage presentation invariants", () => {
       { day: "2026-03-28", partial: true },
       { day: "2026-03-29", partial: false },
     ]);
+  });
+  it("renders a stable UTC date range with ASCII spaces across server and browser ICU versions", () => {
+    expect(
+      intervalLabel("2026-09-22T12:00:00.000Z", "2026-10-22T12:00:00.000Z"),
+    ).toBe("Sep 22 – Oct 22, 2026 UTC");
   });
 });

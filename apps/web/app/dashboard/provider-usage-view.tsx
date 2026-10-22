@@ -49,6 +49,7 @@ function ProviderUsageContext({
   const [tab, setTab] = useState<"models" | "runs">("models");
   const [metric, setMetric] = useState<UsageMetric>("tokens");
   const [costSelection, setCostSelection] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // A rejected SSR seed must remain unusable across every filter and page key.
   const [deniedSeed, setDeniedSeed] = useState<ProviderUsageReport | null>(
     null,
@@ -134,6 +135,7 @@ function ProviderUsageContext({
     setTab("models");
     setMetric("tokens");
     setCostSelection("");
+    setDetailsOpen(false);
   }, [initialReport, initialFilters]);
   const unavailable = denied || accessFailure;
   const hasUnknown =
@@ -504,7 +506,11 @@ function ProviderUsageContext({
               )}
             </div>
           </div>
-          <details className="border-t border-slate-700/50 pt-3">
+          <details
+            className="border-t border-slate-700/50 pt-3"
+            open={detailsOpen}
+            onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+          >
             <summary
               aria-label="Details"
               className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300"

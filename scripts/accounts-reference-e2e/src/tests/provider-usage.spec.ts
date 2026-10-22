@@ -23,6 +23,8 @@ test("provider usage overview keeps complete period totals, charts, models and r
   const db = new pg.Client({ connectionString: databaseUrl });
   await db.connect();
   const violations: string[] = [];
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   const days = [-2, -1, 0].map((offset) => {
     const date = new Date();
     date.setUTCDate(date.getUTCDate() + offset);
@@ -317,6 +319,9 @@ test("provider usage overview keeps complete period totals, charts, models and r
           ),
         )
         .toBe(true);
+      await page.evaluate(() =>
+        window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
+      );
       await page.screenshot({
         path: info.outputPath(`usage-tokens-${width}.png`),
         fullPage: true,
@@ -325,6 +330,9 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByRole("button", { name: "Dark theme", exact: true }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await page.evaluate(() =>
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
+    );
     await page.screenshot({
       path: info.outputPath("usage-tokens-light-desktop.png"),
       fullPage: true,
@@ -344,6 +352,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
     try {
       await useViewerSession(zoomContext);
       const zoom = await zoomContext.newPage();
+      zoom.on("pageerror", (error) => pageErrors.push(error.message));
       await installLoopbackOnlyNetworkGuard(zoom, violations);
       await zoom.goto("/dashboard?section=usage&workspace=rr-e2e-org-alpha");
       await expect(
@@ -358,6 +367,9 @@ test("provider usage overview keeps complete period totals, charts, models and r
           ),
         )
         .toBe(true);
+      await zoom.evaluate(() =>
+        window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
+      );
       await zoom.screenshot({
         path: info.outputPath("usage-tokens-640-dpr2.png"),
         fullPage: true,
@@ -374,6 +386,9 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(
       usage.getByLabel("Requested models chart", { exact: true }),
     ).toContainText("0.3 USD (estimated)");
+    await page.evaluate(() =>
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
+    );
     await page.screenshot({
       path: info.outputPath("usage-cost-mixed.png"),
       fullPage: true,
@@ -394,6 +409,9 @@ test("provider usage overview keeps complete period totals, charts, models and r
     ).toHaveCount(8);
     await expect(kpi("Known tokens")).toContainText("858");
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() =>
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
+    );
     await page.screenshot({
       path: info.outputPath("usage-runs-mobile.png"),
       fullPage: true,
@@ -406,6 +424,9 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(
       usage.getByText("No measured observations", { exact: false }),
     ).toBeVisible();
+    await page.evaluate(() =>
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
+    );
     await page.screenshot({
       path: info.outputPath("usage-empty-mobile.png"),
       fullPage: true,
@@ -434,6 +455,9 @@ test("provider usage overview keeps complete period totals, charts, models and r
         .getByRole("row"),
     ).toHaveCount(12);
     await expect(kpi("Known tokens")).toContainText("858");
+    await page.evaluate(() =>
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
+    );
     await page.screenshot({
       path: info.outputPath("usage-details-mobile.png"),
       fullPage: true,
@@ -518,6 +542,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await page.reload();
     await expect(kpi("Known tokens")).toContainText("50");
     expect(violations).toEqual([]);
+    expect(pageErrors).toEqual([]);
   } finally {
     await db.query(
       `DELETE FROM "UsageCall" WHERE "callId" LIKE 'rr-e2e-usage-overview-%'`,
