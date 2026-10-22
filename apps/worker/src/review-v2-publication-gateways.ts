@@ -758,12 +758,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
                 `pull-request-body:${this.options.permit.pullRequestNumber}`,
                 payload,
                 sha256(block),
-                sha256(
-                  canonicalJson({
-                    bodyHash: sha256(current.body),
-                    headSha: current.headSha,
-                  }),
-                ),
+                prDescriptionVisibleObjectHash(current),
               ),
             ],
       nextCursor: null,
@@ -826,14 +821,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         `pull-request-body:${this.options.permit.pullRequestNumber}`,
         payload,
         sha256(payload.body),
-        sha256(
-          canonicalJson({
-            preimageBodyHash: sha256(before.body),
-            targetBodyHash: sha256(target),
-            observedBodyHash: sha256(after.body),
-            headSha: after.headSha,
-          }),
-        ),
+        prDescriptionVisibleObjectHash(after),
       );
     } catch (error) {
       if (error instanceof ReviewV2ScmMutationError) throw error;
@@ -1546,6 +1534,15 @@ function canonicalJson(value: unknown): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
     .join(",")}}`;
+}
+
+function prDescriptionVisibleObjectHash(current: {
+  readonly body: string;
+  readonly headSha: string;
+}): string {
+  return sha256(
+    canonicalJson({ bodyHash: sha256(current.body), headSha: current.headSha }),
+  );
 }
 
 function sha256(value: string): string {
