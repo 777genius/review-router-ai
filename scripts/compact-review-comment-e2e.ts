@@ -93,14 +93,14 @@ const findings: ReviewFinding[] = [
 const marker = "reviewrouter:compact-comment-e2e:v1";
 const query = new URLSearchParams({
   state: "complete",
+  variant: "first",
   critical: "1",
   major: "0",
   minor: "0",
   info: "0",
-  lang: "en",
   theme: "light",
 });
-const imageUrl = `${origin.origin}/review-banner/v1.svg?${query}`;
+const imageUrl = `${origin.origin}/review-banner/v2.svg?${query}`;
 const image = await fetch(imageUrl, { signal: AbortSignal.timeout(30_000) });
 assert.equal(
   image.status,
@@ -124,7 +124,7 @@ const unrelatedValidator = await fetch(imageUrl, {
 });
 assert.equal(unrelatedValidator.status, 200);
 const invalidImage = await fetch(
-  `${origin.origin}/review-banner/v1.svg?state=complete&critical=-1`,
+  `${origin.origin}/review-banner/v2.svg?state=complete&variant=first&critical=-1`,
   { signal: AbortSignal.timeout(30_000) },
 );
 assert.equal(invalidImage.status, 400);
@@ -197,6 +197,9 @@ assert.doesNotMatch(
   /# ReviewRouter|## Summary|Release Notes|0 major|data:image/,
 );
 assert.match(initial.body_html, /<picture>/);
+assert.match(initial.body_html, /width="100%"/);
+assert.doesNotMatch(initial.body_html, /height="110"|alt="ReviewRouter"/);
+assert.match(initial.body_html, /max-width: 600px/);
 assert.match(initial.body_html, /<source[^>]+srcset=/);
 const camo = new RegExp(
   '<img[^>]+src="(https://camo[.]githubusercontent[.]com/[^"]+)"',
@@ -262,7 +265,7 @@ assert.match(broken.body, /Full agent-readable evidence/);
 assert.match(broken.body, /1 critical/);
 assert.match(broken.body, /e2e-unavailable-banner/);
 const unavailable = await fetch(
-  `${origin.origin}/e2e-unavailable-banner/review-banner/v1.svg?${query}`,
+  `${origin.origin}/e2e-unavailable-banner/review-banner/v2.svg?${query}`,
   { signal: AbortSignal.timeout(30_000) },
 );
 assert.equal(unavailable.status, 404);
