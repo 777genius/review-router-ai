@@ -47,6 +47,14 @@ Fallback does not change the configured engine or discard its cleanup inventory.
 
 ## Composition and dependencies
 
+The package root `@reviewrouter/features-memory` exports domain types,
+application ports/use cases and the pure interaction interface. Concrete Prisma,
+entitlement and configuration adapters are available only through the explicit
+server-side `@reviewrouter/features-memory/infrastructure` entrypoint. Host
+composition imports that entrypoint; policy and read-only consumers use the root.
+The API retrieval route requires only `MemorySearchReaderPort`, so a reader does
+not need dummy write methods or a deployment identity.
+
 Use the server-only export `@reviewrouter/features-memory/composition`:
 
 ```ts
@@ -62,6 +70,14 @@ await runtime.drain({ limit: 10 });
 The API, worker, and operator CLI use the same configuration selection. The API retains its test injection seam. The host owns the borrowed Prisma client and its shutdown.
 
 The [composition root](src/composition/index.ts) uses `@get-modular/core` and `@get-modular/assembly` **0.2.0**: declare the host dependencies and selected implementation, compile the composition, bind factories, prepare, and run once at process startup. Get Modular stays in composition. Provider DTOs and SDK calls stay in the Infinity infrastructure adapter. This is a fixed choice between explicit implementations, with no runtime plugin registry or hot reload.
+
+Shared projection receipts belong to `infrastructure/projection`, independently
+of a search engine. The Prisma receipt store implements that neutral contract;
+it does not import the Infinity adapter. Provider configuration diagnostics are
+classified inside the feature, so the operator CLI does not enumerate provider
+fields. Adding an engine changes its infrastructure adapter, configuration,
+composition and qualification coverage; application policy, API retrieval and
+the dashboard remain independent of that choice.
 
 The [package manifest](package.json) pins `@infinity-context/sdk` to the **sdk-v0.2.4 release tarball**:
 
@@ -113,7 +129,7 @@ The interval must be positive and at most one day; the batch size is 1–100. Th
 
 ## Durable projection lifecycle
 
-The [receipt contract](src/infrastructure/infinity/memory-projection-receipt-store.ts), [Prisma receipt store](src/infrastructure/prisma/prisma-infinity-memory-projection-store.ts), and [migration 000141](../../platform/db/prisma/migrations/000141_memory_search_projections/migration.sql) hold the durable export inventory.
+The [receipt contract](src/infrastructure/projection/memory-projection-receipt-store.ts), [Prisma receipt store](src/infrastructure/prisma/prisma-memory-projection-receipt-store.ts), and [migration 000141](../../platform/db/prisma/migrations/000141_memory_search_projections/migration.sql) hold the durable export inventory.
 
 | State          | Meaning                                                                                                            |
 | -------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -128,6 +144,10 @@ Deletion intent is separate from state so an acknowledgement arriving after an e
 Ordinary edits create a new body revision. Cleanup of a superseded export targets that exact revision; terminal deletion inventories all revisions for the item. Receipts survive canonical pruning and workspace deletion, allowing cleanup to continue after the original rows are gone.
 
 Worker reconciliation is bounded and uses due ordering/backoff. It can recover lost acknowledgements, identify superseded/orphaned/expired records, and continue deletion. It does not revive dead-letter outbox events.
+
+Infinity maintenance and deletion share one external-I/O budget per pass (five seconds by default), rather than multiplying that budget by the batch size. A pass stops before starting another receipt when less than the reconciliation minimum remains. Untouched receipts keep their schedule and error state; only attempted failures receive backoff. A successful exact-reconciliation capability is reused within that pass and refreshed on the next pass. Repeating deletion intent preserves an existing deletion retry schedule, so an earlier failed revision cannot repeatedly displace untouched revisions.
+
+Maintenance `processed` counts receipts actually started; `pending` includes selected receipts left unattempted. Drain also checks remaining durable inventory before retiring an index identity. These counters describe one bounded pass, not a global inventory or guaranteed completion time.
 
 ### Unknown writes remain debt
 

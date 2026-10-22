@@ -31,7 +31,7 @@ For a portable Chromium distribution, pass its required `LD_LIBRARY_PATH` and
 `FONTCONFIG_PATH` if applicable. Optional `MEMORY_E2E_OUTPUT_DIR` changes the
 artifact parent; the default is ignored `tmp/memory-e2e/browser`. Every invocation
 creates a separate run directory with `next-app.log`, `result.json` on success,
-and six PNG screenshots. Authentication secrets, role passwords, and session
+and twelve PNG screenshots. Authentication secrets, role passwords, and session
 cookies are generated per run and are never included in the result JSON.
 
 ## Assertions
@@ -42,7 +42,11 @@ read-only role. This role receives no privilege on any `Memory*` table; the
 harness verifies that denial for every currently present memory table. It does
 not change the privileges of the fixture owner or `PUBLIC`.
 
-The complete route matrix runs at **1440×1000**, **900×1100**, and **390×844**:
+The complete route matrix runs at **1440×1000**, **900×1100**, and **390×844**
+in both **dark** and **light** themes: **30 cases** in total. Each fresh browser
+context selects its theme through the application's header control. Every route
+checks the resolved theme, persisted `reviewrouter-theme` preference, and computed
+CSS `color-scheme`; setting a browser OS preference alone does not qualify a theme.
 
 | Route                                                                             | Purpose                                                  |
 | --------------------------------------------------------------------------------- | -------------------------------------------------------- |
@@ -52,13 +56,26 @@ The complete route matrix runs at **1440×1000**, **900×1100**, and **390×844*
 | `memory_mode=table&memory_item=stale`                                             | Previously addressable table and selection               |
 | `/dashboard/memory-preview?memory_mode=suggestions&mode=table&scenario=populated` | Preview enabled explicitly with stale fixture parameters |
 
-Every case requires an HTTP 200, the same visible static notice, no interactive
-element inside that notice, no forms, and no horizontal page overflow. Browser
+Every case requires an HTTP 200, the same visible static notice, exactly one
+page heading, no interactive element inside that notice, no forms, and no
+horizontal page overflow. Browser
 runtime errors, memory API requests, external browser requests, and application
 database permission errors fail the qualification. Base-dashboard and preview
-screenshots are captured at each viewport. Source hashes in the result identify
-the exact UI and schema bytes checked; concurrent changes to those bytes fail
-the run.
+screenshots are captured at each viewport and theme; filenames include the theme.
+The notice title, badge, and paragraph text must each have computed contrast of
+at least **4.5:1**. A native 1×1 sRGB Canvas paints the computed ancestor
+backgrounds from outer to inner, then the foreground, using source-over alpha
+compositing. This supports the browser's modern CSS colors without a separate
+color parser; contrast uses the resulting 8-bit RGB values. It rejects image
+backgrounds and group opacity in that path instead of assuming a contrast value.
+In light mode, the actual body background and footer base background must also
+match their resolved theme tokens. The result records these colors and notice
+contrast ratios. This catches a mobile stylesheet overriding the light surface
+even when theme attributes and `color-scheme` are correct.
+
+Source hashes in the result identify the UI, global stylesheet, theme
+implementation, tokens, and schema bytes checked; concurrent changes to those
+bytes fail the run.
 
 The browser, owned Next process group, synthetic records, and temporary role are
 cleaned up when the script exits normally or fails an assertion. Logs and
@@ -78,3 +95,8 @@ The focused `dashboard-loading-boundaries.test.tsx` tests separately assert that
 the Memory render path never calls memory dependencies, and
 `actions-memory-pause.test.ts` verifies all twelve stale mutation entrypoints
 preserve authorization and refuse effects.
+
+The contrast check covers the flat Memory notice, including its alpha badge
+background. The footer has a separate gradient overlay, so its base-color check
+is a theme regression guard, not a measurement of every rendered footer pixel.
+Inspect all screenshots in both themes; this is not a full accessibility audit.

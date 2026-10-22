@@ -14,9 +14,9 @@ const receiptStorage = vi.hoisted(() => ({
 // Keep real Get Modular factories and the real SDK client constructor. Only the
 // borrowed database boundary is replaced in these startup wiring tests.
 vi.mock(
-  "../infrastructure/prisma/prisma-infinity-memory-projection-store",
+  "../infrastructure/prisma/prisma-memory-projection-receipt-store",
   () => ({
-    PrismaInfinityMemoryProjectionStore: class {
+    PrismaMemoryProjectionReceiptStore: class {
       assertCompatibleIndexIdentity =
         receiptStorage.assertCompatibleIndexIdentity;
       retireIndexIdentity = receiptStorage.retireIndexIdentity;

@@ -12,8 +12,8 @@ import {
   type MemorySearchConfigEnv,
 } from "../infrastructure/config/memory-search-config";
 import { InfinityMemorySearchIndex } from "../infrastructure/infinity/infinity-memory-search-index";
-import type { MemoryProjectionReceiptStore } from "../infrastructure/infinity/memory-projection-receipt-store";
-import { PrismaInfinityMemoryProjectionStore } from "../infrastructure/prisma/prisma-infinity-memory-projection-store";
+import type { MemoryProjectionReceiptStore } from "../infrastructure/projection/memory-projection-receipt-store";
+import { PrismaMemoryProjectionReceiptStore } from "../infrastructure/prisma/prisma-memory-projection-receipt-store";
 import {
   enqueueMemoryProjectionBackfill,
   type MemoryProjectionBackfillInput,
@@ -22,6 +22,7 @@ import {
 import { PrismaMemorySearchIndex } from "../infrastructure/prisma/prisma-memory-search-index";
 
 export type { MemoryProjectionBackfillInput, MemoryProjectionBackfillResult };
+export { safeMemorySearchConfigurationErrorCode } from "../infrastructure/config/memory-search-config";
 
 export type MemoryProjectionMaintenanceResult = {
   readonly processed: number;
@@ -136,7 +137,7 @@ export async function createMemorySearchRuntime(input: {
   readonly env: MemorySearchConfigEnv;
 }): Promise<MemorySearchRuntime> {
   const config = parseMemorySearchConfig(input.env);
-  const receipts = new PrismaInfinityMemoryProjectionStore(input.prisma);
+  const receipts = new PrismaMemoryProjectionReceiptStore(input.prisma);
   const assembly = assemblyFor<MemoryCapabilities>();
   const host = assembly.bindFactory(hostModule, async () => ({
     instance: input.prisma,

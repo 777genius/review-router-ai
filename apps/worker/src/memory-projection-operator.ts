@@ -1,6 +1,9 @@
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { config as loadDotenv } from "dotenv";
-import { createMemorySearchRuntime } from "@reviewrouter/features-memory/composition";
+import {
+  createMemorySearchRuntime,
+  safeMemorySearchConfigurationErrorCode,
+} from "@reviewrouter/features-memory/composition";
 import { createPrismaClient } from "@reviewrouter/platform-db";
 
 export type MemoryProjectionOperatorCommand =
@@ -99,6 +102,8 @@ export function parseMemoryProjectionOperatorArgs(
 }
 
 export function safeMemoryProjectionOperatorError(error: unknown): string {
+  const configurationCode = safeMemorySearchConfigurationErrorCode(error);
+  if (configurationCode) return configurationCode;
   const code = error instanceof Error ? error.message : "";
   return safeErrorCodes.has(code) ? code : "memory_projection_operator_failed";
 }
@@ -165,20 +170,9 @@ const safeErrorCodes = new Set([
   "memory_index_identity_conflict",
   "memory_index_generation_retired",
   "memory_index_pending",
-  "memory_search_engine_invalid",
   "memory_search_composition_invalid",
   "memory_search_composition_unprepared",
   "memory_search_composition_failed",
-  ...[
-    "base_url",
-    "api_key",
-    "space_id",
-    "memory_scope_id",
-    "projection_generation",
-    "profile_id",
-    "capability_fingerprint",
-    "required_provider_lanes",
-  ].map((field) => "memory_infinity_" + field + "_invalid"),
 ]);
 
 const entrypoint = process.argv[1];

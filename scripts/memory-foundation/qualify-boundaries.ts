@@ -25,6 +25,8 @@ type Fixture = {
   readonly path: string;
   readonly source: string;
   readonly rule: string | null;
+  /** Exercise an existing public entrypoint without broadening its policy root. */
+  readonly append?: boolean;
 };
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -97,6 +99,44 @@ const fixtures: readonly Fixture[] = [
     rule: "forbidden-package-dependency",
   },
   {
+    name: "allowed-public-core-type-export",
+    path: `${memoryRoot}/index.ts`,
+    source:
+      "\nexport type { MemorySearchReaderPort as QualificationReader } from './application/ports/memory-search-index-port';\n",
+    rule: null,
+    append: true,
+  },
+  {
+    name: "forbidden-public-concrete-value-reexport",
+    path: `${memoryRoot}/index.ts`,
+    source:
+      "\nexport { PrismaMemorySearchIndex as QualificationPrisma } from './infrastructure/prisma/prisma-memory-search-index';\n",
+    rule: "forbidden-boundary-dependency",
+    append: true,
+  },
+  {
+    name: "forbidden-public-concrete-type-reexport",
+    path: `${memoryRoot}/index.ts`,
+    source:
+      "\nexport type { PrismaMemorySearchIndex as QualificationPrisma } from './infrastructure/prisma/prisma-memory-search-index';\n",
+    rule: "forbidden-boundary-dependency",
+    append: true,
+  },
+  {
+    name: "forbidden-shared-projection-sdk-import",
+    path: `${memoryRoot}/infrastructure/projection/${fixtureName}`,
+    source: "import '@infinity-context/sdk';\n",
+    rule: "forbidden-package-dependency",
+  },
+  {
+    name: "forbidden-prisma-specific-engine-import",
+    path: `${memoryRoot}/infrastructure/prisma/prisma-memory-projection-receipt-store.ts`,
+    source:
+      "\nexport type { InfinityMemorySearchIndex as QualificationInfinity } from '../infinity/infinity-memory-search-index';\n",
+    rule: "forbidden-boundary-dependency",
+    append: true,
+  },
+  {
     name: "unknown-memory-source",
     path: `${memoryRoot}/${fixtureName}`,
     source: "export const unowned = true;\n",
@@ -149,9 +189,11 @@ const results: {
 }[] = [];
 for (const fixture of fixtures) {
   const path = join(root, fixture.path);
+  const original = fixture.append ? readFileSync(path, "utf8") : null;
   // Exclusive creation prevents this tool overwriting a source file or a
-  // fixture left behind by another run. Only this run's unchanged bytes are removed.
-  writeFileSync(path, fixture.source, { flag: "wx" });
+  // fixture left behind by another run. Existing entrypoints are appended to and
+  // restored only if their bytes still match this run's expected modification.
+  writeFileSync(path, fixture.source, { flag: fixture.append ? "a" : "wx" });
   try {
     const { report, exitCode } = check();
     if (fixture.rule === null) {
@@ -179,10 +221,11 @@ for (const fixture of fixtures) {
   } finally {
     assert.equal(
       readFileSync(path, "utf8"),
-      fixture.source,
+      (original ?? "") + fixture.source,
       "Concurrent fixture change: preserve it for inspection.",
     );
-    unlinkSync(path);
+    if (original === null) unlinkSync(path);
+    else writeFileSync(path, original);
   }
 }
 const final = check();

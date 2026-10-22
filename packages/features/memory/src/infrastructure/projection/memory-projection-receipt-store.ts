@@ -52,7 +52,7 @@ type ReceiptDocument = ReceiptKey & {
   readonly remoteDocumentId: string;
 };
 
-/** Infrastructure bookkeeping, deliberately independent of Infinity SDK DTOs. */
+/** Shared projection bookkeeping, independent of any engine or SDK DTOs. */
 export interface MemoryProjectionReceiptStore {
   /** Startup check only; reserve/admitSend repeat it under their transaction lock. */
   assertCompatibleIndexIdentity(indexIdentity: string): Promise<void>;

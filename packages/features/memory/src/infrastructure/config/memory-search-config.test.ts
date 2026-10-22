@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  MemorySearchConfigurationError,
   parseMemorySearchConfig,
+  safeMemorySearchConfigurationErrorCode,
   type InfinityMemorySearchConfig,
 } from "./memory-search-config";
 
@@ -99,13 +101,71 @@ describe("memory search configuration", () => {
       } catch (error) {
         failure = error;
       }
-      expect(failure).toBeInstanceOf(Error);
+      expect(failure).toBeInstanceOf(MemorySearchConfigurationError);
       expect((failure as Error).message).toBe(
         `memory_infinity_${name.toLowerCase()}_invalid`,
+      );
+      expect(safeMemorySearchConfigurationErrorCode(failure)).toBe(
+        (failure as Error).message,
       );
       expect((failure as Error).cause).toBeUndefined();
     },
   );
+
+  it("classifies an unsupported engine without exposing its configured value", () => {
+    let failure: unknown;
+    try {
+      parseMemorySearchConfig({
+        REVIEW_ROUTER_MEMORY_SEARCH_ENGINE: "private-engine-sentinel",
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(safeMemorySearchConfigurationErrorCode(failure)).toBe(
+      "memory_search_engine_invalid",
+    );
+    expect((failure as Error).cause).toBeUndefined();
+  });
+
+  it.each([
+    new Error("memory_infinity_api_key_invalid"),
+    new Error("private-credential-sentinel"),
+    {
+      name: "MemorySearchConfigurationError",
+      code: "memory_infinity_api_key_invalid",
+      message: "memory_infinity_api_key_invalid",
+    },
+    "memory_search_engine_invalid",
+    null,
+    Object.assign(
+      new MemorySearchConfigurationError("memory_search_engine_invalid"),
+      { code: "private-credential-sentinel" },
+    ),
+  ])("does not classify opaque or spoofed configuration errors", (error) => {
+    expect(safeMemorySearchConfigurationErrorCode(error)).toBeNull();
+  });
+
+  it("snapshots the diagnostic once and never reflects a private message or cause", () => {
+    const failure = Object.assign(
+      new MemorySearchConfigurationError("memory_search_engine_invalid"),
+      {
+        message: "private-config-sentinel",
+        cause: new Error("private-credential-sentinel"),
+      },
+    );
+    let reads = 0;
+    Object.defineProperty(failure, "code", {
+      get: () =>
+        ++reads === 1
+          ? "memory_search_engine_invalid"
+          : "private-code-sentinel",
+    });
+
+    expect(safeMemorySearchConfigurationErrorCode(failure)).toBe(
+      "memory_search_engine_invalid",
+    );
+    expect(reads).toBe(1);
+  });
 
   it("requires all Infinity pins even when runtime memory is disabled", () => {
     expect(() =>

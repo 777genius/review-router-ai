@@ -31,7 +31,7 @@ import type {
   MemoryProjectionReceipt,
   MemoryProjectionReceiptStore,
   MemoryProjectionRevision,
-} from "./memory-projection-receipt-store";
+} from "../projection/memory-projection-receipt-store";
 import {
   authorizedSourceKeys,
   projectionIdentity,
@@ -43,6 +43,7 @@ const sourceType = "reviewrouter_confirmed_memory";
 const projectionTitle = "Confirmed review memory";
 const defaultReadBudgetMs = 2_000;
 const defaultWriteBudgetMs = 5_000;
+const minimumReconciliationBudgetMs = 50;
 const cleanupBatchLimit = 10;
 const retryDelayMs = 60_000;
 const responseByteLimit = 262_144;
@@ -74,7 +75,7 @@ export class InfinityMemorySearchIndex implements MemorySearchIndexPort {
     this.writeBudgetMs = input.writeTimeoutMs ?? defaultWriteBudgetMs;
     if (
       !Number.isSafeInteger(this.writeBudgetMs) ||
-      this.writeBudgetMs < 50 ||
+      this.writeBudgetMs < minimumReconciliationBudgetMs ||
       this.writeBudgetMs > 30_000
     ) {
       throw new MemoryIndexOperationError("memory_index_deadline");
@@ -301,10 +302,13 @@ export class InfinityMemorySearchIndex implements MemorySearchIndexPort {
       });
       if (batch.length === 0) return;
       const budget = writeBudget(this.writeBudgetMs);
+      let capability: ExactDocumentReconciliationCapabilityV1 | undefined;
       let failed = false;
       for (const receipt of batch) {
+        // Leave unattempted receipts due; an exhausted pass is not their failure.
+        if (!canStartReceipt(budget)) break;
         try {
-          const capability = await this.exactCapability(budget);
+          capability ??= await this.exactCapability(budget);
           await this.cleanup(receipt, capability, budget);
         } catch (error) {
           failed = true;
@@ -359,9 +363,13 @@ export class InfinityMemorySearchIndex implements MemorySearchIndexPort {
     draining: boolean,
   ): Promise<MemoryProjectionMaintenanceResult> {
     const budget = writeBudget(this.writeBudgetMs);
+    let capability: ExactDocumentReconciliationCapabilityV1 | undefined;
+    let processed = 0;
     let deleted = 0;
     let pending = 0;
     for (let receipt of batch) {
+      if (!canStartReceipt(budget)) break;
+      processed += 1;
       try {
         if (draining || receipt.deleteRequested || !receipt.isCurrent) {
           await this.receipts.requestDeletion({
@@ -376,18 +384,15 @@ export class InfinityMemorySearchIndex implements MemorySearchIndexPort {
           if (latest === undefined) throw failure("memory_index_conflict");
           receipt = latest;
           if (receipt.state !== "deleted") {
-            await this.cleanup(
-              receipt,
-              await this.exactCapability(budget),
-              budget,
-            );
+            capability ??= await this.exactCapability(budget);
+            await this.cleanup(receipt, capability, budget);
           }
           deleted += 1;
         } else if (receipt.state === "reserved") {
           // Only the canonical outbox handler can supply a body for a new write.
           throw failure("memory_index_pending");
         } else {
-          const capability = await this.exactCapability(budget);
+          capability ??= await this.exactCapability(budget);
           const observation = await this.observe(receipt, capability, budget);
           if (observation.document_id === null) {
             throw failure("memory_index_unknown_write");
@@ -400,7 +405,7 @@ export class InfinityMemorySearchIndex implements MemorySearchIndexPort {
         await this.defer(receipt, sanitize(error).code);
       }
     }
-    return { processed: batch.length, deleted, pending };
+    return { processed, deleted, pending: pending + batch.length - processed };
   }
 
   private async finishUpsert(
@@ -493,7 +498,8 @@ export class InfinityMemorySearchIndex implements MemorySearchIndexPort {
   ): Promise<ExactDocumentReconciliationResultV1> {
     const identity = projectionIdentity(receipt);
     const remaining = remainingMs(budget);
-    if (remaining < 50) throw failure("memory_index_deadline");
+    if (remaining < minimumReconciliationBudgetMs)
+      throw failure("memory_index_deadline");
     const deadlineMs = Math.min(remaining, capability.max_deadline_ms, 10_000);
     const result = await this.client.documents.reconcileExactDocument({
       capability,
@@ -758,6 +764,13 @@ function readBudget(
 
 function writeBudget(milliseconds: number): MemorySearchRequestControls {
   return { deadlineAtMs: Date.now() + milliseconds };
+}
+
+function canStartReceipt(budget: MemorySearchRequestControls): boolean {
+  return (
+    !budget.signal?.aborted &&
+    budget.deadlineAtMs - Date.now() >= minimumReconciliationBudgetMs
+  );
 }
 
 function remainingMs(budget: MemorySearchRequestControls): number {

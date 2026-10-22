@@ -7,7 +7,14 @@ critique/fix rounds before implementation. Owner request: replace the Memory
 dashboard with an honest under-development message, make the memory engine
 replaceable, integrate the first Infinity Context SDK adapter, test the complete
 changed paths, publish a PR and address review findings. Push each coherent
-checkpoint. This work does not deploy or merge the PR.
+checkpoint. The initial delivery scope excluded merge and deployment.
+
+Follow-up owner request, after the initial PR delivery: deepen the dependency
+audit, improve the paused screen with existing shared components, repeat
+independent implementation criticism and visual qualification, then merge the
+verified PR. That request authorizes merge after these checks; it does not
+activate Infinity or restore dashboard memory functionality. The accepted
+canonical storage and lifecycle decisions remain unchanged.
 
 Baseline: ReviewRouter `dfda0b419c2b713903d033662b03992cf5a3e4a7`.
 The organization Engineering Quality Standard was read at

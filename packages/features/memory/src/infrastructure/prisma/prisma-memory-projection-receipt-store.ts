@@ -5,7 +5,7 @@ import type {
   MemoryProjectionReceipt,
   MemoryProjectionReceiptStore,
   MemoryProjectionRevision,
-} from "../infinity/memory-projection-receipt-store";
+} from "../projection/memory-projection-receipt-store";
 
 type ReceiptStoreInput<K extends keyof MemoryProjectionReceiptStore> =
   Parameters<MemoryProjectionReceiptStore[K]>[0];
@@ -25,8 +25,8 @@ const isCurrent = Prisma.sql`EXISTS (
 )`;
 const selectReceipt = Prisma.sql`SELECT p.*, ${isCurrent} AS "isCurrent" FROM "MemoryProjectionReceipt" p`;
 
-/** Durable, text-free Infinity projection state. Canonical records own all text. */
-export class PrismaInfinityMemoryProjectionStore implements MemoryProjectionReceiptStore {
+/** Durable, text-free projection state. Canonical records own all text. */
+export class PrismaMemoryProjectionReceiptStore implements MemoryProjectionReceiptStore {
   constructor(private readonly prisma: PrismaClient) {}
 
   async assertCompatibleIndexIdentity(indexIdentity: string): Promise<void> {
@@ -192,7 +192,8 @@ export class PrismaInfinityMemoryProjectionStore implements MemoryProjectionRece
     await this.withAdmission(async (tx) => {
       await tx.$executeRaw(Prisma.sql`UPDATE "MemoryProjectionReceipt" p
         SET "deleteRequested" = TRUE, "state" = CASE WHEN p."state" = 'reserved' THEN 'deleted' ELSE p."state" END,
-          "nextAttemptAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
+          "nextAttemptAt" = CASE WHEN p."deleteRequested" THEN p."nextAttemptAt" ELSE CURRENT_TIMESTAMP END,
+          "updatedAt" = CURRENT_TIMESTAMP
         WHERE ${deletionFilter(input)} AND p."state" <> 'deleted'`);
     });
   }

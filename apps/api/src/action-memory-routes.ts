@@ -21,7 +21,7 @@ import {
   rejectMemorySuggestion,
   type MemoryActor,
   type MemoryMutationResult,
-  type MemorySearchIndexPort,
+  type MemorySearchReaderPort,
   type MemorySource,
   type MemoryUseCaseDependencies,
 } from "@reviewrouter/features-memory";
@@ -31,7 +31,7 @@ export type RegisterActionMemoryRoutesDependencies = {
   readonly repositories: ActionControlPlaneRepositoryPort;
   readonly sessions: ActionSessionTokenServicePort;
   readonly memory: MemoryUseCaseDependencies;
-  readonly memorySearchIndex?: MemorySearchIndexPort;
+  readonly memorySearchIndex?: MemorySearchReaderPort;
   readonly entitlements?: ActionEntitlementPolicyPort;
   readonly clock: Clock;
   readonly controlPlaneEnabled?: boolean;

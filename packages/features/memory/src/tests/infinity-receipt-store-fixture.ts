@@ -2,7 +2,7 @@ import type { MemoryIndexDocument } from "../application/ports/memory-search-ind
 import type {
   MemoryProjectionReceipt,
   MemoryProjectionReceiptStore,
-} from "../infrastructure/infinity/memory-projection-receipt-store";
+} from "../infrastructure/projection/memory-projection-receipt-store";
 
 /** Test double for metadata persistence; actual SQL fences are qualified separately. */
 export class InfinityReceiptStoreFixture implements MemoryProjectionReceiptStore {
@@ -185,7 +185,8 @@ export class InfinityReceiptStoreFixture implements MemoryProjectionReceiptStore
     input: Parameters<MemoryProjectionReceiptStore["requestDeletion"]>[0],
   ): Promise<void> {
     for (const row of this.rows.values()) {
-      if (!matchesDeletion(row, input)) continue;
+      if (!matchesDeletion(row, input) || row.state === "deleted") continue;
+      if (!row.deleteRequested) this.dueAt.set(row.id, new Date());
       this.rows.set(row.id, {
         ...row,
         deleteRequested: true,
@@ -197,7 +198,7 @@ export class InfinityReceiptStoreFixture implements MemoryProjectionReceiptStore
   async listForDeletion(
     input: Parameters<MemoryProjectionReceiptStore["listForDeletion"]>[0],
   ): Promise<readonly MemoryProjectionReceipt[]> {
-    return [...this.rows.values()]
+    return this.orderedReceipts()
       .filter(
         (row) =>
           matchesDeletion(row, input) &&
@@ -211,7 +212,7 @@ export class InfinityReceiptStoreFixture implements MemoryProjectionReceiptStore
   async listDue(
     input: Parameters<MemoryProjectionReceiptStore["listDue"]>[0],
   ): Promise<readonly MemoryProjectionReceipt[]> {
-    return [...this.rows.values()]
+    return this.orderedReceipts()
       .filter(
         (row) =>
           row.indexIdentity === input.indexIdentity && row.state !== "deleted",
@@ -225,24 +226,28 @@ export class InfinityReceiptStoreFixture implements MemoryProjectionReceiptStore
         (row) =>
           (this.dueAt.get(row.id)?.getTime() ?? 0) <= input.now.getTime(),
       )
-      .sort(
-        (left, right) =>
-          (this.dueAt.get(left.id)?.getTime() ?? 0) -
-          (this.dueAt.get(right.id)?.getTime() ?? 0),
-      )
       .slice(0, input.limit);
   }
 
   async listOutstanding(
     input: Parameters<MemoryProjectionReceiptStore["listOutstanding"]>[0],
   ): Promise<readonly MemoryProjectionReceipt[]> {
-    return [...this.rows.values()]
+    return this.orderedReceipts()
       .filter(
         (row) =>
           row.indexIdentity === input.indexIdentity && row.state !== "deleted",
       )
       .slice(0, input.limit)
       .map((row) => this.currentRow(row.id));
+  }
+
+  private orderedReceipts(): MemoryProjectionReceipt[] {
+    return [...this.rows.values()].sort(
+      (left, right) =>
+        (this.dueAt.get(left.id)?.getTime() ?? 0) -
+          (this.dueAt.get(right.id)?.getTime() ?? 0) ||
+        left.sequenceOrdinal - right.sequenceOrdinal,
+    );
   }
 
   async markDeleted(

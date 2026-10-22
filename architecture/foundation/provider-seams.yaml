@@ -355,7 +355,7 @@ boundaries:
       - packages/features/memory/src/infrastructure/entitlements/entitlement-memory-quota-policy.ts
       - packages/features/memory/src/infrastructure/outbox/memory-index-outbox-handlers.ts
       - packages/features/memory/src/infrastructure/prisma/memory-bundle-where.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-infinity-memory-projection-store.ts
+      - packages/features/memory/src/infrastructure/prisma/prisma-memory-projection-receipt-store.ts
       - packages/features/memory/src/infrastructure/prisma/prisma-memory-audit.ts
       - packages/features/memory/src/infrastructure/prisma/prisma-memory-item-repository.ts
       - packages/features/memory/src/infrastructure/prisma/prisma-memory-mappers.ts
@@ -372,7 +372,7 @@ boundaries:
       - packages/features/memory/src/infrastructure/entitlements/entitlement-memory-quota-policy.ts
       - packages/features/memory/src/infrastructure/outbox/memory-index-outbox-handlers.ts
       - packages/features/memory/src/infrastructure/prisma/memory-bundle-where.ts
-      - packages/features/memory/src/infrastructure/prisma/prisma-infinity-memory-projection-store.ts
+      - packages/features/memory/src/infrastructure/prisma/prisma-memory-projection-receipt-store.ts
       - packages/features/memory/src/infrastructure/prisma/prisma-memory-audit.ts
       - packages/features/memory/src/infrastructure/prisma/prisma-memory-item-repository.ts
       - packages/features/memory/src/infrastructure/prisma/prisma-memory-mappers.ts
@@ -388,7 +388,7 @@ boundaries:
         - memory.domain
         - memory.application
         - memory.config
-        - memory.infinity
+        - memory.projection
       packages:
         - "@prisma/client"
         - "@reviewrouter/features-entitlements"
@@ -396,18 +396,29 @@ boundaries:
       builtins:
         - node:crypto
       runtimeReferences: []
+  - id: memory.projection
+    roots:
+      - packages/features/memory/src/infrastructure/projection
+    entrypoints:
+      - packages/features/memory/src/infrastructure/projection/memory-projection-receipt-store.ts
+    allow:
+      boundaries:
+        - memory.application
+      packages: []
+      builtins: []
+      runtimeReferences: []
   - id: memory.infinity
     roots:
       - packages/features/memory/src/infrastructure/infinity
     entrypoints:
       - packages/features/memory/src/infrastructure/infinity/infinity-memory-search-index.ts
-      - packages/features/memory/src/infrastructure/infinity/memory-projection-receipt-store.ts
       - packages/features/memory/src/infrastructure/infinity/projection-identity.ts
     allow:
       boundaries:
         - memory.domain
         - memory.application
         - memory.config
+        - memory.projection
       packages:
         - "@infinity-context/sdk"
       builtins:
@@ -436,6 +447,7 @@ boundaries:
         - memory.application
         - memory.config
         - memory.infrastructure
+        - memory.projection
         - memory.infinity
       packages:
         - "@get-modular/core"
@@ -452,9 +464,19 @@ boundaries:
       boundaries:
         - memory.domain
         - memory.application
+        - memory.interface
+      packages: []
+      builtins: []
+      runtimeReferences: []
+  - id: memory.infrastructure-public
+    roots:
+      - packages/features/memory/src/infrastructure/index.ts
+    entrypoints:
+      - packages/features/memory/src/infrastructure/index.ts
+    allow:
+      boundaries:
         - memory.config
         - memory.infrastructure
-        - memory.interface
       packages: []
       builtins: []
       runtimeReferences: []
@@ -471,6 +493,8 @@ boundaries:
         - memory.application
         - memory.config
         - memory.infrastructure
+        - memory.projection
+        - memory.infrastructure-public
         - memory.infinity
         - memory.interface
         - memory.composition

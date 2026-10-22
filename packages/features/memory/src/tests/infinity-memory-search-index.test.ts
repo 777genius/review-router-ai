@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   MemoryIndexDocument,
   MemorySearchIndexInput,
 } from "../application/ports/memory-search-index-port";
 import { createMemoryBodyHash } from "../domain/memory-body";
 import { InfinityMemorySearchIndex } from "../infrastructure/infinity/infinity-memory-search-index";
-import type { MemoryProjectionReceipt } from "../infrastructure/infinity/memory-projection-receipt-store";
+import type { MemoryProjectionReceipt } from "../infrastructure/projection/memory-projection-receipt-store";
 import { projectionIdentity } from "../infrastructure/infinity/projection-identity";
 import { InfinityProtocolFixture } from "./infinity-protocol-fixture";
 import { InfinityReceiptStoreFixture } from "./infinity-receipt-store-fixture";
@@ -25,6 +25,7 @@ describe("Infinity memory adapter with the published SDK over HTTP", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await fixture?.close();
   });
 
@@ -462,6 +463,164 @@ describe("Infinity memory adapter with the published SDK over HTTP", () => {
       [...store.rows.values()].find((row) => row.memoryItemId === "known")!
         .state,
     ).toBe("deleted");
+  });
+
+  it("stops an exhausted maintenance pass without deferring untouched receipts", async () => {
+    const receipts: MemoryProjectionReceipt[] = [];
+    for (const memoryItemId of ["slow", "later-a", "later-b"]) {
+      const receipt = await index(memoryDocument({ memoryItemId }));
+      store.rows.set(receipt.id, { ...receipt, state: "accepted" });
+      receipts.push(receipt);
+    }
+    store.makeAllDue();
+    const untouched = receipts.slice(1).map((receipt) => ({
+      row: store.rows.get(receipt.id),
+      dueAt: store.dueAt.get(receipt.id),
+    }));
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const before = fixture.requests.length;
+    fixture.reconciliationTransform = (response) => {
+      // One real SDK request consumed nearly the whole pass and failed validation.
+      now += 4_951;
+      return { ...response, projection_generation: "unexpected-generation" };
+    };
+
+    await expect(adapter.reconcilePending({ limit: 100 })).resolves.toEqual({
+      processed: 1,
+      deleted: 0,
+      pending: 3,
+    });
+    expect(store.deferred).toEqual([
+      { receiptId: receipts[0]!.id, reasonCode: "memory_index_conflict" },
+    ]);
+    expect(
+      receipts.slice(1).map((receipt) => ({
+        row: store.rows.get(receipt.id),
+        dueAt: store.dueAt.get(receipt.id),
+      })),
+    ).toEqual(untouched);
+    expect(
+      fixture.requests.slice(before).map((request) => request.path),
+    ).toEqual(["/v1/capabilities", "/v1/documents/reconcile-exact"]);
+
+    fixture.reconciliationTransform = undefined;
+    await expect(adapter.reconcilePending({ limit: 100 })).resolves.toEqual({
+      processed: 2,
+      deleted: 0,
+      pending: 0,
+    });
+    expect(
+      receipts.slice(1).map((receipt) => store.rows.get(receipt.id)!.state),
+    ).toEqual(["indexed", "indexed"]);
+    expect(store.deferred).toHaveLength(1);
+    expect(
+      fixture.requests
+        .slice(before)
+        .filter((request) => request.path === "/v1/capabilities"),
+    ).toHaveLength(2);
+  });
+
+  it("bounds item deletion while leaving skipped revisions ready for the next pass", async () => {
+    const receipts: MemoryProjectionReceipt[] = [];
+    for (const bodyVersion of [1, 2, 3]) {
+      receipts.push(
+        await index(
+          memoryDocument({
+            bodyVersion,
+            body: `Confirmed review memory revision ${bodyVersion}.`,
+          }),
+        ),
+      );
+    }
+    store.canonical.clear();
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const markDeleted = store.markDeleted.bind(store);
+    vi.spyOn(store, "markDeleted").mockImplementation(async (input) => {
+      await markDeleted(input);
+      if (input.receiptId === receipts[0]!.id) now += 4_951;
+    });
+    const before = fixture.requests.length;
+    const target = {
+      workspaceId: receipts[0]!.workspaceId,
+      memoryItemId: receipts[0]!.memoryItemId,
+      target: { kind: "item" as const },
+    };
+
+    await expect(adapter.deleteDocument(target)).rejects.toMatchObject({
+      code: "memory_index_pending",
+    });
+    expect(
+      receipts.map((receipt) => store.rows.get(receipt.id)!.state),
+    ).toEqual(["deleted", "indexed", "indexed"]);
+    expect(store.deferred).toEqual([]);
+    expect(
+      (
+        await store.listDue({
+          indexIdentity: fixture.config.indexIdentity,
+          limit: 10,
+          now: new Date(),
+        })
+      ).map((receipt) => receipt.id),
+    ).toEqual(receipts.slice(1).map((receipt) => receipt.id));
+    expect(
+      fixture.requests.slice(before).map((request) => request.path),
+    ).toEqual([
+      "/v1/capabilities",
+      "/v1/documents/reconcile-exact",
+      "/v1/documents/doc_1",
+    ]);
+
+    await expect(adapter.deleteDocument(target)).resolves.toBeUndefined();
+    expect(
+      receipts.map((receipt) => store.rows.get(receipt.id)!.state),
+    ).toEqual(["deleted", "deleted", "deleted"]);
+    expect(store.deferred).toEqual([]);
+    expect(
+      fixture.requests
+        .slice(before)
+        .filter((request) => request.path === "/v1/capabilities"),
+    ).toHaveLength(2);
+  });
+
+  it("reports skipped drain debt and retires only after a later complete pass", async () => {
+    const receipts: MemoryProjectionReceipt[] = [];
+    for (const memoryItemId of ["drain-a", "drain-b", "drain-c"]) {
+      receipts.push(await index(memoryDocument({ memoryItemId })));
+    }
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const markDeleted = store.markDeleted.bind(store);
+    vi.spyOn(store, "markDeleted").mockImplementation(async (input) => {
+      await markDeleted(input);
+      if (input.receiptId === receipts[0]!.id) now += 4_951;
+    });
+    const before = fixture.requests.length;
+
+    await expect(adapter.drain({ limit: 100 })).resolves.toEqual({
+      processed: 1,
+      deleted: 1,
+      pending: 2,
+    });
+    expect(store.retired.size).toBe(0);
+    expect(store.deferred).toEqual([]);
+    expect(
+      receipts.slice(1).map((receipt) => store.rows.get(receipt.id)),
+    ).toEqual(receipts.slice(1));
+
+    await expect(adapter.drain({ limit: 100 })).resolves.toEqual({
+      processed: 2,
+      deleted: 2,
+      pending: 0,
+    });
+    expect(store.retired.has(fixture.config.indexIdentity)).toBe(true);
+    expect(store.deferred).toEqual([]);
+    expect(
+      fixture.requests
+        .slice(before)
+        .filter((request) => request.path === "/v1/capabilities"),
+    ).toHaveLength(2);
   });
 
   it("does not retire a generation while unknown debt remains", async () => {

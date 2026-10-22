@@ -7,9 +7,9 @@ import { Prisma } from "@prisma/client";
 import { MemoryItem } from "../domain/memory-item";
 import { createMemoryBodyHash } from "../domain/memory-body";
 import { createDashboardMemorySource } from "../domain/memory-source";
-import { PrismaInfinityMemoryProjectionStore } from "../infrastructure/prisma/prisma-infinity-memory-projection-store";
+import { PrismaMemoryProjectionReceiptStore } from "../infrastructure/prisma/prisma-memory-projection-receipt-store";
 import { PrismaMemoryItemRepository } from "../infrastructure/prisma/prisma-memory-item-repository";
-import type { MemoryProjectionRevision } from "../infrastructure/infinity/memory-projection-receipt-store";
+import type { MemoryProjectionRevision } from "../infrastructure/projection/memory-projection-receipt-store";
 
 import { PrismaMemorySearchIndex } from "../infrastructure/prisma/prisma-memory-search-index";
 import { InfinityMemorySearchIndex } from "../infrastructure/infinity/infinity-memory-search-index";
@@ -30,7 +30,7 @@ describe.skipIf(!databaseUrl)(
   () => {
     let prisma: PrismaClient;
     let otherConnection: PrismaClient;
-    let receipts: PrismaInfinityMemoryProjectionStore;
+    let receipts: PrismaMemoryProjectionReceiptStore;
     let memoryItems: PrismaMemoryItemRepository;
 
     beforeAll(async () => {
@@ -46,7 +46,7 @@ describe.skipIf(!databaseUrl)(
         databaseUrl: databaseUrl!,
         poolMax: 5,
       });
-      receipts = new PrismaInfinityMemoryProjectionStore(prisma);
+      receipts = new PrismaMemoryProjectionReceiptStore(prisma);
       memoryItems = new PrismaMemoryItemRepository(prisma);
       const [installed] = await prisma.$queryRaw<
         { constraints: number; version: number }[]
@@ -158,9 +158,7 @@ describe.skipIf(!databaseUrl)(
 
     it("serializes competing fresh identities across real independent transactions", async () => {
       const { revision } = await seed("identity");
-      const alternate = new PrismaInfinityMemoryProjectionStore(
-        otherConnection,
-      );
+      const alternate = new PrismaMemoryProjectionReceiptStore(otherConnection);
       const results = await Promise.allSettled([
         receipts.reserve({ ...revision, indexIdentity }),
         alternate.reserve({
@@ -419,6 +417,89 @@ describe.skipIf(!databaseUrl)(
       ).toEqual([]);
     });
 
+    it("accelerates a new deletion intent but preserves retry order when it is repeated", async () => {
+      const { revision } = await seed("deletion-schedule");
+      const first = (await receipts.reserve({ ...revision, indexIdentity }))!;
+      const firstKey = { indexIdentity, receiptId: first.id };
+      await receipts.admitSend(firstKey);
+      const initialRetry = new Date(Date.now() + 60_000);
+      await receipts.defer({
+        ...firstKey,
+        nextAttemptAt: initialRetry,
+        reasonCode: "memory_index_unknown_write",
+      });
+      const body = "Approved newer revision for deletion scheduling.";
+      const bodyHash = createMemoryBodyHash(body);
+      await prisma.memoryItem.update({
+        where: { id: revision.memoryItemId },
+        data: { body, bodyHash, bodyVersion: 2 },
+      });
+      const second = (await receipts.reserve({
+        ...revision,
+        bodyHash,
+        bodyVersion: 2,
+        indexIdentity,
+      }))!;
+      const secondKey = { indexIdentity, receiptId: second.id };
+      await receipts.admitSend(secondKey);
+      await receipts.defer({
+        ...secondKey,
+        nextAttemptAt: initialRetry,
+        reasonCode: "memory_index_unavailable",
+      });
+      const target = {
+        indexIdentity,
+        workspaceId,
+        memoryItemId: revision.memoryItemId,
+        target: { kind: "item" as const },
+      };
+      await receipts.requestDeletion(target);
+      const newlyRequested = await prisma.memoryProjectionReceipt.findMany({
+        where: { workspaceId },
+        orderBy: { sequenceOrdinal: "asc" },
+      });
+      expect(newlyRequested).toHaveLength(2);
+      for (const row of newlyRequested) {
+        expect(row.deleteRequested).toBe(true);
+        expect(row.nextAttemptAt.getTime()).toBeLessThan(
+          initialRetry.getTime(),
+        );
+      }
+
+      await receipts.defer({
+        ...firstKey,
+        nextAttemptAt: new Date(Date.now() + 60_000),
+        reasonCode: "memory_index_unknown_write",
+      });
+      const beforeRetry = await prisma.memoryProjectionReceipt.findMany({
+        where: { workspaceId },
+        select: { id: true, nextAttemptAt: true, lastErrorCode: true },
+        orderBy: { sequenceOrdinal: "asc" },
+      });
+      const restarted = new PrismaMemoryProjectionReceiptStore(otherConnection);
+      await restarted.requestDeletion(target);
+      expect(
+        await prisma.memoryProjectionReceipt.findMany({
+          where: { workspaceId },
+          select: { id: true, nextAttemptAt: true, lastErrorCode: true },
+          orderBy: { sequenceOrdinal: "asc" },
+        }),
+      ).toEqual(beforeRetry);
+      expect(
+        await restarted.listForDeletion({ ...target, limit: 1 }),
+      ).toMatchObject([{ id: second.id }]);
+      expect(
+        await restarted.listOutstanding({ indexIdentity, limit: 1 }),
+      ).toMatchObject([{ id: second.id }]);
+      expect(
+        await restarted.listDue({
+          indexIdentity,
+          limit: 10,
+          now: new Date(Date.now() + 1_000),
+        }),
+      ).toMatchObject([{ id: second.id }]);
+    });
+
     it("keeps unknown sends durable and defers them so later work is not starved", async () => {
       const first = await seed("unknown");
       const unknown = (await receipts.reserve({
@@ -443,9 +524,7 @@ describe.skipIf(!databaseUrl)(
         ...second.revision,
         indexIdentity,
       }))!;
-      const restarted = new PrismaInfinityMemoryProjectionStore(
-        otherConnection,
-      );
+      const restarted = new PrismaMemoryProjectionReceiptStore(otherConnection);
       expect(
         await restarted.listDue({
           indexIdentity,
@@ -590,7 +669,7 @@ describe.skipIf(!databaseUrl)(
         });
         const restarted = new InfinityMemorySearchIndex({
           config: peer.config,
-          receipts: new PrismaInfinityMemoryProjectionStore(otherConnection),
+          receipts: new PrismaMemoryProjectionReceiptStore(otherConnection),
         });
         expect(await restarted.reconcilePending()).toMatchObject({
           processed: 1,

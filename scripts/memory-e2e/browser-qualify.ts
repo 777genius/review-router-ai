@@ -8,7 +8,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { chromium, type Browser } from "playwright-core";
+import { chromium, type Browser, type Page } from "playwright-core";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const databaseUrl = process.env.MEMORY_E2E_BROWSER_DATABASE_URL ?? "";
@@ -57,6 +57,10 @@ const sourceFiles = [
   "apps/web/app/dashboard/memory-preview/page.tsx",
   "apps/web/app/dashboard/dashboard-workspace-page.tsx",
   "apps/web/app/dashboard/actions.ts",
+  "apps/web/app/globals.css",
+  "apps/web/app/layout.tsx",
+  "apps/web/app/theme-toggle.tsx",
+  "packages/ui/src/tokens/tokens.css",
   "packages/platform/db/prisma/schema.prisma",
 ];
 const sourceSha256 = Object.fromEntries(
@@ -92,12 +96,27 @@ let seedCreated = false;
 let child: ChildProcess | undefined;
 let browser: Browser | undefined;
 let deniedMemoryTables: string[] = [];
+type MemoryColorEvidence = {
+  bodyBackground: string;
+  pageBackgroundToken: string;
+  footerBaseBackground: string;
+  footerBackgroundToken: string;
+  text: {
+    label: string;
+    foreground: string;
+    foregroundRgb: number[];
+    backgroundRgb: number[];
+    contrast: number;
+  }[];
+};
 const results: {
   route: string;
+  theme: "dark" | "light";
   viewport: { width: number; height: number };
   screenshot: string | null;
   clientWidth: number;
   scrollWidth: number;
+  colors: MemoryColorEvidence;
 }[] = [];
 const memoryApiRequests: string[] = [];
 const externalRequests: string[] = [];
@@ -230,100 +249,141 @@ try {
       screenshot: true,
     },
   ];
-  for (const viewport of [
-    { width: 1440, height: 1000 },
-    { width: 900, height: 1100 },
-    { width: 390, height: 844 },
-  ]) {
-    const context = await browser.newContext({ viewport, baseURL: appUrl });
-    try {
-      await context.addCookies([
-        {
-          name: "next-auth.session-token",
-          value: sessionToken,
-          url: appUrl,
-          httpOnly: true,
-          sameSite: "Lax",
-        },
-      ]);
-      await context.route("**/*", async (route) => {
-        const url = new URL(route.request().url());
-        if (url.origin !== appUrl) {
-          externalRequests.push(
-            `${route.request().method()} ${url.origin}${url.pathname}`,
+  for (const theme of ["dark", "light"] as const) {
+    for (const viewport of [
+      { width: 1440, height: 1000 },
+      { width: 900, height: 1100 },
+      { width: 390, height: 844 },
+    ]) {
+      const context = await browser.newContext({ viewport, baseURL: appUrl });
+      try {
+        await context.addCookies([
+          {
+            name: "next-auth.session-token",
+            value: sessionToken,
+            url: appUrl,
+            httpOnly: true,
+            sameSite: "Lax",
+          },
+        ]);
+        await context.route("**/*", async (route) => {
+          const url = new URL(route.request().url());
+          if (url.origin !== appUrl) {
+            externalRequests.push(
+              `${route.request().method()} ${url.origin}${url.pathname}`,
+            );
+            await route.abort();
+            return;
+          }
+          await route.continue();
+        });
+        const page = await context.newPage();
+        page.on("pageerror", (error) => browserErrors.push(error.message));
+        page.on("request", (request) => {
+          const url = new URL(request.url());
+          if (/^\/api\/.*memory(?:\/|$)/u.test(url.pathname)) {
+            memoryApiRequests.push(`${request.method()} ${url.pathname}`);
+          }
+        });
+        for (const route of routes) {
+          const target = new URL(route.path, appUrl);
+          if (route.name !== "preview") {
+            target.searchParams.set("workspace", fixture.workspaceSlug);
+          }
+          const response = await page.goto(target.toString(), {
+            waitUntil: "networkidle",
+            timeout: 120_000,
+          });
+          assert.equal(response?.status(), 200, route.name);
+          assert.equal(new URL(page.url()).pathname, target.pathname);
+          if (route.name === "memory") {
+            await selectThemeThroughHeader(page, theme);
+          }
+          await page.waitForFunction(
+            (expected) =>
+              document.documentElement.dataset.theme === expected &&
+              document.documentElement.dataset.themePreference === expected,
+            theme,
           );
-          await route.abort();
-          return;
-        }
-        await route.continue();
-      });
-      const page = await context.newPage();
-      page.on("pageerror", (error) => browserErrors.push(error.message));
-      page.on("request", (request) => {
-        const url = new URL(request.url());
-        if (/^\/api\/.*memory(?:\/|$)/u.test(url.pathname)) {
-          memoryApiRequests.push(`${request.method()} ${url.pathname}`);
-        }
-      });
-      for (const route of routes) {
-        const target = new URL(route.path, appUrl);
-        if (route.name !== "preview") {
-          target.searchParams.set("workspace", fixture.workspaceSlug);
-        }
-        const response = await page.goto(target.toString(), {
-          waitUntil: "networkidle",
-          timeout: 120_000,
-        });
-        assert.equal(response?.status(), 200, route.name);
-        assert.equal(new URL(page.url()).pathname, target.pathname);
-        const notice = page.getByRole("region", {
-          name: "Memory",
-          exact: true,
-        });
-        await notice.waitFor({ state: "visible", timeout: 15_000 });
-        assert.equal(
-          (await notice.innerText()).replace(/\s+/gu, " ").trim().toLowerCase(),
-          "in development memory workspace memory is being prepared. this section is not available yet.",
-        );
-        assert.equal(
-          await notice.locator("button,form,input,select,textarea,a").count(),
-          0,
-          "The Memory notice must have no functional controls.",
-        );
-        assert.equal(
-          await page.locator("form").count(),
-          0,
-          "No memory form may return via an old route.",
-        );
-        const dimensions = await page.evaluate(async () => {
-          await document.fonts.ready;
-          return {
-            clientWidth: document.documentElement.clientWidth,
-            scrollWidth: document.documentElement.scrollWidth,
-          };
-        });
-        assert(
-          dimensions.scrollWidth <= dimensions.clientWidth + 1,
-          `Horizontal overflow on ${route.name} at ${viewport.width}px: ${JSON.stringify(dimensions)}`,
-        );
-        const screenshot = route.screenshot
-          ? `${route.name}-${viewport.width}x${viewport.height}.png`
-          : null;
-        if (screenshot) {
-          await page.screenshot({
-            path: join(outputDir, screenshot),
-            fullPage: true,
+          assert.deepEqual(
+            await page.evaluate(() => ({
+              resolved: document.documentElement.dataset.theme,
+              preference: document.documentElement.dataset.themePreference,
+              stored: localStorage.getItem("reviewrouter-theme"),
+              colorScheme: getComputedStyle(document.documentElement)
+                .colorScheme,
+            })),
+            {
+              resolved: theme,
+              preference: theme,
+              stored: theme,
+              colorScheme: theme,
+            },
+            "The application must apply and retain the selected theme.",
+          );
+          const notice = page.getByRole("region", {
+            name: "Memory",
+            exact: true,
+          });
+          await notice.waitFor({ state: "visible", timeout: 15_000 });
+          assert.equal(
+            (await notice.innerText())
+              .replace(/\s+/gu, " ")
+              .trim()
+              .toLowerCase(),
+            "memory in development saved knowledge for your workspace’s code reviews. this section isn’t available yet. there’s nothing to set up here while we’re working on it.",
+          );
+          await notice
+            .getByRole("heading", { name: "Memory", level: 1, exact: true })
+            .waitFor({ state: "visible" });
+          assert.equal(
+            await page.locator("h1").count(),
+            1,
+            "Memory must have one page heading in either shell.",
+          );
+          assert.equal(
+            await notice.locator("button,form,input,select,textarea,a").count(),
+            0,
+            "The Memory notice must have no functional controls.",
+          );
+          assert.equal(
+            await page.locator("form").count(),
+            0,
+            "No memory form may return via an old route.",
+          );
+          const colors = await assertMemoryColors(page, theme);
+          const dimensions = await page.evaluate(async () => {
+            await document.fonts.ready;
+            return {
+              clientWidth: document.documentElement.clientWidth,
+              scrollWidth: document.documentElement.scrollWidth,
+            };
+          });
+          assert(
+            dimensions.scrollWidth <= dimensions.clientWidth + 1,
+            `Horizontal overflow on ${route.name} at ${viewport.width}px: ${JSON.stringify(dimensions)}`,
+          );
+          const screenshot = route.screenshot
+            ? `${route.name}-${theme}-${viewport.width}x${viewport.height}.png`
+            : null;
+          if (screenshot) {
+            await page.screenshot({
+              path: join(outputDir, screenshot),
+              fullPage: true,
+            });
+          }
+          results.push({
+            route: route.path,
+            theme,
+            viewport,
+            screenshot,
+            colors,
+            ...dimensions,
           });
         }
-        results.push({
-          route: route.path,
-          viewport,
-          screenshot,
-          ...dimensions,
-        });
+      } finally {
+        await context.close();
       }
-    } finally {
-      await context.close();
     }
   }
   assert.deepEqual(memoryApiRequests, [], "Memory API requests occurred.");
@@ -409,6 +469,8 @@ await writeFile(
       deniedMemoryTables,
       sourceSha256,
       browserVersion,
+      themeSelection:
+        "native-header-control-with-persisted-preference-and-applied-css",
       memoryApiRequests,
       externalRequests,
       browserErrors,
@@ -421,6 +483,183 @@ await writeFile(
 console.log(
   `Memory browser qualification passed: ${results.length} cases. Evidence: ${outputDir}`,
 );
+
+async function selectThemeThroughHeader(
+  page: Page,
+  theme: "dark" | "light",
+): Promise<void> {
+  // Every context starts with the application's default dark preference. Use
+  // the real control even for dark so persistence, not the OS preference or
+  // a manually assigned data attribute, establishes the qualified theme.
+  await page.getByRole("button", { name: "Dark theme", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Light theme", exact: true })
+    .waitFor();
+  if (theme === "dark") {
+    await page
+      .getByRole("button", { name: "Light theme", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Use system theme", exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Use system theme", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Dark theme", exact: true })
+      .waitFor();
+  }
+}
+
+async function assertMemoryColors(
+  page: Page,
+  theme: "dark" | "light",
+): Promise<MemoryColorEvidence> {
+  const paint = await page.evaluate(() => {
+    const rootStyle = getComputedStyle(document.documentElement);
+    const notice = document.getElementById("dashboard-section-content");
+    const footer = document.querySelector(".site-footer");
+    if (!notice || !footer) throw new Error("Missing Memory page surfaces.");
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const drawing = canvas.getContext("2d", {
+      colorSpace: "srgb",
+      willReadFrequently: true,
+    });
+    if (!drawing) throw new Error("Missing native sRGB color measurement.");
+    const painter = {
+      colors(colors: readonly string[]): number[] {
+        drawing.clearRect(0, 0, 1, 1);
+        drawing.globalCompositeOperation = "source-over";
+        for (const color of colors) {
+          // Invalid Canvas colors retain the previous fill. Two sentinels make
+          // unsupported CSS colors fail instead of silently measuring black.
+          drawing.fillStyle = "#000001";
+          drawing.fillStyle = color;
+          const parsed = drawing.fillStyle;
+          drawing.fillStyle = "#000002";
+          drawing.fillStyle = color;
+          if (drawing.fillStyle !== parsed)
+            throw new Error(`Unsupported Canvas color: ${color}`);
+          drawing.fillRect(0, 0, 1, 1);
+        }
+        return Array.from(drawing.getImageData(0, 0, 1, 1).data);
+      },
+    };
+    const bodyBackground = getComputedStyle(document.body).backgroundColor;
+    const pageBackgroundToken = rootStyle
+      .getPropertyValue("--rr-page-bg")
+      .trim();
+    const footerBaseBackground = getComputedStyle(footer).backgroundColor;
+    const footerBackgroundToken = rootStyle
+      .getPropertyValue("--rr-footer-bg")
+      .trim();
+    return {
+      bodyBackground,
+      pageBackgroundToken,
+      footerBaseBackground,
+      footerBackgroundToken,
+      bodyRgba: painter.colors([bodyBackground]),
+      pageTokenRgba: painter.colors([pageBackgroundToken]),
+      footerRgba: painter.colors([footerBaseBackground]),
+      footerTokenRgba: painter.colors([footerBackgroundToken]),
+      text: Array.from(
+        notice.querySelectorAll("h1, p, header span"),
+        (element) => {
+          const layers = [];
+          for (
+            let ancestor: Element | null = element;
+            ancestor;
+            ancestor = ancestor.parentElement
+          ) {
+            const style = getComputedStyle(ancestor);
+            layers.push({
+              background: style.backgroundColor,
+              image: style.backgroundImage,
+              opacity: Number(style.opacity),
+            });
+          }
+          if (
+            layers.some(
+              (layer) => layer.opacity !== 1 || layer.image !== "none",
+            )
+          ) {
+            throw new Error(
+              "Memory contrast requires solid ancestor backgrounds and unmodified group opacity; inspect new effects visually.",
+            );
+          }
+          const backgrounds = layers.map((layer) => layer.background).reverse();
+          const foreground = getComputedStyle(element).color;
+          const backgroundRgba = painter.colors(backgrounds);
+          if (backgroundRgba[3] !== 255)
+            throw new Error("Memory text requires a resolved opaque underlay.");
+          return {
+            label: element.textContent?.trim() ?? element.tagName,
+            foreground,
+            foregroundRgb: painter
+              .colors([...backgrounds, foreground])
+              .slice(0, 3),
+            backgroundRgb: backgroundRgba.slice(0, 3),
+          };
+        },
+      ),
+    };
+  });
+  if (theme === "light") {
+    assert.deepEqual(
+      paint.bodyRgba,
+      paint.pageTokenRgba,
+      "Light Memory must use the actual light page surface.",
+    );
+    assert.deepEqual(
+      paint.footerRgba,
+      paint.footerTokenRgba,
+      "Light footer must retain its light base surface.",
+    );
+  }
+  assert.equal(
+    paint.text.length,
+    5,
+    "Check the title, badge, description, state and help text.",
+  );
+  const text = paint.text.map((sample) => {
+    const luminances = [
+      luminance(sample.foregroundRgb),
+      luminance(sample.backgroundRgb),
+    ];
+    const contrast =
+      (Math.max(...luminances) + 0.05) / (Math.min(...luminances) + 0.05);
+    assert(
+      contrast >= 4.5,
+      `Memory text contrast below 4.5: ${sample.label} (${contrast.toFixed(2)}).`,
+    );
+    return {
+      ...sample,
+      contrast: Number(contrast.toFixed(4)),
+    };
+  });
+  return {
+    bodyBackground: paint.bodyBackground,
+    pageBackgroundToken: paint.pageBackgroundToken,
+    footerBaseBackground: paint.footerBaseBackground,
+    footerBackgroundToken: paint.footerBackgroundToken,
+    text,
+  };
+}
+
+function luminance(color: readonly number[]): number {
+  const linear = (byte: number): number => {
+    const channel = byte / 255;
+    return channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4;
+  };
+  return (
+    0.2126 * linear(color[0]!) +
+    0.7152 * linear(color[1]!) +
+    0.0722 * linear(color[2]!)
+  );
+}
 
 async function seed(): Promise<void> {
   await admin.query("BEGIN");

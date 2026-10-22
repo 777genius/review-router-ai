@@ -24,6 +24,43 @@ export type MemorySearchConfig =
 
 const infinityPrefix = "REVIEW_ROUTER_MEMORY_INFINITY_";
 
+const infinityConfigurationErrorCodes = {
+  BASE_URL: "memory_infinity_base_url_invalid",
+  API_KEY: "memory_infinity_api_key_invalid",
+  SPACE_ID: "memory_infinity_space_id_invalid",
+  MEMORY_SCOPE_ID: "memory_infinity_memory_scope_id_invalid",
+  PROJECTION_GENERATION: "memory_infinity_projection_generation_invalid",
+  PROFILE_ID: "memory_infinity_profile_id_invalid",
+  CAPABILITY_FINGERPRINT: "memory_infinity_capability_fingerprint_invalid",
+  REQUIRED_PROVIDER_LANES: "memory_infinity_required_provider_lanes_invalid",
+} as const;
+
+type MemorySearchConfigurationErrorCode =
+  | "memory_search_engine_invalid"
+  | (typeof infinityConfigurationErrorCodes)[keyof typeof infinityConfigurationErrorCodes];
+
+const safeConfigurationErrorCodes = new Set<string>([
+  "memory_search_engine_invalid",
+  ...Object.values(infinityConfigurationErrorCodes),
+]);
+
+/** Configuration diagnostics contain fixed codes, never configured values. */
+export class MemorySearchConfigurationError extends Error {
+  constructor(readonly code: MemorySearchConfigurationErrorCode) {
+    super(code);
+    this.name = "MemorySearchConfigurationError";
+  }
+}
+
+/** Hosts classify feature-owned errors without knowing individual engine fields. */
+export function safeMemorySearchConfigurationErrorCode(
+  error: unknown,
+): MemorySearchConfigurationErrorCode | null {
+  if (!(error instanceof MemorySearchConfigurationError)) return null;
+  const code = error.code;
+  return safeConfigurationErrorCodes.has(code) ? code : null;
+}
+
 /** Parse configuration without constructing a client or performing external I/O. */
 export function parseMemorySearchConfig(
   env: MemorySearchConfigEnv,
@@ -31,13 +68,15 @@ export function parseMemorySearchConfig(
   const kind = env.REVIEW_ROUTER_MEMORY_SEARCH_ENGINE?.trim() || "prisma";
   if (kind === "prisma") return Object.freeze({ kind });
   if (kind !== "infinity") {
-    throw new Error("memory_search_engine_invalid");
+    throw new MemorySearchConfigurationError("memory_search_engine_invalid");
   }
 
   const baseUrl = normalizeBaseUrl(required(env, "BASE_URL", 2_048));
   const apiKey = required(env, "API_KEY", 8_192);
   if (/\s/u.test(apiKey)) {
-    throw new Error("memory_infinity_api_key_invalid");
+    throw new MemorySearchConfigurationError(
+      infinityConfigurationErrorCodes.API_KEY,
+    );
   }
   // Exact-document reconciliation applies UTF-8 byte limits to these IDs.
   const spaceId = required(env, "SPACE_ID", 80, "utf8");
@@ -51,7 +90,9 @@ export function parseMemorySearchConfig(
   const profileId = required(env, "PROFILE_ID", 256);
   const capabilityFingerprint = required(env, "CAPABILITY_FINGERPRINT", 64);
   if (!/^[0-9a-f]{64}$/u.test(capabilityFingerprint)) {
-    throw new Error("memory_infinity_capability_fingerprint_invalid");
+    throw new MemorySearchConfigurationError(
+      infinityConfigurationErrorCodes.CAPABILITY_FINGERPRINT,
+    );
   }
   const laneValues = required(env, "REQUIRED_PROVIDER_LANES", 4_096)
     .split(",")
@@ -62,7 +103,9 @@ export function parseMemorySearchConfig(
     new Set(laneValues).size !== laneValues.length ||
     laneValues.some((lane) => !isBoundedText(lane, 256))
   ) {
-    throw new Error("memory_infinity_required_provider_lanes_invalid");
+    throw new MemorySearchConfigurationError(
+      infinityConfigurationErrorCodes.REQUIRED_PROVIDER_LANES,
+    );
   }
   const requiredProviderLanes = Object.freeze(
     laneValues.sort((left, right) =>
@@ -96,7 +139,7 @@ export function parseMemorySearchConfig(
 
 function required(
   env: MemorySearchConfigEnv,
-  name: string,
+  name: keyof typeof infinityConfigurationErrorCodes,
   maximum: number,
   lengthUnit: "codepoints" | "utf8" = "codepoints",
 ): string {
@@ -105,7 +148,9 @@ function required(
     !isBoundedText(value, maximum) ||
     (lengthUnit === "utf8" && Buffer.byteLength(value, "utf8") > maximum)
   ) {
-    throw new Error(`memory_infinity_${name.toLowerCase()}_invalid`);
+    throw new MemorySearchConfigurationError(
+      infinityConfigurationErrorCodes[name],
+    );
   }
   return value;
 }
@@ -131,7 +176,9 @@ function normalizeBaseUrl(value: string): string {
   try {
     url = new URL(value);
   } catch {
-    throw new Error("memory_infinity_base_url_invalid");
+    throw new MemorySearchConfigurationError(
+      infinityConfigurationErrorCodes.BASE_URL,
+    );
   }
   if (
     !["http:", "https:"].includes(url.protocol) ||
@@ -141,7 +188,9 @@ function normalizeBaseUrl(value: string): string {
     url.search ||
     url.hash
   ) {
-    throw new Error("memory_infinity_base_url_invalid");
+    throw new MemorySearchConfigurationError(
+      infinityConfigurationErrorCodes.BASE_URL,
+    );
   }
   return url.toString().replace(/\/+$/u, "");
 }

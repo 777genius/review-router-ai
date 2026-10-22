@@ -38,8 +38,8 @@ import {
   PrismaMemorySuggestionRepository,
   PrismaMemoryUsageEventRepository,
   PrismaMemoryTransaction,
-  type MemorySearchWriterPort,
-} from "@reviewrouter/features-memory";
+} from "@reviewrouter/features-memory/infrastructure";
+import type { MemorySearchWriterPort } from "@reviewrouter/features-memory";
 import { createMemorySearchRuntime } from "@reviewrouter/features-memory/composition";
 import {
   PrismaRateLimitStore,

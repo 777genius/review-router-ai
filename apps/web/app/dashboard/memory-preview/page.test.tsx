@@ -21,6 +21,7 @@ describe("paused memory preview", () => {
     vi.stubEnv("REVIEW_ROUTER_ENABLE_MEMORY_PREVIEW", "1");
     const html = renderToStaticMarkup(MemoryPreviewPage());
     expect(html).toContain(renderToStaticMarkup(<MemoryDevelopmentNotice />));
+    expect(html.match(/<h1\b/gu)).toHaveLength(1);
     expect(html).not.toMatch(/<(?:form|button|input|select|textarea|a)\b/u);
     expect(html).not.toContain("Balanced memory preview");
     expect(html).not.toContain("Policy simulator");

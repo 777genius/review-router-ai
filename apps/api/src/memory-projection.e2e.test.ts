@@ -11,12 +11,14 @@ import {
 } from "@reviewrouter/features-action-control-plane";
 import {
   CryptoMemoryIdGenerator,
-  editMemoryItem,
   PrismaMemoryItemRepository,
   PrismaMemoryPermission,
   PrismaMemorySuggestionRepository,
   PrismaMemoryTransaction,
   PrismaMemoryUsageEventRepository,
+} from "@reviewrouter/features-memory/infrastructure";
+import {
+  editMemoryItem,
   StaticMemoryPolicyConfig,
   type ActionMemoryBundle,
   type MemoryActor,

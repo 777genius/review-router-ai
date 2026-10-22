@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createMemorySearchRuntime } from "@reviewrouter/features-memory/composition";
 import {
   parseMemoryProjectionOperatorArgs,
   safeMemoryProjectionOperatorError,
@@ -70,7 +71,7 @@ describe("memory projection operator", () => {
       safeMemoryProjectionOperatorError(
         new Error("memory_infinity_api_key_invalid"),
       ),
-    ).toBe("memory_infinity_api_key_invalid");
+    ).toBe("memory_projection_operator_failed");
     expect(
       safeMemoryProjectionOperatorError(
         new Error("credential-sentinel private-memory-body"),
@@ -82,4 +83,33 @@ describe("memory projection operator", () => {
       }),
     ).toBe("memory_projection_operator_failed");
   });
+
+  it.each([
+    {
+      env: { REVIEW_ROUTER_MEMORY_SEARCH_ENGINE: "unknown-engine-sentinel" },
+      expectedCode: "memory_search_engine_invalid",
+    },
+    {
+      env: {
+        REVIEW_ROUTER_MEMORY_SEARCH_ENGINE: "infinity",
+        REVIEW_ROUTER_MEMORY_INFINITY_BASE_URL: "https://memory.example.test",
+        REVIEW_ROUTER_MEMORY_INFINITY_API_KEY: "private credential sentinel",
+      },
+      expectedCode: "memory_infinity_api_key_invalid",
+    },
+  ])(
+    "preserves feature-owned configuration diagnostics through composition",
+    async ({ env, expectedCode }) => {
+      // Configuration must fail before composition accesses this borrowed DB.
+      const prisma = {} as Parameters<
+        typeof createMemorySearchRuntime
+      >[0]["prisma"];
+      const failure: unknown = await createMemorySearchRuntime({
+        prisma,
+        env,
+      }).catch((error: unknown) => error);
+      expect(safeMemoryProjectionOperatorError(failure)).toBe(expectedCode);
+      expect((failure as Error).cause).toBeUndefined();
+    },
+  );
 });

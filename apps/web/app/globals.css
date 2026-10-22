@@ -1604,7 +1604,7 @@ canvas {
 }
 
 @media (max-width: 640px) {
-  body {
+  :root:not([data-theme="light"]) body {
     background: #060b0d;
     color: #e8f3ef;
   }
@@ -1710,7 +1710,7 @@ canvas {
     padding: 1rem;
   }
 
-  .site-footer {
+  :root:not([data-theme="light"]) .site-footer {
     background:
       linear-gradient(120deg, rgba(45, 212, 191, 0.08), transparent 42%),
       linear-gradient(180deg, rgba(8, 13, 15, 0.92), #05080a), #05080a;
@@ -1722,16 +1722,16 @@ canvas {
     padding-bottom: 1.75rem;
   }
 
-  .site-footer,
-  .site-footer p,
-  .site-footer .text-slate-300,
-  .site-footer .text-slate-400,
-  .site-footer .text-slate-500 {
+  :root:not([data-theme="light"]) .site-footer,
+  :root:not([data-theme="light"]) .site-footer p,
+  :root:not([data-theme="light"]) .site-footer .text-slate-300,
+  :root:not([data-theme="light"]) .site-footer .text-slate-400,
+  :root:not([data-theme="light"]) .site-footer .text-slate-500 {
     color: #96aaa2;
   }
 
-  .site-footer .text-cyan-50,
-  .site-footer .text-cyan-100 {
+  :root:not([data-theme="light"]) .site-footer .text-cyan-50,
+  :root:not([data-theme="light"]) .site-footer .text-cyan-100 {
     color: #effff9;
   }
 

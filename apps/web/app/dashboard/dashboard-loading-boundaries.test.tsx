@@ -222,6 +222,11 @@ vi.mock("@reviewrouter/features-hosted-account-pool", () => ({
 }));
 vi.mock("@reviewrouter/features-provider-setup", () => ({}));
 vi.mock("@reviewrouter/features-memory", () => ({
+  simulateMemoryPolicyDecision: fixtures.spies.memorySimulation,
+  listMemoryItemsForDashboard: fixtures.spies.memoryItems,
+  listMemorySuggestionsForDashboard: fixtures.spies.memorySuggestions,
+}));
+vi.mock("@reviewrouter/features-memory/infrastructure", () => ({
   PrismaMemoryPermission: fixtures.EmptyStore,
   PrismaMemoryItemRepository: fixtures.EmptyStore,
   PrismaMemorySuggestionRepository: fixtures.EmptyStore,
@@ -230,9 +235,6 @@ vi.mock("@reviewrouter/features-memory", () => ({
     getPolicy = fixtures.spies.memoryPolicy;
   },
   readMemoryServiceEnabled: () => true,
-  simulateMemoryPolicyDecision: fixtures.spies.memorySimulation,
-  listMemoryItemsForDashboard: fixtures.spies.memoryItems,
-  listMemorySuggestionsForDashboard: fixtures.spies.memorySuggestions,
 }));
 
 const workspace: DashboardWorkspaceSummary = {
@@ -830,7 +832,11 @@ describe("dashboard server loading boundaries", () => {
       });
       const html = renderToStaticMarkup(content);
       expect(html).toContain("In development");
-      expect(html).toContain("This section is not available yet.");
+      expect(html).toContain("This section isn’t available yet.");
+      expect(html).toContain(
+        "Saved knowledge for your workspace’s code reviews.",
+      );
+      expect(html.match(/<h1\b/gu)).toHaveLength(1);
       expect(html).not.toMatch(/<(?:form|button|input|select|textarea|a)\b/u);
       expect(html).not.toContain("previous-item");
       for (const spy of Object.values(spies)) {

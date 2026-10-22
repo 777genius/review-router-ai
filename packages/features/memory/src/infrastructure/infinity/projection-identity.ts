@@ -4,7 +4,7 @@ import { MemoryIndexOperationError } from "../../application/ports/memory-search
 import type {
   MemoryProjectionReceipt,
   MemoryProjectionRevision,
-} from "./memory-projection-receipt-store";
+} from "../projection/memory-projection-receipt-store";
 
 const receiptIdPattern = /^[A-Za-z0-9_-]{1,80}$/u;
 

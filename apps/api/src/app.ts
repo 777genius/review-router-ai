@@ -106,7 +106,7 @@ import {
   PrismaMemoryTransaction,
   PrismaMemoryUsageEventRepository,
   readMemoryServiceEnabled,
-} from "@reviewrouter/features-memory";
+} from "@reviewrouter/features-memory/infrastructure";
 import { createMemorySearchRuntime } from "@reviewrouter/features-memory/composition";
 import { PrismaEntitlementRepository } from "@reviewrouter/features-entitlements";
 import {

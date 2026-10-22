@@ -92,8 +92,9 @@ approval or of a live Infinity deployment.
 
 Repository-wide checkpoints are recorded below. The latest gate and GitHub CI
 results are maintained in [PR #670](https://github.com/777genius/review-router-ai/pull/670).
-The PR remains unmerged and no deployment or Infinity production activation is
-part of this delivery.
+At this checkpoint the PR was left open. The owner's subsequent merge request
+is recorded below; deployment and Infinity production activation remain outside
+this delivery.
 
 ### CI integration correction: exact migration inventory
 
@@ -180,3 +181,83 @@ boundaries. No memory restriction was removed. The locked dependency install and
 complete architecture gate passed after the merge, including all ten memory
 qualification cases. Final build/typecheck/browser evidence in the PR refers to
 the resulting source, rather than the interrupted pre-merge build.
+
+### Owner-requested deeper architecture and UX review
+
+After the initial green PR delivery, the owner requested a further Clean
+Architecture/SOLID/DRY audit, a clearer paused screen using shared UI, independent
+criticism of the corrections, and merge after validation. Three reviewers
+examined the public/core contracts, composition/lifecycle and product surface.
+The resulting changes are limited to the confirmed seams:
+
+- The core package entrypoint no longer re-exports concrete Prisma, entitlement
+  or configuration adapters. Hosts import the explicit `./infrastructure`
+  entrypoint. Foundation rejects concrete value **and type** re-exports through
+  the core entrypoint.
+- API retrieval accepts only `MemorySearchReaderPort`; its authenticated
+  regression fixture has no write methods or index identity. Existing canonical
+  policy and fallback assertions remain intact.
+- The shared projection receipt contract belongs to neutral infrastructure,
+  with `PrismaMemoryProjectionReceiptStore` implementing it. Generic Prisma
+  infrastructure can no longer import the Infinity boundary. The move preserves
+  all SQL, lock admission, fresh-expiry, deletion-debt and retirement semantics.
+- Configuration diagnostics are owned and classified by the memory feature.
+  Operator CLI no longer enumerates Infinity fields; unknown and spoofed errors
+  retain a fixed fallback. Independent cross-review found a double property read
+  in the new classifier. It now snapshots the code once, with a stateful-getter
+  regression also covering private message/cause data.
+- The shared paused screen uses the existing UI Badge, icon and theme tokens,
+  one page heading, a short purpose statement and a clear availability message.
+  It adds no memory controls, data access, client state or shared UI framework.
+
+Both architecture cross-reviewers reported GO after the corrections; the UI
+implementation also passed the independent semantic/component review. Accepted
+ADRs were not edited, and the three original pre-implementation review rounds
+remain distinct from this follow-up implementation review.
+
+Foundation qualification now contains 15 cases, including the actual public
+entrypoint and neutral projection boundaries. All 15 passed against an unchanged
+complete workspace snapshot with the installed Foundation CLI; the snapshot
+avoided a local workspace-sync race involving transient negative fixtures.
+The normal CI runs the same strict qualifier directly in its checkout. Focused
+configuration/composition/operator regressions passed 62/62. The latest combined
+PostgreSQL/API, browser, build and CI evidence is recorded in PR #670.
+
+### Follow-up visual and batch-budget corrections
+
+The expanded browser matrix initially passed all 30 functional cases, but visual
+review rejected both mobile light-theme screenshots: an existing mobile rule
+forced a dark body and footer underneath light-theme text. Only those dark
+palette selectors are now guarded by the active theme; mobile spacing and the
+other page-specific rules are preserved. The browser qualifier records the
+global stylesheet hash, verifies actual light surfaces, and measures the five
+notice text samples against their composited backgrounds with native sRGB
+Canvas. Footer base-color checks remain distinct from visual inspection of its
+gradient. The simple shared notice adds no memory functionality.
+
+A further [CodeRabbit finding](https://github.com/777genius/review-router-ai/pull/670#discussion_r4351127255)
+identified that exhausted batch budgets deferred receipts that had not been
+attempted. Giving every receipt a fresh five-second budget would let a
+100-receipt pass block the shared worker loop for minutes. The correction retains
+the single pass budget and stops before the next receipt when its minimum
+reconciliation allowance is unavailable. Untouched receipts retain their
+schedule and error state; counts distinguish started work from selected work
+still pending. A successfully validated capability is reused only within that
+pass, with discovery refreshed next time.
+
+Independent criticism also confirmed that repeated item-wide deletion reset
+every revision's retry schedule. The receipt-store move itself preserved the
+SQL; this subsequent correction changes only deletion scheduling idempotency:
+new intent becomes due immediately, while repeated intent preserves existing
+backoff and ordering. Exact revision cleanup, durable unknown-write debt and
+the final inventory check before generation retirement remain intact.
+
+Both the visual source correction and the bounded-pass/scheduling correction
+received independent read-only GO. New regressions cover untouched receipt
+state, follow-up progress, one capability discovery per pass, incomplete drain
+retirement refusal, and real PostgreSQL retry ordering after store restart.
+The released-SDK HTTP suite passed 33/33 and the real PostgreSQL receipt suite
+passed 18/18, including the four new cases. The earlier combined follow-up
+regression passed 329/329 tests without skips. These overlapping counts are not
+additive; final browser, build and current-head CI evidence is maintained in the
+PR validation section.

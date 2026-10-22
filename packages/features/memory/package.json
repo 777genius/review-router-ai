@@ -9,6 +9,11 @@
       "production": "./dist/index.js",
       "default": "./src/index.ts"
     },
+    "./infrastructure": {
+      "types": "./src/infrastructure/index.ts",
+      "production": "./dist/infrastructure/index.js",
+      "default": "./src/infrastructure/index.ts"
+    },
     "./outbox": {
       "types": "./src/infrastructure/outbox/memory-index-outbox-handlers.ts",
       "production": "./dist/infrastructure/outbox/memory-index-outbox-handlers.js",
