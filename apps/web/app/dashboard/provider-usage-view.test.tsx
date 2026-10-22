@@ -191,7 +191,7 @@ describe("provider usage interactive report", () => {
       screen
         .getByRole("link", { name: "Account limits are shown in Accounts" })
         .getAttribute("href"),
-    ).toBe("/dashboard/setup?workspace=workspace");
+    ).toBe("/dashboard/setup?workspace=workspace#dashboard-section-content");
     expect(container.textContent).not.toContain("Quota / limits: unknown");
   });
   it("hydrates the exact review key and preserves exact currency/basis and requested/observed identities", () => {
