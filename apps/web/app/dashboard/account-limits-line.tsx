@@ -3,6 +3,7 @@
 import { createContext, useEffect, useRef, useState } from "react";
 import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { Button } from "@reviewrouter/ui";
+import { RefreshCw } from "lucide-react";
 import type {
   AccountLimitsView,
   AccountsResult,
@@ -55,11 +56,26 @@ function instant(value: string | null, local: boolean) {
   }).format(date)} UTC${offset >= 0 ? "+" : "-"}${hours}:${minutes}`;
 }
 const statusText = {
-  unknown: "Account limits: no observations yet",
-  unsupported: "Account limits: this profile does not report limits",
-  unavailable: "Account limits: source unavailable",
-  restricted: "Account limits are visible to the owner",
+  unknown: "No limits saved yet",
+  unsupported: "Limits not supported",
+  unavailable: "Limits source unavailable",
+  restricted: "Limits visible to the owner only",
 };
+
+function resetText(reset: number, now: number) {
+  if (!Number.isFinite(reset)) return "Reset unknown";
+  if (now >= reset) return "Reset pending";
+  const minutes = Math.ceil((reset - now) / 60_000);
+  const days = Math.floor(minutes / 1_440);
+  const hours = Math.floor((minutes % 1_440) / 60);
+  const remaining = minutes % 60;
+  const duration = days
+    ? `${days}d${hours ? ` ${hours}h` : ""}`
+    : hours
+      ? `${hours}h${remaining ? ` ${remaining}m` : ""}`
+      : `${remaining}m`;
+  return `Resets in ${duration}`;
+}
 
 export function AccountLimitsLine({
   scope,
@@ -134,7 +150,7 @@ export function AccountLimitsLine({
   if (blocked)
     return (
       <p className="mt-2 text-xs text-slate-400">
-        Account limits unavailable while the connection changes
+        Limits unavailable while connection changes
       </p>
     );
   const now = clock ?? (view ? Date.parse(view.fetchedAt) : 0);
@@ -142,90 +158,124 @@ export function AccountLimitsLine({
     query.data &&
     query.data.status !== "ok" &&
     query.data.status !== "unavailable";
+  const restricted =
+    denied ||
+    view?.status === "restricted" ||
+    (changed && expectedStatus === "restricted");
+  const unsupported =
+    view?.status === "unsupported" ||
+    (changed && expectedStatus === "unsupported");
   return (
     <div
-      className="mt-2 min-w-0 space-y-1 text-xs text-slate-400"
+      className="mt-2 flex min-w-0 items-start gap-2 text-xs text-slate-400"
       aria-label="Account limits"
     >
-      {view?.status === "snapshot" ? (
-        <>
-          <p>
-            {view.scope === "subscription" ? "Subscription" : "Account"} limits
-            · shared across all activity
-          </p>
-          {view.windows.map((window, index) => {
-            const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
-            const observed = window.observedAt
-              ? Date.parse(window.observedAt)
-              : NaN;
-            const elapsed = Number.isFinite(reset) && now >= reset;
-            const stale =
-              window.stale ||
-              !Number.isFinite(observed) ||
-              now - observed >= 300_000 ||
-              elapsed;
-            return (
-              <div
-                key={`${window.label}:${index}`}
-                className="min-w-0 space-y-1 break-words"
-              >
-                <p>
-                  {window.label} ·{" "}
-                  {window.usedPercent === null
-                    ? "used unknown; remaining unknown"
-                    : `used ${window.usedPercent}%; remaining ${window.remainingPercent ?? "unknown"}%`}
-                  {stale ? " · Last known observation (stale)" : ""}
-                </p>
-                {window.progressPercent !== null ? (
-                  <div
-                    role="progressbar"
-                    aria-label={`${window.label} used`}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={window.progressPercent}
-                    aria-valuetext={`${window.usedPercent}% used`}
-                    className="h-1 w-full max-w-56 overflow-hidden rounded bg-slate-700"
-                  >
+      <div className="min-w-0 flex-1 space-y-2">
+        {view?.status === "snapshot" ? (
+          <>
+            {view.windows.map((window, index) => {
+              const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
+              const observed = window.observedAt
+                ? Date.parse(window.observedAt)
+                : NaN;
+              const elapsed = Number.isFinite(reset) && now >= reset;
+              const stale =
+                window.stale ||
+                !Number.isFinite(observed) ||
+                now - observed >= 300_000 ||
+                elapsed;
+              return (
+                <div
+                  key={`${window.label}:${index}`}
+                  className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5"
+                >
+                  <span className="min-w-4 shrink-0">{window.label}</span>
+                  <span className="min-w-20 font-semibold tabular-nums text-slate-100">
+                    {window.remainingPercent === null
+                      ? "Remaining unknown"
+                      : `${window.remainingPercent}% left`}
+                  </span>
+                  {window.remainingPercent !== null ? (
                     <div
-                      className="h-full bg-cyan-400"
-                      style={{ width: `${window.progressPercent}%` }}
-                    />
-                  </div>
-                ) : null}
+                      role="progressbar"
+                      aria-label={`${window.label} remaining`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={window.remainingPercent}
+                      aria-valuetext={`${window.remainingPercent}% remaining${window.usedPercent === null ? "" : `; ${window.usedPercent}% used`}`}
+                      className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-slate-700 sm:w-20"
+                    >
+                      <div
+                        className={
+                          window.remainingPercent <= 5
+                            ? "h-full bg-rose-400"
+                            : window.remainingPercent <= 20
+                              ? "h-full bg-amber-400"
+                              : "h-full bg-cyan-400"
+                        }
+                        style={{ width: `${window.remainingPercent}%` }}
+                      />
+                    </div>
+                  ) : null}
+                  <span className="whitespace-nowrap tabular-nums">
+                    {resetText(reset, now)}
+                  </span>
+                  {stale ? (
+                    <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
+                      Outdated
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })}
+            <details>
+              <summary className="w-fit cursor-pointer rounded text-slate-500 hover:text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300/70">
+                Details
+              </summary>
+              <div className="mt-2 space-y-2 break-words">
                 <p>
-                  Reset: {instant(window.resetAt, local)}
-                  {elapsed
-                    ? " · Awaiting an observation after reset"
-                    : Number.isFinite(reset)
-                      ? ` · in ${Math.ceil((reset - now) / 60_000)} min`
-                      : ""}
+                  {view.scope === "subscription" ? "Subscription" : "Account"}{" "}
+                  limits
+                  {" · "}shared across all activity
                 </p>
-                <p>As of: {instant(window.observedAt, local)}</p>
+                {view.windows.map((window, index) => (
+                  <div key={`${window.label}:${index}`} className="space-y-1">
+                    <p>
+                      {window.label}
+                      {" · "}
+                      {window.usedPercent === null
+                        ? "Used unknown"
+                        : `${window.usedPercent}% used`}
+                    </p>
+                    <p>Reset: {instant(window.resetAt, local)}</p>
+                    <p>As of: {instant(window.observedAt, local)}</p>
+                  </div>
+                ))}
               </div>
-            );
-          })}
-        </>
-      ) : (
-        <p>
-          {denied
-            ? "Account limits are visible to the owner"
-            : changed && expectedStatus === "restricted"
+            </details>
+          </>
+        ) : (
+          <p>
+            {restricted
               ? statusText.restricted
-              : view
-                ? statusText[view.status]
-                : "Account limits: no observations yet"}
-        </p>
-      )}
-      {query.isError || query.data?.status === "unavailable" ? (
-        <p role="status">
-          Saved limits could not be read. Last known observations may be stale.
-        </p>
-      ) : null}
-      {context && view?.status !== "restricted" && !denied ? (
+              : unsupported
+                ? statusText.unsupported
+                : view
+                  ? statusText[view.status]
+                  : statusText.unknown}
+          </p>
+        )}
+        {query.isError || query.data?.status === "unavailable" ? (
+          <p role="status">Could not reload saved limits.</p>
+        ) : null}
+      </div>
+      {context && !restricted && !unsupported ? (
         <Button
           variant="ghost"
           size="sm"
-          className="min-h-9 max-w-full whitespace-normal px-0 text-xs"
+          className="size-8 min-h-8 rounded-lg p-0 text-slate-400"
+          aria-label="Reload saved limits"
+          title="Reload the saved snapshot. Does not contact the provider."
           disabled={query.isFetching}
           onClick={() => {
             if (reading.current) return;
@@ -235,7 +285,10 @@ export function AccountLimitsLine({
             });
           }}
         >
-          Read saved limits
+          <RefreshCw
+            aria-hidden="true"
+            className={`size-3.5${query.isFetching ? " motion-safe:animate-spin" : ""}`}
+          />
         </Button>
       ) : null}
     </div>

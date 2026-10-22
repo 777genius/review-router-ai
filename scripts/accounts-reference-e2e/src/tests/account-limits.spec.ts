@@ -72,17 +72,20 @@ test("account limits are present in the first server paint with UTC observation 
       /<script\b[^>]*>[\s\S]*?<\/script>/gi,
       "",
     );
-    expect(markup).toContain('aria-valuenow="37.5"');
+    expect(markup).toContain('aria-valuenow="62.5"');
     const limits = limitsFor(
       page
         .locator("article")
         .filter({ hasText: FIXTURES.sourceLabels.viewerPrimary }),
     );
-    await expect(limits).toContainText("used 37.5%; remaining 62.5%");
+    await expect(limits).toContainText("62.5% left");
     await expect(limits).toContainText("UTC+00:00");
     await expect(
-      limits.getByRole("progressbar", { name: "5h used", includeHidden: true }),
-    ).toHaveAttribute("aria-valuenow", "37.5");
+      limits.getByRole("progressbar", {
+        name: "5h remaining",
+        includeHidden: true,
+      }),
+    ).toHaveAttribute("aria-valuenow", "62.5");
     const reads = await stats(request);
     expect(reads.readAccounts).toContain(
       FIXTURES.gateway.accounts.viewerPrimary,
@@ -107,7 +110,7 @@ test("account limits preserve observations across reset without automatic reads 
   page,
   context,
   request,
-}) => {
+}, info) => {
   await configure(request, "fresh");
   const violations: string[] = [];
   await installLoopbackOnlyNetworkGuard(page, violations);
@@ -117,16 +120,19 @@ test("account limits preserve observations across reset without automatic reads 
   const limits = limitsFor(
     sourceRow(page, FIXTURES.sourceLabels.viewerPrimary),
   );
-  await expect(limits).toContainText("used 37.5%; remaining 62.5%");
+  await expect(limits).toContainText("62.5% left");
   await page.waitForLoadState("networkidle");
   const initial = await stats(request);
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   // Run interval callbacks across the source reset boundary without wall-clock
   // waiting, including the timer that renders the elapsed reset state.
   await page.clock.runFor(90_000);
-  await expect(limits).toContainText("Awaiting an observation after reset");
-  await expect(limits).toContainText("Last known observation (stale)");
-  await expect(limits).toContainText("used 37.5%; remaining 62.5%");
+  await expect(limits).toContainText("Reset pending");
+  await expect(limits).toContainText("Outdated");
+  await limits.screenshot({
+    path: info.outputPath("account-limits-stale.png"),
+  });
+  await expect(limits).toContainText("62.5% left");
   expect((await stats(request)).reads).toBe(initial.reads);
   expect(
     browserRequestsFor(page).filter(
@@ -137,7 +143,7 @@ test("account limits preserve observations across reset without automatic reads 
     page.getByRole("button", { name: /Refresh.*provider|Update.*provider/i }),
   ).toHaveCount(0);
   const read = limits.getByRole("button", {
-    name: "Read saved limits",
+    name: "Reload saved limits",
     exact: true,
   });
   const responsePromise = page.waitForResponse(
@@ -172,10 +178,13 @@ test("account limits preserve observations across reset without automatic reads 
   await configure(request, "unavailable");
   await read.click();
   await expect(limits.getByRole("status")).toContainText(
-    "Saved limits could not be read",
+    "Could not reload saved limits.",
   );
-  await expect(limits).toContainText("used 37.5%; remaining 62.5%");
+  await expect(limits).toContainText("62.5% left");
   expect(await limits.getByText(/^As of:/).textContent()).toBe(lastAsOf);
+  await limits.screenshot({
+    path: info.outputPath("account-limits-reload-error.png"),
+  });
   expect((await stats(request)).reads).toBe(1);
   await expectNetworkViolations(violations);
 });
@@ -190,10 +199,10 @@ test("account limits partial and absent observations never imply free quota on m
   const violations: string[] = [];
   await installLoopbackOnlyNetworkGuard(page, violations);
   for (const [mode, message] of [
-    ["partial", "used unknown; remaining unknown"],
-    ["unknown", "no observations yet"],
-    ["unsupported", "this profile does not report limits"],
-    ["unavailable", "source unavailable"],
+    ["partial", "Remaining unknown"],
+    ["unknown", "No limits saved yet"],
+    ["unsupported", "Limits not supported"],
+    ["unavailable", "Limits source unavailable"],
   ] as const) {
     await configure(request, mode);
     await openAccounts(page, "rr-e2e-personal-viewer");
@@ -204,9 +213,16 @@ test("account limits partial and absent observations never imply free quota on m
     await expect(limits.getByRole("progressbar")).toHaveCount(0);
     await expect(limits).not.toContainText(/remaining 100%|unlimited|7d/);
     if (mode === "partial") {
-      await expect(limits).toContainText("Reset: unknown");
+      await expect(limits).toContainText("Reset unknown");
       await expect(limits).toContainText("As of:");
     }
+    if (mode === "unsupported")
+      await expect(
+        limits.getByRole("button", { name: "Reload saved limits" }),
+      ).toHaveCount(0);
+    await limits.screenshot({
+      path: info.outputPath(`account-limits-mobile-${mode}.png`),
+    });
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -233,13 +249,13 @@ test("account limits restrict shared rows before native reads and fence a delaye
   await installLoopbackOnlyNetworkGuard(page, violations);
   await openAccounts(page, "rr-e2e-org-alpha");
   const donor = limitsFor(sourceRow(page, FIXTURES.sourceLabels.viewerPrimary));
-  await expect(donor).toContainText("Account limits are visible to the owner");
+  await expect(donor).toContainText("Limits visible to the owner only");
   await expect(donor.getByRole("progressbar")).toHaveCount(0);
   await expect(
-    donor.getByRole("button", { name: "Read saved limits" }),
+    donor.getByRole("button", { name: "Reload saved limits" }),
   ).toHaveCount(0);
   const owned = limitsFor(sourceRow(page, FIXTURES.sourceLabels.orgAlpha));
-  await expect(owned).toContainText("used 37.5%; remaining 62.5%");
+  await expect(owned).toContainText("62.5% left");
   await page.waitForLoadState("networkidle");
   const initial = await stats(request);
   expect(initial.readAccounts).toContain(FIXTURES.gateway.accounts.orgAlpha);
@@ -281,7 +297,7 @@ test("account limits restrict shared rows before native reads and fence a delaye
     }
   });
   try {
-    await owned.getByRole("button", { name: "Read saved limits" }).click();
+    await owned.getByRole("button", { name: "Reload saved limits" }).click();
     const response = await responseReady;
     expect(response.status()).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -294,7 +310,7 @@ test("account limits restrict shared rows before native reads and fence a delaye
       ),
     ).toHaveLength(1);
     await expect(
-      owned.getByRole("button", { name: "Read saved limits" }),
+      owned.getByRole("button", { name: "Reload saved limits" }),
     ).toBeDisabled();
     await page.getByRole("tab", { name: /RR E2E Org Bravo/ }).click();
     await expect(
@@ -306,19 +322,97 @@ test("account limits restrict shared rows before native reads and fence a delaye
     releaseResponse();
     if (deliveryStarted) await delivery;
   }
-  await expect(page.getByRole("progressbar", { name: "5h used" })).toHaveCount(
-    0,
-  );
+  await expect(
+    page.getByRole("progressbar", { name: "5h remaining" }),
+  ).toHaveCount(0);
   // The viewer's own limits remain authorized in the hidden personal-access
   // dialog. Only the active workspace must reject the old organization result.
   await expect(
     page.locator('[aria-label="Account limits"]:visible').filter({
-      hasText: /used 37.5%; remaining 62.5%/,
+      hasText: /62.5% left/,
     }),
   ).toHaveCount(0);
   await expect(sourceRow(page, FIXTURES.sourceLabels.orgAlpha)).toHaveCount(0);
   await expect(
     limitsFor(sourceRow(page, FIXTURES.sourceLabels.viewerPrimary)),
-  ).toContainText("Account limits are visible to the owner");
+  ).toContainText("Limits visible to the owner only");
+  await expectNetworkViolations(violations);
+});
+
+// Visible density, keyboard disclosure, and numeric meaning belong to the real
+// component: snapshots must not require reading the diagnostic timestamps.
+test("account limits keep two windows compact with keyboard-accessible details", async ({
+  page,
+  context,
+  request,
+}, info) => {
+  await configure(request, "two-windows");
+  await useViewerSession(context);
+  const violations: string[] = [];
+  await installLoopbackOnlyNetworkGuard(page, violations);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openAccounts(page, "rr-e2e-personal-viewer");
+  const row = sourceRow(page, FIXTURES.sourceLabels.viewerPrimary);
+  const limits = limitsFor(row);
+  await expect(limits).toContainText("62.5% left");
+  await expect(limits).toContainText("12% left");
+  await expect(
+    limits.getByRole("progressbar", { name: "5h remaining" }),
+  ).toHaveAttribute("aria-valuenow", "62.5");
+  await expect(
+    limits.getByRole("progressbar", { name: "7d remaining" }),
+  ).toHaveAttribute("aria-valuenow", "12");
+  const details = limits.locator("details");
+  await expect(details).not.toHaveAttribute("open", "");
+  await expect(limits.getByText(/^As of:/).first()).not.toBeVisible();
+  await row.scrollIntoViewIfNeeded();
+  expect((await limits.boundingBox())!.height).toBeLessThan(120);
+  await limits.screenshot({
+    path: info.outputPath("account-limits-compact-desktop.png"),
+  });
+  await page.screenshot({
+    path: info.outputPath("account-limits-desktop-viewport.png"),
+  });
+
+  const before = await stats(request);
+  const summary = limits.getByText("Details", { exact: true });
+  await summary.focus();
+  await summary.press("Enter");
+  await expect(details).toHaveAttribute("open", "");
+  await expect(limits.getByText(/^As of:/).first()).toBeVisible();
+  await expect(limits).toContainText("37.5% used");
+  await expect(limits).toContainText("88% used");
+  await expect(limits).toContainText(/UTC[+-]\d{2}:\d{2}/);
+  expect((await stats(request)).reads).toBe(before.reads);
+  await limits.screenshot({
+    path: info.outputPath("account-limits-details-desktop.png"),
+  });
+  await summary.press("Enter");
+  await expect(details).not.toHaveAttribute("open", "");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await row.scrollIntoViewIfNeeded();
+  await expect(limits).toContainText("62.5% left");
+  await expect(limits).toContainText("12% left");
+  const bounds = (await limits.boundingBox())!;
+  expect(bounds.height).toBeLessThan(160);
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await limits.screenshot({
+    path: info.outputPath("account-limits-compact-mobile.png"),
+  });
+  await page.screenshot({
+    path: info.outputPath("account-limits-mobile-viewport.png"),
+  });
+  await summary.click();
+  await expect(limits.getByText(/^As of:/).first()).toBeVisible();
+  await limits.screenshot({
+    path: info.outputPath("account-limits-details-mobile.png"),
+  });
   await expectNetworkViolations(violations);
 });
