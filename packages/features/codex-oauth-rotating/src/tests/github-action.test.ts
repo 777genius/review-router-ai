@@ -1114,6 +1114,19 @@ describe("Codex rotating GitHub Action runtime", () => {
         return jsonResponse({ value: "oidc.jwt.value" });
       }
       if (href.endsWith("/api/action/v1/codex-oauth/prelease")) {
+        // bb277462 installed APIs reject unknown JSON fields before admission.
+        expect(Object.keys(JSON.parse(String(init?.body))).sort()).toEqual([
+          "oidcToken",
+          "providerInstanceId",
+          "workflowSchemaVersion",
+        ]);
+        const header = new Headers(init?.headers).get(
+          "x-reviewrouter-usage-public-key",
+        );
+        expect(header).toMatch(/^[A-Za-z0-9_-]+$/);
+        expect(Buffer.from(header!, "base64url").toString("utf8")).toContain(
+          "-----BEGIN PUBLIC KEY-----",
+        );
         return jsonResponse({
           leaseId: "lease_1",
           generationHashSalt: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",

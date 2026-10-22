@@ -2102,8 +2102,8 @@ async function requestCodexRotatingPreleaseWithFreshOidc(input: {
             oidcToken,
             providerInstanceId: input.providerInstanceId,
             workflowSchemaVersion: input.workflowSchemaVersion,
-            usagePublicKey: usageRegistration.publicKey,
           },
+          usagePublicKey: usageRegistration.publicKey,
           maxAttempts: 1,
         });
         if (prelease.bootstrapUsageGrant) {
@@ -2185,6 +2185,7 @@ async function postJson<T = unknown>(input: {
   readonly body: unknown;
   readonly signal?: AbortSignal | undefined;
   readonly maxAttempts?: number;
+  readonly usagePublicKey?: string;
 }): Promise<T> {
   const { response, text } = await fetchWithRetry({
     fetchImpl: input.fetchImpl,
@@ -2193,7 +2194,17 @@ async function postJson<T = unknown>(input: {
     url: input.url,
     init: {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(input.usagePublicKey
+          ? {
+              "x-reviewrouter-usage-public-key": Buffer.from(
+                input.usagePublicKey,
+                "utf8",
+              ).toString("base64url"),
+            }
+          : {}),
+      },
       body: JSON.stringify(input.body),
       ...(input.signal ? { signal: input.signal } : {}),
     },
