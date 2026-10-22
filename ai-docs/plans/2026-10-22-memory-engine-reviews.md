@@ -42,3 +42,11 @@ All three critics confirmed the first-round fixes. Accepted remaining changes:
 | Retry fingerprint can change | Stable whole ingest payload and fresh projection generation after drain |
 
 No new platform, generic job runner or automatic topology provisioning is added.
+
+## Plan round 3 — revision 3
+
+All three independent critics re-read revision 3 after the second correction
+checkpoint. Architecture/composition, product/Foundation and Infinity lifecycle
+reviews each reported no remaining P1/P2 plan blockers and cleared implementation.
+The implementation starts after this record; later findings will be recorded
+separately rather than rewriting the three planning rounds as implementation proof.

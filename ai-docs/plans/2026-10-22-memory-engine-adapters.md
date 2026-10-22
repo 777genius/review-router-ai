@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-Implementation plan, revision 3, prepared for three sequential independent
+Implementation plan, revision 3, cleared by three sequential independent
 critique/fix rounds before implementation. Owner request: replace the Memory
 dashboard with an honest under-development message, make the memory engine
 replaceable, integrate the first Infinity Context SDK adapter, test the complete
