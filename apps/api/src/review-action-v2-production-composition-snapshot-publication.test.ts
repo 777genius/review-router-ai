@@ -259,6 +259,12 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       ...snapshot,
       payload: { ...snapshot.payload, projectionEnvelope: projection },
     };
+    const sourcePermit = {
+      ...artifact.publicationPermit,
+      executionId: prior.sourceExecutionId,
+      generation: BigInt(prior.sourceExecutionGeneration),
+      projectionHash: prior.payload.projectionHash,
+    };
     const sourceArtifact = {
       ...artifact,
       executionId: prior.sourceExecutionId,
@@ -267,12 +273,8 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       reviewRevisionHash: prior.sourceReviewRevisionHash,
       projectionHash: prior.payload.projectionHash,
       projectionEnvelopeJson: canonicalJson(projection),
-      publicationPermit: {
-        ...artifact.publicationPermit,
-        executionId: prior.sourceExecutionId,
-        generation: BigInt(prior.sourceExecutionGeneration),
-        projectionHash: prior.payload.projectionHash,
-      },
+      // Native artifact mapping spreads execution fields into the typed permit.
+      publicationPermit: { ...sourcePermit, state: "completed", workSlots: [] },
     };
     const sha = (value: string) =>
       createHash("sha256").update(value).digest("hex");
@@ -281,7 +283,7 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     const externalObjectId = `thread:${threadId}`;
     const view = {
       attempt: {
-        permit: sourceArtifact.publicationPermit,
+        permit: sourcePermit,
         state: "terminal",
         terminalOutcome: "succeeded",
         operations: [
@@ -351,6 +353,22 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     expect(findByPermitIdentity).toHaveBeenCalledWith(
       sourceArtifact.publicationPermit,
     );
+    findByPermitIdentity.mockResolvedValue({
+      ...view,
+      attempt: {
+        ...view.attempt,
+        permit: { ...view.attempt.permit, permitEpoch: 999n },
+      },
+    });
+    const mismatched = await routes.snapshot.restore!.execute({
+      ...envelope("mismatched-receipt-baseline"),
+      authorizationToken: "authorization-token",
+      reviewRevisionHash: authorization.reviewRevisionHash,
+      purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
+    });
+    expect(
+      JSON.parse(mismatched.result.payloadCanonicalJson!).appliedResolutions,
+    ).toEqual([]);
   });
 
   it("rejects malformed, unsupported and out-of-scope comparison snapshots without throwing", async () => {

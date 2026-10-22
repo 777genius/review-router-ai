@@ -332,7 +332,9 @@ async function restoreSnapshot(
             await dependencies.publications.findByPermitIdentity(permit);
           payload = buildReviewComparisonBaseline(
             record,
-            view && canonicalJson(view.attempt.permit) === canonicalJson(permit)
+            view &&
+              canonicalPublicationPermitIdentity(view.attempt.permit) ===
+                canonicalPublicationPermitIdentity(permit)
               ? appliedComparisonResolutions(record, view)
               : [],
           );
@@ -386,6 +388,31 @@ async function restoreSnapshot(
       lineageHintsCanonicalJson: canonicalJson(restored.lineageHints),
     },
   } as const;
+}
+
+/** Repositories may carry execution implementation fields alongside this identity. */
+function canonicalPublicationPermitIdentity(
+  permit: ReviewPublicationPermitIdentity,
+): string {
+  const identity: ReviewPublicationPermitIdentity = {
+    workspaceId: permit.workspaceId,
+    repositoryConnectionId: permit.repositoryConnectionId,
+    scmRepositoryIdentityId: permit.scmRepositoryIdentityId,
+    pullRequestNumber: permit.pullRequestNumber,
+    executionId: permit.executionId,
+    generation: permit.generation,
+    authorizationId: permit.authorizationId,
+    producerReleaseId: permit.producerReleaseId,
+    reviewedHeadSha: permit.reviewedHeadSha,
+    reviewRevisionHash: permit.reviewRevisionHash,
+    projectionHash: permit.projectionHash,
+    lifecycleStateHash: permit.lifecycleStateHash,
+    commandLedgerWatermark: permit.commandLedgerWatermark,
+    permitEpoch: permit.permitEpoch,
+    publicationSafetyDecisionHash: permit.publicationSafetyDecisionHash,
+    publicationNotAfter: permit.publicationNotAfter,
+  };
+  return canonicalJson(identity);
 }
 
 async function requestPublication(
