@@ -685,9 +685,7 @@ test("key continuation reports an unconfirmed submission instead of silently dro
   });
   api.submitGatewayApiKey.mockRejectedValue(new Error("synthetic_lost_ack"));
   await mount({ api, managementScope: "personal" });
-  fireEvent.click(
-    screen.getByRole("button", { name: "Continue key update" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Continue key update" }));
   const dialog = await screen.findByRole("dialog", {
     name: "Continue key update",
   });
@@ -739,9 +737,7 @@ test("key continuation reports the server rejection reason for an unsaved key", 
   });
   api.submitGatewayApiKey.mockResolvedValue({ status: "conflict" });
   await mount({ api, managementScope: "personal" });
-  fireEvent.click(
-    screen.getByRole("button", { name: "Continue key update" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Continue key update" }));
   const dialog = await screen.findByRole("dialog", {
     name: "Continue key update",
   });
