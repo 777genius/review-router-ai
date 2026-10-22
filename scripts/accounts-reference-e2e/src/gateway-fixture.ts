@@ -8,6 +8,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { FIXTURES, type FixtureSecrets } from "./contracts.ts";
+import { createLimitsFixture } from "./limits-fixture.ts";
 
 type WireAccount = {
   readonly accountRef: string;
@@ -85,6 +86,9 @@ export async function startGatewayFixture(input: {
       1,
     ),
   ];
+  const limits = process.argv.includes("--limits-fixture")
+    ? createLimitsFixture(accounts)
+    : null;
   const probes = new Map<
     string,
     { admission: Record<string, unknown>; bearer: string }
@@ -183,6 +187,11 @@ export async function startGatewayFixture(input: {
         request.headers["x-reviewrouter-probe-proof"],
       );
       send(response, result.status, result.body);
+      return;
+    }
+    if (limits && requestUrl.pathname === "/__limits-fixture") {
+      if (request.method === "POST") limits.configure(await readJson(request));
+      send(response, 200, limits.stats());
       return;
     }
     // Opt-in synthetic transport contract; never enabled in product code.
@@ -322,6 +331,17 @@ export async function startGatewayFixture(input: {
     ) {
       send(response, 401, safeError("unauthenticated", "rr-e2e-gateway-auth"));
       return;
+    }
+    if (limits) {
+      const result = await limits.handle(
+        request.method ?? "GET",
+        requestUrl.pathname,
+        () => readJson(request),
+      );
+      if (result) {
+        send(response, result.status, result.body);
+        return;
+      }
     }
     if (
       process.argv.includes("--lifecycle-fixture") &&

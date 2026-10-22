@@ -1,5 +1,17 @@
 "use client";
 
+import {
+  AccountLimitsLine,
+  AccountLimitsReadContext,
+} from "./account-limits-line";
+import {
+  accountLimitsScope,
+  extractAccountLimits,
+  releaseAccountLimits,
+  removeAccountLimitsForConnection,
+  removeAccountLimits,
+} from "./account-limits-query";
+
 import { useAccountLifecycleActivities } from "./account-lifecycle-controls";
 
 import {
@@ -16,6 +28,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
 } from "@tanstack/react-query";
 import { Badge, Button, Dialog, SelectField } from "@reviewrouter/ui";
 import {
@@ -45,6 +58,7 @@ import type {
   AccountProfileView,
   AccountView,
   AccountsBootstrap,
+  AccountsPage,
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
 import {
@@ -182,6 +196,23 @@ export function AccountGatewayControls({
   connectOnly?: boolean;
   workspaceId?: string;
 }) {
+  const priorBootstrap = useRef(bootstrap.page);
+  const removed = new Set(
+    priorBootstrap.current.status === "ok" && bootstrap.page.status === "ok"
+      ? priorBootstrap.current.value.accounts
+          .filter(
+            (old) =>
+              bootstrap.page.status === "ok" &&
+              !bootstrap.page.value.accounts.some(
+                (row) => row.connectionId === old.connectionId,
+              ),
+          )
+          .map((row) => row.connectionId)
+      : [],
+  );
+  useEffect(() => {
+    priorBootstrap.current = bootstrap.page;
+  }, [bootstrap.page]);
   const optionsCache = useCurrentGatewayModelAccountsCache();
   const [fallback] = useState(() => new QueryClient());
   const client = queryClient ?? optionsCache?.client ?? fallback;
@@ -189,17 +220,57 @@ export function AccountGatewayControls({
     return <p role="status">Personal account management is unavailable.</p>;
   return (
     <QueryClientProvider client={client}>
-      <Controls
-        key={`${managementScope}:${bootstrap.context.split(".")[0]}`}
-        bootstrap={bootstrap}
-        api={api}
-        managementScope={managementScope}
-        refreshRelated={refreshRelated}
-        renderAccounts={renderAccounts}
-        hideConnect={hideConnect}
-        connectOnly={connectOnly}
-        workspaceId={workspaceId}
-      />
+      <AccountLimitsReadContext.Provider
+        value={{
+          scope: accountLimitsScope(
+            bootstrap.context,
+            managementScope === "personal" ? undefined : workspaceId,
+          ),
+          context: bootstrap.context,
+          workspaceId: managementScope === "personal" ? undefined : workspaceId,
+          client,
+          projections: new Map(
+            bootstrap.page.status === "ok"
+              ? bootstrap.page.value.accounts.flatMap((account) =>
+                  account.limits
+                    ? [
+                        [
+                          account.connectionId,
+                          {
+                            displayToken: account.limits.displayToken,
+                            status: account.limits.status,
+                            fetchedAt: account.limits.fetchedAt,
+                          },
+                        ] as const,
+                      ]
+                    : [],
+                )
+              : [],
+          ),
+          removed,
+          replacingBootstrap: priorBootstrap.current !== bootstrap.page,
+          allowed: new Set(
+            bootstrap.page.status === "ok"
+              ? bootstrap.page.value.accounts.map((row) => row.connectionId)
+              : [],
+          ),
+          denied:
+            bootstrap.page.status !== "ok" &&
+            bootstrap.page.status !== "unavailable",
+        }}
+      >
+        <Controls
+          key={`${managementScope}:${bootstrap.context.split(".")[0]}`}
+          bootstrap={bootstrap}
+          api={api}
+          managementScope={managementScope}
+          refreshRelated={refreshRelated}
+          renderAccounts={renderAccounts}
+          hideConnect={hideConnect}
+          connectOnly={connectOnly}
+          workspaceId={workspaceId}
+        />
+      </AccountLimitsReadContext.Provider>
     </QueryClientProvider>
   );
 }
@@ -229,6 +300,91 @@ function Controls({
   const scope = personal ? `personal:${contextScope}` : contextScope;
   const storageKey = `rr-c3-account-operations:${scope}`;
   const client = useQueryClient();
+  const limitsScope = accountLimitsScope(
+    context,
+    personal ? undefined : workspaceId,
+  );
+  useEffect(
+    () => () => {
+      releaseAccountLimits(client, limitsScope);
+    },
+    [client, limitsScope],
+  );
+  const hydratedBootstrap = useRef(bootstrap.page);
+  const removedByBootstrap = new Set(
+    hydratedBootstrap.current.status === "ok" && bootstrap.page.status === "ok"
+      ? hydratedBootstrap.current.value.accounts
+          .filter(
+            (old) =>
+              bootstrap.page.status === "ok" &&
+              !bootstrap.page.value.accounts.some(
+                (row) => row.connectionId === old.connectionId,
+              ),
+          )
+          .map((row) => row.connectionId)
+      : [],
+  );
+  useEffect(() => {
+    if (hydratedBootstrap.current === bootstrap.page) return;
+    let current = true;
+    void (async () => {
+      await client.cancelQueries({
+        queryKey: pageKey(scope, null),
+        exact: true,
+      });
+      await removeAccountLimits(client, limitsScope);
+      if (!current) return;
+      const first = extractAccountLimits(client, limitsScope, bootstrap.page);
+      hydratedBootstrap.current = bootstrap.page;
+      client.setQueryData<
+        InfiniteData<AccountsResult<AccountsPage>, string | null>
+      >(pageKey(scope, null), { pages: [first], pageParams: [null] });
+    })();
+    return () => {
+      current = false;
+    };
+  }, [client, limitsScope, bootstrap.page, scope]);
+  useEffect(
+    () =>
+      client.getQueryCache().subscribe((event) => {
+        const key = event.query.queryKey;
+        // A terminal receipt alone does not prove the displayed inventory has
+        // crossed the reconnect fence. Unblock only after its authorized reread.
+        if (
+          key[0] !== "gateway-accounts" ||
+          key[1] !== scope ||
+          key[2] !== "page" ||
+          event.type !== "updated" ||
+          event.action.type !== "success"
+        )
+          return;
+        for (const activity of client
+          .getQueryCache()
+          .findAll({ queryKey: ["account-lifecycle-activity", context] })) {
+          const pending = activity.state.data as
+            | { limitsReconnectNonce?: string }
+            | undefined;
+          if (!pending?.limitsReconnectNonce) continue;
+          const result = client.getQueryData<
+            AccountsResult<AccountOperationView>
+          >(operationKey(scope, pending.limitsReconnectNonce));
+          if (
+            result &&
+            (result.status !== "ok" ||
+              ["applied", "rejected"].includes(result.value.state))
+          )
+            client.removeQueries({ queryKey: activity.queryKey, exact: true });
+        }
+      }),
+    [client, context, scope],
+  );
+  async function fenceReconnect(nonce: string, connectionId: string) {
+    client.setQueryData(["account-lifecycle-activity", context, connectionId], {
+      pending: true,
+      limitsReconnectNonce: nonce,
+    });
+    await removeAccountLimitsForConnection(client, connectionId);
+  }
   const optionsCache = useCurrentGatewayModelAccountsCache();
   const [nonces, setNonces] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
@@ -247,9 +403,18 @@ function Controls({
   const page = useInfiniteQuery({
     queryKey: pageKey(scope, null),
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) =>
-      readAccountResult(api.listGatewayAccounts(context, pageParam)),
-    initialData: { pages: [bootstrap.page], pageParams: [null] },
+    queryFn: ({ pageParam, signal }) =>
+      readAccountResult(api.listGatewayAccounts(context, pageParam)).then(
+        (result) => {
+          if (signal.aborted)
+            throw new Error("Account inventory read canceled");
+          return extractAccountLimits(client, limitsScope, result);
+        },
+      ),
+    initialData: () => ({
+      pages: [extractAccountLimits(client, limitsScope, bootstrap.page)],
+      pageParams: [null],
+    }),
     getNextPageParam: (result) =>
       result.status === "ok" ? result.value.nextCursor : null,
     enabled: Boolean(context),
@@ -377,6 +542,8 @@ function Controls({
     let navigated = false;
     let completionReady = false;
     try {
+      if ("connectionId" in intent)
+        await fenceReconnect(nonce, intent.connectionId);
       // Direct ingress: neither the Begin response nor its temporary URL enters
       // a query/mutation cache, component state, storage or a readback request.
       const fresh = await api.beginGatewayOAuth(context, {
@@ -466,6 +633,8 @@ function Controls({
     submitting.current = true;
     setBusy(true);
     try {
+      if (intent.kind === "reconnect" && intent.connectionId)
+        await fenceReconnect(nonce, intent.connectionId);
       // Secrets bypass React Query entirely. Its mutation cache receives safe metadata only.
       const request = { ...intent, nonce };
       const result =
@@ -505,8 +674,12 @@ function Controls({
     onError: () =>
       setMessage("Binding status is unavailable. Refresh Accounts."),
   });
-  const loaded = page.data.pages.filter((result) => result.status === "ok");
-  const failure = page.data.pages.find((result) => result.status !== "ok");
+  const visiblePages =
+    hydratedBootstrap.current !== bootstrap.page
+      ? [bootstrap.page]
+      : page.data.pages;
+  const loaded = visiblePages.filter((result) => result.status === "ok");
+  const failure = visiblePages.find((result) => result.status !== "ok");
   const data = failure
     ? failure
     : loaded.length
@@ -777,7 +950,7 @@ function Controls({
               key={account.connectionId}
               className="flex flex-wrap items-center justify-between gap-4 py-4"
             >
-              <div>
+              <div className="min-w-0">
                 <p className="font-medium text-cyan-50">{account.label}</p>
                 <p className="mt-1 text-sm text-slate-400">
                   {account.profileLabel} ·{" "}
@@ -786,6 +959,41 @@ function Controls({
                       ?.protocol
                   }
                 </p>
+                <AccountLimitsLine
+                  scope={limitsScope}
+                  context={context}
+                  connectionId={account.connectionId}
+                  client={client}
+                  workspaceId={personal ? undefined : workspaceId}
+                  expectedDisplayToken={
+                    bootstrap.page.status === "ok"
+                      ? bootstrap.page.value.accounts.find(
+                          (row) => row.connectionId === account.connectionId,
+                        )?.limits?.displayToken
+                      : undefined
+                  }
+                  expectedFetchedAt={
+                    bootstrap.page.status === "ok"
+                      ? bootstrap.page.value.accounts.find(
+                          (row) => row.connectionId === account.connectionId,
+                        )?.limits?.fetchedAt
+                      : undefined
+                  }
+                  expectedStatus={
+                    bootstrap.page.status === "ok"
+                      ? bootstrap.page.value.accounts.find(
+                          (row) => row.connectionId === account.connectionId,
+                        )?.limits?.status
+                      : undefined
+                  }
+                  blocked={
+                    (bootstrap.page.status !== "ok" &&
+                      bootstrap.page.status !== "unavailable") ||
+                    removedByBootstrap.has(account.connectionId) ||
+                    lifecycleActivities.has(account.connectionId) ||
+                    account.state === "tombstoned"
+                  }
+                />
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Badge tone="neutral">{account.state}</Badge>
                   {personalAccountOriginText(account) ? (

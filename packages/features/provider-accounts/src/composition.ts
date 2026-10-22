@@ -1,4 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
+export { createAccountLimits } from "./account-limits/composition";
+export { createGatewayAccountLimitsReader } from "./account-limits/infrastructure/gateway/gateway-account-limits-reader";
 import type { WorkspaceAccessRepositoryPort } from "@reviewrouter/features-auth";
 import type {
   WorkspaceBindingFenceDeliveryPort,

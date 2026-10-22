@@ -529,6 +529,7 @@ function ProviderUsageContext({
             </summary>
             <div className="mt-4">
               <UsageDetails
+                workspaceId={workspaceId}
                 report={data}
                 onNext={() =>
                   setFilters((current) => ({
