@@ -640,11 +640,16 @@ function runBackfillOperator(
         maxBuffer: 16_384,
       },
       (error, stdout, stderr) => {
-        if (error && typeof error.code !== "number") {
+        const exitCode = error?.code;
+        if (error && typeof exitCode !== "number") {
           reject(error);
           return;
         }
-        resolve({ exitCode: error?.code ?? 0, stdout, stderr });
+        resolve({
+          exitCode: typeof exitCode === "number" ? exitCode : 0,
+          stdout,
+          stderr,
+        });
       },
     );
   });
