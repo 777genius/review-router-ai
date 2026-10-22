@@ -3,7 +3,10 @@ import type { UsageTotals } from "@reviewrouter/features-provider-usage";
 import {
   chartNumber,
   customInterval,
+  costsLabel,
   intervalLabel,
+  humanUtc,
+  humanUtcRange,
   metricLabel,
   utcDays,
 } from "./provider-usage-format";
@@ -61,7 +64,18 @@ describe("usage presentation invariants", () => {
         currency: "USD",
         basis: "source_reported",
       }),
-    ).toBe("Unknown");
+    ).toBe("No USD source reported amount");
+    expect(costsLabel(totals, "EUR")).toBe("No EUR amount");
+    expect(costsLabel({ ...totals, costs: [] }, "USD")).toBe("Unknown");
+    expect(
+      costsLabel(
+        {
+          ...totals,
+          costs: [{ currency: "USD", basis: "estimated", amount: "0" }],
+        },
+        "USD",
+      ),
+    ).toBe("0 USD (estimated)");
     expect(chartNumber("1e400")).toBeNull();
   });
   it("adapts inclusive UTC calendar dates independently of DST and rejects invalid or excessive intervals", () => {
@@ -80,5 +94,13 @@ describe("usage presentation invariants", () => {
     expect(
       intervalLabel("2026-09-22T12:00:00.000Z", "2026-10-22T12:00:00.000Z"),
     ).toBe("Sep 22 – Oct 22, 2026 UTC");
+  });
+  it("formats run timestamps in UTC without browser locale or ISO noise", () => {
+    expect(humanUtc("2026-10-22T15:12:33.999Z")).toBe(
+      "Oct 22, 2026, 15:12 UTC",
+    );
+    expect(
+      humanUtcRange("2026-10-22T15:12:33.999Z", "2026-10-22T16:20:00.000Z"),
+    ).toBe("Oct 22, 2026, 15:12 - 16:20 UTC");
   });
 });

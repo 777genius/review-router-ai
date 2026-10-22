@@ -6,11 +6,12 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProviderUsageView } from "./provider-usage-view";
-import { ModelUsageTable } from "./provider-usage-tables";
+import { ModelUsageTable, RunUsageTable } from "./provider-usage-tables";
 import type { ProviderUsageReport, UsageFilters } from "./provider-usage-model";
 import {
   fetchProviderUsage,
@@ -201,16 +202,31 @@ describe("provider usage interactive report", () => {
       client.getQueryData(providerUsageKey("workspace", initialFilters)),
     ).toEqual(report);
     expect(screen.getByRole("definition", { name: "1,000" })).toBeTruthy();
-    expect(screen.getByTitle("0.500000000001 USD (estimated)")).toBeTruthy();
-    expect(screen.getByTitle("0.4 EUR (source reported)")).toBeTruthy();
+    expect(
+      within(screen.getByLabelText("Period usage summary")).getByTitle(
+        "0.500000000001 USD (estimated)",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByLabelText("Period usage summary")).queryByTitle(
+        "0.4 EUR (source reported)",
+      ),
+    ).toBeNull();
+    change("Cost currency", "EUR");
+    expect(
+      within(screen.getByLabelText("Period usage summary")).getByTitle(
+        "0.4 EUR (source reported)",
+      ),
+    ).toBeTruthy();
+    change("Cost currency", "USD");
     expect(
       screen.getByRole("table", { name: "Requested model usage" }).textContent,
     ).toContain("codex / requested-alpha");
     expect(
       screen.getByRole("table", { name: "Requested model usage" }).textContent,
-    ).toContain("Observed: actual-beta, Unknown");
+    ).toContain("Observed: actual-beta +1 · includes Unknown");
     fireEvent.click(screen.getByRole("button", { name: "Cost" }));
-    change("Cost bucket", JSON.stringify(["USD", "estimated"]));
+    expect(screen.queryByLabelText("Cost basis")).toBeNull();
     expect(fetchProviderUsage).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("tab", { name: "Runs" }));
     expect(
@@ -416,13 +432,21 @@ describe("provider usage interactive report", () => {
       },
     };
     const view = render(<ModelUsageTable report={seed} />);
-    expect(screen.getByTitle(`codex / ${longModel}`).textContent).toBe(
-      `codex / ${longModel}`,
-    );
     expect(
-      screen.getByRole("rowheader", { name: `codex / ${longModel}` }),
+      within(
+        screen.getByRole("table", { name: "Requested model usage" }),
+      ).getByTitle(`codex / ${longModel}`).textContent,
+    ).toBe(`codex / ${longModel}`);
+    expect(
+      screen.getByRole("rowheader", {
+        name: new RegExp(`codex / ${longModel}`),
+      }),
     ).toBeTruthy();
-    expect(screen.queryByText(/Observed:/)).toBeNull();
+    expect(
+      within(
+        screen.getByRole("table", { name: "Requested model usage" }),
+      ).queryByText(/Observed:/),
+    ).toBeNull();
     view.rerender(
       <ModelUsageTable
         report={{
@@ -441,13 +465,20 @@ describe("provider usage interactive report", () => {
         }}
       />,
     );
-    expect(screen.getByText("Observed: different model, Unknown")).toBeTruthy();
-    const disclosure = screen
-      .getByText("Observed: different model, Unknown")
+    expect(
+      within(
+        screen.getByRole("table", { name: "Requested model usage" }),
+      ).getByText(/Observed:.*includes Unknown/),
+    ).toBeTruthy();
+    const disclosure = within(
+      screen.getByRole("table", { name: "Requested model usage" }),
+    )
+      .getByText(/Observed:.*includes Unknown/)
       .closest("details")!;
-    fireEvent.click(screen.getByText("Observed: different model, Unknown"));
+    fireEvent.click(disclosure.querySelector("summary")!);
     expect(disclosure.open).toBe(true);
-    expect(screen.getByText(`${actual}, Unknown`)).toBeTruthy();
+    expect(within(disclosure).getByText(actual)).toBeTruthy();
+    expect(within(disclosure).getByText("Unknown")).toBeTruthy();
   });
   it("keeps Details open when a new observation page replaces the loading context, then resets it for fresh SSR", async () => {
     const firstRow: ProviderUsageReport["rows"][number] = {
@@ -522,5 +553,232 @@ describe("provider usage interactive report", () => {
         false,
       ),
     );
+  });
+  it("synchronizes one cost currency across KPI, bases, models, runs and Details without fetching or changing counts", async () => {
+    const usdCosts: ProviderUsageReport["totals"]["costs"] = [
+      { currency: "USD", basis: "estimated", amount: "0.5" },
+      { currency: "USD", basis: "source_reported", amount: "0.2" },
+    ];
+    const eurCosts: ProviderUsageReport["totals"]["costs"] = [
+      { currency: "EUR", basis: "source_reported", amount: "0.4" },
+    ];
+    const usdTotals = { ...totals, costs: usdCosts };
+    const eurTotals = { ...totals, costs: eurCosts };
+    const mixedTotals = { ...totals, costs: [...usdCosts, ...eurCosts] };
+    const raw: ProviderUsageReport["rows"][number] = {
+      id: "usd",
+      provider: "codex",
+      model: "alpha",
+      day: "2026-10-20",
+      route: "direct",
+      purpose: "review",
+      runId: "run",
+      granularity: "call",
+      total: 10,
+      completeness: "complete",
+      cost: usdCosts[0]!,
+      authority: "runtime",
+      durationMs: null,
+      ttftMs: null,
+    };
+    const seed: ProviderUsageReport = {
+      ...report,
+      totals: mixedTotals,
+      rows: [raw, { ...raw, id: "eur", cost: eurCosts[0]! }],
+      overview: {
+        ...report.overview,
+        models: [
+          { ...model, totals: usdTotals },
+          { ...model, requestedModel: "eur-model", totals: eurTotals },
+        ],
+        daily: [{ day: "2026-10-20", provider: "codex", totals: mixedTotals }],
+        runs: report.overview.runs.map((run) => ({
+          ...run,
+          totals: mixedTotals,
+        })),
+        topModels: {
+          ...report.overview.topModels,
+          costs: [...usdCosts, ...eurCosts].map((cost) => ({
+            currency: cost.currency,
+            basis: cost.basis,
+            models: [{ ...model, totals: mixedTotals }],
+          })),
+        },
+      },
+    };
+    render(<Harness seed={seed} />);
+    const kpi = () =>
+      within(screen.getByLabelText("Period usage summary")).getByText(
+        "Known cost",
+        { selector: "dt" },
+      ).parentElement!;
+    const table = (name: string) =>
+      screen.getByRole("table", { name }).textContent!;
+    expect(
+      (screen.getByLabelText("Cost currency") as HTMLSelectElement).value,
+    ).toBe("USD");
+    expect(kpi().textContent).toContain("0.5 USD");
+    expect(kpi().textContent).toContain("0.2 USD");
+    expect(kpi().textContent).not.toContain("EUR");
+    expect(table("Requested model usage")).toContain("No USD amount");
+    fireEvent.click(screen.getByLabelText("Details"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Details").closest("details")!.open).toBe(
+        true,
+      ),
+    );
+    expect(table("Daily usage data")).toContain("0.5 USD Estimated");
+    expect(table("Daily usage data")).toContain("0.2 USD Reported");
+    fireEvent.click(screen.getByRole("button", { name: "Cost" }));
+    expect(
+      within(screen.getByLabelText("Cost basis"))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Estimated", "Reported"]);
+    change("Cost basis", JSON.stringify(["USD", "source_reported"]));
+    expect(table("Daily usage data")).toContain("0.2 USD Reported");
+    expect(table("Daily usage data")).not.toContain("0.5 USD");
+    expect(table("Usage observations")).toContain("No USD amount");
+    expect(table("Usage observations")).not.toContain("0.4 EUR");
+    change("Cost currency", "EUR");
+    expect(kpi().textContent).toContain("0.4 EUR");
+    expect(kpi().textContent).not.toContain("USD");
+    expect(screen.queryByLabelText("Cost basis")).toBeNull();
+    expect(table("Requested model usage")).toContain("No EUR amount");
+    expect(table("Requested model usage")).not.toContain("0.5 USD");
+    expect(table("Daily usage data")).toContain("0.4 EUR Reported");
+    expect(table("Daily usage data")).not.toContain("USD");
+    expect(table("Usage observations")).toContain("No EUR amount");
+    expect(table("Usage observations")).not.toContain("0.5 USD");
+    fireEvent.click(screen.getByRole("tab", { name: "Runs" }));
+    expect(table("Review run usage")).toContain("0.4 EUR Reported");
+    expect(table("Review run usage")).not.toContain("USD");
+    expect(screen.getByRole("definition", { name: "1,000" })).toBeTruthy();
+    expect(screen.getByRole("definition", { name: "101" })).toBeTruthy();
+    expect(fetchProviderUsage).not.toHaveBeenCalled();
+  });
+  it("preserves valid currency and basis across refetches, falling back when the currency disappears", async () => {
+    const seed: ProviderUsageReport = {
+      ...report,
+      totals: {
+        ...totals,
+        costs: [
+          ...totals.costs,
+          { currency: "EUR", basis: "estimated", amount: "0.1" },
+        ],
+      },
+    };
+    vi.mocked(fetchProviderUsage).mockResolvedValue(seed);
+    render(<Harness seed={seed} />);
+    change("Cost currency", "EUR");
+    fireEvent.click(screen.getByRole("button", { name: "Cost" }));
+    change("Cost basis", JSON.stringify(["EUR", "source_reported"]));
+    change("Route", "gateway");
+    await waitFor(() => expect(fetchProviderUsage).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Cost currency") as HTMLSelectElement).value,
+      ).toBe("EUR"),
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Cost basis") as HTMLSelectElement).value,
+      ).toBe(JSON.stringify(["EUR", "source_reported"])),
+    );
+    const gbpReport = {
+      ...report,
+      totals: {
+        ...totals,
+        costs: [
+          { currency: "GBP", basis: "estimated" as const, amount: "0.9" },
+          { currency: "CAD", basis: "estimated" as const, amount: "0.8" },
+        ],
+      },
+    };
+    vi.mocked(fetchProviderUsage).mockResolvedValue(gbpReport);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Cost currency") as HTMLSelectElement).value,
+      ).toBe("CAD"),
+    );
+    expect(screen.getByTitle("0.8 CAD (estimated)")).toBeTruthy();
+    expect(
+      within(screen.getByLabelText("Period usage summary")).queryByTitle(
+        "0.4 EUR (source reported)",
+      ),
+    ).toBeNull();
+  });
+  it("keeps run summary metrics in the flat row and exposes the full copyable run identity", async () => {
+    const runId = "rr-test-run/" + "long-identity-".repeat(5);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    render(
+      <RunUsageTable
+        report={{
+          ...report,
+          overview: {
+            ...report.overview,
+            runs: [{ ...report.overview.runs[0]!, runId }],
+          },
+        }}
+        selectedCurrency="USD"
+        onNext={() => {}}
+      />,
+    );
+    const summary = screen.getByRole("region", { name: "Run usage summaries" });
+    const row = within(summary).getByRole("listitem");
+    expect(
+      within(row).getByText("Requests").nextElementSibling?.textContent,
+    ).toBe("101");
+    expect(
+      within(row).getByText("Known tokens").nextElementSibling?.textContent,
+    ).toContain("1,000");
+    expect(
+      within(row).getByText("Known cost").nextElementSibling?.textContent,
+    ).toContain("0.500000000001 USD Estimated");
+    expect(row.querySelector("p")?.textContent).toContain("…");
+    const details = within(row).getByText("Run details").closest("details")!;
+    fireEvent.click(within(row).getByText("Run details"));
+    expect(details.open).toBe(true);
+    expect(within(details).getByText(runId, { selector: "code" })).toBeTruthy();
+    fireEvent.click(
+      within(details).getByRole("button", { name: "Copy run ID" }),
+    );
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(runId));
+    expect(within(details).getByRole("status").textContent).toBe(
+      "Run ID copied",
+    );
+  });
+  it("collapses charts and uses honest freshness text when the interval has no observations", () => {
+    render(
+      <Harness
+        seed={{
+          ...report,
+          asOf: null,
+          rows: [],
+          overview: {
+            ...report.overview,
+            daily: [],
+            models: [],
+            runs: [],
+            topModels: { tokens: [], requests: [], costs: [] },
+          },
+          totals: {
+            ...totals,
+            tokens: { ...totals.tokens, total: null },
+            providerAttempts: 0,
+            logicalRuns: 0,
+            costs: [],
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText("Freshness unavailable")).toBeTruthy();
+    expect(screen.queryByLabelText("Daily usage chart")).toBeNull();
+    expect(screen.queryByLabelText("Requested provider legend")).toBeNull();
+    expect(
+      screen.getByText(/No measured observations for this interval/),
+    ).toBeTruthy();
   });
 });
