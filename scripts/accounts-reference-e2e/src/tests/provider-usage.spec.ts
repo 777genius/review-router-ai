@@ -322,6 +322,20 @@ test("provider usage overview keeps complete period totals, charts, models and r
         fullPage: true,
       });
     }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByRole("button", { name: "Dark theme", exact: true }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await page.screenshot({
+      path: info.outputPath("usage-tokens-light-desktop.png"),
+      fullPage: true,
+    });
+    await page
+      .getByRole("button", { name: "Light theme", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Use system theme", exact: true })
+      .click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     const zoomContext = await browser.newContext({
       viewport: { width: 640, height: 400 },
       deviceScaleFactor: 2,

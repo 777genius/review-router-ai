@@ -20,7 +20,6 @@ import {
   costLabel,
   count,
   customInterval,
-  requestedModelLabel,
   rollingInterval,
   type UsageMetric,
 } from "./provider-usage-format";
